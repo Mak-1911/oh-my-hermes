@@ -21,7 +21,18 @@ DISPATCH_CLAIM_BOUNDARY = (
 # unassigned) gets a prepared-prompt fallback and is never spawned.
 DISPATCH_COMMAND_TEMPLATES: dict[str, tuple[str, ...]] = {
     "codex": ("codex", "exec", "{prompt}"),
-    "claude-code": ("claude", "-p", "{prompt}", "--permission-mode", "acceptEdits"),
+    # acceptEdits alone lets Claude edit files but blocks the `git add/commit`
+    # the unit prompt asks for (observed in the first live dispatch);
+    # allowedTools grants exactly those two git verbs, nothing broader.
+    "claude-code": (
+        "claude",
+        "-p",
+        "{prompt}",
+        "--permission-mode",
+        "acceptEdits",
+        "--allowedTools",
+        "Bash(git add:*),Bash(git commit:*)",
+    ),
 }
 
 

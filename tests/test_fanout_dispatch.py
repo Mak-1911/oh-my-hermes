@@ -241,7 +241,10 @@ class FanoutDispatchEngineTests(unittest.TestCase):
             self.assertIn(("codex", "exec"), heads)
             claude_argv = next(argv for argv in runner.spawned if argv[0] == "claude")
             self.assertEqual(claude_argv[1], "-p")
-            self.assertEqual(claude_argv[3:], ["--permission-mode", "acceptEdits"])
+            self.assertEqual(
+                claude_argv[3:],
+                ["--permission-mode", "acceptEdits", "--allowedTools", "Bash(git add:*),Bash(git commit:*)"],
+            )
             self.assertIn("Work unit:", claude_argv[2])
 
     def test_missing_cli_maps_to_exit_127(self) -> None:
