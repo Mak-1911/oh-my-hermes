@@ -54,12 +54,14 @@ goal to Hermes in chat; these commands are the backend surface.
   `run_ref` run, then re-run `dispatch --unit <dependent>`; completed units
   satisfy dependencies even when not re-selected. Blocked entries carry a
   `blocked_on` list naming the offending units.
-- **First-use validation note.** `codex exec` has in-repo precedent; the
-  `claude -p ... --permission-mode acceptEdits` template does not — validate
-  it interactively on first real use before relying on it in bulk fanouts.
-  Template drift in either CLI surfaces as a clean readiness or exit-code
-  failure recorded as observed evidence, and the fix is a one-line data edit
-  in `DISPATCH_COMMAND_TEMPLATES`.
+- **First-use validation note.** `codex exec` has in-repo precedent. The
+  claude template was validated in a live dispatch (2026-07): `acceptEdits`
+  alone let the agent create files but blocked the requested `git commit`,
+  so the template additionally grants `--allowedTools
+  "Bash(git add:*),Bash(git commit:*)"` — exactly those two git verbs,
+  nothing broader. Template drift in either CLI surfaces as a clean
+  readiness or exit-code failure recorded as observed evidence, and the fix
+  is a one-line data edit in `DISPATCH_COMMAND_TEMPLATES`.
 - **Resume.** Re-running dispatch skips units whose runs already carry an
   observed successful result. `--unit <id>` selects subsets.
 - **Never**: auto-merge, default-on execution, network calls by omh itself,
