@@ -7,6 +7,7 @@ from typing import Mapping
 from ..ingress import CHAT_SOURCES
 from ..plugin_bundle.omh.awareness import awareness_route_hint
 from ..routing.action_copy import next_action_label
+from ..routing.coding_route_actions import CODING_ROUTE_LANE_NEXT_ACTION, CODING_ROUTE_NEXT_ACTIONS
 from ..wrapper.contract import build_chat_interaction_payload
 from .chat_card_coverage import CHAT_CARD_COVERAGE_CASES
 from .grounded_score import GROUNDED_SCENARIOS
@@ -653,6 +654,7 @@ def build_route_hint_alignment_demo(
         "check_basis": [
             "The chat router selects the expected workflow for each representative operator message.",
             "The chat router and plugin awareness hint agree on the expected next user-facing action.",
+            "Coding-delivery hints report the shared one-cycle lane action plus one of the four coding-owner states.",
             "The plugin awareness route hint returns a primary workflow instead of no_hint.",
             "The primary hint workflow matches the chat router and the expected public workflow.",
             "The hint carries a workflow context card and advisory-only claim boundary.",
@@ -736,6 +738,7 @@ def _evaluate_alignment_case(
         }
     hint = awareness_route_hint(case.message)
     hint_context_card = _nested(_first_dict(hint.get("hints")), "workflow_context_card")
+    hint_decision = _nested(hint, "primary_coding_route_decision")
     observed = {
         "route_workflow": route_observation.get("route_workflow"),
         "route_action": route_observation.get("route_action"),
@@ -744,9 +747,14 @@ def _evaluate_alignment_case(
         "hint_status": hint.get("status"),
         "hint_workflow": hint.get("primary_workflow"),
         "hint_next_action": hint.get("primary_next_action"),
+        "hint_coding_route_action": str(hint_decision.get("next_action", "")),
         "hint_context_card": hint_context_card.get("id", ""),
         "hint_claim_boundary": hint.get("claim_boundary"),
     }
+    # A coding-delivery hint answers "which lane" while the wrapper answers "who owns the
+    # code", so the two next actions are not comparable. The lane action is pinned instead,
+    # and the coding-owner state is checked against the shared four-state vocabulary.
+    coding_delivery_lane = bool(hint_decision)
     issues: list[str] = []
     if observed["route_workflow"] != case.expected_workflow:
         issues.append(f"expected route workflow {case.expected_workflow}, observed {observed['route_workflow']}")
@@ -756,12 +764,24 @@ def _evaluate_alignment_case(
         issues.append("missing awareness route hint")
     if observed["hint_workflow"] != case.expected_workflow:
         issues.append(f"expected hint workflow {case.expected_workflow}, observed {observed['hint_workflow'] or 'none'}")
-    if observed["hint_next_action"] != case.expected_next_action:
-        issues.append(f"expected hint next action {case.expected_next_action}, observed {observed['hint_next_action'] or 'none'}")
+    if coding_delivery_lane:
+        if observed["hint_next_action"] != CODING_ROUTE_LANE_NEXT_ACTION:
+            issues.append(
+                f"expected coding-delivery lane action {CODING_ROUTE_LANE_NEXT_ACTION}, "
+                f"observed {observed['hint_next_action'] or 'none'}"
+            )
+        if observed["hint_coding_route_action"] not in CODING_ROUTE_NEXT_ACTIONS:
+            issues.append(
+                f"expected a coding route decision from {list(CODING_ROUTE_NEXT_ACTIONS)}, "
+                f"observed {observed['hint_coding_route_action'] or 'none'}"
+            )
+    else:
+        if observed["hint_next_action"] != case.expected_next_action:
+            issues.append(f"expected hint next action {case.expected_next_action}, observed {observed['hint_next_action'] or 'none'}")
+        if observed["hint_next_action"] != observed["route_next_action"]:
+            issues.append(f"route/hint next-action mismatch: {observed['route_next_action']} != {observed['hint_next_action']}")
     if observed["hint_workflow"] != observed["route_workflow"]:
         issues.append(f"route/hint mismatch: {observed['route_workflow']} != {observed['hint_workflow']}")
-    if observed["hint_next_action"] != observed["route_next_action"]:
-        issues.append(f"route/hint next-action mismatch: {observed['route_next_action']} != {observed['hint_next_action']}")
     if not observed["hint_context_card"]:
         issues.append("missing hint workflow context card")
     if "not workflow execution" not in str(observed["hint_claim_boundary"] or ""):

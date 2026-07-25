@@ -49,6 +49,44 @@ Claude Code prompt handoff, or Hermes runtime handoff path. In every case the
 status card remains prepared-only until separate dispatch or runtime evidence
 is observed.
 
+## Coding Route Decisions
+
+Setup does not ask who owns coding work; it records `choose` so Hermes resolves
+the owner at the first coding request. Two surfaces report that resolution with
+the same vocabulary:
+
+- `awareness_route_hint(...)["primary_coding_route_decision"]`, mirrored on each
+  coding-delivery hint as `hints[].coding_route_decision`.
+- `omh chat interact ...` -> `coding_route_decision`, mirrored on
+  `delegation.coding_route_decision`.
+
+Direct `ultraprocess`, broad coding delivery, and test-until-pass requests all
+report the same lane action, `prepare_one_cycle_delivery`. The lane action says
+which lane to prepare; it deliberately says nothing about who owns the code.
+Ownership is the separate `coding_route_decision.next_action`, which is always
+one of four states:
+
+| `next_action` | `source` | Meaning |
+| --- | --- | --- |
+| `prepare_named_executor_handoff` | `request_named_executor` | The request (or an explicit `--executor` target) named the coding agent. |
+| `prepare_recorded_owner_handoff` | `recorded_setup_preference` | A persisted setup profile already names the owner. |
+| `prepare_compatible_route_handoff` | `request_capability_match` | The request named the owner *shape* it needs, so a compatible route family was matched. |
+| `choose_executor` | `user_choice_required` | Nothing resolves the owner safely, so the user picks. |
+
+Every decision carries `source`, `reason`, `confidence`
+(`high`/`medium`/`low`), `choice_required`, and `matched_cues`. A
+`prepare_compatible_route_handoff` decision reports
+`selected_route_family` (`prompt_only_handoff` or `runtime_handoff`) rather than
+a vendor, so no single coding agent becomes an implicit default.
+
+`choose_executor` is retained on purpose. The decision falls back to it whenever
+the request names more than one coding agent, asks for more than one route
+family, or reaches for merge, release, production, or credential authority.
+
+A coding route decision is prepared guidance about ownership. It is not executor
+dispatch, implementation, review, CI, merge-readiness, or merge evidence, and
+its `claim_boundary` field repeats that on every payload.
+
 ## Messenger-Native OMH Entry
 
 For platforms that support registered commands or bot menus, wrappers can load

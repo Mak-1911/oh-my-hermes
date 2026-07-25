@@ -470,10 +470,12 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 "start_loop_cycle",
                 None,
             ),
+            # Direct ultraprocess reports the coding-delivery lane action; the coding owner
+            # is a separate machine-readable decision instead of an ambiguous picker label.
             (
                 "Use OMH ultraprocess for: improve README and open PR",
                 "ultraprocess",
-                "choose_executor",
+                "prepare_one_cycle_delivery",
                 None,
             ),
         )

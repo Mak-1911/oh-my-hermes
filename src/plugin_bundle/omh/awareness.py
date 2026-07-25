@@ -185,6 +185,21 @@ except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
     )
 
 try:
+    from ...routing.coding_route_actions import (
+        CODING_ROUTE_LANE_NEXT_ACTION as _CODING_ROUTE_LANE_NEXT_ACTION,
+        coding_route_decision_payload as _coding_route_decision_payload,
+        resolve_coding_route_decision as _resolve_coding_route_decision,
+        user_choice_coding_route_decision as _user_choice_coding_route_decision,
+    )
+except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
+    # Standalone hosts keep the lane action but degrade to the retained user-choice
+    # fallback: without the resolver the safe answer is "ask the user", never "assume".
+    _CODING_ROUTE_LANE_NEXT_ACTION = "prepare_one_cycle_delivery"
+    _coding_route_decision_payload = None
+    _resolve_coding_route_decision = None
+    _user_choice_coding_route_decision = None
+
+try:
     from ...routing.materials_cues import OFFICE_FILE_MATERIAL_PHRASES as _OFFICE_FILE_MATERIAL_PHRASES
 except ImportError:
     _OFFICE_FILE_MATERIAL_PHRASES = (
@@ -4197,8 +4212,8 @@ _ROUTE_HINT_RULES = (
         "id": "test_until_pass_delivery",
         "workflow": "ultraprocess",
         "lane": "coding_handoff",
-        "next_action": "choose_executor",
-        "reason": "The user gave a coding task with tests as the stop signal, so Hermes should choose the coding owner for one bounded delivery cycle.",
+        "next_action": "prepare_one_cycle_delivery",
+        "reason": "The user gave a coding task with tests as the stop signal, so Hermes should prepare one bounded delivery cycle and resolve the coding owner from the request.",
         "fallback_action": "choose_coding_agent_or_runtime",
         "phrases": (
             "fix until tests pass",
@@ -4359,6 +4374,17 @@ def _copy_awareness_route_hint_payload(payload: dict[str, object]) -> dict[str, 
             list(stored_fields) if isinstance(stored_fields, list | tuple) else []
         )
         copied["privacy"] = copied_privacy
+
+    decision = payload.get("primary_coding_route_decision")
+    if isinstance(decision, dict):
+        copied["primary_coding_route_decision"] = _copy_coding_route_decision(decision)
+    return copied
+
+
+def _copy_coding_route_decision(decision: dict[str, object]) -> dict[str, object]:
+    copied = dict(decision)
+    cues = decision.get("matched_cues", [])
+    copied["matched_cues"] = list(cues) if isinstance(cues, list | tuple) else []
     return copied
 
 
@@ -4367,6 +4393,9 @@ def _copy_route_hint_item(hint: dict[str, object]) -> dict[str, object]:
     for key in ("matched_cues", "adjacent_workflows", "not_evidence_yet"):
         values = hint.get(key, [])
         copied[key] = list(values) if isinstance(values, list | tuple) else []
+    decision = hint.get("coding_route_decision")
+    if isinstance(decision, dict):
+        copied["coding_route_decision"] = _copy_coding_route_decision(decision)
     context_card = hint.get("workflow_context_card")
     copied["workflow_context_card"] = (
         _copy_workflow_context_card(context_card) if isinstance(context_card, dict) else context_card
@@ -4515,9 +4544,11 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
             )
             if len(hints) >= hint_limit:
                 break
+    hints = [_route_hint_with_coding_route_decision(hint, routing_normalized) for hint in hints]
     hints = [_route_hint_with_action_labels(hint) for hint in hints]
     primary_workflow = str(hints[0]["workflow"]) if hints else ""
     primary_next_action = str(hints[0]["next_action"]) if hints else ""
+    primary_coding_route_decision = hints[0].get("coding_route_decision") if hints else None
     adjacent_workflows = _unique_strings(
         str(item)
         for hint in hints
@@ -4538,6 +4569,7 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
         "primary_workflow": primary_workflow,
         "primary_next_action": primary_next_action,
         "primary_next_action_label": _next_action_label(primary_next_action) if primary_next_action else "",
+        "primary_coding_route_decision": primary_coding_route_decision,
         "hints": hints,
         "privacy": {
             "mode": "metadata_only",
@@ -4547,6 +4579,45 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
         "claim_boundary": (
             "OMH route hints are local deterministic prompt context only. They are not workflow execution, "
             "tool invocation, generated output, verification, review, CI, merge, or proof that routing was correct."
+        ),
+    }
+
+
+def _route_hint_with_coding_route_decision(hint: dict[str, object], routing_normalized: str) -> dict[str, object]:
+    """Attach the shared coding-owner decision to every coding-delivery route hint.
+
+    Direct `ultraprocess`, broad `coding_delivery`, and `test_until_pass_delivery` all
+    report the same lane action, so they all resolve the coding owner the same way. The
+    decision is prepared guidance about who should own the code; it is never dispatch.
+    """
+    if str(hint.get("next_action") or "") != _CODING_ROUTE_LANE_NEXT_ACTION:
+        return hint
+    copied = dict(hint)
+    if _resolve_coding_route_decision is None or _coding_route_decision_payload is None:
+        copied["coding_route_decision"] = _standalone_user_choice_decision_payload()
+        return copied
+    copied["coding_route_decision"] = _coding_route_decision_payload(
+        _resolve_coding_route_decision(routing_normalized)
+    )
+    return copied
+
+
+def _standalone_user_choice_decision_payload() -> dict[str, object]:  # pragma: no cover - standalone hosts only.
+    return {
+        "schema_version": "coding_route_decision/v1",
+        "next_action": "choose_executor",
+        "source": "user_choice_required",
+        "reason": "This host cannot resolve the coding owner locally, so the user picks.",
+        "confidence": "low",
+        "choice_required": True,
+        "selected_owner": "",
+        "selected_route_family": "",
+        "matched_cues": [],
+        "lane_next_action": _CODING_ROUTE_LANE_NEXT_ACTION,
+        "user_choice_next_action": "choose_executor",
+        "claim_boundary": (
+            "A coding route decision selects a prepared handoff shape only. It is not executor dispatch, "
+            "implementation, review, CI, merge-readiness, or merge evidence."
         ),
     }
 
@@ -5164,7 +5235,7 @@ _DIRECT_WORKFLOW_NEXT_ACTIONS = {
     "ralplan": "present_plan",
     "ultragoal": "start_goal",
     "loop": "start_loop_cycle",
-    "ultraprocess": "choose_executor",
+    "ultraprocess": _CODING_ROUTE_LANE_NEXT_ACTION,
     "workflow-learning": "audit_learning_readiness",
     "data-analysis": "prepare_data_analysis_card",
     "command-operator": "prepare_command_operator_card",
