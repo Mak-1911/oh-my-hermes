@@ -11,6 +11,8 @@ from ..coding.agentic_playbook_contract import chat_response_with_agentic_playbo
 from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_text, extract_source_metadata
 from ..routing.catalog_questions import is_skill_catalog_question as _is_skill_catalog_question
 from ..routing.chat import public_chat_route_payload, route_explanation_payload
+from ..routing.coding_route_actions import coding_route_decision_payload, resolve_coding_route_decision
+from ..routing.localization import normalized_phrase
 from ..routing.missed_route import is_missed_route_feedback
 from ..routing.omh_help import (
     is_omh_intro_question as _is_omh_intro_question,
@@ -3455,8 +3457,11 @@ def _build_chat_interaction_payload_uncached(
             capability_snapshot_directory=(paths.omh_home / "coding" / "executor-capability-snapshots") if paths else None,
         )
         delegation["executor_resolution"] = executor_resolution
+        coding_route_decision = _coding_route_decision_for_delegation(message, executor_resolution)
+        delegation["coding_route_decision"] = coding_route_decision
         base["delegation"] = delegation
         base["executor_resolution"] = executor_resolution
+        base["coding_route_decision"] = coding_route_decision
         agentic_playbook = delegation.get("agentic_playbook")
         if isinstance(agentic_playbook, dict):
             base["agentic_playbook"] = agentic_playbook
@@ -3624,14 +3629,36 @@ def _attach_coding_owner_handoff(
         "coding_status_request": _route_is_coding_status_request(route_payload),
         "claim_boundary": "Route context explains why the wrapper shaped this handoff; it is not dispatch or runtime evidence.",
     }
+    coding_route_decision = _coding_route_decision_for_delegation(message, executor_resolution)
+    delegation["coding_route_decision"] = coding_route_decision
     agentic_playbook = delegation.get("agentic_playbook")
     if isinstance(agentic_playbook, dict):
         base["agentic_playbook"] = agentic_playbook
     base["delegation"] = delegation
     base["executor_resolution"] = executor_resolution
+    base["coding_route_decision"] = coding_route_decision
     base["next_action"] = _delegation_next_action(delegation)
     base["chat_response"] = build_chat_response_from_delegation(delegation, thread_key=str(base["thread_key"]))
     return base
+
+
+def _coding_route_decision_for_delegation(
+    message: str,
+    executor_resolution: dict[str, object],
+) -> dict[str, object]:
+    """Return the same four-state coding-owner decision the plugin route hints report.
+
+    `next_action` on this payload stays the wrapper's handoff action. The decision answers
+    the separate question of *who* owns the code, so `choose_executor` no longer has to
+    mean both "Hermes resolved a compatible route" and "the user must pick".
+    """
+    return coding_route_decision_payload(
+        resolve_coding_route_decision(
+            normalized_phrase(message),
+            requested_owner=str(executor_resolution.get("requested_executor_target", "") or ""),
+            recorded_owner=str(executor_resolution.get("default_executor", "") or ""),
+        )
+    )
 
 
 def _delegation_next_action(delegation: dict[str, object]) -> str:
