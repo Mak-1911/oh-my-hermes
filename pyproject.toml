@@ -100,11 +100,20 @@ lint = [
 # style-driven ruleset would demand a repo-wide reformat out of scope for a
 # baseline gate. Broaden the ruleset in follow-up work, not this issue.
 #
-# BLE001 (flake8-blind-except: bare `except Exception`) was evaluated and
-# found 13 hits. It is deliberately NOT selected here: broad-exception
-# handling is a real, tracked defect class (see issue #637) but fixing it is
-# out of scope for this gate. Recorded here so the omission reads as a
-# decision, not an oversight.
+# BLE001 (flake8-blind-except: bare `except Exception`) is deliberately NOT
+# selected here. Re-derive the current sites at any time with:
+#
+#     uv run --group lint ruff check --select BLE001 src
+#
+# A broad `except` is not itself the defect. Around a delegated call it is
+# acceptable when the failure is classified and surfaced, and it is a defect
+# when the failure is relabeled as a normal result — the mislabeling PR #641
+# (issue #637) removed from the `omh_context` and `omh_recommend` plugin
+# tools, which still catch broadly on purpose. Every current site carries that
+# verdict in `tests/test_broad_exception_policy.py`, which re-derives the site
+# list from source and fails when an unclassified one appears, so turning the
+# rule on later is bounded work rather than an open-ended audit. Policy owner:
+# issue #652.
 [tool.ruff]
 target-version = "py311"
 
