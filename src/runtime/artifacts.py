@@ -10,6 +10,12 @@ from typing import Any
 
 from ..context_safety import build_coding_progress_reporting_policy
 from ..executor_progress import validate_progress_binding, validate_progress_event, validate_progress_report
+from ..executors import (
+    CODING_EXECUTOR_HANDOFF_TARGETS,
+    CODING_RUNTIME_HANDOFF_TARGETS,
+    EXECUTOR_HANDOFF_SCHEMA_VERSION,
+    PROMPT_ONLY_EXECUTOR_PROFILES,
+)
 from ..harness_quality import build_harness_progress
 from ..local_store import (
     atomic_write_json,
@@ -67,6 +73,15 @@ from .records import (
     validate_runtime_observation_record,
     validate_wrapper_record,
     validate_wrapper_session_record,
+)
+
+
+PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX = (
+    "prepared_coding_delegation runs are run-backed only for work_owner_mode=external_executor with "
+    f"selected_executor_profile in ({', '.join(CODING_EXECUTOR_HANDOFF_TARGETS)}) and a "
+    f"{EXECUTOR_HANDOFF_SCHEMA_VERSION} executor_handoff; prompt-only profiles "
+    f"({', '.join(PROMPT_ONLY_EXECUTOR_PROFILES)}) and runtime profiles "
+    f"({', '.join(CODING_RUNTIME_HANDOFF_TARGETS)}) are prepared in wrapper session state without a runtime run"
 )
 
 
@@ -1491,6 +1506,20 @@ def _delegated_status_integrity_warnings(
     return warnings
 
 
+def _prepared_runtime_run_executor_rejection(coding: dict[str, Any]) -> str:
+    work_owner_mode = coding.get("work_owner_mode")
+    selected = coding.get("selected_executor_profile")
+    if work_owner_mode != "external_executor":
+        reason = f"work_owner_mode {work_owner_mode!r} is not external_executor"
+    elif selected not in CODING_EXECUTOR_HANDOFF_TARGETS:
+        reason = f"selected_executor_profile {selected!r} has no run-backed executor handoff lifecycle"
+    elif not isinstance(coding.get("executor_handoff"), dict):
+        reason = f"executor_handoff is missing for selected_executor_profile {selected!r}"
+    else:
+        return ""
+    return f"prepared runtime run rejected because {reason}; {PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX}"
+
+
 def validate_run_dir(run_dir: Path) -> dict[str, Any]:
     errors: list[str] = []
     coding_for_observation: dict[str, Any] | None = None
@@ -1518,17 +1547,23 @@ def validate_run_dir(run_dir: Path) -> dict[str, Any]:
                 selection = coding.get("executor_selection")
                 choice_required = isinstance(selection, dict) and selection.get("choice_required") is True
                 if choice_required:
-                    errors.append(f"{coding_delegation_path}: executor choice must not be stored as a prepared runtime run")
+                    errors.append(
+                        f"{coding_delegation_path}: executor choice must not be stored as a prepared runtime run; "
+                        f"{PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX}"
+                    )
                 if coding.get("work_owner_mode") == "prompt_only_handoff":
-                    errors.append(f"{coding_delegation_path}: prompt-only handoff must not be stored as a prepared runtime run")
+                    errors.append(
+                        f"{coding_delegation_path}: prompt-only handoff must not be stored as a prepared runtime run; "
+                        f"{PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX}"
+                    )
                 if coding.get("work_owner_mode") == "runtime_handoff":
-                    errors.append(f"{coding_delegation_path}: runtime handoff must not be stored as a prepared runtime run")
-                if (
-                    coding.get("work_owner_mode") != "external_executor"
-                    or coding.get("selected_executor_profile") != "codex"
-                    or not isinstance(coding.get("executor_handoff"), dict)
-                ):
-                    errors.append(f"{coding_delegation_path}: prepared runtime run requires a Codex executor_handoff")
+                    errors.append(
+                        f"{coding_delegation_path}: runtime handoff must not be stored as a prepared runtime run; "
+                        f"{PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX}"
+                    )
+                rejection = _prepared_runtime_run_executor_rejection(coding)
+                if rejection:
+                    errors.append(f"{coding_delegation_path}: {rejection}")
     events_path = run_dir / "events.jsonl"
     if events_path.exists():
         events, event_errors = read_jsonl_objects(events_path)
@@ -1888,8 +1923,17 @@ def _validate_wrapper_session_run_link(session_dir: Path, session: dict[str, Any
     else:
         errors.extend(f"{coding_path}: {error}" for error in validate_coding_delegation_record(coding))
         handoff = coding.get("executor_handoff") if isinstance(coding, dict) else None
-        if not isinstance(handoff, dict) or handoff.get("executor_target") != "codex":
-            errors.append(f"{session_path}: linked run must include a Codex executor handoff")
+        if not isinstance(handoff, dict):
+            errors.append(
+                f"{session_path}: linked run must include an executor_handoff for a run-backed executor profile; "
+                f"{PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX}"
+            )
+        elif handoff.get("executor_target") not in CODING_EXECUTOR_HANDOFF_TARGETS:
+            errors.append(
+                f"{session_path}: linked run executor_handoff.executor_target "
+                f"{handoff.get('executor_target')!r} has no run-backed executor handoff lifecycle; "
+                f"{PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX}"
+            )
         if isinstance(coding, dict) and coding.get("status") != "prepared_not_observed":
             errors.append(f"{session_path}: linked coding delegation must be prepared_not_observed")
     has_link_event = any(
