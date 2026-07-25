@@ -107,6 +107,31 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+def _child_files(directory: Path, *relative: str) -> list[Path]:
+    """Return every existing `directory/<child>/*relative` file.
+
+    `Path.glob` is tolerant by design: it swallows the `OSError` `os.scandir`
+    raises on an unreadable directory and yields nothing, so a directory the
+    process cannot read produces the same empty result as one that is
+    genuinely empty. That is the failure-relabeled-as-a-normal-result shape
+    `tests/test_broad_exception_policy.py` exists to keep out, so this reads
+    the directory with an API that propagates instead.
+
+    A directory that was never created is the routine case and really is
+    empty, so `FileNotFoundError` and `NotADirectoryError` return `[]`. Any
+    other `OSError` is a real fault and is left to reach the caller that
+    classifies it, which records a `runtime_status_read` degradation rather
+    than reporting a host with nothing to report.
+    """
+    try:
+        with os.scandir(directory) as entries:
+            names = [entry.name for entry in entries]
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+    candidates = [directory.joinpath(name, *relative) for name in names]
+    return [candidate for candidate in candidates if candidate.is_file()]
+
+
 def _bool_from_record(record: dict[str, Any], key: str = "observed") -> bool:
     return bool(record.get(key, False)) if record else False
 
@@ -767,9 +792,8 @@ def read_omh_status(omh_home: str | Path | None = None, limit: int = 5) -> dict[
     runs_dir = runtime_dir / "runs"
     state = _read_json(runtime_dir / "state.json")
     runs: list[dict[str, Any]] = []
-    if runs_dir.exists():
-        for run_json in sorted(runs_dir.glob("*/run.json"), reverse=True)[:safe_limit]:
-            runs.append(_summarize_run(run_json.parent))
+    for run_json in sorted(_child_files(runs_dir, "run.json"), reverse=True)[:safe_limit]:
+        runs.append(_summarize_run(run_json.parent))
     progress = _executor_progress_projection(runtime_dir, limit=max(safe_limit * 10, safe_limit))
     return {
         "schema_version": STATUS_SCHEMA_VERSION,
@@ -839,9 +863,7 @@ def _progress_bindings(runtime_dir: Path, *, limit: int) -> list[dict[str, Any]]
         (runtime_dir / "wrapper_sessions", "wrapper_session"),
     )
     for root, target_type in roots:
-        if not root.exists():
-            continue
-        for binding_path in sorted(root.glob("*/executor_progress/binding.json"), reverse=True):
+        for binding_path in sorted(_child_files(root, "executor_progress", "binding.json"), reverse=True):
             binding = _read_json(binding_path)
             if not _valid_progress_binding(binding, target_type):
                 continue
