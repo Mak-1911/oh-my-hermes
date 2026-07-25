@@ -117,6 +117,71 @@ class MenubarStatusTests(unittest.TestCase):
             self.assertEqual(current["row_id"], executors[0]["id"])
             self.assertEqual(current["run_id"], executors[0]["evidence"]["run_id"])
 
+    def test_menubar_status_no_run_state_is_executor_neutral(self) -> None:
+        # Safety-first setup deliberately records "choose" (no upfront
+        # coding-owner question). The no-run status must be led by Hermes/OMH
+        # readiness and the next request route, not by an idle coding agent
+        # named "choose"/"ask". See docs/INSTALLATION.md "Status model:
+        # no-run, prepared-handoff, observed-run".
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "setup"])[0], 0)
+
+            status, stdout, stderr = run_cli(
+                ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "menubar", "status"]
+            )
+
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["settings"]["coding_handoff"]["label"], "Coding agent: Not selected")
+            self.assertEqual(payload["settings"]["coding_handoff"]["source"], "none")
+            self.assertFalse(payload["current_external_coding_executor"]["selected"])
+            self.assertEqual(payload["display"]["summary_line"], "1 Hermes target(s) · ready for the next request")
+            coding_card = next(card for card in payload["display"]["menu_cards"] if card["title"] == "Coding Agent")
+            rows = {row["label"]: row for row in coding_card["rows"]}
+            self.assertEqual(rows["Agent"]["value"], "Not selected")
+            self.assertEqual(rows["Status"]["value"], "ready")
+            self.assertIn("Hermes routes the next request", rows["Status"]["detail"])
+
+    def test_menubar_status_shows_recorded_preference_without_a_run(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            self.assertEqual(
+                run_cli(
+                    [
+                        "--omh-home",
+                        str(omh_home),
+                        "--hermes-home",
+                        str(hermes_home),
+                        "setup",
+                        "--default-executor",
+                        "codex",
+                    ]
+                )[0],
+                0,
+            )
+
+            status, stdout, stderr = run_cli(
+                ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "menubar", "status"]
+            )
+
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["settings"]["coding_handoff"]["label"], "Coding agent: Codex")
+            self.assertEqual(payload["settings"]["coding_handoff"]["source"], "user_preference")
+            self.assertFalse(payload["current_external_coding_executor"]["selected"])
+            coding_card = next(card for card in payload["display"]["menu_cards"] if card["title"] == "Coding Agent")
+            rows = {row["label"]: row for row in coding_card["rows"]}
+            self.assertEqual(rows["Agent"]["value"], "Codex")
+            self.assertEqual(rows["Status"]["value"], "preferred")
+            self.assertIn("no request routed yet", rows["Status"]["detail"])
+
     def test_menubar_status_defaults_to_human_readable_output(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

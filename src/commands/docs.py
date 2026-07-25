@@ -7,6 +7,7 @@ from ..catalogs.roles import roles_reference_markdown
 from ..installer import OmhError
 from ..local_store import atomic_write_text
 from ..skill_pack import builtin_skill_reference_templates, builtin_skill_templates
+from ..skills.context_cost import skill_context_cost_markdown, skill_context_cost_payload
 from ..skills.render import workflow_reference_markdown, workflow_reference_payload
 from ..skills.validation import harness_inspection_payload, harness_summary_payload, validate_catalog_contract
 from .common import _print_json
@@ -83,6 +84,14 @@ def cmd_docs_capability_families(args: argparse.Namespace) -> int:
         return 0
     atomic_write_text(output, content)
     _print_json({"written": str(output)})
+    return 0
+
+
+def cmd_docs_skill_context_cost(args: argparse.Namespace) -> int:
+    if args.json:
+        _print_json(skill_context_cost_payload())
+        return 0
+    print(skill_context_cost_markdown().rstrip())
     return 0
 
 
@@ -163,6 +172,17 @@ def _add_docs_commands(sub) -> None:
     docs_capability_families.add_argument("--output", default=None)
     docs_capability_families.add_argument("--check", action="store_true")
     docs_capability_families.set_defaults(func=cmd_docs_capability_families)
+
+    docs_skill_context_cost = docs_sub.add_parser(
+        "skill-context-cost",
+        help="Report always-loaded skill-body size and cross-skill repetition for the core and full profiles.",
+    )
+    docs_skill_context_cost.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the machine-readable omh_skill_context_cost/v1 payload.",
+    )
+    docs_skill_context_cost.set_defaults(func=cmd_docs_skill_context_cost)
 
 
 def _add_harness_commands(sub) -> None:

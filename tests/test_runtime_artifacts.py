@@ -989,7 +989,12 @@ class RuntimeArtifactTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             errors = "\n".join(result["runs"][0]["errors"])
             self.assertIn("executor choice must not be stored as a prepared runtime run", errors)
-            self.assertIn("prepared runtime run requires a Codex executor_handoff", errors)
+            self.assertIn(
+                "prepared runtime run rejected because selected_executor_profile None "
+                "has no run-backed executor handoff lifecycle",
+                errors,
+            )
+            self.assertIn("selected_executor_profile in (codex)", errors)
 
     def test_validate_runtime_rejects_raw_top_level_coding_delegation_key(self) -> None:
         with TemporaryDirectory() as tmp:

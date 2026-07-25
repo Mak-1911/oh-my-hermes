@@ -675,15 +675,27 @@ def _evidence_display_status(state: str) -> str:
 
 
 def _coding_agent_segment(runtime: dict[str, Any], executor: dict[str, Any]) -> str:
-    agent = _coding_agent_label(runtime.get("executor_target") or executor.get("default"))
-    state = _coding_agent_state(runtime)
-    return f"coding-agent:{state}({agent})"
+    # Three-state model (see docs/INSTALLATION.md "Status model: no-run,
+    # prepared-handoff, observed-run"):
+    #   1. no-run, no preference -> executor-neutral "not-selected" (no
+    #      executor name; nothing to imply is idle).
+    #   2. no-run, real preference recorded at setup -> the preference is
+    #      shown, labeled by its idle state, because it is a genuine user
+    #      choice rather than a placeholder.
+    #   3. a run exists with an executor_target -> a prepared handoff or
+    #      observed runtime fact, shown with its actual phase.
+    executor_target = str(runtime.get("executor_target", "") or "").strip()
+    if executor_target:
+        return f"coding-agent:{_coding_agent_state(runtime)}({_coding_agent_label(executor_target)})"
+    preference = str(executor.get("default", "") or "").strip()
+    if preference and preference != "choose":
+        return f"coding-agent:idle({_coding_agent_label(preference)})"
+    return "coding-agent:not-selected"
 
 
 def _coding_agent_label(value: Any) -> str:
-    default = str(value or "choose").strip() or "choose"
+    normalized = str(value or "").strip()
     labels = {
-        "choose": "ask",
         "generic": "prompt",
         "hermes": "hermes",
         "codex": "codex",
@@ -692,7 +704,7 @@ def _coding_agent_label(value: Any) -> str:
         "omo-runtime": "omo-runtime",
         "omc-runtime": "omc-runtime",
     }
-    return labels.get(default, default)
+    return labels.get(normalized, normalized)
 
 
 def _activity_label(runtime: dict[str, Any]) -> str:
