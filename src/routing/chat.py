@@ -23,7 +23,6 @@ from .missed_route import is_missed_route_feedback
 from .omh_help import is_omh_intro_question, is_omh_quickstart_question, is_omh_status_question
 from .policy import (
     CONFIDENCE_LEVELS,
-    ROUTE_ACTIONS,
     SKILL_SCOUT_CANDIDATE_ALIAS_PHRASES,
     SKILL_SCOUT_CANDIDATE_BLOCKER_PHRASES,
     SKILL_SCOUT_CANDIDATE_INTENT_PHRASES,
@@ -3746,12 +3745,12 @@ def _operator_surface_fast_path_match(
 ) -> tuple[str, str, str, str] | None:
     text = _fast_path_text(message)
     compact = _fast_path_compact(text)
-    for skill, phrase, normalized_phrase, normalized_compact, marker, reason in _operator_surface_fast_path_patterns():
+    for skill, phrase, normalized_pattern, normalized_compact, marker, reason in _operator_surface_fast_path_patterns():
         if only_skill is not None and skill != only_skill:
             continue
-        if skill == "live-info-operator" and normalized_phrase == "환율" and "전환율" in text:
+        if skill == "live-info-operator" and normalized_pattern == "환율" and "전환율" in text:
             continue
-        if normalized_phrase in text or (normalized_compact and normalized_compact in compact):
+        if normalized_pattern in text or (normalized_compact and normalized_compact in compact):
             return skill, phrase, marker, reason
     return None
 

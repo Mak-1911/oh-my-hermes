@@ -5,7 +5,6 @@ from typing import Any, Mapping
 from ..executors import (
     HERMES_CODING_TEAM_STATUS_LADDER,
     HERMES_CODING_TEAM_WRAPPER_ACTIONS,
-    hermes_coding_team_path_contract,
 )
 
 

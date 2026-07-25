@@ -40,7 +40,7 @@ from ..quality.localized_chat_copy import build_localized_chat_copy_demo, locali
 from ..quality.route_hint_alignment import build_route_hint_alignment_demo
 from ..quality.router_fast_path import build_router_fast_path_demo, router_fast_path_errors
 from ..quality.routing_precision import build_routing_precision_demo, routing_precision_errors
-from ..release_smoke_core import CommandResult, Runner, bounded_text, expand_home, subprocess_runner
+from ..release_smoke_core import Runner, bounded_text, expand_home, subprocess_runner
 from ..skill_pack import builtin_skill_templates
 from ..skills.catalog import builtin_definitions
 from ..system.paths import OmhPaths

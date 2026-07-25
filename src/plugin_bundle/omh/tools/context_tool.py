@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any
 
 from ..context_brief import bounded_context_hint_limit, build_context_brief as build_plugin_context_brief
 from ..host_observation import OBSERVATION_SCHEMA, attach_public_observation, observe_plugin_tool_call

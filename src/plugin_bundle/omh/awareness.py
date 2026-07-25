@@ -5116,7 +5116,7 @@ def awareness_workflow_context_markdown(skill_name: str) -> str:
         [
             "## OMH Context Rail",
             "",
-            f"- This skill is part of OMH's Hermes workflow layer, not a standalone executor.",
+            "- This skill is part of OMH's Hermes workflow layer, not a standalone executor.",
             f"- Product context: {payload['product_context']}",
             f"- {lane_line}",
             "- If the user intent belongs to another OMH lane, hand back to `oh-my-hermes` or name the adjacent workflow instead of force-fitting this skill.",

@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-from pathlib import Path
 from typing import Any
 
 try:  # pragma: no cover - non-POSIX fallback is exercised only on platforms without fcntl.

@@ -22,7 +22,7 @@ def extract_name(raw: str, fallback: str) -> str:
 def convert_skill(raw: str, fallback_name: str) -> SkillTemplate:
     name = extract_name(raw, fallback_name)
     description = DESCRIPTIONS.get(name, omh_description(f"Hermes workflow skill for {name}."))
-    content = _replace_frontmatter_description(raw, name=name, description=description).rstrip() + f"""
+    content = _replace_frontmatter_description(raw, name=name, description=description).rstrip() + """
 
 ## Hermes Compatibility Contract
 

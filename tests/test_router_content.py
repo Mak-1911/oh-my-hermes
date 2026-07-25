@@ -424,7 +424,6 @@ class RouterContentTests(unittest.TestCase):
         harnesses = {harness.name for harness in builtin_harnesses()}
         playbooks = {playbook["id"] for playbook in list_playbooks()["playbooks"]}
         playbook_doc = Path("docs/APPLICATION_CASES.md").read_text(encoding="utf-8")
-        readme = Path("README.md").read_text(encoding="utf-8")
         for case in USE_CASES:
             with self.subTest(case=case.id):
                 exposure = skill_exposure_payload(case.primary_skill)

@@ -974,8 +974,7 @@ class WrapperSessionTests(unittest.TestCase):
             session_id = str(started["session"]["session_id"])
             record_plan_decision(paths, session_id, "accept")
             select_wrapper_session_executor(paths, session_id, "codex")
-            handoff = prepare_wrapper_session_handoff(paths, session_id, message)
-            run_id = str(handoff["session"]["current_run_id"])
+            prepare_wrapper_session_handoff(paths, session_id, message)
 
             opened = open_executor_session(
                 paths,

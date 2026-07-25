@@ -6,7 +6,7 @@ from pathlib import Path
 from ..catalogs.roles import roles_reference_markdown
 from ..installer import OmhError
 from ..local_store import atomic_write_text
-from ..skill_pack import builtin_harnesses, builtin_skill_reference_templates, builtin_skill_templates
+from ..skill_pack import builtin_skill_reference_templates, builtin_skill_templates
 from ..skills.context_cost import skill_context_cost_markdown, skill_context_cost_payload
 from ..skills.render import workflow_reference_markdown, workflow_reference_payload
 from ..skills.validation import harness_inspection_payload, harness_summary_payload, validate_catalog_contract

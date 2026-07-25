@@ -185,6 +185,7 @@ PYTHONPATH=tests uv run python -m unittest tests/test_router_content.py -v
 PYTHONPATH=tests uv run python -m unittest discover -s tests -v
 uv run python -m compileall -q src tests
 uv run python -m omh.cli docs workflows --check
+uv run --group lint ruff check src tests
 git diff --check
 ```
 
