@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from ..awareness import (
+    awareness_context_match_degradation,
     awareness_context_matches_message,
     awareness_primer_context,
     awareness_route_hint,
     awareness_route_hint_context_from_payload,
 )
 from ..context_brief import build_context_brief
+from ..degradation import (
+    COMPONENT_LOCALIZED_ROUTING_TEXT,
+    COMPONENT_RUNTIME_STATUS_READ,
+    degradation_payload,
+    safe_error_type,
+)
 from ..host_observation import observe_plugin_hook_call
 from ..omh_roles import extract_role_marker, role_context_payload
 from ..runtime_reader import read_omh_hud, read_omh_status
@@ -34,8 +41,19 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     route_hint_context = ""
     route_hint_payload: dict[str, object] | None = None
     message_matches_awareness = False
+    degraded: list[tuple[str, str]] = []
     if include_awareness:
-        message_matches_awareness = is_first_turn or awareness_context_matches_message(user_message)
+        if is_first_turn:
+            message_matches_awareness = True
+        else:
+            # The matcher is called exactly when it is called today; the
+            # `is_first_turn` short circuit is preserved because the cache-count
+            # tests depend on it. The accessor reads the same cache entry the
+            # matcher just populated, so it costs a hit and never a miss.
+            message_matches_awareness = awareness_context_matches_message(user_message)
+            match_error = awareness_context_match_degradation(user_message)
+            if match_error:
+                degraded.append((COMPONENT_LOCALIZED_ROUTING_TEXT, match_error))
         if message_matches_awareness:
             route_hint_payload = awareness_route_hint(user_message)
             route_hint_context = awareness_route_hint_context_from_payload(route_hint_payload)
@@ -54,6 +72,11 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         )
         if route_hint_context:
             context_parts.append(route_hint_context)
+        brief = payload.get("omh_context_brief")
+        if isinstance(brief, dict):
+            for row in brief.get("degradation", {}).get("components", []):
+                if isinstance(row, dict):
+                    degraded.append((str(row.get("component", "")), str(row.get("error_type", ""))))
 
     marker = extract_role_marker(user_message)
     if marker:
@@ -85,11 +108,21 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
             limit=3,
             token_metadata=_token_metadata_from_kwargs(kwargs),
         )
-    except Exception:
+    except Exception as exc:
+        # The read raised. Without this the next branch reads the empty status
+        # as `runtime_state_present` being false, so a failed status read looks
+        # exactly like a host with nothing to report.
         status = {}
         hud = {}
+        degraded.append((COMPONENT_RUNTIME_STATUS_READ, safe_error_type(type(exc).__name__)))
 
-    if not context_parts and not status.get("runtime_state_present") and not status.get("runs"):
+    degradation = degradation_payload(degraded)
+    if (
+        not context_parts
+        and not degradation
+        and not status.get("runtime_state_present")
+        and not status.get("runs")
+    ):
         return None
 
     if status.get("runtime_state_present") or status.get("runs"):
@@ -116,5 +149,16 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
             )
         lines.append("Use omh_hud for the compact status line, omh_role for role context, or omh_status for full metadata-only status.")
         context_parts.append("\n".join(lines))
+    if degradation:
+        payload["omh_degradation"] = degradation
+        # Component labels only: error types stay in the structured payload, so
+        # the model-facing text is minimal and stable.
+        context_parts.append(
+            "[OMH Degraded] components="
+            + ",".join(str(row["component"]) for row in degradation["components"])
+            + ". An OMH-local delegated call failed and a reduced local fallback answered. "
+            "This is a local call failure, not a genuine standalone host. It is an observation of "
+            "that failure only: not execution, review, CI, merge-readiness, or merge evidence."
+        )
     payload["context"] = "\n\n".join(context_parts)
     return payload

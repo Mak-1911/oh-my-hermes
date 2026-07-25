@@ -161,6 +161,20 @@ class PreVerifyHookTests(unittest.TestCase):
         self.assertIn("src/plugin_bundle/omh/hooks/verify_hooks.py", manifest["source_refs"])
         self.assertEqual(hook["payload_fields"], capability_tool._standalone_hook_payload_fields("pre_verify"))
 
+    def test_core_and_standalone_hook_payload_fields_agree_on_every_hook(self) -> None:
+        # The two bodies are character-identical by convention and nothing else
+        # asserts it beyond `pre_verify`, so editing one and not the other
+        # would ship a bundle advertising different payload fields than the core.
+        hooks = hook_manifest()["plugin_hooks"]
+        self.assertTrue(hooks)
+
+        for hook in hooks:
+            with self.subTest(hook=hook["name"]):
+                self.assertEqual(
+                    hook["payload_fields"],
+                    capability_tool._standalone_hook_payload_fields(hook["name"]),
+                )
+
     def test_pre_verify_registration_is_skipped_when_the_host_does_not_support_it(self) -> None:
         context = FakeHermesContext()
 

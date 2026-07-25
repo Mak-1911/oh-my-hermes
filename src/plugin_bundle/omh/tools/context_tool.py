@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 
 from ..context_brief import bounded_context_hint_limit, build_context_brief as build_plugin_context_brief
+from ..degradation import safe_error_type as _safe_error_type
 from ..host_observation import OBSERVATION_SCHEMA, attach_public_observation, observe_plugin_tool_call
 
 OMH_CONTEXT_SCHEMA = {
@@ -111,8 +111,3 @@ def _package_context_error(message: str, *, source: str, error_type: str) -> dic
             "genuine missing-package standalone fallback."
         ),
     }
-
-
-def _safe_error_type(error_type: str) -> str:
-    text = re.sub(r"[^A-Za-z0-9_.-]", "", str(error_type or ""))
-    return text[:80] or "Exception"

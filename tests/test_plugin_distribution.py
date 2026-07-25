@@ -212,6 +212,51 @@ print(json.dumps(observed, ensure_ascii=False))
         self.assertNotIn("package-recommend-boom", serialized)
         self.assertNotIn("secret-token-123", serialized)
 
+    def test_pre_llm_call_distinguishes_an_idle_host_from_a_failed_status_read(self) -> None:
+        # This is the bundle surface that ships to third-party hosts, so the
+        # degraded path is exercised here as an installed host would hit it.
+        from omh.plugin_bundle.omh import awareness as awareness_module
+        from omh.plugin_bundle.omh.hooks import llm_hooks
+
+        awareness_module._awareness_context_matches_message_cached.cache_clear()
+        awareness_module._awareness_route_hint_cached.cache_clear()
+
+        message = "tell me a short joke about secret-token-123"
+
+        # Case (a): a genuinely idle host with an empty runtime home. Nothing
+        # to report, so the hook keeps returning None exactly as today.
+        with TemporaryDirectory() as tmp:
+            idle_payload = llm_hooks.pre_llm_call(
+                omh_home=tmp, hermes_home=tmp, user_message=message, is_first_turn=False
+            )
+        self.assertIsNone(idle_payload)
+
+        # Case (b): the status read raises. This must not be mislabeled as the
+        # same idle host.
+        awareness_module._awareness_context_matches_message_cached.cache_clear()
+        awareness_module._awareness_route_hint_cached.cache_clear()
+        with TemporaryDirectory() as tmp:
+            with mock.patch.object(llm_hooks, "read_omh_status", side_effect=RuntimeError("status-boom")):
+                error_payload = llm_hooks.pre_llm_call(
+                    omh_home=tmp, hermes_home=tmp, user_message=message, is_first_turn=False
+                )
+
+        self.assertIsNotNone(error_payload)
+        assert error_payload is not None
+        degradation = error_payload["omh_degradation"]
+        self.assertEqual(degradation["schema_version"], "omh_degradation/v1")
+        self.assertTrue(degradation["degraded"])
+        self.assertEqual([row["component"] for row in degradation["components"]], ["runtime_status_read"])
+        self.assertEqual(degradation["components"][0]["error_type"], "RuntimeError")
+        self.assertFalse(degradation["privacy"]["error_message_stored"])
+        self.assertIn("[OMH Degraded]", error_payload["context"])
+        # PM-1: no status panel is implied, because the status fields are still absent.
+        self.assertNotIn("runs", error_payload)
+        self.assertNotIn("[OMH] Native bridge status context.", error_payload["context"])
+        serialized = json.dumps(error_payload, sort_keys=True)
+        self.assertNotIn("status-boom", serialized)
+        self.assertNotIn("secret-token-123", serialized)
+
     def test_setup_default_installs_plugin(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

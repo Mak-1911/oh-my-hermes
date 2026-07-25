@@ -84,34 +84,43 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
     ClassifiedSite(
         "src/plugin_bundle/omh/awareness.py",
         "_localized_routing_text",
-        NEEDS_637_TREATMENT,
-        "Returns the raw message, the exact value of the `_prepare_routing_text is None` branch "
-        "above it, so a failure inside the delegated call is indistinguishable from the helper "
-        "being absent.",
+        INTENTIONAL,
+        "Still returns the raw message, but appends `localized_routing_text` plus a sanitized "
+        "error type to the `degraded` accumulator its caller passes in, which the "
+        "`_prepare_routing_text is None` branch above deliberately does not. The signal reaches "
+        "`omh_route_hint/v1.degradation`, `omh_context_brief/v1.degradation`, and the "
+        "`pre_llm_call` return's `omh_degradation`.",
     ),
     ClassifiedSite(
         "src/plugin_bundle/omh/awareness.py",
         "_loop_route_hint_next_action",
-        NEEDS_637_TREATMENT,
-        "Returns `default_action`, the exact value of the `_assess_loopability is None` branch, "
-        "so a failed loopability assessment reads as no assessment being available.",
+        INTENTIONAL,
+        "Still returns `default_action`, but appends `loop_route_hint_assessment` plus a "
+        "sanitized error type to the caller's `degraded` accumulator, which the "
+        "`_assess_loopability is None` branch does not. The signal surfaces at "
+        "`omh_route_hint/v1.degradation` and merges upward to `omh_degradation`.",
     ),
     ClassifiedSite(
         "src/plugin_bundle/omh/context_brief.py",
         "_is_catalog_question",
-        NEEDS_637_TREATMENT,
-        "Two handlers in one function. The import guard is accurate -- an import that raises "
-        "means the package path really is unusable, so the standalone answer is the right label. "
-        "The second wraps the delegated `is_skill_catalog_question()` call and returns the same "
-        "standalone answer, which is the mislabeling #637 fixed elsewhere.",
+        INTENTIONAL,
+        "Two handlers in one function, treated differently on purpose. The import guard stays "
+        "broad and deliberately emits nothing: a module that raises at import really is "
+        "unusable, so `_standalone_catalog_question` is the accurate label and a host where "
+        "`omh` is genuinely absent must stay indistinguishable from before. The second wraps "
+        "the delegated `is_skill_catalog_question()` call and now appends "
+        "`catalog_question_classifier` plus a sanitized error type to the caller's `degraded` "
+        "accumulator, so the call failure is told apart from that absence path even on a "
+        "non-catalog message that produces no `catalog_question` key.",
     ),
     ClassifiedSite(
         "src/plugin_bundle/omh/hooks/llm_hooks.py",
         "pre_llm_call",
-        NEEDS_637_TREATMENT,
-        "Sets status={} and hud={} on failure; the next branch reads empty status as "
-        "`runtime_state_present` being false and injects no context, so a failed status read "
-        "looks like a host with nothing to report.",
+        INTENTIONAL,
+        "Still sets status={} and hud={}, but appends `runtime_status_read` plus a sanitized "
+        "error type, so the return carries `omh_degradation` and one bounded `[OMH Degraded]` "
+        "context line where a genuinely idle host still returns None. A failed status read is "
+        "no longer readable as a host with nothing to report.",
     ),
     ClassifiedSite(
         "src/plugin_bundle/omh/host_observation.py",
@@ -221,6 +230,22 @@ class BroadExceptionPolicyTests(unittest.TestCase):
                     40,
                     "Each verdict needs a rationale a reviewer can check against the source.",
                 )
+
+    def test_no_site_is_left_needing_the_637_treatment(self) -> None:
+        outstanding = sorted(
+            (site.path, site.function) for site in CLASSIFIED_SITES if site.verdict == NEEDS_637_TREATMENT
+        )
+
+        self.assertEqual(
+            outstanding,
+            [],
+            "Every broad-exception site in `src/` was moved to the classified-and-surfaced "
+            "verdict; this ratchet keeps it that way. If you are recording a genuine new defect "
+            f"rather than regressing an existing one, that is a deliberate decision -- see {POLICY_TEST_PATH} "
+            f"and policy owner {POLICY_OWNER_ISSUE}, then remove this test in the same commit "
+            "with the reason in the commit body. Outstanding: "
+            f"{outstanding}.",
+        )
 
     def test_ble001_stays_unselected_under_the_pyflakes_baseline(self) -> None:
         config = tomllib.loads(_pyproject_text())
