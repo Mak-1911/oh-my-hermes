@@ -3201,7 +3201,12 @@ def validate_coding_handoff_combination(delegation: dict[str, Any], label: str) 
             _require(selected is None, errors, f"{label} executor_choice_required must not select an executor")
             _require(dispatchable is False, errors, f"{label} executor_choice_required must not be dispatchable")
         else:
-            _require(selected == "codex", errors, f"{label} external_executor is Codex-only in phase 1")
+            _require(
+                selected in CODING_EXECUTOR_TARGETS,
+                errors,
+                f"{label} external_executor selected executor {selected!r} is not run-backed: "
+                f"supported profiles are ({', '.join(CODING_EXECUTOR_TARGETS)})",
+            )
             _require(has_executor, errors, f"{label} external_executor requires executor_handoff")
             _require(not has_runtime, errors, f"{label} external_executor must not include runtime_handoff")
             _require(not has_prompt, errors, f"{label} external_executor must not include prompt_handoff")

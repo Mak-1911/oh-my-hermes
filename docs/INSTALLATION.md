@@ -181,11 +181,44 @@ recommendation, metadata-only HUD/status/role support, and a bounded evidence
 probe.
 `omh hud` prints the same compact status line a Hermes TUI or plugin surface can
 render. It shows only operationally useful status: OMH version, plugin
-readiness, target topology, current or default coding agent, and evidence
-state. Skill counts, setup inventory, token metadata, and deep diagnostics are
-left to `omh doctor`, `omh_status`, and machine-readable HUD JSON. A quiet idle
-line looks like
-`[omh] v1.0.2 | plugin:ready | target:single | coding-agent:idle(ask)`.
+readiness, target topology, the coding-agent segment described below, and
+evidence state. Skill counts, setup inventory, token metadata, and deep
+diagnostics are left to `omh doctor`, `omh_status`, and machine-readable HUD
+JSON.
+
+#### Status model: no-run, prepared-handoff, observed-run
+
+`omh setup` deliberately records a safety-first `choose` preference and asks
+no upfront coding-owner question, so Hermes asks which coding agent to use at
+the first coding request instead of at install time. The HUD line and the
+`menubar_status/v1` payload follow the same three-state model so that an
+unselected coding agent never reads as an idle external agent named
+`choose`/`ask`:
+
+1. **No-run.** No coding request has been routed yet.
+   - No preference recorded (the normal safety-first default): the HUD
+     `coding-agent` segment is executor-neutral,
+     `coding-agent:not-selected`, and the menu bar's `settings.coding_handoff`
+     reads `Coding agent: Not selected` with `source: "none"`. The Coding
+     Agent card shows `Status: ready` with the detail "Hermes routes the next
+     request to a coding agent" instead of an idle-agent row.
+   - A real preference was recorded (for example `omh setup
+     --default-executor codex`): the executor name is shown because it is a
+     genuine user choice, not a placeholder — `coding-agent:idle(codex)` on
+     the HUD line, and `Coding agent: Codex` with `source: "user_preference"`
+     and `Status: preferred` (detail "no request routed yet") in the menu bar.
+2. **Prepared handoff.** `omh coding delegate --record` prepared a handoff for
+   a run but execution has not been observed: `coding-agent:prepared(codex)`
+   on the HUD line, and the menu bar shows `source: "prepared_handoff"` with
+   the executor's prepared status.
+3. **Observed run.** A run recorded observed evidence (dispatch, execution,
+   verification, review, CI, or merge): the HUD line shows the run's actual
+   phase, for example `coding-agent:runtime(codex)`, and the menu bar shows
+   `source: "observed_runtime"`. The `evidence` HUD segment and the menu bar's
+   Evidence card carry the same prepared-versus-observed boundary as before.
+
+A quiet no-run line looks like
+`[omh] v1.0.2 | plugin:ready | target:single | coding-agent:not-selected`.
 The plugin also exposes `omh_context` for a compact OMH mental model plus
 generic-tool checkpoint, `omh_interact` for shell-free chat responses and
 metadata-only wrapper session records, `omh_recommend` for route hints without
@@ -219,8 +252,12 @@ omh menubar status --json
 
 The `menubar_status/v1` JSON has separate `hermes_agents` and
 `external_coding_executors` sections, friendly labels such as `OMH connection:
-Ready`, `Hermes targets: 2`, `Coding agent: Codex`, and `Open mode: Ask before
-opening Codex`, plus source/model icon IDs with tooltip text. It also includes
+Ready`, `Hermes targets: 2`, `Coding agent: Codex` (or `Coding agent: Not
+selected` in the no-run/no-preference state), and `Open mode: Ask before
+opening Codex`, plus source/model icon IDs with tooltip text. The
+`settings.coding_handoff.source` field distinguishes why an executor name is
+or is not shown — `"none"`, `"user_preference"`, `"prepared_handoff"`, or
+`"observed_runtime"` — per the status model above. It also includes
 `display.menu_cards`, a compact Agent Status/Coding Agent/Evidence card model
 for native menu bar surfaces. The Agent Status card is a small `Agent | PID |
 Status` list. Codex and other coding tools are external executors, not Hermes
@@ -1160,11 +1197,82 @@ without parsing prose:
 omh install --full --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["context_cost_warning"])'
 ```
 
+The warning reports skill *counts*. To see the actual bytes behind them, run
+the context-cost report, which measures the always-loaded `SKILL.md` body for
+both profiles and shows how much of it is text repeated verbatim across skills
+rather than guidance specific to one workflow:
+
+```sh
+omh docs skill-context-cost          # human-readable table
+omh docs skill-context-cost --json   # omh_skill_context_cost/v1
+```
+
+Repetition is derived, not hand-classified: for each `##` heading the report
+counts occurrences, distinct bodies, and the duplicate bytes an install pays
+for the second and later copies. Policy shared by every generated workflow
+skill lives once in `skills/oh-my-hermes/references/skill-common-rail.md`
+(progressive disclosure, loaded on demand) rather than inside each body; that
+reference ships with the always-installed `oh-my-hermes` skill, so both
+profiles resolve it. Reference bytes are reported separately from the
+always-loaded total because they are not carried on every turn.
+
 A `core` install still passes `omh doctor` because the core profile installs
-a superset of the doctor health-floor skills; `--full` never removes skills
-that a later `--force` reinstall does not also write, so switching from
-`full` back to a default `core` install does not delete previously installed
-skill files on disk.
+a superset of the doctor health-floor skills.
+
+### Reconciling An Existing Full Install Back To Core
+
+`omh setup`, `omh install`, and `omh update` are non-destructive: they never
+delete an installed skill directory, so reinstalling with the default `core`
+profile after a `--full` install leaves every full-only skill on disk. The
+recorded profile then says `core` while the effective per-turn context weight
+is still that of a `full` install.
+
+Two commands make that gap visible and fixable:
+
+```sh
+omh skill-profile status                          # read-only; mutates nothing
+omh skill-profile reconcile --to core --dry-run   # preview the removals
+omh skill-profile reconcile --to core             # apply
+```
+
+`omh skill-profile status` reports the requested profile (what the last
+install recorded), the effective profile (what is actually on disk), the
+installed/core/full skill counts, and the skills that would be reconciled.
+`omh skill-profile reconcile` is the only OMH path that deletes managed skill
+directories, and it never runs as part of setup, install, or update.
+
+Reconcile removes a skill only when it is both **OMH-managed** (recorded in
+`~/.omh/manifest.json`) and **unmodified** (every file under the skill
+directory is byte-identical to the rendered catalog templates, with no extra
+or missing files). Everything else stays on disk and is reported as a
+retained exception with its reason:
+
+- `locally modified vs. the rendered catalog templates` for an edited skill.
+- `not an OMH catalog skill` for a directory OMH does not ship.
+- `no OMH install-manifest record; not OMH-managed` for an unmanaged copy.
+- `skill directory is not plainly readable managed content` for symlinked or
+  unreadable directories.
+
+Because retained exceptions can survive a reconcile, the manifest records a
+`skill_profile_state` block (`omh_skill_profile_state/v1`) on every install
+and reconcile so status output is not misleading:
+
+| Field | Meaning |
+| --- | --- |
+| `requested_profile` | The profile the last install/reconcile recorded. |
+| `effective_profile` | `core`, `full`, `mixed`, or `none`, derived from disk. |
+| `matches_requested_profile` | Whether the two agree. |
+| `full_only_installed_skills` | Full-only skills still installed. |
+| `retained_exception` | `true` when `core` was requested but full-only skills remain. |
+| `next_action` | The reconcile command to run, or empty. |
+
+```sh
+omh skill-profile status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["profile_state"])'
+```
+
+A `core` reconcile keeps the doctor health floor, so `omh doctor` still passes
+afterwards. Restart or reload Hermes Agent so it picks up the smaller skill
+set.
 
 ### Hermes Setup Guide Skills (Full Profile)
 

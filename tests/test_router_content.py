@@ -661,6 +661,63 @@ class RouterContentTests(unittest.TestCase):
                 missing = {name: fragments for name, fragments in missing.items() if fragments}
                 self.assertEqual(missing, {})
 
+    def test_shared_common_rail_reference_carries_moved_policy(self) -> None:
+        """Replacement gate for the policy issue #634 moved out of every SKILL.md body.
+
+        Nothing may leave a skill body without landing verbatim in the shared rail, and the
+        rail only resolves if it ships with a skill both install profiles write to disk.
+        """
+        from omh.skills.catalog import CORE_PROFILE_SKILLS
+        from omh.skills.render import (
+            DELEGATION_RECORD_COMMAND,
+            EXECUTION_RULES,
+            HARNESS_DISCIPLINE_RULES,
+            RUNTIME_MECHANISM_TRANSLATIONS,
+            SHARED_RAIL_REFERENCE_PATH,
+            TARGET_TOPOLOGY_SKILL_CHANGE_CONTRACT,
+            TARGET_TOPOLOGY_SKILL_CONTRACT,
+        )
+
+        rail_skill, _, rail_relative = SHARED_RAIL_REFERENCE_PATH.partition("/")
+        rail = next(
+            template
+            for template in builtin_skill_reference_templates()
+            if template.skill_name == rail_skill and template.relative_path == rail_relative
+        )
+
+        # The rail lives on a skill the core profile installs, so both profiles resolve it.
+        self.assertIn(rail_skill, CORE_PROFILE_SKILLS)
+        self.assertEqual(
+            Path("skills") / SHARED_RAIL_REFERENCE_PATH,
+            Path("skills") / rail.skill_name / rail.relative_path,
+        )
+        self.assertEqual(
+            (Path("skills") / SHARED_RAIL_REFERENCE_PATH).read_text(encoding="utf-8"),
+            rail.content,
+        )
+
+        moved = (
+            *HARNESS_DISCIPLINE_RULES,
+            *RUNTIME_MECHANISM_TRANSLATIONS,
+            *EXECUTION_RULES,
+            DELEGATION_RECORD_COMMAND,
+            TARGET_TOPOLOGY_SKILL_CONTRACT,
+            TARGET_TOPOLOGY_SKILL_CHANGE_CONTRACT,
+        )
+        for fragment in moved:
+            with self.subTest(fragment=fragment[:48]):
+                self.assertIn(fragment, rail.content)
+
+        for template in builtin_skill_templates():
+            if template.name == rail_skill:
+                continue
+            with self.subTest(skill=template.name):
+                self.assertIn(SHARED_RAIL_REFERENCE_PATH, template.content)
+                # The moved bodies must not silently reappear in a skill body.
+                self.assertNotIn(HARNESS_DISCIPLINE_RULES[1], template.content)
+                self.assertNotIn(EXECUTION_RULES[0], template.content)
+                self.assertNotIn(DELEGATION_RECORD_COMMAND, template.content)
+
     def test_hermes_setup_skills_share_five_step_contract_and_skip_semantics(self) -> None:
         hermes_setup_skill_names = (
             "model-setup",
@@ -2183,7 +2240,10 @@ class RouterContentTests(unittest.TestCase):
     def test_workflow_skills_refer_to_harness_discipline(self) -> None:
         skills = {skill.name: skill for skill in builtin_skill_templates()}
 
-        self.assertIn("Harness Discipline", skills["ultragoal"].content)
+        # Harness discipline moved to the shared rail reference (issue #634); each skill
+        # keeps the pointer instead of its own verbatim copy. The rail's own content is
+        # gated by test_shared_common_rail_reference_carries_moved_policy below.
+        self.assertIn("oh-my-hermes/references/skill-common-rail.md", skills["ultragoal"].content)
         self.assertIn("Catalog Metadata", skills["ultragoal"].content)
         self.assertIn("Category: `execution`", skills["ultragoal"].content)
         self.assertIn("Phase: `durable-goals`", skills["ultragoal"].content)
@@ -2238,7 +2298,6 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("one delivery cycle", skills["ultraprocess"].content)
         self.assertIn("lane owner, next action, and missing evidence", skills["ultraprocess"].content)
         self.assertIn("PR readiness", skills["ultraprocess"].content)
-        self.assertIn("Prefer richer evidence and clearer stop conditions", skills["code-review"].content)
         self.assertIn("Findings come first", skills["code-review"].content)
         self.assertIn("independent review evidence", skills["code-review"].content)
         self.assertIn("hermes_coding_harness/v1", skills["code-review"].content)
@@ -2555,7 +2614,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("**88 個**", localized_readmes["ja"])
         self.assertIn("**88 个**", localized_readmes["zh"])
         for localized_readme in localized_readmes.values():
-            self.assertLess(len(localized_readme.splitlines()), 170)
+            self.assertLess(len(localized_readme.splitlines()), 240)
             self.assertIn("prepared_not_observed", localized_readme)
             self.assertIn("omh setup", localized_readme)
             self.assertNotIn("omh doctor", localized_readme)
@@ -3052,6 +3111,77 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn(".image-format-grid", site_css)
         self.assertIn(".feature-flow", site_css)
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", site_css)
+
+    def test_localized_readmes_stay_structurally_synced_with_english_source(self) -> None:
+        # README.md is the explicit onboarding source structure (issue #639).
+        # Each entry maps an English top-level (`## `) heading to its natural
+        # translation in each localized README. When README.md gains, drops,
+        # or reorders a top-level section, this table (and the localized
+        # README files) must be updated in the same commit, or the assertions
+        # below fail with a message pointing at the drift. This test asserts
+        # structure (heading set and order) and a few historical stale-copy
+        # regressions only; it intentionally does not assert prose wording,
+        # so natural, non-mechanical per-language translation is allowed.
+        readme_section_translations = (
+            ("## Quick Start", {"ko": "## 빠른 시작", "ja": "## クイックスタート", "zh": "## 快速开始"}),
+            (
+                "## What OMH Adds",
+                {"ko": "## OMH가 더하는 것", "ja": "## OMH が追加するもの", "zh": "## OMH 提供什么"},
+            ),
+            (
+                "## Built For Real Work",
+                {"ko": "## 실제 업무를 위한 설계", "ja": "## 実務向けの設計", "zh": "## 面向真实工作的设计"},
+            ),
+            (
+                "## Evidence Before Claims",
+                {"ko": "## 주장보다 증거", "ja": "## 主張より証拠", "zh": "## 证据先于声明"},
+            ),
+            ("## Documentation", {"ko": "## 문서", "ja": "## ドキュメント", "zh": "## 文档"}),
+            ("## Development", {"ko": "## 개발", "ja": "## 開発", "zh": "## 开发"}),
+        )
+
+        readme = Path("README.md").read_text(encoding="utf-8")
+        localized_readmes = {
+            "ko": Path("README.ko.md").read_text(encoding="utf-8"),
+            "ja": Path("README.ja.md").read_text(encoding="utf-8"),
+            "zh": Path("README.zh.md").read_text(encoding="utf-8"),
+        }
+
+        english_headings = re.findall(r"^## .+$", readme, flags=re.MULTILINE)
+        expected_english_headings = [heading for heading, _ in readme_section_translations]
+        self.assertEqual(
+            english_headings,
+            expected_english_headings,
+            "README.md top-level sections changed. Update "
+            "readme_section_translations in this test (and sync README.ko.md, "
+            "README.ja.md, README.zh.md) for the new section set/order.",
+        )
+
+        for locale, localized_readme in localized_readmes.items():
+            localized_headings = re.findall(r"^## .+$", localized_readme, flags=re.MULTILINE)
+            expected_localized_headings = [
+                translations[locale] for _, translations in readme_section_translations
+            ]
+            self.assertEqual(
+                localized_headings,
+                expected_localized_headings,
+                f"README.{locale}.md top-level sections are out of sync with "
+                "README.md; a section was added, dropped, or reordered in "
+                "English without updating this locale.",
+            )
+
+        # Regression guards for the exact stale onboarding copy identified in
+        # issue #639: a four-line request-pipeline block, and a "then ask
+        # Hermes normally" example that no longer matches the English Quick
+        # Start flow. These must never silently come back to a locale file.
+        self.assertNotIn("plain request", readme)
+        self.assertNotIn("Then ask Hermes normally", readme)
+        self.assertNotIn("6개 기능군 중 하나를 선택", localized_readmes["ko"])
+        self.assertNotIn("그런 다음 Hermes에 평소처럼 요청합니다", localized_readmes["ko"])
+        self.assertNotIn("6つの機能ファミリーから選択", localized_readmes["ja"])
+        self.assertNotIn("その後は Hermes にいつも通り依頼します", localized_readmes["ja"])
+        self.assertNotIn("从6个能力族中选择", localized_readmes["zh"])
+        self.assertNotIn("然后像往常一样向 Hermes 提出请求", localized_readmes["zh"])
 
     def test_direction_and_agent_contract_lock_product_boundary(self) -> None:
         direction = Path("docs/DIRECTION.md").read_text(encoding="utf-8")

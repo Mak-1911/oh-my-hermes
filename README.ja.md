@@ -34,24 +34,23 @@
   <em>計画、調査、制作、コーディング handoff、運用、プロジェクト記憶を明確な証拠境界とともに提供します。</em>
 </p>
 
+<p align="center">
+  <img src="assets/oh-my-hermes-agent-poster.png" alt="Oh My Hermes Agent poster" width="720">
+</p>
+
 **oh-my-hermes**（OMH）は、
 [Hermes Agent](https://github.com/NousResearch/hermes-agent) への通常の依頼を、
 適切な機能、有用な次の行動、そして実際に起きたこと・まだ起きていないことの
 正直な状態へ変換します。Hermes を置き換えたり、コーディング executor を
 隠したりせず、既存の Hermes ワークフローを強化します。
 
-```text
-通常の依頼
-  -> 6つの機能ファミリーから選択
-  -> 計画、ソース brief、成果物 contract、コーディング handoff を準備
-  -> runtime、provider、review、CI、merge の証拠は観測時のみ記録
-```
-
 [Website](https://rlaope.github.io/oh-my-hermes/) ·
 [Documentation](docs/README.md) ·
 [Installation](docs/INSTALLATION.md) ·
 [Capabilities](docs/CAPABILITIES.md) ·
-[Capability Impact](docs/CAPABILITY_IMPACT.md)
+[Capability Impact](docs/CAPABILITY_IMPACT.md) ·
+[Agent Install](INSTALL_FOR_AGENTS.md) ·
+[GitHub Pages site](site/index.html)
 
 > [!NOTE]
 > OMH は Hermes を自然言語の窓口として維持し、明確な証拠境界を持つプロ向け
@@ -83,21 +82,29 @@ hermes skills tap add rlaope/oh-my-hermes
 hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes
 ```
 
-<br>
-
-**その後は Hermes にいつも通り依頼します:**
-
-```text
-このリポジトリに安全に機能を追加したいです。
-```
-
-<br>
-
 **または Your AI Agent に依頼します:**
 
 ```text
 Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<
 ```
+
+<br>
+
+**既存の `--full` インストールを core に戻す:**
+
+```sh
+omh skill-profile status
+omh skill-profile reconcile --to core --dry-run
+omh skill-profile reconcile --to core
+```
+
+setup、install、update はインストール済みの skill を削除しないため、一度
+`--full` でインストールした workspace は、明示的に reconcile するまでその
+per-turn の context 負荷を維持し続けます。詳細は
+[既存の Full インストールを Core に戻す](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core)
+を参照してください。
+
+<br>
 
 ## OMH が追加するもの
 
@@ -116,21 +123,67 @@ OMH は **88 個**のインストール可能な workflow skill を、理解し�
 完全な catalog、trigger、harness、証拠ルールは
 [Workflow Reference](docs/WORKFLOWS.md) にあります。
 
+**ハイライト**
+
+| 機能 | 使い方 | 内容 |
+| --- | --- | --- |
+| 🧭 **明確化と計画** | `$deep-interview` · `$ralplan` · `$strategy-brief` | 曖昧な依頼を、明確な目標・制約・トレードオフ・受け入れ基準、そしてそのまま引き渡せる計画に変えます。 |
+| ⚡ **レバレッジを効かせた実行** | `$ultrawork` · `$ultragoal` · `$team` · `$loop` | 高速な並列作業から持続的な複数ステップの実行までスケールしながら、所有権・チェックポイント・検証を常に可視化します。 |
+| 🔬 **調査と学習** | `$best-practice-research` · `$web-research` · `$research-brief` | 鮮度・情報源の質・未解決の不確実性の境界を示しながら、根拠に基づく証拠を収集・統合します。 |
+| 🛠️ **安全なコーディングと出荷** | `$request-to-handoff` · `$code-review` · `$ultraqa` | executor に依存しないコーディング作業を準備し、review・QA・CI・merge に関する主張は観測された証拠にのみ基づかせます。 |
+| 🎨 **洗練された成果物の制作** | `$design-quality-gate` · `$materials-package` · `$deliverable-package` · `$img-summary` | コンテンツ・完成度・アクセシビリティ・レンダリング品質ゲートを軸に、Web サイト、ビジュアル、レポート、スライド、ドキュメント、PDF、ポスター、パッケージを制作します。 |
+| 🧠 **記憶と運用** | `$memory` · `$ops-observability-card` · `$doctor` | プロジェクト記憶をレビュー優先で保ち、運用の準備状況を可視化し、provider やシステム状態を作り話にせず次の修復アクションを示します。 |
+| 🔌 **境界を隠さない接続** | `omh mcp` · `omh plugin` · `$agent-board` | Hermes および互換 host 向けにローカルな metadata 専用 contract を公開しつつ、host のロード・ツール利用・外部 provider アクセスを個別に観測可能な状態に保ちます。 |
+
 ## 実務向けの設計
 
-**コマンド一覧ではなくルーター。** 英語、韓国語、日本語、中国語、
-スペイン語、フランス語、ドイツ語、ヒンディー語の依頼を翻訳 API なしで
-ローカル分類し、推奨ファミリー、skill、owner、次の行動、未観測の項目を返します。
+<p align="center">
+  <img src="assets/built-for-real-work-orchestration.png" alt="OMH orchestrating coding agents and creative tools" width="900">
+</p>
 
-**より良いコーディング handoff。** リポジトリ制約、合意済み scope、
-worktree ガイド、ローカル skill、受け入れ条件、review、verification gate を
-選択した executor に渡します。Codex、Claude Code、Hermes、generic executor
-のどれも暗黙のデフォルトにはしません。
+> **OMH (Oh-My-Hermes)** — 誰でも hermes-agent をプロフェッショナルに使えるようにします。<br>
+> あなたの AI エージェントのための強力なインテリジェンスハーネスです。
 
-**品質を理解する制作と provider-neutral な運用。** Web、accessibility、
-画像、report、slide、document は専用の制作・QA ガイダンスを使います。
-metric、wiki、browser、image、video、connector は明示的な外部 provider
-contract の背後に置き、接続・呼び出しをしていない provider を使ったとは主張しません。
+**🧭 コマンド一覧ではなく、より賢いルーター。** 英語、韓国語、日本語、中国語、
+スペイン語、フランス語、ドイツ語、ヒンディー語の依頼を、翻訳 API なしで
+ローカルに分類します。OMH は推奨ファミリー、skill、owner、次の行動、そして
+まだ証拠になっていない部分をあわせて返します。
+
+**🤝 より良いコーディング handoff。** リポジトリの制約、合意済み scope、
+worktree と session-isolation の指針、ローカルで利用可能な skill、受け入れ
+基準、review の期待値、verification gate を含められます。Codex、Claude
+Code、Hermes、generic executor はいずれも隠れたデフォルトにはならず、明示的
+な owner のままです。
+
+**🎨 品質を意識した制作。** Frontend、アクセシビリティ、画像、レポート、
+スライド、ドキュメント、スプレッドシート、PDF、ポスター、共有パッケージの
+依頼は専用の制作・QA ガイダンスを経由します。準備済みのブリーフを、生成済み
+や視覚的に検証済みの成果物であるかのようには扱いません。
+
+**🔍 主張より先に証拠。** OMH は準備された意図、観測された runtime イベント、
+検証済みの結果を区別します。executor が実行した、review が通った、CI が
+成功した、デプロイが完了した、PR が merge されたと主張しなくても、handoff
+は準備完了になり得ます。
+
+**🧠 レビュー優先のプロジェクト記憶。** OMH はプロジェクト記憶の候補を
+承認済みの記録と分けて管理し、レビュー済みで準備された文脈だけを以降の
+handoff に呼び戻します。不透明な Hermes 内部の記憶を読んだり書き換えたりし
+たとは主張しません。
+
+**🔌 provider-neutral な運用。** metric、wiki、browser、image、video、
+connector の各システムは、明示的な外部 provider contract の背後にありま
+す。実際に接続・呼び出しをしていない provider を使ったと主張することなく、
+提供されたデータを検証・分析できます。
+
+**🏛️ Hermes-native かつ executor-neutral なアーキテクチャ。** Hermes は
+引き続きチャット、明確化、計画、調査、状態表示の窓口です。選択された
+executor が実装を担い、OMH はその作業を取り巻くローカル contract、ルー
+ティング、記憶、品質ゲート、証拠境界を提供します。
+
+**🧱 local-first な control plane。** OMH のコアとなるルーティング、
+catalog、manifest、主張ルールは決定的なローカル表面です。外部呼び出しや
+provider アクセスは、コア内部に隠された挙動ではなく、明示的な統合であり続
+けます。
 
 ## 主張より証拠
 
@@ -151,6 +204,8 @@ deployment、merge readiness、merge ではありません。
 - [アーキテクチャ](docs/ARCHITECTURE.md)
 - [機能 manifest](docs/CAPABILITIES.md)
 - [Workflow reference](docs/WORKFLOWS.md)
+- [ロール](docs/ROLES.md)
+- [活用事例](docs/APPLICATION_CASES.md)
 - [リリースと開発](docs/RELEASE.md)
 
 ## 開発

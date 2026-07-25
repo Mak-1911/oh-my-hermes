@@ -166,6 +166,8 @@ from .setup import (
     cmd_probe,
     cmd_recommend,
     cmd_setup,
+    cmd_skill_profile_reconcile,
+    cmd_skill_profile_status,
     cmd_snippet,
     cmd_uninstall,
     cmd_update,
