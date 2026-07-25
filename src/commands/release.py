@@ -160,9 +160,27 @@ def cmd_release_evidence_bundle(args: argparse.Namespace) -> int:
     return 0 if payload["status"] == "ready" else 1
 
 
+def cmd_release_drift(args: argparse.Namespace) -> int:
+    from ..maintenance.drift import drift_report, format_drift_report
+
+    payload = drift_report()
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        print(format_drift_report(payload))
+    return 0 if payload["ok"] else 1
+
+
 def _add_release_commands(sub) -> None:
     release = sub.add_parser("release", help="Plan or run release smoke checks for real Hermes installation paths.")
     release_sub = release.add_subparsers(dest="release_command", required=True)
+
+    drift = release_sub.add_parser(
+        "drift",
+        help="Report every catalog-driven count, budget, and generated artifact that is out of sync, in one pass.",
+    )
+    drift.add_argument("--json", action="store_true", help="Print the machine-readable drift report payload.")
+    drift.set_defaults(func=cmd_release_drift)
 
     checklist = release_sub.add_parser(
         "checklist",
