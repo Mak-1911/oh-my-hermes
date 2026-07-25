@@ -253,6 +253,36 @@ def _budget_drift(metric: BudgetMetric) -> dict[str, Any] | None:
     }
 
 
+def _tap_skills_drift(repo_root: Path) -> dict[str, Any] | None:
+    """Generated `skills/*/SKILL.md` and `skills/*/references/*.md`.
+
+    These do not fit the one-file-per-artifact shape above -- there are dozens,
+    and a catalog change can make some stale while adding or removing others.
+    Reusing the same check `docs workflows --check` runs keeps one definition of
+    stale.
+    """
+    from ..commands.docs import _tap_skills_check_payload
+
+    payload = _tap_skills_check_payload(repo_root / "skills")
+    if payload["ok"]:
+        return None
+    affected = list(payload["missing"]) + list(payload["stale"]) + list(payload["extra"])
+    return {
+        "name": "tap_skills",
+        "kind": "generated",
+        "describe": f"{len(affected)} generated skill file(s) out of sync",
+        "state": "stale",
+        "missing": payload["missing"],
+        "stale": payload["stale"],
+        "extra": payload["extra"],
+        "sites": [f"skills/{item}" for item in affected],
+        "fix": (
+            "write each template's .content back under skills/ "
+            "(builtin_skill_templates() and builtin_skill_reference_templates())"
+        ),
+    }
+
+
 def _generated_drift(artifact: GeneratedArtifact, repo_root: Path) -> dict[str, Any] | None:
     target = repo_root / artifact.path
     expected = artifact.render()
@@ -294,6 +324,7 @@ def drift_report(
     counts: tuple[CountMetric, ...] | None = None,
     budgets: tuple[BudgetMetric, ...] | None = None,
     artifacts: tuple[GeneratedArtifact, ...] | None = None,
+    include_tap_skills: bool = True,
 ) -> dict[str, Any]:
     """Check every metric and report all findings; never stop at the first.
 
@@ -319,6 +350,11 @@ def drift_report(
     for artifact in artifacts:
         checked.append(artifact.name)
         found = _generated_drift(artifact, root)
+        if found:
+            drift.append(found)
+    if include_tap_skills:
+        checked.append("tap_skills")
+        found = _tap_skills_drift(root)
         if found:
             drift.append(found)
 

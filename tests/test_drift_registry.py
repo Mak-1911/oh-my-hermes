@@ -109,6 +109,7 @@ class DriftReportTests(unittest.TestCase):
 
             payload = drift_report(
                 repo_root=root,
+                include_tap_skills=False,
                 counts=(
                     self._count("first_count", live=60, expected=59),
                     self._count("second_count", live=180, expected=179),
@@ -154,8 +155,29 @@ class DriftReportTests(unittest.TestCase):
                 {"first_count", "second_count", "over_budget", "stale_doc", "missing_doc"},
             )
 
+    def test_generated_skill_files_are_checked_by_default(self) -> None:
+        """Regression: the registry once shipped without this and stayed silent.
+
+        Editing a skill reference template left `skills/*/references/*.md` stale.
+        `docs workflows --check` caught it; `release drift` reported no drift,
+        which is the failure this command exists to prevent.
+        """
+        self.assertIn("tap_skills", drift_report()["checked"])
+
+    def test_stale_generated_skill_files_are_reported(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payload = drift_report(repo_root=root, counts=(), budgets=(), artifacts=())
+            reported = {item["name"] for item in payload["drift"]}
+            self.assertIn("tap_skills", reported, "an empty skills/ tree must count as drift")
+
     def test_count_drift_names_the_replacement_and_its_sites(self) -> None:
-        payload = drift_report(counts=(self._count("skill_count", live=60, expected=59),), budgets=(), artifacts=())
+        payload = drift_report(
+            counts=(self._count("skill_count", live=60, expected=59),),
+            budgets=(),
+            artifacts=(),
+            include_tap_skills=False,
+        )
         item = payload["drift"][0]
         self.assertEqual(item["kind"], "count")
         self.assertEqual(item["expected"], 59)
@@ -167,6 +189,7 @@ class DriftReportTests(unittest.TestCase):
     def test_budget_drift_reports_the_overage(self) -> None:
         payload = drift_report(
             counts=(),
+            include_tap_skills=False,
             budgets=(
                 BudgetMetric(
                     name="registry_bytes",
@@ -190,6 +213,7 @@ class DriftReportTests(unittest.TestCase):
             (root / "docs" / "ROLES.md").write_text("stale", encoding="utf-8")
             payload = drift_report(
                 repo_root=root,
+                include_tap_skills=False,
                 counts=(),
                 budgets=(),
                 artifacts=(
@@ -210,6 +234,7 @@ class DriftReportTests(unittest.TestCase):
             counts=(self._count("a_count", live=2, expected=1), self._count("b_count", live=4, expected=3)),
             budgets=(),
             artifacts=(),
+            include_tap_skills=False,
         )
         text = format_drift_report(payload)
         self.assertIn("a_count", text)
@@ -217,7 +242,7 @@ class DriftReportTests(unittest.TestCase):
         self.assertEqual(text.count("fix:"), 2)
 
     def test_the_clean_format_says_how_much_was_checked(self) -> None:
-        text = format_drift_report(drift_report(counts=(), budgets=(), artifacts=()))
+        text = format_drift_report(drift_report(counts=(), budgets=(), artifacts=(), include_tap_skills=False))
         self.assertIn("No drift", text)
 
 
