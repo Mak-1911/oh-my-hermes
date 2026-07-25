@@ -17,7 +17,7 @@ from omh.local_store import (
 )
 
 try:
-    import fcntl as _fcntl
+    import fcntl as _fcntl  # noqa: F401 - import used only to probe platform availability
 
     HAS_FCNTL = True
 except ImportError:

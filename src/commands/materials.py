@@ -4,7 +4,6 @@ import argparse
 
 from ..installer import OmhError
 from ..materials import (
-    EXPORT_STATUSES,
     MATERIAL_FORMATS,
     MATERIAL_KINDS,
     build_material_artifact,

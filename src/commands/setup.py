@@ -23,11 +23,19 @@ from ..command_path import COMMAND_PATH_MISSING_NEXT_ACTION, inspect_omh_command
 from ..capabilities.registry import capability_summary
 from ..capabilities.skills import skill_capabilities
 from ..config_adapter import ensure_external_dir, external_dirs, read_config, remove_external_dir, write_config
+from ..install.compression_defaults import ensure_compression_defaults
 from ..doctor import DEFAULT_DOCTOR_NEXT_ACTION, doctor_ok, recommended_next_action, run_doctor
 from ..maintenance.doctor import run_doctor_advisories
 from ..executors import CODING_EXECUTOR_TARGETS
 from ..hashutil import sha256_file
-from ..installer import OmhError, install_skill_pack, uninstall_skill_pack
+from ..installer import (
+    SKILL_PROFILE_RECONCILE_COMMAND,
+    OmhError,
+    install_skill_pack,
+    reconcile_skill_profile,
+    skill_profile_report,
+    uninstall_skill_pack,
+)
 from ..local_store import atomic_write_text
 from ..manifest import read_manifest
 from ..menubar_app import setup_menubar_app, uninstall_menubar_app
@@ -42,7 +50,6 @@ from ..runtime.artifacts import read_state_result, update_state
 from ..setup_profiles import (
     PROJECT_MEMORY_MODES,
     build_setup_profile,
-    setup_profile_categories_for_executor,
     write_setup_profile,
 )
 from ..snippet import WORKSPACE_SNIPPET
@@ -56,7 +63,7 @@ from ..team_profiles import (
     operating_model_ids,
 )
 from .common import _action_label, _paths, _print_json, _wants_json
-from .language import LANGUAGE_CODES, language_from_env, language_options, normalize_language, tr
+from .language import LANGUAGE_CODES, language_from_env, normalize_language, tr
 
 INSTALLER_COMMAND = "curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh"
 COMMAND_PACKAGE_STATUS_SCHEMA_VERSION = "command_package_status/v1"
@@ -678,10 +685,11 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
     current = read_config(paths.hermes_config_path)
     try:
         change = ensure_external_dir(current, paths.skills_dir)
+        compression = ensure_compression_defaults(change.text)
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
-    if not args.dry_run and change.changed:
-        write_config(paths.hermes_config_path, change.text)
+    if not args.dry_run and (change.changed or compression.changed):
+        write_config(paths.hermes_config_path, compression.text)
     if not args.dry_run:
         update_state(
             paths,
@@ -691,7 +699,14 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
                 "external_dir_registered": str(paths.skills_dir) in read_config(paths.hermes_config_path),
             },
         )
-    return {"changed": change.changed, "message": change.message, "config": str(paths.hermes_config_path), "skills_dir": str(paths.skills_dir), "dry_run": args.dry_run}
+    return {
+        "changed": change.changed or compression.changed,
+        "message": change.message,
+        "config": str(paths.hermes_config_path),
+        "skills_dir": str(paths.skills_dir),
+        "dry_run": args.dry_run,
+        "compression_defaults": {"changed": compression.changed, "message": compression.message},
+    }
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
@@ -756,6 +771,130 @@ def cmd_list(args: argparse.Namespace) -> int:
     else:
         _print_list_summary(payload, manifest_path=paths.manifest_path, skills_dir=paths.skills_dir)
     return 0
+
+
+def cmd_skill_profile_status(args: argparse.Namespace) -> int:
+    payload = skill_profile_report(_paths(args))
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        _print_skill_profile_status_summary(payload)
+    return 0
+
+
+def cmd_skill_profile_reconcile(args: argparse.Namespace) -> int:
+    paths = _paths(args)
+    payload = reconcile_skill_profile(
+        paths,
+        target_profile=str(getattr(args, "to", "core")),
+        dry_run=bool(getattr(args, "dry_run", False)),
+    )
+    if not payload.get("dry_run"):
+        state = payload.get("profile_state_after", {})
+        update_state(
+            paths,
+            {
+                "manifest_path": str(paths.manifest_path),
+                "manifest_sha256": sha256_file(paths.manifest_path),
+                "installed_skills": state.get("installed_skill_count", 0) if isinstance(state, dict) else 0,
+                "skills_dir": str(paths.skills_dir),
+                "last_skill_profile_reconcile": {
+                    "target_profile": payload.get("target_profile", ""),
+                    "removed_skills": payload.get("removed_skills", []),
+                    "retained_skills": payload.get("retained_skills", []),
+                    "effective_profile": state.get("effective_profile", "") if isinstance(state, dict) else "",
+                },
+            },
+        )
+        payload["runtime_state_path"] = str(paths.runtime_state_path)
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        _print_skill_profile_reconcile_summary(payload)
+    return 0
+
+
+def _print_skill_profile_status_summary(payload: dict[str, object]) -> None:
+    use_color = _use_color()
+    state = payload.get("profile_state", {})
+    if not isinstance(state, dict):
+        state = {}
+    print(_color("OMH skill profile", "1;36", use_color))
+    print(_color("Summary", "1;32", use_color))
+    if not payload.get("installed"):
+        print("  Status: not installed")
+        print(f"  Manifest: {payload.get('manifest_path', '')}")
+        print(_color("Next", "1;32", use_color))
+        print("  Run `omh setup` to install managed Hermes skills.")
+        return
+    print(f"  Requested profile: {state.get('requested_profile', '') or 'unrecorded'}")
+    print(f"  Effective profile: {state.get('effective_profile', '')}")
+    print(
+        f"  Installed skills: {state.get('installed_catalog_skill_count', 0)} catalog "
+        f"(core profile is {state.get('core_profile_skill_count', 0)}, "
+        f"full profile is {state.get('full_profile_skill_count', 0)})"
+    )
+    full_only = state.get("full_only_installed_skills", [])
+    if isinstance(full_only, list) and full_only:
+        print(f"  Full-only skills installed: {len(full_only)}")
+    unmanaged_count = state.get("unmanaged_skill_count", 0)
+    if isinstance(unmanaged_count, int) and unmanaged_count:
+        print(f"  Non-catalog skill directories: {unmanaged_count}")
+    retained = payload.get("retained_skills", [])
+    if isinstance(retained, list) and retained:
+        print(_color("Retained by reconcile", "1;33", use_color))
+        for item in retained[:12]:
+            if isinstance(item, dict):
+                print(f"  - {item.get('name', '')}: {item.get('reason', '')}")
+    print(_color("Context cost", "1;32", use_color))
+    print(f"  {state.get('context_cost_note', '')}")
+    print(f"  {state.get('non_destructive_default', '')}")
+    print(_color("Next", "1;32", use_color))
+    reconcilable = payload.get("reconcilable_skills", [])
+    if isinstance(reconcilable, list) and reconcilable:
+        print(f"  Run `{SKILL_PROFILE_RECONCILE_COMMAND} --dry-run` to preview removing {len(reconcilable)} skill(s).")
+    else:
+        print("  Nothing to reconcile; the installed skills already match the recorded profile.")
+
+
+def _print_skill_profile_reconcile_summary(payload: dict[str, object]) -> None:
+    use_color = _use_color()
+    dry_run = bool(payload.get("dry_run"))
+    title = "OMH skill profile reconcile preview" if dry_run else "OMH skill profile reconciled"
+    removed = payload.get("would_remove_skills" if dry_run else "removed_skills", [])
+    if not isinstance(removed, list):
+        removed = []
+    before = payload.get("profile_state_before", {})
+    after = payload.get("profile_state_after", before)
+    if not isinstance(before, dict):
+        before = {}
+    if not isinstance(after, dict):
+        after = {}
+    print(_color(title, "1;36", use_color))
+    print(_color("Summary", "1;32", use_color))
+    print(f"  Target profile: {payload.get('target_profile', '')}")
+    print(f"  Effective profile before: {before.get('effective_profile', '')}")
+    if not dry_run:
+        print(f"  Effective profile after: {after.get('effective_profile', '')}")
+    verb = "Would remove" if dry_run else "Removed"
+    print(f"  {verb}: {len(removed)} unmodified managed full-only skill(s)")
+    if removed:
+        shown = [str(name) for name in removed[:12]]
+        print("  Names: " + ", ".join(shown) + (" ..." if len(removed) > len(shown) else ""))
+    retained = payload.get("retained_skills", [])
+    if isinstance(retained, list) and retained:
+        print(_color("Retained", "1;33", use_color))
+        for item in retained[:12]:
+            if isinstance(item, dict):
+                print(f"  - {item.get('name', '')}: {item.get('reason', '')}")
+    print(_color("Context cost", "1;32", use_color))
+    print(f"  {payload.get('context_cost_note', '')}")
+    print(f"  {payload.get('non_destructive_default', '')}")
+    print(_color("Next", "1;32", use_color))
+    if dry_run:
+        print(f"  Rerun without `--dry-run` to apply: `{SKILL_PROFILE_RECONCILE_COMMAND}`.")
+    else:
+        print("  Restart or reload Hermes Agent so it picks up the smaller skill set.")
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -895,14 +1034,12 @@ def cmd_setup(args: argparse.Namespace) -> int:
     language = _setup_language(args)
     paths = _paths(args)
     if _setup_should_interact(args):
-        if not _language_was_explicit(args):
-            language = _ask_setup_language(use_color=_use_color())
-            args.language = language
         if not _setup_paths_were_explicit(args) and not getattr(args, "scope", None):
             args.scope = _ask_setup_scope(use_color=_use_color(), language=language)
             paths = _paths(args)
         _run_setup_wizard(args, paths, language)
-        _offer_github_star_before_setup(language=language, use_color=_use_color(), dry_run=bool(args.dry_run))
+    if getattr(args, "star", False):
+        _star_github_repo(language=language, use_color=_use_color(), dry_run=bool(args.dry_run))
     if not args.with_mcp and (
         str(getattr(args, "mcp_host", "generic") or "generic") != "generic"
         or getattr(args, "mcp_config_path", None)
@@ -1132,6 +1269,8 @@ def _resolve_language(args: argparse.Namespace) -> str:
 
 
 def _setup_language(args: argparse.Namespace) -> str:
+    # English-first product surface: localized output is explicit opt-in via
+    # --language or OMH_LANG, never inferred from the OS locale.
     if _language_was_explicit(args):
         return _resolve_language(args)
     return "en"
@@ -1143,17 +1282,6 @@ def _language_was_explicit(args: argparse.Namespace) -> bool:
 
 def _setup_paths_were_explicit(args: argparse.Namespace) -> bool:
     return bool(getattr(args, "omh_home", None) or getattr(args, "hermes_home", None))
-
-
-def _ask_setup_language(*, use_color: bool) -> str:
-    return _ask_single_choice(
-        tr("en", "language_title"),
-        [tr("en", "language_intro")],
-        language_options(),
-        default_choice="1",
-        use_color=use_color,
-        language="en",
-    )
 
 
 def _ask_setup_scope(*, use_color: bool, language: str) -> str:
@@ -1198,54 +1326,21 @@ def _run_setup_wizard(args: argparse.Namespace, paths, language: str) -> None:
         print(f"{tr(language, 'hermes_config')}: {_color(str(paths.hermes_config_path), '36', use_color)} ({tr(language, 'status_will_create')})")
     print(f"{tr(language, 'managed_skills')}: {_color(str(paths.skills_dir), '36', use_color)}")
 
-    args.skip_apply = not _ask_yes_no(
-        tr(language, "register_question"),
-        default=True,
-        use_color=use_color,
-        note=tr(language, "register_note"),
-        language=language,
-    )
-    args.default_executor = _ask_default_executor(use_color=use_color, language=language)
-    args.profile = setup_profile_categories_for_executor(str(args.default_executor))
-    show_advanced = _ask_yes_no(
-        tr(language, "advanced_question"),
-        default=False,
-        use_color=use_color,
-        note=tr(language, "advanced_note"),
-        language=language,
-    )
-    if show_advanced:
-        args.with_mcp = _ask_yes_no(
-            tr(language, "mcp_question"),
-            default=False,
+    if not args.profile and not getattr(args, "default_executor", None):
+        # No upfront coding-owner question: safety-first records "choose" so
+        # Hermes asks at the first coding request instead of setup time.
+        args.profile = ["safety-first"]
+    if args.with_mcp and str(getattr(args, "mcp_host", "generic") or "generic") == "generic":
+        args.mcp_host = _ask_mcp_host(
             use_color=use_color,
-            note=tr(language, "mcp_note"),
             language=language,
+            default_host=_default_mcp_host_for_executor(str(getattr(args, "default_executor", "") or "")),
         )
-        if args.with_mcp:
-            args.mcp_host = _ask_mcp_host(
-                use_color=use_color,
-                language=language,
-                default_host=_default_mcp_host_for_executor(str(getattr(args, "default_executor", "") or "")),
-            )
-    else:
-        args.with_mcp = False
     args.profile_pack = explicit_profile_packs
     print("")
 
 
-def _offer_github_star_before_setup(*, language: str, use_color: bool, dry_run: bool = False) -> None:
-    wants_star = _ask_yes_no(
-        tr(language, "github_star_question"),
-        default=True,
-        use_color=use_color,
-        note=tr(language, "github_star_note"),
-        language=language,
-    )
-    if not wants_star:
-        print(tr(language, "github_star_declined"))
-        print("")
-        return
+def _star_github_repo(*, language: str, use_color: bool, dry_run: bool = False) -> None:
     if dry_run:
         print(_color(tr(language, "github_star_dry_run"), "33", use_color))
         print("")
@@ -1274,46 +1369,6 @@ def _try_star_github_repo() -> dict[str, object]:
         return {"ok": True, "reason": "starred_or_already_starred"}
     detail = (completed.stderr or completed.stdout or "gh repo star failed").strip()
     return {"ok": False, "reason": detail}
-
-
-def _ask_default_executor(*, use_color: bool, language: str) -> str:
-    options = [
-        {
-            "choice": "1",
-            "value": "codex",
-            "label": tr(language, "executor_codex_label"),
-            "description": tr(language, "executor_codex_desc"),
-        },
-        {
-            "choice": "2",
-            "value": "claude-code",
-            "label": tr(language, "executor_claude_label"),
-            "description": tr(language, "executor_claude_desc"),
-        },
-        {
-            "choice": "3",
-            "value": "hermes",
-            "label": tr(language, "executor_hermes_label"),
-            "description": tr(language, "executor_hermes_desc"),
-        },
-    ]
-    value = _ask_single_choice(
-        tr(language, "executor_title"),
-        [
-            tr(language, "executor_intro_1"),
-            tr(language, "executor_intro_2"),
-        ],
-        options,
-        default_choice="1",
-        use_color=use_color,
-        language=language,
-    )
-    try:
-        build_setup_profile(default_executor=value)
-    except ValueError as exc:
-        print(_color(tr(language, "invalid_executor", error=exc), "31", use_color))
-        return "choose"
-    return value
 
 
 def _ask_mcp_host(*, use_color: bool, language: str, default_host: str = "generic") -> str:
@@ -1663,6 +1718,8 @@ def _print_setup_summary(payload: dict[str, object], *, language: str = "en") ->
         executor = str(profile.get("default_executor", ""))
         if executor:
             print(f"  {tr(language, 'default_handoff', summary=_executor_summary(language, executor))}")
+            if executor == "choose":
+                print(f"  {tr(language, 'default_handoff_pin_hint')}")
 
     if isinstance(topology, dict):
         print(
@@ -1922,6 +1979,12 @@ def _print_install_summary(payload: dict[str, object], *, command: str, language
     state_key = str(payload.get("runtime_state_key", "")).strip()
     if state_path and state_key:
         print(f"  {tr(language, 'state_log', path=state_path, entry=state_key)}")
+    profile_state = payload.get("skill_profile_state")
+    if isinstance(profile_state, dict) and profile_state.get("retained_exception"):
+        retained = profile_state.get("full_only_installed_skills", [])
+        retained_count = len(retained) if isinstance(retained, list) else 0
+        line = tr(language, "skill_profile_retained_line", count=retained_count, command=SKILL_PROFILE_RECONCILE_COMMAND)
+        print(_color(f"  {line}", "1;33", use_color))
     print(_color(tr(language, "next"), "1;32", use_color))
     if dry_run:
         print(f"  {tr(language, 'install_next_dry')}")
@@ -2789,6 +2852,7 @@ def _add_top_level_commands(sub) -> None:
     setup.add_argument("--interactive", action="store_true", help="Force the interactive setup wizard.")
     setup.add_argument("--no-interactive", action="store_true", help="Disable the interactive setup wizard.")
     setup.add_argument("--skip-apply", action="store_true", help="Install skills without registering them in Hermes config.")
+    setup.add_argument("--star", action="store_true", help="Star the oh-my-hermes GitHub repo via gh after setup (opt-in; never prompted).")
     setup.add_argument(
         "--profile",
         action="append",
@@ -2799,7 +2863,7 @@ def _add_top_level_commands(sub) -> None:
         "--default-executor",
         choices=CODING_EXECUTOR_TARGETS,
         default=None,
-        help="Default coding agent suggestion. Interactive setup only shows Codex, Claude Code, and Hermes.",
+        help="Durable coding-owner preference for automation and scripted installs. Interactive setup never asks; by default Hermes asks at the first coding request.",
     )
     setup.add_argument(
         "--operating-model",
@@ -2894,6 +2958,38 @@ def _add_top_level_commands(sub) -> None:
     list_cmd = sub.add_parser("list", help="Show the installed managed skill manifest.")
     list_cmd.add_argument("--json", action="store_true", help="Print the full machine-readable manifest.")
     list_cmd.set_defaults(func=cmd_list)
+
+    skill_profile = sub.add_parser(
+        "skill-profile",
+        help="Inspect or explicitly reconcile the installed core/full skill profile.",
+    )
+    skill_profile_sub = skill_profile.add_subparsers(dest="skill_profile_command", required=True)
+    skill_profile_status = skill_profile_sub.add_parser(
+        "status",
+        help="Show the requested profile, the effective installed profile, and retained exceptions.",
+    )
+    skill_profile_status.add_argument("--json", action="store_true", help="Print the full machine-readable profile state.")
+    skill_profile_status.set_defaults(func=cmd_skill_profile_status)
+    skill_profile_reconcile = skill_profile_sub.add_parser(
+        "reconcile",
+        help=(
+            "Explicitly shrink an existing install to the core profile by removing unmodified "
+            "managed full-only skills. setup/install/update never do this."
+        ),
+    )
+    skill_profile_reconcile.add_argument(
+        "--to",
+        choices=("core",),
+        default="core",
+        help="Target profile to reconcile down to. Only core shrinks an install.",
+    )
+    skill_profile_reconcile.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the removals and retained exceptions without deleting anything.",
+    )
+    skill_profile_reconcile.add_argument("--json", action="store_true", help="Print the full machine-readable reconcile payload.")
+    skill_profile_reconcile.set_defaults(func=cmd_skill_profile_reconcile)
 
     doctor = sub.add_parser("doctor", help="Check local OMH install health and Hermes skill registration.")
     doctor.add_argument("--json", action="store_true", help="Print the full machine-readable doctor payload.")

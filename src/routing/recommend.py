@@ -71,6 +71,7 @@ _GUARDRAIL_CANDIDATE_INJECTION_IDS = frozenset(
         "materials_package_before_report_or_clarify",
         "memory_curation_before_generic_clarification",
         "media_input_operator_before_generic_content_or_direct",
+        "named_coding_agent_delivery_before_advisor_or_feedback",
         "ops_observability_before_generic_loop",
         "release_claim_review_before_file_lookup",
         "safe_feature_change_before_generic_plan",

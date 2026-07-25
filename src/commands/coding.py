@@ -89,7 +89,8 @@ def cmd_coding_delegate(args: argparse.Namespace) -> int:
             message,
             source=args.source,
             limit=args.limit,
-            include_message=args.include_message,
+            include_message=args.include_message or args.include_message_full,
+            message_context_mode="full" if args.include_message_full else "bounded",
             source_metadata=source_metadata,
             executor_target=executor_target,
             context_pack=context_pack,
@@ -574,9 +575,248 @@ def cmd_coding_quality_harness_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
+    from ..coding.fanout import build_fanout_contract, is_degenerate_single_unit, single_unit_redirect
+    from ..coding.fanout_artifacts import write_fanout_contract
+    from ..coding.fanout_contracts import FanoutContractError
+
+    units = _read_fanout_units(args.units)
+    if is_degenerate_single_unit(units):
+        _print_json(single_unit_redirect(units))
+        return 0
+    try:
+        contract = build_fanout_contract(
+            " ".join(args.goal).strip(),
+            units,
+            source=args.source,
+            source_metadata=_explicit_source_metadata(args),
+        )
+    except FanoutContractError as exc:
+        raise OmhError(str(exc)) from exc
+    if args.record:
+        contract = write_fanout_contract(_paths(args), contract)
+    _print_json(contract)
+    return 0
+
+
+def cmd_coding_fanout_validate(args: argparse.Namespace) -> int:
+    from ..coding.fanout import detect_boundary_overlaps, merge_order, validate_fanout_units, _normalized_unit
+    from ..coding.fanout_contracts import FanoutContractError
+
+    units = [_normalized_unit(unit, index) for index, unit in enumerate(_read_fanout_units(args.units))]
+    try:
+        validate_fanout_units(units)
+        notes = detect_boundary_overlaps(units)
+        order = merge_order(units)
+    except FanoutContractError as exc:
+        _print_json({"schema_version": "fanout_validation/v1", "ok": False, "error": str(exc)})
+        return 1
+    _print_json(
+        {
+            "schema_version": "fanout_validation/v1",
+            "ok": True,
+            "unit_count": len(units),
+            "merge_order": order,
+            "conflict_risk_notes": notes,
+        }
+    )
+    return 0
+
+
+def cmd_coding_fanout_show(args: argparse.Namespace) -> int:
+    from ..coding.fanout_artifacts import read_fanout_contract
+    from ..runtime.artifacts import show_run
+    from ..runtime.context_budget import run_context_budget
+
+    paths = _paths(args)
+    try:
+        contract = read_fanout_contract(paths, args.fanout_id)
+    except (OSError, ValueError) as exc:
+        raise OmhError(f"fanout contract not found: {exc}") from exc
+
+    full = bool(getattr(args, "full", False))
+    history_limit = None if full else _fanout_history_limit(args)
+    units = contract.get("units", [])
+    status_by_unit: dict[str, object] = {}
+    watched_runs: list[str] = []
+    exhausted_units: list[str] = []
+    for unit in units:
+        if not isinstance(unit, dict):
+            continue
+        run_ref = str(unit.get("run_ref", ""))
+        observed = "not_observed"
+        latest_event = ""
+        history: dict[str, object] = {}
+        if run_ref and (paths.runtime_runs_dir / run_ref / "run.json").exists():
+            try:
+                shown = show_run(paths, run_ref, history_limit=history_limit)
+            except (OSError, ValueError, KeyError):
+                shown = None
+            if isinstance(shown, dict):
+                watched_runs.append(run_ref)
+                shown_history = shown.get("history")
+                if isinstance(shown_history, dict):
+                    journal_bounds = shown_history.get("journal_events")
+                    history = journal_bounds if isinstance(journal_bounds, dict) else {}
+                events = [event for event in shown.get("journal_events", []) or [] if isinstance(event, dict)]
+                if events:
+                    latest = events[-1]
+                    latest_event = str(latest.get("event", ""))
+                    observed = str(latest.get("status", "not_observed"))
+                else:
+                    observed = "run_recorded_no_observations"
+                if run_context_budget(paths, run_ref, surface="fanout_show")["exhausted"]:
+                    exhausted_units.append(str(unit.get("unit_id")))
+        status_by_unit[str(unit.get("unit_id"))] = {
+            "prepared_status": unit.get("status", "prepared"),
+            "observed_run_status": observed,
+            "latest_observed_event": latest_event,
+            "run_ref": run_ref,
+            "journal_event_counts": history,
+        }
+    payload = {
+        "schema_version": "fanout_board/v1",
+        "fanout_id": contract.get("fanout_id"),
+        "merge_order": contract.get("merge_plan", {}).get("merge_order", []),
+        "units": status_by_unit,
+        "context_budget": {
+            "history_limit": history_limit,
+            "watched_run_count": len(watched_runs),
+            "budget_exhausted_units": exhausted_units,
+            "policy": "timed_polling_rejected; raw_log_dumping_rejected",
+            "next_action": (
+                "read_full_history_from_artifacts_instead_of_repeating_this_command"
+                if exhausted_units
+                else "wait_for_executor_evidence"
+            ),
+        },
+        "claim_boundary": contract.get("claim_boundary", ""),
+    }
+    _print_json(payload)
+    _record_fanout_board_emission(paths, watched_runs, payload)
+    return 0
+
+
+def _fanout_history_limit(args: argparse.Namespace) -> int:
+    from ..runtime.artifacts import DEFAULT_RUN_HISTORY_LIMIT
+
+    limit = getattr(args, "history_limit", None)
+    if limit is None:
+        return DEFAULT_RUN_HISTORY_LIMIT
+    if int(limit) < 1:
+        raise OmhError("--limit must be at least 1 unless --full is set")
+    return int(limit)
+
+
+def _record_fanout_board_emission(paths, watched_runs: list[str], payload: dict) -> None:
+    from ..runtime.context_budget import record_context_emission
+
+    if not watched_runs:
+        return
+    per_run = len(json.dumps(payload, sort_keys=True)) // len(watched_runs)
+    for run_ref in watched_runs:
+        record_context_emission(paths, run_ref, surface="fanout_show", byte_count=per_run)
+
+
+def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
+    import subprocess as _subprocess
+
+    from ..coding.fanout_artifacts import read_fanout_contract
+    from ..coding.fanout_dispatch import dispatch_fanout
+
+    paths = _paths(args)
+    try:
+        contract = read_fanout_contract(paths, args.fanout_id)
+    except (OSError, ValueError) as exc:
+        raise OmhError(f"fanout contract not found: {exc}") from exc
+    goal_text = sys.stdin.read() if args.goal_file == "-" else Path(args.goal_file).expanduser().read_text(encoding="utf-8")
+    repo_root = Path(args.repo_root).expanduser().resolve()
+    resolved = _subprocess.run(
+        ["git", "rev-parse", args.base_ref],
+        cwd=str(repo_root),
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    if resolved.returncode != 0:
+        raise OmhError(f"could not resolve --base-ref {args.base_ref!r} in {repo_root}: {resolved.stderr.strip()}")
+    try:
+        summary = dispatch_fanout(
+            paths,
+            contract,
+            goal_text=goal_text,
+            repo_root=repo_root,
+            base_sha=resolved.stdout.strip(),
+            concurrency=args.concurrency,
+            timeout=args.timeout,
+            only_units=args.unit,
+            dry_run=bool(args.dry_run),
+        )
+    except ValueError as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(summary)
+    return 0
+
+
+def _read_fanout_units(units_arg: str) -> list[dict[str, object]]:
+    raw = sys.stdin.read() if units_arg == "-" else Path(units_arg).expanduser().read_text(encoding="utf-8")
+    payload = json.loads(raw)
+    units = payload.get("units") if isinstance(payload, dict) else payload
+    if not isinstance(units, list):
+        raise OmhError("fanout units input must be a JSON list (or an object with a 'units' list)")
+    return units
+
+
 def _add_coding_commands(sub) -> None:
     coding = sub.add_parser("coding", help="Prepare executor-neutral or tracked coding handoff artifacts.")
     coding_sub = coding.add_subparsers(dest="coding_command", required=True)
+
+    fanout = coding_sub.add_parser(
+        "fanout",
+        help="Validate and freeze a proposed parallel work split into a fanout contract (agent/backend surface).",
+    )
+    fanout_sub = fanout.add_subparsers(dest="fanout_command", required=True)
+
+    fanout_prepare = fanout_sub.add_parser("prepare")
+    fanout_prepare.add_argument("--goal", nargs="+", required=True, help="Accepted user goal being split.")
+    fanout_prepare.add_argument("--units", required=True, help="JSON unit list path, or '-' for stdin.")
+    fanout_prepare.add_argument("--source", choices=CHAT_SOURCES, default="generic")
+    fanout_prepare.add_argument("--record", action="store_true", help="Persist the contract under ~/.omh/coding/fanout/.")
+    fanout_prepare.set_defaults(func=cmd_coding_fanout_prepare)
+
+    fanout_validate = fanout_sub.add_parser("validate")
+    fanout_validate.add_argument("--units", required=True, help="JSON unit list path, or '-' for stdin.")
+    fanout_validate.set_defaults(func=cmd_coding_fanout_validate)
+
+    fanout_show = fanout_sub.add_parser("show")
+    fanout_show.add_argument("fanout_id")
+    fanout_show.add_argument(
+        "--limit",
+        dest="history_limit",
+        type=int,
+        default=None,
+        help="Per-unit run history tail read while projecting the board (default: 20).",
+    )
+    fanout_show.add_argument(
+        "--full",
+        action="store_true",
+        help="Read each unit's full run history. Expensive for agent context.",
+    )
+    fanout_show.set_defaults(func=cmd_coding_fanout_show)
+
+    fanout_dispatch = fanout_sub.add_parser(
+        "dispatch",
+        help="Opt-in local bridge: spawn each unit's local agent CLI in an isolated worktree (never merges).",
+    )
+    fanout_dispatch.add_argument("fanout_id")
+    fanout_dispatch.add_argument("--goal-file", required=True, help="File with the goal text frozen at prepare time ('-' for stdin).")
+    fanout_dispatch.add_argument("--repo-root", default=".", help="Repository the unit worktrees branch from.")
+    fanout_dispatch.add_argument("--base-ref", default="HEAD", help="Ref resolved once to a SHA all unit branches start from.")
+    fanout_dispatch.add_argument("--concurrency", type=int, default=2)
+    fanout_dispatch.add_argument("--timeout", type=int, default=1800, help="Per-unit subprocess timeout in seconds.")
+    fanout_dispatch.add_argument("--unit", action="append", default=None, help="Dispatch only these unit ids (repeatable).")
+    fanout_dispatch.add_argument("--dry-run", action="store_true", help="Resolve readiness, argv, and worktree paths; spawn nothing.")
+    fanout_dispatch.set_defaults(func=cmd_coding_fanout_dispatch)
 
     delegate = coding_sub.add_parser("delegate")
     delegate.add_argument("message", nargs="*", help="Coding task description to prepare for executor delegation.")
@@ -602,7 +842,12 @@ def _add_coding_commands(sub) -> None:
     delegate.add_argument(
         "--include-message",
         action="store_true",
-        help="Include raw message and expanded delegation prompt in stdout for non-logging wrappers.",
+        help="Include bounded previews and artifact refs for the raw message and expanded delegation prompt.",
+    )
+    delegate.add_argument(
+        "--include-message-full",
+        action="store_true",
+        help="Include the verbatim raw message and expanded prompts. For wrappers that dispatch the prompt directly.",
     )
     delegate.add_argument("--record", action="store_true", help="Record a metadata-only coding delegation artifact under .omh/runtime.")
     delegate.add_argument(

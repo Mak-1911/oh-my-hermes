@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 
+from .executor_cues import (
+    CODING_DELIVERY_REQUEST_PHRASES,
+    CODING_DELIVERY_REQUEST_TOKENS,
+    NAMED_CODING_AGENT_PHRASES,
+)
 from .intent import classify_omh_quality_intent
 from .localization import normalized_phrase, routing_tokens
 from .materials_cues import OFFICE_FILE_MATERIAL_PHRASES
@@ -4389,6 +4394,21 @@ DIRECT_CODING_TASK_GUARD = RoutingGuardRule(
     why="Matched explicit code-edit language; prepare one bounded implementation cycle instead of asking which workflow to use.",
     activation_status="active",
 )
+NAMED_CODING_AGENT_DELIVERY_GUARD = RoutingGuardRule(
+    id="named_coding_agent_delivery_before_advisor_or_feedback",
+    rule=(
+        "An explicit coding-agent name plus a coding-delivery request should route to the one-cycle "
+        "delivery lane before external-advisor or customer-feedback lanes."
+    ),
+    matched_label="guard:named_coding_agent_delivery",
+    preferred_skills=("ultraprocess",),
+    score_boost=30,
+    why=(
+        "Matched an explicit coding-agent name with a delivery request; prepare a one-cycle coding handoff "
+        "for the named executor instead of external advice or feedback triage."
+    ),
+    activation_status="active",
+)
 CODING_HANDOFF_STATUS_GUARD = RoutingGuardRule(
     id="coding_handoff_status_before_clarify",
     rule="Executor-named coding handoff plus progress/status tracking should route to Ultraprocess instead of generic clarification.",
@@ -4678,6 +4698,7 @@ ROUTING_GUARD_RULES = (
     DELIVERABLE_PACKAGE_GUARD,
     DELIVERY_CYCLE_GUARD,
     DIRECT_CODING_TASK_GUARD,
+    NAMED_CODING_AGENT_DELIVERY_GUARD,
     CODING_HANDOFF_STATUS_GUARD,
 )
 
@@ -4784,10 +4805,12 @@ def _active_routing_guard_rules_cached(
     )
     if direct_coding_task_applies:
         rules.append(DIRECT_CODING_TASK_GUARD)
+    named_coding_agent_delivery_applies = named_coding_agent_delivery_requested(normalized_query, query_tokens)
     feedback_before_coding_applies = _feedback_before_coding_guard_applies(
         normalized_query,
         query_tokens,
         direct_coding_task_applies=direct_coding_task_applies,
+        named_coding_agent_delivery_applies=named_coding_agent_delivery_applies,
     )
     if feedback_before_coding_applies:
         rules.append(FEEDBACK_BEFORE_CODING_GUARD)
@@ -4978,6 +5001,11 @@ def _active_routing_guard_rules_cached(
         rules.append(CODING_HANDOFF_STATUS_GUARD)
     if delivery_cycle_applies:
         rules.append(DELIVERY_CYCLE_GUARD)
+    # Appended last on purpose: an explicit coding-agent name plus a delivery request
+    # outranks generic advisor and customer-signal routing, but never outranks a more
+    # specific lane that already claimed the message.
+    if named_coding_agent_delivery_applies:
+        rules.append(NAMED_CODING_AGENT_DELIVERY_GUARD)
     return tuple(rules)
 
 
@@ -5197,8 +5225,15 @@ def _feedback_before_coding_guard_applies(
     query_tokens: set[str],
     *,
     direct_coding_task_applies: bool | None = None,
+    named_coding_agent_delivery_applies: bool | None = None,
 ) -> bool:
     if _explicit_executor_delegation_requested(normalized_query, query_tokens):
+        return False
+    if named_coding_agent_delivery_applies is None:
+        named_coding_agent_delivery_applies = named_coding_agent_delivery_requested(normalized_query, query_tokens)
+    # A named coding agent plus a delivery request outranks generic issue/bug wording, but
+    # an explicit customer-report phrase is still real feedback that must be triaged first.
+    if named_coding_agent_delivery_applies and not _contains_phrase(normalized_query, _FEEDBACK_TRIAGE_PHRASES):
         return False
     if _contains_phrase(normalized_query, BROWSER_VISUAL_QA_PHRASES) and not _contains_phrase(
         normalized_query,
@@ -6830,6 +6865,43 @@ def _explicit_executor_delegation_requested(normalized_query: str, query_tokens:
             "let claude",
         ),
     )
+
+
+def named_coding_agent_delivery_requested(normalized_query: str, query_tokens: set[str]) -> bool:
+    """Explicit coding-agent name plus a coding-delivery request.
+
+    This is the precedence signal that keeps a request like "claude code로 이 이슈 해결해줘"
+    on the coding handoff lane instead of the external-advisor (`ask`) or customer-feedback
+    (`feedback-triage`) lanes. It never dispatches anything; it only selects the prepared
+    coding lane.
+    """
+    if not _contains_phrase(normalized_query, NAMED_CODING_AGENT_PHRASES):
+        return False
+    delivery = _contains_phrase(normalized_query, CODING_DELIVERY_REQUEST_PHRASES) or bool(
+        CODING_DELIVERY_REQUEST_TOKENS & query_tokens
+    )
+    if not delivery:
+        return False
+    if _contains_phrase(
+        normalized_query,
+        ("before coding", "before code", "before implementation", "before writing code", "구현 전에", "코딩 전에"),
+    ):
+        return False
+    if _safe_feature_plan_guard_applies(normalized_query, query_tokens):
+        return False
+    if _risky_refactor_guard_applies(normalized_query, query_tokens):
+        return False
+    if _cleanup_refactor_guard_applies(normalized_query, query_tokens):
+        return False
+    if _coding_progress_status_guard_applies(normalized_query, query_tokens):
+        return False
+    if _github_event_ops_guard_applies(normalized_query, query_tokens):
+        return False
+    if _doctor_health_guard_applies(normalized_query, query_tokens):
+        return False
+    if _release_claim_review_guard_applies(normalized_query, query_tokens):
+        return False
+    return True
 
 
 def _executor_runtime_readiness_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:

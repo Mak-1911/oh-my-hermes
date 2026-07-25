@@ -47,6 +47,12 @@ from ..executor_readiness import (
     with_executor_readiness_options,
 )
 from .agentic_playbook import maybe_build_agentic_playbook
+from .context_safety import (
+    MAX_VISIBLE_MESSAGE_CHARS,
+    compact_visible_text,
+    context_budget_payload,
+    raw_output_artifact_ref,
+)
 from ..harness_quality import with_wrapper_actions
 from ..quality.specialist_work import build_specialist_work_quality_contract
 from ..ingress import CHAT_SOURCES, extract_message_text, extract_source_metadata
@@ -68,6 +74,8 @@ from ..skills.catalog import (
 
 SCHEMA_VERSION = "coding_delegation/v1"
 DELEGATION_ACTIONS = ("delegate", "clarify", "fallback")
+MESSAGE_CONTEXT_SCHEMA_VERSION = "coding_delegation_message_context/v1"
+MESSAGE_CONTEXT_MODES = ("full", "bounded")
 _CATALOG_INTENT_RETAINED_WORKFLOWS = set(catalog_intent_delegation_skill_names())
 _RETAINED_HERMES_WORKFLOWS = set(retained_delegation_skill_names())
 _LOCAL_CAPABILITY_STRATEGY_SCHEMA_VERSION = "executor_local_capability_strategy/v1"
@@ -247,10 +255,13 @@ def build_coding_delegation_payload(
     project_root: str | Path | None = None,
     governance_default: str = "not_applicable",
     product_family: str | None = None,
+    message_context_mode: str = "full",
 ) -> dict[str, object]:
     message = message.strip()
     if not message:
         raise ValueError("coding delegate requires a task description")
+    if message_context_mode not in MESSAGE_CONTEXT_MODES:
+        raise ValueError(f"unsupported coding delegate message context mode: {message_context_mode}")
     if source not in CHAT_SOURCES:
         raise ValueError(f"unsupported coding delegate source: {source}")
     if executor_target not in CODING_EXECUTOR_TARGETS:
@@ -375,21 +386,69 @@ def build_coding_delegation_payload(
     if plan_artifact:
         payload["plan_artifact"] = plan_artifact
     if include_message:
-        payload["message"] = message
-        payload["delegation_prompt"] = str(delegation.delegation_prompt_template).replace("{message}", message)
-        handoff = payload.get("executor_handoff")
-        if isinstance(handoff, dict) and "prompt_template" in handoff:
-            payload["executor_handoff_prompt"] = str(handoff["prompt_template"]).replace("{message}", message)
-        prompt_handoff = payload.get("prompt_handoff")
-        if isinstance(prompt_handoff, dict) and "prompt_template" in prompt_handoff:
-            payload["prompt_handoff_prompt"] = str(prompt_handoff["prompt_template"]).replace("{message}", message)
-        runtime_handoff = payload.get("runtime_handoff")
-        if isinstance(runtime_handoff, dict) and "prompt_template" in runtime_handoff:
-            payload["runtime_handoff_prompt"] = str(runtime_handoff["prompt_template"]).replace("{message}", message)
+        _attach_visible_message(payload, message, delegation, bounded=message_context_mode == "bounded")
     agentic_playbook = maybe_build_agentic_playbook(message, delegation_payload=payload)
     if agentic_playbook:
         payload["agentic_playbook"] = agentic_playbook
     return payload
+
+
+_VISIBLE_PROMPT_KEYS = (
+    ("executor_handoff", "executor_handoff_prompt"),
+    ("prompt_handoff", "prompt_handoff_prompt"),
+    ("runtime_handoff", "runtime_handoff_prompt"),
+)
+
+
+def _attach_bounded_text(payload: dict[str, object], key: str, text: str) -> None:
+    payload[f"{key}_preview"] = compact_visible_text(text, max_chars=MAX_VISIBLE_MESSAGE_CHARS)
+    payload[f"{key}_artifact"] = raw_output_artifact_ref(text, source=f"coding_delegate:{key}")
+
+
+def _attach_visible_message(
+    payload: dict[str, object],
+    message: str,
+    delegation: CodingDelegation,
+    *,
+    bounded: bool,
+) -> None:
+    """Attach the raw message and expanded prompts under an explicit context policy.
+
+    Bounded mode is the agent-facing default: previews capped at the
+    `context_safety` budget plus verifiable artifact refs (sha256, byte count),
+    never the fully expanded prompt. Full mode stays available for wrappers that
+    dispatch the expanded prompt verbatim.
+    """
+    expansions: list[tuple[str, str]] = [
+        ("message", message),
+        ("delegation_prompt", str(delegation.delegation_prompt_template).replace("{message}", message)),
+    ]
+    for handoff_key, prompt_key in _VISIBLE_PROMPT_KEYS:
+        handoff = payload.get(handoff_key)
+        if isinstance(handoff, dict) and "prompt_template" in handoff:
+            expansions.append((prompt_key, str(handoff["prompt_template"]).replace("{message}", message)))
+    if not bounded:
+        for key, text in expansions:
+            payload[key] = text
+        payload["message_context"] = {
+            "schema_version": MESSAGE_CONTEXT_SCHEMA_VERSION,
+            "mode": "full",
+            "raw_content_included": True,
+            "policy": "verbatim_expanded_prompt_for_dispatching_wrappers",
+        }
+        return
+    for key, text in expansions:
+        _attach_bounded_text(payload, key, text)
+    payload["message_context"] = {
+        "schema_version": MESSAGE_CONTEXT_SCHEMA_VERSION,
+        "mode": "bounded",
+        "raw_content_included": False,
+        "policy": "refs_and_preview_only",
+        "bounded_keys": [key for key, _ in expansions],
+        "max_preview_chars": MAX_VISIBLE_MESSAGE_CHARS,
+        "full_output_flag": "--include-message-full",
+    }
+    payload["context_budget"] = context_budget_payload()
 
 
 def _attach_governance_and_family(

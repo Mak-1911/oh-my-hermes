@@ -107,43 +107,20 @@ Safety rules:
 - An achievements card reflects only locally observed hermes-achievements plugin artifacts; it is not a session-history rescan, badge recomputation, unlock proof beyond those artifacts, or productivity evidence.
 - Do not claim connector, gateway, runtime, file generation, memory mutation, or host automation evidence from prepared guidance.
 
-## Harness Discipline
-
-- Start from `oh-my-hermes` harnesses for coding, research, planning, goals, architecture, critique, QA, or docs lanes.
-- Prefer richer evidence and clearer stop conditions over more workflow names.
-- Use specialist lanes only when they improve answer quality or verification.
-
 ## Runtime Evidence
 
 Preferred harness for this skill: `coding-handling`.
 
-When local shell access or a bot wrapper is available, record metadata-only evidence:
-
 ```sh
 omh runtime record --skill achievements --harness coding-handling --status started
-omh runtime delegate --run <run-id> --requested --not-observed --result not_observed
 ```
 
-Record observed delegation results when exposed. If unavailable, say `not_available` or `not_observed`.
+Record observed delegation results when Hermes or the wrapper exposes them. If delegation is unavailable, keep the result explicit as `not_available` or `not_observed`.
 
-## Hermes Compatibility
+## Hermes Compatibility Contract
 
-- Preserve workflow intent, stop conditions, and verification discipline.
-- Use Hermes-native tools, file operations, and subagent/delegation features when available.
-- Do not require runtime tools, role prompts, or overlays Hermes Agent does not expose.
-- Respect `omh_target_topology/v1` when a wrapper reports it: bind state to the current target/thread, adapt only the parts of this workflow that benefit from multiple Hermes agents, and fall back to single-target behavior when `active_agent_count` is one.
-- When target topology changes from one to many or many to one, give a concise setup-change comment or use the wrapper's apply action before treating the new topology as persistent.
+- Preserve the workflow intent, stop conditions, and verification discipline; verify with the smallest relevant test or inspection before claiming completion.
+- Use Hermes-native tools, file operations, and subagent/delegation features when available, and do not require runtime tools, role prompts, or overlays that Hermes Agent does not expose. If Hermes cannot provide a required runtime capability, say so and fall back: native subagents -> Hermes delegation when available, otherwise sequential lanes.
+- Respect `omh_target_topology/v1` when a wrapper reports it: bind state to the current target/thread, fall back to single-target behavior when `active_agent_count` is one, and give one concise setup-change comment before treating a one-to-many or many-to-one change as persistent.
 - Treat wrapper-supplied memory/context summaries as advisory local context, not proof that opaque Hermes memory was read or changed.
-- Translate runtime-specific mechanisms to Hermes-native artifacts:
-  - goal tools -> `.omh/goals/` ledgers, goal cards, or checklists with named next actions,
-  - question renderers -> one concise question in the current Hermes interface,
-  - native subagents -> Hermes delegation when available, otherwise sequential lanes,
-  - shell bridge commands -> optional bridge mode only.
-
-## Execution Rules
-
-1. Load supporting context with `skills_list` / `skill_view` when needed.
-2. State the workflow target, constraints, validation evidence, and stop condition.
-3. Keep progress evidence-backed.
-4. Verify before claiming completion.
-5. If Hermes lacks a required runtime capability, say so and use the fallback above.
+- Shared rail: `oh-my-hermes/references/skill-common-rail.md` carries harness discipline, the runtime-mechanism translation table, the delegation-record command, and the execution-rule checklist. Load it when one of those applies; if it is not installed, name the unavailable capability instead of assuming it.

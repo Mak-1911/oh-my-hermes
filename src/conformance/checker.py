@@ -9,7 +9,6 @@ from .contract import (
     DEFAULT_CLAIM_BOUNDARY,
     RUNTIME_SUBJECT_TYPE,
     SCHEMA_VERSION,
-    Claim,
     ConformanceReport,
     EvidenceItem,
     JsonValue,

@@ -118,6 +118,73 @@ except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
         )
 
 try:
+    from ...routing.executor_cues import (
+        CODING_DELIVERY_REQUEST_PHRASES as _CODING_DELIVERY_REQUEST_PHRASES,
+        CODING_DELIVERY_REQUEST_TOKENS as _CODING_DELIVERY_REQUEST_TOKENS,
+        NAMED_CODING_AGENT_PHRASES as _NAMED_CODING_AGENT_PHRASES,
+    )
+except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
+    _NAMED_CODING_AGENT_PHRASES = (
+        "codex",
+        "코덱스",
+        "claude code",
+        "claude-code",
+        "claudecode",
+        "클로드 코드",
+        "클로드코드",
+        "hermes coding",
+        "헤르메스 코딩",
+        "헤르메스가 코딩",
+        "헤르메스한테 코딩",
+    )
+    _CODING_DELIVERY_REQUEST_PHRASES = (
+        "open a pr",
+        "open the pr",
+        "raise a pr",
+        "send a pr",
+        "write the code",
+        "until tests pass",
+        "해결",
+        "고쳐",
+        "고치",
+        "구현",
+        "수정",
+        "만들어",
+        "작성",
+        "추가",
+        "개선",
+        "테스트",
+        "짜줘",
+        "짜 줘",
+        "처리해",
+        "작업해",
+        "実装",
+        "修正",
+        "解決",
+        "対応",
+        "直して",
+        "テスト",
+        "实现",
+        "修复",
+        "解决",
+        "测试",
+    )
+    _CODING_DELIVERY_REQUEST_TOKENS = frozenset(
+        {
+            "fix",
+            "fixes",
+            "implement",
+            "implementation",
+            "patch",
+            "pr",
+            "resolve",
+            "solve",
+            "test",
+            "tests",
+        }
+    )
+
+try:
     from ...routing.materials_cues import OFFICE_FILE_MATERIAL_PHRASES as _OFFICE_FILE_MATERIAL_PHRASES
 except ImportError:
     _OFFICE_FILE_MATERIAL_PHRASES = (
@@ -4434,10 +4501,13 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
                         else [],
                     }
                 )
+        named_coding_agent_delivery = _named_coding_agent_delivery_signal(routing_normalized, tokens)
         for rule in _ROUTE_HINT_RULES:
             if len(hints) >= hint_limit:
                 break
             if _rule_suppressed_by_omh_quality_intent(rule, omh_quality_intent):
+                continue
+            if _rule_suppressed_by_named_coding_agent_delivery(rule, named_coding_agent_delivery):
                 continue
             if _rule_suppressed_by_reference_intent(rule, intent):
                 continue
@@ -4512,6 +4582,28 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
             "tool invocation, generated output, verification, review, CI, merge, or proof that routing was correct."
         ),
     }
+
+
+def _named_coding_agent_delivery_signal(routing_normalized: str, tokens: set[str]) -> bool:
+    """Explicit coding-agent name plus a coding-delivery request.
+
+    Awareness-side twin of the chat router's
+    `named_coding_agent_delivery_before_advisor_or_feedback` guard: it keeps the request on
+    the coding handoff lane instead of the customer-signal lane. It selects a prepared lane
+    only and never dispatches an executor.
+    """
+    if not any(phrase in routing_normalized for phrase in _NAMED_CODING_AGENT_PHRASES):
+        return False
+    if any(phrase in routing_normalized for phrase in _CODING_DELIVERY_REQUEST_PHRASES):
+        return True
+    return bool(_CODING_DELIVERY_REQUEST_TOKENS & tokens)
+
+
+def _rule_suppressed_by_named_coding_agent_delivery(
+    rule: dict[str, object],
+    named_coding_agent_delivery: bool,
+) -> bool:
+    return named_coding_agent_delivery and rule.get("id") == "customer_signal"
 
 
 def _route_hint_rule_matches(
@@ -5056,7 +5148,7 @@ def awareness_workflow_context_markdown(skill_name: str) -> str:
         [
             "## OMH Context Rail",
             "",
-            f"- This skill is part of OMH's Hermes workflow layer, not a standalone executor.",
+            "- This skill is part of OMH's Hermes workflow layer, not a standalone executor.",
             f"- Product context: {payload['product_context']}",
             f"- {lane_line}",
             "- If intent belongs to another lane, hand back to `oh-my-hermes` or name the adjacent workflow.",

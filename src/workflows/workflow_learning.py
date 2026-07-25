@@ -342,7 +342,8 @@ def build_trace_from_runtime_run(
 ) -> dict[str, Any]:
     if outcome not in _LEARNING_OUTCOMES:
         raise WorkflowLearningError(f"unsupported learning outcome: {outcome}")
-    shown = show_run(paths, run_id)
+    # Learning traces summarize every observation, so they need the full record.
+    shown = show_run(paths, run_id, history_limit=None)
     run = _object(shown.get("run"))
     routing = _object(shown.get("routing"))
     coding = _object(shown.get("coding_delegation"))

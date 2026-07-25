@@ -706,6 +706,46 @@ status means a handoff was prepared; the companion run envelope is also marked
 Executor-choice, runtime-handoff, clarify, fallback, and prompt-only handoffs
 return `runtime.recorded=false` and should stay in wrapper/session state.
 
+### Prepared Runtime Run Executor Matrix
+
+A `prepared_coding_delegation` run is not the generic shape of every coding
+handoff. It is the run-backed lifecycle for one work-owner mode. Every executor
+profile OMH models belongs to exactly one lane, and the lane decides whether a
+runtime run exists at all:
+
+| `work_owner_mode` | Executor profiles | Prepared handoff contract | `prepared_coding_delegation` run | Wrapper `current_run_id` link |
+| --- | --- | --- | --- | --- |
+| `external_executor` | `codex` | `coding_executor_handoff/v1` | required | required |
+| `prompt_only_handoff` | `claude-code`, `generic` | `coding_prompt_handoff/v1` | forbidden | forbidden |
+| `runtime_handoff` | `hermes`, `omx-runtime`, `omo-runtime`, `omc-runtime` | `coding_runtime_handoff/v1` | forbidden | forbidden |
+| pending choice (`choose`) | none selected yet | executor-choice contract | forbidden | forbidden |
+
+`external_executor` is the only run-backed lane today because
+`coding_executor_handoff/v1` is the only handoff contract that carries the
+dispatch, result, verification, review, CI, and merge ledger a run directory
+validates. Its supported profile set is the `CODING_EXECUTOR_HANDOFF_TARGETS`
+registry in `src/coding/executors.py`, currently `codex` alone. That is a
+documented capability boundary, not an executor default: adding a second
+run-backed profile is a capability decision that must extend the registry and
+the profile-specific handoff validation together, not a special case inside the
+validator.
+
+`src/runtime/artifacts.py` validates against that registry rather than a
+hard-coded profile name, and `PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX` is the
+single rejection sentence appended to every mismatch. A rejected record is told
+which lane it belongs to, which profiles are run-backed, and which field made it
+fail — a `claude-code` record stored as a runtime run is rejected both as a
+prompt-only handoff and because its `work_owner_mode` is not
+`external_executor`, while a record that reaches `external_executor` with an
+unsupported or missing profile is rejected on `selected_executor_profile` or on
+the absent `executor_handoff`. The same registry gates the wrapper-session link, so
+a session cannot point `current_run_id` at a run whose
+`executor_handoff.executor_target` is outside the run-backed set.
+
+None of this changes evidence semantics. Accepting a run-backed profile keeps
+`observation_status: prepared_not_observed`; rejecting a non-run-backed profile
+is a schema error, never a downgrade or upgrade of observed evidence.
+
 Bot wrappers can still call `omh runtime delegate` after the response if
 delegation metadata is available. If not, they should record `not_observed`
 rather than guessing.

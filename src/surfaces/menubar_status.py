@@ -386,6 +386,12 @@ def _settings(
         if current_executor_row
         else str(executor.get("dispatch_policy", "") or "ask_before_dispatch")
     )
+    coding_handoff = _setting(
+        value=current_executor,
+        label=f"Coding agent: {_executor_setting_label(current_executor)}",
+        raw=f"coding_agent:{current_executor}",
+    )
+    coding_handoff["source"] = _coding_handoff_source(current_executor_row, current_executor)
     return {
         "omh_connection": _setting(
             value=str(plugin.get("status", "") or "unknown"),
@@ -397,17 +403,27 @@ def _settings(
             label=_target_label(topology, hermes_agents),
             raw=f"target:{_target_value(topology, hermes_agents)}",
         ),
-        "coding_handoff": _setting(
-            value=current_executor,
-            label=f"Coding agent: {_executor_setting_label(current_executor)}",
-            raw=f"coding_agent:{current_executor}",
-        ),
+        "coding_handoff": coding_handoff,
         "send_mode": _setting(
             value=dispatch_policy,
             label=_dispatch_policy_label(dispatch_policy, current_executor),
             raw=f"dispatch_policy:{dispatch_policy}",
         ),
     }
+
+
+def _coding_handoff_source(current_executor_row: dict[str, Any], current_executor: str) -> str:
+    # Distinguishes WHY an executor name is (or is not) shown, per the
+    # three-state model in docs/INSTALLATION.md: a route result/observed
+    # runtime fact from a run, a prepared handoff recorded but not yet
+    # executed, a standing user preference recorded at setup, or none of
+    # the above (the safety-first no-run state).
+    if current_executor_row:
+        evidence = _dict(current_executor_row.get("evidence"))
+        return "observed_runtime" if bool(evidence.get("execution_observed")) else "prepared_handoff"
+    if current_executor != "choose":
+        return "user_preference"
+    return "none"
 
 
 def _versions(hud: dict[str, Any]) -> dict[str, Any]:
@@ -435,8 +451,10 @@ def _display(
     pieces = [f"{len(hermes_agents)} Hermes target(s)"]
     if current_executor_row:
         pieces.append(f"{current_executor_row['name']} {current_executor_row['status_label'].lower()}")
+    elif str(settings["coding_handoff"]["value"]) != "choose":
+        pieces.append(f"{_executor_setting_label(str(settings['coding_handoff']['value']))} preferred, no request routed yet")
     else:
-        pieces.append("coding agent idle")
+        pieces.append("ready for the next request")
     return {
         "menu_title": "omh",
         "headline": headline,
@@ -533,11 +551,20 @@ def _coding_menu_rows(settings: dict[str, Any], current_executor_row: dict[str, 
         if next_action:
             rows.append(_menu_row("Next", _human_next_action(next_action)))
         return rows
+    # No-run state: nothing has been routed yet, so this card is led by
+    # Hermes/OMH readiness rather than an idle coding-agent concept. See
+    # docs/INSTALLATION.md "Status model: no-run, prepared-handoff,
+    # observed-run".
     dispatch = _setting_value(settings, "send_mode", default="ask_before_dispatch")
+    coding_value = _setting_value(settings, "coding_handoff", default="choose")
+    if coding_value == "choose":
+        status_row = _menu_row("Status", "ready", detail="Hermes routes the next request to a coding agent")
+    else:
+        status_row = _menu_row("Status", "preferred", detail="no request routed yet")
     return [
         _menu_row("Agent", _coding_agent_menu_value(settings, current_executor_row)),
-        _menu_row("Status", "idle", detail="no coding agent selected"),
-        _menu_row("Open mode", _dispatch_policy_menu_value(dispatch, _setting_value(settings, "coding_handoff"))),
+        status_row,
+        _menu_row("Open mode", _dispatch_policy_menu_value(dispatch, coding_value)),
     ]
 
 
@@ -927,7 +954,7 @@ def _target_label(topology: dict[str, Any], hermes_agents: list[dict[str, Any]])
 
 def _executor_setting_label(executor_profile: str) -> str:
     if executor_profile == "choose":
-        return "Ask each time"
+        return "Not selected"
     return executor_label(executor_profile)
 
 

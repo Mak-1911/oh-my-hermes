@@ -53,7 +53,9 @@ from omh.plugin_bundle.omh.awareness import (
     awareness_workflow_context_markdown,
     workflow_context_card_for_workflow,
 )
+from omh.skill_pack import builtin_skill_reference_templates
 from omh.skills.catalog import (
+    CORE_PROFILE_SKILLS,
     builtin_harnesses,
     catalog_intent_delegation_skill_names,
     coding_skills_for_intent,
@@ -131,6 +133,111 @@ class EfficiencyContractTests(unittest.TestCase):
         self.assertLessEqual(combined.count("memory_review_card/v1"), explicit_budget)
         self.assertLessEqual(combined.count("handoff_context_pack/v1"), explicit_budget)
         self.assertLessEqual(combined.count("advisory local context"), compact_budget)
+
+    def test_skill_context_cost_report_is_reproducible_and_bounded(self) -> None:
+        """Standing gate for issue #634: the generated pack's always-loaded prompt cost.
+
+        `omh docs skill-context-cost` renders the same payload. The ceilings below are the
+        post-#634 measurements plus a small margin, so a section that creeps back into every
+        skill body fails here with the byte number instead of growing silently.
+        """
+        from omh.skills.context_cost import (
+            SKILL_CONTEXT_COST_SCHEMA_VERSION,
+            skill_context_cost_markdown,
+            skill_context_cost_payload,
+        )
+
+        payload = skill_context_cost_payload()
+        self.assertEqual(payload["schema_version"], SKILL_CONTEXT_COST_SCHEMA_VERSION)
+        profiles = {profile["profile"]: profile for profile in payload["profiles"]}
+        self.assertEqual(set(profiles), {"core", "full"})
+
+        core = profiles["core"]
+        full = profiles["full"]
+        self.assertEqual(core["skill_count"], len(CORE_PROFILE_SKILLS))
+        self.assertEqual(full["skill_count"], len(builtin_skill_templates()))
+
+        # Every byte of every skill body is accounted for exactly once.
+        for profile in (core, full):
+            with self.subTest(profile=profile["profile"]):
+                expected_bytes = sum(
+                    len(template.content)
+                    for template in builtin_skill_templates()
+                    if profile["profile"] == "full" or template.name in CORE_PROFILE_SKILLS
+                )
+                self.assertEqual(profile["skill_body"]["bytes"], expected_bytes)
+                self.assertEqual(
+                    profile["repeated"]["bytes"] + profile["skill_specific"]["bytes"],
+                    profile["skill_body"]["bytes"],
+                )
+                self.assertEqual(
+                    profile["repeated"]["bytes"],
+                    sum(int(row["duplicate_bytes"]) for row in profile["headings"]),
+                )
+
+        # Post-#634 ceilings. Baseline on main was 72,878 (core) / 759,969 (full) bytes
+        # with 41.70% of the full-profile body repeated verbatim across skills.
+        self.assertLess(core["skill_body"]["bytes"], 68_000)
+        self.assertLess(full["skill_body"]["bytes"], 700_000)
+        self.assertLess(full["repeated"]["share_percent"], 38.0)
+
+        # References are progressive disclosure, counted outside the always-loaded body.
+        self.assertEqual(full["references"]["file_count"], len(builtin_skill_reference_templates()))
+        self.assertIn(
+            "oh-my-hermes/references/skill-common-rail.md",
+            full["references"]["files"],
+        )
+
+        report = skill_context_cost_markdown()
+        self.assertIn("## core profile", report)
+        self.assertIn("## full profile", report)
+        self.assertIn("Hermes Compatibility Contract", report)
+
+    def test_skill_triggers_and_evidence_boundaries_survive_common_rail_move(self) -> None:
+        """Differential gate for issue #634 on the three surfaces it must not change.
+
+        Routing is deterministic Python that never reads `SKILL.md`, so the router is
+        asserted directly; triggers, safety rules, and the prepared-vs-observed fallback
+        are asserted against each rendered body for representative core and full skills.
+        """
+        from omh.routing.chat import route_chat_message
+        from omh.skills.render import SHARED_RAIL_REFERENCE_PATH
+
+        templates = {template.name: template.content for template in builtin_skill_templates()}
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+
+        representative = {
+            "plan": "plan",  # core profile
+            "ops-observability-card": "ops-observability-card",  # core profile
+            "code-review": "code-review",  # full profile only
+            "ultragoal": "ultragoal",  # full profile only
+        }
+        for name, expected_skill in representative.items():
+            with self.subTest(skill=name):
+                definition = definitions[name]
+                content = templates[name]
+
+                # Deterministic routing still selects the skill from its own trigger.
+                routed = route_chat_message(definition.triggers[0], source="discord")
+                self.assertEqual(routed["selected_skill"], expected_skill)
+
+                # Task-specific triggers stay listed in full.
+                for trigger in definition.triggers:
+                    self.assertIn(f"`{trigger}`", content)
+
+                # Evidence boundaries stay inline.
+                for rule in definition.safety_rules:
+                    self.assertIn(rule, content)
+                self.assertIn("Prepared OMH routing", content)
+                self.assertIn("prepared", content.lower())
+
+                # Fallback behavior stays inline, plus the pointer to the moved policy.
+                self.assertIn("`not_available` or `not_observed`", content)
+                self.assertIn(
+                    "native subagents -> Hermes delegation when available, otherwise sequential lanes",
+                    content,
+                )
+                self.assertIn(SHARED_RAIL_REFERENCE_PATH, content)
 
     def test_omh_awareness_context_is_strong_but_bounded(self) -> None:
         workflow_skill_names = {template.name for template in builtin_skill_templates()} - {"oh-my-hermes"}

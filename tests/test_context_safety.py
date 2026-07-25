@@ -6,7 +6,15 @@ import unittest
 from _local_package import load_local_package
 
 load_local_package()
-from omh.context_safety import build_coding_progress_reporting_policy, build_progress_event, raw_output_artifact_ref
+from omh.context_safety import (
+    MAX_RUN_HISTORY_EVENTS,
+    RUN_CONTEXT_BUDGET_BYTES,
+    build_coding_progress_reporting_policy,
+    build_progress_event,
+    raw_output_artifact_ref,
+)
+from omh.runtime.artifacts import DEFAULT_RUN_HISTORY_LIMIT
+from omh.runtime.context_budget import RUN_CONTEXT_BUDGET_BYTES as RUNTIME_RUN_CONTEXT_BUDGET_BYTES
 
 
 class ContextSafetyTests(unittest.TestCase):
@@ -49,6 +57,25 @@ class ContextSafetyTests(unittest.TestCase):
         for event_type in policy["reportable_events"]:
             event = build_progress_event(event_type, f"{event_type} update")
             self.assertEqual(event["event_type"], event_type)
+
+    def test_anti_polling_policy_names_a_mechanical_backstop(self) -> None:
+        policy = build_coding_progress_reporting_policy(next_action="wait_for_executor_evidence")
+        enforcement = policy["enforcement"]
+
+        self.assertEqual(enforcement["schema_version"], "coding_progress_policy_enforcement/v1")
+        self.assertFalse(enforcement["declarative_only"])
+        self.assertEqual(enforcement["mechanism"], "bounded_tail_plus_run_context_budget_ledger")
+        self.assertIn("omh runtime show", enforcement["bounded_surfaces"])
+        self.assertIn("omh coding fanout show", enforcement["bounded_surfaces"])
+        self.assertEqual(enforcement["default_history_limit"], MAX_RUN_HISTORY_EVENTS)
+        self.assertEqual(enforcement["run_context_budget_bytes"], RUN_CONTEXT_BUDGET_BYTES)
+        self.assertEqual(enforcement["degraded_output"], "summary_only_with_artifact_pointers")
+        self.assertEqual(enforcement["full_history_opt_out"], "--full")
+
+    def test_policy_budget_constants_are_the_ones_the_runtime_enforces(self) -> None:
+        # The declared numbers must be the enforced numbers, not a second copy.
+        self.assertEqual(DEFAULT_RUN_HISTORY_LIMIT, MAX_RUN_HISTORY_EVENTS)
+        self.assertEqual(RUNTIME_RUN_CONTEXT_BUDGET_BYTES, RUN_CONTEXT_BUDGET_BYTES)
 
     def test_progress_event_compacts_raw_payloads_for_chat_context(self) -> None:
         raw_log = "traceback " + ("Z" * 5000)

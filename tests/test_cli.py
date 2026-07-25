@@ -2039,6 +2039,40 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(stdout, "")
         self.assertIn("task description must not be empty", stderr)
 
+    def test_agent_facing_json_stdout_is_compact_by_default(self) -> None:
+        status, stdout, stderr = run_cli(["playbook", "list", "--json"])
+
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        self.assertEqual(stdout, json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+        self.assertEqual(stdout.rstrip("\n").count("\n"), 0)
+
+    def test_pretty_flag_and_env_restore_human_readable_json(self) -> None:
+        status, compact, stderr = run_cli(["playbook", "list", "--json"])
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+
+        status, pretty, stderr = run_cli(["--pretty", "playbook", "list", "--json"])
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+
+        previous = os.environ.get("OMH_JSON_PRETTY")
+        os.environ["OMH_JSON_PRETTY"] = "1"
+        try:
+            status, env_pretty, stderr = run_cli(["playbook", "list", "--json"])
+        finally:
+            if previous is None:
+                os.environ.pop("OMH_JSON_PRETTY", None)
+            else:
+                os.environ["OMH_JSON_PRETTY"] = previous
+
+        self.assertEqual(status, 0, stderr)
+        self.assertIn('": ', pretty)
+        self.assertEqual(json.loads(pretty), json.loads(compact))
+        self.assertEqual(env_pretty, pretty)
+        self.assertLess(len(compact), len(pretty))
+
     def test_local_operator_commands_default_to_human_summary_with_json_escape_hatch(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -2262,47 +2296,32 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             omh_home = root / ".omh"
             hermes_home = root / ".hermes"
             base = ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home)]
-            answers = "\n".join(
-                [
-                    "1",
-                    "y",
-                    "1",
-                    "y",
-                    "y",
-                    "n",
-                ]
-            ) + "\n"
 
-            status, stdout, stderr = run_cli(base + ["setup", "--interactive"], output_json=False, stdin_text=answers)
+            status, stdout, stderr = run_cli(base + ["setup", "--interactive"], output_json=False, stdin_text="")
 
             self.assertEqual(status, 0, stderr)
             self.assertEqual(stderr, "")
             self.assertIn("OMH setup", stdout)
-            self.assertIn("Default coding agent", stdout)
-            self.assertIn("Choose who Hermes should suggest for coding work", stdout)
-            self.assertIn("1) Codex", stdout)
-            self.assertIn("2) Claude Code", stdout)
-            self.assertIn("3) Hermes", stdout)
-            self.assertIn("Show advanced tool bridge options", stdout)
-            self.assertNotIn("Ask every time", stdout)
-            self.assertNotIn("Other coding agent", stdout)
-            self.assertNotIn("Oh-my runtime", stdout)
+            self.assertNotIn("Default coding agent", stdout)
+            self.assertNotIn("Choose who Hermes should suggest for coding work", stdout)
+            self.assertNotIn("Register OMH workflows", stdout)
+            self.assertNotIn("Show advanced tool bridge options", stdout)
+            self.assertNotIn("GitHub star", stdout)
             self.assertNotIn("Add an optional visible team role preset", stdout)
-            self.assertNotIn("every OMH workflow is still installed", stdout)
             self.assertIn("OMH setup complete.", stdout)
             self.assertIn("OMH status helper:", stdout)
-            self.assertNotIn("Install optional plugin bridge", stdout)
-            self.assertIn("Advanced tool bridge: preference recorded", stdout)
+            self.assertIn("coding preference saved: Ask every time", stdout)
+            self.assertIn("omh setup --default-executor", stdout)
             self.assertIn(str(omh_home / "skills"), (hermes_home / "config.yaml").read_text(encoding="utf-8"))
             profile = json.loads((omh_home / "setup-profile.json").read_text(encoding="utf-8"))
-            self.assertEqual(profile["selected_categories"], ["codex-lifecycle"])
-            self.assertEqual(profile["default_executor"], "codex")
+            self.assertEqual(profile["selected_categories"], ["safety-first"])
+            self.assertEqual(profile["default_executor"], "choose")
+            self.assertEqual(profile["dispatch_policy"], "ask_before_dispatch")
             self.assertTrue((hermes_home / "plugins" / "omh" / "plugin.yaml").exists())
             self.assertFalse((hermes_home / "agents" / "omh-cto-loop-cto.md").exists())
             self.assertFalse((omh_home / "team-profile-packs" / "cto-loop.json").exists())
             state = json.loads((omh_home / "runtime" / "state.json").read_text(encoding="utf-8"))
-            self.assertEqual(state["last_setup"]["mcp_setup"]["mode"], "bridge_requested")
-            self.assertFalse(state["last_setup"]["mcp_setup"]["observed"])
+            self.assertEqual(state["last_setup"]["mcp_setup"]["mode"], "none")
 
     def test_setup_interactive_wizard_uses_defaults_on_eof(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -2314,18 +2333,77 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             with patch(
                 "omh.commands.setup._try_star_github_repo",
                 return_value={"ok": True, "reason": "starred_or_already_starred"},
-            ) as star:
+            ) as star, patch("omh.commands.setup._ask_single_choice") as single_choice, patch(
+                "omh.commands.setup._ask_yes_no"
+            ) as yes_no:
                 status, stdout, stderr = run_cli(base + ["setup", "--interactive"], output_json=False)
 
             self.assertEqual(status, 0, stderr)
             self.assertEqual(stderr, "")
             self.assertIn("OMH setup", stdout)
             self.assertIn("OMH setup complete.", stdout)
-            star.assert_called_once_with()
+            # Explicit --omh-home/--hermes-home skips the scope question, so a
+            # fully-flagged interactive run asks ZERO questions; star is opt-in
+            # via --star and never fires on its own.
+            self.assertEqual(single_choice.call_count, 0)
+            self.assertEqual(yes_no.call_count, 0)
+            star.assert_not_called()
             profile = json.loads((omh_home / "setup-profile.json").read_text(encoding="utf-8"))
-            self.assertEqual(profile["selected_categories"], ["codex-lifecycle"])
-            self.assertEqual(profile["default_executor"], "codex")
+            self.assertEqual(profile["selected_categories"], ["safety-first"])
+            self.assertEqual(profile["default_executor"], "choose")
             self.assertTrue((hermes_home / "plugins" / "omh" / "plugin.yaml").exists())
+
+    def test_setup_interactive_asks_exactly_one_scope_question(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            with patch("omh.paths.Path.cwd", return_value=root), patch(
+                "omh.commands.setup._ask_single_choice", return_value="project"
+            ) as single_choice, patch("omh.commands.setup._ask_yes_no") as yes_no, patch(
+                "omh.commands.setup._try_star_github_repo"
+            ) as star:
+                status, stdout, stderr = run_cli(["setup", "--interactive"], output_json=False)
+
+            self.assertEqual(status, 0, stderr)
+            self.assertEqual(single_choice.call_count, 1)
+            title = single_choice.call_args.args[0]
+            self.assertIn("scope", title.lower())
+            self.assertEqual(yes_no.call_count, 0)
+            star.assert_not_called()
+
+    def test_setup_star_flag_records_star_headless(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            base = ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home)]
+
+            with patch(
+                "omh.commands.setup._try_star_github_repo",
+                return_value={"ok": True, "reason": "starred_or_already_starred"},
+            ) as star:
+                status, stdout, stderr = run_cli(base + ["setup", "--star"], output_json=False)
+
+            self.assertEqual(status, 0, stderr)
+            star.assert_called_once_with()
+            self.assertIn("Thanks!", stdout)
+
+    def test_setup_output_defaults_to_english_regardless_of_os_locale(self) -> None:
+        cleared = {name: "" for name in ("OMH_LANG", "OMH_LANGUAGE", "LC_ALL", "LC_MESSAGES")}
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            base = ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home)]
+            with patch.dict(os.environ, {**cleared, "LANG": "ko_KR.UTF-8"}):
+                status, stdout, stderr = run_cli(base + ["setup", "--dry-run"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("Coding requests:", stdout)
+            self.assertNotIn("코딩 요청", stdout)
+            with patch.dict(os.environ, {**cleared, "OMH_LANG": "ko"}):
+                status, stdout, stderr = run_cli(base + ["setup", "--dry-run"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("코딩 요청", stdout)
 
     def test_setup_project_scope_uses_project_local_paths(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -7461,14 +7539,35 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("Boundary: Route hint alignment proves deterministic local agreement", stdout)
         self.assertIn("Use --json for the full machine-readable payload.", stdout)
 
-    def test_coding_delegate_include_message_expands_prompt_for_non_logging_wrappers(self) -> None:
+    def test_coding_delegate_include_message_is_context_bounded_by_default(self) -> None:
         status, stdout, stderr = run_cli(["coding", "delegate", "--include-message", "risky", "refactor"])
+
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        self.assertNotIn("message", payload)
+        self.assertNotIn("delegation_prompt", payload)
+        self.assertEqual(payload["message_preview"], "risky refactor")
+        self.assertEqual(payload["message_context"]["mode"], "bounded")
+        self.assertFalse(payload["message_context"]["raw_content_included"])
+        self.assertEqual(payload["message_context"]["full_output_flag"], "--include-message-full")
+        artifact = payload["delegation_prompt_artifact"]
+        self.assertEqual(artifact["schema_version"], "omh_context_artifact_ref/v1")
+        self.assertFalse(artifact["raw_content_included"])
+        self.assertGreater(artifact["byte_count"], 0)
+        self.assertLessEqual(len(payload["delegation_prompt_preview"]), 180)
+        self.assertEqual(payload["context_budget"]["schema_version"], "omh_context_budget/v1")
+
+    def test_coding_delegate_include_message_full_expands_prompt_for_dispatching_wrappers(self) -> None:
+        status, stdout, stderr = run_cli(["coding", "delegate", "--include-message-full", "risky", "refactor"])
 
         self.assertEqual(stderr, "")
         self.assertEqual(status, 0)
         payload = json.loads(stdout)
         self.assertEqual(payload["message"], "risky refactor")
         self.assertIn("Task:\nrisky refactor", payload["delegation_prompt"])
+        self.assertEqual(payload["message_context"]["mode"], "full")
+        self.assertNotIn("message_preview", payload)
 
     def test_coding_delegate_reads_event_json_and_metadata(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -7634,7 +7733,9 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("does not match", stderr)
 
     def test_coding_delegate_codex_executor_include_message_expands_stdout_only(self) -> None:
-        status, stdout, stderr = run_cli(["coding", "delegate", "--executor", "codex", "--include-message", "risky", "refactor"])
+        status, stdout, stderr = run_cli(
+            ["coding", "delegate", "--executor", "codex", "--include-message-full", "risky", "refactor"]
+        )
 
         self.assertEqual(stderr, "")
         self.assertEqual(status, 0)
@@ -7643,6 +7744,18 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("Task:\nrisky refactor", payload["executor_handoff_prompt"])
         self.assertIn("Local capability discovery:", payload["executor_handoff_prompt"])
         self.assertIn("Goal / Do / Don't / Expected result / Test", payload["executor_handoff_prompt"])
+
+    def test_coding_delegate_codex_executor_bounded_include_message_never_emits_expanded_prompt(self) -> None:
+        status, stdout, stderr = run_cli(["coding", "delegate", "--executor", "codex", "--include-message", "risky", "refactor"])
+
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        self.assertNotIn("executor_handoff_prompt", payload)
+        self.assertNotIn("Local capability discovery:", payload["executor_handoff_prompt_preview"])
+        self.assertLessEqual(len(payload["executor_handoff_prompt_preview"]), 180)
+        self.assertIn("executor_handoff_prompt", payload["message_context"]["bounded_keys"])
+        self.assertGreater(payload["executor_handoff_prompt_artifact"]["byte_count"], 180)
 
     def test_coding_delegate_codex_executor_does_not_handoff_fallback_or_clarify(self) -> None:
         for message, action in (("zzzzunknownphrase", "fallback"), ("fix maybe", "clarify")):
@@ -7737,7 +7850,9 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertTrue(json.loads(stdout)["ok"])
 
     def test_coding_delegate_claude_prompt_handoff_uses_profile_neutral_capability_strategy(self) -> None:
-        status, stdout, stderr = run_cli(["coding", "delegate", "--executor", "claude-code", "--include-message", "risky", "refactor"])
+        status, stdout, stderr = run_cli(
+            ["coding", "delegate", "--executor", "claude-code", "--include-message-full", "risky", "refactor"]
+        )
 
         self.assertEqual(stderr, "")
         self.assertEqual(status, 0)
@@ -9429,7 +9544,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertTrue(context_pack_path.exists())
 
             status, stdout, stderr = run_cli(
-                base + ["coding", "delegate", "--from-plan", str(plan_path), "--record", "--include-message"]
+                base + ["coding", "delegate", "--from-plan", str(plan_path), "--record", "--include-message-full"]
             )
             self.assertEqual(stderr, "")
             self.assertEqual(status, 0)
@@ -10104,43 +10219,43 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertFalse(result["ok"])
         self.assertIn("could not run", result["reason"])
 
-    def test_setup_github_star_prompt_uses_localized_copy(self) -> None:
-        output = io.StringIO()
-        with patch("omh.commands.setup._ask_yes_no", return_value=False) as ask, patch("sys.stdout", output):
-            setup_commands._offer_github_star_before_setup(language="ko", use_color=False)
-
-        ask.assert_called_once()
-        self.assertTrue(ask.call_args.kwargs["default"])
-        self.assertEqual(
-            ask.call_args.kwargs["note"],
-            "Yes를 누르면 인증된 GitHub 계정으로 star를 시도합니다. setup은 어떤 답을 골라도 계속 진행됩니다.",
-        )
-        self.assertIn("GitHub에서 oh-my-hermes에 star를 눌러줄까요?", ask.call_args.args[0])
-        self.assertIn("🥲 괜찮아요", output.getvalue())
-
-    def test_setup_github_star_prompt_yes_records_star(self) -> None:
+    def test_setup_star_flag_flow_records_star_without_prompting(self) -> None:
         output = io.StringIO()
         with (
-            patch("omh.commands.setup._ask_yes_no", return_value=True),
             patch(
                 "omh.commands.setup._try_star_github_repo",
                 return_value={"ok": True, "reason": "starred_or_already_starred"},
             ) as star,
+            patch("omh.commands.setup._ask_yes_no") as ask,
             patch("sys.stdout", output),
         ):
-            setup_commands._offer_github_star_before_setup(language="en", use_color=False)
+            setup_commands._star_github_repo(language="en", use_color=False)
 
         star.assert_called_once_with()
+        ask.assert_not_called()
         self.assertIn("Thanks!", output.getvalue())
 
-    def test_setup_github_star_prompt_dry_run_does_not_call_github(self) -> None:
+    def test_setup_star_flag_flow_reports_failure_and_continues(self) -> None:
         output = io.StringIO()
         with (
-            patch("omh.commands.setup._ask_yes_no", return_value=True),
+            patch(
+                "omh.commands.setup._try_star_github_repo",
+                return_value={"ok": False, "reason": "GitHub CLI is not installed"},
+            ),
+            patch("sys.stdout", output),
+        ):
+            setup_commands._star_github_repo(language="en", use_color=False)
+
+        self.assertIn("Could not record the GitHub star", output.getvalue())
+        self.assertIn("Continuing setup.", output.getvalue())
+
+    def test_setup_star_flag_dry_run_does_not_call_github(self) -> None:
+        output = io.StringIO()
+        with (
             patch("omh.commands.setup._try_star_github_repo") as star,
             patch("sys.stdout", output),
         ):
-            setup_commands._offer_github_star_before_setup(language="en", use_color=False, dry_run=True)
+            setup_commands._star_github_repo(language="en", use_color=False, dry_run=True)
 
         star.assert_not_called()
         self.assertIn("Dry run only", output.getvalue())
@@ -10223,30 +10338,12 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertNotIn(f"\033[{full_rows}F\033[J", rendered)
         self.assertEqual(rendered.count("Default coding agent"), 1)
 
-    def test_setup_executor_copy_uses_simple_coding_agent_names(self) -> None:
-        from omh.commands.language import tr
+    def test_setup_executor_summary_uses_simple_coding_agent_names(self) -> None:
         from omh.commands.setup import _executor_summary
 
-        self.assertEqual(tr("en", "executor_title"), "Default coding agent")
-        self.assertEqual(tr("en", "executor_intro_1"), "Choose who Hermes should suggest for coding work.")
-        self.assertEqual(tr("en", "executor_codex_label"), "Codex")
-        self.assertEqual(tr("en", "executor_claude_label"), "Claude Code")
-        self.assertEqual(tr("ko", "executor_codex_label"), "Codex")
         self.assertEqual(_executor_summary("en", "codex"), "Codex")
+        self.assertEqual(_executor_summary("en", "claude-code"), "Claude Code")
         self.assertEqual(_executor_summary("ko", "choose"), "매번 물어보기")
-        setup_copy = " ".join(
-            [
-                tr("en", "executor_intro_1"),
-                tr("en", "executor_codex_label"),
-                tr("en", "executor_claude_label"),
-                tr("ko", "executor_intro_1"),
-                tr("ko", "executor_codex_label"),
-                tr("ko", "executor_claude_label"),
-            ]
-        ).lower()
-        self.assertNotIn("handoff", setup_copy)
-        self.assertNotIn("other coding agent", setup_copy)
-        self.assertNotIn("runtime", setup_copy)
 
     def test_optional_team_profile_packs_are_listed_and_installed_on_request(self) -> None:
         status, stdout, stderr = run_cli(["profile", "list"])

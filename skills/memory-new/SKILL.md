@@ -68,10 +68,11 @@ Bad example:
 - **OMH project memory** — the default durable project/product/context store is reviewed OMH-local project memory under `.omh/memory/`.
 - **Hermes native memory** — when the user also wants Hermes to remember the fact natively, prepare that as an optional second target with its own approval and observed write evidence.
 - **Dual-store pattern** — one approved fact may target OMH project memory, Hermes native memory, or both; keep the two write states separate.
+- **Stop condition** — stop once approval is recorded or the candidate is rejected; do not drift into existing-memory cleanup.
 
 ## Boundary
 
-OMH project memory does not mutate Hermes internal memory. A `memory_new_candidate/v1` artifact is prepared context only, not an approved OMH project-memory record, Hermes native-memory write, or proof that either store changed.
+OMH project memory does not mutate Hermes internal memory. A `memory_new_candidate/v1` artifact is prepared context only, not an approved OMH project-memory record, Hermes native-memory write, or proof that either store changed. Record target writes only when observed: OMH project-memory approval is not Hermes native-memory evidence, and Hermes native-memory approval is not OMH project-memory evidence.
 
 ## Use When
 
@@ -127,38 +128,22 @@ Safety rules:
 - Use `memory-new` to keep candidate capture, review, approval, and observed writes distinct.
 - Route stale, conflicting, duplicate, overgeneralized, or risky existing `USER.md`/`MEMORY.md` facts to `memory-sync`.
 - Prefer one durable fact per candidate and preserve the project/product scope and source context.
+- State the new durable fact, scope, source, target store, and review owner before capture; add the candidate before requesting approval, and verify target-specific write evidence before claiming persistence.
 
 ## Runtime Evidence
 
 Preferred harness for this skill: `memory-new`.
 
-When local shell access or a bot wrapper is available, record metadata-only evidence:
-
 ```sh
 omh runtime record --skill memory-new --harness memory-new --status started
-omh runtime delegate --run <run-id> --requested --not-observed --result not_observed
 ```
 
-Record observed delegation results when Hermes or the wrapper exposes them. Record target writes only when observed. OMH project-memory approval is not Hermes native-memory evidence, and Hermes native-memory approval is not OMH project-memory evidence.
+Record observed delegation results when Hermes or the wrapper exposes them. If delegation is unavailable, keep the result explicit as `not_available` or `not_observed`.
 
-## Hermes Compatibility
+## Hermes Compatibility Contract
 
-- Preserve workflow intent, stop conditions, and verification discipline.
-- Use Hermes-native tools, file operations, and subagent/delegation features when available.
-- Do not require runtime tools, role prompts, or overlays Hermes Agent does not expose.
-- Respect `omh_target_topology/v1` when a wrapper reports it: bind state to the current target/thread, adapt only the parts of this workflow that benefit from multiple Hermes agents, and fall back to single-target behavior when `active_agent_count` is one.
-- When target topology changes from one to many or many to one, give a concise setup-change comment or use the wrapper's apply action before treating the new topology as persistent.
+- Preserve the workflow intent, stop conditions, and verification discipline; verify with the smallest relevant test or inspection before claiming completion.
+- Use Hermes-native tools, file operations, and subagent/delegation features when available, and do not require runtime tools, role prompts, or overlays that Hermes Agent does not expose. If Hermes cannot provide a required runtime capability, say so and fall back: native subagents -> Hermes delegation when available, otherwise sequential lanes.
+- Respect `omh_target_topology/v1` when a wrapper reports it: bind state to the current target/thread, fall back to single-target behavior when `active_agent_count` is one, and give one concise setup-change comment before treating a one-to-many or many-to-one change as persistent.
 - Treat wrapper-supplied memory/context summaries as advisory local context, not proof that opaque Hermes memory was read or changed.
-- Translate runtime-specific mechanisms to Hermes-native artifacts:
-  - goal tools -> `.omh/goals/` ledgers, goal cards, or checklists with named next actions,
-  - question renderers -> one concise question in the current Hermes interface,
-  - native subagents -> Hermes delegation when available, otherwise sequential lanes,
-  - shell bridge commands -> optional bridge mode only.
-
-## Execution Rules
-
-1. Load supporting context with `skills_list` / `skill_view` when needed.
-2. State the new durable fact, scope, source, target store, review owner, and stop condition.
-3. Add a candidate before requesting approval.
-4. Verify target-specific write evidence before claiming persistence.
-5. Stop after approval is recorded or the candidate is rejected; do not drift into existing-memory cleanup.
+- Shared rail: `oh-my-hermes/references/skill-common-rail.md` carries harness discipline, the runtime-mechanism translation table, the delegation-record command, and the execution-rule checklist. Load it when one of those applies; if it is not installed, name the unavailable capability instead of assuming it.
