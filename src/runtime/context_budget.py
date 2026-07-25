@@ -116,6 +116,16 @@ def record_context_emission(
     return run_context_budget(paths, run_id, surface=surface)
 
 
+def public_budget(budget: dict[str, Any]) -> dict[str, Any]:
+    """Drop internal bookkeeping before the budget is emitted.
+
+    `last_payload_fingerprint` is a hash of the projection the caller is already
+    holding. Emitting it adds bytes, tells the reader nothing, and would make
+    `--full` output differ from before this check existed.
+    """
+    return {key: value for key, value in budget.items() if key != "last_payload_fingerprint"}
+
+
 def unchanged_run_payload(shown: dict[str, Any], budget: dict[str, Any]) -> dict[str, Any]:
     """Replacement for a projection identical to the one already emitted.
 

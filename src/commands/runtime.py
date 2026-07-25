@@ -43,6 +43,7 @@ from ..runtime.artifacts import (
 from ..runtime.context_budget import (
     degrade_run_payload,
     payload_fingerprint,
+    public_budget,
     record_context_emission,
     run_context_budget,
     unchanged_run_payload,
@@ -117,8 +118,10 @@ def cmd_runtime_show(args: argparse.Namespace) -> int:
         shown = show_run(paths, args.run_id, history_limit=_history_limit(args))
     except FileNotFoundError as exc:
         raise OmhError(f"runtime run not found: {args.run_id}") from exc
-    budget = run_context_budget(paths, args.run_id, surface="runtime_show")
+    ledger = run_context_budget(paths, args.run_id, surface="runtime_show")
     fingerprint = payload_fingerprint(shown)
+    unchanged = fingerprint == ledger["last_payload_fingerprint"]
+    budget = public_budget(ledger)
     if full:
         payload = {**shown, "context_budget": budget}
     elif budget["exhausted"]:
@@ -126,7 +129,7 @@ def cmd_runtime_show(args: argparse.Namespace) -> int:
         # signals, but the degraded payload is the one that points at the
         # artifacts, and its shape is an existing contract.
         payload = degrade_run_payload(shown, budget)
-    elif fingerprint == budget["last_payload_fingerprint"]:
+    elif unchanged:
         payload = unchanged_run_payload(shown, budget)
     else:
         payload = {**shown, "context_budget": budget}

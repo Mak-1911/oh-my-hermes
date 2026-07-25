@@ -111,6 +111,25 @@ class UnchangedRunSuppressionTests(unittest.TestCase):
             self.assertIn("run", reopened)
             self.assertIn("events", reopened)
 
+    def test_the_emitted_budget_hides_the_internal_fingerprint(self) -> None:
+        """`--full` must look exactly as it did before this check existed.
+
+        The fingerprint is a hash of the projection the caller already has. It
+        belongs in the ledger, not in the payload.
+        """
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = self._base(root)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            run_id = self._recorded_run(base)
+
+            full = self._show(base, run_id, "--full")
+            self.assertNotIn("last_payload_fingerprint", full["context_budget"])
+            self.assertTrue(
+                run_context_budget(paths, run_id, surface="runtime_show")["last_payload_fingerprint"],
+                "the ledger still needs the fingerprint it just stopped emitting",
+            )
+
     def test_the_fingerprint_ignores_the_budget_envelope(self) -> None:
         """The budget changes on every call; fingerprinting it would defeat the check."""
         shown = {"run": {"run_id": "run-1", "status": "recorded"}}
