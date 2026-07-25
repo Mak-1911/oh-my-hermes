@@ -9,6 +9,11 @@ from .awareness import (
     awareness_route_hint,
     awareness_route_hint_context_from_payload,
 )
+from .degradation import (
+    COMPONENT_CATALOG_QUESTION_CLASSIFIER,
+    degradation_payload,
+    safe_error_type,
+)
 
 OMH_CONTEXT_BRIEF_SCHEMA_VERSION = "omh_context_brief/v1"
 
@@ -23,6 +28,7 @@ def build_context_brief(
     achievements_profile: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Build bounded Hermes-facing OMH operating context."""
+    degraded: list[tuple[str, str]] = []
     text = str(message or "")
     limit = bounded_context_hint_limit(max_hints, default=2)
     primer = awareness_primer_payload()
@@ -90,9 +96,20 @@ def build_context_brief(
         )
     if isinstance(achievements_profile, dict) and achievements_profile.get("observed"):
         payload["achievements_profile"] = achievements_profile
-    catalog_hint = _catalog_question_hint(text)
+    catalog_hint = _catalog_question_hint(text, degraded)
     if catalog_hint:
         payload["catalog_question"] = catalog_hint
+    # Merge the embedded route hint's block upward without stripping it: the
+    # nested `payload["route_hint"]["degradation"]` stays byte-identical
+    # whether the route hint is read standalone or embedded here.
+    route_hint_degradation = route_hint.get("degradation") if isinstance(route_hint, dict) else None
+    if isinstance(route_hint_degradation, dict):
+        for row in route_hint_degradation.get("components", []):
+            if isinstance(row, dict):
+                degraded.append((str(row.get("component", "")), str(row.get("error_type", ""))))
+    degradation = degradation_payload(degraded)
+    if degradation:
+        payload["degradation"] = degradation
     return payload
 
 
@@ -114,8 +131,11 @@ def bounded_context_hint_limit(value: object, *, default: int) -> int:
     return max(0, min(parsed, 10))
 
 
-def _catalog_question_hint(message: str) -> dict[str, object]:
-    if not _is_catalog_question(message):
+def _catalog_question_hint(message: str, degraded: list[tuple[str, str]]) -> dict[str, object]:
+    # `degraded` is a parameter rather than part of the return value on
+    # purpose: this `if not ...` guard cannot invert, because the helper's
+    # return type is unchanged.
+    if not _is_catalog_question(message, degraded):
         return {}
     return {
         "schema_version": "omh_catalog_question_hint/v1",
@@ -136,17 +156,25 @@ def _catalog_question_hint(message: str) -> dict[str, object]:
     }
 
 
-def _is_catalog_question(message: str) -> bool:
+def _is_catalog_question(message: str, degraded: list[tuple[str, str]]) -> bool:
     text = message.strip()
     if not text:
         return False
     try:
         from omh.routing.catalog_questions import is_skill_catalog_question
     except Exception:
+        # Genuine absence: a module that raises at import really is unusable,
+        # so the standalone answer is the accurate label and no degradation is
+        # emitted. A host where `omh` is absent must stay indistinguishable
+        # from today.
         return _standalone_catalog_question(text)
     try:
         return bool(is_skill_catalog_question(text))
-    except Exception:
+    except Exception as exc:
+        # The package imported but the delegated call raised. Record it so the
+        # failure is not relabeled as the standalone-fallback path above, which
+        # returns the same value.
+        degraded.append((COMPONENT_CATALOG_QUESTION_CLASSIFIER, safe_error_type(type(exc).__name__)))
         return _standalone_catalog_question(text)
 
 

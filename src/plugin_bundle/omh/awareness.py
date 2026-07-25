@@ -5,6 +5,13 @@ import hashlib
 import re
 import unicodedata
 
+from .degradation import (
+    COMPONENT_LOCALIZED_ROUTING_TEXT,
+    COMPONENT_LOOP_ROUTE_HINT_ASSESSMENT,
+    degradation_payload,
+    safe_error_type,
+)
+
 _DIAGNOSTIC_STATUS_MARKERS = (
     "[omh awareness]",
     "[omh route hint]",
@@ -4365,20 +4372,50 @@ def workflow_context_card_for_workflow(workflow: str) -> dict[str, object]:
 
 def awareness_context_matches_message(message: str) -> bool:
     """Return true when a non-first-turn message should refresh OMH context."""
-    return _awareness_context_matches_message_cached(message)
+    return _awareness_context_matches_message_cached(message)[0]
+
+
+def awareness_context_match_degradation(message: str) -> str:
+    """Return the sanitized error type when the match's delegated call failed."""
+    # Reads the same cache entry as `awareness_context_matches_message`, so it
+    # costs a cache hit and never a miss.
+    return _awareness_context_matches_message_cached(message)[1]
 
 
 @lru_cache(maxsize=512)
-def _awareness_context_matches_message_cached(message: str) -> bool:
+def _awareness_context_matches_message_cached(message: str) -> tuple[bool, str]:
+    # This is the one function in the degradation design whose return type
+    # changed. Every other helper takes a `degraded` accumulator parameter and
+    # keeps its return type, deliberately: turning a `-> bool` / `-> dict`
+    # helper into a tuple silently inverts every enclosing `if`/`not`, and a
+    # non-empty tuple is always truthy, so neither `compileall` nor Pyflakes
+    # sees it. Do not reintroduce a courier tuple on the other helpers. Both
+    # references here destructure explicitly: `[0]` above and `[1]` in
+    # `awareness_context_match_degradation`.
+    #
+    # `lru_cache` is why the signal has to live in the returned value rather
+    # than in ambient state: ambient state is recorded on the first call and
+    # silently lost on every cache hit.
+    degraded: list[tuple[str, str]] = []
     raw_text = unicodedata.normalize("NFKC", message).casefold()
     if not raw_text.strip():
-        return False
-    localized_text = unicodedata.normalize("NFKC", _localized_routing_text(message)).casefold()
+        # Above the accumulator's only writer, so nothing can have degraded
+        # yet. This return must stay a tuple: bare `False` would make the
+        # `[0]` accessor raise `TypeError` on every empty message, and the
+        # `llm_hooks.pre_llm_call` call site is unguarded.
+        return (False, "")
+    localized_text = unicodedata.normalize("NFKC", _localized_routing_text(message, degraded)).casefold()
     text = f"{raw_text} {localized_text}"
     tokens = set(re.findall(r"[a-z0-9][a-z0-9_-]*", text))
-    return bool(tokens & _AWARENESS_TOKEN_MARKERS) or any(
+    result = bool(tokens & _AWARENESS_TOKEN_MARKERS) or any(
         marker in text for marker in _AWARENESS_MESSAGE_MARKERS
     )
+    # `degraded[0][1]` is lossless here because the `_localized_routing_text`
+    # call above is the sole guarded call in this function body, so the
+    # accumulator holds at most one row. If a second guarded call is ever added
+    # here, widen this accessor (and `awareness_context_match_degradation`) to
+    # carry the whole list instead of the first error type.
+    return (result, degraded[0][1] if degraded else "")
 
 
 def awareness_route_hint(message: str, *, max_hints: int = 2) -> dict[str, object]:
@@ -4407,6 +4444,20 @@ def _copy_awareness_route_hint_payload(payload: dict[str, object]) -> dict[str, 
             list(stored_fields) if isinstance(stored_fields, list | tuple) else []
         )
         copied["privacy"] = copied_privacy
+
+    degradation = payload.get("degradation")
+    if isinstance(degradation, dict):
+        # This function deliberately avoids generic deepcopy, so the nested
+        # degradation block needs an explicit branch: without it a caller
+        # mutating the block corrupts the lru_cached entry for every later
+        # caller.
+        copied["degradation"] = {
+            **degradation,
+            "components": [
+                dict(row) for row in degradation.get("components", []) if isinstance(row, dict)
+            ],
+            "privacy": dict(degradation.get("privacy", {})),
+        }
 
     decision = payload.get("primary_coding_route_decision")
     if isinstance(decision, dict):
@@ -4457,8 +4508,9 @@ def _route_hint_with_action_labels(hint: dict[str, object]) -> dict[str, object]
 
 @lru_cache(maxsize=512)
 def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, object]:
+    degraded: list[tuple[str, str]] = []
     normalized = unicodedata.normalize("NFKC", message).casefold()
-    routing_text = _localized_routing_text(message)
+    routing_text = _localized_routing_text(message, degraded)
     localized_normalized = unicodedata.normalize("NFKC", routing_text).casefold()
     diagnostic_status = _diagnostic_status_context(normalized)
     diagnostic_eval = _prefers_diagnostic_workflow_learning_hint(message, classify_workflow_intent(message))
@@ -4486,7 +4538,7 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
     if normalized.strip() and hint_limit:
         if omh_quality_intent.applies and not diagnostic_learning_first:
             hints.append(_omh_quality_improvement_hint(omh_quality_intent))
-        direct_hint = _direct_workflow_invocation_hint(intent, routing_normalized, message)
+        direct_hint = _direct_workflow_invocation_hint(intent, routing_normalized, message, degraded)
         if len(hints) < hint_limit and direct_hint and not any(
             isinstance(hint, dict) and hint.get("workflow") == direct_hint.get("workflow") for hint in hints
         ):
@@ -4556,7 +4608,7 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
             context_card = workflow_context_card_for_workflow(workflow)
             next_action = str(rule["next_action"])
             if workflow == "loop":
-                next_action = _loop_route_hint_next_action(message, next_action)
+                next_action = _loop_route_hint_next_action(message, next_action, degraded)
             if rule["id"] == "coding_delivery":
                 next_action = _coding_delivery_route_hint_next_action(message, next_action)
             hints.append(
@@ -4588,7 +4640,7 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
         if isinstance(hint, dict)
         for item in hint.get("adjacent_workflows", [])
     )
-    return {
+    payload: dict[str, object] = {
         "schema_version": OMH_ROUTE_HINT_SCHEMA_VERSION,
         "status": "hinted" if hints else "no_hint",
         "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest() if message else "",
@@ -4614,6 +4666,10 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
             "tool invocation, generated output, verification, review, CI, merge, or proof that routing was correct."
         ),
     }
+    degradation = degradation_payload(degraded)
+    if degradation:
+        payload["degradation"] = degradation
+    return payload
 
 
 def _route_hint_with_coding_route_decision(hint: dict[str, object], routing_normalized: str) -> dict[str, object]:
@@ -4824,12 +4880,18 @@ def _contains_phrase(haystack: str, phrase: str) -> bool:
     return phrase in haystack
 
 
-def _localized_routing_text(message: str) -> str:
+def _localized_routing_text(message: str, degraded: list[tuple[str, str]]) -> str:
     if _prepare_routing_text is None:
+        # Genuine absence: a standalone host without the locale pack. Not a
+        # degradation, so nothing is appended.
         return message
     try:
         return str(_prepare_routing_text(message).scoring_text or message)
-    except Exception:  # pragma: no cover - defensive for standalone plugin hosts.
+    except Exception as exc:
+        # The locale pack is present but the delegated call raised. Record the
+        # classified failure so the caller can tell it apart from the absence
+        # branch above, which returns the same value.
+        degraded.append((COMPONENT_LOCALIZED_ROUTING_TEXT, safe_error_type(type(exc).__name__)))
         return message
 
 
@@ -5305,12 +5367,17 @@ _DIRECT_WORKFLOW_NEXT_ACTIONS = {
 }
 
 
-def _loop_route_hint_next_action(message: str, default_action: str) -> str:
+def _loop_route_hint_next_action(message: str, default_action: str, degraded: list[tuple[str, str]]) -> str:
     if _assess_loopability is None:
+        # Genuine absence: the loopability assessor is not installed. Not a
+        # degradation, so nothing is appended.
         return default_action
     try:
         assessment = _assess_loopability(message or "loop", expose_goal=False)
-    except Exception:  # pragma: no cover - route hints should not break standalone hosts.
+    except Exception as exc:
+        # The assessor is present but the delegated call raised. Record it so a
+        # failed assessment is not readable as no assessment being available.
+        degraded.append((COMPONENT_LOOP_ROUTE_HINT_ASSESSMENT, safe_error_type(type(exc).__name__)))
         return default_action
     next_action = str(assessment.get("recommended_next_action") or "").strip()
     normalized = unicodedata.normalize("NFKC", message).casefold().strip()
@@ -5340,7 +5407,12 @@ def _coding_delivery_route_hint_next_action(message: str, default_action: str) -
     return default_action
 
 
-def _direct_workflow_invocation_hint(intent: object, routing_normalized: str, message: str) -> dict[str, object]:
+def _direct_workflow_invocation_hint(
+    intent: object,
+    routing_normalized: str,
+    message: str,
+    degraded: list[tuple[str, str]],
+) -> dict[str, object]:
     mentioned = [str(item) for item in getattr(intent, "mentioned_workflows", ()) if str(item)]
     direct_prefix_workflow = _direct_workflow_prefix(routing_normalized)
     if not mentioned and not direct_prefix_workflow:
@@ -5354,7 +5426,7 @@ def _direct_workflow_invocation_hint(intent: object, routing_normalized: str, me
     lane = str(context_card.get("id") or _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW.get(workflow.casefold(), "intent_to_plan"))
     next_action = _DIRECT_WORKFLOW_NEXT_ACTIONS.get(workflow, "route_to_downstream_workflow")
     if workflow == "loop":
-        next_action = _loop_route_hint_next_action(message, next_action)
+        next_action = _loop_route_hint_next_action(message, next_action, degraded)
     return {
         "id": "direct_workflow_invocation",
         "workflow": workflow,

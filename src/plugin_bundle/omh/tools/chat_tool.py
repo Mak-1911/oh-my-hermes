@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from ..awareness import awareness_route_hint
+from ..degradation import safe_error_type as _safe_error_type
 from ..host_observation import OBSERVATION_SCHEMA, attach_public_observation, observe_plugin_tool_call
 
 OMH_INTERACT_SCHEMA = {
@@ -330,11 +331,6 @@ def _thread_key(source: str, metadata: dict[str, str], message_hash: str) -> str
     channel = metadata.get("channel_ref") or "channel"
     event = metadata.get("source_event_id") or message_hash[:12]
     return f"{source}:{channel}:{event}"
-
-
-def _safe_error_type(error_type: str) -> str:
-    text = re.sub(r"[^A-Za-z0-9_.-]", "", str(error_type or ""))
-    return text[:80] or "Exception"
 
 
 def _safe_metadata_text(value: object) -> str:

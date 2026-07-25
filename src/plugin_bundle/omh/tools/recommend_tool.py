@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from typing import Any
 
 from ..awareness import awareness_primer_payload, awareness_route_hint
+from ..degradation import safe_error_type as _safe_error_type
 from ..host_observation import OBSERVATION_SCHEMA, attach_public_observation, observe_plugin_tool_call
 
 OMH_RECOMMEND_SCHEMA = {
@@ -119,11 +119,6 @@ def _recommendations(message: str, limit: int) -> tuple[list[dict[str, Any]], st
         # package runtime failure, not a genuine missing-package fallback, so it must
         # not be mislabeled as `standalone_plugin_bundle_fallback`.
         return [], "package_recommend_error", _safe_error_type(type(exc).__name__)
-
-
-def _safe_error_type(error_type: str) -> str:
-    text = re.sub(r"[^A-Za-z0-9_.-]", "", str(error_type or ""))
-    return text[:80] or "Exception"
 
 
 def _redacted_recommendation(item: dict[str, Any]) -> dict[str, Any]:
