@@ -37,7 +37,14 @@ git diff --check
   Pyflakes (`F`) only, scoped narrow to stay actionable on a ~135k LOC repo;
   see the `[tool.ruff]` block in `pyproject.toml` for the per-file re-export
   exclusions and the deliberately-not-yet-enforced broad-exception
-  (`BLE001`) policy tracked under issue #637.
+  (`BLE001`) policy, owned by issue #652.
+- That broad-exception policy is a gate, not a comment.
+  `tests/test_broad_exception_policy.py` re-derives every broad `except` site
+  in `src/` from source and fails when one is not classified as either
+  intentional (the failure is classified and surfaced) or needing the #637
+  treatment (the failure is relabeled as a normal result). Add the verdict in
+  that file when you add a broad `except`; do not record hit counts or line
+  numbers in prose, they drift.
 
 ## Generated Artifacts Map
 
