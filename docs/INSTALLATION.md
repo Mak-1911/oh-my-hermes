@@ -174,11 +174,44 @@ recommendation, metadata-only HUD/status/role support, and a bounded evidence
 probe.
 `omh hud` prints the same compact status line a Hermes TUI or plugin surface can
 render. It shows only operationally useful status: OMH version, plugin
-readiness, target topology, current or default coding agent, and evidence
-state. Skill counts, setup inventory, token metadata, and deep diagnostics are
-left to `omh doctor`, `omh_status`, and machine-readable HUD JSON. A quiet idle
-line looks like
-`[omh] v1.0.2 | plugin:ready | target:single | coding-agent:idle(ask)`.
+readiness, target topology, the coding-agent segment described below, and
+evidence state. Skill counts, setup inventory, token metadata, and deep
+diagnostics are left to `omh doctor`, `omh_status`, and machine-readable HUD
+JSON.
+
+#### Status model: no-run, prepared-handoff, observed-run
+
+`omh setup` deliberately records a safety-first `choose` preference and asks
+no upfront coding-owner question, so Hermes asks which coding agent to use at
+the first coding request instead of at install time. The HUD line and the
+`menubar_status/v1` payload follow the same three-state model so that an
+unselected coding agent never reads as an idle external agent named
+`choose`/`ask`:
+
+1. **No-run.** No coding request has been routed yet.
+   - No preference recorded (the normal safety-first default): the HUD
+     `coding-agent` segment is executor-neutral,
+     `coding-agent:not-selected`, and the menu bar's `settings.coding_handoff`
+     reads `Coding agent: Not selected` with `source: "none"`. The Coding
+     Agent card shows `Status: ready` with the detail "Hermes routes the next
+     request to a coding agent" instead of an idle-agent row.
+   - A real preference was recorded (for example `omh setup
+     --default-executor codex`): the executor name is shown because it is a
+     genuine user choice, not a placeholder — `coding-agent:idle(codex)` on
+     the HUD line, and `Coding agent: Codex` with `source: "user_preference"`
+     and `Status: preferred` (detail "no request routed yet") in the menu bar.
+2. **Prepared handoff.** `omh coding delegate --record` prepared a handoff for
+   a run but execution has not been observed: `coding-agent:prepared(codex)`
+   on the HUD line, and the menu bar shows `source: "prepared_handoff"` with
+   the executor's prepared status.
+3. **Observed run.** A run recorded observed evidence (dispatch, execution,
+   verification, review, CI, or merge): the HUD line shows the run's actual
+   phase, for example `coding-agent:runtime(codex)`, and the menu bar shows
+   `source: "observed_runtime"`. The `evidence` HUD segment and the menu bar's
+   Evidence card carry the same prepared-versus-observed boundary as before.
+
+A quiet no-run line looks like
+`[omh] v1.0.2 | plugin:ready | target:single | coding-agent:not-selected`.
 The plugin also exposes `omh_context` for a compact OMH mental model plus
 generic-tool checkpoint, `omh_interact` for shell-free chat responses and
 metadata-only wrapper session records, `omh_recommend` for route hints without
@@ -212,8 +245,12 @@ omh menubar status --json
 
 The `menubar_status/v1` JSON has separate `hermes_agents` and
 `external_coding_executors` sections, friendly labels such as `OMH connection:
-Ready`, `Hermes targets: 2`, `Coding agent: Codex`, and `Open mode: Ask before
-opening Codex`, plus source/model icon IDs with tooltip text. It also includes
+Ready`, `Hermes targets: 2`, `Coding agent: Codex` (or `Coding agent: Not
+selected` in the no-run/no-preference state), and `Open mode: Ask before
+opening Codex`, plus source/model icon IDs with tooltip text. The
+`settings.coding_handoff.source` field distinguishes why an executor name is
+or is not shown — `"none"`, `"user_preference"`, `"prepared_handoff"`, or
+`"observed_runtime"` — per the status model above. It also includes
 `display.menu_cards`, a compact Agent Status/Coding Agent/Evidence card model
 for native menu bar surfaces. The Agent Status card is a small `Agent | PID |
 Status` list. Codex and other coding tools are external executors, not Hermes
