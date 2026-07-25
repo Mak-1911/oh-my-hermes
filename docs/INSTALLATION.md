@@ -1210,10 +1210,62 @@ profiles resolve it. Reference bytes are reported separately from the
 always-loaded total because they are not carried on every turn.
 
 A `core` install still passes `omh doctor` because the core profile installs
-a superset of the doctor health-floor skills; `--full` never removes skills
-that a later `--force` reinstall does not also write, so switching from
-`full` back to a default `core` install does not delete previously installed
-skill files on disk.
+a superset of the doctor health-floor skills.
+
+### Reconciling An Existing Full Install Back To Core
+
+`omh setup`, `omh install`, and `omh update` are non-destructive: they never
+delete an installed skill directory, so reinstalling with the default `core`
+profile after a `--full` install leaves every full-only skill on disk. The
+recorded profile then says `core` while the effective per-turn context weight
+is still that of a `full` install.
+
+Two commands make that gap visible and fixable:
+
+```sh
+omh skill-profile status                          # read-only; mutates nothing
+omh skill-profile reconcile --to core --dry-run   # preview the removals
+omh skill-profile reconcile --to core             # apply
+```
+
+`omh skill-profile status` reports the requested profile (what the last
+install recorded), the effective profile (what is actually on disk), the
+installed/core/full skill counts, and the skills that would be reconciled.
+`omh skill-profile reconcile` is the only OMH path that deletes managed skill
+directories, and it never runs as part of setup, install, or update.
+
+Reconcile removes a skill only when it is both **OMH-managed** (recorded in
+`~/.omh/manifest.json`) and **unmodified** (every file under the skill
+directory is byte-identical to the rendered catalog templates, with no extra
+or missing files). Everything else stays on disk and is reported as a
+retained exception with its reason:
+
+- `locally modified vs. the rendered catalog templates` for an edited skill.
+- `not an OMH catalog skill` for a directory OMH does not ship.
+- `no OMH install-manifest record; not OMH-managed` for an unmanaged copy.
+- `skill directory is not plainly readable managed content` for symlinked or
+  unreadable directories.
+
+Because retained exceptions can survive a reconcile, the manifest records a
+`skill_profile_state` block (`omh_skill_profile_state/v1`) on every install
+and reconcile so status output is not misleading:
+
+| Field | Meaning |
+| --- | --- |
+| `requested_profile` | The profile the last install/reconcile recorded. |
+| `effective_profile` | `core`, `full`, `mixed`, or `none`, derived from disk. |
+| `matches_requested_profile` | Whether the two agree. |
+| `full_only_installed_skills` | Full-only skills still installed. |
+| `retained_exception` | `true` when `core` was requested but full-only skills remain. |
+| `next_action` | The reconcile command to run, or empty. |
+
+```sh
+omh skill-profile status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["profile_state"])'
+```
+
+A `core` reconcile keeps the doctor health floor, so `omh doctor` still passes
+afterwards. Restart or reload Hermes Agent so it picks up the smaller skill
+set.
 
 ### Hermes Setup Guide Skills (Full Profile)
 
