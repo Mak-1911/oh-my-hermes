@@ -156,6 +156,62 @@ print(json.dumps(observed, ensure_ascii=False))
                 with self.assertRaises(ModuleNotFoundError):
                     probe_tool.omh_probe_handler(args)
 
+    def test_context_tool_distinguishes_missing_package_from_package_call_failure(self) -> None:
+        from omh.plugin_bundle.omh.tools import context_tool
+
+        args = {"message": "plan a risky refactor with secret-token-123", "limit": 2}
+
+        # Case (a): the package genuinely cannot be imported. This is the true
+        # standalone fallback and must keep working.
+        with mock.patch.dict(sys.modules, {"omh.context": None}):
+            fallback_payload = json.loads(context_tool.omh_context_handler(dict(args)))
+        self.assertEqual(fallback_payload["source_backend"], "standalone_plugin_bundle_fallback")
+        self.assertEqual(fallback_payload["schema_version"], "omh_context_brief/v1")
+        self.assertFalse(fallback_payload["message"]["raw_prompt_echoed"])
+
+        # Case (b): the package imports fine but the delegated call raises. This must
+        # not be mislabeled as the same normal standalone fallback.
+        with mock.patch("omh.context.build_context_brief", side_effect=RuntimeError("package-context-boom")):
+            error_payload = json.loads(context_tool.omh_context_handler(dict(args)))
+        self.assertEqual(error_payload["source_backend"], "package_context_error")
+        self.assertNotEqual(error_payload["source_backend"], "standalone_plugin_bundle_fallback")
+        self.assertEqual(error_payload["status"], "error")
+        self.assertEqual(error_payload["error"], "package_backend_error")
+        self.assertEqual(error_payload["error_type"], "RuntimeError")
+        self.assertTrue(error_payload["degraded"])
+        self.assertFalse(error_payload["message"]["raw_prompt_echoed"])
+        serialized = json.dumps(error_payload, sort_keys=True)
+        self.assertNotIn("package-context-boom", serialized)
+        self.assertNotIn("secret-token-123", serialized)
+
+    def test_recommend_tool_distinguishes_missing_package_from_package_call_failure(self) -> None:
+        from omh.plugin_bundle.omh.tools import recommend_tool
+
+        args = {"message": "plan a risky refactor with secret-token-123", "limit": 2}
+
+        # Case (a): the package genuinely cannot be imported. This is the true
+        # standalone fallback and must keep working.
+        with mock.patch.dict(sys.modules, {"omh.routing.recommend": None}):
+            fallback_payload = json.loads(recommend_tool.omh_recommend_handler(dict(args)))
+        self.assertEqual(fallback_payload["source"], "standalone_plugin_bundle_fallback")
+        self.assertIn(fallback_payload["status"], {"recommended", "no_match"})
+        self.assertNotIn("error", fallback_payload)
+
+        # Case (b): the package imports fine but the delegated call raises. This must
+        # not be mislabeled as the same normal standalone fallback.
+        with mock.patch("omh.routing.recommend.recommend_skills", side_effect=RuntimeError("package-recommend-boom")):
+            error_payload = json.loads(recommend_tool.omh_recommend_handler(dict(args)))
+        self.assertEqual(error_payload["source"], "package_recommend_error")
+        self.assertNotEqual(error_payload["source"], "standalone_plugin_bundle_fallback")
+        self.assertEqual(error_payload["status"], "error")
+        self.assertEqual(error_payload["error"], "package_backend_error")
+        self.assertEqual(error_payload["error_type"], "RuntimeError")
+        self.assertTrue(error_payload["degraded"])
+        self.assertEqual(error_payload["recommendations"], [])
+        serialized = json.dumps(error_payload, sort_keys=True)
+        self.assertNotIn("package-recommend-boom", serialized)
+        self.assertNotIn("secret-token-123", serialized)
+
     def test_setup_default_installs_plugin(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

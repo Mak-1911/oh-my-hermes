@@ -13,7 +13,7 @@ load_local_package()
 from _cli_harness import run_cli
 from omh.core.errors import OmhError
 from omh.hashutil import sha256_file
-from omh.installer import install_skill_pack
+from omh.installer import install_skill_pack, reconcile_skill_profile, skill_profile_report
 from omh.maintenance.doctor import run_doctor
 from omh.manifest import read_manifest, write_manifest
 from omh.paths import resolve_paths
@@ -158,7 +158,7 @@ class InstallerSkillProfileTests(unittest.TestCase):
                 install_skill_pack(paths)
             self.assertTrue(orphan_dir.exists())
 
-    def test_installer_full_to_core_preserves_catalog_skills(self) -> None:
+    def test_installer_full_to_core_reinstall_stays_non_destructive_and_reports_the_gap(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
 
@@ -172,11 +172,229 @@ class InstallerSkillProfileTests(unittest.TestCase):
 
             result = install_skill_pack(paths, profile="core", force=True)
 
-            # The catalog-basis prune must never shed sha-unmodified full-only skills
-            # on a full->core downgrade reinstall.
+            # An ordinary reinstall must never delete skills: the catalog-basis prune
+            # still keeps every sha-unmodified full-only skill on a full->core reinstall.
             self.assertEqual(result["pruned_skills"], [])
             for name in full_only_names:
                 self.assertTrue((paths.skills_dir / name / "SKILL.md").exists(), name)
+
+            # ...but the recorded profile must no longer imply the core footprint.
+            state = result["skill_profile_state"]
+            self.assertEqual(state["requested_profile"], "core")
+            self.assertEqual(state["effective_profile"], "full")
+            self.assertFalse(state["matches_requested_profile"])
+            self.assertTrue(state["retained_exception"])
+            self.assertEqual(set(state["full_only_installed_skills"]), full_only_names)
+            self.assertEqual(state["next_action"], "omh skill-profile reconcile --to core")
+            self.assertIn("context weight", state["context_cost_note"])
+            self.assertIn("never delete installed skills", state["non_destructive_default"])
+
+
+class SkillProfileReconcileTests(unittest.TestCase):
+    def _full_only_names(self) -> set[str]:
+        return {template.name for template in builtin_skill_templates()} - set(CORE_PROFILE_SKILLS)
+
+    def test_fresh_core_install_records_a_matching_core_state(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+
+            manifest = install_skill_pack(paths)
+
+            state = manifest["skill_profile_state"]
+            self.assertEqual(state["schema_version"], "omh_skill_profile_state/v1")
+            self.assertEqual(state["requested_profile"], "core")
+            self.assertEqual(state["effective_profile"], "core")
+            self.assertTrue(state["matches_requested_profile"])
+            self.assertFalse(state["retained_exception"])
+            self.assertEqual(state["full_only_installed_skills"], [])
+            self.assertEqual(state["installed_catalog_skill_count"], len(CORE_PROFILE_SKILLS))
+            self.assertEqual(state["unmanaged_skill_count"], 0)
+            self.assertEqual(state["next_action"], "")
+
+            report = skill_profile_report(paths)
+            self.assertTrue(report["installed"])
+            self.assertEqual(report["reconcilable_skills"], [])
+            self.assertEqual(report["retained_skills"], [])
+
+    def test_fresh_full_install_records_a_matching_full_state(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+
+            manifest = install_skill_pack(paths, profile="full")
+
+            state = manifest["skill_profile_state"]
+            self.assertEqual(state["requested_profile"], "full")
+            self.assertEqual(state["effective_profile"], "full")
+            self.assertTrue(state["matches_requested_profile"])
+            self.assertFalse(state["retained_exception"])
+            self.assertEqual(state["installed_catalog_skill_count"], len(builtin_skill_templates()))
+
+            # Inspecting a full install is read-only and never removes anything.
+            report = skill_profile_report(paths)
+            self.assertEqual(set(report["reconcilable_skills"]), self._full_only_names())
+            for name in self._full_only_names():
+                self.assertTrue((paths.skills_dir / name / "SKILL.md").exists(), name)
+
+    def test_reconcile_full_to_core_removes_only_unmodified_managed_full_only_skills(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            install_skill_pack(paths, profile="full")
+            full_only_names = self._full_only_names()
+
+            result = reconcile_skill_profile(paths)
+
+            self.assertEqual(result["schema_version"], "omh_skill_profile_reconcile/v1")
+            self.assertFalse(result["dry_run"])
+            self.assertEqual(set(result["removed_skills"]), full_only_names)
+            self.assertEqual(result["retained_skills"], [])
+            self.assertEqual(result["profile_state_before"]["effective_profile"], "full")
+            self.assertEqual(result["profile_state_after"]["effective_profile"], "core")
+            self.assertTrue(result["profile_state_after"]["matches_requested_profile"])
+
+            for name in full_only_names:
+                self.assertFalse((paths.skills_dir / name).exists(), name)
+            for name in CORE_PROFILE_SKILLS:
+                self.assertTrue((paths.skills_dir / name / "SKILL.md").exists(), name)
+
+            on_disk = json.loads(paths.manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(on_disk["skill_profile"], "core")
+            self.assertEqual(set(on_disk["reconciled_skills"]), full_only_names)
+            self.assertEqual(on_disk["skill_profile_state"]["effective_profile"], "core")
+            self.assertEqual(
+                {str(record["name"]) for record in on_disk["skills"]},
+                set(CORE_PROFILE_SKILLS),
+            )
+
+            checks = run_doctor(paths)
+            skill_checks = [check for check in checks if check.name.startswith("skill:")]
+            self.assertTrue(all(check.ok for check in skill_checks), skill_checks)
+
+    def test_reconcile_dry_run_reports_the_plan_without_deleting_anything(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            install_skill_pack(paths, profile="full")
+            full_only_names = self._full_only_names()
+            before = paths.manifest_path.read_text(encoding="utf-8")
+
+            result = reconcile_skill_profile(paths, dry_run=True)
+
+            self.assertTrue(result["dry_run"])
+            self.assertEqual(set(result["would_remove_skills"]), full_only_names)
+            self.assertEqual(result["removed_skills"], [])
+            self.assertNotIn("profile_state_after", result)
+            self.assertEqual(result["profile_state_before"]["effective_profile"], "full")
+            for name in full_only_names:
+                self.assertTrue((paths.skills_dir / name / "SKILL.md").exists(), name)
+            self.assertEqual(paths.manifest_path.read_text(encoding="utf-8"), before)
+
+    def test_reconcile_retains_modified_and_unmanaged_skill_directories(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            install_skill_pack(paths, profile="full")
+            modified_name = sorted(self._full_only_names())[0]
+            modified_file = paths.skills_dir / modified_name / "SKILL.md"
+            modified_file.write_text(
+                modified_file.read_text(encoding="utf-8") + "\nlocal operator note\n",
+                encoding="utf-8",
+            )
+            unmanaged_dir = paths.skills_dir / "team-local-skill"
+            unmanaged_dir.mkdir(parents=True, exist_ok=True)
+            (unmanaged_dir / "SKILL.md").write_text("# team local skill\n", encoding="utf-8")
+
+            result = reconcile_skill_profile(paths)
+
+            self.assertNotIn(modified_name, result["removed_skills"])
+            self.assertNotIn("team-local-skill", result["removed_skills"])
+            reasons = {str(item["name"]): str(item["reason"]) for item in result["retained_skills"]}
+            self.assertEqual(reasons[modified_name], "locally modified vs. the rendered catalog templates")
+            self.assertEqual(reasons["team-local-skill"], "not an OMH catalog skill")
+            self.assertTrue(modified_file.exists())
+            self.assertTrue((unmanaged_dir / "SKILL.md").exists())
+            self.assertEqual(result["profile_state_after"]["effective_profile"], "mixed")
+            self.assertTrue(result["profile_state_after"]["retained_exception"])
+
+    def test_reconcile_retains_a_managed_skill_that_carries_an_extra_local_file(self) -> None:
+        # The unmodified check compares the whole skill directory against the rendered
+        # catalog templates, so an added local file protects the directory even when
+        # SKILL.md itself is untouched and matches the install manifest sha.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            install_skill_pack(paths, profile="full")
+            skill_name = sorted(self._full_only_names())[0]
+            extra = paths.skills_dir / skill_name / "references" / "team-note.md"
+            extra.parent.mkdir(parents=True, exist_ok=True)
+            extra.write_text("# team note\n", encoding="utf-8")
+
+            result = reconcile_skill_profile(paths, dry_run=True)
+
+            self.assertNotIn(skill_name, result["would_remove_skills"])
+            reasons = {str(item["name"]): str(item["reason"]) for item in result["retained_skills"]}
+            self.assertEqual(reasons[skill_name], "locally modified vs. the rendered catalog templates")
+            self.assertTrue(extra.exists())
+
+    def test_reconcile_requires_an_existing_manifest_and_only_targets_core(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+
+            with self.assertRaises(OmhError):
+                reconcile_skill_profile(paths)
+
+            install_skill_pack(paths, profile="full")
+            with self.assertRaises(OmhError):
+                reconcile_skill_profile(paths, target_profile="full")
+
+    def test_reconcile_cli_supports_dry_run_then_apply(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            base = ["--omh-home", str(paths.omh_home), "--hermes-home", str(paths.hermes_home)]
+            install_skill_pack(paths, profile="full")
+            full_only_names = self._full_only_names()
+
+            status, stdout, stderr = run_cli(base + ["skill-profile", "status", "--json"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            report = json.loads(stdout)
+            self.assertEqual(report["profile_state"]["effective_profile"], "full")
+            self.assertEqual(set(report["reconcilable_skills"]), full_only_names)
+
+            status, stdout, stderr = run_cli(
+                base + ["skill-profile", "reconcile", "--to", "core", "--dry-run", "--json"],
+                output_json=False,
+            )
+            self.assertEqual(status, 0, stderr)
+            preview = json.loads(stdout)
+            self.assertTrue(preview["dry_run"])
+            self.assertEqual(set(preview["would_remove_skills"]), full_only_names)
+            for name in full_only_names:
+                self.assertTrue((paths.skills_dir / name / "SKILL.md").exists(), name)
+
+            status, stdout, stderr = run_cli(
+                base + ["skill-profile", "reconcile", "--to", "core", "--json"],
+                output_json=False,
+            )
+            self.assertEqual(status, 0, stderr)
+            applied = json.loads(stdout)
+            self.assertEqual(set(applied["removed_skills"]), full_only_names)
+            self.assertEqual(applied["profile_state_after"]["effective_profile"], "core")
+            for name in full_only_names:
+                self.assertFalse((paths.skills_dir / name).exists(), name)
+
+            # The reconcile command also refreshes the runtime state manifest hash, so
+            # doctor's manifest/skill checks stay healthy after the removal.
+            checks = run_doctor(paths)
+            tracked = [check for check in checks if check.name.startswith("skill:") or check.name == "runtime_state"]
+            self.assertTrue(tracked)
+            self.assertTrue(all(check.ok for check in tracked), [check for check in tracked if not check.ok])
+
+    def test_skill_profile_status_reports_not_installed_without_a_manifest(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+
+            report = skill_profile_report(paths)
+
+            self.assertFalse(report["installed"])
+            self.assertEqual(report["profile_state"]["effective_profile"], "none")
+            self.assertEqual(report["profile_state"]["requested_profile"], "")
 
 
 if __name__ == "__main__":

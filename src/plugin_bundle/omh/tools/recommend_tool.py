@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 from ..awareness import awareness_primer_payload, awareness_route_hint
@@ -81,10 +82,10 @@ def omh_recommend_handler(args: dict, **kwargs) -> str:
         }
         return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
 
-    recommendations, source = _recommendations(message, limit)
+    recommendations, source, error_type = _recommendations(message, limit)
     payload = {
         "schema_version": "omh_recommend_result/v1",
-        "status": "recommended" if recommendations else "no_match",
+        "status": "error" if error_type else ("recommended" if recommendations else "no_match"),
         "source": source,
         "message": {
             "sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
@@ -99,18 +100,30 @@ def omh_recommend_handler(args: dict, **kwargs) -> str:
         ),
         "claim_boundary": _claim_boundary(),
     }
+    if error_type:
+        payload["error"] = "package_backend_error"
+        payload["error_type"] = error_type
+        payload["degraded"] = True
     return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
 
 
-def _recommendations(message: str, limit: int) -> tuple[list[dict[str, Any]], str]:
+def _recommendations(message: str, limit: int) -> tuple[list[dict[str, Any]], str, str | None]:
     try:
         from omh.routing.recommend import recommend_skills
-    except Exception:
-        return _fallback_recommendations(message, limit), "standalone_plugin_bundle_fallback"
+    except (ImportError, ModuleNotFoundError):
+        return _fallback_recommendations(message, limit), "standalone_plugin_bundle_fallback", None
     try:
-        return [_redacted_recommendation(item) for item in recommend_skills(message, limit=limit)], "package_recommend"
-    except Exception:
-        return _fallback_recommendations(message, limit), "standalone_plugin_bundle_fallback"
+        return [_redacted_recommendation(item) for item in recommend_skills(message, limit=limit)], "package_recommend", None
+    except Exception as exc:
+        # The package imported successfully but the delegated call raised. This is a
+        # package runtime failure, not a genuine missing-package fallback, so it must
+        # not be mislabeled as `standalone_plugin_bundle_fallback`.
+        return [], "package_recommend_error", _safe_error_type(type(exc).__name__)
+
+
+def _safe_error_type(error_type: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9_.-]", "", str(error_type or ""))
+    return text[:80] or "Exception"
 
 
 def _redacted_recommendation(item: dict[str, Any]) -> dict[str, Any]:

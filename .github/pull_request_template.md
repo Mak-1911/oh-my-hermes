@@ -22,6 +22,7 @@
 
 ## Validation
 
+- [ ] `uv run --group lint ruff check src tests`
 - [ ] `python3 -m unittest discover -s tests`
 - [ ] `python3 -m compileall src`
 - [ ] `python3 -m omh.cli docs workflows --check`

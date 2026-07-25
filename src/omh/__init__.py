@@ -9,4 +9,4 @@ _SOURCE_ROOT = Path(__file__).resolve().parents[1]
 if (_SOURCE_ROOT / "routing").is_dir():
     __path__.append(str(_SOURCE_ROOT))
 
-from .version import __version__
+from .version import __version__ as __version__

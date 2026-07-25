@@ -23,12 +23,21 @@ PYTHONPATH=tests uv run python -m unittest tests/test_cli.py -v   # one file
 uv run python -m compileall -q src tests                          # syntax gate
 uv run python -m omh.cli docs workflows --check                   # byte gate
 uv run python -m omh.cli docs roles --check                       # byte gate
+uv run --group lint ruff check src tests                          # static-analysis gate
 git diff --check
 ```
 
 - Always set `PYTHONPATH=tests` for unittest; test helpers live at tests root.
 - Run the smallest test that proves your claim, then broaden if the touched
   surface is shared. Full suite before claiming done.
+- `uv run --group lint ruff check src tests` installs the pinned Ruff version
+  from the `lint` dependency group (declared in `pyproject.toml`) into the
+  project's `uv`-managed environment — no globally installed `ruff` needed.
+  CI runs the identical command as its own step. The initial rule set is
+  Pyflakes (`F`) only, scoped narrow to stay actionable on a ~135k LOC repo;
+  see the `[tool.ruff]` block in `pyproject.toml` for the per-file re-export
+  exclusions and the deliberately-not-yet-enforced broad-exception
+  (`BLE001`) policy tracked under issue #637.
 
 ## Generated Artifacts Map
 

@@ -304,6 +304,32 @@ Raw logs, JSONL, command output, and transcripts stay in artifacts referenced by
 the event; the event itself is progress context, not execution/review/CI/merge
 evidence.
 
+That guidance now has a mechanical backstop, so a supervising session cannot
+grow its context without bound even if it ignores the advice:
+
+- `omh runtime show <run>` and `omh coding fanout show <id>` emit a bounded tail
+  (last 20 entries) of `events`, `runtime_observations`, and `journal_events`.
+  A `history` block reports `total`, `shown`, `omitted`, and the on-disk paths
+  holding the full record. Lifecycle projection still reads the full history, so
+  bounding output never changes an observed-evidence conclusion.
+- `--limit N` changes the tail; `--full` emits the whole history and is an
+  explicit, expensive operator opt-out.
+- Each run has a cumulative observe-context budget
+  (`omh_run_context_budget/v1`, 200 KB of emitted JSON). Past the budget,
+  `omh runtime show` degrades to a summary-only payload
+  (`omh_run_show_summary_only/v1`) with the lifecycle projection, history
+  counts, the latest journal event, and a pointer to the artifacts. Repeated
+  polling therefore stops paying off instead of merely being discouraged.
+- `coding_progress_reporting_policy/v1` carries the same numbers in its
+  `enforcement` block (`declarative_only: false`), so wrappers can read the
+  enforced limits rather than restating them.
+- JSON stdout is compact by default for every `omh` command. Pass `--pretty` or
+  set `OMH_JSON_PRETTY=1` when a human is reading the output.
+- `omh coding delegate --include-message` emits bounded previews plus
+  `omh_context_artifact_ref/v1` refs (sha256, byte count) instead of the fully
+  expanded prompt. Wrappers that dispatch the expanded prompt verbatim use
+  `--include-message-full`.
+
 When Codex performs a review, wrappers can expose a human-readable review
 context summary without raw logs:
 

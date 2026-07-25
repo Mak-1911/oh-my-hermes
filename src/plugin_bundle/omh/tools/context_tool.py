@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
-from typing import Any
+import re
 
 from ..context_brief import bounded_context_hint_limit, build_context_brief as build_plugin_context_brief
 from ..host_observation import OBSERVATION_SCHEMA, attach_public_observation, observe_plugin_tool_call
@@ -68,7 +69,7 @@ def _context_brief(
 ) -> tuple[dict[str, object], str]:
     try:
         from omh.context import build_context_brief as build_package_context_brief
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return build_plugin_context_brief(
             message,
             source=source,
@@ -82,10 +83,36 @@ def _context_brief(
             max_hints=max_hints,
             include_prompt_context=include_prompt_context,
         ), "package_context"
-    except Exception:
-        return build_plugin_context_brief(
-            message,
-            source=source,
-            max_hints=max_hints,
-            include_prompt_context=include_prompt_context,
-        ), "standalone_plugin_bundle_fallback"
+    except Exception as exc:
+        # The package imported successfully but the delegated call raised. This is a
+        # package runtime failure, not a genuine missing-package fallback, so it must
+        # not be mislabeled as `standalone_plugin_bundle_fallback`.
+        return _package_context_error(message, source=source, error_type=type(exc).__name__), "package_context_error"
+
+
+def _package_context_error(message: str, *, source: str, error_type: str) -> dict[str, object]:
+    text = str(message or "")
+    return {
+        "schema_version": "omh_context_brief_error/v1",
+        "status": "error",
+        "error": "package_backend_error",
+        "error_type": _safe_error_type(error_type),
+        "source": source,
+        "message": {
+            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest() if text else "",
+            "length": len(text),
+            "raw_prompt_stored": False,
+            "raw_prompt_echoed": False,
+        },
+        "degraded": True,
+        "claim_boundary": (
+            "The installed OMH package raised while building this context brief. This response carries no "
+            "lanes, route hints, or capability context; it is neither a normal package-backed brief nor a "
+            "genuine missing-package standalone fallback."
+        ),
+    }
+
+
+def _safe_error_type(error_type: str) -> str:
+    text = re.sub(r"[^A-Za-z0-9_.-]", "", str(error_type or ""))
+    return text[:80] or "Exception"

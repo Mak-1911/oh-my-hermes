@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from ..local_store import atomic_write_json, atomic_write_text, utc_now
 from ..paths import OmhPaths

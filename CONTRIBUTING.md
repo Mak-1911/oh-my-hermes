@@ -11,6 +11,14 @@ python -m pip install -e .
 PYTHONPATH=src python -m unittest discover -s tests
 ```
 
+Run the static-analysis gate the same way CI does, using the pinned Ruff
+version declared under `[dependency-groups] lint` in `pyproject.toml` (no
+globally installed `ruff` needed):
+
+```sh
+uv run --group lint ruff check src tests
+```
+
 ## Contribution Rules
 
 - Keep Hermes as the runtime boundary.
@@ -27,6 +35,7 @@ PYTHONPATH=src python -m unittest discover -s tests
 
 - The change is scoped and explained.
 - Tests pass locally.
+- `uv run --group lint ruff check src tests` passes locally.
 - Public docs were updated when behavior changed.
 - Generated docs were refreshed or `python -m omh.cli docs workflows --check`
   was run when catalog data changed.

@@ -23,11 +23,19 @@ from ..command_path import COMMAND_PATH_MISSING_NEXT_ACTION, inspect_omh_command
 from ..capabilities.registry import capability_summary
 from ..capabilities.skills import skill_capabilities
 from ..config_adapter import ensure_external_dir, external_dirs, read_config, remove_external_dir, write_config
+from ..install.compression_defaults import ensure_compression_defaults
 from ..doctor import DEFAULT_DOCTOR_NEXT_ACTION, doctor_ok, recommended_next_action, run_doctor
 from ..maintenance.doctor import run_doctor_advisories
 from ..executors import CODING_EXECUTOR_TARGETS
 from ..hashutil import sha256_file
-from ..installer import OmhError, install_skill_pack, uninstall_skill_pack
+from ..installer import (
+    SKILL_PROFILE_RECONCILE_COMMAND,
+    OmhError,
+    install_skill_pack,
+    reconcile_skill_profile,
+    skill_profile_report,
+    uninstall_skill_pack,
+)
 from ..local_store import atomic_write_text
 from ..manifest import read_manifest
 from ..menubar_app import setup_menubar_app, uninstall_menubar_app
@@ -677,10 +685,11 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
     current = read_config(paths.hermes_config_path)
     try:
         change = ensure_external_dir(current, paths.skills_dir)
+        compression = ensure_compression_defaults(change.text)
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
-    if not args.dry_run and change.changed:
-        write_config(paths.hermes_config_path, change.text)
+    if not args.dry_run and (change.changed or compression.changed):
+        write_config(paths.hermes_config_path, compression.text)
     if not args.dry_run:
         update_state(
             paths,
@@ -690,7 +699,14 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
                 "external_dir_registered": str(paths.skills_dir) in read_config(paths.hermes_config_path),
             },
         )
-    return {"changed": change.changed, "message": change.message, "config": str(paths.hermes_config_path), "skills_dir": str(paths.skills_dir), "dry_run": args.dry_run}
+    return {
+        "changed": change.changed or compression.changed,
+        "message": change.message,
+        "config": str(paths.hermes_config_path),
+        "skills_dir": str(paths.skills_dir),
+        "dry_run": args.dry_run,
+        "compression_defaults": {"changed": compression.changed, "message": compression.message},
+    }
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
@@ -755,6 +771,130 @@ def cmd_list(args: argparse.Namespace) -> int:
     else:
         _print_list_summary(payload, manifest_path=paths.manifest_path, skills_dir=paths.skills_dir)
     return 0
+
+
+def cmd_skill_profile_status(args: argparse.Namespace) -> int:
+    payload = skill_profile_report(_paths(args))
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        _print_skill_profile_status_summary(payload)
+    return 0
+
+
+def cmd_skill_profile_reconcile(args: argparse.Namespace) -> int:
+    paths = _paths(args)
+    payload = reconcile_skill_profile(
+        paths,
+        target_profile=str(getattr(args, "to", "core")),
+        dry_run=bool(getattr(args, "dry_run", False)),
+    )
+    if not payload.get("dry_run"):
+        state = payload.get("profile_state_after", {})
+        update_state(
+            paths,
+            {
+                "manifest_path": str(paths.manifest_path),
+                "manifest_sha256": sha256_file(paths.manifest_path),
+                "installed_skills": state.get("installed_skill_count", 0) if isinstance(state, dict) else 0,
+                "skills_dir": str(paths.skills_dir),
+                "last_skill_profile_reconcile": {
+                    "target_profile": payload.get("target_profile", ""),
+                    "removed_skills": payload.get("removed_skills", []),
+                    "retained_skills": payload.get("retained_skills", []),
+                    "effective_profile": state.get("effective_profile", "") if isinstance(state, dict) else "",
+                },
+            },
+        )
+        payload["runtime_state_path"] = str(paths.runtime_state_path)
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        _print_skill_profile_reconcile_summary(payload)
+    return 0
+
+
+def _print_skill_profile_status_summary(payload: dict[str, object]) -> None:
+    use_color = _use_color()
+    state = payload.get("profile_state", {})
+    if not isinstance(state, dict):
+        state = {}
+    print(_color("OMH skill profile", "1;36", use_color))
+    print(_color("Summary", "1;32", use_color))
+    if not payload.get("installed"):
+        print("  Status: not installed")
+        print(f"  Manifest: {payload.get('manifest_path', '')}")
+        print(_color("Next", "1;32", use_color))
+        print("  Run `omh setup` to install managed Hermes skills.")
+        return
+    print(f"  Requested profile: {state.get('requested_profile', '') or 'unrecorded'}")
+    print(f"  Effective profile: {state.get('effective_profile', '')}")
+    print(
+        f"  Installed skills: {state.get('installed_catalog_skill_count', 0)} catalog "
+        f"(core profile is {state.get('core_profile_skill_count', 0)}, "
+        f"full profile is {state.get('full_profile_skill_count', 0)})"
+    )
+    full_only = state.get("full_only_installed_skills", [])
+    if isinstance(full_only, list) and full_only:
+        print(f"  Full-only skills installed: {len(full_only)}")
+    unmanaged_count = state.get("unmanaged_skill_count", 0)
+    if isinstance(unmanaged_count, int) and unmanaged_count:
+        print(f"  Non-catalog skill directories: {unmanaged_count}")
+    retained = payload.get("retained_skills", [])
+    if isinstance(retained, list) and retained:
+        print(_color("Retained by reconcile", "1;33", use_color))
+        for item in retained[:12]:
+            if isinstance(item, dict):
+                print(f"  - {item.get('name', '')}: {item.get('reason', '')}")
+    print(_color("Context cost", "1;32", use_color))
+    print(f"  {state.get('context_cost_note', '')}")
+    print(f"  {state.get('non_destructive_default', '')}")
+    print(_color("Next", "1;32", use_color))
+    reconcilable = payload.get("reconcilable_skills", [])
+    if isinstance(reconcilable, list) and reconcilable:
+        print(f"  Run `{SKILL_PROFILE_RECONCILE_COMMAND} --dry-run` to preview removing {len(reconcilable)} skill(s).")
+    else:
+        print("  Nothing to reconcile; the installed skills already match the recorded profile.")
+
+
+def _print_skill_profile_reconcile_summary(payload: dict[str, object]) -> None:
+    use_color = _use_color()
+    dry_run = bool(payload.get("dry_run"))
+    title = "OMH skill profile reconcile preview" if dry_run else "OMH skill profile reconciled"
+    removed = payload.get("would_remove_skills" if dry_run else "removed_skills", [])
+    if not isinstance(removed, list):
+        removed = []
+    before = payload.get("profile_state_before", {})
+    after = payload.get("profile_state_after", before)
+    if not isinstance(before, dict):
+        before = {}
+    if not isinstance(after, dict):
+        after = {}
+    print(_color(title, "1;36", use_color))
+    print(_color("Summary", "1;32", use_color))
+    print(f"  Target profile: {payload.get('target_profile', '')}")
+    print(f"  Effective profile before: {before.get('effective_profile', '')}")
+    if not dry_run:
+        print(f"  Effective profile after: {after.get('effective_profile', '')}")
+    verb = "Would remove" if dry_run else "Removed"
+    print(f"  {verb}: {len(removed)} unmodified managed full-only skill(s)")
+    if removed:
+        shown = [str(name) for name in removed[:12]]
+        print("  Names: " + ", ".join(shown) + (" ..." if len(removed) > len(shown) else ""))
+    retained = payload.get("retained_skills", [])
+    if isinstance(retained, list) and retained:
+        print(_color("Retained", "1;33", use_color))
+        for item in retained[:12]:
+            if isinstance(item, dict):
+                print(f"  - {item.get('name', '')}: {item.get('reason', '')}")
+    print(_color("Context cost", "1;32", use_color))
+    print(f"  {payload.get('context_cost_note', '')}")
+    print(f"  {payload.get('non_destructive_default', '')}")
+    print(_color("Next", "1;32", use_color))
+    if dry_run:
+        print(f"  Rerun without `--dry-run` to apply: `{SKILL_PROFILE_RECONCILE_COMMAND}`.")
+    else:
+        print("  Restart or reload Hermes Agent so it picks up the smaller skill set.")
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -1839,6 +1979,12 @@ def _print_install_summary(payload: dict[str, object], *, command: str, language
     state_key = str(payload.get("runtime_state_key", "")).strip()
     if state_path and state_key:
         print(f"  {tr(language, 'state_log', path=state_path, entry=state_key)}")
+    profile_state = payload.get("skill_profile_state")
+    if isinstance(profile_state, dict) and profile_state.get("retained_exception"):
+        retained = profile_state.get("full_only_installed_skills", [])
+        retained_count = len(retained) if isinstance(retained, list) else 0
+        line = tr(language, "skill_profile_retained_line", count=retained_count, command=SKILL_PROFILE_RECONCILE_COMMAND)
+        print(_color(f"  {line}", "1;33", use_color))
     print(_color(tr(language, "next"), "1;32", use_color))
     if dry_run:
         print(f"  {tr(language, 'install_next_dry')}")
@@ -2812,6 +2958,38 @@ def _add_top_level_commands(sub) -> None:
     list_cmd = sub.add_parser("list", help="Show the installed managed skill manifest.")
     list_cmd.add_argument("--json", action="store_true", help="Print the full machine-readable manifest.")
     list_cmd.set_defaults(func=cmd_list)
+
+    skill_profile = sub.add_parser(
+        "skill-profile",
+        help="Inspect or explicitly reconcile the installed core/full skill profile.",
+    )
+    skill_profile_sub = skill_profile.add_subparsers(dest="skill_profile_command", required=True)
+    skill_profile_status = skill_profile_sub.add_parser(
+        "status",
+        help="Show the requested profile, the effective installed profile, and retained exceptions.",
+    )
+    skill_profile_status.add_argument("--json", action="store_true", help="Print the full machine-readable profile state.")
+    skill_profile_status.set_defaults(func=cmd_skill_profile_status)
+    skill_profile_reconcile = skill_profile_sub.add_parser(
+        "reconcile",
+        help=(
+            "Explicitly shrink an existing install to the core profile by removing unmodified "
+            "managed full-only skills. setup/install/update never do this."
+        ),
+    )
+    skill_profile_reconcile.add_argument(
+        "--to",
+        choices=("core",),
+        default="core",
+        help="Target profile to reconcile down to. Only core shrinks an install.",
+    )
+    skill_profile_reconcile.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the removals and retained exceptions without deleting anything.",
+    )
+    skill_profile_reconcile.add_argument("--json", action="store_true", help="Print the full machine-readable reconcile payload.")
+    skill_profile_reconcile.set_defaults(func=cmd_skill_profile_reconcile)
 
     doctor = sub.add_parser("doctor", help="Check local OMH install health and Hermes skill registration.")
     doctor.add_argument("--json", action="store_true", help="Print the full machine-readable doctor payload.")

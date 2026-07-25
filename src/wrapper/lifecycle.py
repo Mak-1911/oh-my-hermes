@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from ..context_safety import build_coding_progress_reporting_policy
 from ..coding_delegation import build_coding_delegation_payload, coding_delegation_record_payload

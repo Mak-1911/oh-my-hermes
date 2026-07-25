@@ -133,7 +133,6 @@ def _prepared_status_from_handoff(handoff: dict[str, object], *, source: str) ->
     ladder = [str(step) for step in harness_quality.get("evidence_ladder", []) if isinstance(step, str)]
     progress = build_harness_progress(harness_quality, {ladder[0]: "complete"} if ladder else {})
     review_required = bool(delegation.get("review_required", False))
-    review_status = "not_observed" if review_required else "not_required"
     next_action = _status_next_action_from_handoff(
         handoff,
         selected_handoff=bool(selected_handoff),

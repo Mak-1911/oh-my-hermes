@@ -17,6 +17,7 @@ from omh.chat_router import route_chat_message, routing_record_payload
 from omh.coding_delegation import build_coding_delegation_payload, coding_delegation_record_payload
 from omh.executor_progress import build_progress_binding, build_safe_progress_signal, observe_executor_progress, write_progress_binding
 from omh.runtime_artifacts import (
+    DEFAULT_RUN_HISTORY_LIMIT,
     append_journal_observation,
     create_prepared_coding_delegation_run,
     create_run,
@@ -121,6 +122,102 @@ class RuntimeArtifactTests(unittest.TestCase):
             self.assertEqual(exported["runs"][0]["event_errors"], shown["event_errors"])
             self.assertFalse(validation["ok"])
             self.assertTrue(any("Expecting property name" in error for error in validation["runs"][0]["errors"]))
+
+    def _run_with_journal_history(self, paths, count: int) -> dict[str, object]:
+        run = create_run(paths, {"skill": "oh-my-hermes", "harness": "coding-handling", "status": "started"})
+        for index in range(count):
+            append_journal_observation(
+                paths,
+                {
+                    "target_type": "run",
+                    "target_id": run["run_id"],
+                    "run_id": run["run_id"],
+                    "event": "executor_dispatch" if index == 0 else "runtime_start",
+                    "status": "observed",
+                    "summary": f"observation {index}",
+                },
+            )
+        return run
+
+    def test_show_run_tail_bounds_history_and_reports_totals(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            run = self._run_with_journal_history(paths, 25)
+
+            shown = show_run(paths, run["run_id"])
+
+            self.assertEqual(len(shown["journal_events"]), DEFAULT_RUN_HISTORY_LIMIT)
+            self.assertTrue(shown["history"]["truncated"])
+            self.assertEqual(shown["history"]["limit"], DEFAULT_RUN_HISTORY_LIMIT)
+            self.assertEqual(shown["history"]["journal_events"], {"total": 25, "shown": 20, "omitted": 5})
+            self.assertEqual(shown["journal_events"][-1]["summary"], "observation 24")
+            self.assertTrue(shown["history"]["full_history_command"].endswith("--full"))
+            self.assertIn("journal", shown["history"]["full_history_artifacts"]["journal_events"])
+
+    def test_show_run_repeated_calls_cost_the_same_bounded_output(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            run = self._run_with_journal_history(paths, 40)
+            first = len(json.dumps(show_run(paths, run["run_id"]), sort_keys=True))
+
+            for index in range(40):
+                append_journal_observation(
+                    paths,
+                    {
+                        "target_type": "run",
+                        "target_id": run["run_id"],
+                        "run_id": run["run_id"],
+                        "event": "runtime_start",
+                        "status": "observed",
+                        "summary": f"later observation {index}",
+                    },
+                )
+            second_shown = show_run(paths, run["run_id"])
+
+            self.assertEqual(second_shown["history"]["journal_events"]["total"], 80)
+            self.assertEqual(len(second_shown["journal_events"]), DEFAULT_RUN_HISTORY_LIMIT)
+            # Doubling history must not double emitted context.
+            self.assertLess(len(json.dumps(second_shown, sort_keys=True)), first * 2)
+
+    def test_show_run_full_history_is_available_through_explicit_opt_out(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            run = self._run_with_journal_history(paths, 25)
+
+            shown = show_run(paths, run["run_id"], history_limit=None)
+
+            self.assertEqual(len(shown["journal_events"]), 25)
+            self.assertFalse(shown["history"]["truncated"])
+            self.assertIsNone(shown["history"]["limit"])
+
+    def test_bounded_show_run_never_changes_lifecycle_conclusions(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            run = self._run_with_journal_history(paths, 40)
+
+            bounded = show_run(paths, run["run_id"])
+            unbounded = show_run(paths, run["run_id"], history_limit=None)
+
+            # The dispatch observation is older than the emitted tail; the
+            # lifecycle projection must still see it.
+            self.assertIn("executor_dispatch_observed", [event["event"] for event in unbounded["journal_events"]])
+            self.assertNotIn("executor_dispatch_observed", [event["event"] for event in bounded["journal_events"]])
+            self.assertTrue(bounded["lifecycle"]["prompt_dispatched"])
+            self.assertEqual(bounded["lifecycle"], unbounded["lifecycle"])
+            self.assertEqual(bounded["lifecycle"]["journal_event_count"], 40)
+
+    def test_summary_surfaces_keep_reading_full_history(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            run = self._run_with_journal_history(paths, 40)
+
+            exported = export_runtime(paths, redacted=False)
+
+            exported_run = next(
+                entry for entry in exported["runs"] if entry["run"]["run_id"] == run["run_id"]
+            )
+            self.assertEqual(len(exported_run["journal_events"]), 40)
+            self.assertFalse(exported_run["history"]["truncated"])
 
     def test_runtime_listing_and_summary_export_can_be_bounded(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -989,7 +1086,12 @@ class RuntimeArtifactTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             errors = "\n".join(result["runs"][0]["errors"])
             self.assertIn("executor choice must not be stored as a prepared runtime run", errors)
-            self.assertIn("prepared runtime run requires a Codex executor_handoff", errors)
+            self.assertIn(
+                "prepared runtime run rejected because selected_executor_profile None "
+                "has no run-backed executor handoff lifecycle",
+                errors,
+            )
+            self.assertIn("selected_executor_profile in (codex)", errors)
 
     def test_validate_runtime_rejects_raw_top_level_coding_delegation_key(self) -> None:
         with TemporaryDirectory() as tmp:

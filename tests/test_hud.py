@@ -35,10 +35,49 @@ class HudCliTests(unittest.TestCase):
             self.assertEqual(status, 0)
             self.assertIn("[omh] v1.0.2", stdout)
             self.assertIn("plugin:not-installed", stdout)
-            self.assertIn("coding-agent:idle(ask)", stdout)
+            # No run and no recorded coding-agent preference: the segment is
+            # executor-neutral, not an idle agent named "ask". See
+            # docs/INSTALLATION.md "Status model: no-run, prepared-handoff,
+            # observed-run".
+            self.assertIn("coding-agent:not-selected", stdout)
+            self.assertNotIn("coding-agent:idle(ask)", stdout)
             self.assertNotIn("tokens:unobserved", stdout)
             self.assertNotIn("executor:", stdout)
             self.assertNotIn("handoff:", stdout)
+
+    def test_hud_shows_recorded_executor_preference_without_a_run(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            self.assertEqual(
+                run_cli(
+                    [
+                        "--omh-home",
+                        str(omh_home),
+                        "--hermes-home",
+                        str(hermes_home),
+                        "setup",
+                        "--default-executor",
+                        "codex",
+                    ]
+                )[0],
+                0,
+            )
+
+            status, stdout, stderr = run_cli(
+                ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "hud", "--json"]
+            )
+
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["runtime"]["latest_run_id"], "")
+            # A real, explicitly recorded preference is a legitimate reason to
+            # name the executor even with no run yet; it is distinct from the
+            # neutral "not-selected" no-preference state.
+            self.assertIn("coding-agent:idle(codex)", payload["display"]["line"])
+            self.assertNotIn("coding-agent:not-selected", payload["display"]["line"])
 
     def test_hud_reports_setup_plugin_target_and_prepared_runtime_boundary(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -149,8 +188,13 @@ class HudCliTests(unittest.TestCase):
             payload = json.loads(stdout)
             self.assertEqual(payload["runtime"]["workflow"], "loop")
             self.assertEqual(payload["runtime"]["evidence_state"], "execution_observed")
-            self.assertIn("coding-agent:idle(ask)", payload["display"]["line"])
+            # A non-coding runtime run (loop) never recorded a coding
+            # executor_target, and no preference is configured, so the
+            # coding-agent segment stays executor-neutral rather than
+            # reporting a busy or idle coding agent.
+            self.assertIn("coding-agent:not-selected", payload["display"]["line"])
             self.assertIn("evidence:executed", payload["display"]["line"])
+            self.assertNotIn("coding-agent:idle(ask)", payload["display"]["line"])
             self.assertNotIn("coding-agent:runtime(ask)", payload["display"]["line"])
 
     def test_hud_marks_older_plugin_bundle_as_stale(self) -> None:

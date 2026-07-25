@@ -8,8 +8,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..context_safety import build_coding_progress_reporting_policy
+from ..context_safety import MAX_RUN_HISTORY_EVENTS, build_coding_progress_reporting_policy
 from ..executor_progress import validate_progress_binding, validate_progress_event, validate_progress_report
+from ..executors import (
+    CODING_EXECUTOR_HANDOFF_TARGETS,
+    CODING_RUNTIME_HANDOFF_TARGETS,
+    EXECUTOR_HANDOFF_SCHEMA_VERSION,
+    PROMPT_ONLY_EXECUTOR_PROFILES,
+)
 from ..harness_quality import build_harness_progress
 from ..local_store import (
     atomic_write_json,
@@ -67,6 +73,21 @@ from .records import (
     validate_runtime_observation_record,
     validate_wrapper_record,
     validate_wrapper_session_record,
+)
+
+
+# Run history only ever grows, so an unbounded `show_run` makes every repeated
+# status check re-emit the whole accumulated history into the supervising
+# agent's context. Bound the emitted tail; keep the full record on disk.
+DEFAULT_RUN_HISTORY_LIMIT = MAX_RUN_HISTORY_EVENTS
+RUN_HISTORY_BOUNDS_SCHEMA_VERSION = "omh_run_history_bounds/v1"
+
+PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX = (
+    "prepared_coding_delegation runs are run-backed only for work_owner_mode=external_executor with "
+    f"selected_executor_profile in ({', '.join(CODING_EXECUTOR_HANDOFF_TARGETS)}) and a "
+    f"{EXECUTOR_HANDOFF_SCHEMA_VERSION} executor_handoff; prompt-only profiles "
+    f"({', '.join(PROMPT_ONLY_EXECUTOR_PROFILES)}) and runtime profiles "
+    f"({', '.join(CODING_RUNTIME_HANDOFF_TARGETS)}) are prepared in wrapper session state without a runtime run"
 )
 
 
@@ -478,20 +499,56 @@ def runtime_observations_for_target(records: list[dict[str, Any]], target_type: 
     ]
 
 
-def show_run(paths: OmhPaths, run_id: str) -> dict[str, Any]:
+def _history_bounds(records: list[dict[str, Any]], limit: int | None) -> dict[str, Any]:
+    shown = len(_apply_limit(records, limit))
+    return {"total": len(records), "shown": shown, "omitted": max(0, len(records) - shown)}
+
+
+def show_run(paths: OmhPaths, run_id: str, *, history_limit: int | None = DEFAULT_RUN_HISTORY_LIMIT) -> dict[str, Any]:
+    """Project one run.
+
+    `events`, `runtime_observations`, and `journal_events` are tail-bounded by
+    `history_limit` so repeated status checks cost O(limit) supervising context
+    instead of O(history). Lifecycle projection still reads the full history, so
+    bounding output never changes observed-evidence conclusions. Pass
+    `history_limit=None` for the full record (export, learning traces, status
+    summaries that must read every event).
+    """
     run_dir = paths.runtime_runs_dir / run_id
     run = read_json_object(run_dir / "run.json")
     if not run:
         raise FileNotFoundError(run_id)
     evidence_dir = run_dir / "evidence"
-    events, event_errors = read_events_result(run_dir)
-    observations, observation_errors = read_runtime_observations_result(run_dir)
-    journal_events, journal_errors = _journal_events_for_run_result(paths, run_id)
+    all_events, event_errors = read_events_result(run_dir)
+    all_observations, observation_errors = read_runtime_observations_result(run_dir)
+    all_journal_events, journal_errors = _journal_events_for_run_result(paths, run_id)
+    events = _apply_limit(all_events, history_limit)
+    observations = _apply_limit(all_observations, history_limit)
+    journal_events = _apply_limit(all_journal_events, history_limit)
     result = {
         "run": run,
         "events": events,
         "runtime_observations": observations,
         "journal_events": journal_events,
+        "history": {
+            "schema_version": RUN_HISTORY_BOUNDS_SCHEMA_VERSION,
+            "limit": history_limit,
+            "truncated": (
+                len(events) != len(all_events)
+                or len(observations) != len(all_observations)
+                or len(journal_events) != len(all_journal_events)
+            ),
+            "order": "oldest_to_newest_tail",
+            "events": _history_bounds(all_events, history_limit),
+            "runtime_observations": _history_bounds(all_observations, history_limit),
+            "journal_events": _history_bounds(all_journal_events, history_limit),
+            "full_history_artifacts": {
+                "events": str(run_dir / "events.jsonl"),
+                "runtime_observations": str(run_dir / "runtime_observations.jsonl"),
+                "journal_events": str(paths.runtime_journal_events_path),
+            },
+            "full_history_command": f"omh runtime show {run_id} --full",
+        },
         "executor_progress": _show_executor_progress(run_dir),
         "routing": read_json_object(run_dir / "routing.json"),
         "coding_delegation": read_json_object(run_dir / "coding_delegation.json"),
@@ -508,7 +565,8 @@ def show_run(paths: OmhPaths, run_id: str) -> dict[str, Any]:
         result["runtime_observation_errors"] = observation_errors
     if journal_errors:
         result["journal_errors"] = journal_errors
-    result["lifecycle"] = _lifecycle_projection_from_shown(result)
+    # Lifecycle flags must never depend on how much history was emitted.
+    result["lifecycle"] = _lifecycle_projection_from_shown({**result, "journal_events": all_journal_events})
     return result
 
 
@@ -624,7 +682,9 @@ def _executor_progress_show_state(target_dir: Path, binding: dict[str, Any]) -> 
 
 
 def summarize_delegated_coding_status(paths: OmhPaths, run_id: str) -> dict[str, Any]:
-    shown = show_run(paths, run_id)
+    # Reads full history on purpose: this surface emits a compact summary, and
+    # latest-per-event-type rollups must not miss an older observation.
+    shown = show_run(paths, run_id, history_limit=None)
     run = _object_or_empty(shown.get("run"))
     coding = _object_or_empty(shown.get("coding_delegation"))
     delegation = _object_or_empty(shown.get("delegation"))
@@ -1491,6 +1551,20 @@ def _delegated_status_integrity_warnings(
     return warnings
 
 
+def _prepared_runtime_run_executor_rejection(coding: dict[str, Any]) -> str:
+    work_owner_mode = coding.get("work_owner_mode")
+    selected = coding.get("selected_executor_profile")
+    if work_owner_mode != "external_executor":
+        reason = f"work_owner_mode {work_owner_mode!r} is not external_executor"
+    elif selected not in CODING_EXECUTOR_HANDOFF_TARGETS:
+        reason = f"selected_executor_profile {selected!r} has no run-backed executor handoff lifecycle"
+    elif not isinstance(coding.get("executor_handoff"), dict):
+        reason = f"executor_handoff is missing for selected_executor_profile {selected!r}"
+    else:
+        return ""
+    return f"prepared runtime run rejected because {reason}; {PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX}"
+
+
 def validate_run_dir(run_dir: Path) -> dict[str, Any]:
     errors: list[str] = []
     coding_for_observation: dict[str, Any] | None = None
@@ -1518,17 +1592,23 @@ def validate_run_dir(run_dir: Path) -> dict[str, Any]:
                 selection = coding.get("executor_selection")
                 choice_required = isinstance(selection, dict) and selection.get("choice_required") is True
                 if choice_required:
-                    errors.append(f"{coding_delegation_path}: executor choice must not be stored as a prepared runtime run")
+                    errors.append(
+                        f"{coding_delegation_path}: executor choice must not be stored as a prepared runtime run; "
+                        f"{PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX}"
+                    )
                 if coding.get("work_owner_mode") == "prompt_only_handoff":
-                    errors.append(f"{coding_delegation_path}: prompt-only handoff must not be stored as a prepared runtime run")
+                    errors.append(
+                        f"{coding_delegation_path}: prompt-only handoff must not be stored as a prepared runtime run; "
+                        f"{PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX}"
+                    )
                 if coding.get("work_owner_mode") == "runtime_handoff":
-                    errors.append(f"{coding_delegation_path}: runtime handoff must not be stored as a prepared runtime run")
-                if (
-                    coding.get("work_owner_mode") != "external_executor"
-                    or coding.get("selected_executor_profile") != "codex"
-                    or not isinstance(coding.get("executor_handoff"), dict)
-                ):
-                    errors.append(f"{coding_delegation_path}: prepared runtime run requires a Codex executor_handoff")
+                    errors.append(
+                        f"{coding_delegation_path}: runtime handoff must not be stored as a prepared runtime run; "
+                        f"{PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX}"
+                    )
+                rejection = _prepared_runtime_run_executor_rejection(coding)
+                if rejection:
+                    errors.append(f"{coding_delegation_path}: {rejection}")
     events_path = run_dir / "events.jsonl"
     if events_path.exists():
         events, event_errors = read_jsonl_objects(events_path)
@@ -1791,7 +1871,7 @@ def export_runtime(
             "wrapper_session_count": len(wrapper_sessions),
             "journal_event_count": len(journal_events),
         },
-        "runs": [show_run(paths, run["run_id"]) for run in runs] if full else runs,
+        "runs": [show_run(paths, run["run_id"], history_limit=None) for run in runs] if full else runs,
         "wrapper_sessions": (
             [show_wrapper_session_record(paths, session["session_id"]) for session in wrapper_sessions] if full else wrapper_sessions
         ),
@@ -1888,8 +1968,17 @@ def _validate_wrapper_session_run_link(session_dir: Path, session: dict[str, Any
     else:
         errors.extend(f"{coding_path}: {error}" for error in validate_coding_delegation_record(coding))
         handoff = coding.get("executor_handoff") if isinstance(coding, dict) else None
-        if not isinstance(handoff, dict) or handoff.get("executor_target") != "codex":
-            errors.append(f"{session_path}: linked run must include a Codex executor handoff")
+        if not isinstance(handoff, dict):
+            errors.append(
+                f"{session_path}: linked run must include an executor_handoff for a run-backed executor profile; "
+                f"{PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX}"
+            )
+        elif handoff.get("executor_target") not in CODING_EXECUTOR_HANDOFF_TARGETS:
+            errors.append(
+                f"{session_path}: linked run executor_handoff.executor_target "
+                f"{handoff.get('executor_target')!r} has no run-backed executor handoff lifecycle; "
+                f"{PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX}"
+            )
         if isinstance(coding, dict) and coding.get("status") != "prepared_not_observed":
             errors.append(f"{session_path}: linked coding delegation must be prepared_not_observed")
     has_link_event = any(
