@@ -4,25 +4,39 @@ import re
 from pathlib import Path
 
 from .skill_pack import DESCRIPTIONS, SkillTemplate
-from .skills.catalog import omh_description
+from .skills.catalog import OMH_SKILL_NAME_PREFIX, omh_description, omh_skill_display_name
 
 FRONTMATTER_RE = re.compile(r"^---\n(?P<meta>.*?)\n---\n(?P<body>.*)$", re.DOTALL)
 
 
 def extract_name(raw: str, fallback: str) -> str:
+    """Return the canonical install identity for a source SKILL.md.
+
+    The frontmatter `name` is a rendered display label and may already carry the
+    `omh-` prefix (re-importing OMH's own generated taps through
+    `omh setup --source <dir>` hits exactly that). Strip it here so the install
+    directory, the manifest key, and the curated `DESCRIPTIONS` lookup all key on
+    the canonical name.
+    """
     match = FRONTMATTER_RE.match(raw)
     if not match:
         return fallback
     for line in match.group("meta").splitlines():
         if line.startswith("name:"):
-            return line.split(":", 1)[1].strip().strip("'\"") or fallback
+            rendered = line.split(":", 1)[1].strip().strip("'\"")
+            return rendered.removeprefix(OMH_SKILL_NAME_PREFIX) or fallback
     return fallback
 
 
 def convert_skill(raw: str, fallback_name: str) -> SkillTemplate:
     name = extract_name(raw, fallback_name)
     description = DESCRIPTIONS.get(name, omh_description(f"Hermes workflow skill for {name}."))
-    content = _replace_frontmatter_description(raw, name=name, description=description).rstrip() + """
+    # Imported skills are wrapper-installed too, so they render the same display
+    # prefix as the generated catalog. `SkillTemplate.name` stays canonical and
+    # keeps owning the `skills/<name>/` directory.
+    content = _replace_frontmatter_description(
+        raw, name=omh_skill_display_name(name), description=description
+    ).rstrip() + """
 
 ## Hermes Compatibility Contract
 

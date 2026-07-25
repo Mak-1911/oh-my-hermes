@@ -5,6 +5,7 @@ import json
 import re
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from _local_package import load_local_package
 
@@ -18,7 +19,9 @@ from omh.routing.visual_qa_cues import BROWSER_VISUAL_QA_PHRASES, CUSTOMER_SYMPT
 from omh.capabilities.orchestration import orchestration_patterns
 from omh.wrapper.contract import VISIBLE_ACTIONS
 from omh.roles import role_definitions, role_file_markdown, roles_reference_markdown
+from omh.converter import convert_skill
 from omh.skill_pack import (
+    DESCRIPTIONS,
     builtin_definitions,
     builtin_harnesses,
     builtin_skill_reference_templates,
@@ -678,11 +681,20 @@ class RouterContentTests(unittest.TestCase):
         self.assertEqual(OMH_SKILL_NAME_PREFIX, "omh-")
         self.assertEqual(OMH_SKILL_DISPLAY_NAME_OVERRIDES, {"oh-my-hermes": "omh-routing"})
 
-        # The override lookup must run before the prefix guard: the override value
-        # itself starts with `omh-`, so the two steps are not interchangeable.
         self.assertEqual(omh_skill_display_name("oh-my-hermes"), "omh-routing")
         self.assertEqual(omh_skill_display_name("ultrawork"), "omh-ultrawork")
         self.assertEqual(omh_skill_display_name("omh-ultrawork"), "omh-ultrawork")
+
+        # Branch order: the override lookup must run before the idempotency guard.
+        # The guard tests the INPUT name, never the override value, so the two
+        # orders diverge only for an override KEY that already starts with `omh-`
+        # -- a prefix-first implementation returns such a key unchanged and never
+        # reaches its override. No shipped key starts with the prefix, so the test
+        # has to synthesise one; pinning "no key starts with the prefix" instead
+        # would state a fact about today's map and could not fail on a swap.
+        with patch.dict(OMH_SKILL_DISPLAY_NAME_OVERRIDES, {"omh-legacy": "omh-routing-legacy"}):
+            self.assertEqual(omh_skill_display_name("omh-legacy"), "omh-routing-legacy")
+        self.assertNotIn("omh-legacy", OMH_SKILL_DISPLAY_NAME_OVERRIDES)
 
         names = {definition.name for definition in builtin_definitions()}
         self.assertEqual({name for name in names if name.startswith("omh")}, set())
@@ -690,6 +702,27 @@ class RouterContentTests(unittest.TestCase):
         # Display-only: the canonical name still owns the tap directory.
         for name in names & {path.parent.name for path in Path("skills").glob("*/SKILL.md")}:
             self.assertTrue((Path("skills") / name / "SKILL.md").exists())
+
+    def test_converter_round_trip_restores_canonical_identity(self) -> None:
+        """`omh setup --source <dir>` must not degrade a generated tap.
+
+        `convert_skill()` reads the frontmatter `name`, which now carries the
+        display prefix. Without stripping it, the install directory becomes
+        `omh-ultrawork/` and the curated `DESCRIPTIONS` lookup misses, replacing
+        the hand-written description with the generic stub.
+        """
+        raw = Path("skills/ultrawork/SKILL.md").read_text(encoding="utf-8")
+        template = convert_skill(raw, "ultrawork")
+
+        self.assertEqual(template.name, "ultrawork")
+        self.assertIn(f"\ndescription: {DESCRIPTIONS['ultrawork']}\n", template.content)
+        self.assertIn("\nname: omh-ultrawork\n", template.content)
+
+        # Imported third-party skills carry the prefix too, so nothing installed by
+        # omh reads as a Hermes built-in - but the directory identity stays canonical.
+        imported = convert_skill("---\nname: widget\ndescription: Upstream\n---\n# Widget\n", "widget")
+        self.assertEqual(imported.name, "widget")
+        self.assertIn("\nname: omh-widget\n", imported.content)
 
     def test_all_tap_skills_include_subagent_fallback_contract(self) -> None:
         required_fragments = (
