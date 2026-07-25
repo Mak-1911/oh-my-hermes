@@ -157,12 +157,13 @@ def _harness_summary(harness: HarnessDefinition) -> str:
         "overflow_recovery",
         "safe_action_policy",
         "remediation_handoff",
+        "external_candidates",
     )
     evidence_ladder = " -> ".join(
-        f"`{step}`" for step in _compact_sequence(harness.evidence_ladder, 4, keep_contains=keep_markers)
+        f"`{step}`" for step in _compact_sequence(harness.evidence_ladder, 3, keep_contains=keep_markers)
     )
     wrapper_actions = ", ".join(
-        f"`{action}`" for action in _compact_sequence(harness.wrapper_actions, 4, keep_contains=keep_markers)
+        f"`{action}`" for action in _compact_sequence(harness.wrapper_actions, 3, keep_contains=keep_markers)
     )
     return (
         f"- `{harness.name}`: {_compact_harness_purpose(harness.purpose)}. "
@@ -170,7 +171,7 @@ def _harness_summary(harness: HarnessDefinition) -> str:
     )
 
 
-def _compact_harness_purpose(purpose: str, limit: int = 72) -> str:
+def _compact_harness_purpose(purpose: str, limit: int = 56) -> str:
     if len(purpose) <= limit:
         return purpose
     prefix = purpose[: limit - 3].rstrip()
@@ -416,7 +417,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 def _router_harness_registry_reference(harnesses: list[HarnessDefinition]) -> str:
     return f"""# OMH Harness Registry
 
-Harnesses shape response quality and evidence gates. They are not proof that a separate runtime role exists.
+Harnesses shape gates; not proof that a separate runtime role exists.
 
 Legend: Tier `quality-tier` is in each harness definition; Ladder: evidence steps; Actions: wrapper actions; Privacy `metadata_only`.
 
@@ -693,16 +694,16 @@ When a wrapper prepares coding work, check `executor_readiness/v1` for Codex, Cl
 
 Record only what is observed. A task card, route, plan, `coding_delegation.json`, or `prepared_coding_delegation` run envelope proves preparation, not execution. Executor-choice, prompt-only, and runtime handoffs do not create lifecycle runtime runs.
 
-## Hermes Compatibility Contract
+## Hermes Compatibility
 
 - Use Hermes-native tools, file operations, and subagent/delegation features when available.
-- Do not require runtime tools, role prompts, or overlays that Hermes Agent does not expose.
+- Do not require runtime tools, role prompts, or overlays Hermes Agent does not expose.
 - Translate runtime-specific mechanisms to Hermes-native artifacts:
   - goal tools -> `.omh/goals/` ledgers, goal status cards, or explicit checklists with named next actions,
   - question renderers -> one concise question in the current Hermes interface,
   - native subagents -> Hermes delegation when available, otherwise sequential lanes,
   - shell bridge commands -> optional bridge mode only.
-- Record observed delegation results when Hermes or the wrapper exposes them. If delegation is unavailable, keep the result explicit as `not_available` or `not_observed`.
+- Record observed delegation results when exposed. If unavailable, say `not_available` or `not_observed`.
 
 ## Progressive Disclosure References
 
@@ -749,7 +750,8 @@ This is a Hermes-native `{name}` workflow skill.
 
 - **클레임 추출** — `~/.hermes/memories/USER.md`·`MEMORY.md`를 클레임으로 분해하고, 각 클레임은 원문 그대로 인용한다.
 - **출처** — 출처를 추정하거나 지어내지 않는다; 세션에 실제 근거가 있을 때만 출처를 언급한다.
-- **우선순위** — 모순 > 과일반화("파이썬 한 번 개발"→"파이썬 선호") > 오래됨.
+- **대상** — existing USER.md and MEMORY.md accumulated memories only; 새 프로젝트·제품 메모리 후보 추가는 `memory-new`로 라우팅한다.
+- **우선순위** — stale, conflicting, duplicate, or overgeneralized 클레임을 우선한다("파이썬 한 번 개발"→"파이썬 선호").
 - **턴 구성** — 4–5턴 × 턴당 2–3개 의심 클레임을 묶고, 전수가 아닌 의심 우선으로 메신저 친화 짧은 포맷을 쓴다.
 - **분기** — 예=유지 / 아니요=삭제 / 수정 지시=수정.
 - **마지막 턴** — 변경 요약 diff을 제시한다(유지 n / 삭제 n / 수정 n + 수정 전후).
@@ -758,7 +760,7 @@ This is a Hermes-native `{name}` workflow skill.
 
 ## Boundary
 
-A memory-sync review is not MEMORY.md or USER.md modification evidence until an approved write is observed. Hermes itself reads and writes these files; OMH runtime never writes `~/.hermes` (DIRECTION Rule 5).
+The prepared artifact is `memory_curation_review/v1`. A memory-sync review is not MEMORY.md or USER.md modification evidence until the approved write gate is observed. Hermes itself reads and writes these files; OMH runtime never writes `~/.hermes` (DIRECTION Rule 5).
 
 ## Use When
 
@@ -772,9 +774,9 @@ A memory-sync review is not MEMORY.md or USER.md modification evidence until an 
 
 ## Harness Discipline
 
-- Start from the representative harness registry in `oh-my-hermes` when the workflow needs coding, research, planning, goal execution, architecture, critique, QA, or documentation lanes.
-- Prefer richer evidence and clearer stop conditions over adding more workflow names.
-- Use specialist lanes only when they change the quality of the answer or verification.
+- Start from `oh-my-hermes` harnesses for coding, research, planning, goals, architecture, critique, QA, or docs lanes.
+- Prefer richer evidence and clearer stop conditions over more workflow names.
+- Use specialist lanes only when they improve answer quality or verification.
 
 ## Runtime Evidence
 
@@ -787,17 +789,17 @@ omh runtime record --skill {name} --harness {primary_harness} --status started
 omh runtime delegate --run <run-id> --requested --not-observed --result not_observed
 ```
 
-Record observed delegation results when Hermes or the wrapper exposes them. If delegation is unavailable, keep the result explicit as `not_available` or `not_observed`.
+Record observed delegation results when exposed. If unavailable, say `not_available` or `not_observed`.
 
-## Hermes Compatibility Contract
+## Hermes Compatibility
 
-- Preserve the workflow intent, stop conditions, and verification discipline.
+- Preserve workflow intent, stop conditions, and verification discipline.
 - Use Hermes-native tools, file operations, and subagent/delegation features when available.
-- Do not require runtime tools, role prompts, or overlays that Hermes Agent does not expose.
+- Do not require runtime tools, role prompts, or overlays Hermes Agent does not expose.
 {_target_topology_skill_contract_bullets()}
 {_memory_context_skill_contract_bullets(definition)}
-- When a runtime-specific mechanism appears in imported instructions, translate it to a Hermes-native artifact:
-  - goal tools -> `.omh/goals/` ledgers, `goal_completion_gate/v1`, `goal_status_card/v1`, `goal_continuation/v1`, or explicit checklists with named next actions,
+- Translate runtime-specific mechanisms to Hermes-native artifacts:
+  - goal tools -> `.omh/goals/` ledgers, goal cards, or checklists with named next actions,
   - question renderers -> one concise question in the current Hermes interface,
   - native subagents -> Hermes delegation when available, otherwise sequential lanes,
   - shell bridge commands -> optional bridge mode only.
@@ -807,8 +809,87 @@ Record observed delegation results when Hermes or the wrapper exposes them. If d
 1. Load supporting context with `skills_list` / `skill_view` when needed.
 2. State the workflow target, constraints, validation evidence, and stop condition.
 3. Keep progress evidence-backed.
-4. Verify with the smallest relevant test or inspection before claiming completion.
-5. If Hermes cannot provide a required runtime capability, say so and use the fallback above.
+4. Verify before claiming completion.
+5. If Hermes lacks a required runtime capability, say so and use the fallback above.
+"""
+    return SkillTemplate(name, _frontmatter(name, definition.description) + "\n" + body)
+
+
+def memory_new_skill() -> SkillTemplate:
+    name = "memory-new"
+    definition = _definitions_by_name()[name]
+    title = name.replace("-", " ").title()
+    triggers = ", ".join(f"`{trigger}`" for trigger in definition.triggers)
+    primary_harness = primary_harness_for_skill(name)
+    body = f"""# {title}
+
+This is a Hermes-native `{name}` workflow skill.
+
+{_quality_rubric_sections(definition)}
+
+{awareness_workflow_context_markdown(name)}
+
+## Candidate Flow
+
+- **capture -> review -> approve** — capture a new durable fact as `memory_new_candidate/v1`, review its scope, source, conflicts, duplicates, and target store, then approve or reject it.
+- **Candidate first** — capture adds a candidate. It does not create an approved record until the review decision and target write are observed.
+- **OMH project memory** — the default durable project/product/context store is reviewed OMH-local project memory under `.omh/memory/`.
+- **Hermes native memory** — when the user also wants Hermes to remember the fact natively, prepare that as an optional second target with its own approval and observed write evidence.
+- **Dual-store pattern** — one approved fact may target OMH project memory, Hermes native memory, or both; keep the two write states separate.
+
+## Boundary
+
+OMH project memory does not mutate Hermes internal memory. A `memory_new_candidate/v1` artifact is prepared context only, not an approved OMH project-memory record, Hermes native-memory write, or proof that either store changed.
+
+## Use When
+
+{definition.use_when}
+
+    Strong routing signals: {triggers}
+
+## Catalog Metadata
+
+{_skill_metadata_block(definition)}
+
+## Harness
+
+- Use `{primary_harness}` to keep candidate capture, review, approval, and observed writes distinct.
+- Route stale, conflicting, duplicate, overgeneralized, or risky existing `USER.md`/`MEMORY.md` facts to `memory-sync`.
+- Prefer one durable fact per candidate and preserve the project/product scope and source context.
+
+## Runtime Evidence
+
+Preferred harness for this skill: `{primary_harness}`.
+
+When local shell access or a bot wrapper is available, record metadata-only evidence:
+
+```sh
+omh runtime record --skill {name} --harness {primary_harness} --status started
+omh runtime delegate --run <run-id> --requested --not-observed --result not_observed
+```
+
+Record observed delegation results when Hermes or the wrapper exposes them. Record target writes only when observed. OMH project-memory approval is not Hermes native-memory evidence, and Hermes native-memory approval is not OMH project-memory evidence.
+
+## Hermes Compatibility
+
+- Preserve workflow intent, stop conditions, and verification discipline.
+- Use Hermes-native tools, file operations, and subagent/delegation features when available.
+- Do not require runtime tools, role prompts, or overlays Hermes Agent does not expose.
+{_target_topology_skill_contract_bullets()}
+{_memory_context_skill_contract_bullets(definition)}
+- Translate runtime-specific mechanisms to Hermes-native artifacts:
+  - goal tools -> `.omh/goals/` ledgers, goal cards, or checklists with named next actions,
+  - question renderers -> one concise question in the current Hermes interface,
+  - native subagents -> Hermes delegation when available, otherwise sequential lanes,
+  - shell bridge commands -> optional bridge mode only.
+
+## Execution Rules
+
+1. Load supporting context with `skills_list` / `skill_view` when needed.
+2. State the new durable fact, scope, source, target store, review owner, and stop condition.
+3. Add a candidate before requesting approval.
+4. Verify target-specific write evidence before claiming persistence.
+5. Stop after approval is recorded or the candidate is rejected; do not drift into existing-memory cleanup.
 """
     return SkillTemplate(name, _frontmatter(name, definition.description) + "\n" + body)
 
@@ -838,9 +919,9 @@ This is a Hermes-native `{name}` workflow skill.
 
 ## Harness Discipline
 
-- Start from the representative harness registry in `oh-my-hermes` when the workflow needs coding, research, planning, goal execution, architecture, critique, QA, or documentation lanes.
-- Prefer richer evidence and clearer stop conditions over adding more workflow names.
-- Use specialist lanes only when they change the quality of the answer or verification.
+- Start from `oh-my-hermes` harnesses for coding, research, planning, goals, architecture, critique, QA, or docs lanes.
+- Prefer richer evidence and clearer stop conditions over more workflow names.
+- Use specialist lanes only when they improve answer quality or verification.
 
 ## Runtime Evidence
 
@@ -853,17 +934,17 @@ omh runtime record --skill {name} --harness {primary_harness} --status started
 omh runtime delegate --run <run-id> --requested --not-observed --result not_observed
 ```
 
-Record observed delegation results when Hermes or the wrapper exposes them. If delegation is unavailable, keep the result explicit as `not_available` or `not_observed`.
+Record observed delegation results when exposed. If unavailable, say `not_available` or `not_observed`.
 
-## Hermes Compatibility Contract
+## Hermes Compatibility
 
-- Preserve the workflow intent, stop conditions, and verification discipline.
+- Preserve workflow intent, stop conditions, and verification discipline.
 - Use Hermes-native tools, file operations, and subagent/delegation features when available.
-- Do not require runtime tools, role prompts, or overlays that Hermes Agent does not expose.
+- Do not require runtime tools, role prompts, or overlays Hermes Agent does not expose.
 {_target_topology_skill_contract_bullets()}
 {_memory_context_skill_contract_bullets(definition)}
-- When a runtime-specific mechanism appears in imported instructions, translate it to a Hermes-native artifact:
-  - goal tools -> `.omh/goals/` ledgers, `goal_completion_gate/v1`, `goal_status_card/v1`, `goal_continuation/v1`, or explicit checklists with named next actions,
+- Translate runtime-specific mechanisms to Hermes-native artifacts:
+  - goal tools -> `.omh/goals/` ledgers, goal cards, or checklists with named next actions,
   - question renderers -> one concise question in the current Hermes interface,
   - native subagents -> Hermes delegation when available, otherwise sequential lanes,
   - shell bridge commands -> optional bridge mode only.
@@ -873,8 +954,8 @@ Record observed delegation results when Hermes or the wrapper exposes them. If d
 1. Load supporting context with `skills_list` / `skill_view` when needed.
 2. State the workflow target, constraints, validation evidence, and stop condition.
 3. Keep progress evidence-backed.
-4. Verify with the smallest relevant test or inspection before claiming completion.
-5. If Hermes cannot provide a required runtime capability, say so and use the fallback above.
+4. Verify before claiming completion.
+5. If Hermes lacks a required runtime capability, say so and use the fallback above.
 """
     return SkillTemplate(name, _frontmatter(name, definition.description) + "\n" + body)
 

@@ -758,10 +758,15 @@ _SKILL_POLICIES.update(
             evidence_boundary="An agent board card is not proof that another Hermes target accepted, worked, heartbeat-ed, or completed.",
             wrapper_guidance="Show task, handoff, heartbeat, blocker, and completion states per target/thread; require target-specific evidence before advancing.",
         ),
+        "memory-new": RecommendationPolicy(
+            next_action="prepare_memory_new",
+            evidence_boundary="An OMH project-memory candidate is not an approved record or Hermes internal-memory mutation evidence.",
+            wrapper_guidance="Capture one new durable project/product/context candidate, review scope and conflicts, then approve OMH project memory and optional Hermes native memory as separate observed writes.",
+        ),
         "memory-sync": RecommendationPolicy(
             next_action="prepare_memory_sync",
-            evidence_boundary="A memory curation review is not Hermes internal memory, MEMORY.md, USER.md, or skill-file modification evidence.",
-            wrapper_guidance="Present stale/conflicting/duplicate memory candidates with approve/reject/update actions; write only after observed approval.",
+            evidence_boundary="An existing-memory curation review is not Hermes internal memory, MEMORY.md, USER.md, or skill-file modification evidence.",
+            wrapper_guidance="Present stale/conflicting/duplicate/overgeneralized existing USER.md, MEMORY.md, and skill-memory claims with approve/reject/update actions; write only after observed approval.",
         ),
         "gateway-intent-card": RecommendationPolicy(
             next_action="prepare_gateway_intent_card",

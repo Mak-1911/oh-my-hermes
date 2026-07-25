@@ -84,17 +84,21 @@
   ],
   "owner_role": "memory-keeper",
   "primary_workflows": [
+   "memory-new",
+   "memory-sync",
    "wiki"
   ],
-  "route_summary": "Prepare notes and hints without claiming writes.",
+  "route_summary": "Separate new-memory capture from existing-memory cleanup, then prepare notes and hints without claiming writes.",
   "source_examples": [
+   "new durable context -> memory-new -> candidate/review/write boundary",
+   "stale USER.md/MEMORY.md claim -> memory-sync -> curation review",
    "decision -> wiki -> write boundary",
    "external store -> wiki -> retrieval hints"
   ],
   "source_lanes": [
    "retained_knowledge"
   ],
-  "use_for": "Project wiki notes and external connection hints."
+  "use_for": "New durable memory, existing memory cleanup, project wiki notes, and external connection hints."
  },
  {
   "example_prompt": "Make a PR summary card for reviewers.",
@@ -225,7 +229,6 @@
    "skill-scout",
    "skill-health",
    "workflow-learning",
-   "memory-sync",
    "achievements",
    "harness-session-inventory",
    "ops-observability-card",
@@ -247,6 +250,6 @@
   "source_lanes": [
    "automation_and_status"
   ],
-  "use_for": "Setup repair, status, automation, workflow learning, memory review, and ops cards."
+  "use_for": "Setup repair, status, automation, workflow learning, and ops cards."
  }
 ]

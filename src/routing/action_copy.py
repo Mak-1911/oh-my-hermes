@@ -56,6 +56,7 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "prepare_instinct_ledger": "preparing an instinct ledger",
     "prepare_material_package": "preparing a materials package",
     "prepare_meeting_brief": "preparing a meeting brief",
+    "prepare_memory_new": "preparing a new memory candidate",
     "prepare_memory_sync": "preparing a memory curation review",
     "prepare_memory_review": "preparing a memory review",
     "prepare_one_cycle_delivery": "preparing a one-cycle delivery path",

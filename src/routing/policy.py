@@ -1851,6 +1851,25 @@ _MATERIALS_PACKAGE_ACTION_TOKENS = _normalized_token_set(
         "변환",
     }
 )
+_MEMORY_NEW_PHRASES = (
+    "memory-new",
+    "new memory",
+    "project memory",
+    "product memory",
+    "remember this project",
+    "remember this product",
+    "memory capture",
+    "capture memory",
+    "save project memory",
+    "save product memory",
+    "프로젝트 메모리 저장",
+    "제품 메모리 저장",
+    "프로젝트 기억",
+    "제품 기억",
+    "새 기억",
+    "기억 추가",
+    "메모리 캡처",
+)
 _MEMORY_CURATION_PHRASES = (
     "memory curation",
     "memory review",
@@ -4415,6 +4434,15 @@ MATERIALS_PACKAGE_GUARD = RoutingGuardRule(
     why="Matched guard/trigger metadata; material processing requests should prepare a target-format package and QA ladder.",
     activation_status="active",
 )
+MEMORY_NEW_GUARD = RoutingGuardRule(
+    id="memory_new_before_existing_memory_curation",
+    rule="New project, product, or durable context capture requests should route to memory-new before existing-memory curation.",
+    matched_label="guard:memory_new",
+    preferred_skills=("memory-new",),
+    score_boost=34,
+    why="Matched guard/trigger metadata; new durable context should become a reviewed memory candidate instead of an existing-memory cleanup review.",
+    activation_status="active",
+)
 MEMORY_CURATION_GUARD = RoutingGuardRule(
     id="memory_curation_before_generic_clarification",
     rule="Hermes memory/context cleanup requests should route to memory-sync before generic clarification.",
@@ -4631,6 +4659,7 @@ ROUTING_GUARD_RULES = (
     MISSED_WORKFLOW_OPERATING_RHYTHM_GUARD,
     GITHUB_EVENT_OPS_GUARD,
     MATERIALS_PACKAGE_GUARD,
+    MEMORY_NEW_GUARD,
     MEMORY_CURATION_GUARD,
     AGENT_BOARD_GUARD,
     GATEWAY_INTENT_GUARD,
@@ -4875,7 +4904,10 @@ def _active_routing_guard_rules_cached(
         and not deliverable_package_applies
     ):
         rules.append(MATERIALS_PACKAGE_GUARD)
-    if not workflow_learning_applies and _memory_curation_guard_applies(normalized_query, query_tokens):
+    memory_new_applies = _memory_new_guard_applies(normalized_query)
+    if memory_new_applies:
+        rules.append(MEMORY_NEW_GUARD)
+    if not workflow_learning_applies and not memory_new_applies and _memory_curation_guard_applies(normalized_query, query_tokens):
         rules.append(MEMORY_CURATION_GUARD)
     if _agent_board_guard_applies(normalized_query, query_tokens):
         rules.append(AGENT_BOARD_GUARD)
@@ -6363,6 +6395,10 @@ def _materials_package_guard_applies(
     if action and _MATERIALS_PACKAGE_FORMAT_TOKENS & query_tokens & non_pdf_output_formats:
         return True
     return format_hits >= 2 and action
+
+
+def _memory_new_guard_applies(normalized_query: str) -> bool:
+    return _contains_phrase(normalized_query, _MEMORY_NEW_PHRASES)
 
 
 def _memory_curation_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:

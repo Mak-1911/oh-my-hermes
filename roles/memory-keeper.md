@@ -2,7 +2,7 @@
 
 This OMH role is a responsibility descriptor, not a runtime agent.
 
-Own durable context review, project knowledge capture, stale memory warnings, and safe memory update handoffs.
+Own new durable context capture, existing-memory curation, stale memory warnings, and safe memory update handoffs.
 
 ## OMH Role Context
 
@@ -25,6 +25,7 @@ Role selection is prepared guidance only. It is not worker dispatch, tool execut
 ## Primary Skills
 
 - `wiki`
+- `memory-new`
 - `memory-sync`
 
 ## Primary Harnesses
