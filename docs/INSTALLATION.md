@@ -1153,6 +1153,25 @@ without parsing prose:
 omh install --full --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["context_cost_warning"])'
 ```
 
+The warning reports skill *counts*. To see the actual bytes behind them, run
+the context-cost report, which measures the always-loaded `SKILL.md` body for
+both profiles and shows how much of it is text repeated verbatim across skills
+rather than guidance specific to one workflow:
+
+```sh
+omh docs skill-context-cost          # human-readable table
+omh docs skill-context-cost --json   # omh_skill_context_cost/v1
+```
+
+Repetition is derived, not hand-classified: for each `##` heading the report
+counts occurrences, distinct bodies, and the duplicate bytes an install pays
+for the second and later copies. Policy shared by every generated workflow
+skill lives once in `skills/oh-my-hermes/references/skill-common-rail.md`
+(progressive disclosure, loaded on demand) rather than inside each body; that
+reference ships with the always-installed `oh-my-hermes` skill, so both
+profiles resolve it. Reference bytes are reported separately from the
+always-loaded total because they are not carried on every turn.
+
 A `core` install still passes `omh doctor` because the core profile installs
 a superset of the doctor health-floor skills; `--full` never removes skills
 that a later `--force` reinstall does not also write, so switching from

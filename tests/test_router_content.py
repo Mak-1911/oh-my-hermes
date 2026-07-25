@@ -661,6 +661,63 @@ class RouterContentTests(unittest.TestCase):
                 missing = {name: fragments for name, fragments in missing.items() if fragments}
                 self.assertEqual(missing, {})
 
+    def test_shared_common_rail_reference_carries_moved_policy(self) -> None:
+        """Replacement gate for the policy issue #634 moved out of every SKILL.md body.
+
+        Nothing may leave a skill body without landing verbatim in the shared rail, and the
+        rail only resolves if it ships with a skill both install profiles write to disk.
+        """
+        from omh.skills.catalog import CORE_PROFILE_SKILLS
+        from omh.skills.render import (
+            DELEGATION_RECORD_COMMAND,
+            EXECUTION_RULES,
+            HARNESS_DISCIPLINE_RULES,
+            RUNTIME_MECHANISM_TRANSLATIONS,
+            SHARED_RAIL_REFERENCE_PATH,
+            TARGET_TOPOLOGY_SKILL_CHANGE_CONTRACT,
+            TARGET_TOPOLOGY_SKILL_CONTRACT,
+        )
+
+        rail_skill, _, rail_relative = SHARED_RAIL_REFERENCE_PATH.partition("/")
+        rail = next(
+            template
+            for template in builtin_skill_reference_templates()
+            if template.skill_name == rail_skill and template.relative_path == rail_relative
+        )
+
+        # The rail lives on a skill the core profile installs, so both profiles resolve it.
+        self.assertIn(rail_skill, CORE_PROFILE_SKILLS)
+        self.assertEqual(
+            Path("skills") / SHARED_RAIL_REFERENCE_PATH,
+            Path("skills") / rail.skill_name / rail.relative_path,
+        )
+        self.assertEqual(
+            (Path("skills") / SHARED_RAIL_REFERENCE_PATH).read_text(encoding="utf-8"),
+            rail.content,
+        )
+
+        moved = (
+            *HARNESS_DISCIPLINE_RULES,
+            *RUNTIME_MECHANISM_TRANSLATIONS,
+            *EXECUTION_RULES,
+            DELEGATION_RECORD_COMMAND,
+            TARGET_TOPOLOGY_SKILL_CONTRACT,
+            TARGET_TOPOLOGY_SKILL_CHANGE_CONTRACT,
+        )
+        for fragment in moved:
+            with self.subTest(fragment=fragment[:48]):
+                self.assertIn(fragment, rail.content)
+
+        for template in builtin_skill_templates():
+            if template.name == rail_skill:
+                continue
+            with self.subTest(skill=template.name):
+                self.assertIn(SHARED_RAIL_REFERENCE_PATH, template.content)
+                # The moved bodies must not silently reappear in a skill body.
+                self.assertNotIn(HARNESS_DISCIPLINE_RULES[1], template.content)
+                self.assertNotIn(EXECUTION_RULES[0], template.content)
+                self.assertNotIn(DELEGATION_RECORD_COMMAND, template.content)
+
     def test_hermes_setup_skills_share_five_step_contract_and_skip_semantics(self) -> None:
         hermes_setup_skill_names = (
             "model-setup",
@@ -2183,7 +2240,10 @@ class RouterContentTests(unittest.TestCase):
     def test_workflow_skills_refer_to_harness_discipline(self) -> None:
         skills = {skill.name: skill for skill in builtin_skill_templates()}
 
-        self.assertIn("Harness Discipline", skills["ultragoal"].content)
+        # Harness discipline moved to the shared rail reference (issue #634); each skill
+        # keeps the pointer instead of its own verbatim copy. The rail's own content is
+        # gated by test_shared_common_rail_reference_carries_moved_policy below.
+        self.assertIn("oh-my-hermes/references/skill-common-rail.md", skills["ultragoal"].content)
         self.assertIn("Catalog Metadata", skills["ultragoal"].content)
         self.assertIn("Category: `execution`", skills["ultragoal"].content)
         self.assertIn("Phase: `durable-goals`", skills["ultragoal"].content)
@@ -2238,7 +2298,6 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("one delivery cycle", skills["ultraprocess"].content)
         self.assertIn("lane owner, next action, and missing evidence", skills["ultraprocess"].content)
         self.assertIn("PR readiness", skills["ultraprocess"].content)
-        self.assertIn("Prefer richer evidence and clearer stop conditions", skills["code-review"].content)
         self.assertIn("Findings come first", skills["code-review"].content)
         self.assertIn("independent review evidence", skills["code-review"].content)
         self.assertIn("hermes_coding_harness/v1", skills["code-review"].content)
