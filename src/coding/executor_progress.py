@@ -342,8 +342,8 @@ def build_safe_progress_signal(
     process_status: str = "",
     codex_progress_summary: dict[str, Any] | None = None,
     profile_progress_summary: dict[str, Any] | None = None,
-    git_status_short: str = "",
-    git_diff_stat: str = "",
+    git_status_short: str | None = None,
+    git_diff_stat: str | None = None,
     explicit_event_type: str = "",
     explicit_summary: str = "",
     evidence_refs: list[str] | tuple[str, ...] | None = None,
@@ -360,8 +360,12 @@ def build_safe_progress_signal(
     signal = {
         "executor_profile": profile,
         "process_status": _compact_text(process_status, 80),
-        "git_status_hash": _hash_if_present(git_status_short),
-        "git_diff_stat_hash": _hash_if_present(git_diff_stat),
+        "git_status_hash": _hash_if_present(git_status_short or ""),
+        "git_diff_stat_hash": _hash_if_present(git_diff_stat or ""),
+        # A missing hash is ambiguous on its own: the caller may have looked at
+        # git and seen nothing, or may never have looked. Only the first case
+        # can contradict a reported change, so record which one it was.
+        "git_observed": git_status_short is not None or git_diff_stat is not None,
         "progress_status": progress.get("status", ""),
         "progress_event_count": progress.get("event_count", 0),
         "latest_progress_event_type": progress.get("latest_progress_event_type", ""),
@@ -378,6 +382,33 @@ def build_safe_progress_signal(
     return _safe_signal(signal)
 
 
+_CHANGE_CLAIM_ACTIVITY = {"Codex changed files.", "Codex is editing files."}
+_CHANGE_CLAIM_EVENT_TYPES = {"diff_started", "file_changed"}
+_SUCCESS_PROCESS_STATUSES = {"completed", "complete", "done", "success", "succeeded", "exited_zero"}
+_FAILURE_LATEST_EVENT_TYPES = {"targeted_tests_failed", "full_tests_failed", "tests_failed", "failure_discovered"}
+
+
+def _change_reported_but_not_observed(signal: dict[str, Any], *, latest: str, activity: set[str]) -> bool:
+    """The executor said it changed files and the working tree disagrees.
+
+    Requires `git_observed`: without it a missing hash only means nobody looked,
+    and reporting a mismatch from that would cry wolf on every caller that does
+    not collect git state.
+    """
+    if not bool(signal.get("git_observed", False)):
+        return False
+    if not (latest in _CHANGE_CLAIM_EVENT_TYPES or activity.intersection(_CHANGE_CLAIM_ACTIVITY)):
+        return False
+    return not signal.get("git_status_hash") and not signal.get("git_diff_stat_hash")
+
+
+def _success_reported_but_contradicted(*, progress_status: str, latest: str, process_status: str) -> bool:
+    """The process exited clean while the observed progress says it failed."""
+    if process_status not in _SUCCESS_PROCESS_STATUSES:
+        return False
+    return progress_status == "failed_or_error_observed" or latest in _FAILURE_LATEST_EVENT_TYPES
+
+
 def infer_progress_event_type(signal: dict[str, Any]) -> str:
     explicit = str(signal.get("explicit_event_type", ""))
     if explicit:
@@ -388,6 +419,10 @@ def infer_progress_event_type(signal: dict[str, Any]) -> str:
     process_status = str(signal.get("process_status", "")).casefold()
     test_activity = bool(activity.intersection({"Codex ran tests.", "Codex is running tests."}))
     inspect_activity = bool(activity.intersection({"Codex inspected the repo.", "Codex is inspecting files/tests."}))
+    if _change_reported_but_not_observed(signal, latest=latest, activity=activity):
+        return "reported_change_not_observed"
+    if _success_reported_but_contradicted(progress_status=progress_status, latest=latest, process_status=process_status):
+        return "reported_success_contradicted"
     if latest == "blocker_encountered" or progress_status == "blocked" or process_status in {"blocked", "blocker"}:
         return "executor_blocked"
     if progress_status == "failed_or_error_observed" or latest in {"targeted_tests_failed", "full_tests_failed", "tests_failed"}:
@@ -954,6 +989,7 @@ def _safe_signal(signal: dict[str, Any]) -> dict[str, Any]:
         "process_status",
         "git_status_hash",
         "git_diff_stat_hash",
+        "git_observed",
         "progress_status",
         "progress_event_count",
         "latest_progress_event_type",

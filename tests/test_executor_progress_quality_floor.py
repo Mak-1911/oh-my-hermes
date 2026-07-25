@@ -15,6 +15,8 @@ from omh.executor_progress import (
     TERMINAL_EVENT_TYPES,
     build_progress_binding,
     build_progress_event,
+    build_safe_progress_signal,
+    infer_progress_event_type,
     reported_event_types,
     should_report_event,
     update_binding_reporter_state,
@@ -189,6 +191,86 @@ class FirstOccurrenceGuaranteeTests(unittest.TestCase):
         should_report, reason = should_report_event(binding, event, now=later)
         self.assertTrue(should_report, reason)
         self.assertEqual(reason, "meaningful_transition")
+
+
+class ClaimMismatchDetectionTests(unittest.TestCase):
+    """The exemption list is worthless if nothing ever emits the exempt types."""
+
+    def _signal(self, **overrides: object) -> dict[str, object]:
+        signal = build_safe_progress_signal(
+            executor_profile="claude_code",
+            profile_progress_summary={
+                "status": "running",
+                "observable_activity": ["Codex changed files."],
+            },
+        )
+        signal.update(overrides)
+        return signal
+
+    def test_reported_change_with_clean_git_is_flagged(self) -> None:
+        signal = build_safe_progress_signal(
+            executor_profile="claude_code",
+            profile_progress_summary={"observable_activity": ["Codex changed files."]},
+            git_status_short="",
+            git_diff_stat="",
+        )
+        self.assertTrue(signal["git_observed"])
+        self.assertEqual(infer_progress_event_type(signal), "reported_change_not_observed")
+
+    def test_reported_change_with_a_real_diff_is_not_flagged(self) -> None:
+        signal = build_safe_progress_signal(
+            executor_profile="claude_code",
+            profile_progress_summary={"observable_activity": ["Codex changed files."]},
+            git_status_short=" M src/coding/executor_progress.py",
+            git_diff_stat="1 file changed, 2 insertions(+)",
+        )
+        self.assertEqual(infer_progress_event_type(signal), "diff_started")
+
+    def test_no_git_observation_never_claims_a_mismatch(self) -> None:
+        """Callers that do not collect git state must not trip the detector."""
+        signal = build_safe_progress_signal(
+            executor_profile="claude_code",
+            profile_progress_summary={"observable_activity": ["Codex changed files."]},
+        )
+        self.assertFalse(signal["git_observed"])
+        self.assertNotEqual(infer_progress_event_type(signal), "reported_change_not_observed")
+
+    def test_clean_git_without_any_change_claim_is_not_a_mismatch(self) -> None:
+        signal = build_safe_progress_signal(
+            executor_profile="claude_code",
+            profile_progress_summary={"observable_activity": ["Codex inspected the repo."]},
+            git_status_short="",
+        )
+        self.assertEqual(infer_progress_event_type(signal), "repo_exploration")
+
+    def test_clean_exit_with_observed_failure_is_flagged(self) -> None:
+        signal = build_safe_progress_signal(
+            executor_profile="claude_code",
+            process_status="exited_zero",
+            profile_progress_summary={"status": "failed_or_error_observed"},
+        )
+        self.assertEqual(infer_progress_event_type(signal), "reported_success_contradicted")
+
+    def test_clean_exit_without_observed_failure_stays_completed(self) -> None:
+        signal = build_safe_progress_signal(executor_profile="claude_code", process_status="exited_zero")
+        self.assertEqual(infer_progress_event_type(signal), "executor_completed")
+
+    def test_failing_exit_with_observed_failure_is_not_a_contradiction(self) -> None:
+        signal = build_safe_progress_signal(
+            executor_profile="claude_code",
+            process_status="failed",
+            profile_progress_summary={"status": "failed_or_error_observed"},
+        )
+        self.assertNotEqual(infer_progress_event_type(signal), "reported_success_contradicted")
+
+    def test_an_explicit_event_type_still_wins(self) -> None:
+        signal = build_safe_progress_signal(
+            executor_profile="claude_code",
+            explicit_event_type="tests_passed",
+            profile_progress_summary={"observable_activity": ["Codex changed files."]},
+            git_status_short="",
+        )
+        self.assertEqual(infer_progress_event_type(signal), "tests_passed")
 
 
 class VendoredBundleParityTests(unittest.TestCase):

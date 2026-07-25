@@ -421,8 +421,8 @@ def cmd_runtime_progress_observe(args: argparse.Namespace) -> int:
             process_status=args.process_status or "",
             codex_progress_summary=codex_summary,
             profile_progress_summary=profile_summary,
-            git_status_short=args.git_status_short or "",
-            git_diff_stat=args.git_diff_stat or "",
+            git_status_short=args.git_status_short,
+            git_diff_stat=args.git_diff_stat,
             explicit_event_type=args.event or "",
             explicit_summary=args.summary or "",
             evidence_refs=args.evidence_ref or [],
@@ -555,8 +555,11 @@ def _add_progress_bind_args(parser: argparse.ArgumentParser) -> None:
 def _add_progress_observe_args(parser: argparse.ArgumentParser) -> None:
     _add_progress_target_args(parser)
     parser.add_argument("--process-status", default="")
-    parser.add_argument("--git-status-short", default="")
-    parser.add_argument("--git-diff-stat", default="")
+    # Default None, not "": passing the flag with an empty value means "git was
+    # checked and reports nothing changed", which is what contradicts a reported
+    # change. Omitting the flag means nobody looked and contradicts nothing.
+    parser.add_argument("--git-status-short", default=None)
+    parser.add_argument("--git-diff-stat", default=None)
     parser.add_argument("--event", choices=PROGRESS_EVENT_TYPES, default="")
     parser.add_argument("--summary", default="")
     parser.add_argument("--codex-log-jsonl", default=None)
