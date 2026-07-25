@@ -37,6 +37,30 @@ def _template_content(name: str) -> str:
 
 
 class MemorySyncSkillTests(unittest.TestCase):
+    def test_memory_new_skill_registered_for_candidate_capture(self) -> None:
+        self.assertIn("memory-new", installable_skill_names())
+        definition = _definition("memory-new")
+        self.assertEqual(definition.category, "memory")
+        self.assertEqual(definition.hermes_role, "memory-keeper")
+        self.assertEqual(
+            recommend_module._SKILL_POLICIES["memory-new"].next_action,
+            "prepare_memory_new",
+        )
+        required_triggers = {
+            "memory-new",
+            "new memory",
+            "project memory",
+            "product memory",
+            "remember this project",
+            "프로젝트 메모리 저장",
+            "새 기억",
+            "memory capture",
+        }
+        self.assertTrue(
+            required_triggers.issubset(set(definition.triggers)),
+            required_triggers.difference(set(definition.triggers)),
+        )
+
     def test_memory_sync_skill_registered(self) -> None:
         self.assertIn("memory-sync", installable_skill_names())
         definition = _definition("memory-sync")
@@ -59,6 +83,60 @@ class MemorySyncSkillTests(unittest.TestCase):
             required_triggers.issubset(set(definition.triggers)),
             required_triggers.difference(set(definition.triggers)),
         )
+
+    def test_memory_new_and_memory_sync_generated_contracts_are_distinct(self) -> None:
+        memory_new = _template_content("memory-new")
+        memory_sync = _template_content("memory-sync")
+
+        self.assertIn("memory_new_candidate/v1", memory_new)
+        self.assertIn("capture -> review -> approve", memory_new)
+        self.assertIn("OMH project memory", memory_new)
+        self.assertIn("Hermes native memory", memory_new)
+        self.assertIn("does not mutate Hermes internal memory", memory_new)
+        self.assertIn("memory_curation_review/v1", memory_sync)
+        self.assertIn("existing USER.md and MEMORY.md", memory_sync)
+        self.assertIn("stale, conflicting, duplicate, or overgeneralized", memory_sync)
+        self.assertNotIn("memory_new_candidate/v1", memory_sync)
+
+    def test_memory_new_routes_capture_while_memory_sync_routes_existing_memory_review(self) -> None:
+        capture_queries = (
+            "memory-new",
+            "new memory",
+            "project memory",
+            "product memory",
+            "remember this project",
+            "프로젝트 메모리 저장",
+            "새 기억",
+            "memory capture",
+        )
+        # These deliberately include the scope vocabulary memory-new also claims
+        # ("project memory", "프로젝트 기억"). A scope noun names where a fact lives, not
+        # what to do with it, so pairing it with curation intent must stay curation --
+        # the direction that silently overrouted to capture before the phrase split.
+        review_queries = (
+            "MEMORY.md",
+            "USER.md",
+            "기억 정리",
+            "메모리 점검",
+            "clean up my stale project memory",
+            "review my stale project memory entries",
+            "check my project memory for stale claims",
+            "audit product memory for conflicting facts",
+            "프로젝트 기억 정리해줘",
+            "제품 기억 점검해줘",
+        )
+
+        for query in capture_queries:
+            with self.subTest(query=query):
+                result = recommend_module.recommend_skills(query, limit=1)[0]
+                self.assertEqual(result["skill"], "memory-new")
+                self.assertEqual(result["next_action"], "prepare_memory_new")
+
+        for query in review_queries:
+            with self.subTest(query=query):
+                result = recommend_module.recommend_skills(query, limit=1)[0]
+                self.assertEqual(result["skill"], "memory-sync")
+                self.assertEqual(result["next_action"], "prepare_memory_sync")
 
     def test_memory_curation_review_removed(self) -> None:
         self.assertNotIn("memory-curation-review", installable_skill_names())

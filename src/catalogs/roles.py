@@ -128,13 +128,13 @@ _ROLES = (
     RoleDefinition(
         id="memory-keeper",
         title="Memory Keeper",
-        purpose="Own durable context review, project knowledge capture, stale memory warnings, and safe memory update handoffs.",
+        purpose="Own new durable context capture, existing-memory curation, stale memory warnings, and safe memory update handoffs.",
         owns=(
             "Memory and wiki context review",
             "Stale, duplicate, or conflicting context candidates",
             "Human-approved context pack preparation",
         ),
-        primary_skills=("wiki", "memory-sync"),
+        primary_skills=("wiki", "memory-new", "memory-sync"),
         primary_harnesses=("knowledge", "memory-context-review"),
         wrapper_actions=("ask_followup", "show_status", "prepare_handoff"),
         evidence_boundary="A memory keeper role can prepare context changes; it is not proof that Hermes internal memory, USER.md, MEMORY.md, wiki, or skill files were changed.",

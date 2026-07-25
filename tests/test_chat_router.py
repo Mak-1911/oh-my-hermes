@@ -3273,10 +3273,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         card = decision["learning_candidate_card"]
 
         self.assertEqual(decision["action"], "dispatch")
-        self.assertEqual(decision["selected_skill"], "memory-sync")
+        self.assertEqual(decision["selected_skill"], "memory-new")
         self.assertEqual(card["persistence_target"], "memory_candidate")
-        self.assertEqual(card["primary_action"], "prepare_memory_sync")
-        self.assertEqual(card["review"]["review_workflow"], "memory-sync")
+        self.assertEqual(card["primary_action"], "prepare_memory_new")
+        self.assertEqual(card["review"]["review_workflow"], "memory-new")
         self.assertNotIn("learn_prompt", card)
         self.assertIn("Durable user preference", card["summary"])
 
@@ -3306,9 +3306,9 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         card = decision["learning_candidate_card"]
         serialized = json.dumps(card)
 
-        self.assertEqual(decision["selected_skill"], "memory-sync")
+        self.assertEqual(decision["selected_skill"], "memory-new")
         self.assertEqual(card["persistence_target"], "review_first")
-        self.assertEqual(card["primary_action"], "prepare_memory_sync")
+        self.assertEqual(card["primary_action"], "prepare_memory_new")
         self.assertIn("channel_or_thread_ref", card["sanitization"]["transient_identifier_categories"])
         self.assertIn("pull_request_number", card["sanitization"]["transient_identifier_categories"])
         self.assertNotIn("#ops", serialized)

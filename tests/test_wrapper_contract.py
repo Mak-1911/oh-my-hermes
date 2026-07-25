@@ -860,13 +860,13 @@ class WrapperContractTests(unittest.TestCase):
         card = payload["learning_candidate_card"]
 
         self.assertEqual(payload["mode"], "route")
-        self.assertEqual(payload["next_action"], "prepare_memory_sync")
+        self.assertEqual(payload["next_action"], "prepare_memory_new")
         self.assertEqual(response["kind"], "learning_candidate")
         self.assertEqual(card["persistence_target"], "memory_candidate")
         self.assertNotIn("learn_prompt", card)
         self.assertNotIn("copy_learn_prompt", actions)
-        self.assertIn("prepare_memory_sync", actions)
-        self.assertIn("memory curation review", response["body"])
+        self.assertIn("prepare_memory_new", actions)
+        self.assertIn("new memory candidate", response["body"])
 
     def test_learning_candidate_scope_does_not_treat_agent_ref_as_executor_runtime(self) -> None:
         payload = build_chat_interaction_payload(

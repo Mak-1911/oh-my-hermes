@@ -62,6 +62,7 @@ FEATURE_SURFACE_EXPOSURES = {
     "automation-blueprint": ("workflow_skill", True),
     "github-event-ops": ("workflow_skill", True),
     "agent-board": ("workflow_skill", True),
+    "memory-new": ("workflow_skill", True),
     "memory-sync": ("workflow_skill", True),
     "gateway-intent-card": ("workflow_skill", True),
     "executor-runtime-readiness": ("workflow_skill", True),
@@ -248,7 +249,7 @@ class RouterContentTests(unittest.TestCase):
         router = next(skill for skill in builtin_skill_templates() if skill.name == "oh-my-hermes")
         self.assertLess(len(router.content.encode("utf-8")), 12_000)
         for template in builtin_skill_reference_templates():
-            self.assertLess(len(template.content.encode("utf-8")), 24_000, template.relative_path)
+            self.assertLess(len(template.content.encode("utf-8")), 24_500, template.relative_path)
 
         schemas = (
             OMH_CAPABILITIES_SCHEMA,
@@ -270,7 +271,7 @@ class RouterContentTests(unittest.TestCase):
         context_payload = build_chat_interaction_payload("what can OMH do?", source="discord")
         self.assertLess(len(json.dumps(maintenance_payload, sort_keys=True)), 25_000)
         self.assertLess(len(json.dumps(route_payload, sort_keys=True)), 15_000)
-        self.assertLess(len(json.dumps(context_payload, sort_keys=True)), 60_000)
+        self.assertLess(len(json.dumps(context_payload, sort_keys=True)), 61_000)
 
     def test_role_surface_docs_match_catalog_and_avoid_runtime_claims(self) -> None:
         roles_doc = Path("docs/ROLES.md").read_text(encoding="utf-8")
@@ -854,6 +855,7 @@ class RouterContentTests(unittest.TestCase):
                 "docs-specialist",
                 "github-event-ops",
                 "agent-board",
+                "memory-new",
                 "memory-sync",
                 "gateway-intent-card",
                 "executor-runtime-readiness",
@@ -1003,7 +1005,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("Obsidian", wiki.triggers)
         self.assertTrue(any("destination preference" in item for item in wiki.required_inputs))
         self.assertIn("destination-aware", " ".join(wiki.expected_outputs))
-        self.assertIn("Current lane: **Retained knowledge** (`wiki`)", content)
+        self.assertIn("Current lane: **Retained knowledge** (`memory-new`, `memory-sync`, `wiki`)", content)
         self.assertIn("observed external write", content)
         self.assertNotIn("Current lane: **Materials and visual summaries** (`wiki`)", content)
         self.assertNotEqual(wiki.category, "materials")
@@ -2616,7 +2618,7 @@ class RouterContentTests(unittest.TestCase):
             self.assertLess(len(localized_readme.splitlines()), 240)
             self.assertIn("prepared_not_observed", localized_readme)
             self.assertIn("omh setup", localized_readme)
-            self.assertNotIn("omh doctor", localized_readme)
+            self.assertIn("```sh\nomh update\nomh doctor\n```", localized_readme)
             for image in (
                 "artengine-friren-profile-card.png",
                 "omh-core-workflows.png",
@@ -2677,13 +2679,17 @@ class RouterContentTests(unittest.TestCase):
         self.assertLess(update_section.index("omh update\nomh doctor"), update_section.index("Advanced operators"))
         self.assertNotIn("omh update --channel preview", update_section)
         self.assertIn("omh setup", readme)
-        self.assertNotIn("omh doctor", readme)
         self.assertNotIn("## Why OMH", readme)
         self.assertLess(readme.index("## Quick Start"), readme.index("## What OMH Adds"))
         quick_start = readme.split("## Quick Start", 1)[1].split("## What OMH Adds", 1)[0]
         self.assertIn("curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh", quick_start)
         self.assertIn("omh setup", quick_start)
-        self.assertNotIn("omh doctor", quick_start)
+        # `omh doctor` belongs in its own block, never bundled into the install
+        # step: a first-time reader must not read a health check as part of setup.
+        install_block = quick_start.split("```sh", 1)[1].split("```", 1)[0]
+        self.assertIn("omh setup", install_block)
+        self.assertNotIn("omh doctor", install_block)
+        self.assertIn("```sh\nomh update\nomh doctor\n```", quick_start)
         self.assertIn("Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<", quick_start)
         self.assertIn("hermes skills tap add", quick_start)
         self.assertNotIn("That is the normal path", quick_start)

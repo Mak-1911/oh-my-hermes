@@ -1856,6 +1856,61 @@ _MATERIALS_PACKAGE_ACTION_TOKENS = _normalized_token_set(
         "변환",
     }
 )
+# Unambiguous capture vocabulary: each phrase names the act of adding a durable fact,
+# so it is a memory-new signal on its own.
+MEMORY_NEW_CAPTURE_PHRASES = (
+    "memory-new",
+    "new memory",
+    "remember this project",
+    "remember this product",
+    "memory capture",
+    "capture memory",
+    "save project memory",
+    "save product memory",
+    "프로젝트 메모리 저장",
+    "제품 메모리 저장",
+    "새 기억",
+    "기억 추가",
+    "메모리 캡처",
+)
+# Scope nouns name *where* a durable fact lives, not what to do with it. Alone they read
+# as capture ("project memory"), but paired with curation intent they describe cleanup of
+# memories that already exist ("clean up my stale project memory") and must not be treated
+# as capture -- that is the memory-new/memory-sync overroute these two tuples separate.
+MEMORY_NEW_SCOPE_PHRASES = (
+    "project memory",
+    "product memory",
+    "project context memory",
+    "product context memory",
+    "프로젝트 기억",
+    "제품 기억",
+)
+# Verbs and adjectives that mark a request about memories that already exist.
+MEMORY_CURATION_INTENT_PHRASES = (
+    "clean up",
+    "cleanup",
+    "clear out",
+    "curate",
+    "review",
+    "inspect",
+    "audit",
+    "check",
+    "prune",
+    "dedupe",
+    "deduplicate",
+    "stale",
+    "outdated",
+    "duplicate",
+    "conflicting",
+    "정리",
+    "점검",
+    "검사",
+    "검토",
+    "정돈",
+    "오래된",
+    "중복",
+    "충돌",
+)
 _MEMORY_CURATION_PHRASES = (
     "memory curation",
     "memory review",
@@ -1942,6 +1997,20 @@ _MEMORY_CURATION_PHRASES = (
     "채널 용어",
     "용어가 겹",
     "다른 채널",
+)
+# Tokens naming a memory store. Built through `_normalized_token_set` because
+# `routing_tokens` folds Korean to decomposed jamo: a raw NFC literal such as "기억"
+# never equals the folded token, so an unnormalized set is silently dead for Korean.
+_MEMORY_STORE_TOKENS = _normalized_token_set(
+    {
+        "memory",
+        "memories",
+        "context",
+        "contexts",
+        "기억",
+        "메모리",
+        "맥락",
+    }
 )
 _MEMORY_CURATION_CONTEXT_TOKENS = _normalized_token_set(
     {
@@ -4435,6 +4504,15 @@ MATERIALS_PACKAGE_GUARD = RoutingGuardRule(
     why="Matched guard/trigger metadata; material processing requests should prepare a target-format package and QA ladder.",
     activation_status="active",
 )
+MEMORY_NEW_GUARD = RoutingGuardRule(
+    id="memory_new_before_existing_memory_curation",
+    rule="New project, product, or durable context capture requests should route to memory-new before existing-memory curation.",
+    matched_label="guard:memory_new",
+    preferred_skills=("memory-new",),
+    score_boost=34,
+    why="Matched guard/trigger metadata; new durable context should become a reviewed memory candidate instead of an existing-memory cleanup review.",
+    activation_status="active",
+)
 MEMORY_CURATION_GUARD = RoutingGuardRule(
     id="memory_curation_before_generic_clarification",
     rule="Hermes memory/context cleanup requests should route to memory-sync before generic clarification.",
@@ -4651,6 +4729,7 @@ ROUTING_GUARD_RULES = (
     MISSED_WORKFLOW_OPERATING_RHYTHM_GUARD,
     GITHUB_EVENT_OPS_GUARD,
     MATERIALS_PACKAGE_GUARD,
+    MEMORY_NEW_GUARD,
     MEMORY_CURATION_GUARD,
     AGENT_BOARD_GUARD,
     GATEWAY_INTENT_GUARD,
@@ -4898,7 +4977,10 @@ def _active_routing_guard_rules_cached(
         and not deliverable_package_applies
     ):
         rules.append(MATERIALS_PACKAGE_GUARD)
-    if not workflow_learning_applies and _memory_curation_guard_applies(normalized_query, query_tokens):
+    memory_new_applies = _memory_new_guard_applies(normalized_query)
+    if memory_new_applies:
+        rules.append(MEMORY_NEW_GUARD)
+    if not workflow_learning_applies and not memory_new_applies and _memory_curation_guard_applies(normalized_query, query_tokens):
         rules.append(MEMORY_CURATION_GUARD)
     if _agent_board_guard_applies(normalized_query, query_tokens):
         rules.append(AGENT_BOARD_GUARD)
@@ -6400,6 +6482,29 @@ def _materials_package_guard_applies(
     return format_hits >= 2 and action
 
 
+def memory_new_scope_overroutes_curation(normalized_query: str) -> bool:
+    """True when a scope noun is the only memory-new signal and the request is curation.
+
+    `project memory` on its own is a capture request, but `clean up my stale project
+    memory` is existing-memory curation that merely names the same scope. Without this
+    split the scope noun wins and suppresses `MEMORY_CURATION_GUARD`, so adding a scope
+    word to a curation request silently flips it to capture.
+    """
+    if _contains_phrase(normalized_query, MEMORY_NEW_CAPTURE_PHRASES):
+        return False
+    return _contains_phrase(normalized_query, MEMORY_NEW_SCOPE_PHRASES) and _contains_phrase(
+        normalized_query, MEMORY_CURATION_INTENT_PHRASES
+    )
+
+
+def _memory_new_guard_applies(normalized_query: str) -> bool:
+    if _contains_phrase(normalized_query, MEMORY_NEW_CAPTURE_PHRASES):
+        return True
+    if memory_new_scope_overroutes_curation(normalized_query):
+        return False
+    return _contains_phrase(normalized_query, MEMORY_NEW_SCOPE_PHRASES)
+
+
 def _memory_curation_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:
     if _public_plugin_connector_readiness_requested(normalized_query):
         return False
@@ -6410,7 +6515,7 @@ def _memory_curation_guard_applies(normalized_query: str, query_tokens: set[str]
     context = bool(_MEMORY_CURATION_CONTEXT_TOKENS & query_tokens)
     hermes_context = _contains_phrase(normalized_query, ("hermes", "헤르메스"))
     omh_context = _contains_phrase(normalized_query, ("omh", "oh-my-hermes", "oh my hermes"))
-    memory_context = bool({"memory", "memories", "context", "contexts", "기억", "메모리", "맥락"} & query_tokens)
+    memory_context = bool(_MEMORY_STORE_TOKENS & query_tokens)
     if _scheduled_ops_blueprint_guard_applies(normalized_query, query_tokens) and not (
         hermes_context or omh_context or memory_context
     ):

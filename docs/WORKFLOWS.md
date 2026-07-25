@@ -3875,9 +3875,68 @@ These surfaces are generated command references, not installed Hermes workflow s
   - An agent board card is not proof that another Hermes agent accepted, executed, heartbeat-ed, or completed work unless target-specific evidence exists.
   - Do not claim connector, gateway, runtime, file generation, memory mutation, or host automation evidence from prepared guidance.
 
+### memory-new
+
+[omh] Hermes new-memory capture workflow: add reviewed project, product, or durable context candidates through capture, review, and approve actions.
+
+- Category: `memory`
+- Phase: `candidate-capture`
+- Hermes role: `memory-keeper`
+- Quality tier: `workflow-surface-gated`
+- Exposure: `workflow_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill when the user wants to add new project, product, or durable context memory through capture, review, and approval.
+- Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
+- Why this exists: `memory-new` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Use when: Use when the user wants to add new durable project, product, or context memory as an OMH project-memory candidate, with optional separate Hermes native-memory capture after review.
+- Do not use when:
+  - The request is already handled by a narrower explicit skill with stronger evidence.
+  - The user asks OMH to secretly run external platforms, connectors, schedulers, file exports, or runtime agents.
+  - The only safe answer is to ask for missing authority, credentials, target, or observed evidence first.
+- Strong routing signals: `memory-new`, `new memory`, `project memory`, `product memory`, `remember this project`, `remember this product`, `memory capture`, `capture memory`, `save project memory`, `save product memory`, `project context memory`, `product context memory`, `add memory candidate`, `프로젝트 메모리 저장`, `제품 메모리 저장`, `프로젝트 기억`, `제품 기억`, `새 기억`, `기억 추가`, `메모리 캡처`
+- Good example:
+  - Prompt: memory-new capture this product decision as a project-memory candidate for review.
+  - Expected behavior: Produce `prepare_memory_new` with required context, wrapper actions, and not-evidence boundaries.
+  - Why: The prompt names a real workflow surface that Hermes can orchestrate without hiding execution.
+- Bad example:
+  - Prompt: memory-new claim Hermes already remembers this internally without an observed native-memory write.
+  - Expected behavior: Report the missing observed evidence or authority instead of claiming the external step happened.
+  - Why: Prepared OMH guidance is not platform, runtime, connector, file, memory, or delivery evidence.
+- Quality bar:
+  - Name the user-facing workflow objective, required context, next action, and stop condition.
+  - Separate prepared guidance from observed platform, runtime, connector, file, memory, or delivery evidence.
+  - Expose missing tools, credentials, targets, or observations as user-visible gaps.
+  - Name the durable fact, project or product scope, source context, target store, review decision, and duplication or conflict check.
+- Completion checklist:
+  - Confirm the workflow target, evidence boundary, and stop condition are named.
+  - Report which outputs are prepared, observed, blocked, or missing.
+  - Name the smallest next verification or handoff instead of claiming completion from narration.
+- Recovery notes:
+  - If required context is missing, ask one blocking question or route back to the narrower workflow.
+  - If runtime or wrapper evidence is unavailable, keep the status as not_observed and expose the next observable action.
+- Required inputs:
+  - user request
+  - target context
+  - delivery or status expectation
+  - known missing evidence
+- Expected outputs:
+  - memory_new_candidate/v1
+  - capture/review/approve decision
+  - OMH project-memory and optional Hermes native-memory targets
+  - prepared-vs-observed boundary
+- Artifact expectations:
+  - memory_new_candidate/v1 metadata-only candidate when recorded
+- Safety rules:
+  - An OMH project-memory candidate is prepared local context only; it does not mutate Hermes internal memory, and optional Hermes native-memory capture requires separate observed approval and write evidence.
+  - Do not claim connector, gateway, runtime, file generation, memory mutation, or host automation evidence from prepared guidance.
+  - Add candidates before approval; do not present capture as an approved OMH project-memory record.
+  - Keep OMH project memory and Hermes native memory as separate stores with separate write evidence.
+
 ### memory-sync
 
-[omh] Hermes memory curation workflow: review stale, conflicting, duplicate, or risky memories and skill notes through approve/reject/update actions.
+[omh] Hermes existing-memory curation workflow: review stale, conflicting, duplicate, overgeneralized, or risky USER.md, MEMORY.md, and skill memories through approve/reject/update actions.
 
 - Category: `memory`
 - Phase: `curation-review`
@@ -3890,7 +3949,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Preferred usage: Use as an installed Hermes workflow skill when the user asks to review stale, duplicate, or conflicting memory and skill context.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `memory-sync` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
-- Use when: Use when Hermes memory, USER/MEMORY files, or accumulated skill guidance needs human-approved cleanup. 캡: MEMORY.md ~2,200자 / USER.md ~1,375자.
+- Use when: Use when existing Hermes USER.md, MEMORY.md, or accumulated skill memories need human-approved audit and cleanup. Do not use for adding new project or product memory candidates. 캡: MEMORY.md ~2,200자 / USER.md ~1,375자.
 - Do not use when:
   - The request is already handled by a narrower explicit skill with stronger evidence.
   - The user asks OMH to secretly run external platforms, connectors, schedulers, file exports, or runtime agents.
@@ -8078,11 +8137,60 @@ Coordinate multi-Hermes-agent or profile work as board cards with task, handoff,
   - A board state is not proof that another Hermes target accepted, worked, heartbeat-ed, or completed unless target-specific evidence exists.
 - Fallback: If a required target, credential, runtime, or observation is missing, show a blocker or confirmation action instead of claiming completion.
 
+### memory-new
+
+Capture new project/product context as reviewed memory candidates with separate OMH and Hermes-native targets.
+
+- Use when: Use when new durable context should enter capture/review/approval instead of existing-memory cleanup.
+- Quality tier: `capture-gated`
+- Quality bar:
+  - Name the workflow objective, owner, input boundary, next action, and stop condition.
+  - Represent prepared, observed, blocked, and missing evidence as separate states.
+  - Never upgrade a card, blueprint, or readiness check into external execution proof.
+- Inputs:
+  - new durable fact
+  - project or product scope
+  - source context
+  - target store
+  - review owner
+- Outputs:
+  - memory_new_candidate/v1
+  - review decision
+  - dual-store target
+  - write boundary
+- Stop conditions:
+  - card is prepared or a missing decision is surfaced
+  - observed evidence is separated from prepared guidance
+- Verification:
+  - validate required fields
+  - check not-evidence boundaries
+  - record only observed external actions
+- Evidence ladder:
+  - `candidate_captured`
+  - `candidate_reviewed`
+  - `candidate_approved`
+  - `target_write_observed_when_available`
+- Wrapper actions:
+  - `show_memory_candidate`
+  - `approve_memory_candidate`
+  - `reject_memory_candidate`
+  - `record_memory_write`
+  - `show_status`
+- Artifact events:
+  - `memory-new_scoped`
+  - `memory-new_card_prepared`
+  - `memory-new_status_recorded`
+- Delegation expectation: Record this harness as Hermes-retained orchestration; external runtime/platform/file/memory/connector evidence requires a separate observed artifact.
+- Privacy default: `metadata_only`
+- Overclaim guards:
+  - An OMH project-memory candidate is not an approved record or Hermes internal-memory mutation evidence.
+- Fallback: If a required target, credential, runtime, or observation is missing, show a blocker or confirmation action instead of claiming completion.
+
 ### memory-sync
 
-Review stale, conflicting, duplicate, or risky memory and skill guidance with explicit approve/reject/update actions.
+Review stale, conflicting, duplicate, overgeneralized, or risky existing USER.md, MEMORY.md, and skill memories with explicit approve/reject/update actions.
 
-- Use when: Use when accumulated memory, USER/MEMORY files, or skill notes need human-approved cleanup.
+- Use when: Use when accumulated existing memory files or skill memories need human-approved cleanup, not new-memory capture.
 - Quality tier: `curation-gated`
 - Quality bar:
   - Name the workflow objective, owner, input boundary, next action, and stop condition.

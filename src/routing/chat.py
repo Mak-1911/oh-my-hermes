@@ -23,6 +23,9 @@ from .missed_route import is_missed_route_feedback
 from .omh_help import is_omh_intro_question, is_omh_quickstart_question, is_omh_status_question
 from .policy import (
     CONFIDENCE_LEVELS,
+    MEMORY_CURATION_INTENT_PHRASES,
+    MEMORY_NEW_CAPTURE_PHRASES,
+    MEMORY_NEW_SCOPE_PHRASES,
     SKILL_SCOUT_CANDIDATE_ALIAS_PHRASES,
     SKILL_SCOUT_CANDIDATE_BLOCKER_PHRASES,
     SKILL_SCOUT_CANDIDATE_INTENT_PHRASES,
@@ -2877,6 +2880,30 @@ _OPERATOR_SURFACE_FAST_PATH_RULES: tuple[tuple[str, tuple[str, ...], str, str], 
         "Clear PR/CI event request; prepare GitHub event ops without scoring every workflow.",
     ),
     (
+        "memory-new",
+        (
+            "memory-new",
+            "new memory",
+            "project memory",
+            "product memory",
+            "remember this project",
+            "remember this product",
+            "memory capture",
+            "capture memory",
+            "save project memory",
+            "save product memory",
+            "프로젝트 메모리 저장",
+            "제품 메모리 저장",
+            "프로젝트 기억",
+            "제품 기억",
+            "새 기억",
+            "기억 추가",
+            "메모리 캡처",
+        ),
+        "operator_surface_fast_path:memory_new",
+        "Clear new-memory capture request; prepare a reviewed candidate without routing to existing-memory curation.",
+    ),
+    (
         "memory-sync",
         (
             "hermes remembers incorrectly",
@@ -3750,9 +3777,35 @@ def _operator_surface_fast_path_match(
             continue
         if skill == "live-info-operator" and normalized_pattern == "환율" and "전환율" in text:
             continue
+        if skill == "memory-new" and _memory_new_scope_overroutes_curation(text):
+            continue
         if normalized_pattern in text or (normalized_compact and normalized_compact in compact):
             return skill, phrase, marker, reason
     return None
+
+
+@lru_cache(maxsize=1)
+def _memory_new_scope_fast_path_phrases() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    return (
+        tuple(_fast_path_text(phrase) for phrase in MEMORY_NEW_CAPTURE_PHRASES),
+        tuple(_fast_path_text(phrase) for phrase in MEMORY_NEW_SCOPE_PHRASES),
+        tuple(_fast_path_text(phrase) for phrase in MEMORY_CURATION_INTENT_PHRASES),
+    )
+
+
+def _memory_new_scope_overroutes_curation(text: str) -> bool:
+    """Fast-path twin of `policy.memory_new_scope_overroutes_curation`.
+
+    The fast path matches in `_fast_path_text` space (NFC + casefold), which is not the
+    fold space `policy._contains_phrase` uses, so the shared vocabulary is re-normalized
+    here rather than calling across normalization boundaries.
+    """
+    capture, scope, intent = _memory_new_scope_fast_path_phrases()
+    if any(phrase and phrase in text for phrase in capture):
+        return False
+    return any(phrase and phrase in text for phrase in scope) and any(
+        phrase and phrase in text for phrase in intent
+    )
 
 
 def _operator_surface_preempting_guard(
@@ -3817,6 +3870,8 @@ def _operator_surface_extra_markers(skill: str, phrase: str) -> tuple[str, ...]:
         return ("guard:doctor_health", "guard_fast_path:doctor_health_before_skill_catalog")
     if skill == "github-event-ops":
         return ("guard:github_event_ops",)
+    if skill == "memory-new":
+        return ("guard:memory_new", "guard_fast_path:memory_new_before_existing_memory_curation")
     if skill == "memory-sync":
         return ("guard:memory_curation", "guard_fast_path:memory_curation_before_generic_clarification")
     if skill == "executor-runtime-readiness":

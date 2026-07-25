@@ -1,22 +1,22 @@
 ---
-name: workflow-learning
-description: [omh] Hermes workflow learning workflow: classify and review self-improvement store routes as an auxiliary review lane before durable writes, then record workflow attempts as metadata-only traces, evals, review queues, patch proposals, regression cases, audits, indexes, and exports.
+name: memory-new
+description: [omh] Hermes new-memory capture workflow: add reviewed project, product, or durable context candidates through capture, review, and approve actions.
 metadata:
   hermes:
-    tags: [workflow, oh-my-hermes, optimization]
-    category: optimization
-    phase: workflow-learning
-    role: tracker
+    tags: [workflow, oh-my-hermes, memory]
+    category: memory
+    phase: candidate-capture
+    role: memory-keeper
     quality_tier: workflow-surface-gated
 ---
 
-# Workflow Learning
+# Memory New
 
-This is a Hermes-native `workflow-learning` workflow skill.
+This is a Hermes-native `memory-new` workflow skill.
 
 ## Why This Exists
 
-`workflow-learning` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+`memory-new` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
 
 ## Do Not Use When
 
@@ -28,13 +28,13 @@ This is a Hermes-native `workflow-learning` workflow skill.
 
 Good example:
 
-- Prompt: workflow-learning route this self-improvement note before deciding whether it is memory, skill, wiki, failure-retrospective, or automation material.
-- Expected behavior: Produce `record_workflow_learning_trace` with required context, wrapper actions, and not-evidence boundaries.
+- Prompt: memory-new capture this product decision as a project-memory candidate for review.
+- Expected behavior: Produce `prepare_memory_new` with required context, wrapper actions, and not-evidence boundaries.
 - Why: The prompt names a real workflow surface that Hermes can orchestrate without hiding execution.
 
 Bad example:
 
-- Prompt: workflow-learning silently patch the skill and claim future behavior is fixed.
+- Prompt: memory-new claim Hermes already remembers this internally without an observed native-memory write.
 - Expected behavior: Report the missing observed evidence or authority instead of claiming the external step happened.
 - Why: Prepared OMH guidance is not platform, runtime, connector, file, memory, or delivery evidence.
 
@@ -53,7 +53,7 @@ Bad example:
 
 - This skill is part of OMH's Hermes workflow layer, not a standalone executor.
 - Product context: OMH is a Hermes-native workflow pack: choose skills, shape work, prepare artifacts, show status, and hand off with evidence boundaries.
-- Current lane: **Automation and status** (`achievements`, `workspace-audit`, `production-audit`, `automation-blueprint`, `github-event-ops`, `agent-board`, `gateway-intent-card`, `voice-operator`, `+29 more`) - schedules, status, health, and ops review.
+- Current lane: **Retained knowledge** (`memory-new`, `memory-sync`, `wiki`) - new/curated memory, wiki notes, retrieval, and staleness.
 - If intent belongs to another lane, hand back to `oh-my-hermes` or name the adjacent workflow.
 - Cross-skill context: every OMH skill: match lane; generic tool can render or execute.
 - Generic-tool checkpoint: image->img-summary; frontend->frontend/a11y/visual-qa; paper->paper-learning; content->content-operator; media->media-input-operator; file->materials-package; search->web-research; live->live-info-operator; audit->workspace/production/security; failures->build-failure; verify->verification-gate; code->codegraph/onboarding/ultraprocess.
@@ -61,17 +61,30 @@ Bad example:
 - Normal users talk to Hermes; OMH CLI is infra.
 - Boundary: Prepared OMH routing/cards/handoffs/artifacts are not observed execution, image generation, delivery, review, CI, merge-readiness, or merge evidence.
 
+## Candidate Flow
+
+- **capture -> review -> approve** — capture a new durable fact as `memory_new_candidate/v1`, review its scope, source, conflicts, duplicates, and target store, then approve or reject it.
+- **Candidate first** — capture adds a candidate. It does not create an approved record until the review decision and target write are observed.
+- **OMH project memory** — the default durable project/product/context store is reviewed OMH-local project memory under `.omh/memory/`.
+- **Hermes native memory** — when the user also wants Hermes to remember the fact natively, prepare that as an optional second target with its own approval and observed write evidence.
+- **Dual-store pattern** — one approved fact may target OMH project memory, Hermes native memory, or both; keep the two write states separate.
+- **Stop condition** — stop once approval is recorded or the candidate is rejected; do not drift into existing-memory cleanup.
+
+## Boundary
+
+OMH project memory does not mutate Hermes internal memory. A `memory_new_candidate/v1` artifact is prepared context only, not an approved OMH project-memory record, Hermes native-memory write, or proof that either store changed. Record target writes only when observed: OMH project-memory approval is not Hermes native-memory evidence, and Hermes native-memory approval is not OMH project-memory evidence.
+
 ## Use When
 
-Use after a Hermes/OMH workflow attempt should become inspectable, evaluable, routed to memory/skill/wiki/failure-retrospective/automation review, persisted as a metadata-only store-route decision, queued for review, audited, replayable as a regression, converted to a patch handoff, exported, repaired after index drift, or captured as a missed-route signal without raw prompts. Store-route records are an auxiliary review lane surfaced by `learning review` and `learning store-routes`; they are not canonical learning index/export records until a reviewed destination produces its own artifact.
+Use when the user wants to add new durable project, product, or context memory as an OMH project-memory candidate, with optional separate Hermes native-memory capture after review.
 
-    Strong routing signals: `workflow-learning`, `workflow learning`, `route-signal`, `self-improvement store routing`, `store route review`, `memory skill wiki routing`, `learning trace`, `learning audit`, `self improvement store routing`, `store routing`, `where should this learning go`, `audit learning`, `learning review`, `review queue`, `review-route`, `store-routes`, `learning readiness`, `learning export`, `export bundle`, `learning index`, `index rebuild`, `execution trace`, `skill improvement`, `improvement candidate`, `regression corpus`, `GEPA`, `VPRM`, `process supervision`, `why did this route`, `missed route`, `missed workflow`, `did not use OMH`, `OMH was not used`, `learn from this run`, `이번 실행 학습`, `스킬 개선`, `회귀 케이스`, `실행 기록`, `학습 기록`, `학습 점검`, `학습 준비 상태`, `학습 내보내기`, `OMH 안 썼어`, `워크플로 누락`, `라우팅 누락`
+    Strong routing signals: `memory-new`, `new memory`, `project memory`, `product memory`, `remember this project`, `remember this product`, `memory capture`, `capture memory`, `save project memory`, `save product memory`, `project context memory`, `product context memory`, `add memory candidate`, `프로젝트 메모리 저장`, `제품 메모리 저장`, `프로젝트 기억`, `제품 기억`, `새 기억`, `기억 추가`, `메모리 캡처`
 
 ## Catalog Metadata
 
-Category: `optimization`
-Phase: `workflow-learning`
-Hermes role: `tracker`
+Category: `memory`
+Phase: `candidate-capture`
+Hermes role: `memory-keeper`
 Quality tier: `workflow-surface-gated`
 
 Quality bar:
@@ -79,6 +92,7 @@ Quality bar:
 - Name the user-facing workflow objective, required context, next action, and stop condition.
 - Separate prepared guidance from observed platform, runtime, connector, file, memory, or delivery evidence.
 - Expose missing tools, credentials, targets, or observations as user-visible gaps.
+- Name the durable fact, project or product scope, source context, target store, review decision, and duplication or conflict check.
 
 Handoff policy:
 
@@ -93,25 +107,35 @@ Required inputs:
 
 Expected outputs:
 
-- workflow-learning/v1 card or guidance
-- next action
+- memory_new_candidate/v1
+- capture/review/approve decision
+- OMH project-memory and optional Hermes native-memory targets
 - prepared-vs-observed boundary
 
 Artifact expectations:
 
-- workflow-learning/v1 metadata-only runtime or wrapper card when recorded
+- memory_new_candidate/v1 metadata-only candidate when recorded
 
 Safety rules:
 
-- A workflow learning trace, self-improvement store route, patch proposal, or export is process evidence for review. It is not automatic model training, memory mutation, skill mutation, wiki write, automation creation, execution, verification, CI, or merge evidence.
+- An OMH project-memory candidate is prepared local context only; it does not mutate Hermes internal memory, and optional Hermes native-memory capture requires separate observed approval and write evidence.
 - Do not claim connector, gateway, runtime, file generation, memory mutation, or host automation evidence from prepared guidance.
+- Add candidates before approval; do not present capture as an approved OMH project-memory record.
+- Keep OMH project memory and Hermes native memory as separate stores with separate write evidence.
+
+## Harness
+
+- Use `memory-new` to keep candidate capture, review, approval, and observed writes distinct.
+- Route stale, conflicting, duplicate, overgeneralized, or risky existing `USER.md`/`MEMORY.md` facts to `memory-sync`.
+- Prefer one durable fact per candidate and preserve the project/product scope and source context.
+- State the new durable fact, scope, source, target store, and review owner before capture; add the candidate before requesting approval, and verify target-specific write evidence before claiming persistence.
 
 ## Runtime Evidence
 
-Preferred harness for this skill: `workflow-learning`.
+Preferred harness for this skill: `memory-new`.
 
 ```sh
-omh runtime record --skill workflow-learning --harness workflow-learning --status started
+omh runtime record --skill memory-new --harness memory-new --status started
 ```
 
 Record observed delegation results when Hermes or the wrapper exposes them. If delegation is unavailable, keep the result explicit as `not_available` or `not_observed`.

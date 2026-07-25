@@ -113,12 +113,12 @@ prepared handoffs, and observed evidence:
 - ID: `memory-keeper`
 - Display name: Memory Keeper
 - Legacy aliases: `retained-knowledge`
-- Purpose: Own durable context review, project knowledge capture, stale memory warnings, and safe memory update handoffs.
+- Purpose: Own new durable context capture, existing-memory curation, stale memory warnings, and safe memory update handoffs.
 - Owns:
   - Memory and wiki context review
   - Stale, duplicate, or conflicting context candidates
   - Human-approved context pack preparation
-- Primary skills: `wiki`, `memory-sync`
+- Primary skills: `wiki`, `memory-new`, `memory-sync`
 - Primary harnesses: `knowledge`, `memory-context-review`
 - Wrapper actions: `ask_followup`, `show_status`, `prepare_handoff`
 - Evidence boundary: A memory keeper role can prepare context changes; it is not proof that Hermes internal memory, USER.md, MEMORY.md, wiki, or skill files were changed.

@@ -6,6 +6,7 @@ from .catalog import installable_skill_definitions
 from .render import (
     SkillReferenceTemplate,
     SkillTemplate,
+    memory_new_skill,
     memory_sync_skill,
     router_reference_templates,
     router_skill,
@@ -22,6 +23,8 @@ def builtin_skill_reference_templates() -> list[SkillReferenceTemplate]:
 
 
 def _skill_template_for(name: str) -> SkillTemplate:
+    if name == "memory-new":
+        return memory_new_skill()
     if name == "memory-sync":
         return memory_sync_skill()
     return workflow_skill(name)

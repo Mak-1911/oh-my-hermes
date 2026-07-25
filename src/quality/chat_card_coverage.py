@@ -41,6 +41,14 @@ CHAT_CARD_COVERAGE_CASES: tuple[ChatCardCoverageCase, ...] = (
         "prepare_agent_board_card",
     ),
     ChatCardCoverageCase(
+        "memory-new",
+        "New memory candidate",
+        "document-harness 프로젝트 메모리 저장해줘",
+        "memory-new",
+        "memory_candidate",
+        "prepare_memory_new",
+    ),
+    ChatCardCoverageCase(
         "memory-sync",
         "Memory curation review",
         "Hermes가 기억하고 있는 프로젝트 맥락이 오래된 것 같아 정리해줘",

@@ -348,6 +348,7 @@ VISIBLE_ACTIONS = (
     "prepare_github_event_ops_card",
     "prepare_agent_board_card",
     "prepare_executor_runtime_readiness",
+    "prepare_memory_new",
     "prepare_memory_sync",
     "prepare_gateway_intent_card",
     "prepare_voice_operator_card",
@@ -736,6 +737,11 @@ _HUMAN_ACK_BODY_BY_SKILL = {
         "context are routing context, not proof of the current external source. Nothing is written until approval "
         "is observed."
     ),
+    "memory-new": (
+        "I will capture one new project, product, or durable context candidate, review its scope, source, conflicts, "
+        "duplicates, and target store, then ask for approval. OMH project memory and optional Hermes native memory "
+        "remain separate writes, and neither is claimed until observed."
+    ),
     "voice-operator": (
         "I will turn the short voice or mobile request into a concise clarify, plan, status, handoff, or "
         "confirmation card, and require confirmation before risky actions."
@@ -862,6 +868,7 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "prepare_github_event_ops_card": ("prepare_github_event_ops_card", "Open event card"),
     "prepare_agent_board_card": ("prepare_agent_board_card", "Open agent board"),
     "prepare_executor_runtime_readiness": ("prepare_executor_runtime_readiness", "Check runtime"),
+    "prepare_memory_new": ("prepare_memory_new", "Add memory"),
     "prepare_memory_sync": ("prepare_memory_sync", "Review memory"),
     "prepare_gateway_intent_card": ("prepare_gateway_intent_card", "Open gateway card"),
     "prepare_voice_operator_card": ("prepare_voice_operator_card", "Open voice card"),
@@ -1684,6 +1691,36 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS: dict[str, dict[str, object]] = {
             "WCAG PASS",
             "remediation",
             "deployment",
+        ],
+    },
+    "memory-new": {
+        "kind": "memory_candidate",
+        "headline": "I can capture this as a new memory candidate.",
+        "body": (
+            "I will add a new memory candidate, review its durable fact, project or product scope, source context, "
+            "duplicates, conflicts, and target store, then ask for approval. OMH project memory and optional Hermes "
+            "native memory are separate stores, and neither write is claimed until observed."
+        ),
+        "phase": "memory_candidate_prepared",
+        "next_action": "prepare_memory_new",
+        "artifact_schema": "memory_new_candidate/v1",
+        "claim_boundary_suffix": "An OMH project-memory candidate is not an approved record, Hermes internal-memory mutation, or target-write evidence.",
+        "actions": [
+            {"id": "prepare_memory_new", "label": "Add memory", "style": "primary"},
+            {"id": "show_memory_status", "label": "Show memory status", "style": "secondary"},
+            {"id": "show_status", "label": "Show status", "style": "secondary"},
+        ],
+        "recommended_flow": [
+            "capture_new_candidate",
+            "review_scope_source_conflicts_and_duplicates",
+            "approve_or_reject_candidate",
+            "record_each_target_write_only_when_observed",
+        ],
+        "evidence_not_observed": [
+            "approved OMH project-memory record",
+            "Hermes native-memory write",
+            "Hermes internal-memory update",
+            "target write",
         ],
     },
     "memory-sync": {
@@ -2802,7 +2839,7 @@ def _ack_actions_for_next_action(next_action: str) -> list[dict[str, object]]:
     primary = _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION.get(next_action)
     if primary:
         actions.append(_action(primary[0], primary[1], "primary"))
-    status_action = "show_memory_status" if next_action == "prepare_memory_sync" else "show_status"
+    status_action = "show_memory_status" if next_action in {"prepare_memory_new", "prepare_memory_sync"} else "show_status"
     status_label = "Show memory status" if status_action == "show_memory_status" else "Show status"
     actions.append(_action(status_action, status_label, "secondary"))
     return actions
@@ -4899,7 +4936,7 @@ def _chat_response_from_learning_candidate_card(
     elif target == "memory_candidate":
         headline = "I can queue this as a memory candidate."
         body = (
-            "This looks like a durable user preference, so it should go through memory curation review before anything is saved. "
+            "This looks like a durable user preference, so I prepared a new memory candidate for review before anything is saved. "
             f"Candidate: {summary}"
         )
     elif target == "session_only":
@@ -4912,7 +4949,7 @@ def _chat_response_from_learning_candidate_card(
     else:
         headline = "This learning request needs review first."
         body = (
-            "The request is ambiguous, conflicting, or cross-channel. Route it through memory curation review before persistence. "
+            "The request is ambiguous, conflicting, or cross-channel. Route it through new-memory candidate review before persistence. "
             f"Candidate: {summary}"
         )
 
@@ -4921,7 +4958,7 @@ def _chat_response_from_learning_candidate_card(
         actions.append(_action("copy_learn_prompt", "Copy /learn prompt", "primary", payload=prompt))
     actions.append(_action("show_learning_candidate", "Show candidate", "primary" if not actions else "secondary", payload=card))
     if target in {"memory_candidate", "review_first"}:
-        actions.append(_action("prepare_memory_sync", "Review memory", "primary" if not has_prompt else "secondary", payload=card))
+        actions.append(_action("prepare_memory_new", "Add memory", "primary" if not has_prompt else "secondary", payload=card))
         actions.append(_action("show_memory_status", "Show memory status", "secondary"))
     actions.append(_action("show_status", "Show status", "secondary"))
 

@@ -90,19 +90,16 @@ Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<
 
 <br>
 
-**既存の `--full` インストールを core に戻す:**
+**アップデートと状態チェック:**
 
 ```sh
-omh skill-profile status
-omh skill-profile reconcile --to core --dry-run
-omh skill-profile reconcile --to core
+omh update
+omh doctor
 ```
 
-setup、install、update はインストール済みの skill を削除しないため、一度
-`--full` でインストールした workspace は、明示的に reconcile するまでその
-per-turn の context 負荷を維持し続けます。詳細は
-[既存の Full インストールを Core に戻す](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core)
-を参照してください。
+`--full` インストールを core に戻すようなメンテナンス手順は
+[Installation](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core)
+にあります。
 
 <br>
 
