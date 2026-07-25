@@ -40,7 +40,13 @@ from ..runtime.artifacts import (
     write_runtime_observation,
     write_wrapper_contract,
 )
-from ..runtime.context_budget import degrade_run_payload, record_context_emission, run_context_budget
+from ..runtime.context_budget import (
+    degrade_run_payload,
+    payload_fingerprint,
+    record_context_emission,
+    run_context_budget,
+    unchanged_run_payload,
+)
 from ..executors import CODING_RUNTIME_HANDOFF_TARGETS
 from ..local_store import read_json_object
 from ..skill_pack import builtin_harnesses, routable_definitions
@@ -112,8 +118,16 @@ def cmd_runtime_show(args: argparse.Namespace) -> int:
     except FileNotFoundError as exc:
         raise OmhError(f"runtime run not found: {args.run_id}") from exc
     budget = run_context_budget(paths, args.run_id, surface="runtime_show")
-    if budget["exhausted"] and not full:
+    fingerprint = payload_fingerprint(shown)
+    if full:
+        payload = {**shown, "context_budget": budget}
+    elif budget["exhausted"]:
+        # Exhaustion outranks the unchanged check on purpose. Both are stop
+        # signals, but the degraded payload is the one that points at the
+        # artifacts, and its shape is an existing contract.
         payload = degrade_run_payload(shown, budget)
+    elif fingerprint == budget["last_payload_fingerprint"]:
+        payload = unchanged_run_payload(shown, budget)
     else:
         payload = {**shown, "context_budget": budget}
     _print_json(payload)
@@ -122,6 +136,7 @@ def cmd_runtime_show(args: argparse.Namespace) -> int:
         args.run_id,
         surface="runtime_show",
         byte_count=len(json.dumps(payload, sort_keys=True)),
+        payload_fingerprint_value=fingerprint,
     )
     return 0
 
