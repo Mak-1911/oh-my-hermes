@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 
 from ..codex_progress import summarize_codex_jsonl_file
 from ..executor_progress import (
@@ -17,6 +18,7 @@ from ..installer import OmhError
 from ..runtime.artifacts import (
     append_journal_observation,
     CI_STATUSES,
+    DEFAULT_RUN_HISTORY_LIMIT,
     DELEGATION_RESULTS,
     MERGE_STATUSES,
     PRIVACY_MODES,
@@ -38,6 +40,7 @@ from ..runtime.artifacts import (
     write_runtime_observation,
     write_wrapper_contract,
 )
+from ..runtime.context_budget import degrade_run_payload, record_context_emission, run_context_budget
 from ..executors import CODING_RUNTIME_HANDOFF_TARGETS
 from ..local_store import read_json_object
 from ..skill_pack import builtin_harnesses, routable_definitions
@@ -90,11 +93,36 @@ def cmd_runtime_runs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _history_limit(args: argparse.Namespace) -> int | None:
+    if getattr(args, "full", False):
+        return None
+    limit = getattr(args, "history_limit", None)
+    if limit is None:
+        return DEFAULT_RUN_HISTORY_LIMIT
+    if int(limit) < 1:
+        raise OmhError("--limit must be at least 1 unless --full is set")
+    return int(limit)
+
+
 def cmd_runtime_show(args: argparse.Namespace) -> int:
+    paths = _paths(args)
+    full = bool(getattr(args, "full", False))
     try:
-        _print_json(show_run(_paths(args), args.run_id))
+        shown = show_run(paths, args.run_id, history_limit=_history_limit(args))
     except FileNotFoundError as exc:
         raise OmhError(f"runtime run not found: {args.run_id}") from exc
+    budget = run_context_budget(paths, args.run_id, surface="runtime_show")
+    if budget["exhausted"] and not full:
+        payload = degrade_run_payload(shown, budget)
+    else:
+        payload = {**shown, "context_budget": budget}
+    _print_json(payload)
+    record_context_emission(
+        paths,
+        args.run_id,
+        surface="runtime_show",
+        byte_count=len(json.dumps(payload, sort_keys=True)),
+    )
     return 0
 
 
@@ -597,6 +625,18 @@ def _add_runtime_commands(sub) -> None:
 
     runtime_show = runtime_sub.add_parser("show")
     runtime_show.add_argument("run_id")
+    runtime_show.add_argument(
+        "--limit",
+        dest="history_limit",
+        type=int,
+        default=None,
+        help=f"Tail size for events, runtime observations, and journal events (default: {DEFAULT_RUN_HISTORY_LIMIT}).",
+    )
+    runtime_show.add_argument(
+        "--full",
+        action="store_true",
+        help="Emit the full run history and bypass the observe-context budget. Expensive for agent context.",
+    )
     runtime_show.set_defaults(func=cmd_runtime_show)
 
     runtime_delegation_status = runtime_sub.add_parser("delegation-status")

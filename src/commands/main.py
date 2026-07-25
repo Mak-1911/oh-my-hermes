@@ -43,6 +43,7 @@ from .coding import (
     cmd_coding_lifecycle_verify,
 )
 from .codegraph import _add_codegraph_commands, cmd_codegraph_build, cmd_codegraph_handoff, cmd_codegraph_summary
+from .common import set_json_output_pretty
 from .context import _add_context_commands, cmd_context_brief
 from .conformance import _add_conformance_commands, cmd_conformance_check
 from .demo import _add_demo_commands, cmd_demo_orchestration
@@ -232,7 +233,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Plain chat preview commands such as chat route, route-hint, and interact are summary-first;\n"
             "pass --json for adapter envelopes.\n"
             "Ledger/control-plane commands such as chat session, coding, runtime, goal, loop,\n"
-            "learning, memory, state, harness, release smoke, and demo print JSON by design."
+            "learning, memory, state, harness, release smoke, and demo print JSON by design.\n"
+            "JSON stdout is compact by default so supervising-agent context stays bounded;\n"
+            "pass --pretty or set OMH_JSON_PRETTY=1 for indented, human-readable output."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -243,6 +246,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("user", "project"),
         default=None,
         help="Choose default OMH/Hermes paths when explicit homes are not supplied.",
+    )
+    parser.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Print indented JSON for human reading (default is compact; OMH_JSON_PRETTY=1 also works).",
     )
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
@@ -364,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     parser = build_parser()
     args = parser.parse_args(raw_argv)
+    set_json_output_pretty(bool(getattr(args, "pretty", False)))
     if not getattr(args, "command", None):
         _print_welcome()
         return 0

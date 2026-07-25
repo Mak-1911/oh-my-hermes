@@ -245,6 +245,33 @@ class FanoutCliTests(unittest.TestCase):
             self.assertEqual(board["merge_order"], ["core", "docs", "tests"])
             for unit in board["units"].values():
                 self.assertEqual(unit["observed_run_status"], "not_observed")
+            self.assertEqual(board["context_budget"]["history_limit"], 20)
+            self.assertEqual(board["context_budget"]["watched_run_count"], 0)
+            self.assertEqual(board["context_budget"]["budget_exhausted_units"], [])
+            self.assertEqual(board["context_budget"]["next_action"], "wait_for_executor_evidence")
+
+    def test_fanout_show_history_limit_is_bounded_and_validated(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+            status, stdout, _ = run_cli(
+                base
+                + ["coding", "fanout", "prepare", "--goal", "g", "--units", str(self._units_file(root)), "--record"]
+            )
+            self.assertEqual(status, 0)
+            fanout_id = json.loads(stdout)["fanout_id"]
+
+            status, stdout, stderr = run_cli(base + ["coding", "fanout", "show", fanout_id, "--full"])
+            self.assertEqual(status, 0, stderr)
+            self.assertIsNone(json.loads(stdout)["context_budget"]["history_limit"])
+
+            status, stdout, stderr = run_cli(base + ["coding", "fanout", "show", fanout_id, "--limit", "5"])
+            self.assertEqual(status, 0, stderr)
+            self.assertEqual(json.loads(stdout)["context_budget"]["history_limit"], 5)
+
+            status, _, stderr = run_cli(base + ["coding", "fanout", "show", fanout_id, "--limit", "0"])
+            self.assertEqual(status, 2)
+            self.assertIn("--limit must be at least 1", stderr)
 
     def test_fanout_single_unit_redirects_to_delegate(self) -> None:
         with TemporaryDirectory() as tmp:
