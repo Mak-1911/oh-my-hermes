@@ -30,6 +30,7 @@ from ..memory import memory_recall_pack_for_handoff
 from ..operator_productivity import build_agent_operator_productivity_card
 from ..paths import OmhPaths, resolve_paths
 from ..plugin_bundle.omh.awareness import workflow_context_card_for_workflow, workflow_context_cards
+from ..plugin_bundle.omh.degradation import degradation_chat_note
 from ..probe import probe_capabilities
 from ..quickstart import build_quickstart_card
 from ..skills.catalog import installable_skill_definitions, primary_harness_for_skill, retained_delegation_skill_names
@@ -5784,6 +5785,8 @@ def build_chat_response_from_omh_context_brief(
     thread_key: str = "",
 ) -> dict[str, object]:
     brief = build_context_brief(message, source=source, max_hints=2, include_prompt_context=False)
+    degradation = brief.get("degradation")
+    degradation_note = degradation_chat_note(degradation)
     lanes = brief.get("lanes", [])
     lane_summaries: list[str] = []
     if isinstance(lanes, list):
@@ -5805,6 +5808,9 @@ def build_chat_response_from_omh_context_brief(
         "- Open the workflow picker with ./omh when you want to choose manually.",
         "- Ask what to do next after setup when you want the first-use path.",
         "",
+        # Empty on the happy path, so a healthy brief renders exactly the lines
+        # it rendered before.
+        *([degradation_note, ""] if degradation_note else []),
         "Boundary: this context explains routing and workflow choices; it is not execution, delivery, verification, review, CI, or merge evidence.",
     ]
     return _chat_response(

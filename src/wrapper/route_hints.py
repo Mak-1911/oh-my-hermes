@@ -5,6 +5,7 @@ from ..plugin_bundle.omh.awareness import (
     awareness_route_hint,
     awareness_route_hint_context_from_payload,
 )
+from ..plugin_bundle.omh.degradation import degradation_chat_note
 from ..routing.catalog_questions import is_skill_catalog_question
 from ..routing.action_copy import next_action_label
 
@@ -217,6 +218,31 @@ def _response_for_hint(
             },
         ]
         render_kind = "no_route_hint"
+    # Appended after both branches so the note is always the last sentence a
+    # chat reader sees, whichever branch built the body.
+    degradation = route_hint.get("degradation") if isinstance(route_hint, dict) else None
+    degradation_note = degradation_chat_note(degradation)
+    if degradation_note:
+        body = f"{body} {degradation_note}"
+    state_route_hint: dict[str, object] = {
+        "schema_version": "omh_route_hint/v1",
+        "primary_workflow": workflow,
+        "primary_next_action": next_action,
+        "primary_next_action_label": next_action_label_text,
+        "intent_class": str(route_hint.get("intent_class") or ""),
+        "selected_workflow": str(route_hint.get("selected_workflow") or workflow),
+        "mentioned_workflows": list(route_hint.get("mentioned_workflows", [])),
+        "mentioned_runtime_terms": list(route_hint.get("mentioned_runtime_terms", [])),
+        "adjacent_workflows": list(route_hint.get("adjacent_workflows", [])),
+        "not_executed": list(route_hint.get("not_executed", [])),
+        "hints": hints,
+        "catalog_question": bool(route_hint.get("catalog_question", False)),
+    }
+    # This rebuild is an explicit key whitelist, so a key added upstream is
+    # dropped here by default. `degradation` is set conditionally: a healthy
+    # request must keep exactly today's key set.
+    if isinstance(degradation, dict) and degradation:
+        state_route_hint["degradation"] = degradation
     return {
         "schema_version": CHAT_ROUTE_HINT_RESPONSE_SCHEMA_VERSION,
         "kind": render_kind,
@@ -240,20 +266,7 @@ def _response_for_hint(
             "next_action": next_action,
             "next_action_label": next_action_label_text,
             "route_hint_count": len(hints),
-            "route_hint": {
-                "schema_version": "omh_route_hint/v1",
-                "primary_workflow": workflow,
-                "primary_next_action": next_action,
-                "primary_next_action_label": next_action_label_text,
-                "intent_class": str(route_hint.get("intent_class") or ""),
-                "selected_workflow": str(route_hint.get("selected_workflow") or workflow),
-                "mentioned_workflows": list(route_hint.get("mentioned_workflows", [])),
-                "mentioned_runtime_terms": list(route_hint.get("mentioned_runtime_terms", [])),
-                "adjacent_workflows": list(route_hint.get("adjacent_workflows", [])),
-                "not_executed": list(route_hint.get("not_executed", [])),
-                "hints": hints,
-                "catalog_question": bool(route_hint.get("catalog_question", False)),
-            },
+            "route_hint": state_route_hint,
         },
         "claim_boundary": (
             "This response is a preview hint only. It is not workflow selection, execution, generated output, "
