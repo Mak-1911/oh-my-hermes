@@ -34,24 +34,23 @@
   <em>계획, 조사, 제작, 코딩 handoff, 운영, 프로젝트 기억을 명확한 증거 경계와 함께 제공합니다.</em>
 </p>
 
+<p align="center">
+  <img src="assets/oh-my-hermes-agent-poster.png" alt="Oh My Hermes Agent poster" width="720">
+</p>
+
 **oh-my-hermes**(OMH)는
 [Hermes Agent](https://github.com/NousResearch/hermes-agent)의 평범한 요청을
 알맞은 기능, 유용한 다음 단계, 그리고 실제로 일어난 일과 아직 일어나지 않은
 일에 대한 정직한 상태로 바꿉니다. Hermes를 대체하거나 코딩 executor를 숨기지
 않고, 이미 사용 중인 Hermes 작업 흐름을 강화합니다.
 
-```text
-일반 요청
-  -> 6개 기능군 중 하나를 선택
-  -> 계획, 출처 브리프, 산출물 계약, 코딩 handoff를 준비
-  -> runtime, provider, review, CI, merge 증거는 관측된 경우에만 기록
-```
-
 [Website](https://rlaope.github.io/oh-my-hermes/) ·
 [Documentation](docs/README.md) ·
 [Installation](docs/INSTALLATION.md) ·
 [Capabilities](docs/CAPABILITIES.md) ·
-[Capability Impact](docs/CAPABILITY_IMPACT.md)
+[Capability Impact](docs/CAPABILITY_IMPACT.md) ·
+[Agent Install](INSTALL_FOR_AGENTS.md) ·
+[GitHub Pages site](site/index.html)
 
 > [!NOTE]
 > OMH는 Hermes를 자연어 표면으로 유지하고 명확한 증거 경계를 갖춘 전문 운영층을
@@ -83,16 +82,6 @@ hermes skills tap add rlaope/oh-my-hermes
 hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes
 ```
 
-<br>
-
-**그런 다음 Hermes에 평소처럼 요청합니다:**
-
-```text
-이 저장소에 안전하게 기능을 추가하고 싶습니다.
-```
-
-<br>
-
 **또는 Your AI Agent에게 요청합니다:**
 
 ```text
@@ -116,20 +105,63 @@ OMH는 **88개**의 설치형 workflow skill을 사람이 이해하기 쉬운 6�
 전체 목록과 trigger, harness, 증거 규칙은
 [Workflow Reference](docs/WORKFLOWS.md)에 있습니다.
 
+**하이라이트**
+
+| 기능 | 사용 방법 | 동작 |
+| --- | --- | --- |
+| 🧭 **명확화와 계획** | `$deep-interview` · `$ralplan` · `$strategy-brief` | 모호한 요청을 명확한 목표, 제약, trade-off, 완료 기준, 그리고 그대로 전달할 수 있는 계획으로 바꿉니다. |
+| ⚡ **레버리지를 활용한 실행** | `$ultrawork` · `$ultragoal` · `$team` · `$loop` | 빠른 병렬 작업부터 지속적인 다단계 실행까지 확장하면서도 소유권, 체크포인트, 검증을 계속 볼 수 있게 유지합니다. |
+| 🔬 **조사와 학습** | `$best-practice-research` · `$web-research` · `$research-brief` | 최신성, 출처 품질, 아직 해소되지 않은 불확실성 경계를 함께 표시하며 근거 기반 증거를 찾고 종합합니다. |
+| 🛠️ **안전한 코딩과 배포** | `$request-to-handoff` · `$code-review` · `$ultraqa` | executor에 종속되지 않는 코딩 작업을 준비하고, review·QA·CI·merge에 대한 주장은 관측된 증거에만 근거하게 만듭니다. |
+| 🎨 **완성도 높은 산출물 제작** | `$design-quality-gate` · `$materials-package` · `$deliverable-package` · `$img-summary` | 콘텐츠, 완성도, 접근성, 렌더링 품질 게이트를 기준으로 웹사이트, 시각 자료, 보고서, 발표 자료, 문서, PDF, 포스터, 패키지를 만듭니다. |
+| 🧠 **기억과 운영** | `$memory` · `$ops-observability-card` · `$doctor` | 프로젝트 기억을 검토 우선으로 유지하고, 운영 준비 상태를 보여주며, provider나 시스템 상태를 지어내지 않고 다음 복구 행동을 제시합니다. |
+| 🔌 **경계를 숨기지 않는 연결** | `omh mcp` · `omh plugin` · `$agent-board` | Hermes와 호환 host를 위한 로컬 metadata 전용 계약을 제공하면서, host 로드·도구 사용·외부 provider 접근을 각각 별도로 관측할 수 있게 유지합니다. |
+
 ## 실제 업무를 위한 설계
 
-**명령어 목록이 아닌 라우터.** 영어, 한국어, 일본어, 중국어, 스페인어,
-프랑스어, 독일어, 힌디어 요청을 번역 API 없이 로컬에서 분류하고, 추천 기능군,
-skill, 담당자, 다음 행동, 아직 증거가 아닌 항목을 함께 보여줍니다.
+<p align="center">
+  <img src="assets/built-for-real-work-orchestration.png" alt="OMH orchestrating coding agents and creative tools" width="900">
+</p>
 
-**더 나은 코딩 handoff.** 저장소 제약, 합의된 범위, worktree 지침, 로컬 skill,
-완료 기준, 리뷰 기대치, 검증 게이트를 선택된 executor에 전달합니다. Codex,
-Claude Code, Hermes, generic executor 중 누구도 숨은 기본값이 되지 않습니다.
+> **OMH (Oh-My-Hermes)** — 누구나 hermes-agent를 전문가처럼 쓸 수 있게 합니다.<br>
+> AI 에이전트를 위한 강력한 지능 하네스입니다.
 
-**품질을 아는 제작과 provider-neutral 운영.** 웹, 접근성, 이미지, 보고서,
-발표 자료, 문서 요청은 전용 제작·QA 지침을 사용합니다. metric, wiki, browser,
-image, video, connector는 명시적인 외부 provider 계약 뒤에 두며, 연결하거나
-호출하지 않은 provider를 사용했다고 주장하지 않습니다.
+**🧭 명령어 목록이 아닌, 더 똑똑한 라우터.** 영어, 한국어, 일본어, 중국어,
+스페인어, 프랑스어, 독일어, 힌디어 요청을 번역 API 없이 로컬에서 분류합니다.
+OMH는 추천 기능군, skill, 담당자, 다음 행동, 그리고 아직 증거가 아닌 부분을
+함께 돌려줍니다.
+
+**🤝 더 나은 코딩 handoff.** 저장소 제약, 합의된 범위, worktree 및
+session-isolation 지침, 로컬에서 사용 가능한 skill, 완료 기준, review
+기대치, verification gate를 담을 수 있습니다. Codex, Claude Code, Hermes,
+generic executor는 모두 숨은 기본값이 아니라 명시적인 담당자로 남습니다.
+
+**🎨 품질을 아는 제작.** Frontend, 접근성, 이미지, 보고서, 발표 자료, 문서,
+스프레드시트, PDF, 포스터, 공유 패키지 요청은 전용 제작·QA 지침을 거칩니다.
+준비된 브리프를 생성되었거나 시각적으로 검증된 산출물처럼 보여주지 않습니다.
+
+**🔍 주장보다 증거.** OMH는 준비된 의도, 관측된 runtime 이벤트, 검증된
+결과를 구분합니다. handoff는 executor가 실행했다거나 review가 통과했다거나
+CI가 성공했다거나 배포가 끝났다거나 PR이 merge됐다는 주장 없이도 준비될 수
+있습니다.
+
+**🧠 검토 우선 프로젝트 기억.** OMH는 프로젝트 기억 후보를 승인된 기록과
+분리해서 관리하고, 검토를 거쳐 준비된 맥락만 이후 handoff에 다시 불러옵니다.
+불투명한 Hermes 내부 기억을 읽거나 바꿨다고 주장하지 않습니다.
+
+**🔌 provider-neutral 운영.** metric, wiki, browser, image, video, connector
+시스템은 명시적인 외부 provider 계약 뒤에 있습니다. 실제로 연결하거나
+호출하지 않은 provider를 사용했다고 주장하지 않으면서 제공된 데이터를
+검증하고 분석할 수 있습니다.
+
+**🏛️ Hermes-native, executor-neutral 아키텍처.** Hermes는 여전히 채팅,
+명확화, 계획, 조사, 상태 표면을 담당합니다. 선택된 executor가 구현을 맡고,
+OMH는 그 작업을 둘러싼 로컬 계약, 라우팅, 기억, 품질 게이트, 증거 경계를
+제공합니다.
+
+**🧱 local-first 제어면.** OMH의 핵심 라우팅, catalog, manifest, 주장
+규칙은 결정적인 로컬 표면입니다. 외부 호출과 provider 접근은 코어 내부에
+숨겨진 동작이 아니라 명시적인 통합으로 남습니다.
 
 ## 주장보다 증거
 
@@ -150,6 +182,8 @@ merge readiness 또는 merge가 아닙니다.
 - [아키텍처](docs/ARCHITECTURE.md)
 - [기능 manifest](docs/CAPABILITIES.md)
 - [Workflow reference](docs/WORKFLOWS.md)
+- [역할](docs/ROLES.md)
+- [활용 사례](docs/APPLICATION_CASES.md)
 - [릴리스와 개발](docs/RELEASE.md)
 
 ## 개발
