@@ -1,5 +1,5 @@
 ---
-name: deploy-and-monitor
+name: omh-deploy-and-monitor
 description: [omh] Hermes Deploy-and-Monitor workflow: release checklist, deploy decision, health signals, rollback gate, and post-deploy status.
 metadata:
   hermes:

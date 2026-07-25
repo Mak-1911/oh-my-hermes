@@ -1,5 +1,5 @@
 ---
-name: best-practice-research
+name: omh-best-practice-research
 description: [omh] Hermes adaptation for bounded official/upstream best-practice research.
 metadata:
   hermes:

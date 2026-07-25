@@ -1,5 +1,5 @@
 ---
-name: plan
+name: omh-plan
 description: [omh] Hermes Plan workflow: structured planning before execution.
 metadata:
   hermes:

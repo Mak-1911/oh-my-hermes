@@ -1,5 +1,5 @@
 ---
-name: accessibility-audit
+name: omh-accessibility-audit
 description: [omh] Hermes Accessibility Audit workflow: prepare WCAG, keyboard, focus, screen-reader, target-size, and reflow evidence gates for UI surfaces.
 metadata:
   hermes:

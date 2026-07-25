@@ -32,11 +32,14 @@ from omh.plugin_bundle.omh.awareness import ROUTER_KEYWORD_SKILLS, _ROUTE_HINT_R
 from omh.quality.grounded_score import GROUNDED_SCENARIOS
 from omh.runtime.records import validate_harness_quality
 from omh.skills.catalog import (
+    OMH_SKILL_DISPLAY_NAME_OVERRIDES,
+    OMH_SKILL_NAME_PREFIX,
     SkillDefinition,
     _HERMES_SETUP_FIVE_STEP_BAR,
     catalog_intent_delegation_skill_names,
     harness_quality_contract,
     installable_skill_names,
+    omh_skill_display_name,
     primary_harness_for_skill,
     retained_delegation_skill_names,
 )
@@ -638,6 +641,55 @@ class RouterContentTests(unittest.TestCase):
         hidden = set(FEATURE_SURFACE_EXPOSURES) - installable_surfaces
         for name in hidden:
             self.assertFalse((Path("skills") / name / "SKILL.md").exists(), f"{name} should stay routable only")
+
+    def test_display_name_prefix_does_not_degrade_frontmatter_metadata(self) -> None:
+        """The `omh-` display prefix must be applied AFTER the definition lookup.
+
+        `_frontmatter()` uses its `name` argument as the key into the canonical
+        definition map. Prefixing at the call sites instead makes that lookup miss
+        for every skill and silently degrades the metadata block to its fallbacks
+        (category -> `workflow`, phase -> `general`, role -> `guide`,
+        quality_tier -> `evidence-gated`). Both sides of the byte gates regenerate
+        together, so nothing else catches that. Assert the prefixed name and the
+        real metadata values together.
+        """
+        templates = {template.name: template.content for template in builtin_skill_templates()}
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+
+        ultrawork = templates["ultrawork"]
+        self.assertIn("\nname: omh-ultrawork\n", ultrawork)
+        self.assertIn("\n    category: execution\n", ultrawork)
+        self.assertIn("\n    phase: parallel-delivery\n", ultrawork)
+        self.assertIn("\n    role: handoff-guide\n", ultrawork)
+        self.assertIn("\n    quality_tier: handoff-gated\n", ultrawork)
+        self.assertIn("\n    tags: [workflow, oh-my-hermes, execution]\n", ultrawork)
+
+        self.assertIn("\nname: omh-routing\n", templates["oh-my-hermes"])
+
+        for name, content in templates.items():
+            definition = definitions[name]
+            self.assertIn(f"\nname: {omh_skill_display_name(name)}\n", content)
+            self.assertIn(f"\n    category: {definition.category}\n", content)
+            self.assertIn(f"\n    phase: {definition.phase}\n", content)
+            self.assertIn(f"\n    role: {definition.hermes_role}\n", content)
+            self.assertIn(f"\n    quality_tier: {definition.quality_tier}\n", content)
+
+    def test_display_name_helper_keeps_canonical_identifiers_unchanged(self) -> None:
+        self.assertEqual(OMH_SKILL_NAME_PREFIX, "omh-")
+        self.assertEqual(OMH_SKILL_DISPLAY_NAME_OVERRIDES, {"oh-my-hermes": "omh-routing"})
+
+        # The override lookup must run before the prefix guard: the override value
+        # itself starts with `omh-`, so the two steps are not interchangeable.
+        self.assertEqual(omh_skill_display_name("oh-my-hermes"), "omh-routing")
+        self.assertEqual(omh_skill_display_name("ultrawork"), "omh-ultrawork")
+        self.assertEqual(omh_skill_display_name("omh-ultrawork"), "omh-ultrawork")
+
+        names = {definition.name for definition in builtin_definitions()}
+        self.assertEqual({name for name in names if name.startswith("omh")}, set())
+
+        # Display-only: the canonical name still owns the tap directory.
+        for name in names & {path.parent.name for path in Path("skills").glob("*/SKILL.md")}:
+            self.assertTrue((Path("skills") / name / "SKILL.md").exists())
 
     def test_all_tap_skills_include_subagent_fallback_contract(self) -> None:
         required_fragments = (

@@ -1,5 +1,5 @@
 ---
-name: skill-health
+name: omh-skill-health
 description: [omh] Skill Health workflow: prepare a metadata-only OMH skill portfolio dashboard with stale surfaces, observed failure signals, pending amendments, and top actions.
 metadata:
   hermes:

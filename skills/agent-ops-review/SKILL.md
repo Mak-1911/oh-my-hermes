@@ -1,5 +1,5 @@
 ---
-name: agent-ops-review
+name: omh-agent-ops-review
 description: [omh] Hermes agent ops review workflow: help managers inspect AI-agent progress, blockers, quality gates, and throughput levers.
 metadata:
   hermes:

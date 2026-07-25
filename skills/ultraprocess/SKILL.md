@@ -1,5 +1,5 @@
 ---
-name: ultraprocess
+name: omh-ultraprocess
 description: [omh] Ultra Process - Research - Ralplan - Ultragoal - Code Review - Sync Circle: one PR-ready delivery cycle.
 metadata:
   hermes:

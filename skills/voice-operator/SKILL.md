@@ -1,5 +1,5 @@
 ---
-name: voice-operator
+name: omh-voice-operator
 description: [omh] Hermes voice operator workflow: turn short voice or mobile commands into clarify, plan, status, handoff, or confirmation actions.
 metadata:
   hermes:

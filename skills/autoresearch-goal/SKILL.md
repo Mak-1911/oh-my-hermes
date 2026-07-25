@@ -1,5 +1,5 @@
 ---
-name: autoresearch-goal
+name: omh-autoresearch-goal
 description: [omh] Hermes adaptation for durable research-goal execution.
 metadata:
   hermes:

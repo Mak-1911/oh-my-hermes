@@ -1,5 +1,5 @@
 ---
-name: ultraqa
+name: omh-ultraqa
 description: [omh] Hermes UltraQA workflow: adversarial QA and fix loops.
 metadata:
   hermes:

@@ -1,5 +1,5 @@
 ---
-name: ops-observability-card
+name: omh-ops-observability-card
 description: [omh] Hermes ops observability workflow: prepare an operations command-board for wrapper-safe token, cost, latency, run history, queue, failure-mode, external metric-provider, and service-quality evidence boundaries.
 metadata:
   hermes:

@@ -1,5 +1,5 @@
 ---
-name: automation-blueprint
+name: omh-automation-blueprint
 description: [omh] Hermes Scheduled Ops Blueprint workflow: design recurring Hermes operations with schedule, delivery, silence policy, context chain, and prepared-vs-observed status.
 metadata:
   hermes:

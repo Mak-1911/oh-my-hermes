@@ -1,5 +1,5 @@
 ---
-name: research-department
+name: omh-research-department
 description: [omh] Hermes Research Department workflow pack: prepare Scout, Analyst, and Briefer research operations with source inbox and briefing status boundaries.
 metadata:
   hermes:

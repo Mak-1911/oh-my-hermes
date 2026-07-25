@@ -1,5 +1,5 @@
 ---
-name: report-package
+name: omh-report-package
 description: [omh] Hermes Report Package workflow: weekly/monthly reports, executive briefs, PPT-ready outlines, and upload packages.
 metadata:
   hermes:

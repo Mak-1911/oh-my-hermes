@@ -1,5 +1,5 @@
 ---
-name: model-setup
+name: omh-model-setup
 description: [omh] Hermes Model Setup workflow: diagnose role-slot model configuration, guide provider connection, and apply changes only after diff approval.
 metadata:
   hermes:

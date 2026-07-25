@@ -1,5 +1,5 @@
 ---
-name: prompt-import-readiness
+name: omh-prompt-import-readiness
 description: [omh] Hermes prompt import readiness workflow: decide whether external CLI-agent prompt files can be safely reviewed, normalized, and offered as Hermes slash-command candidates without mutating prompts or command registries.
 metadata:
   hermes:

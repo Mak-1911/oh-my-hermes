@@ -1,5 +1,5 @@
 ---
-name: physical-device-readiness
+name: omh-physical-device-readiness
 description: [omh] Hermes readiness workflow for robots, 3D printers, IoT relays, sensors, and lab hardware before hardware trials.
 metadata:
   hermes:

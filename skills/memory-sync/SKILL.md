@@ -1,5 +1,5 @@
 ---
-name: memory-sync
+name: omh-memory-sync
 description: [omh] Hermes existing-memory curation workflow: review stale, conflicting, duplicate, overgeneralized, or risky USER.md, MEMORY.md, and skill memories through approve/reject/update actions.
 metadata:
   hermes:

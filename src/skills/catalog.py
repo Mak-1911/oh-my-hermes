@@ -34,6 +34,30 @@ def omh_description(description: str) -> str:
     return f"{OMH_DESCRIPTION_PREFIX}{text}"
 
 
+OMH_SKILL_NAME_PREFIX = "omh-"
+
+# Canonical catalog names that get a hand-picked display label instead of the
+# mechanical prefix. The override value already carries the prefix, so the
+# override lookup must run before the prefix guard in omh_skill_display_name().
+OMH_SKILL_DISPLAY_NAME_OVERRIDES = {"oh-my-hermes": "omh-routing"}
+
+
+def omh_skill_display_name(name: str) -> str:
+    """Return the rendered frontmatter label for a canonical catalog name.
+
+    This is a display identifier only. The canonical `SkillDefinition.name` still
+    owns the `skills/<name>/` directory, the install manifest, the tap URL,
+    routing keys, and every CLI argument.
+    """
+    text = name.strip()
+    override = OMH_SKILL_DISPLAY_NAME_OVERRIDES.get(text)
+    if override is not None:
+        return override
+    if text.startswith(OMH_SKILL_NAME_PREFIX):
+        return text
+    return f"{OMH_SKILL_NAME_PREFIX}{text}"
+
+
 _ROLE_BY_CATEGORY = {
     "accessibility": "guide",
     "agent-coordination": "tracker",

@@ -1,5 +1,5 @@
 ---
-name: rules-distill
+name: omh-rules-distill
 description: [omh] Hermes Rules Distill workflow: extract repeated principles from skills, prompts, traces, reviews, and failures into reviewed rule candidates without auto-mutating guidance.
 metadata:
   hermes:

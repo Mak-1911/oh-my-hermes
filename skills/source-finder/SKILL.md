@@ -1,5 +1,5 @@
 ---
-name: source-finder
+name: omh-source-finder
 description: [omh] Hermes Source Finder workflow: prepare typed source candidates and acquisition status before downstream work.
 metadata:
   hermes:

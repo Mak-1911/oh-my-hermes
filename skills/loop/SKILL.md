@@ -1,5 +1,5 @@
 ---
-name: loop
+name: omh-loop
 description: [omh] Hermes Loop workflow: agentic interviewer -> planner -> researcher -> builder -> reviewer cycles until a real gate.
 metadata:
   hermes:

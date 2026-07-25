@@ -1,5 +1,5 @@
 ---
-name: harness-session-inventory
+name: omh-harness-session-inventory
 description: [omh] Hermes harness session inventory workflow: normalize Codex, Claude Code, Hermes, OpenCode, Cursor, MCP host, worktree, and wrapper session metadata into one drift-aware inventory.
 metadata:
   hermes:

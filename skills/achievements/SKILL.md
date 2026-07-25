@@ -1,5 +1,5 @@
 ---
-name: achievements
+name: omh-achievements
 description: [omh] Hermes achievements observation workflow: summarize hermes-achievements badges, tiers, recent unlocks, and progress from local plugin artifacts.
 metadata:
   hermes:

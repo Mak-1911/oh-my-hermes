@@ -1,5 +1,5 @@
 ---
-name: security-safety-review
+name: omh-security-safety-review
 description: [omh] Hermes Security Safety Review workflow: review prompt, tool, secret, dependency, and destructive-action risks before agent or code execution.
 metadata:
   hermes:

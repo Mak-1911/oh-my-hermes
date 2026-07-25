@@ -1,5 +1,5 @@
 ---
-name: frontend
+name: omh-frontend
 description: [omh] Hermes frontend workflow: prepare design-system-driven web UI creation, redesign, polish, accessibility, performance, and visual QA handoffs.
 metadata:
   hermes:

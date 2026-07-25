@@ -1,5 +1,5 @@
 ---
-name: github-event-ops
+name: omh-github-event-ops
 description: [omh] Hermes GitHub event operations workflow: route PR, issue, CI, and review webhook events into triage, review, or fix handoff cards.
 metadata:
   hermes:

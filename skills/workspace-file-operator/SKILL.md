@@ -1,5 +1,5 @@
 ---
-name: workspace-file-operator
+name: omh-workspace-file-operator
 description: [omh] Hermes workspace file operator workflow: scope local file/folder listing, search, organize, copy, move, rename, and delete tasks with path and destructive-action gates.
 metadata:
   hermes:

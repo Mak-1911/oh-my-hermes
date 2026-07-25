@@ -1,5 +1,5 @@
 ---
-name: cancel
+name: omh-cancel
 description: [omh] Hermes adaptation for ending active workflow state cleanly.
 metadata:
   hermes:

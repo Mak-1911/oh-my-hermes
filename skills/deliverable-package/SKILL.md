@@ -1,5 +1,5 @@
 ---
-name: deliverable-package
+name: omh-deliverable-package
 description: [omh] Hermes deliverable package workflow: track PPT, PDF, XLSX, DOCX, HWP, Markdown, and attachments through prepared, generated, QA, approved, and attached states.
 metadata:
   hermes:

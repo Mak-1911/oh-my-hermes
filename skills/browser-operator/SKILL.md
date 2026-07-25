@@ -1,5 +1,5 @@
 ---
-name: browser-operator
+name: omh-browser-operator
 description: [omh] Hermes browser operator workflow: scope URL opening, page interaction, login/form boundaries, observations, and destructive confirmation gates.
 metadata:
   hermes:

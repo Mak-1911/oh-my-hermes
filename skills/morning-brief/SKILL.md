@@ -1,5 +1,5 @@
 ---
-name: morning-brief
+name: omh-morning-brief
 description: [omh] Hermes Morning Brief setup workflow: diagnose mail and calendar MCP connection, guide read/draft-only access, and apply changes only after diff approval.
 metadata:
   hermes:

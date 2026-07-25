@@ -1,5 +1,5 @@
 ---
-name: wiki
+name: omh-wiki
 description: [omh] Hermes adaptation for retained knowledge capture and destination-aware external knowledge connection guidance.
 metadata:
   hermes:

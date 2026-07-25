@@ -1,5 +1,5 @@
 ---
-name: agent-evaluation
+name: omh-agent-evaluation
 description: [omh] Hermes Agent Evaluation workflow: compare executor or agent choices on reproducible tasks using quality, cost, time, tool, and evidence metrics.
 metadata:
   hermes:

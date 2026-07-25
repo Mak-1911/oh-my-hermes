@@ -1,5 +1,5 @@
 ---
-name: ai-slop-cleaner
+name: omh-ai-slop-cleaner
 description: [omh] Hermes AI slop cleaner workflow: behavior-preserving cleanup.
 metadata:
   hermes:

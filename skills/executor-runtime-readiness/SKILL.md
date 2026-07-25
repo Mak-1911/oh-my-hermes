@@ -1,5 +1,5 @@
 ---
-name: executor-runtime-readiness
+name: omh-executor-runtime-readiness
 description: [omh] Hermes executor runtime readiness workflow: compare Codex, Claude Code, Hermes coding, and oh-my runtimes by available tools, missing tools, and handoff mode.
 metadata:
   hermes:

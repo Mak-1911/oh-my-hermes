@@ -1,5 +1,5 @@
 ---
-name: websearch-setup
+name: omh-websearch-setup
 description: [omh] Hermes Web Search Setup workflow: diagnose scraper and auxiliary extract-model configuration, guide account setup, and apply each change as its own diff approval.
 metadata:
   hermes:

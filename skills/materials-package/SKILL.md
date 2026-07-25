@@ -1,5 +1,5 @@
 ---
-name: materials-package
+name: omh-materials-package
 description: [omh] Hermes Materials Package workflow: decks, PDFs, spreadsheets, documents, HWP, Markdown, and binary export handoffs.
 metadata:
   hermes:

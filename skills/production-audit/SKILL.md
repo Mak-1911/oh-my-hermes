@@ -1,5 +1,5 @@
 ---
-name: production-audit
+name: omh-production-audit
 description: [omh] Hermes Production Audit workflow: evaluate release, deploy, security, observability, rollback, docs, and support readiness without claiming production access.
 metadata:
   hermes:
