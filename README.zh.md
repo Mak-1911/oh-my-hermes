@@ -86,6 +86,23 @@ hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes
 Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<
 ```
 
+<br>
+
+**把已经 `--full` 安装的环境收敛回 core：**
+
+```sh
+omh skill-profile status
+omh skill-profile reconcile --to core --dry-run
+omh skill-profile reconcile --to core
+```
+
+setup、install 和 update 都不会删除已安装的 skill，因此曾经以 `--full`
+安装过的 workspace，在被显式 reconcile 之前会一直保留那部分逐轮 context
+负担。详见
+[把已有的 Full 安装收敛回 Core](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core)。
+
+<br>
+
 ## OMH 提供什么
 
 OMH 将 **88 个**可安装的 workflow skill 组织为6个容易理解的能力族。

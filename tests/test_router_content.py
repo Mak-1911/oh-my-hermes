@@ -2555,7 +2555,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("**88 個**", localized_readmes["ja"])
         self.assertIn("**88 个**", localized_readmes["zh"])
         for localized_readme in localized_readmes.values():
-            self.assertLess(len(localized_readme.splitlines()), 220)
+            self.assertLess(len(localized_readme.splitlines()), 240)
             self.assertIn("prepared_not_observed", localized_readme)
             self.assertIn("omh setup", localized_readme)
             self.assertNotIn("omh doctor", localized_readme)

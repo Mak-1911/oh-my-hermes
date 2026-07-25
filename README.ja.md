@@ -88,6 +88,24 @@ hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes
 Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<
 ```
 
+<br>
+
+**既存の `--full` インストールを core に戻す:**
+
+```sh
+omh skill-profile status
+omh skill-profile reconcile --to core --dry-run
+omh skill-profile reconcile --to core
+```
+
+setup、install、update はインストール済みの skill を削除しないため、一度
+`--full` でインストールした workspace は、明示的に reconcile するまでその
+per-turn の context 負荷を維持し続けます。詳細は
+[既存の Full インストールを Core に戻す](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core)
+を参照してください。
+
+<br>
+
 ## OMH が追加するもの
 
 OMH は **88 個**のインストール可能な workflow skill を、理解しやすい6つの
