@@ -59,7 +59,7 @@ def _agent_runner(*, fail_units: set[str] | None = None, timeout_units: set[str]
         spawned.append(list(argv))
         prompt = " ".join(argv)
         for unit_id in timeout_units or set():
-            if f"Work unit:" in prompt and unit_id in prompt:
+            if "Work unit:" in prompt and unit_id in prompt:
                 raise subprocess.TimeoutExpired(argv, kwargs.get("timeout", 0))
         for unit_id in fail_units or set():
             if unit_id in prompt:

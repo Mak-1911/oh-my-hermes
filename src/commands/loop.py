@@ -22,7 +22,6 @@ from ..goal_loop import (
     observe_loop_queue_item,
     read_loop_cycle,
     record_loop_feedback,
-    run_loop_once,
     run_loop_once_result,
     tick_loop_runtime,
     update_loop_permission,
