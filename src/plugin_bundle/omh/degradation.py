@@ -47,6 +47,17 @@ DEGRADATION_CLAIM_BOUNDARY = (
     "CI, merge-readiness, or merge evidence."
 )
 
+# The one line a chat surface renders. Deliberately label-free: the component
+# names are engineer-facing and mean nothing to a Discord or Slack reader, so
+# they stay in the structured block and never reach rendered text. English
+# only; localized output is explicit opt-in via `--language`/`OMH_LANG`, and
+# nothing here may auto-detect a locale.
+DEGRADATION_CHAT_NOTE = (
+    "Heads-up: part of this answer came from a reduced local fallback because an "
+    "OMH-local step failed, so it may be less accurate than usual. Ask again if it "
+    "looks wrong."
+)
+
 
 def safe_error_type(error_type: str) -> str:
     """Return a bounded, character-safe exception class name."""
@@ -60,6 +71,18 @@ def degradation_component(component: str, error_type: str) -> dict[str, str]:
     if label not in DEGRADATION_COMPONENTS:
         label = UNKNOWN_COMPONENT
     return {"component": label, "error_type": safe_error_type(error_type)}
+
+
+def degradation_chat_note(degradation: object) -> str:
+    """Return the chat-surface note for a degradation block, or `""`.
+
+    The empty string is the happy path and must stay empty: a caller appends
+    the result unconditionally, so a non-empty default would put permanent
+    degradation text in front of every healthy chat user.
+    """
+    if not isinstance(degradation, dict) or not degradation.get("degraded"):
+        return ""
+    return DEGRADATION_CHAT_NOTE
 
 
 def degradation_payload(components: Iterable[tuple[str, str]]) -> dict[str, object]:

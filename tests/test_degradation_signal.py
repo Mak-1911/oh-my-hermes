@@ -30,15 +30,20 @@ from omh.plugin_bundle.omh.degradation import (
     COMPONENT_LOCALIZED_ROUTING_TEXT,
     COMPONENT_LOOP_ROUTE_HINT_ASSESSMENT,
     COMPONENT_RUNTIME_STATUS_READ,
+    DEGRADATION_CHAT_NOTE,
     MAX_DEGRADATION_COMPONENTS,
     OMH_DEGRADATION_SCHEMA_VERSION,
     UNKNOWN_COMPONENT,
+    degradation_chat_note,
     degradation_component,
     degradation_payload,
     safe_error_type,
 )
 from omh.plugin_bundle.omh.hooks import llm_hooks as llm_hooks_module
 from omh.plugin_bundle.omh.hooks.llm_hooks import pre_llm_call
+from omh.wrapper import contract as contract_module
+from omh.wrapper.contract import build_chat_interaction_payload
+from omh.wrapper.route_hints import build_chat_route_hint_payload
 
 # `AGENTS.md` evidence-boundary phrasing, carried verbatim into every degraded
 # surface. A degradation marker observes a local call failure and nothing more.
@@ -442,6 +447,118 @@ class MultiLevelMergeTests(DegradationSignalTestCase):
         self.assertTrue(second["degradation"]["degraded"])
         self.assertEqual(component_labels(second["degradation"]), [COMPONENT_LOCALIZED_ROUTING_TEXT])
         self.assertEqual(second["degradation"]["privacy"]["mode"], "metadata_only")
+
+
+class WrapperSurfaceDegradationTests(DegradationSignalTestCase):
+    """The Discord/Slack-facing surfaces must show the signal, not swallow it.
+
+    `_response_for_hint` rebuilds `omh_route_hint/v1` from an explicit key
+    whitelist, so a key added upstream is dropped unless it is listed. These
+    cases pin both directions: healthy renders exactly as before, degraded
+    renders a reader-actionable line plus the structured block.
+    """
+
+    ROUTE_HINT_MESSAGE = "Users report a wrapper-surface checkout bug"
+    INTRO_MESSAGE = "What is OMH and how should I use it?"
+
+    def setUp(self) -> None:
+        super().setUp()
+        contract_module._build_chat_interaction_payload_cached.cache_clear()
+
+    def test_a_healthy_route_hint_renders_exactly_todays_key_set_and_text(self) -> None:
+        payload = build_chat_route_hint_payload(self.ROUTE_HINT_MESSAGE, source="discord")
+
+        state_route_hint = payload["chat_response"]["state"]["route_hint"]
+        # Non-emptiness first: without it every assertion below passes on an
+        # empty payload and proves nothing.
+        self.assertTrue(state_route_hint)
+        self.assertTrue(payload["chat_response"]["body"].strip())
+        self.assertEqual(state_route_hint["primary_workflow"], "feedback-triage")
+
+        self.assertNotIn("degradation", payload["route_hint"])
+        self.assertNotIn("degradation", state_route_hint)
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        self.assertNotIn(DEGRADATION_CHAT_NOTE, serialized)
+        self.assertNotIn("omh_degradation/v1", serialized)
+
+    def test_a_degraded_route_hint_renders_the_note_and_the_whitelisted_block(self) -> None:
+        with self.locale_failure():
+            payload = build_chat_route_hint_payload(self.ROUTE_HINT_MESSAGE, source="discord")
+
+        response = payload["chat_response"]
+        block = payload["route_hint"]["degradation"]
+        self.assertEqual(component_labels(block), [COMPONENT_LOCALIZED_ROUTING_TEXT])
+        self.assert_block_is_well_formed(block)
+
+        # The whitelist rebuild must carry the block through unchanged.
+        self.assertEqual(
+            json.dumps(response["state"]["route_hint"]["degradation"], sort_keys=True),
+            json.dumps(block, sort_keys=True),
+        )
+        # The routing answer itself is unchanged; only the signal is added.
+        self.assertEqual(response["state"]["route_hint"]["primary_workflow"], "feedback-triage")
+
+        body = response["body"]
+        self.assertTrue(body.strip())
+        self.assertIn(DEGRADATION_CHAT_NOTE, body)
+        self.assertTrue(body.endswith(DEGRADATION_CHAT_NOTE))
+        self.assertIn(DEGRADATION_CHAT_NOTE, response["messenger_rendering"]["body_text"])
+
+    def test_a_degraded_route_hint_never_renders_request_or_exception_message_text(self) -> None:
+        with self.locale_failure():
+            payload = build_chat_route_hint_payload(self.ROUTE_HINT_MESSAGE, source="discord")
+
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        self.assertIn(DEGRADATION_CHAT_NOTE, serialized)
+        self.assertNotIn(self.ROUTE_HINT_MESSAGE, serialized)
+        self.assertNotIn(LOCALE_BOOM, serialized)
+        # Component labels are engineer-facing, so they stay in the structured
+        # block and never reach the rendered chat text.
+        self.assertNotIn(COMPONENT_LOCALIZED_ROUTING_TEXT, payload["chat_response"]["body"])
+
+    def test_a_healthy_context_brief_interaction_renders_exactly_todays_text(self) -> None:
+        payload = build_chat_interaction_payload(self.INTRO_MESSAGE, source="discord")
+
+        response = payload["chat_response"]
+        self.assertEqual(response["kind"], "context_brief")
+        brief = response["state"]["context_brief"]
+        self.assertTrue(brief)
+        self.assertTrue(response["body"].strip())
+
+        self.assertNotIn("degradation", brief)
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        self.assertNotIn(DEGRADATION_CHAT_NOTE, serialized)
+        self.assertNotIn("omh_degradation/v1", serialized)
+
+    def test_a_degraded_context_brief_interaction_renders_the_note_and_the_block(self) -> None:
+        with self.locale_failure():
+            payload = build_chat_interaction_payload(self.INTRO_MESSAGE, source="discord")
+
+        response = payload["chat_response"]
+        self.assertEqual(response["kind"], "context_brief")
+        block = response["state"]["context_brief"]["degradation"]
+        self.assertEqual(component_labels(block), [COMPONENT_LOCALIZED_ROUTING_TEXT])
+        self.assert_block_is_well_formed(block)
+
+        body = response["body"]
+        self.assertTrue(body.strip())
+        self.assertIn(DEGRADATION_CHAT_NOTE, body)
+        # Placed before the boundary line, so the reader sees the caveat and
+        # the evidence boundary in the same block of text.
+        self.assertLess(body.index(DEGRADATION_CHAT_NOTE), body.index("Boundary:"))
+
+        serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        self.assertNotIn(LOCALE_BOOM, serialized)
+        self.assertNotIn(COMPONENT_LOCALIZED_ROUTING_TEXT, body)
+
+    def test_the_chat_note_is_empty_for_every_non_degraded_input(self) -> None:
+        for value in ({}, None, "", [], {"degraded": False}, {"components": []}):
+            with self.subTest(repr(value)):
+                self.assertEqual(degradation_chat_note(value), "")
+        self.assertEqual(
+            degradation_chat_note(degradation_payload([(COMPONENT_LOCALIZED_ROUTING_TEXT, "RuntimeError")])),
+            DEGRADATION_CHAT_NOTE,
+        )
 
 
 class DegradationPayloadUnitTests(unittest.TestCase):
