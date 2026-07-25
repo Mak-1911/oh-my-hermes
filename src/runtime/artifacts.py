@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..context_safety import build_coding_progress_reporting_policy
+from ..context_safety import MAX_RUN_HISTORY_EVENTS, build_coding_progress_reporting_policy
 from ..executor_progress import validate_progress_binding, validate_progress_event, validate_progress_report
 from ..executors import (
     CODING_EXECUTOR_HANDOFF_TARGETS,
@@ -75,6 +75,12 @@ from .records import (
     validate_wrapper_session_record,
 )
 
+
+# Run history only ever grows, so an unbounded `show_run` makes every repeated
+# status check re-emit the whole accumulated history into the supervising
+# agent's context. Bound the emitted tail; keep the full record on disk.
+DEFAULT_RUN_HISTORY_LIMIT = MAX_RUN_HISTORY_EVENTS
+RUN_HISTORY_BOUNDS_SCHEMA_VERSION = "omh_run_history_bounds/v1"
 
 PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX = (
     "prepared_coding_delegation runs are run-backed only for work_owner_mode=external_executor with "
@@ -493,20 +499,56 @@ def runtime_observations_for_target(records: list[dict[str, Any]], target_type: 
     ]
 
 
-def show_run(paths: OmhPaths, run_id: str) -> dict[str, Any]:
+def _history_bounds(records: list[dict[str, Any]], limit: int | None) -> dict[str, Any]:
+    shown = len(_apply_limit(records, limit))
+    return {"total": len(records), "shown": shown, "omitted": max(0, len(records) - shown)}
+
+
+def show_run(paths: OmhPaths, run_id: str, *, history_limit: int | None = DEFAULT_RUN_HISTORY_LIMIT) -> dict[str, Any]:
+    """Project one run.
+
+    `events`, `runtime_observations`, and `journal_events` are tail-bounded by
+    `history_limit` so repeated status checks cost O(limit) supervising context
+    instead of O(history). Lifecycle projection still reads the full history, so
+    bounding output never changes observed-evidence conclusions. Pass
+    `history_limit=None` for the full record (export, learning traces, status
+    summaries that must read every event).
+    """
     run_dir = paths.runtime_runs_dir / run_id
     run = read_json_object(run_dir / "run.json")
     if not run:
         raise FileNotFoundError(run_id)
     evidence_dir = run_dir / "evidence"
-    events, event_errors = read_events_result(run_dir)
-    observations, observation_errors = read_runtime_observations_result(run_dir)
-    journal_events, journal_errors = _journal_events_for_run_result(paths, run_id)
+    all_events, event_errors = read_events_result(run_dir)
+    all_observations, observation_errors = read_runtime_observations_result(run_dir)
+    all_journal_events, journal_errors = _journal_events_for_run_result(paths, run_id)
+    events = _apply_limit(all_events, history_limit)
+    observations = _apply_limit(all_observations, history_limit)
+    journal_events = _apply_limit(all_journal_events, history_limit)
     result = {
         "run": run,
         "events": events,
         "runtime_observations": observations,
         "journal_events": journal_events,
+        "history": {
+            "schema_version": RUN_HISTORY_BOUNDS_SCHEMA_VERSION,
+            "limit": history_limit,
+            "truncated": (
+                len(events) != len(all_events)
+                or len(observations) != len(all_observations)
+                or len(journal_events) != len(all_journal_events)
+            ),
+            "order": "oldest_to_newest_tail",
+            "events": _history_bounds(all_events, history_limit),
+            "runtime_observations": _history_bounds(all_observations, history_limit),
+            "journal_events": _history_bounds(all_journal_events, history_limit),
+            "full_history_artifacts": {
+                "events": str(run_dir / "events.jsonl"),
+                "runtime_observations": str(run_dir / "runtime_observations.jsonl"),
+                "journal_events": str(paths.runtime_journal_events_path),
+            },
+            "full_history_command": f"omh runtime show {run_id} --full",
+        },
         "executor_progress": _show_executor_progress(run_dir),
         "routing": read_json_object(run_dir / "routing.json"),
         "coding_delegation": read_json_object(run_dir / "coding_delegation.json"),
@@ -523,7 +565,8 @@ def show_run(paths: OmhPaths, run_id: str) -> dict[str, Any]:
         result["runtime_observation_errors"] = observation_errors
     if journal_errors:
         result["journal_errors"] = journal_errors
-    result["lifecycle"] = _lifecycle_projection_from_shown(result)
+    # Lifecycle flags must never depend on how much history was emitted.
+    result["lifecycle"] = _lifecycle_projection_from_shown({**result, "journal_events": all_journal_events})
     return result
 
 
@@ -639,7 +682,9 @@ def _executor_progress_show_state(target_dir: Path, binding: dict[str, Any]) -> 
 
 
 def summarize_delegated_coding_status(paths: OmhPaths, run_id: str) -> dict[str, Any]:
-    shown = show_run(paths, run_id)
+    # Reads full history on purpose: this surface emits a compact summary, and
+    # latest-per-event-type rollups must not miss an older observation.
+    shown = show_run(paths, run_id, history_limit=None)
     run = _object_or_empty(shown.get("run"))
     coding = _object_or_empty(shown.get("coding_delegation"))
     delegation = _object_or_empty(shown.get("delegation"))
@@ -1826,7 +1871,7 @@ def export_runtime(
             "wrapper_session_count": len(wrapper_sessions),
             "journal_event_count": len(journal_events),
         },
-        "runs": [show_run(paths, run["run_id"]) for run in runs] if full else runs,
+        "runs": [show_run(paths, run["run_id"], history_limit=None) for run in runs] if full else runs,
         "wrapper_sessions": (
             [show_wrapper_session_record(paths, session["session_id"]) for session in wrapper_sessions] if full else wrapper_sessions
         ),

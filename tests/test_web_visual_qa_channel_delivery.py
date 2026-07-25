@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -81,6 +82,7 @@ class WebVisualQaChannelDeliveryTests(unittest.TestCase):
             status, stdout, stderr = run_cli(base + ["show", "--package-id", "checkout-qa", "--renderer-target", "slack", "--json"], output_json=False)
 
             self.assertEqual(status, 0, stderr)
-            self.assertIn('"schema_version": "web_visual_qa_channel_delivery/v1"', stdout)
-        self.assertIn('"delivery_observed": false', stdout)
+            card = json.loads(stdout)
+        self.assertEqual(card["schema_version"], "web_visual_qa_channel_delivery/v1")
+        self.assertFalse(card["delivery_observed"])
         self.assertNotIn("attachment_uploaded", stdout.split('"does_not_prove"')[0])

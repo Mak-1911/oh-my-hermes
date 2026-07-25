@@ -18,8 +18,31 @@ def _paths(args: argparse.Namespace):
     return resolve_paths(args.omh_home, args.hermes_home, scope=getattr(args, "scope", None))
 
 
+JSON_PRETTY_ENV = "OMH_JSON_PRETTY"
+_JSON_PRETTY_TRUE = {"1", "true", "yes", "on"}
+_json_pretty_requested = False
+
+
+def set_json_output_pretty(enabled: bool) -> None:
+    """Record the explicit `--pretty` opt-in for human-readable stdout."""
+    global _json_pretty_requested
+    _json_pretty_requested = bool(enabled)
+
+
+def json_output_is_pretty() -> bool:
+    if _json_pretty_requested:
+        return True
+    return os.environ.get(JSON_PRETTY_ENV, "").strip().lower() in _JSON_PRETTY_TRUE
+
+
 def _print_json(data: object) -> None:
-    print(json.dumps(data, indent=2, sort_keys=True))
+    # Agent-facing stdout is compact by default: indentation is a flat multiplier
+    # on every supervising-session context window. `--pretty`/OMH_JSON_PRETTY=1
+    # restores the human-readable form.
+    if json_output_is_pretty():
+        print(json.dumps(data, indent=2, sort_keys=True))
+        return
+    print(json.dumps(data, sort_keys=True, separators=(",", ":")))
 
 
 def _wants_json(args: argparse.Namespace) -> bool:
