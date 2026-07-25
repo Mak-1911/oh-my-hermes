@@ -1856,11 +1856,11 @@ _MATERIALS_PACKAGE_ACTION_TOKENS = _normalized_token_set(
         "변환",
     }
 )
-_MEMORY_NEW_PHRASES = (
+# Unambiguous capture vocabulary: each phrase names the act of adding a durable fact,
+# so it is a memory-new signal on its own.
+MEMORY_NEW_CAPTURE_PHRASES = (
     "memory-new",
     "new memory",
-    "project memory",
-    "product memory",
     "remember this project",
     "remember this product",
     "memory capture",
@@ -1869,11 +1869,47 @@ _MEMORY_NEW_PHRASES = (
     "save product memory",
     "프로젝트 메모리 저장",
     "제품 메모리 저장",
-    "프로젝트 기억",
-    "제품 기억",
     "새 기억",
     "기억 추가",
     "메모리 캡처",
+)
+# Scope nouns name *where* a durable fact lives, not what to do with it. Alone they read
+# as capture ("project memory"), but paired with curation intent they describe cleanup of
+# memories that already exist ("clean up my stale project memory") and must not be treated
+# as capture -- that is the memory-new/memory-sync overroute these two tuples separate.
+MEMORY_NEW_SCOPE_PHRASES = (
+    "project memory",
+    "product memory",
+    "project context memory",
+    "product context memory",
+    "프로젝트 기억",
+    "제품 기억",
+)
+# Verbs and adjectives that mark a request about memories that already exist.
+MEMORY_CURATION_INTENT_PHRASES = (
+    "clean up",
+    "cleanup",
+    "clear out",
+    "curate",
+    "review",
+    "inspect",
+    "audit",
+    "check",
+    "prune",
+    "dedupe",
+    "deduplicate",
+    "stale",
+    "outdated",
+    "duplicate",
+    "conflicting",
+    "정리",
+    "점검",
+    "검사",
+    "검토",
+    "정돈",
+    "오래된",
+    "중복",
+    "충돌",
 )
 _MEMORY_CURATION_PHRASES = (
     "memory curation",
@@ -1961,6 +1997,20 @@ _MEMORY_CURATION_PHRASES = (
     "채널 용어",
     "용어가 겹",
     "다른 채널",
+)
+# Tokens naming a memory store. Built through `_normalized_token_set` because
+# `routing_tokens` folds Korean to decomposed jamo: a raw NFC literal such as "기억"
+# never equals the folded token, so an unnormalized set is silently dead for Korean.
+_MEMORY_STORE_TOKENS = _normalized_token_set(
+    {
+        "memory",
+        "memories",
+        "context",
+        "contexts",
+        "기억",
+        "메모리",
+        "맥락",
+    }
 )
 _MEMORY_CURATION_CONTEXT_TOKENS = _normalized_token_set(
     {
@@ -6432,8 +6482,27 @@ def _materials_package_guard_applies(
     return format_hits >= 2 and action
 
 
+def memory_new_scope_overroutes_curation(normalized_query: str) -> bool:
+    """True when a scope noun is the only memory-new signal and the request is curation.
+
+    `project memory` on its own is a capture request, but `clean up my stale project
+    memory` is existing-memory curation that merely names the same scope. Without this
+    split the scope noun wins and suppresses `MEMORY_CURATION_GUARD`, so adding a scope
+    word to a curation request silently flips it to capture.
+    """
+    if _contains_phrase(normalized_query, MEMORY_NEW_CAPTURE_PHRASES):
+        return False
+    return _contains_phrase(normalized_query, MEMORY_NEW_SCOPE_PHRASES) and _contains_phrase(
+        normalized_query, MEMORY_CURATION_INTENT_PHRASES
+    )
+
+
 def _memory_new_guard_applies(normalized_query: str) -> bool:
-    return _contains_phrase(normalized_query, _MEMORY_NEW_PHRASES)
+    if _contains_phrase(normalized_query, MEMORY_NEW_CAPTURE_PHRASES):
+        return True
+    if memory_new_scope_overroutes_curation(normalized_query):
+        return False
+    return _contains_phrase(normalized_query, MEMORY_NEW_SCOPE_PHRASES)
 
 
 def _memory_curation_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:
@@ -6446,7 +6515,7 @@ def _memory_curation_guard_applies(normalized_query: str, query_tokens: set[str]
     context = bool(_MEMORY_CURATION_CONTEXT_TOKENS & query_tokens)
     hermes_context = _contains_phrase(normalized_query, ("hermes", "헤르메스"))
     omh_context = _contains_phrase(normalized_query, ("omh", "oh-my-hermes", "oh my hermes"))
-    memory_context = bool({"memory", "memories", "context", "contexts", "기억", "메모리", "맥락"} & query_tokens)
+    memory_context = bool(_MEMORY_STORE_TOKENS & query_tokens)
     if _scheduled_ops_blueprint_guard_applies(normalized_query, query_tokens) and not (
         hermes_context or omh_context or memory_context
     ):

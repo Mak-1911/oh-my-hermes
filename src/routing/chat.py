@@ -23,6 +23,9 @@ from .missed_route import is_missed_route_feedback
 from .omh_help import is_omh_intro_question, is_omh_quickstart_question, is_omh_status_question
 from .policy import (
     CONFIDENCE_LEVELS,
+    MEMORY_CURATION_INTENT_PHRASES,
+    MEMORY_NEW_CAPTURE_PHRASES,
+    MEMORY_NEW_SCOPE_PHRASES,
     SKILL_SCOUT_CANDIDATE_ALIAS_PHRASES,
     SKILL_SCOUT_CANDIDATE_BLOCKER_PHRASES,
     SKILL_SCOUT_CANDIDATE_INTENT_PHRASES,
@@ -3774,9 +3777,35 @@ def _operator_surface_fast_path_match(
             continue
         if skill == "live-info-operator" and normalized_pattern == "환율" and "전환율" in text:
             continue
+        if skill == "memory-new" and _memory_new_scope_overroutes_curation(text):
+            continue
         if normalized_pattern in text or (normalized_compact and normalized_compact in compact):
             return skill, phrase, marker, reason
     return None
+
+
+@lru_cache(maxsize=1)
+def _memory_new_scope_fast_path_phrases() -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    return (
+        tuple(_fast_path_text(phrase) for phrase in MEMORY_NEW_CAPTURE_PHRASES),
+        tuple(_fast_path_text(phrase) for phrase in MEMORY_NEW_SCOPE_PHRASES),
+        tuple(_fast_path_text(phrase) for phrase in MEMORY_CURATION_INTENT_PHRASES),
+    )
+
+
+def _memory_new_scope_overroutes_curation(text: str) -> bool:
+    """Fast-path twin of `policy.memory_new_scope_overroutes_curation`.
+
+    The fast path matches in `_fast_path_text` space (NFC + casefold), which is not the
+    fold space `policy._contains_phrase` uses, so the shared vocabulary is re-normalized
+    here rather than calling across normalization boundaries.
+    """
+    capture, scope, intent = _memory_new_scope_fast_path_phrases()
+    if any(phrase and phrase in text for phrase in capture):
+        return False
+    return any(phrase and phrase in text for phrase in scope) and any(
+        phrase and phrase in text for phrase in intent
+    )
 
 
 def _operator_surface_preempting_guard(

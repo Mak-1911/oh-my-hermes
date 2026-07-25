@@ -109,7 +109,22 @@ class MemorySyncSkillTests(unittest.TestCase):
             "새 기억",
             "memory capture",
         )
-        review_queries = ("MEMORY.md", "USER.md", "기억 정리", "메모리 점검")
+        # These deliberately include the scope vocabulary memory-new also claims
+        # ("project memory", "프로젝트 기억"). A scope noun names where a fact lives, not
+        # what to do with it, so pairing it with curation intent must stay curation --
+        # the direction that silently overrouted to capture before the phrase split.
+        review_queries = (
+            "MEMORY.md",
+            "USER.md",
+            "기억 정리",
+            "메모리 점검",
+            "clean up my stale project memory",
+            "review my stale project memory entries",
+            "check my project memory for stale claims",
+            "audit product memory for conflicting facts",
+            "프로젝트 기억 정리해줘",
+            "제품 기억 점검해줘",
+        )
 
         for query in capture_queries:
             with self.subTest(query=query):
