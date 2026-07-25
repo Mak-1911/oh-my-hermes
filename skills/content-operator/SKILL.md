@@ -1,5 +1,5 @@
 ---
-name: content-operator
+name: omh-content-operator
 description: [omh] Hermes content operator workflow: scope publish-ready writing, rewriting, summarization, translation, release-note, newsletter, customer-copy, social-copy, README-copy, and email-draft work with audience, tone, style, source, review, and hallucination gates.
 metadata:
   hermes:

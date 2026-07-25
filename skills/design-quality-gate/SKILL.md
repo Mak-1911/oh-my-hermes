@@ -1,5 +1,5 @@
 ---
-name: design-quality-gate
+name: omh-design-quality-gate
 description: [omh] Hermes Design Quality Gate workflow: enforce superior content, design, layout, publishing, and visual QA gates.
 metadata:
   hermes:

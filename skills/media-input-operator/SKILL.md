@@ -1,5 +1,5 @@
 ---
-name: media-input-operator
+name: omh-media-input-operator
 description: [omh] Hermes media input workflow: scope audio, video, YouTube, screenshot, receipt image, OCR, meeting recording, transcript, timestamp, and clip-summary requests with source, permission, extraction, transcription, and hallucination gates.
 metadata:
   hermes:

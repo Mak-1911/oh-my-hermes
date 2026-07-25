@@ -1,5 +1,5 @@
 ---
-name: reliability-review
+name: omh-reliability-review
 description: [omh] Hermes Reliability Review workflow: postmortems, SLOs, error budgets, incident follow-ups, and service reliability evidence.
 metadata:
   hermes:

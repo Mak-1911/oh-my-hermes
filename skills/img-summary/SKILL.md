@@ -1,5 +1,5 @@
 ---
-name: img-summary
+name: omh-img-summary
 description: [omh] Hermes img-summary workflow: turn meetings, reports, PRs, issues, research, and releases into domain-aware image prompt cards.
 metadata:
   hermes:

@@ -1,5 +1,5 @@
 ---
-name: parallel-tools
+name: omh-parallel-tools
 description: [omh] Hermes Parallel Tools workflow: check version currency and parallel-tool capability status, then apply an update only after diff approval.
 metadata:
   hermes:

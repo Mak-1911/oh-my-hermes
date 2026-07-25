@@ -1,5 +1,5 @@
 ---
-name: deep-interview
+name: omh-deep-interview
 description: [omh] Hermes Deep Interview workflow: one-question-at-a-time clarification.
 metadata:
   hermes:

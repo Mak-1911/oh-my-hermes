@@ -18,6 +18,14 @@ Do not make a normal chat user approve `omh list`, `omh recommend`, `omh chat in
 
 Bare `./omh`, `/omh`, `./skills`, or `/skills` opens the workflow picker. A leading `/omh` or `./omh` command followed by an imperative task remainder routes to `meta-router`, which consults the live catalog and selects or chains the right workflow(s); the picker owns only the bare forms and workflow questions.
 
+## Skill Name Display Prefix
+
+Installed OMH skills render an `omh-` prefixed frontmatter `name` so the host status line reads `Reading skill omh-ultrawork` instead of a label indistinguishable from a Hermes built-in. The router skill renders as `omh-routing`.
+
+That label is a display identifier only. The canonical catalog name still owns the `skills/<name>/` directory, the install manifest, the tap URL, routing keys, and every `omh` CLI argument, so `omh recommend`, `omh runtime record --skill <name>`, and trigger strings keep using unprefixed names.
+
+Two host-side consequences follow, both accepted. Host slash commands derive from the same frontmatter `name`, so an explicit invocation is `/omh-ultrawork`, not `/ultrawork`. And because every installed skill now shares the `omh-` stem, a bare `/omh` is an ambiguous multi-candidate command on hosts that complete slash commands by prefix; treat it as the picker alias described above rather than as a single resolved skill, and disambiguate by completing the full `omh-<name>` form.
+
 ## Coding Delegation
 
 When a chat message is implementation-shaped and a wrapper wants a concrete executor handoff, run `omh coding delegate` after or instead of generic chat routing:

@@ -1,5 +1,5 @@
 ---
-name: command-operator
+name: omh-command-operator
 description: [omh] Hermes command operator workflow: scope terminal, shell, CLI, package-manager, and test commands with cwd, environment, safety, and result-evidence gates.
 metadata:
   hermes:

@@ -1,5 +1,5 @@
 ---
-name: ops-review
+name: omh-ops-review
 description: [omh] Hermes Ops Review workflow: status, risks, blockers, priorities, and follow-ups.
 metadata:
   hermes:

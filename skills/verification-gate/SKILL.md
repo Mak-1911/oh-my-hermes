@@ -1,5 +1,5 @@
 ---
-name: verification-gate
+name: omh-verification-gate
 description: [omh] Hermes Verification Gate workflow: define and record build, lint, typecheck, test, security, docs, generated-output, and CI evidence before completion or merge.
 metadata:
   hermes:

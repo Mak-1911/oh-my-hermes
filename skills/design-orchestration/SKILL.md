@@ -1,5 +1,5 @@
 ---
-name: design-orchestration
+name: omh-design-orchestration
 description: [omh] Hermes design orchestration workflow: prepare a bounded design direction, existing-lane composition, and executor-neutral handoff.
 metadata:
   hermes:

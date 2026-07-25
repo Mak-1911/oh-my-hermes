@@ -1,5 +1,5 @@
 ---
-name: build-failure-triage
+name: omh-build-failure-triage
 description: [omh] Hermes Build Failure Triage workflow: classify build, typecheck, lint, test, CI, and DCO failures into minimal safe fix handoffs.
 metadata:
   hermes:

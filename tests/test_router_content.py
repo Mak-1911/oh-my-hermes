@@ -5,6 +5,7 @@ import json
 import re
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from _local_package import load_local_package
 
@@ -18,7 +19,9 @@ from omh.routing.visual_qa_cues import BROWSER_VISUAL_QA_PHRASES, CUSTOMER_SYMPT
 from omh.capabilities.orchestration import orchestration_patterns
 from omh.wrapper.contract import VISIBLE_ACTIONS
 from omh.roles import role_definitions, role_file_markdown, roles_reference_markdown
+from omh.converter import convert_skill
 from omh.skill_pack import (
+    DESCRIPTIONS,
     builtin_definitions,
     builtin_harnesses,
     builtin_skill_reference_templates,
@@ -32,11 +35,14 @@ from omh.plugin_bundle.omh.awareness import ROUTER_KEYWORD_SKILLS, _ROUTE_HINT_R
 from omh.quality.grounded_score import GROUNDED_SCENARIOS
 from omh.runtime.records import validate_harness_quality
 from omh.skills.catalog import (
+    OMH_SKILL_DISPLAY_NAME_OVERRIDES,
+    OMH_SKILL_NAME_PREFIX,
     SkillDefinition,
     _HERMES_SETUP_FIVE_STEP_BAR,
     catalog_intent_delegation_skill_names,
     harness_quality_contract,
     installable_skill_names,
+    omh_skill_display_name,
     primary_harness_for_skill,
     retained_delegation_skill_names,
 )
@@ -638,6 +644,85 @@ class RouterContentTests(unittest.TestCase):
         hidden = set(FEATURE_SURFACE_EXPOSURES) - installable_surfaces
         for name in hidden:
             self.assertFalse((Path("skills") / name / "SKILL.md").exists(), f"{name} should stay routable only")
+
+    def test_display_name_prefix_does_not_degrade_frontmatter_metadata(self) -> None:
+        """The `omh-` display prefix must be applied AFTER the definition lookup.
+
+        `_frontmatter()` uses its `name` argument as the key into the canonical
+        definition map. Prefixing at the call sites instead makes that lookup miss
+        for every skill and silently degrades the metadata block to its fallbacks
+        (category -> `workflow`, phase -> `general`, role -> `guide`,
+        quality_tier -> `evidence-gated`). Both sides of the byte gates regenerate
+        together, so nothing else catches that. Assert the prefixed name and the
+        real metadata values together.
+        """
+        templates = {template.name: template.content for template in builtin_skill_templates()}
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+
+        ultrawork = templates["ultrawork"]
+        self.assertIn("\nname: omh-ultrawork\n", ultrawork)
+        self.assertIn("\n    category: execution\n", ultrawork)
+        self.assertIn("\n    phase: parallel-delivery\n", ultrawork)
+        self.assertIn("\n    role: handoff-guide\n", ultrawork)
+        self.assertIn("\n    quality_tier: handoff-gated\n", ultrawork)
+        self.assertIn("\n    tags: [workflow, oh-my-hermes, execution]\n", ultrawork)
+
+        self.assertIn("\nname: omh-routing\n", templates["oh-my-hermes"])
+
+        for name, content in templates.items():
+            definition = definitions[name]
+            self.assertIn(f"\nname: {omh_skill_display_name(name)}\n", content)
+            self.assertIn(f"\n    category: {definition.category}\n", content)
+            self.assertIn(f"\n    phase: {definition.phase}\n", content)
+            self.assertIn(f"\n    role: {definition.hermes_role}\n", content)
+            self.assertIn(f"\n    quality_tier: {definition.quality_tier}\n", content)
+
+    def test_display_name_helper_keeps_canonical_identifiers_unchanged(self) -> None:
+        self.assertEqual(OMH_SKILL_NAME_PREFIX, "omh-")
+        self.assertEqual(OMH_SKILL_DISPLAY_NAME_OVERRIDES, {"oh-my-hermes": "omh-routing"})
+
+        self.assertEqual(omh_skill_display_name("oh-my-hermes"), "omh-routing")
+        self.assertEqual(omh_skill_display_name("ultrawork"), "omh-ultrawork")
+        self.assertEqual(omh_skill_display_name("omh-ultrawork"), "omh-ultrawork")
+
+        # Branch order: the override lookup must run before the idempotency guard.
+        # The guard tests the INPUT name, never the override value, so the two
+        # orders diverge only for an override KEY that already starts with `omh-`
+        # -- a prefix-first implementation returns such a key unchanged and never
+        # reaches its override. No shipped key starts with the prefix, so the test
+        # has to synthesise one; pinning "no key starts with the prefix" instead
+        # would state a fact about today's map and could not fail on a swap.
+        with patch.dict(OMH_SKILL_DISPLAY_NAME_OVERRIDES, {"omh-legacy": "omh-routing-legacy"}):
+            self.assertEqual(omh_skill_display_name("omh-legacy"), "omh-routing-legacy")
+        self.assertNotIn("omh-legacy", OMH_SKILL_DISPLAY_NAME_OVERRIDES)
+
+        names = {definition.name for definition in builtin_definitions()}
+        self.assertEqual({name for name in names if name.startswith("omh")}, set())
+
+        # Display-only: the canonical name still owns the tap directory.
+        for name in names & {path.parent.name for path in Path("skills").glob("*/SKILL.md")}:
+            self.assertTrue((Path("skills") / name / "SKILL.md").exists())
+
+    def test_converter_round_trip_restores_canonical_identity(self) -> None:
+        """`omh setup --source <dir>` must not degrade a generated tap.
+
+        `convert_skill()` reads the frontmatter `name`, which now carries the
+        display prefix. Without stripping it, the install directory becomes
+        `omh-ultrawork/` and the curated `DESCRIPTIONS` lookup misses, replacing
+        the hand-written description with the generic stub.
+        """
+        raw = Path("skills/ultrawork/SKILL.md").read_text(encoding="utf-8")
+        template = convert_skill(raw, "ultrawork")
+
+        self.assertEqual(template.name, "ultrawork")
+        self.assertIn(f"\ndescription: {DESCRIPTIONS['ultrawork']}\n", template.content)
+        self.assertIn("\nname: omh-ultrawork\n", template.content)
+
+        # Imported third-party skills carry the prefix too, so nothing installed by
+        # omh reads as a Hermes built-in - but the directory identity stays canonical.
+        imported = convert_skill("---\nname: widget\ndescription: Upstream\n---\n# Widget\n", "widget")
+        self.assertEqual(imported.name, "widget")
+        self.assertIn("\nname: omh-widget\n", imported.content)
 
     def test_all_tap_skills_include_subagent_fallback_contract(self) -> None:
         required_fragments = (

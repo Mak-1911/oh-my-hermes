@@ -1,5 +1,5 @@
 ---
-name: workflow-learning
+name: omh-workflow-learning
 description: [omh] Hermes workflow learning workflow: classify and review self-improvement store routes as an auxiliary review lane before durable writes, then record workflow attempts as metadata-only traces, evals, review queues, patch proposals, regression cases, audits, indexes, and exports.
 metadata:
   hermes:

@@ -1,5 +1,5 @@
 ---
-name: skill-scout
+name: omh-skill-scout
 description: [omh] Skill Scout workflow: prepare a metadata-only search-before-creation report for local, marketplace, GitHub, and web skill candidates with risk review and adoption options.
 metadata:
   hermes:

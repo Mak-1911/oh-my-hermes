@@ -1,5 +1,5 @@
 ---
-name: ralplan
+name: omh-ralplan
 description: [omh] Hermes Ralplan workflow: consensus planning with review gates.
 metadata:
   hermes:

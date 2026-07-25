@@ -1,5 +1,5 @@
 ---
-name: doctor
+name: omh-doctor
 description: [omh] Hermes adaptation for diagnosing oh-my-hermes installation health.
 metadata:
   hermes:

@@ -12,6 +12,11 @@ the file and structure to edit.
   empty otherwise; the lane default governs.
 - If the skill needs a recommendation policy, add its `_SKILL_POLICIES` entry
   in `src/routing/recommend.py`.
+- The `SkillDefinition.name` you pick is the canonical identifier (tap
+  directory, install manifest, routing key, CLI arguments); the generated
+  frontmatter `name` is a separate rendered display identifier that
+  `omh_skill_display_name()` prefixes with `omh-` for the host status line, so
+  never treat the two as interchangeable.
 
 ## 2. Hand-authored surfaces (curated order and UX copy)
 

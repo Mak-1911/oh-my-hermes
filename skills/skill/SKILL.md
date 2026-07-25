@@ -1,5 +1,5 @@
 ---
-name: skill
+name: omh-skill
 description: [omh] Hermes adaptation for managing local skills.
 metadata:
   hermes:

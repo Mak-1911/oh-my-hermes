@@ -1,5 +1,5 @@
 ---
-name: visual-qa
+name: omh-visual-qa
 description: [omh] Hermes visual-qa workflow: prepare observed-only rendered QA gates for web, frontend, image, document, and TUI surfaces.
 metadata:
   hermes:

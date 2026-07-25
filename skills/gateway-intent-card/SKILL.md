@@ -1,5 +1,5 @@
 ---
-name: gateway-intent-card
+name: omh-gateway-intent-card
 description: [omh] Hermes gateway intent workflow: normalize Discord, Slack, Telegram, and other gateway sessions into origin, thread, delivery, silent, attachment, and status-update policy.
 metadata:
   hermes:

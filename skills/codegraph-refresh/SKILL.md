@@ -1,5 +1,5 @@
 ---
-name: codegraph-refresh
+name: omh-codegraph-refresh
 description: [omh] Hermes Codegraph Refresh workflow: refresh local code intelligence, summarize repo structure, and prepare task-scoped codegraph handoff context without overclaiming execution.
 metadata:
   hermes:

@@ -1,5 +1,5 @@
 ---
-name: workspace-audit
+name: omh-workspace-audit
 description: [omh] Hermes Workspace Audit workflow: map repository, skill, prompt, plugin, MCP, hook, config, and runtime surfaces before strengthening or operating OMH.
 metadata:
   hermes:

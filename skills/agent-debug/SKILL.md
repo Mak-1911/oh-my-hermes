@@ -1,5 +1,5 @@
 ---
-name: agent-debug
+name: omh-agent-debug
 description: [omh] Agent Debug workflow: capture a stuck, looping, drifting, or repeatedly failing agent run, diagnose the likely failure pattern, and prepare the smallest safe recovery action.
 metadata:
   hermes:

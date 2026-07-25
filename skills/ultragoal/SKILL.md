@@ -1,5 +1,5 @@
 ---
-name: ultragoal
+name: omh-ultragoal
 description: [omh] Hermes Ultragoal workflow: file-backed durable goal ledgers.
 metadata:
   hermes:

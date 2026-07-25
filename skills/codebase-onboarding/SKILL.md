@@ -1,5 +1,5 @@
 ---
-name: codebase-onboarding
+name: omh-codebase-onboarding
 description: [omh] Hermes Codebase Onboarding workflow: create a repo map, reading path, glossary, risk map, and first-task runway for unfamiliar codebases.
 metadata:
   hermes:

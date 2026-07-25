@@ -1,5 +1,5 @@
 ---
-name: oh-my-hermes
+name: omh-routing
 description: [omh] Router guidance for using oh-my-hermes workflow skills inside Hermes Agent.
 metadata:
   hermes:
@@ -147,5 +147,5 @@ Load these only when exact detail matters:
 - If maintenance command behavior matters, load `references/operator-maintenance.md`.
 - If evidence or target topology is disputed, load `references/evidence-boundaries.md`.
 - If the right skill was not loaded, call `skills_list` or `skill_view`.
-- If a slash command exists, use the explicit slash skill such as `/ralph`.
+- If a slash command exists, use the explicit slash skill such as `/omh-ralph`.
 - If a skill name collides, keep the OMH-selected policy in control and present the Hermes-native skill only as an explicit recommendation; do not let a native candidate override routing.

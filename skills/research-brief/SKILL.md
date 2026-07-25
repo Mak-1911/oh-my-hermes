@@ -1,5 +1,5 @@
 ---
-name: research-brief
+name: omh-research-brief
 description: [omh] Hermes Research Brief workflow: source-backed business research without pretending evidence was fetched.
 metadata:
   hermes:

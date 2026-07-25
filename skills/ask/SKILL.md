@@ -1,5 +1,5 @@
 ---
-name: ask
+name: omh-ask
 description: [omh] Hermes adaptation for consulting an external advisor when configured.
 metadata:
   hermes:

@@ -1,5 +1,5 @@
 ---
-name: instinct-ledger
+name: omh-instinct-ledger
 description: [omh] Instinct Ledger workflow: turn repeated project or cross-project lessons into atomic, confidence-scored instinct candidates with scoped promotion and export boundaries.
 metadata:
   hermes:

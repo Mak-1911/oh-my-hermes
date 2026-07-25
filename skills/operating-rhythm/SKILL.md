@@ -1,5 +1,5 @@
 ---
-name: operating-rhythm
+name: omh-operating-rhythm
 description: [omh] Hermes Operating Rhythm workflow: meeting minutes, scrum/sprint records, retros, decisions, and follow-up history.
 metadata:
   hermes:

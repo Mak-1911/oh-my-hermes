@@ -1,5 +1,5 @@
 ---
-name: meeting-brief
+name: omh-meeting-brief
 description: [omh] Hermes Meeting Brief workflow: agenda, prompts, decisions, and record template.
 metadata:
   hermes:

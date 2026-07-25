@@ -1,5 +1,5 @@
 ---
-name: context-budget-review
+name: omh-context-budget-review
 description: [omh] Hermes Context Budget Review workflow: plan compact context, token/cost budgets, summarization checkpoints, and overflow recovery before long agent work.
 metadata:
   hermes:

@@ -1,5 +1,5 @@
 ---
-name: data-analysis
+name: omh-data-analysis
 description: [omh] Hermes data analysis workflow: scope supplied data with provenance, causal-claim, and hallucination guards.
 metadata:
   hermes:

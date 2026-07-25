@@ -1,5 +1,5 @@
 ---
-name: cto-loop
+name: omh-cto-loop
 description: [omh] Hermes CTO Loop workflow: roadmap, PM, technical tradeoffs, risk, delivery, release, and follow-up operating cadence.
 metadata:
   hermes:

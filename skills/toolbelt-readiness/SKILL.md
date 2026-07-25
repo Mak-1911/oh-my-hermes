@@ -1,5 +1,5 @@
 ---
-name: toolbelt-readiness
+name: omh-toolbelt-readiness
 description: [omh] Hermes toolbelt readiness workflow: check which MCP servers, CLIs, APIs, credentials, and connectors a workflow needs before claiming it can run.
 metadata:
   hermes:

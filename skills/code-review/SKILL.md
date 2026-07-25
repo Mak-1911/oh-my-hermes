@@ -1,5 +1,5 @@
 ---
-name: code-review
+name: omh-code-review
 description: [omh] Hermes Code Review workflow: bug-first review with evidence.
 metadata:
   hermes:

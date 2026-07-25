@@ -1,5 +1,5 @@
 ---
-name: performance-goal
+name: omh-performance-goal
 description: [omh] Hermes adaptation for measurable performance-goal execution.
 metadata:
   hermes:

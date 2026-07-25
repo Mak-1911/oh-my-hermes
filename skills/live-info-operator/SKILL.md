@@ -1,5 +1,5 @@
 ---
-name: live-info-operator
+name: omh-live-info-operator
 description: [omh] Hermes live information workflow: scope read-only weather, finance, sports, map, place, exchange-rate, and time-zone lookups with provider, freshness, units, source-quality, and result-evidence gates.
 metadata:
   hermes:

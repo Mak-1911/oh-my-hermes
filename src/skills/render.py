@@ -12,6 +12,7 @@ from .catalog import (
     harness_quality_contract,
     memory_context_policy_for_skill,
     omh_description,
+    omh_skill_display_name,
     primary_harness_for_skill,
     routable_definitions,
     skill_exposure_payload,
@@ -192,12 +193,17 @@ def _definitions_by_name() -> dict[str, SkillDefinition]:
 
 
 def _frontmatter(name: str, description: str) -> str:
+    # `name` is the CANONICAL catalog name and is used as the lookup key below.
+    # The display prefix is applied after the lookup, never at the call sites:
+    # prefixing earlier makes every lookup miss and silently degrades category,
+    # phase, role, quality_tier, and tags to their fallbacks.
     definition = _definitions_by_name().get(name)
     category = definition.category if definition else "workflow"
     phase = definition.phase if definition else "general"
     description = omh_description(description)
+    display_name = omh_skill_display_name(name)
     return (
-        f"---\nname: {name}\ndescription: {description}\nmetadata:\n"
+        f"---\nname: {display_name}\ndescription: {description}\nmetadata:\n"
         f"  hermes:\n    tags: [workflow, oh-my-hermes, {category}]\n"
         f"    category: {category}\n    phase: {phase}\n"
         f"    role: {definition.hermes_role if definition else 'guide'}\n"
@@ -585,6 +591,14 @@ Do not make a normal chat user approve `omh list`, `omh recommend`, `omh chat in
 
 Bare `./omh`, `/omh`, `./skills`, or `/skills` opens the workflow picker. A leading `/omh` or `./omh` command followed by an imperative task remainder routes to `meta-router`, which consults the live catalog and selects or chains the right workflow(s); the picker owns only the bare forms and workflow questions.
 
+## Skill Name Display Prefix
+
+Installed OMH skills render an `omh-` prefixed frontmatter `name` so the host status line reads `Reading skill omh-ultrawork` instead of a label indistinguishable from a Hermes built-in. The router skill renders as `omh-routing`.
+
+That label is a display identifier only. The canonical catalog name still owns the `skills/<name>/` directory, the install manifest, the tap URL, routing keys, and every `omh` CLI argument, so `omh recommend`, `omh runtime record --skill <name>`, and trigger strings keep using unprefixed names.
+
+Two host-side consequences follow, both accepted. Host slash commands derive from the same frontmatter `name`, so an explicit invocation is `/omh-ultrawork`, not `/ultrawork`. And because every installed skill now shares the `omh-` stem, a bare `/omh` is an ambiguous multi-candidate command on hosts that complete slash commands by prefix; treat it as the picker alias described above rather than as a single resolved skill, and disambiguate by completing the full `omh-<name>` form.
+
 ## Coding Delegation
 
 When a chat message is implementation-shaped and a wrapper wants a concrete executor handoff, run `omh coding delegate` after or instead of generic chat routing:
@@ -853,7 +867,7 @@ Load these only when exact detail matters:
 - If maintenance command behavior matters, load `references/operator-maintenance.md`.
 - If evidence or target topology is disputed, load `references/evidence-boundaries.md`.
 - If the right skill was not loaded, call `skills_list` or `skill_view`.
-- If a slash command exists, use the explicit slash skill such as `/ralph`.
+- If a slash command exists, use the explicit slash skill such as `/omh-ralph`.
 - If a skill name collides, keep the OMH-selected policy in control and present the Hermes-native skill only as an explicit recommendation; do not let a native candidate override routing.
 """
     return SkillTemplate("oh-my-hermes", _frontmatter("oh-my-hermes", DESCRIPTIONS["oh-my-hermes"]) + "\n" + body)

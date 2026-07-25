@@ -1,5 +1,5 @@
 ---
-name: agent-board
+name: omh-agent-board
 description: [omh] Hermes agent board workflow: coordinate multiple Hermes profiles or agents with task, handoff, heartbeat, blocker, and completion states.
 metadata:
   hermes:

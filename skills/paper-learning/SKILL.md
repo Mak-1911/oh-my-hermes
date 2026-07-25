@@ -1,5 +1,5 @@
 ---
-name: paper-learning
+name: omh-paper-learning
 description: [omh] Hermes Paper Learning workflow: explain a supplied paper or paper/PDF at a selected level while preserving full section coverage and source evidence boundaries.
 metadata:
   hermes:

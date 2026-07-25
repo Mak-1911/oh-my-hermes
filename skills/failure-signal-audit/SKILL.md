@@ -1,5 +1,5 @@
 ---
-name: failure-signal-audit
+name: omh-failure-signal-audit
 description: [omh] Failure Signal Audit workflow: find swallowed errors, unsafe fallbacks, hidden UI/runtime failures, and missing propagation before they become false green status.
 metadata:
   hermes:
