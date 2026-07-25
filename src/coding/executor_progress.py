@@ -30,9 +30,25 @@ PROGRESS_EVENT_TYPES = (
     "executor_completed",
     "executor_blocked",
     "executor_failed",
+    "reported_change_not_observed",
+    "reported_success_contradicted",
     "progress_observed",
 )
-TERMINAL_EVENT_TYPES = {"executor_completed", "executor_blocked", "executor_failed", "tests_failed", "tests_passed"}
+# Never suppressed. The first five are terminal states. The last two are
+# claim/observation mismatches: the executor said it did something and the
+# repository says otherwise. Suppressing those lets a supervising agent keep
+# narrating success past the point where the work stopped landing, which is the
+# failure mode that produced "4 file(s) were NOT modified this turn despite any
+# wording above that may suggest otherwise" only at the end of a long session.
+TERMINAL_EVENT_TYPES = {
+    "executor_completed",
+    "executor_blocked",
+    "executor_failed",
+    "tests_failed",
+    "tests_passed",
+    "reported_change_not_observed",
+    "reported_success_contradicted",
+}
 DEFAULT_FRESHNESS_SECONDS = 900
 DEFAULT_EXPIRY_SECONDS = 86400
 DEFAULT_MINIMUM_REPEAT_INTERVAL_SECONDS = 120
@@ -197,6 +213,7 @@ def build_progress_binding(
         "last_reported_summary_hash": "",
         "last_reported_artifact_sha256": "",
         "report_count": 0,
+        "reported_event_types": [],
         "suppressed_duplicate_count": 0,
         "minimum_repeat_interval_seconds": int(minimum_repeat_interval_seconds),
         "evidence_refs": _compact_strings(evidence_refs or []),
@@ -543,6 +560,30 @@ def latest_progress_report(paths: OmhPaths, binding: dict[str, Any]) -> dict[str
     return valid[-1] if valid else {}
 
 
+def reported_event_types(binding: dict[str, Any]) -> list[str]:
+    recorded = binding.get("reported_event_types")
+    if not isinstance(recorded, list):
+        return []
+    return [str(value) for value in recorded if str(value)]
+
+
+def _is_first_occurrence(binding: dict[str, Any], event_type: str) -> bool:
+    """True when this event type has never been reported for this binding.
+
+    A first occurrence is always worth reporting: the interesting signal is that
+    a new kind of thing happened, and no volume budget should be able to swallow
+    it. Callers that add their own suppression on top of `should_report_event`
+    must preserve this.
+
+    Bindings written before `reported_event_types` existed cannot answer the
+    question. Rather than treat every type as new -- which would un-suppress a
+    live run mid-flight -- fall through to the interval rules for them.
+    """
+    if not isinstance(binding.get("reported_event_types"), list):
+        return int(binding.get("report_count", 0) or 0) == 0
+    return event_type not in reported_event_types(binding)
+
+
 def should_report_event(binding: dict[str, Any], event: dict[str, Any], *, now: str | None = None) -> tuple[bool, str]:
     _require_valid("binding", validate_progress_binding(binding))
     _require_valid("event", validate_progress_event(event))
@@ -552,6 +593,8 @@ def should_report_event(binding: dict[str, Any], event: dict[str, Any], *, now: 
     event_type = str(event.get("event_type", ""))
     if event_type in TERMINAL_EVENT_TYPES:
         return True, "terminal_or_blocker"
+    if _is_first_occurrence(binding, event_type):
+        return True, "first_occurrence"
     last_type = str(binding.get("last_reported_event_type", ""))
     if last_type == event_type and not _minimum_interval_elapsed(
         str(binding.get("last_reported_at", "")),
@@ -584,9 +627,12 @@ def update_binding_reporter_state(
     else:
         updated["state"] = "active"
     if reported:
+        event_type = str(event.get("event_type", ""))
         updated["last_reported_at"] = now
         updated["last_transition_fingerprint"] = str(event.get("transition_fingerprint", ""))
-        updated["last_reported_event_type"] = str(event.get("event_type", ""))
+        updated["last_reported_event_type"] = event_type
+        seen = reported_event_types(binding)
+        updated["reported_event_types"] = seen if event_type in seen else [*seen, event_type]
         updated["last_reported_state"] = str(event.get("status", ""))
         updated["last_reported_summary_hash"] = hashlib.sha256(str(event.get("summary", "")).encode("utf-8")).hexdigest()
         updated["last_reported_artifact_sha256"] = str(signal.get("codex_artifact_sha256", ""))
@@ -1067,6 +1113,12 @@ def _summary_for_event_type(event_type: str) -> str:
         "executor_completed": "The coding executor reported completion, but separate result evidence is still required.",
         "executor_blocked": "The coding executor reported a blocker.",
         "executor_failed": "The coding executor reported a failure.",
+        "reported_change_not_observed": (
+            "The coding executor reported applying a change, but no file change was observed."
+        ),
+        "reported_success_contradicted": (
+            "The coding executor reported success, but the observed exit state contradicts it."
+        ),
         "progress_observed": "The coding executor emitted a safe progress signal.",
     }
     return summaries.get(event_type, "Executor progress was observed.")
