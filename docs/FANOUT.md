@@ -17,7 +17,10 @@ goal to Hermes in chat; these commands are the backend surface.
    isolated per-unit worktree, dependency-aware, with bounded concurrency.
 4. **Observe** — `omh coding fanout show <id>` joins the frozen contract with
    per-unit run records; unit status is `not_observed` until real evidence
-   exists.
+   exists. The board reads a bounded tail (last 20 events) of each unit's run
+   history, so repeated checks cost the same context instead of growing with
+   the run. `--limit N` changes the tail; `--full` reads everything and is
+   expensive for agent context.
 5. **Merge (human/agent-gated)** — dispatch never merges. The summary lists
    merge-ready units in the contract's `merge_order`; merging and the final
    integration gate remain the operator's or reviewing agent's job.
@@ -72,7 +75,7 @@ goal to Hermes in chat; these commands are the backend surface.
 ```sh
 omh coding fanout prepare --goal <words...> --units units.json [--record] [--source discord]
 omh coding fanout validate --units units.json
-omh coding fanout show <fanout-id>
+omh coding fanout show <fanout-id> [--limit 20] [--full]
 omh coding fanout dispatch <fanout-id> --goal-file goal.txt \
   [--repo-root .] [--base-ref HEAD] [--concurrency 2] [--timeout 1800] \
   [--unit <id> ...] [--dry-run]

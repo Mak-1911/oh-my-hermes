@@ -89,7 +89,8 @@ def cmd_coding_delegate(args: argparse.Namespace) -> int:
             message,
             source=args.source,
             limit=args.limit,
-            include_message=args.include_message,
+            include_message=args.include_message or args.include_message_full,
+            message_context_mode="full" if args.include_message_full else "bounded",
             source_metadata=source_metadata,
             executor_target=executor_target,
             context_pack=context_pack,
@@ -625,6 +626,7 @@ def cmd_coding_fanout_validate(args: argparse.Namespace) -> int:
 def cmd_coding_fanout_show(args: argparse.Namespace) -> int:
     from ..coding.fanout_artifacts import read_fanout_contract
     from ..runtime.artifacts import show_run
+    from ..runtime.context_budget import run_context_budget
 
     paths = _paths(args)
     try:
@@ -632,20 +634,30 @@ def cmd_coding_fanout_show(args: argparse.Namespace) -> int:
     except (OSError, ValueError) as exc:
         raise OmhError(f"fanout contract not found: {exc}") from exc
 
+    full = bool(getattr(args, "full", False))
+    history_limit = None if full else _fanout_history_limit(args)
     units = contract.get("units", [])
     status_by_unit: dict[str, object] = {}
+    watched_runs: list[str] = []
+    exhausted_units: list[str] = []
     for unit in units:
         if not isinstance(unit, dict):
             continue
         run_ref = str(unit.get("run_ref", ""))
         observed = "not_observed"
         latest_event = ""
+        history: dict[str, object] = {}
         if run_ref and (paths.runtime_runs_dir / run_ref / "run.json").exists():
             try:
-                shown = show_run(paths, run_ref)
+                shown = show_run(paths, run_ref, history_limit=history_limit)
             except (OSError, ValueError, KeyError):
                 shown = None
             if isinstance(shown, dict):
+                watched_runs.append(run_ref)
+                shown_history = shown.get("history")
+                if isinstance(shown_history, dict):
+                    journal_bounds = shown_history.get("journal_events")
+                    history = journal_bounds if isinstance(journal_bounds, dict) else {}
                 events = [event for event in shown.get("journal_events", []) or [] if isinstance(event, dict)]
                 if events:
                     latest = events[-1]
@@ -653,22 +665,57 @@ def cmd_coding_fanout_show(args: argparse.Namespace) -> int:
                     observed = str(latest.get("status", "not_observed"))
                 else:
                     observed = "run_recorded_no_observations"
+                if run_context_budget(paths, run_ref, surface="fanout_show")["exhausted"]:
+                    exhausted_units.append(str(unit.get("unit_id")))
         status_by_unit[str(unit.get("unit_id"))] = {
             "prepared_status": unit.get("status", "prepared"),
             "observed_run_status": observed,
             "latest_observed_event": latest_event,
             "run_ref": run_ref,
+            "journal_event_counts": history,
         }
-    _print_json(
-        {
-            "schema_version": "fanout_board/v1",
-            "fanout_id": contract.get("fanout_id"),
-            "merge_order": contract.get("merge_plan", {}).get("merge_order", []),
-            "units": status_by_unit,
-            "claim_boundary": contract.get("claim_boundary", ""),
-        }
-    )
+    payload = {
+        "schema_version": "fanout_board/v1",
+        "fanout_id": contract.get("fanout_id"),
+        "merge_order": contract.get("merge_plan", {}).get("merge_order", []),
+        "units": status_by_unit,
+        "context_budget": {
+            "history_limit": history_limit,
+            "watched_run_count": len(watched_runs),
+            "budget_exhausted_units": exhausted_units,
+            "policy": "timed_polling_rejected; raw_log_dumping_rejected",
+            "next_action": (
+                "read_full_history_from_artifacts_instead_of_repeating_this_command"
+                if exhausted_units
+                else "wait_for_executor_evidence"
+            ),
+        },
+        "claim_boundary": contract.get("claim_boundary", ""),
+    }
+    _print_json(payload)
+    _record_fanout_board_emission(paths, watched_runs, payload)
     return 0
+
+
+def _fanout_history_limit(args: argparse.Namespace) -> int:
+    from ..runtime.artifacts import DEFAULT_RUN_HISTORY_LIMIT
+
+    limit = getattr(args, "history_limit", None)
+    if limit is None:
+        return DEFAULT_RUN_HISTORY_LIMIT
+    if int(limit) < 1:
+        raise OmhError("--limit must be at least 1 unless --full is set")
+    return int(limit)
+
+
+def _record_fanout_board_emission(paths, watched_runs: list[str], payload: dict) -> None:
+    from ..runtime.context_budget import record_context_emission
+
+    if not watched_runs:
+        return
+    per_run = len(json.dumps(payload, sort_keys=True)) // len(watched_runs)
+    for run_ref in watched_runs:
+        record_context_emission(paths, run_ref, surface="fanout_show", byte_count=per_run)
 
 
 def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
@@ -743,6 +790,18 @@ def _add_coding_commands(sub) -> None:
 
     fanout_show = fanout_sub.add_parser("show")
     fanout_show.add_argument("fanout_id")
+    fanout_show.add_argument(
+        "--limit",
+        dest="history_limit",
+        type=int,
+        default=None,
+        help="Per-unit run history tail read while projecting the board (default: 20).",
+    )
+    fanout_show.add_argument(
+        "--full",
+        action="store_true",
+        help="Read each unit's full run history. Expensive for agent context.",
+    )
     fanout_show.set_defaults(func=cmd_coding_fanout_show)
 
     fanout_dispatch = fanout_sub.add_parser(
@@ -783,7 +842,12 @@ def _add_coding_commands(sub) -> None:
     delegate.add_argument(
         "--include-message",
         action="store_true",
-        help="Include raw message and expanded delegation prompt in stdout for non-logging wrappers.",
+        help="Include bounded previews and artifact refs for the raw message and expanded delegation prompt.",
+    )
+    delegate.add_argument(
+        "--include-message-full",
+        action="store_true",
+        help="Include the verbatim raw message and expanded prompts. For wrappers that dispatch the prompt directly.",
     )
     delegate.add_argument("--record", action="store_true", help="Record a metadata-only coding delegation artifact under .omh/runtime.")
     delegate.add_argument(

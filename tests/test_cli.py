@@ -2039,6 +2039,40 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(stdout, "")
         self.assertIn("task description must not be empty", stderr)
 
+    def test_agent_facing_json_stdout_is_compact_by_default(self) -> None:
+        status, stdout, stderr = run_cli(["playbook", "list", "--json"])
+
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        self.assertEqual(stdout, json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+        self.assertEqual(stdout.rstrip("\n").count("\n"), 0)
+
+    def test_pretty_flag_and_env_restore_human_readable_json(self) -> None:
+        status, compact, stderr = run_cli(["playbook", "list", "--json"])
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+
+        status, pretty, stderr = run_cli(["--pretty", "playbook", "list", "--json"])
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+
+        previous = os.environ.get("OMH_JSON_PRETTY")
+        os.environ["OMH_JSON_PRETTY"] = "1"
+        try:
+            status, env_pretty, stderr = run_cli(["playbook", "list", "--json"])
+        finally:
+            if previous is None:
+                os.environ.pop("OMH_JSON_PRETTY", None)
+            else:
+                os.environ["OMH_JSON_PRETTY"] = previous
+
+        self.assertEqual(status, 0, stderr)
+        self.assertIn('": ', pretty)
+        self.assertEqual(json.loads(pretty), json.loads(compact))
+        self.assertEqual(env_pretty, pretty)
+        self.assertLess(len(compact), len(pretty))
+
     def test_local_operator_commands_default_to_human_summary_with_json_escape_hatch(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -7505,14 +7539,35 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("Boundary: Route hint alignment proves deterministic local agreement", stdout)
         self.assertIn("Use --json for the full machine-readable payload.", stdout)
 
-    def test_coding_delegate_include_message_expands_prompt_for_non_logging_wrappers(self) -> None:
+    def test_coding_delegate_include_message_is_context_bounded_by_default(self) -> None:
         status, stdout, stderr = run_cli(["coding", "delegate", "--include-message", "risky", "refactor"])
+
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        self.assertNotIn("message", payload)
+        self.assertNotIn("delegation_prompt", payload)
+        self.assertEqual(payload["message_preview"], "risky refactor")
+        self.assertEqual(payload["message_context"]["mode"], "bounded")
+        self.assertFalse(payload["message_context"]["raw_content_included"])
+        self.assertEqual(payload["message_context"]["full_output_flag"], "--include-message-full")
+        artifact = payload["delegation_prompt_artifact"]
+        self.assertEqual(artifact["schema_version"], "omh_context_artifact_ref/v1")
+        self.assertFalse(artifact["raw_content_included"])
+        self.assertGreater(artifact["byte_count"], 0)
+        self.assertLessEqual(len(payload["delegation_prompt_preview"]), 180)
+        self.assertEqual(payload["context_budget"]["schema_version"], "omh_context_budget/v1")
+
+    def test_coding_delegate_include_message_full_expands_prompt_for_dispatching_wrappers(self) -> None:
+        status, stdout, stderr = run_cli(["coding", "delegate", "--include-message-full", "risky", "refactor"])
 
         self.assertEqual(stderr, "")
         self.assertEqual(status, 0)
         payload = json.loads(stdout)
         self.assertEqual(payload["message"], "risky refactor")
         self.assertIn("Task:\nrisky refactor", payload["delegation_prompt"])
+        self.assertEqual(payload["message_context"]["mode"], "full")
+        self.assertNotIn("message_preview", payload)
 
     def test_coding_delegate_reads_event_json_and_metadata(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -7678,7 +7733,9 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("does not match", stderr)
 
     def test_coding_delegate_codex_executor_include_message_expands_stdout_only(self) -> None:
-        status, stdout, stderr = run_cli(["coding", "delegate", "--executor", "codex", "--include-message", "risky", "refactor"])
+        status, stdout, stderr = run_cli(
+            ["coding", "delegate", "--executor", "codex", "--include-message-full", "risky", "refactor"]
+        )
 
         self.assertEqual(stderr, "")
         self.assertEqual(status, 0)
@@ -7687,6 +7744,18 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("Task:\nrisky refactor", payload["executor_handoff_prompt"])
         self.assertIn("Local capability discovery:", payload["executor_handoff_prompt"])
         self.assertIn("Goal / Do / Don't / Expected result / Test", payload["executor_handoff_prompt"])
+
+    def test_coding_delegate_codex_executor_bounded_include_message_never_emits_expanded_prompt(self) -> None:
+        status, stdout, stderr = run_cli(["coding", "delegate", "--executor", "codex", "--include-message", "risky", "refactor"])
+
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        self.assertNotIn("executor_handoff_prompt", payload)
+        self.assertNotIn("Local capability discovery:", payload["executor_handoff_prompt_preview"])
+        self.assertLessEqual(len(payload["executor_handoff_prompt_preview"]), 180)
+        self.assertIn("executor_handoff_prompt", payload["message_context"]["bounded_keys"])
+        self.assertGreater(payload["executor_handoff_prompt_artifact"]["byte_count"], 180)
 
     def test_coding_delegate_codex_executor_does_not_handoff_fallback_or_clarify(self) -> None:
         for message, action in (("zzzzunknownphrase", "fallback"), ("fix maybe", "clarify")):
@@ -7781,7 +7850,9 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertTrue(json.loads(stdout)["ok"])
 
     def test_coding_delegate_claude_prompt_handoff_uses_profile_neutral_capability_strategy(self) -> None:
-        status, stdout, stderr = run_cli(["coding", "delegate", "--executor", "claude-code", "--include-message", "risky", "refactor"])
+        status, stdout, stderr = run_cli(
+            ["coding", "delegate", "--executor", "claude-code", "--include-message-full", "risky", "refactor"]
+        )
 
         self.assertEqual(stderr, "")
         self.assertEqual(status, 0)
@@ -9473,7 +9544,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertTrue(context_pack_path.exists())
 
             status, stdout, stderr = run_cli(
-                base + ["coding", "delegate", "--from-plan", str(plan_path), "--record", "--include-message"]
+                base + ["coding", "delegate", "--from-plan", str(plan_path), "--record", "--include-message-full"]
             )
             self.assertEqual(stderr, "")
             self.assertEqual(status, 0)

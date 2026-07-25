@@ -8,6 +8,7 @@ from typing import Any
 CONTEXT_ARTIFACT_REF_SCHEMA_VERSION = "omh_context_artifact_ref/v1"
 PROGRESS_EVENT_SCHEMA_VERSION = "omh_progress_event/v1"
 CODING_PROGRESS_REPORTING_POLICY_SCHEMA_VERSION = "coding_progress_reporting_policy/v1"
+CODING_PROGRESS_POLICY_ENFORCEMENT_SCHEMA_VERSION = "coding_progress_policy_enforcement/v1"
 MAX_VISIBLE_MESSAGE_CHARS = 180
 MAX_SUMMARY_CHARS = 240
 MAX_PROGRESS_EVENT_SUMMARY_CHARS = 220
@@ -16,6 +17,11 @@ MAX_SOURCE_REF_CHARS = 240
 MAX_EVIDENCE_REFS = 8
 MAX_EVIDENCE_REF_CHARS = 160
 MAX_ARTIFACT_REFS = 4
+# Observe-surface budgets. Run history only grows, so status checks emit a
+# bounded tail, and each run has a cumulative emission budget after which the
+# observe surfaces degrade to summary-only output plus artifact pointers.
+MAX_RUN_HISTORY_EVENTS = 20
+RUN_CONTEXT_BUDGET_BYTES = 200_000
 
 _BACKGROUND_PROCESS_WRAPPER_RE = re.compile(
     r"\[?\s*\bBackground\s+process\s+\S+\s+finished\s+with\s+exit\s+code\s+\d+~?\s+"
@@ -229,6 +235,27 @@ def build_coding_progress_reporting_policy(
             "raw_log_dumping",
             "claiming_execution_review_ci_or_merge_without_observed_records",
         ],
+        "enforcement": coding_progress_policy_enforcement(),
+    }
+
+
+def coding_progress_policy_enforcement() -> dict[str, object]:
+    """Describe the mechanical backstop behind the declarative anti-polling rules.
+
+    `timed_polling_rejected` and `raw_log_dumping_rejected` are enforced by the
+    observe surfaces themselves, not only by asking the agent nicely: run status
+    projections emit a bounded tail, and repeated calls consume a per-run
+    emission budget that degrades output to summary-only plus artifact pointers.
+    """
+    return {
+        "schema_version": CODING_PROGRESS_POLICY_ENFORCEMENT_SCHEMA_VERSION,
+        "mechanism": "bounded_tail_plus_run_context_budget_ledger",
+        "bounded_surfaces": ["omh runtime show", "omh coding fanout show"],
+        "default_history_limit": MAX_RUN_HISTORY_EVENTS,
+        "run_context_budget_bytes": RUN_CONTEXT_BUDGET_BYTES,
+        "degraded_output": "summary_only_with_artifact_pointers",
+        "full_history_opt_out": "--full",
+        "declarative_only": False,
     }
 
 

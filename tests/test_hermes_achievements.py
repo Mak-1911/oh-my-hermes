@@ -288,7 +288,8 @@ class AchievementsRoutingTests(HermesAchievementsTestCase):
         status, stdout, stderr = run_cli(["chat", "route-hint", "show my unlocked badges", "--json"])
 
         self.assertEqual(status, 0, stderr)
-        self.assertIn('"workflow": "achievements"', stdout)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["route_hint"]["selected_workflow"], "achievements")
 
 
 class AchievementsCliTests(HermesAchievementsTestCase):

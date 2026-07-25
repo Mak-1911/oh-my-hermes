@@ -110,6 +110,13 @@ OMH's setup footprint is intentionally bounded:
 - It installs managed Hermes-visible skills and records local status contracts.
 - It can repair or reapply managed `skills.external_dirs` when a Hermes
   profile drifts.
+- It adds `auxiliary.compression.fallback_chain` when the config pins
+  compression to a single provider and already lists other fallback providers.
+  Without a compression fallback, one unreachable endpoint leaves a session
+  unable to compress and unable to fall back — an unrecoverable
+  `Cannot compress further` loop. The chain is derived only from providers the
+  user already configured; an existing user-authored `fallback_chain` is never
+  overwritten, and no endpoint is invented. See `examples/hermes-config.yaml`.
 - It keeps CLI output available for setup, doctor, update, and wrapper
   backends.
 - It does not patch Hermes core, run hidden coding work, or turn a prepared

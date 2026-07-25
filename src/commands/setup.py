@@ -23,6 +23,7 @@ from ..command_path import COMMAND_PATH_MISSING_NEXT_ACTION, inspect_omh_command
 from ..capabilities.registry import capability_summary
 from ..capabilities.skills import skill_capabilities
 from ..config_adapter import ensure_external_dir, external_dirs, read_config, remove_external_dir, write_config
+from ..install.compression_defaults import ensure_compression_defaults
 from ..doctor import DEFAULT_DOCTOR_NEXT_ACTION, doctor_ok, recommended_next_action, run_doctor
 from ..maintenance.doctor import run_doctor_advisories
 from ..executors import CODING_EXECUTOR_TARGETS
@@ -677,10 +678,11 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
     current = read_config(paths.hermes_config_path)
     try:
         change = ensure_external_dir(current, paths.skills_dir)
+        compression = ensure_compression_defaults(change.text)
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
-    if not args.dry_run and change.changed:
-        write_config(paths.hermes_config_path, change.text)
+    if not args.dry_run and (change.changed or compression.changed):
+        write_config(paths.hermes_config_path, compression.text)
     if not args.dry_run:
         update_state(
             paths,
@@ -690,7 +692,14 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
                 "external_dir_registered": str(paths.skills_dir) in read_config(paths.hermes_config_path),
             },
         )
-    return {"changed": change.changed, "message": change.message, "config": str(paths.hermes_config_path), "skills_dir": str(paths.skills_dir), "dry_run": args.dry_run}
+    return {
+        "changed": change.changed or compression.changed,
+        "message": change.message,
+        "config": str(paths.hermes_config_path),
+        "skills_dir": str(paths.skills_dir),
+        "dry_run": args.dry_run,
+        "compression_defaults": {"changed": compression.changed, "message": compression.message},
+    }
 
 
 def cmd_uninstall(args: argparse.Namespace) -> int:
