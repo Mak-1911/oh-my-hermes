@@ -34,23 +34,22 @@
   <em>以清晰的证据边界提供规划、研究、内容制作、编码 handoff、运维和项目记忆。</em>
 </p>
 
+<p align="center">
+  <img src="assets/oh-my-hermes-agent-poster.png" alt="Oh My Hermes Agent poster" width="720">
+</p>
+
 **oh-my-hermes**（OMH）把
 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 中的普通请求，
 转化为合适的能力、明确的下一步，以及对“已经发生”和“尚未发生”的诚实状态。
 它不会取代 Hermes，也不会隐藏编码 executor，而是增强现有 Hermes 工作流。
 
-```text
-普通请求
-  -> 从6个能力族中选择
-  -> 准备计划、来源 brief、产物 contract 或编码 handoff
-  -> 仅在实际观测后记录 runtime、provider、review、CI、merge 证据
-```
-
 [Website](https://rlaope.github.io/oh-my-hermes/) ·
 [Documentation](docs/README.md) ·
 [Installation](docs/INSTALLATION.md) ·
 [Capabilities](docs/CAPABILITIES.md) ·
-[Capability Impact](docs/CAPABILITY_IMPACT.md)
+[Capability Impact](docs/CAPABILITY_IMPACT.md) ·
+[Agent Install](INSTALL_FOR_AGENTS.md) ·
+[GitHub Pages site](site/index.html)
 
 > [!NOTE]
 > OMH 保留 Hermes 作为自然语言入口，并增加具有明确证据边界的专业工作层。
@@ -81,21 +80,28 @@ hermes skills tap add rlaope/oh-my-hermes
 hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes
 ```
 
-<br>
-
-**然后像往常一样向 Hermes 提出请求：**
-
-```text
-我想安全地为这个仓库添加一个功能。
-```
-
-<br>
-
 **或者向 Your AI Agent 提出请求：**
 
 ```text
 Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<
 ```
+
+<br>
+
+**把已经 `--full` 安装的环境收敛回 core：**
+
+```sh
+omh skill-profile status
+omh skill-profile reconcile --to core --dry-run
+omh skill-profile reconcile --to core
+```
+
+setup、install 和 update 都不会删除已安装的 skill，因此曾经以 `--full`
+安装过的 workspace，在被显式 reconcile 之前会一直保留那部分逐轮 context
+负担。详见
+[把已有的 Full 安装收敛回 Core](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core)。
+
+<br>
 
 ## OMH 提供什么
 
@@ -113,20 +119,59 @@ OMH 将 **88 个**可安装的 workflow skill 组织为6个容易理解的能力
 完整 catalog、trigger、harness 和证据规则位于
 [Workflow Reference](docs/WORKFLOWS.md)。
 
+**亮点**
+
+| 能力 | 使用方式 | 作用 |
+| --- | --- | --- |
+| 🧭 **澄清与规划** | `$deep-interview` · `$ralplan` · `$strategy-brief` | 把模糊的请求转化为明确的目标、约束、权衡、验收标准，以及可以直接交接的计划。 |
+| ⚡ **借助杠杆推进工作** | `$ultrawork` · `$ultragoal` · `$team` · `$loop` | 从快速并行工作扩展到持久的多步骤执行，同时保持所有权、检查点和验证始终可见。 |
+| 🔬 **研究与学习** | `$best-practice-research` · `$web-research` · `$research-brief` | 在标明时效性、来源质量和尚未解决的不确定性边界的同时，查找并综合有依据的证据。 |
+| 🛠️ **安全地编码与交付** | `$request-to-handoff` · `$code-review` · `$ultraqa` | 准备不依赖特定 executor 的编码工作，并让 review、QA、CI 和 merge 的相关声明只依据实际观测到的证据。 |
+| 🎨 **打造精致的交付物** | `$design-quality-gate` · `$materials-package` · `$deliverable-package` · `$img-summary` | 围绕内容、审美、无障碍性和渲染质量 gate，制作网站、视觉素材、报告、演示文稿、文档、PDF、海报和交付包。 |
+| 🧠 **记忆与运维** | `$memory` · `$ops-observability-card` · `$doctor` | 让项目记忆保持“先审查后使用”，呈现运维就绪状态，并在不臆造 provider 或系统状态的前提下给出下一步修复动作。 |
+| 🔌 **在不隐藏边界的前提下连接** | `omh mcp` · `omh plugin` · `$agent-board` | 为 Hermes 及兼容的 host 提供仅含元数据的本地 contract，同时让 host 加载、工具使用和外部 provider 访问都能被分别观测。 |
+
 ## 面向真实工作的设计
 
-**不是命令列表，而是路由器。** 英语、韩语、日语、中文、西班牙语、法语、
-德语和印地语请求可在本地分类，无需翻译 API。OMH 会返回推荐能力族、skill、
-owner、下一步以及仍未形成证据的部分。
+<p align="center">
+  <img src="assets/built-for-real-work-orchestration.png" alt="OMH orchestrating coding agents and creative tools" width="900">
+</p>
 
-**更好的编码 handoff。** 将仓库约束、已接受 scope、worktree 指南、本地
-skill、验收标准、review 期望和 verification gate 交给选定 executor。
-Codex、Claude Code、Hermes 和 generic executor 都不会成为隐藏默认值。
+> **OMH (Oh-My-Hermes)** — 让任何人都能像专业人士一样使用 hermes-agent。<br>
+> 为你的 AI Agent 打造的强大智能工作层（harness）。
 
-**理解质量的制作与 provider-neutral 运维。** 网站、accessibility、图像、
-report、slide 和 document 请求使用专门的制作与 QA 指南。metric、wiki、
-browser、image、video 和 connector 位于明确的外部 provider contract 之后；
-OMH 不会声称连接或调用了实际未使用的 provider。
+**🧭 不是命令列表，而是更聪明的路由器。** 英语、韩语、日语、中文、西班牙语、
+法语、德语和印地语请求都可以在本地分类，无需翻译 API。OMH 会返回推荐能力
+族、skill、owner、下一步，以及尚未形成证据的部分。
+
+**🤝 更好的编码 handoff。** 可以包含仓库约束、已达成一致的 scope、worktree
+与 session-isolation 指南、本地可用的 skill、验收标准、review 期望和
+verification gate。Codex、Claude Code、Hermes 和 generic executor 都不会
+成为隐藏的默认值，而是保持明确的 owner 身份。
+
+**🎨 懂质量的制作。** Frontend、无障碍、图像、报告、演示文稿、文档、表格、
+PDF、海报和共享交付包请求都会走专门的制作与 QA 流程。准备好的 brief 不会
+被当作已生成或已通过视觉验证的产物来呈现。
+
+**🔍 证据先于声明。** OMH 会区分已准备的意图、已观测的 runtime 事件和已
+验证的结果。即便没有声称 executor 已执行、review 已通过、CI 已成功、部署
+已完成或 PR 已 merge，handoff 依然可以处于就绪状态。
+
+**🧠 以审查为先的项目记忆。** OMH 把项目记忆候选与已批准的记录分开管理，
+只把经过审查、已准备好的上下文重新带入后续 handoff，不会声称读取或修改了
+不透明的 Hermes 内部记忆。
+
+**🔌 provider-neutral 的运维。** metric、wiki、browser、image、video 和
+connector 系统都位于明确的外部 provider contract 之后。OMH 可以在不声称
+连接或调用未实际使用的 provider 的情况下，验证并分析已提供的数据。
+
+**🏛️ Hermes-native、executor-neutral 的架构。** Hermes 仍然是聊天、澄清、
+规划、研究和状态展示的入口。被选定的 executor 负责具体实现，而 OMH 为这项
+工作提供本地 contract、路由、记忆、质量 gate 和证据边界。
+
+**🧱 local-first 的控制面。** OMH 的核心路由、catalog、manifest 和声明规则
+都是确定性的本地表面。外部调用与 provider 访问始终是显式集成，而不是核心
+内部隐藏的行为。
 
 ## 证据先于声明
 
@@ -147,6 +192,8 @@ deployment、merge readiness 或 merge。
 - [架构](docs/ARCHITECTURE.md)
 - [能力 manifest](docs/CAPABILITIES.md)
 - [Workflow reference](docs/WORKFLOWS.md)
+- [角色](docs/ROLES.md)
+- [应用案例](docs/APPLICATION_CASES.md)
 - [发布与开发](docs/RELEASE.md)
 
 ## 开发

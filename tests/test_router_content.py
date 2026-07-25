@@ -2614,7 +2614,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("**88 個**", localized_readmes["ja"])
         self.assertIn("**88 个**", localized_readmes["zh"])
         for localized_readme in localized_readmes.values():
-            self.assertLess(len(localized_readme.splitlines()), 170)
+            self.assertLess(len(localized_readme.splitlines()), 240)
             self.assertIn("prepared_not_observed", localized_readme)
             self.assertIn("omh setup", localized_readme)
             self.assertNotIn("omh doctor", localized_readme)
@@ -3111,6 +3111,77 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn(".image-format-grid", site_css)
         self.assertIn(".feature-flow", site_css)
         self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", site_css)
+
+    def test_localized_readmes_stay_structurally_synced_with_english_source(self) -> None:
+        # README.md is the explicit onboarding source structure (issue #639).
+        # Each entry maps an English top-level (`## `) heading to its natural
+        # translation in each localized README. When README.md gains, drops,
+        # or reorders a top-level section, this table (and the localized
+        # README files) must be updated in the same commit, or the assertions
+        # below fail with a message pointing at the drift. This test asserts
+        # structure (heading set and order) and a few historical stale-copy
+        # regressions only; it intentionally does not assert prose wording,
+        # so natural, non-mechanical per-language translation is allowed.
+        readme_section_translations = (
+            ("## Quick Start", {"ko": "## 빠른 시작", "ja": "## クイックスタート", "zh": "## 快速开始"}),
+            (
+                "## What OMH Adds",
+                {"ko": "## OMH가 더하는 것", "ja": "## OMH が追加するもの", "zh": "## OMH 提供什么"},
+            ),
+            (
+                "## Built For Real Work",
+                {"ko": "## 실제 업무를 위한 설계", "ja": "## 実務向けの設計", "zh": "## 面向真实工作的设计"},
+            ),
+            (
+                "## Evidence Before Claims",
+                {"ko": "## 주장보다 증거", "ja": "## 主張より証拠", "zh": "## 证据先于声明"},
+            ),
+            ("## Documentation", {"ko": "## 문서", "ja": "## ドキュメント", "zh": "## 文档"}),
+            ("## Development", {"ko": "## 개발", "ja": "## 開発", "zh": "## 开发"}),
+        )
+
+        readme = Path("README.md").read_text(encoding="utf-8")
+        localized_readmes = {
+            "ko": Path("README.ko.md").read_text(encoding="utf-8"),
+            "ja": Path("README.ja.md").read_text(encoding="utf-8"),
+            "zh": Path("README.zh.md").read_text(encoding="utf-8"),
+        }
+
+        english_headings = re.findall(r"^## .+$", readme, flags=re.MULTILINE)
+        expected_english_headings = [heading for heading, _ in readme_section_translations]
+        self.assertEqual(
+            english_headings,
+            expected_english_headings,
+            "README.md top-level sections changed. Update "
+            "readme_section_translations in this test (and sync README.ko.md, "
+            "README.ja.md, README.zh.md) for the new section set/order.",
+        )
+
+        for locale, localized_readme in localized_readmes.items():
+            localized_headings = re.findall(r"^## .+$", localized_readme, flags=re.MULTILINE)
+            expected_localized_headings = [
+                translations[locale] for _, translations in readme_section_translations
+            ]
+            self.assertEqual(
+                localized_headings,
+                expected_localized_headings,
+                f"README.{locale}.md top-level sections are out of sync with "
+                "README.md; a section was added, dropped, or reordered in "
+                "English without updating this locale.",
+            )
+
+        # Regression guards for the exact stale onboarding copy identified in
+        # issue #639: a four-line request-pipeline block, and a "then ask
+        # Hermes normally" example that no longer matches the English Quick
+        # Start flow. These must never silently come back to a locale file.
+        self.assertNotIn("plain request", readme)
+        self.assertNotIn("Then ask Hermes normally", readme)
+        self.assertNotIn("6개 기능군 중 하나를 선택", localized_readmes["ko"])
+        self.assertNotIn("그런 다음 Hermes에 평소처럼 요청합니다", localized_readmes["ko"])
+        self.assertNotIn("6つの機能ファミリーから選択", localized_readmes["ja"])
+        self.assertNotIn("その後は Hermes にいつも通り依頼します", localized_readmes["ja"])
+        self.assertNotIn("从6个能力族中选择", localized_readmes["zh"])
+        self.assertNotIn("然后像往常一样向 Hermes 提出请求", localized_readmes["zh"])
 
     def test_direction_and_agent_contract_lock_product_boundary(self) -> None:
         direction = Path("docs/DIRECTION.md").read_text(encoding="utf-8")
