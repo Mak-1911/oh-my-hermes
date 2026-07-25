@@ -22,6 +22,19 @@ from ..skill_pack import (
 SKILL_PROFILES = ("core", "full")
 DEFAULT_SKILL_PROFILE = "core"
 CONTEXT_COST_WARNING_SCHEMA_VERSION = "omh_skill_profile_context_cost_warning/v1"
+SKILL_PROFILE_STATE_SCHEMA_VERSION = "omh_skill_profile_state/v1"
+SKILL_PROFILE_RECONCILE_SCHEMA_VERSION = "omh_skill_profile_reconcile/v1"
+SKILL_PROFILE_RECONCILE_COMMAND = "omh skill-profile reconcile --to core"
+SKILL_PROFILE_STATUS_COMMAND = "omh skill-profile status"
+NON_DESTRUCTIVE_DEFAULT_NOTE = (
+    "omh setup, install, and update never delete installed skills, so a full install keeps its "
+    f"skills after the recorded profile changes; run `{SKILL_PROFILE_RECONCILE_COMMAND}` explicitly "
+    "to shrink an existing full install."
+)
+RECONCILE_CONTEXT_COST_NOTE = (
+    "Every installed skill adds per-turn context weight to every Hermes request, so an install that "
+    "still carries full-only skills costs full-profile context even when the recorded profile is core."
+)
 
 
 def _write_skill(skills_dir: Path, template: SkillTemplate, force: bool = False, managed: bool = False) -> None:
@@ -109,6 +122,7 @@ def install_skill_pack(
     if context_cost_warning is not None:
         manifest_data["context_cost_warning"] = context_cost_warning
     manifest_data["pruned_skills"] = pruned_skills
+    manifest_data["skill_profile_state"] = skill_profile_state(paths.skills_dir, manifest_data)
     write_manifest(paths.manifest_path, manifest_data)
     return manifest_data
 
@@ -161,6 +175,194 @@ def _context_cost_warning(*, core_count: int, full_count: int) -> dict:
             "every Hermes request, so prefer core unless this workspace genuinely needs the complete catalog."
         ),
     }
+
+
+def installed_skill_names(skills_dir: Path) -> list[str]:
+    """Names of skill directories that currently hold a SKILL.md under ``skills_dir``."""
+    if not skills_dir.is_dir():
+        return []
+    names = [
+        entry.name
+        for entry in skills_dir.iterdir()
+        if entry.is_dir() and not entry.is_symlink() and (entry / "SKILL.md").is_file()
+    ]
+    return sorted(names)
+
+
+def skill_profile_state(skills_dir: Path, manifest: dict | None) -> dict:
+    """Describe requested vs. effective profile so status output cannot claim a footprint it does not have.
+
+    ``requested_profile`` is the profile the last install recorded; ``effective_profile`` is derived
+    from the skill directories that actually exist on disk. They diverge whenever a full install is
+    reinstalled as core, because installs are non-destructive by design.
+    """
+    catalog_names = {template.name for template in builtin_skill_templates()}
+    core_names = set(CORE_PROFILE_SKILLS)
+    installed = installed_skill_names(skills_dir)
+    installed_catalog = [name for name in installed if name in catalog_names]
+    full_only_installed = sorted(name for name in installed_catalog if name not in core_names)
+    requested = str((manifest or {}).get("skill_profile") or "")
+    if not installed_catalog:
+        effective = "none"
+    elif catalog_names.issubset(installed_catalog):
+        effective = "full"
+    elif not full_only_installed:
+        effective = "core"
+    else:
+        effective = "mixed"
+    retained_exception = bool(requested == "core" and full_only_installed)
+    return {
+        "schema_version": SKILL_PROFILE_STATE_SCHEMA_VERSION,
+        "requested_profile": requested,
+        "effective_profile": effective,
+        "matches_requested_profile": bool(requested) and effective == requested,
+        "core_profile_skill_count": len(core_names),
+        "full_profile_skill_count": len(catalog_names),
+        "installed_skill_count": len(installed),
+        "installed_catalog_skill_count": len(installed_catalog),
+        "unmanaged_skill_count": len(installed) - len(installed_catalog),
+        "full_only_installed_skills": full_only_installed,
+        "retained_exception": retained_exception,
+        "context_cost_note": RECONCILE_CONTEXT_COST_NOTE,
+        "non_destructive_default": NON_DESTRUCTIVE_DEFAULT_NOTE,
+        "next_action": SKILL_PROFILE_RECONCILE_COMMAND if retained_exception else "",
+    }
+
+
+def _catalog_skill_files() -> dict[str, dict[str, str]]:
+    """Rendered catalog content per skill: name -> {posix relative path: file content}."""
+    files: dict[str, dict[str, str]] = {}
+    for template in builtin_skill_templates():
+        files.setdefault(template.name, {})["SKILL.md"] = template.content
+    for template in builtin_skill_reference_templates():
+        rel = Path(template.relative_path).as_posix()
+        files.setdefault(template.skill_name, {})[rel] = template.content
+    return files
+
+
+def _installed_skill_files(skill_dir: Path) -> dict[str, str] | None:
+    """Read every regular file under a skill dir; return None when anything is not plainly readable."""
+    files: dict[str, str] = {}
+    for path in sorted(skill_dir.rglob("*")):
+        if path.is_symlink():
+            return None
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            return None
+        try:
+            files[path.relative_to(skill_dir).as_posix()] = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+    return files
+
+
+def _reconcile_plan(skills_dir: Path, manifest: dict) -> dict:
+    """Split installed full-only skills into safely removable and retained-with-reason sets.
+
+    A skill is removable only when it is OMH-managed (recorded in the install manifest) AND
+    unmodified (every file under its directory is byte-identical to the rendered catalog
+    templates, with no extra or missing files). Anything else is retained and reported.
+    """
+    catalog_files = _catalog_skill_files()
+    core_names = set(CORE_PROFILE_SKILLS)
+    managed_names = {
+        str(record.get("name"))
+        for record in manifest.get("skills", [])
+        if isinstance(record, dict) and record.get("name")
+    }
+    removable: list[str] = []
+    retained: list[dict[str, str]] = []
+    for name in installed_skill_names(skills_dir):
+        if name in core_names:
+            continue
+        expected = catalog_files.get(name)
+        if expected is None:
+            retained.append({"name": name, "reason": "not an OMH catalog skill"})
+            continue
+        if name not in managed_names:
+            retained.append({"name": name, "reason": "no OMH install-manifest record; not OMH-managed"})
+            continue
+        actual = _installed_skill_files(skills_dir / name)
+        if actual is None:
+            retained.append({"name": name, "reason": "skill directory is not plainly readable managed content"})
+            continue
+        if actual != expected:
+            retained.append({"name": name, "reason": "locally modified vs. the rendered catalog templates"})
+            continue
+        removable.append(name)
+    return {"removable_skills": removable, "retained_skills": retained}
+
+
+def skill_profile_report(paths: OmhPaths) -> dict:
+    """Read-only requested/effective profile report plus the reconcile plan; mutates nothing."""
+    manifest = read_manifest(paths.manifest_path)
+    state = skill_profile_state(paths.skills_dir, manifest)
+    plan = _reconcile_plan(paths.skills_dir, manifest or {})
+    return {
+        "schema_version": SKILL_PROFILE_STATE_SCHEMA_VERSION,
+        "skills_dir": str(paths.skills_dir),
+        "manifest_path": str(paths.manifest_path),
+        "installed": manifest is not None,
+        "profile_state": state,
+        "reconcilable_skills": plan["removable_skills"],
+        "retained_skills": plan["retained_skills"],
+    }
+
+
+def reconcile_skill_profile(
+    paths: OmhPaths,
+    *,
+    target_profile: str = DEFAULT_SKILL_PROFILE,
+    dry_run: bool = False,
+) -> dict:
+    """Explicitly shrink an existing install down to the core profile.
+
+    This is the only OMH path that deletes managed skill directories, and it never runs as part of
+    setup/install/update. It removes only unmodified managed full-only skills; locally modified and
+    non-managed directories stay on disk and are reported as retained exceptions.
+    """
+    if target_profile != DEFAULT_SKILL_PROFILE:
+        raise OmhError(
+            f"skill profile reconcile only shrinks to {DEFAULT_SKILL_PROFILE!r}; "
+            "install the wider catalog with `omh install --full` instead"
+        )
+    manifest = read_manifest(paths.manifest_path)
+    if manifest is None:
+        raise OmhError(f"no OMH skill manifest at {paths.manifest_path}; run `omh setup` first")
+    plan = _reconcile_plan(paths.skills_dir, manifest)
+    result = {
+        "schema_version": SKILL_PROFILE_RECONCILE_SCHEMA_VERSION,
+        "target_profile": target_profile,
+        "dry_run": dry_run,
+        "skills_dir": str(paths.skills_dir),
+        "profile_state_before": skill_profile_state(paths.skills_dir, manifest),
+        "retained_skills": plan["retained_skills"],
+        "context_cost_note": RECONCILE_CONTEXT_COST_NOTE,
+        "non_destructive_default": NON_DESTRUCTIVE_DEFAULT_NOTE,
+    }
+    if dry_run:
+        result["would_remove_skills"] = plan["removable_skills"]
+        result["removed_skills"] = []
+        return result
+
+    removed: list[str] = []
+    for name in plan["removable_skills"]:
+        target_dir = paths.skills_dir / name
+        if not target_dir.is_dir() or target_dir.is_symlink():
+            continue
+        shutil.rmtree(target_dir)
+        removed.append(name)
+    source = str(manifest.get("source") or "builtin")
+    records = skill_records(paths.skills_dir, source)
+    manifest_data = new_manifest(source, paths.skills_dir, records)
+    manifest_data["skill_profile"] = target_profile
+    manifest_data["reconciled_skills"] = removed
+    manifest_data["skill_profile_state"] = skill_profile_state(paths.skills_dir, manifest_data)
+    write_manifest(paths.manifest_path, manifest_data)
+    result["removed_skills"] = removed
+    result["profile_state_after"] = manifest_data["skill_profile_state"]
+    return result
 
 
 def uninstall_skill_pack(

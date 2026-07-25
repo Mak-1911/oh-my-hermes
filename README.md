@@ -99,6 +99,21 @@ Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<
 
 <br>
 
+**Shrink an existing `--full` install back to core:**
+
+```sh
+omh skill-profile status
+omh skill-profile reconcile --to core --dry-run
+omh skill-profile reconcile --to core
+```
+
+Setup, install, and update never delete installed skills, so a workspace that
+once ran `--full` keeps that per-turn context weight until it is reconciled
+explicitly. See
+[Reconciling An Existing Full Install Back To Core](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core).
+
+<br>
+
 ## What OMH Adds
 
 OMH packages **88 installable workflow skills** behind six human-readable
