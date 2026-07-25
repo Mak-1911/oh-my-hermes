@@ -20,7 +20,7 @@ jobs:
         run: python -m pip install -e .
       - name: Install uv
         if: matrix.python-version == '3.11'
-        uses: astral-sh/setup-uv@v9
+        uses: astral-sh/setup-uv@v9.0.0
       - name: Static analysis (ruff)
         if: matrix.python-version == '3.11'
         run: uv run --group lint ruff check src tests
