@@ -157,13 +157,15 @@ def awesome_hermes_coverage(
     maturity: str = "",
     status: str = "",
 ) -> tuple[AwesomeHermesCoverage, ...]:
+    from .awesome_hermes_agent_rules import RULE_SET_VERSION
+
     filters = {
         "section": section.strip().lower(),
         "subsection": subsection.strip().lower(),
         "maturity": maturity.strip().lower(),
         "status": status.strip().lower(),
     }
-    coverage = tuple(_coverage_for_item(item) for item in awesome_hermes_items())
+    coverage = _awesome_hermes_coverage_cached(awesome_hermes_items(), RULE_SET_VERSION)
     return tuple(item for item in coverage if _coverage_matches(item, filters))
 
 
@@ -203,6 +205,14 @@ def awesome_hermes_coverage_payload(
             "plugin installation, safety approval, live connector evidence, or feature parity."
         ),
     }
+
+
+@lru_cache(maxsize=1)
+def _awesome_hermes_coverage_cached(
+    items: tuple[AwesomeHermesItem, ...],
+    _rule_set_version: str,
+) -> tuple[AwesomeHermesCoverage, ...]:
+    return tuple(_coverage_for_item(item) for item in items)
 
 
 @lru_cache(maxsize=1)

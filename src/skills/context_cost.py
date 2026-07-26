@@ -26,6 +26,8 @@ from dataclasses import dataclass
 
 from .catalog import CORE_PROFILE_SKILLS
 from .packaging import builtin_skill_reference_templates, builtin_skill_templates
+from .render import SkillReferenceTemplate as _SkillReferenceTemplate
+from .render import SkillTemplate as _SkillTemplate
 
 SKILL_CONTEXT_COST_SCHEMA_VERSION = "omh_skill_context_cost/v1"
 
@@ -76,16 +78,16 @@ def _size_payload(text_chars: int, line_count: int) -> dict[str, int]:
     }
 
 
-def _profile_skill_names(profile: str) -> set[str]:
-    names = {template.name for template in builtin_skill_templates()}
+def _profile_skill_names(profile: str, templates: list[_SkillTemplate]) -> set[str]:
+    names = {template.name for template in templates}
     if profile == "full":
         return names
     return {name for name in names if name in CORE_PROFILE_SKILLS}
 
 
-def _section_slices(names: set[str]) -> list[SectionSlice]:
+def _section_slices(names: set[str], templates: list[_SkillTemplate]) -> list[SectionSlice]:
     slices: list[SectionSlice] = []
-    for template in builtin_skill_templates():
+    for template in templates:
         if template.name not in names:
             continue
         for heading, body in _split_sections(template.content):
@@ -117,9 +119,9 @@ def _heading_repetition(slices: list[SectionSlice]) -> list[dict[str, object]]:
     return rows
 
 
-def _reference_payload(names: set[str]) -> dict[str, object]:
+def _reference_payload(names: set[str], reference_templates: list[_SkillReferenceTemplate]) -> dict[str, object]:
     templates = [
-        template for template in builtin_skill_reference_templates() if template.skill_name in names
+        template for template in reference_templates if template.skill_name in names
     ]
     total_chars = sum(len(template.content) for template in templates)
     total_lines = sum(len(template.content.splitlines()) for template in templates)
@@ -136,9 +138,13 @@ def _percent(part: int, whole: int) -> float:
     return round(part * 100 / whole, 2)
 
 
-def skill_context_cost_profile(profile: str) -> dict[str, object]:
-    names = _profile_skill_names(profile)
-    slices = _section_slices(names)
+def _skill_context_cost_profile(
+    profile: str,
+    templates: list[_SkillTemplate],
+    reference_templates: list[_SkillReferenceTemplate],
+) -> dict[str, object]:
+    names = _profile_skill_names(profile, templates)
+    slices = _section_slices(names, templates)
     headings = _heading_repetition(slices)
     total_chars = sum(len(section.body) for section in slices)
     total_lines = sum(len(section.body.splitlines()) for section in slices)
@@ -155,12 +161,18 @@ def skill_context_cost_profile(profile: str) -> dict[str, object]:
             **_size_payload(total_chars - duplicate_bytes, 0),
             "share_percent": _percent(total_chars - duplicate_bytes, total_chars),
         },
-        "references": _reference_payload(names),
+        "references": _reference_payload(names, reference_templates),
         "headings": headings,
     }
 
 
+def skill_context_cost_profile(profile: str) -> dict[str, object]:
+    return _skill_context_cost_profile(profile, builtin_skill_templates(), builtin_skill_reference_templates())
+
+
 def skill_context_cost_payload() -> dict[str, object]:
+    templates = builtin_skill_templates()
+    reference_templates = builtin_skill_reference_templates()
     return {
         "schema_version": SKILL_CONTEXT_COST_SCHEMA_VERSION,
         "description": (
@@ -170,7 +182,9 @@ def skill_context_cost_payload() -> dict[str, object]:
             "always-loaded skill-body total."
         ),
         "chars_per_token_estimate": CHARS_PER_TOKEN_ESTIMATE,
-        "profiles": [skill_context_cost_profile(profile) for profile in ("core", "full")],
+        "profiles": [
+            _skill_context_cost_profile(profile, templates, reference_templates) for profile in ("core", "full")
+        ],
     }
 
 
