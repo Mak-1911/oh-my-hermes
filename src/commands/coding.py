@@ -626,7 +626,7 @@ def cmd_coding_fanout_validate(args: argparse.Namespace) -> int:
 def cmd_coding_fanout_show(args: argparse.Namespace) -> int:
     from ..coding.fanout_artifacts import read_fanout_contract
     from ..runtime.artifacts import show_run
-    from ..runtime.context_budget import run_context_budget
+    from ..runtime.context_budget import payload_fingerprint, run_context_budget
 
     paths = _paths(args)
     try:
@@ -674,27 +674,57 @@ def cmd_coding_fanout_show(args: argparse.Namespace) -> int:
             "run_ref": run_ref,
             "journal_event_counts": history,
         }
-    payload = {
+    board = {
         "schema_version": "fanout_board/v1",
         "fanout_id": contract.get("fanout_id"),
         "merge_order": contract.get("merge_plan", {}).get("merge_order", []),
         "units": status_by_unit,
-        "context_budget": {
-            "history_limit": history_limit,
-            "watched_run_count": len(watched_runs),
-            "budget_exhausted_units": exhausted_units,
-            "policy": "timed_polling_rejected; raw_log_dumping_rejected",
-            "next_action": (
-                "read_full_history_from_artifacts_instead_of_repeating_this_command"
-                if exhausted_units
-                else "wait_for_executor_evidence"
-            ),
-        },
-        "claim_boundary": contract.get("claim_boundary", ""),
     }
+    fingerprint = payload_fingerprint(board)
+    context_budget = {
+        "history_limit": history_limit,
+        "watched_run_count": len(watched_runs),
+        "budget_exhausted_units": exhausted_units,
+        "policy": "timed_polling_rejected; raw_log_dumping_rejected",
+        "next_action": (
+            "read_full_history_from_artifacts_instead_of_repeating_this_command"
+            if exhausted_units
+            else "wait_for_executor_evidence"
+        ),
+    }
+    if not full and _fanout_board_unchanged(paths, watched_runs, fingerprint):
+        payload = {
+            "schema_version": "fanout_board_unchanged/v1",
+            "fanout_id": contract.get("fanout_id"),
+            "unchanged_since_last_emission": True,
+            "delta": {},
+            "context_budget": context_budget,
+            "next_action": "wait_for_new_observed_evidence_instead_of_repeating_this_command",
+            "full_output_command": f"omh coding fanout show {contract.get('fanout_id')} --full",
+            "claim_boundary": contract.get("claim_boundary", ""),
+        }
+    else:
+        payload = {**board, "context_budget": context_budget, "claim_boundary": contract.get("claim_boundary", "")}
     _print_json(payload)
-    _record_fanout_board_emission(paths, watched_runs, payload)
+    _record_fanout_board_emission(paths, watched_runs, payload, fingerprint)
     return 0
+
+
+def _fanout_board_unchanged(paths, watched_runs: list[str], fingerprint: str) -> bool:
+    """True when every watched run already saw exactly this board.
+
+    The ledger is keyed per run while the board spans several, so a board only
+    counts as unchanged if no watched run has newer state than the last
+    emission. A partially-changed board still prints in full.
+    """
+    from ..runtime.context_budget import run_context_budget
+
+    if not watched_runs:
+        return False
+    return all(
+        run_context_budget(paths, run_ref, surface="fanout_show")["last_payload_fingerprint"] == fingerprint
+        for run_ref in watched_runs
+    )
 
 
 def _fanout_history_limit(args: argparse.Namespace) -> int:
@@ -708,14 +738,20 @@ def _fanout_history_limit(args: argparse.Namespace) -> int:
     return int(limit)
 
 
-def _record_fanout_board_emission(paths, watched_runs: list[str], payload: dict) -> None:
+def _record_fanout_board_emission(paths, watched_runs: list[str], payload: dict, fingerprint: str = "") -> None:
     from ..runtime.context_budget import record_context_emission
 
     if not watched_runs:
         return
     per_run = len(json.dumps(payload, sort_keys=True)) // len(watched_runs)
     for run_ref in watched_runs:
-        record_context_emission(paths, run_ref, surface="fanout_show", byte_count=per_run)
+        record_context_emission(
+            paths,
+            run_ref,
+            surface="fanout_show",
+            byte_count=per_run,
+            payload_fingerprint_value=fingerprint,
+        )
 
 
 def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:

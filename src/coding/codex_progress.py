@@ -96,6 +96,7 @@ def summarize_codex_jsonl_text(
     activity_counts: dict[str, int] = {
         "inspecting": 0,
         "editing": 0,
+        "editing_confirmed": 0,
         "testing": 0,
         "waiting_review": 0,
         "assistant_visible_decisions": 0,
@@ -109,6 +110,8 @@ def summarize_codex_jsonl_text(
             activity_counts["inspecting"] += 1
         if _is_edit_event(lowered):
             activity_counts["editing"] += 1
+        if _is_confirmed_edit_event(lowered):
+            activity_counts["editing_confirmed"] += 1
         if _is_test_event(lowered):
             activity_counts["testing"] += 1
         if _is_waiting_review_event(lowered):
@@ -680,6 +683,23 @@ def _is_edit_event(text: str) -> bool:
     return any(token in text for token in ("apply_patch", "patch", "write", "edit", "modified", "changed file", "diff"))
 
 
+def _is_confirmed_edit_event(text: str) -> bool:
+    """A file change actually happened, as opposed to edit-shaped words.
+
+    `_is_edit_event` is deliberately broad -- it drives the benign
+    `diff_started` label, where over-matching costs nothing. It counts any line
+    containing patch, write, edit, or diff, so "let me run git diff to see the
+    current state" lands in the same bucket as an applied patch.
+
+    Anything that contradicts an executor's own account needs a narrower
+    signal than that, so this requires a token that only appears once a change
+    was made.
+    """
+    if not _is_edit_event(text):
+        return False
+    return any(token in text for token in ("apply_patch", "modified", "changed file"))
+
+
 def _is_test_event(text: str) -> bool:
     if any(token in text for token in ("pytest", "unittest", "compileall", "npm test", "cargo test", "go test", "uv run")):
         return True
@@ -699,6 +719,8 @@ def _observable_activity(activity_counts: dict[str, int]) -> list[str]:
         labels.append("Codex is inspecting files/tests.")
     if activity_counts.get("editing"):
         labels.append("Codex changed files.")
+    if activity_counts.get("editing_confirmed"):
+        labels.append("Codex applied a file change.")
     if activity_counts.get("testing"):
         labels.append("Codex is running tests.")
     if activity_counts.get("waiting_review"):

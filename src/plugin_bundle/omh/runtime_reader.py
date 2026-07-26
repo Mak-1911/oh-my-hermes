@@ -48,6 +48,7 @@ EXECUTOR_PROGRESS_EVENT_TYPES = {
     "executor_completed",
     "executor_blocked",
     "executor_failed",
+    "reported_change_not_observed",
     "progress_observed",
 }
 EXECUTOR_PROGRESS_PROFILES = {"codex", "claude_code", "hermes_local"}

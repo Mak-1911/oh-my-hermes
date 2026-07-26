@@ -40,7 +40,15 @@ from ..runtime.artifacts import (
     write_runtime_observation,
     write_wrapper_contract,
 )
-from ..runtime.context_budget import degrade_run_payload, record_context_emission, run_context_budget
+from ..runtime.context_budget import (
+    degrade_run_payload,
+    payload_fingerprint,
+    public_budget,
+    record_context_emission,
+    run_context_budget,
+    run_show_surface,
+    unchanged_run_payload,
+)
 from ..executors import CODING_RUNTIME_HANDOFF_TARGETS
 from ..local_store import read_json_object
 from ..skill_pack import builtin_harnesses, routable_definitions
@@ -111,17 +119,29 @@ def cmd_runtime_show(args: argparse.Namespace) -> int:
         shown = show_run(paths, args.run_id, history_limit=_history_limit(args))
     except FileNotFoundError as exc:
         raise OmhError(f"runtime run not found: {args.run_id}") from exc
-    budget = run_context_budget(paths, args.run_id, surface="runtime_show")
-    if budget["exhausted"] and not full:
+    surface = run_show_surface(full=full, history_limit=_history_limit(args))
+    ledger = run_context_budget(paths, args.run_id, surface=surface)
+    fingerprint = payload_fingerprint(shown)
+    unchanged = fingerprint == ledger["last_payload_fingerprint"]
+    budget = public_budget(ledger)
+    if full:
+        payload = {**shown, "context_budget": budget}
+    elif budget["exhausted"]:
+        # Exhaustion outranks the unchanged check on purpose. Both are stop
+        # signals, but the degraded payload is the one that points at the
+        # artifacts, and its shape is an existing contract.
         payload = degrade_run_payload(shown, budget)
+    elif unchanged:
+        payload = unchanged_run_payload(shown, budget)
     else:
         payload = {**shown, "context_budget": budget}
     _print_json(payload)
     record_context_emission(
         paths,
         args.run_id,
-        surface="runtime_show",
+        surface=surface,
         byte_count=len(json.dumps(payload, sort_keys=True)),
+        payload_fingerprint_value=fingerprint,
     )
     return 0
 
@@ -416,13 +436,18 @@ def cmd_runtime_progress_observe(args: argparse.Namespace) -> int:
     try:
         codex_summary = summarize_codex_jsonl_file(args.codex_log_jsonl, evidence_refs=args.evidence_ref or []) if args.codex_log_jsonl else None
         profile_summary = _profile_progress_summary(args)
+        _reject_ignored_progress_inputs(
+            executor_profile=str(binding.get("executor_profile", "")),
+            codex_summary=codex_summary,
+            profile_summary=profile_summary,
+        )
         signal = build_safe_progress_signal(
             executor_profile=str(binding.get("executor_profile", "")),
             process_status=args.process_status or "",
             codex_progress_summary=codex_summary,
             profile_progress_summary=profile_summary,
-            git_status_short=args.git_status_short or "",
-            git_diff_stat=args.git_diff_stat or "",
+            git_status_short=args.git_status_short,
+            git_diff_stat=args.git_diff_stat,
             explicit_event_type=args.event or "",
             explicit_summary=args.summary or "",
             evidence_refs=args.evidence_ref or [],
@@ -511,6 +536,35 @@ def _require_progress_target(paths, target_type: str, target_id: str) -> None:
     raise OmhError(f"unsupported progress target type: {target_type}")
 
 
+def _reject_ignored_progress_inputs(
+    *,
+    executor_profile: str,
+    codex_summary: dict[str, object] | None,
+    profile_summary: dict[str, object] | None,
+) -> None:
+    """Fail when the caller described progress this binding will not read.
+
+    `build_safe_progress_signal` picks exactly one summary by executor profile:
+    codex bindings read `--codex-log-jsonl`, every other profile reads the
+    `--profile-*` flags. Passing the wrong pair used to be accepted silently,
+    and the observation was then inferred from an empty summary -- so an
+    operator who described a failing test run got a generic status back and no
+    indication that their input had been discarded. That is a failure relabelled
+    as a normal result, which this repo's broad-exception policy exists to keep
+    out.
+    """
+    if executor_profile == "codex" and profile_summary is not None and codex_summary is None:
+        raise OmhError(
+            "codex progress bindings read --codex-log-jsonl; the --profile-* flags would be ignored. "
+            "Pass --codex-log-jsonl, or use --event/--summary to state the observation explicitly."
+        )
+    if executor_profile != "codex" and codex_summary is not None:
+        raise OmhError(
+            f"--codex-log-jsonl only applies to codex bindings; this binding is {executor_profile}. "
+            "Use the --profile-* flags instead."
+        )
+
+
 def _profile_progress_summary(args: argparse.Namespace) -> dict[str, object] | None:
     if not (args.profile_status or args.profile_event_count is not None or args.profile_latest_event or args.profile_summary):
         return None
@@ -555,8 +609,11 @@ def _add_progress_bind_args(parser: argparse.ArgumentParser) -> None:
 def _add_progress_observe_args(parser: argparse.ArgumentParser) -> None:
     _add_progress_target_args(parser)
     parser.add_argument("--process-status", default="")
-    parser.add_argument("--git-status-short", default="")
-    parser.add_argument("--git-diff-stat", default="")
+    # Default None, not "": passing the flag with an empty value means "git was
+    # checked and reports nothing changed", which is what contradicts a reported
+    # change. Omitting the flag means nobody looked and contradicts nothing.
+    parser.add_argument("--git-status-short", default=None)
+    parser.add_argument("--git-diff-stat", default=None)
     parser.add_argument("--event", choices=PROGRESS_EVENT_TYPES, default="")
     parser.add_argument("--summary", default="")
     parser.add_argument("--codex-log-jsonl", default=None)

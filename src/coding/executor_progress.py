@@ -30,9 +30,31 @@ PROGRESS_EVENT_TYPES = (
     "executor_completed",
     "executor_blocked",
     "executor_failed",
+    "reported_change_not_observed",
     "progress_observed",
 )
-TERMINAL_EVENT_TYPES = {"executor_completed", "executor_blocked", "executor_failed", "tests_failed", "tests_passed"}
+# Exempt from the volume rules -- an exact duplicate transition is still
+# deduplicated. `reported_change_not_observed` belongs here because it only
+# fires on a finished run whose claim the working tree contradicts, which is the
+# failure mode that produced "4 file(s) were NOT modified this turn despite any
+# wording above that may suggest otherwise" only at the end of a long session.
+TERMINAL_EVENT_TYPES = {
+    "executor_completed",
+    "executor_blocked",
+    "executor_failed",
+    "tests_failed",
+    "tests_passed",
+    "reported_change_not_observed",
+}
+# Observations that end a binding's life. Kept as its own name rather than
+# reusing TERMINAL_EVENT_TYPES: `tests_failed` and `tests_passed` are reportable
+# end states but the executor may still be working, so they must not close.
+CLOSING_EVENT_TYPES = {
+    "executor_completed",
+    "executor_blocked",
+    "executor_failed",
+    "reported_change_not_observed",
+}
 DEFAULT_FRESHNESS_SECONDS = 900
 DEFAULT_EXPIRY_SECONDS = 86400
 DEFAULT_MINIMUM_REPEAT_INTERVAL_SECONDS = 120
@@ -197,6 +219,7 @@ def build_progress_binding(
         "last_reported_summary_hash": "",
         "last_reported_artifact_sha256": "",
         "report_count": 0,
+        "reported_event_types": [],
         "suppressed_duplicate_count": 0,
         "minimum_repeat_interval_seconds": int(minimum_repeat_interval_seconds),
         "evidence_refs": _compact_strings(evidence_refs or []),
@@ -325,8 +348,8 @@ def build_safe_progress_signal(
     process_status: str = "",
     codex_progress_summary: dict[str, Any] | None = None,
     profile_progress_summary: dict[str, Any] | None = None,
-    git_status_short: str = "",
-    git_diff_stat: str = "",
+    git_status_short: str | None = None,
+    git_diff_stat: str | None = None,
     explicit_event_type: str = "",
     explicit_summary: str = "",
     evidence_refs: list[str] | tuple[str, ...] | None = None,
@@ -343,8 +366,12 @@ def build_safe_progress_signal(
     signal = {
         "executor_profile": profile,
         "process_status": _compact_text(process_status, 80),
-        "git_status_hash": _hash_if_present(git_status_short),
-        "git_diff_stat_hash": _hash_if_present(git_diff_stat),
+        "git_status_hash": _hash_if_present(git_status_short or ""),
+        "git_diff_stat_hash": _hash_if_present(git_diff_stat or ""),
+        # A missing hash is ambiguous on its own: the caller may have looked at
+        # git and seen nothing, or may never have looked. Only the first case
+        # can contradict a reported change, so record which one it was.
+        "git_observed": git_status_short is not None or git_diff_stat is not None,
         "progress_status": progress.get("status", ""),
         "progress_event_count": progress.get("event_count", 0),
         "latest_progress_event_type": progress.get("latest_progress_event_type", ""),
@@ -359,6 +386,50 @@ def build_safe_progress_signal(
         "evidence_ref_count": len(evidence_refs or []),
     }
     return _safe_signal(signal)
+
+
+# Only a confirmed edit counts as a claim worth contradicting. "Codex changed
+# files." comes from a bucket that also matches a line merely mentioning a diff,
+# so it stays out: over-matching is free for the benign `diff_started` label and
+# expensive here.
+_CHANGE_CLAIM_ACTIVITY = {"Codex applied a file change."}
+# An explicit `--event diff_started` is the caller stating the claim outright.
+_CHANGE_CLAIM_EVENT_TYPES = {"diff_started"}
+_SUCCESS_PROCESS_STATUSES = {"completed", "complete", "done", "success", "succeeded", "exited_zero"}
+
+
+def _change_reported_but_not_observed(
+    signal: dict[str, Any],
+    *,
+    latest: str,
+    activity: set[str],
+    process_status: str,
+    progress_status: str,
+) -> bool:
+    """The executor finished claiming it changed files, and the tree disagrees.
+
+    Three guards, each load-bearing:
+
+    `git_observed` -- without it a missing hash only means nobody looked, so a
+    mismatch inferred from it would cry wolf on every caller that does not
+    collect git state.
+
+    A finished run -- the upstream change claim is a coarse bucket. Codex sets
+    it from any log line containing `patch`, `write`, `edit`, or `diff`, so a
+    mid-flight "let me run git diff to see the state" reads as a change claim
+    against a tree that is legitimately still clean. Only a run that has stopped
+    can actually contradict itself.
+
+    An empty tree -- both hashes absent.
+    """
+    if not bool(signal.get("git_observed", False)):
+        return False
+    finished = process_status in _SUCCESS_PROCESS_STATUSES or progress_status == "completed_or_passed_observed"
+    if not finished:
+        return False
+    if not (latest in _CHANGE_CLAIM_EVENT_TYPES or activity.intersection(_CHANGE_CLAIM_ACTIVITY)):
+        return False
+    return not signal.get("git_status_hash") and not signal.get("git_diff_stat_hash")
 
 
 def infer_progress_event_type(signal: dict[str, Any]) -> str:
@@ -377,6 +448,18 @@ def infer_progress_event_type(signal: dict[str, Any]) -> str:
         return "tests_failed" if test_activity or latest in {"targeted_tests_failed", "full_tests_failed", "tests_failed"} else "executor_failed"
     if latest == "failure_discovered" or process_status in {"failed", "failure", "error", "errored", "exited_nonzero"}:
         return "executor_failed"
+    # After blocked/failed, before completed. A blocker whose text also mentions
+    # a patch is a blocker, not a contradiction, and blocked/failed carry the
+    # more actionable classification. What this preempts is the benign reading:
+    # a run that claims it changed files and is about to be called completed.
+    if _change_reported_but_not_observed(
+        signal,
+        latest=latest,
+        activity=activity,
+        process_status=process_status,
+        progress_status=progress_status,
+    ):
+        return "reported_change_not_observed"
     if progress_status == "completed_or_passed_observed":
         return "tests_passed" if (test_activity or latest in {"targeted_tests_passed", "full_tests_passed", "tests_passed"}) else "executor_completed"
     if latest in {"targeted_tests_passed", "full_tests_passed", "tests_passed"}:
@@ -543,6 +626,45 @@ def latest_progress_report(paths: OmhPaths, binding: dict[str, Any]) -> dict[str
     return valid[-1] if valid else {}
 
 
+def reported_event_types(binding: dict[str, Any]) -> list[str]:
+    recorded = binding.get("reported_event_types")
+    if not isinstance(recorded, list):
+        return []
+    return [str(value) for value in recorded if str(value)]
+
+
+def _legacy_reported_seed(binding: dict[str, Any]) -> list[str]:
+    """Best-known history for a binding written before `reported_event_types`.
+
+    Migrating with an empty list would discard everything the binding already
+    reported, so the next event writes a one-entry list and every other type
+    then looks like a first occurrence -- a burst of un-suppression on a run
+    already in flight. The last reported type is the only history such a binding
+    kept, so seed from it.
+    """
+    last = str(binding.get("last_reported_event_type", ""))
+    if last and int(binding.get("report_count", 0) or 0) > 0:
+        return [last]
+    return []
+
+
+def _is_first_occurrence(binding: dict[str, Any], event_type: str) -> bool:
+    """True when this event type has never been reported for this binding.
+
+    A first occurrence is always worth reporting: the interesting signal is that
+    a new kind of thing happened, and no volume budget should be able to swallow
+    it. Callers that add their own suppression on top of `should_report_event`
+    must preserve this.
+
+    Bindings written before `reported_event_types` existed cannot answer the
+    question. Rather than treat every type as new -- which would un-suppress a
+    live run mid-flight -- fall through to the interval rules for them.
+    """
+    if not isinstance(binding.get("reported_event_types"), list):
+        return int(binding.get("report_count", 0) or 0) == 0
+    return event_type not in reported_event_types(binding)
+
+
 def should_report_event(binding: dict[str, Any], event: dict[str, Any], *, now: str | None = None) -> tuple[bool, str]:
     _require_valid("binding", validate_progress_binding(binding))
     _require_valid("event", validate_progress_event(event))
@@ -552,6 +674,8 @@ def should_report_event(binding: dict[str, Any], event: dict[str, Any], *, now: 
     event_type = str(event.get("event_type", ""))
     if event_type in TERMINAL_EVENT_TYPES:
         return True, "terminal_or_blocker"
+    if _is_first_occurrence(binding, event_type):
+        return True, "first_occurrence"
     last_type = str(binding.get("last_reported_event_type", ""))
     if last_type == event_type and not _minimum_interval_elapsed(
         str(binding.get("last_reported_at", "")),
@@ -579,14 +703,17 @@ def update_binding_reporter_state(
     updated["last_observed_signal_hash"] = _signal_fingerprint(signal)
     updated["last_observed_event_count"] = _safe_int(signal.get("progress_event_count"), 0)
     updated["last_observed_artifact_sha256"] = str(signal.get("codex_artifact_sha256", ""))
-    if str(event.get("event_type", "")) in {"executor_completed", "executor_blocked", "executor_failed"}:
+    if str(event.get("event_type", "")) in CLOSING_EVENT_TYPES:
         updated["state"] = "closed"
     else:
         updated["state"] = "active"
     if reported:
+        event_type = str(event.get("event_type", ""))
         updated["last_reported_at"] = now
         updated["last_transition_fingerprint"] = str(event.get("transition_fingerprint", ""))
-        updated["last_reported_event_type"] = str(event.get("event_type", ""))
+        updated["last_reported_event_type"] = event_type
+        seen = reported_event_types(binding) or _legacy_reported_seed(binding)
+        updated["reported_event_types"] = seen if event_type in seen else [*seen, event_type]
         updated["last_reported_state"] = str(event.get("status", ""))
         updated["last_reported_summary_hash"] = hashlib.sha256(str(event.get("summary", "")).encode("utf-8")).hexdigest()
         updated["last_reported_artifact_sha256"] = str(signal.get("codex_artifact_sha256", ""))
@@ -908,6 +1035,7 @@ def _safe_signal(signal: dict[str, Any]) -> dict[str, Any]:
         "process_status",
         "git_status_hash",
         "git_diff_stat_hash",
+        "git_observed",
         "progress_status",
         "progress_event_count",
         "latest_progress_event_type",
@@ -1067,6 +1195,9 @@ def _summary_for_event_type(event_type: str) -> str:
         "executor_completed": "The coding executor reported completion, but separate result evidence is still required.",
         "executor_blocked": "The coding executor reported a blocker.",
         "executor_failed": "The coding executor reported a failure.",
+        "reported_change_not_observed": (
+            "The coding executor reported applying a change, but no file change was observed."
+        ),
         "progress_observed": "The coding executor emitted a safe progress signal.",
     }
     return summaries.get(event_type, "Executor progress was observed.")
