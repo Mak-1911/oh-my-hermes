@@ -1287,6 +1287,149 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(rendered["body_text_source"], "missing_messenger_rendering.body_text")
         self.assertIn("missing_messenger_safe_body", rendered["render_warnings"])
 
+    def test_native_render_warns_on_producer_shape_without_a_resolved_render_profile(self) -> None:
+        """The regression the old detector could not see.
+
+        This hand-builds the exact route-hint rendering block from before the
+        render-profile fix: seven keys, `profile` holding a raw source string,
+        and no resolved `render_profile`. Back then `body_text` was present, so
+        `missing_messenger_safe_body` stayed silent and the unsafe body shipped
+        unannounced. Rebuilding that shape by hand keeps the tripwire honest
+        even after the producer is fixed - it is the shape, not the current
+        producer, that has to stay loud.
+        """
+        body = "\n".join(
+            [
+                "| 계열 | 강점 |",
+                "| --- | --- |",
+                "| Hermes | Gateway |",
+            ]
+        )
+        legacy_rendering = {
+            "schema_version": "messenger_route_hint_rendering/v1",
+            "profile": "discord",
+            "title": "[omh] hint:code-review",
+            "body_text": body,
+            "checkpoint_text": "체크포인트",
+            "primary_action": {"id": "open_picker", "label": "Open omh"},
+            "secondary_actions": [],
+        }
+        self.assertEqual(len(legacy_rendering), 7)
+        self.assertNotIn("render_profile", legacy_rendering)
+
+        rendered = render_native_command_response(
+            {
+                "thread_key": "discord:c1:m1",
+                "chat_response": {
+                    "kind": "hint",
+                    "headline": "[omh] hint:code-review",
+                    "body": body,
+                    "messenger_rendering": legacy_rendering,
+                    "actions": [],
+                },
+            },
+            source="discord",
+        )
+
+        self.assertEqual(rendered["render_kind"], "chat_response")
+        self.assertIn("missing_render_profile", rendered["render_warnings"])
+        # The old code path stays intact: `body_text` was present, so the
+        # absence-only warning correctly does not fire and the body is still
+        # sourced from the rendering block.
+        self.assertNotIn("missing_messenger_safe_body", rendered["render_warnings"])
+        self.assertEqual(rendered["body_text_source"], "messenger_rendering.body_text")
+
+    def test_native_render_warns_when_limited_profile_ships_an_untransformed_body(self) -> None:
+        body = "\n".join(
+            [
+                "| 계열 | 강점 |",
+                "| --- | --- |",
+                "| Hermes | Gateway |",
+            ]
+        )
+
+        rendered = render_native_command_response(
+            {
+                "thread_key": "discord:c1:m1",
+                "chat_response": {
+                    "kind": "plan",
+                    "headline": "[omh] web-research - 비교 결과입니다.",
+                    "body": body,
+                    "messenger_rendering": {
+                        "schema_version": "omh_messenger_rendering/v1",
+                        "render_profile": "limited_markdown",
+                        "body_text": body,
+                        "transforms_applied": [],
+                    },
+                    "actions": [],
+                },
+            },
+            source="discord",
+        )
+
+        self.assertIn("unsafe_limited_markdown_body", rendered["render_warnings"])
+        # A resolved profile is present, so only the body-level code fires.
+        self.assertNotIn("missing_render_profile", rendered["render_warnings"])
+
+    def test_native_render_stays_silent_for_a_rich_profile_body_that_keeps_tables(self) -> None:
+        body = "\n".join(
+            [
+                "| 계열 | 강점 |",
+                "| --- | --- |",
+                "| Hermes | Gateway |",
+            ]
+        )
+        rendering = messenger_rendering_contract(
+            visible_prefix="[omh] web-research",
+            first_line="[omh] web-research - 비교 결과입니다.",
+            body=body,
+            claim_boundary="Not execution evidence.",
+            render_profile="rich_markdown",
+        )
+
+        rendered = render_native_command_response(
+            {
+                "thread_key": "hermes:c1:m1",
+                "chat_response": {
+                    "kind": "plan",
+                    "headline": "[omh] web-research - 비교 결과입니다.",
+                    "body": body,
+                    "messenger_rendering": rendering,
+                    "actions": [],
+                },
+            },
+            source="hermes",
+        )
+
+        # A rich-markdown body is *supposed* to keep its table, so the
+        # untransformed-body check must not treat it as a defect.
+        self.assertIn("| --- | --- |", rendered["body_text"])
+        self.assertEqual(rendered["render_warnings"], [])
+
+    def test_native_render_reports_no_warnings_for_healthy_producer_payloads(self) -> None:
+        messages = ("코드 리뷰 해줘", "결제 실패 이슈가 자주 나와", "쿠버네티스 장애 상황에서 Cloudy가 적절히 진단하나?")
+        checked = 0
+        for source in ("discord", "slack", "telegram"):
+            for message in messages:
+                interaction = build_chat_interaction_payload(message, source=source)
+                route_hint = build_chat_route_hint_payload(message, source=source)
+                for path, payload in (("interaction", interaction), ("route_hint", route_hint)):
+                    with self.subTest(source=source, message=message, path=path):
+                        rendered = render_native_command_response(payload, source=source)
+                        if rendered["render_kind"] != "chat_response":
+                            continue
+                        rendering = payload["chat_response"]["messenger_rendering"]
+                        # Assert the payload is real before asserting it is
+                        # clean, so an empty body could never make the
+                        # no-warnings assertion pass vacuously.
+                        self.assertEqual(rendering["render_profile"], "limited_markdown")
+                        self.assertTrue(rendering["body_text"])
+                        self.assertTrue(rendered["body_text"])
+                        self.assertEqual(rendered["body_text_source"], "messenger_rendering.body_text")
+                        self.assertEqual(rendered["render_warnings"], [])
+                        checked += 1
+        self.assertEqual(checked, 18)
+
     def test_route_mode_exposes_visible_omh_usage_trace_for_multiple_workflows(self) -> None:
         cases = (
             ("릴리즈 전에 README claim이 실제 코드와 맞는가 봐줘", "code-review"),
