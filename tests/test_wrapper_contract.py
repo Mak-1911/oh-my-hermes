@@ -1475,7 +1475,7 @@ class WrapperContractTests(unittest.TestCase):
         self.assertIn("triage feedback", explanation["recommended_reply"])
         self.assertIn("not evidence of completed feedback triage", explanation["recommended_reply"])
         self.assertNotIn("not completed feedback triage evidence", explanation["recommended_reply"])
-        self.assertEqual(explanation["primary_action_label"], "Open feedback-triage")
+        self.assertEqual(explanation["primary_action_label"], "Open omh-feedback-triage")
         self.assertIn("do not claim completed feedback triage", explanation["primary_action_hint"])
 
     def test_plan_interaction_keeps_route_specific_reason_in_workflow_explanation(self) -> None:
