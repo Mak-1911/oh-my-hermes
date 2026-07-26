@@ -3263,6 +3263,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - If the fact may be stale, record the staleness warning and next refresh action.
 - Required inputs:
   - audience scale (personal, small group, team, or organization)
+  - whether an agent is one of the readers
   - destination or existing store
   - knowledge types the wiki must hold
   - maintenance owner and cadence

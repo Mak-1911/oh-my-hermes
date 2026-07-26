@@ -4694,6 +4694,7 @@ _DEFINITIONS = [
         ),
         required_inputs=(
             "audience scale (personal, small group, team, or organization)",
+            "whether an agent is one of the readers",
             "destination or existing store",
             "knowledge types the wiki must hold",
             "maintenance owner and cadence",

@@ -68,7 +68,7 @@ Bad example:
 
 ## Design Interview
 
-Settle structure before capture: audience scale, the knowledge types that repeat, what someone will search for, and who maintains it. Skip answered turns, cap at five, and close with one model plus one alternative as a skeleton the user approves before anything is written. No maintainer means `unmaintained`, which rules out models needing curation.
+Settle structure before capture: audience scale, whether an agent reads it, the knowledge types that repeat, what someone will search for, and who maintains it. Skip answered turns, cap at five, and close with one model plus one alternative as a skeleton the user approves before anything is written. No maintainer means `unmaintained`, which rules out models needing curation.
 
 Load `references/wiki-blueprint.md` for the interview turns and `wiki_blueprint/v1` fields, `wiki-patterns.md` for models and what breaks them, `wiki-operations.md` for solo-versus-shared rules, and `wiki-ecosystem.md` for existing skills.
 
@@ -107,6 +107,7 @@ Run directly in Hermes as wiki design and retained knowledge capture; prepare co
 Required inputs:
 
 - audience scale (personal, small group, team, or organization)
+- whether an agent is one of the readers
 - destination or existing store
 - knowledge types the wiki must hold
 - maintenance owner and cadence

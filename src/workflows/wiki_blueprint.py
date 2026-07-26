@@ -22,6 +22,7 @@ from .knowledge_connections import KnowledgeConnectionOptions, build_knowledge_c
 from .wiki_patterns import (
     MULTI_WRITER_AUDIENCES,
     WikiPattern,
+    wiki_agent_reader_rules,
     wiki_operation_rules,
     wiki_pattern,
     wiki_patterns,
@@ -94,6 +95,9 @@ _AUDIENCE_DEFAULT_MODELS: Final = {
 # classifier's default when no destination was named at all, so treating it as a
 # repository signal would hand docs-as-code - review-gated and team-first - to a
 # solo user who said nothing about where the wiki lives.
+# Stable paths, an enumerable index, and it works at every scale.
+_AGENT_SAFE_DEFAULT_MODEL: Final = "Map of Content (MOC)"
+
 _REPO_DESTINATION_KINDS: Final = {"markdown_folder"}
 
 UNKNOWN_DESTINATION_KIND: Final = "unknown_external_destination"
@@ -101,6 +105,20 @@ UNKNOWN_DESTINATION_KIND: Final = "unknown_external_destination"
 # Vault wording the shared classifier reads only from an explicit target. Bare
 # "vault" is left out on purpose: a secrets vault is not a knowledge vault.
 _VAULT_TERMS: Final = ("obsidian", "옵시디언", "markdown vault", "마크다운 볼트")
+
+# Wording that means a machine is one of the readers.
+_AGENT_READER_TERMS: Final = (
+    "agent",
+    "assistant",
+    "hermes",
+    "claude",
+    "codex",
+    "llm",
+    " ai ",
+    "에이전트",
+    "어시스턴트",
+    "에이아이",
+)
 
 # Kinds the classifier only returns when the request actually identified a store,
 # by message text or by option. `local_markdown_folder` is missing on purpose: it
@@ -134,16 +152,22 @@ class WikiBlueprintRequest:
     audience_scale: str = ""
     maintenance_owner: str = ""
     knowledge_types: tuple[str, ...] = ()
+    # Who reads it, which is a different question from how many people write it.
+    # Left empty, the message is scanned: people say "Hermes will read this" long
+    # before anyone thinks to answer an interview field.
+    readers: tuple[str, ...] = ()
     connection: KnowledgeConnectionOptions = field(default_factory=KnowledgeConnectionOptions)
 
 
 def build_wiki_blueprint(request: WikiBlueprintRequest) -> dict[str, object]:
     audience = normalize_audience(request.audience_scale)
     destination = build_knowledge_connection_intent(request.text, options=_destination_options(request))
+    agent_readers = has_agent_readers(request)
     primary, alternative = select_models(
         audience=audience,
         knowledge_types=request.knowledge_types,
         destination_kind=str(destination["kind"]),
+        agent_readers=agent_readers,
     )
     # More than one writer, not "big". Two people already need agreed naming, a
     # canonical link target, and a named owner.
@@ -154,6 +178,8 @@ def build_wiki_blueprint(request: WikiBlueprintRequest) -> dict[str, object]:
         "status": "prepared",
         "audience_scale": audience,
         "shared_audience": shared,
+        "agent_readers": agent_readers,
+        "agent_reader_rules": _agent_reader_payload(agent_readers),
         "destination": destination,
         "organization_model": _model_payload(primary),
         "alternative_model": _model_payload(alternative),
@@ -211,17 +237,27 @@ def normalize_audience(value: str) -> str:
     return _AUDIENCE_ALIASES.get(normalized, UNKNOWN_AUDIENCE)
 
 
+def has_agent_readers(request: WikiBlueprintRequest) -> bool:
+    """Whether an agent is among the readers, from the interview field or the message."""
+    for reader in request.readers:
+        if _contains_any(str(reader or "").casefold(), _AGENT_READER_TERMS):
+            return True
+    return _contains_any(request.text.casefold(), _AGENT_READER_TERMS)
+
+
 def select_models(
     *,
     audience: str,
     knowledge_types: tuple[str, ...],
     destination_kind: str,
+    agent_readers: bool = False,
 ) -> tuple[WikiPattern, WikiPattern]:
     """Pick a primary model and a distinct alternative, most specific signal first."""
     ranked = _ranked_model_names(
         audience=audience,
         knowledge_types=knowledge_types,
         destination_kind=destination_kind,
+        agent_readers=agent_readers,
     )
     resolved = [pattern for pattern in (wiki_pattern(name) for name in ranked) if pattern is not None]
     primary = resolved[0] if resolved else wiki_patterns()[0]
@@ -277,6 +313,7 @@ def _ranked_model_names(
     audience: str,
     knowledge_types: tuple[str, ...],
     destination_kind: str,
+    agent_readers: bool = False,
 ) -> list[str]:
     names: list[str] = []
     for knowledge_type in knowledge_types:
@@ -291,15 +328,49 @@ def _ranked_model_names(
     default_model = _AUDIENCE_DEFAULT_MODELS.get(audience, _AUDIENCE_DEFAULT_MODELS[UNKNOWN_AUDIENCE])
     if default_model not in names:
         names.append(default_model)
+    if agent_readers and not any(
+        _suits_audience(name, audience) and _suits_agent_readers(name) for name in names
+    ):
+        # Demotion needs something to promote. Without this, a solo user whose
+        # agent reads the wiki chooses between PARA, which relocates pages by
+        # design, and a model built for a team - one fails each axis.
+        names.append(_AGENT_SAFE_DEFAULT_MODEL)
     # What the knowledge is about cannot outrank who the wiki is for. A solo
     # developer documenting a repository matches docs-as-code on content and
     # fails it on audience: the review step is friction with no reviewer. Models
     # outside the audience drop behind the ones inside it, and behind the
     # audience default, rather than disappearing - they stay available as the
     # alternative, where the audience note explains the cost.
-    suited = [name for name in names if _suits_audience(name, audience)]
-    unsuited = [name for name in names if name not in suited]
-    return suited + unsuited
+    # Both fit tests at once, audience first. Applying them as two successive
+    # re-sorts let the later one undo the earlier: a solo user documenting code
+    # for an agent had docs-as-code demoted for audience, then promoted straight
+    # back because the model it lost to relocates pages. Sorting is stable, so
+    # signal order survives inside a tier.
+    return sorted(
+        names,
+        key=lambda name: (
+            0 if _suits_audience(name, audience) else 1,
+            0 if not agent_readers or _suits_agent_readers(name) else 1,
+        ),
+    )
+
+
+def _suits_agent_readers(model_name: str) -> bool:
+    pattern = wiki_pattern(model_name)
+    return pattern is None or pattern.suits_agent_readers
+
+
+def _agent_reader_payload(agent_readers: bool) -> list[dict[str, str]]:
+    if not agent_readers:
+        return []
+    return [
+        {"topic": rule.topic, "rule": rule.rule, "failure_if_skipped": rule.failure_if_skipped}
+        for rule in wiki_agent_reader_rules()
+    ]
+
+
+def _contains_any(haystack: str, terms: tuple[str, ...]) -> bool:
+    return any(term in haystack for term in terms)
 
 
 def _suits_audience(model_name: str, audience: str) -> bool:

@@ -52,5 +52,22 @@ vault and a multi-person wiki fail differently. Record the answer in the bluepri
 - Team or organization: Decide who can read and who can write before the first sensitive page exists.
 - Skipped: Either the wiki holds secrets it should not, or the people who need it cannot open it.
 
-Moving from personal to shared is the moment these change. When a solo vault gains readers,
-revisit naming, ownership, and access before adding pages.
+Moving from personal to shared is the moment these change, and shared starts at two writers.
+When a solo vault gains a second writer, revisit naming, ownership, and access before adding pages.
+
+## When an agent is one of the readers
+
+A person skimming a page infers its scope from layout and recovers from a moved file. An agent does
+neither: it cites paths, retrieves whole pages without their neighbours, and cannot tell a stale page
+from a fresh one. These are additional to the rules above, not a replacement for them.
+
+- **Stable page identity** — Give each page a path that survives reorganization, and redirect rather than move.
+  - Skipped: An agent cites a page by its location, so every earlier answer points at a file that is no longer there.
+- **One topic per page** — Split a page that answers more than one question.
+  - Skipped: Retrieval returns whole pages, so a page covering five topics drags four irrelevant ones into context.
+- **Machine-readable header** — Put title, one-line summary, and last-reviewed date in front matter on every page.
+  - Skipped: An agent cannot infer scope or freshness from visual layout the way a person skimming can.
+- **Self-contained pages** — Avoid 'see above', 'as mentioned', and meaning that depends on the neighbouring page.
+  - Skipped: Retrieval delivers one page without its siblings, so the missing context is silently filled in wrong.
+- **Enumerable index** — Keep a listing file an agent can read, not only a visual home page.
+  - Skipped: The agent cannot discover what exists and answers from whatever it happened to match.

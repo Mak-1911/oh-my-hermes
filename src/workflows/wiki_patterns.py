@@ -43,6 +43,19 @@ class WikiPattern:
     # audience is still offered as the alternative rather than dropped, because
     # the audience note explains what it would cost.
     suits_audiences: tuple[str, ...] = AUDIENCE_SCALES
+    # Whether the model holds up when an agent is one of the readers. The test is
+    # path stability: an agent cites a page by its location, so a model that
+    # moves pages as a matter of routine breaks every citation it made.
+    suits_agent_readers: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class WikiAgentReaderRule:
+    """One requirement that appears once an agent reads the wiki, not only people."""
+
+    topic: str
+    rule: str
+    failure_if_skipped: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +84,9 @@ _PATTERNS: Final = (
         ("projects/", "areas/", "resources/", "archive/"),
         "Strong for personal and small-group vaults; needs an explicit owner per area before a team can trust it.",
         suits_audiences=PERSONAL_AUDIENCES,
+        # Moving a page from projects/ to archive/ as work finishes is the whole
+        # mechanic, so paths churn by design and an agent's citations rot.
+        suits_agent_readers=False,
     ),
     WikiPattern(
         "Zettelkasten / evergreen notes",
@@ -204,6 +220,42 @@ _OPERATION_RULES: Final = (
         "Either the wiki holds secrets it should not, or the people who need it cannot open it.",
     ),
 )
+
+
+_AGENT_READER_RULES: Final = (
+    WikiAgentReaderRule(
+        "Stable page identity",
+        "Give each page a path that survives reorganization, and redirect rather than move.",
+        "An agent cites a page by its location, so every earlier answer points at a file that is no longer there.",
+    ),
+    WikiAgentReaderRule(
+        "One topic per page",
+        "Split a page that answers more than one question.",
+        "Retrieval returns whole pages, so a page covering five topics drags four irrelevant ones into context.",
+    ),
+    WikiAgentReaderRule(
+        "Machine-readable header",
+        "Put title, one-line summary, and last-reviewed date in front matter on every page.",
+        "An agent cannot infer scope or freshness from visual layout the way a person skimming can.",
+    ),
+    WikiAgentReaderRule(
+        "Self-contained pages",
+        "Avoid 'see above', 'as mentioned', and meaning that depends on the neighbouring page.",
+        "Retrieval delivers one page without its siblings, so the missing context is silently filled in wrong.",
+    ),
+    WikiAgentReaderRule(
+        "Enumerable index",
+        "Keep a listing file an agent can read, not only a visual home page.",
+        "The agent cannot discover what exists and answers from whatever it happened to match.",
+    ),
+)
+
+AGENT_READER: Final = "agent"
+HUMAN_READER: Final = "human"
+
+
+def wiki_agent_reader_rules() -> tuple[WikiAgentReaderRule, ...]:
+    return _AGENT_READER_RULES
 
 
 def wiki_patterns() -> tuple[WikiPattern, ...]:

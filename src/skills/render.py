@@ -27,7 +27,7 @@ from ..plugin_bundle.omh.awareness import (
     router_keyword_summary,
 )
 from ..workflows.wiki_blueprint import WIKI_BLUEPRINT_SCHEMA_VERSION, wiki_ecosystem_coverage
-from ..workflows.wiki_patterns import wiki_operation_rules, wiki_patterns
+from ..workflows.wiki_patterns import wiki_agent_reader_rules, wiki_operation_rules, wiki_patterns
 
 
 WORKFLOW_REGISTRY_TRIGGER_LIMIT = 9
@@ -1103,7 +1103,7 @@ This is a Hermes-native `{name}` workflow skill.
 
 ## Design Interview
 
-Settle structure before capture: audience scale, the knowledge types that repeat, what someone will search for, and who maintains it. Skip answered turns, cap at five, and close with one model plus one alternative as a skeleton the user approves before anything is written. No maintainer means `unmaintained`, which rules out models needing curation.
+Settle structure before capture: audience scale, whether an agent reads it, the knowledge types that repeat, what someone will search for, and who maintains it. Skip answered turns, cap at five, and close with one model plus one alternative as a skeleton the user approves before anything is written. No maintainer means `unmaintained`, which rules out models needing curation.
 
 Load `references/wiki-blueprint.md` for the interview turns and `{WIKI_BLUEPRINT_SCHEMA_VERSION}` fields, `wiki-patterns.md` for models and what breaks them, `wiki-operations.md` for solo-versus-shared rules, and `wiki-ecosystem.md` for existing skills.
 
@@ -1147,7 +1147,7 @@ def _wiki_blueprint_reference() -> str:
 
 Two or three questions per turn, five turns at most. Skip what the request already answered; a full inventory is not the goal, a structure someone can start today is.
 
-1. **Audience** — who reads it, who writes it (only me / 2-5 people / a team / the whole organization), and which store already exists.
+1. **Audience** — who reads it, who writes it (only me / 2-5 people / a team / the whole organization), **whether an agent is one of the readers**, and which store already exists.
 2. **Content** — which two or three kinds of knowledge actually repeat: decisions, procedures, research, glossary, or troubleshooting.
 3. **Retrieval** — what someone will look for and when. Entry points and naming rules are decided here, not after the pages exist.
 4. **Maintenance** — cadence, owner, retirement rule. No owner means `unmaintained`, which rules out models that need curation.
@@ -1157,7 +1157,8 @@ Route existing `USER.md`/`MEMORY.md` cleanup to `memory-sync`, new durable proje
 
 ## `{WIKI_BLUEPRINT_SCHEMA_VERSION}` fields
 
-- `audience_scale` / `shared_audience` — personal, small_group, team, organization, or unknown.
+- `audience_scale` / `shared_audience` — personal, small_group, team, organization, or unknown. Shared means more than one writer, which starts at two.
+- `agent_readers` / `agent_reader_rules` — whether a machine reads the wiki, and the requirements that appear when it does.
 - `destination` — the classified store, from the destination classifier rather than a vendor assumption.
 - `organization_model` / `alternative_model` — name, rationale, fits_when, breaks_when, skeleton, audience note.
 - `skeleton` / `entry_points` — sections or namespaces, plus the page a reader lands on first.
@@ -1217,8 +1218,18 @@ def _wiki_operations_reference() -> str:
         lines.append(f"- Team or organization: {rule.shared}")
         lines.append(f"- Skipped: {rule.failure_if_skipped}")
         lines.append("")
-    lines.append("Moving from personal to shared is the moment these change. When a solo vault gains readers,")
-    lines.append("revisit naming, ownership, and access before adding pages.")
+    lines.append("Moving from personal to shared is the moment these change, and shared starts at two writers.")
+    lines.append("When a solo vault gains a second writer, revisit naming, ownership, and access before adding pages.")
+    lines.append("")
+    lines.append("## When an agent is one of the readers")
+    lines.append("")
+    lines.append("A person skimming a page infers its scope from layout and recovers from a moved file. An agent does")
+    lines.append("neither: it cites paths, retrieves whole pages without their neighbours, and cannot tell a stale page")
+    lines.append("from a fresh one. These are additional to the rules above, not a replacement for them.")
+    lines.append("")
+    for rule in wiki_agent_reader_rules():
+        lines.append(f"- **{rule.topic}** — {rule.rule}")
+        lines.append(f"  - Skipped: {rule.failure_if_skipped}")
     return "\n".join(lines) + "\n"
 
 

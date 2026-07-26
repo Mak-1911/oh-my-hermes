@@ -17,7 +17,7 @@ from omh.wiki_blueprint import (
     select_models,
     wiki_ecosystem_coverage,
 )
-from omh.wiki_patterns import wiki_operation_rules, wiki_pattern, wiki_patterns
+from omh.wiki_patterns import wiki_agent_reader_rules, wiki_operation_rules, wiki_pattern, wiki_patterns
 
 
 def _blueprint(**kwargs: object) -> dict[str, object]:
@@ -110,6 +110,51 @@ class ModelSelectionTests(unittest.TestCase):
             )
             self.assertIn(primary.name, names)
             self.assertIn(alternative.name, names)
+
+
+class AgentReaderTests(unittest.TestCase):
+    def test_an_agent_reader_is_detected_from_the_message(self) -> None:
+        for text in (
+            "my colleague and the Hermes agent will read this",
+            "개인 볼트인데 에이전트도 읽어",
+            "a wiki Claude can search",
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(_blueprint(text=text)["agent_readers"])
+
+    def test_a_human_only_wiki_carries_no_agent_rules(self) -> None:
+        blueprint = _blueprint(text="a wiki for my teammates", audience_scale="team")
+        self.assertFalse(blueprint["agent_readers"])
+        self.assertEqual(blueprint["agent_reader_rules"], [])
+
+    def test_agent_readers_get_the_requirements_a_person_does_not_need(self) -> None:
+        blueprint = _blueprint(text="the agent reads this too", audience_scale="team")
+        topics = {row["topic"] for row in blueprint["agent_reader_rules"]}
+        self.assertIn("Stable page identity", topics)
+        self.assertIn("One topic per page", topics)
+        self.assertEqual(len(topics), len(wiki_agent_reader_rules()))
+
+    def test_a_model_that_relocates_pages_is_not_primary_for_an_agent(self) -> None:
+        """PARA moves pages between projects/ and archive/, so an agent's citations rot."""
+        human = _blueprint(text="my own vault", audience_scale="personal")
+        agent = _blueprint(text="my own vault, and Claude reads it", audience_scale="personal")
+
+        self.assertEqual(human["organization_model"]["name"], "PARA")
+        self.assertNotEqual(agent["organization_model"]["name"], "PARA")
+        self.assertEqual(agent["alternative_model"]["name"], "PARA")
+
+    def test_audience_fit_still_outranks_agent_fit(self) -> None:
+        """Two demotions applied in sequence let the second undo the first."""
+        blueprint = _blueprint(
+            text="my own repo docs, and an agent reads them",
+            audience_scale="personal",
+            knowledge_types=("code",),
+        )
+        primary = blueprint["organization_model"]["name"]
+        self.assertNotEqual(primary, "Docs-as-code")
+        self.assertNotEqual(primary, "PARA")
+        self.assertIn("personal", wiki_pattern(primary).suits_audiences)
+        self.assertTrue(wiki_pattern(primary).suits_agent_readers)
 
 
 class BlueprintTests(unittest.TestCase):
