@@ -388,7 +388,12 @@ def build_safe_progress_signal(
     return _safe_signal(signal)
 
 
-_CHANGE_CLAIM_ACTIVITY = {"Codex changed files."}
+# Only a confirmed edit counts as a claim worth contradicting. "Codex changed
+# files." comes from a bucket that also matches a line merely mentioning a diff,
+# so it stays out: over-matching is free for the benign `diff_started` label and
+# expensive here.
+_CHANGE_CLAIM_ACTIVITY = {"Codex applied a file change."}
+# An explicit `--event diff_started` is the caller stating the claim outright.
 _CHANGE_CLAIM_EVENT_TYPES = {"diff_started"}
 _SUCCESS_PROCESS_STATUSES = {"completed", "complete", "done", "success", "succeeded", "exited_zero"}
 

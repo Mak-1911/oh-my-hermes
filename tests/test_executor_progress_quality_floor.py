@@ -293,7 +293,23 @@ class ClaimMismatchDetectionTests(unittest.TestCase):
         signal.update(overrides)
         return signal
 
-    def test_reported_change_with_clean_git_is_flagged(self) -> None:
+    def test_a_confirmed_edit_with_clean_git_is_flagged(self) -> None:
+        signal = build_safe_progress_signal(
+            executor_profile="claude_code",
+            process_status="completed",
+            profile_progress_summary={"observable_activity": ["Codex applied a file change."]},
+            git_status_short="",
+            git_diff_stat="",
+        )
+        self.assertTrue(signal["git_observed"])
+        self.assertEqual(infer_progress_event_type(signal), "reported_change_not_observed")
+
+    def test_the_broad_edit_bucket_alone_is_not_a_claim(self) -> None:
+        """"Codex changed files." also fires on a line that merely mentions a diff.
+
+        Over-matching is free for the benign `diff_started` label and expensive
+        for an accusation, so only the confirmed label contradicts anything.
+        """
         signal = build_safe_progress_signal(
             executor_profile="claude_code",
             process_status="completed",
@@ -301,14 +317,13 @@ class ClaimMismatchDetectionTests(unittest.TestCase):
             git_status_short="",
             git_diff_stat="",
         )
-        self.assertTrue(signal["git_observed"])
-        self.assertEqual(infer_progress_event_type(signal), "reported_change_not_observed")
+        self.assertNotEqual(infer_progress_event_type(signal), "reported_change_not_observed")
 
     def test_reported_change_with_a_real_diff_is_not_flagged(self) -> None:
         signal = build_safe_progress_signal(
             executor_profile="claude_code",
             process_status="completed",
-            profile_progress_summary={"observable_activity": ["Codex changed files."]},
+            profile_progress_summary={"observable_activity": ["Codex applied a file change."]},
             git_status_short=" M src/coding/executor_progress.py",
             git_diff_stat="1 file changed, 2 insertions(+)",
         )

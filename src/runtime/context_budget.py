@@ -38,14 +38,54 @@ def run_show_surface(*, full: bool, history_limit: object = None) -> str:
     return f"runtime_show:{'full' if full else history_limit}"
 
 
+# Bookkeeping a progress observation rewrites even when it reports nothing.
+# `update_binding_reporter_state` stamps these on every observation, including
+# suppressed ones, so leaving them in the fingerprint means one intervening
+# `progress-observe` makes an otherwise identical projection look new. A
+# supervising agent always observes between status checks, so that defeated the
+# unchanged check entirely in real use while unit tests -- which call `show`
+# twice in a row -- still passed.
+_FINGERPRINT_VOLATILE_KEYS = frozenset(
+    {
+        "updated_at",
+        "last_observed_at",
+        "last_observed_signal_hash",
+        "last_observed_event_count",
+        "last_observed_artifact_sha256",
+        # The tally of observations deliberately not reported. Counting
+        # suppressions is itself a change in the projection, so leaving this in
+        # meant every suppressed observation un-suppressed the next status
+        # check -- the check defeating itself.
+        "suppressed_duplicate_count",
+    }
+)
+
+
+def _without_volatile_bookkeeping(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        return {
+            key: _without_volatile_bookkeeping(value)
+            for key, value in payload.items()
+            if key not in _FINGERPRINT_VOLATILE_KEYS
+        }
+    if isinstance(payload, list):
+        return [_without_volatile_bookkeeping(item) for item in payload]
+    return payload
+
+
 def payload_fingerprint(payload: Any) -> str:
-    """Hash the observable content of a projection.
+    """Hash what a reader would act on, not every byte of the projection.
 
     Fingerprint the projection itself, never the emitted envelope: the envelope
     carries the budget, which changes on every call and would make every
     emission look new.
+
+    Real new content still changes the hash -- a new event lengthens the event
+    list, and a state change rewrites the run record. Only the per-observation
+    bookkeeping above is excluded.
     """
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    normalized = _without_volatile_bookkeeping(payload)
+    return hashlib.sha256(json.dumps(normalized, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
 def context_budget_ledger_path(paths: OmhPaths) -> Path:

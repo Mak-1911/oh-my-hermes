@@ -436,6 +436,11 @@ def cmd_runtime_progress_observe(args: argparse.Namespace) -> int:
     try:
         codex_summary = summarize_codex_jsonl_file(args.codex_log_jsonl, evidence_refs=args.evidence_ref or []) if args.codex_log_jsonl else None
         profile_summary = _profile_progress_summary(args)
+        _reject_ignored_progress_inputs(
+            executor_profile=str(binding.get("executor_profile", "")),
+            codex_summary=codex_summary,
+            profile_summary=profile_summary,
+        )
         signal = build_safe_progress_signal(
             executor_profile=str(binding.get("executor_profile", "")),
             process_status=args.process_status or "",
@@ -529,6 +534,35 @@ def _require_progress_target(paths, target_type: str, target_id: str) -> None:
             raise OmhError(f"runtime wrapper_session not found: {target_id}")
         return
     raise OmhError(f"unsupported progress target type: {target_type}")
+
+
+def _reject_ignored_progress_inputs(
+    *,
+    executor_profile: str,
+    codex_summary: dict[str, object] | None,
+    profile_summary: dict[str, object] | None,
+) -> None:
+    """Fail when the caller described progress this binding will not read.
+
+    `build_safe_progress_signal` picks exactly one summary by executor profile:
+    codex bindings read `--codex-log-jsonl`, every other profile reads the
+    `--profile-*` flags. Passing the wrong pair used to be accepted silently,
+    and the observation was then inferred from an empty summary -- so an
+    operator who described a failing test run got a generic status back and no
+    indication that their input had been discarded. That is a failure relabelled
+    as a normal result, which this repo's broad-exception policy exists to keep
+    out.
+    """
+    if executor_profile == "codex" and profile_summary is not None and codex_summary is None:
+        raise OmhError(
+            "codex progress bindings read --codex-log-jsonl; the --profile-* flags would be ignored. "
+            "Pass --codex-log-jsonl, or use --event/--summary to state the observation explicitly."
+        )
+    if executor_profile != "codex" and codex_summary is not None:
+        raise OmhError(
+            f"--codex-log-jsonl only applies to codex bindings; this binding is {executor_profile}. "
+            "Use the --profile-* flags instead."
+        )
 
 
 def _profile_progress_summary(args: argparse.Namespace) -> dict[str, object] | None:
