@@ -2,6 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
+# `contract` never imports this module (only `commands.chat` and tests import
+# it), so the edge is one-way and cycle-free, matching the existing
+# `route_hints -> contract` reuse. Sharing the helper keeps the detector on the
+# exact transform the producers ship against instead of a second copy that
+# could drift into disagreeing about what "messenger-safe" means.
+from .contract import RENDER_PROFILE_LIMITED_MARKDOWN, _messenger_safe_body
+
 
 NATIVE_COMMAND_SURFACE_SCHEMA_VERSION = "omh_native_command_surface/v1"
 NATIVE_COMMAND_RENDER_SCHEMA_VERSION = "omh_native_command_render/v1"
@@ -108,14 +115,15 @@ def render_native_command_response(interaction: dict[str, object], *, source: st
         return payload
     rendering = _nested(response, "messenger_rendering")
     body_text = rendering.get("body_text")
+    render_warnings: list[str] = []
     if isinstance(body_text, str):
         rendered_body_text = body_text
         body_text_source = "messenger_rendering.body_text"
-        render_warnings: list[str] = []
     else:
         rendered_body_text = str(response.get("body", ""))
         body_text_source = "missing_messenger_rendering.body_text"
-        render_warnings = ["missing_messenger_safe_body"]
+        render_warnings.append("missing_messenger_safe_body")
+    render_warnings.extend(_unsafe_rendering_warnings(rendering))
     payload.update(
         {
             "render_kind": "chat_response",
@@ -128,6 +136,57 @@ def render_native_command_response(interaction: dict[str, object], *, source: st
         }
     )
     return payload
+
+
+def _unsafe_rendering_warnings(rendering: dict[str, object]) -> list[str]:
+    """Warn when a *present* `messenger_rendering` block is unsafe, not just absent.
+
+    `missing_messenger_safe_body` only fires when `body_text` is absent, so a
+    producer that ships a present-but-untransformed body warned nothing at all.
+    That blind spot is exactly why the route-hint render-profile defect could
+    ship silently until it was fixed producer-side: `body_text` existed the
+    whole time, it just was never made messenger-safe. These codes make the
+    present-but-unsafe states loud so the *next* producer regression is caught
+    by the detector rather than by a reader:
+
+    - `missing_render_profile`: the rendering block never resolved a profile.
+      This is the pre-fix producer shape, where `profile` held a raw source
+      string and no resolved `render_profile` existed. It is a purely
+      structural tripwire, so it catches the whole class - a third rendering
+      path, a refactor that drops the resolve step, a hand-built dict - without
+      needing to inspect the body at all.
+    - `unsafe_limited_markdown_body`: the block declares `limited_markdown` but
+      `body_text` still changes under `_messenger_safe_body`, so an
+      untransformed body is shipping under a profile that promised
+      messenger-safe text.
+
+    An absent `transforms_applied` deliberately gets no code of its own. An
+    empty transform list is legitimate for a body that needed no rewrite, so
+    absence is not evidence of a defect, and a producer that omits the key
+    entirely is already the incomplete shape `missing_render_profile` catches.
+    A third code there would only add noise on payloads the first two already
+    classify.
+
+    These stay warnings rather than errors because `render_warnings` is this
+    module's only severity channel: the render path always falls back to
+    something renderable and reports provenance in `body_text_source`. Raising
+    would turn a legacy-but-renderable payload into a dead wrapper response,
+    which is the opposite of what the fallback exists for.
+    """
+    if not rendering:
+        return []
+    warnings: list[str] = []
+    if "render_profile" not in rendering:
+        warnings.append("missing_render_profile")
+    body_text = rendering.get("body_text")
+    if rendering.get("render_profile") == RENDER_PROFILE_LIMITED_MARKDOWN and isinstance(body_text, str):
+        # `_messenger_safe_body` is lru_cached on the body string, so a repeated
+        # body costs a dict lookup. The transform is idempotent, so a healthy
+        # limited-profile body compares equal and stays silent.
+        safe_body_text, _ = _messenger_safe_body(body_text)
+        if safe_body_text != body_text:
+            warnings.append("unsafe_limited_markdown_body")
+    return warnings
 
 
 def _fallback_card(source: str, *, insert_text: str | None = None) -> dict[str, object]:
