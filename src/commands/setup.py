@@ -22,7 +22,14 @@ from ..version import __version__
 from ..command_path import COMMAND_PATH_MISSING_NEXT_ACTION, inspect_omh_command_path
 from ..capabilities.registry import capability_summary
 from ..capabilities.skills import skill_capabilities
-from ..config_adapter import ensure_external_dir, external_dirs, read_config, remove_external_dir, write_config
+from ..config_adapter import (
+    ensure_external_dir,
+    ensure_plugin_enabled,
+    external_dirs,
+    read_config,
+    remove_external_dir,
+    write_config,
+)
 from ..install.compression_defaults import ensure_compression_defaults
 from ..doctor import DEFAULT_DOCTOR_NEXT_ACTION, doctor_ok, recommended_next_action, run_doctor
 from ..maintenance.doctor import run_doctor_advisories
@@ -41,7 +48,7 @@ from ..manifest import read_manifest
 from ..menubar_app import setup_menubar_app, uninstall_menubar_app
 from ..mcp.host_config import install_mcp_host_config
 from ..mcp_bridge import MCP_HOST_CONFIG_RECIPE_HOSTS
-from ..plugin_pack import PluginPackError, install_plugin_bundle
+from ..plugin_pack import PLUGIN_NAME, PluginPackError, install_plugin_bundle
 from ..probe import probe_capabilities
 from ..release import RELEASE_CHANNELS, package_url_for
 from ..routing.recommend import recommend_skills
@@ -686,10 +693,14 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
     try:
         change = ensure_external_dir(current, paths.skills_dir)
         compression = ensure_compression_defaults(change.text)
+        # Installing the bridge and switching it on are separate steps in
+        # Hermes. Doing only the first leaves an install that passes every
+        # structural check while no OMH tool is reachable in chat.
+        plugin_enable = ensure_plugin_enabled(compression.text, PLUGIN_NAME)
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
-    if not args.dry_run and (change.changed or compression.changed):
-        write_config(paths.hermes_config_path, compression.text)
+    if not args.dry_run and (change.changed or compression.changed or plugin_enable.changed):
+        write_config(paths.hermes_config_path, plugin_enable.text)
     if not args.dry_run:
         update_state(
             paths,
@@ -706,6 +717,7 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
         "skills_dir": str(paths.skills_dir),
         "dry_run": args.dry_run,
         "compression_defaults": {"changed": compression.changed, "message": compression.message},
+        "plugin_enabled": {"changed": plugin_enable.changed, "message": plugin_enable.message},
     }
 
 
