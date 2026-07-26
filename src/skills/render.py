@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from .catalog import (
+    DEEP_INTERVIEW_MAX_ROUNDS,
+    DEEP_INTERVIEW_SOFT_CHECK_ROUND,
     DESCRIPTIONS,
     HarnessDefinition,
     SkillDefinition,
@@ -931,6 +933,92 @@ This is a Hermes-native `{name}` workflow skill.
 ## Boundary
 
 The prepared artifact is `memory_curation_review/v1`. A memory-sync review is not MEMORY.md or USER.md modification evidence until the approved write gate is observed. Hermes itself reads and writes these files; OMH runtime never writes `~/.hermes` (DIRECTION Rule 5).
+
+## Use When
+
+{definition.use_when}
+
+    Strong routing signals: {triggers}
+
+## Catalog Metadata
+
+{_skill_metadata_block(definition)}
+
+{_common_rail_sections(definition, primary_harness)}
+"""
+    return SkillTemplate(name, _frontmatter(name, definition.description) + "\n" + body)
+
+
+def deep_interview_skill() -> SkillTemplate:
+    name = "deep-interview"
+    definition = _definitions_by_name()[name]
+    title = name.replace("-", " ").title()
+    triggers = ", ".join(f"`{trigger}`" for trigger in definition.triggers)
+    primary_harness = primary_harness_for_skill(name)
+    max_rounds = DEEP_INTERVIEW_MAX_ROUNDS
+    soft_round = DEEP_INTERVIEW_SOFT_CHECK_ROUND
+    body = f"""# {title}
+
+This is a Hermes-native `{name}` workflow skill.
+
+{_quality_rubric_sections(definition)}
+
+{awareness_workflow_context_markdown(name)}
+
+## Interview Round Protocol
+
+This interview is bounded: at most {max_rounds} rounds, one question per round.
+
+Before each question, find the most recent round header you emitted in this thread and add 1.
+If there is no header, you are at Round 1. If you have already asked questions here but cannot
+recover the number (for example after context compaction), do not restart at Round 1 — run the
+mid-interview check now and continue from Round {soft_round}.
+
+**Every question is preceded by this header on its own line, then a blank line, then the question:**
+
+    Round {{n}}/{max_rounds} · Clarity: {{percent}}% ({{resolved}}/3) · Targeting: {{dimension}}
+
+- Clarity is scored against exactly three fixed dimensions: **outcome** (what is true when this
+  is done), **constraints and non-goals** (what bounds the work), and **success criteria** (how
+  anyone would verify it). `{{resolved}}` counts how many you could restate in one sentence
+  without a qualifier. The denominator is always 3; `{{percent}}` is 0, 33, 67, or 100.
+- `{{dimension}}` names the unresolved dimension this question targets — the one that most
+  changes the plan, not the easiest one.
+- A new concern raised in an answer files under one of the three dimensions. It never extends
+  the denominator and never extends the round budget. Once the budget is spent, record it as an
+  assumption instead of asking about it.
+
+**Voice — the header is instrumentation; the question is a conversation.**
+
+- Never fold counters, ratios, or dimension names into the question sentence.
+- Ask the way a senior colleague would ask out loud: one sentence, no preamble, no restating
+  what the user just said, no numbered sub-parts. If it reads like a form field, rewrite it.
+- Outside the header line, the user never hears the words round, budget, dimension, or resolved.
+- Mirror the user's language in the header labels and the question. Korean header:
+  `라운드 {{n}}/{max_rounds} · 명확도: {{percent}}% ({{resolved}}/3) · 확인 중: {{목표/제약과 비목표/성공 기준}}`.
+  Never mix languages in one message.
+- The clarified brief follows the same rule: write its headings and labels in the user's
+  language. Translate those terms, never transliterate them.
+
+**Mid-interview check — this is not a stop rule.**
+
+Before asking the question that would be Round {soft_round}, offer the choice instead: say where
+things stand and ask whether to keep going or plan now — your own words, the user's language,
+one short sentence. The check is not a round: emit it without a header. If the user chooses to
+continue, the next question is Round {soft_round}; if they choose to plan, stop rule 2 applies.
+
+**Stop rules — the first match ends the interview.**
+
+1. **All three dimensions resolved.** Emit the clarified brief and continue to planning.
+2. **The user asks to stop.** "Just plan it", "그냥 해줘", or any explicit request to proceed ends
+   questioning immediately, at any round. Emit the brief and record each unresolved dimension as
+   an assumption with the value you are assuming.
+3. **Budget reached at Round {max_rounds}.** After the Round {max_rounds} answer, do not ask another
+   question. Say plainly that you are moving to the brief with what you have, name what stayed
+   unresolved, and continue.
+
+These are stop rules you follow, not caps OMH enforces. When torn between one more question and
+stopping, stop and plan.
 
 ## Use When
 

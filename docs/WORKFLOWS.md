@@ -471,7 +471,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Remaining ambiguity is listed only when it changes the plan, risk, or stop condition.
   - No implementation handoff is prepared until the blocking decision is resolved.
 - Recovery notes:
-  - If the user answers with new ambiguity, ask the next decision-changing question instead of planning too early.
+  - If an answer surfaces new ambiguity, file it under one of the three clarity dimensions and keep asking only while the round budget allows; once round 6 is reached, record the rest as assumptions and plan.
   - If repo evidence can answer the question, inspect it before asking the user.
 - Required inputs:
   - initial request
@@ -486,7 +486,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Safety rules:
   - Ask one question at a time.
   - Gather discoverable repo facts before asking the user.
-  - Stop interviewing once ambiguity is low enough to plan.
+  - Stop interviewing when all three clarity dimensions are resolved, the user asks to stop, or round 6 is reached.
 
 ### team
 
@@ -7797,6 +7797,7 @@ Clarify intent and boundaries one question at a time before planning or executio
 - Stop conditions:
   - ambiguity is low enough
   - non-goals and decision boundaries are explicit
+  - the round budget is exhausted or the user asked to stop
 - Verification:
   - pressure-test assumptions
   - capture transcript or summary
@@ -7804,6 +7805,7 @@ Clarify intent and boundaries one question at a time before planning or executio
   - `ambiguity_identified`
   - `blocking_question_asked`
   - `answer_recorded`
+  - `round_budget_respected`
   - `clarified_brief_ready`
 - Wrapper actions:
   - `answer:clarify`

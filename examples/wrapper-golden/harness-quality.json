@@ -73,6 +73,7 @@
           "ambiguity_identified",
           "blocking_question_asked",
           "answer_recorded",
+          "round_budget_respected",
           "clarified_brief_ready"
         ],
         "wrapper_actions": ["answer:clarify", "cancel", "rerun_plan"]

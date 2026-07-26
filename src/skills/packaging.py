@@ -6,6 +6,7 @@ from .catalog import installable_skill_definitions
 from .render import (
     SkillReferenceTemplate,
     SkillTemplate,
+    deep_interview_skill,
     memory_new_skill,
     memory_sync_skill,
     router_reference_templates,
@@ -23,6 +24,8 @@ def builtin_skill_reference_templates() -> list[SkillReferenceTemplate]:
 
 
 def _skill_template_for(name: str) -> SkillTemplate:
+    if name == "deep-interview":
+        return deep_interview_skill()
     if name == "memory-new":
         return memory_new_skill()
     if name == "memory-sync":

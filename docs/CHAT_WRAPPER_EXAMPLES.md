@@ -1016,12 +1016,22 @@ pm
 Hermes Agent  BOT
 [omh] deep-interview - This needs a clarification workflow before planning.
 
-I will ask one blocking question in the same thread before any plan or handoff
-is treated as ready.
+I will ask one blocking question at a time in this thread - at most 6 rounds -
+then hand off a clarified brief.
 
 [ Answer clarification ] [ Cancel ]
 
 Claim boundary: No plan or execution has started.
+```
+
+Hermes then runs the bounded interview. Each question carries a round header, and
+the question itself stays in the user's language:
+
+```text
+Hermes Agent  BOT
+라운드 1/6 · 명확도: 0% (0/3) · 확인 중: 목표
+
+지금 온보딩에서 사람들이 가장 많이 막히는 지점이 어디예요?
 ```
 
 What gets better for the team:
@@ -1030,6 +1040,8 @@ What gets better for the team:
 - Hermes asks for the missing decision instead of sending vague work to a coding
   executor.
 - Planning and handoff buttons stay behind the clarification gate.
+- The round header makes the interview's length visible and bounded, so questioning
+  cannot run on indefinitely.
 
 ### Release Evidence Review
 

@@ -17,7 +17,12 @@ from ..memory import validate_handoff_context_pack
 from ..observation_journal import append_observation_event
 from ..paths import OmhPaths
 from ..routing.recommend import recommend_skills
-from ..skills.catalog import harness_quality_contract
+from ..skills.catalog import (
+    DEEP_INTERVIEW_CLARITY_DIMENSIONS,
+    DEEP_INTERVIEW_MAX_ROUNDS,
+    DEEP_INTERVIEW_SOFT_CHECK_ROUND,
+    harness_quality_contract,
+)
 
 
 SCHEMA_VERSION = "hermes_plan/v1"
@@ -1015,6 +1020,12 @@ def _deep_interview_contract(
                 "important constraints or non-goals",
                 "success signal the wrapper can later report",
             ],
+            # Static interview policy. These describe the bounded interview the skill
+            # instructs; they are not live counters. `rerun_hermes_plan` is stateless, so a
+            # `round` field would report 1 forever. The live count lives in the thread header.
+            "max_rounds": DEEP_INTERVIEW_MAX_ROUNDS,
+            "soft_check_round": DEEP_INTERVIEW_SOFT_CHECK_ROUND,
+            "clarity_dimensions": list(DEEP_INTERVIEW_CLARITY_DIMENSIONS),
             "after_answer_next_action": "rerun_hermes_plan",
         }
     return {
