@@ -139,3 +139,86 @@ class LegacyAndFirstRunTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WorkflowContentChangeTests(unittest.TestCase):
+    """`omh update` must be able to say whether the workflow pack actually moved.
+
+    On preview the version does not change between updates, so the version line
+    cannot answer it. The manifest hash can, with no network call.
+    """
+
+    def _paths(self, tmp: str):
+        from pathlib import Path
+
+        from omh.system.paths import OmhPaths
+
+        return OmhPaths(omh_home=Path(tmp) / "omh", hermes_home=Path(tmp) / "hermes")
+
+    def test_identical_content_is_reported_as_unchanged(self) -> None:
+        import tempfile
+
+        from omh.commands.setup import _workflow_content_status
+        from omh.install.installer import install_skill_pack
+
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(tmp)
+            install_skill_pack(paths, source="builtin", source_dir=None, force=True, dry_run=False, profile="core")
+            first = _workflow_content_status(paths, "", dry_run=False)
+            self.assertFalse(first["known"])  # nothing to compare against yet
+            baseline = str(first["current_sha256"])
+
+            install_skill_pack(paths, source="builtin", source_dir=None, force=True, dry_run=False, profile="core")
+            second = _workflow_content_status(paths, baseline, dry_run=False)
+            self.assertTrue(second["known"])
+            self.assertFalse(second["changed"])
+
+    def test_a_real_content_move_is_reported_as_changed(self) -> None:
+        import tempfile
+
+        from omh.commands.setup import _workflow_content_status
+        from omh.install.installer import install_skill_pack
+
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(tmp)
+            install_skill_pack(paths, source="builtin", source_dir=None, force=True, dry_run=False, profile="core")
+            baseline = str(_workflow_content_status(paths, "", dry_run=False)["current_sha256"])
+
+            install_skill_pack(paths, source="builtin", source_dir=None, force=True, dry_run=False, profile="full")
+            after = _workflow_content_status(paths, baseline, dry_run=False)
+            self.assertTrue(after["known"])
+            self.assertTrue(after["changed"])
+
+    def test_dry_run_makes_no_claim(self) -> None:
+        import tempfile
+
+        from omh.commands.setup import _workflow_content_status
+
+        with tempfile.TemporaryDirectory() as tmp:
+            status = _workflow_content_status(self._paths(tmp), "abc", dry_run=True)
+            self.assertFalse(status["known"])
+            self.assertNotIn("changed", status)
+
+    def test_missing_manifest_makes_no_claim(self) -> None:
+        import tempfile
+
+        from omh.commands.setup import _workflow_content_status
+
+        with tempfile.TemporaryDirectory() as tmp:
+            status = _workflow_content_status(self._paths(tmp), "abc", dry_run=False)
+            self.assertFalse(status["known"])
+            self.assertNotIn("changed", status)
+
+    def test_previous_hash_comes_from_recorded_state(self) -> None:
+        import json
+        import tempfile
+
+        from omh.commands.setup import _previous_manifest_sha256
+
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(tmp)
+            self.assertEqual(_previous_manifest_sha256(paths), "")
+
+            paths.runtime_state_path.parent.mkdir(parents=True, exist_ok=True)
+            paths.runtime_state_path.write_text(json.dumps({"manifest_sha256": "cafe"}), encoding="utf-8")
+            self.assertEqual(_previous_manifest_sha256(paths), "cafe")
