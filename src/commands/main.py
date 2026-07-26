@@ -217,7 +217,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  omh menubar status\n"
             "  omh mcp manifest\n"
             "  omh mcp config-recipe --host codex\n"
-            "  omh release evidence-bundle --version 1.0.2 --write\n"
+            "  omh release evidence-bundle --version 1.0.3 --write\n"
             "  omh plugin observe-host --host hermes-agent --session <session-id> --event plugin_load --evidence-ref <host-log>\n"
             "  omh loop status\n"
             "  omh ops list\n"
@@ -343,7 +343,7 @@ Useful operator commands:
                           Show observed hermes-achievements badges
   omh menubar status     Show the OMH menu bar status summary
   omh mcp manifest       Print the optional stdio MCP bridge manifest
-  omh release evidence-bundle --version 1.0.2 --write
+  omh release evidence-bundle --version 1.0.3 --write
                           Write local deterministic release evidence
   omh plugin observe-host --host hermes-agent --session <session-id> --event plugin_load --evidence-ref <host-log>
   omh loop status        Show loopable goal cycle state
