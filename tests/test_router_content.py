@@ -20,6 +20,8 @@ from omh.capabilities.orchestration import orchestration_patterns
 from omh.wrapper.contract import VISIBLE_ACTIONS
 from omh.roles import role_definitions, role_file_markdown, roles_reference_markdown
 from omh.converter import convert_skill
+from omh.wiki_blueprint import WIKI_BLUEPRINT_SCHEMA_VERSION, wiki_ecosystem_coverage
+from omh.wiki_patterns import wiki_operation_rules, wiki_patterns
 from omh.skill_pack import (
     DESCRIPTIONS,
     builtin_definitions,
@@ -1092,12 +1094,62 @@ class RouterContentTests(unittest.TestCase):
         self.assertEqual(wiki.hermes_role, "memory-keeper")
         self.assertIn("external knowledge store", wiki.triggers)
         self.assertIn("Obsidian", wiki.triggers)
-        self.assertTrue(any("destination preference" in item for item in wiki.required_inputs))
+        self.assertTrue(any("destination or existing store" in item for item in wiki.required_inputs))
         self.assertIn("destination-aware", " ".join(wiki.expected_outputs))
         self.assertIn("Current lane: **Retained knowledge** (`memory-new`, `memory-sync`, `wiki`)", content)
         self.assertIn("observed external write", content)
         self.assertNotIn("Current lane: **Materials and visual summaries** (`wiki`)", content)
         self.assertNotEqual(wiki.category, "materials")
+
+    def test_wiki_contract_surfaces_construction_design(self) -> None:
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        templates = {template.name: template for template in builtin_skill_templates()}
+        wiki = definitions["wiki"]
+        content = templates["wiki"].content
+
+        self.assertEqual(wiki.phase, "design-and-capture")
+        self.assertTrue(any("audience scale" in item for item in wiki.required_inputs))
+        self.assertTrue(any("maintenance owner" in item for item in wiki.required_inputs))
+        self.assertIn(WIKI_BLUEPRINT_SCHEMA_VERSION, " ".join(wiki.expected_outputs))
+        self.assertIn("## Design Interview", content)
+        self.assertIn("references/wiki-blueprint.md", content)
+        self.assertIn("wiki-ecosystem.md", content)
+        self.assertIn(WIKI_BLUEPRINT_SCHEMA_VERSION, content)
+        # The blueprint must never read as a store that now exists.
+        self.assertIn("not evidence that a store was created", content)
+
+    def test_wiki_references_carry_patterns_operations_and_ecosystem(self) -> None:
+        references = {
+            template.relative_path: template
+            for template in builtin_skill_reference_templates()
+            if template.skill_name == "wiki"
+        }
+
+        self.assertEqual(
+            sorted(references),
+            [
+                "references/wiki-blueprint.md",
+                "references/wiki-ecosystem.md",
+                "references/wiki-operations.md",
+                "references/wiki-patterns.md",
+            ],
+        )
+        blueprint = references["references/wiki-blueprint.md"].content
+        self.assertIn("## Interview turns", blueprint)
+        self.assertIn("`missing_facts`", blueprint)
+        patterns = references["references/wiki-patterns.md"].content
+        for pattern in wiki_patterns():
+            self.assertIn(f"## {pattern.name}", patterns)
+            self.assertIn("Breaks when:", patterns)
+        operations = references["references/wiki-operations.md"].content
+        for rule in wiki_operation_rules():
+            self.assertIn(f"## {rule.topic}", operations)
+            self.assertIn(rule.shared, operations)
+        ecosystem = references["references/wiki-ecosystem.md"].content
+        for coverage in wiki_ecosystem_coverage():
+            self.assertIn(coverage.item.name, ecosystem)
+        # Storage backends are not wiki-construction material.
+        self.assertNotIn("HSM-backed vault", ecosystem)
 
     def test_visual_summary_contract_surfaces_stay_in_sync(self) -> None:
         definitions = {definition.name: definition for definition in builtin_definitions()}

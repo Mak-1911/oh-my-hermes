@@ -21,10 +21,13 @@ from .catalog import (
     surface_exposure_for_skill,
     workflow_reference_definitions,
 )
+from ..catalogs.awesome_hermes_agent import awesome_hermes_catalog
 from ..plugin_bundle.omh.awareness import (
     awareness_workflow_context_markdown,
     router_keyword_summary,
 )
+from ..workflows.wiki_blueprint import WIKI_BLUEPRINT_SCHEMA_VERSION, wiki_ecosystem_coverage
+from ..workflows.wiki_patterns import wiki_operation_rules, wiki_patterns
 
 
 WORKFLOW_REGISTRY_TRIGGER_LIMIT = 9
@@ -1082,6 +1085,171 @@ OMH project memory does not mutate Hermes internal memory. A `memory_new_candida
 {_common_rail_sections(definition, primary_harness)}
 """
     return SkillTemplate(name, _frontmatter(name, definition.description) + "\n" + body)
+
+
+def wiki_skill() -> SkillTemplate:
+    name = "wiki"
+    definition = _definitions_by_name()[name]
+    title = name.replace("-", " ").title()
+    triggers = ", ".join(f"`{trigger}`" for trigger in definition.triggers)
+    primary_harness = primary_harness_for_skill(name)
+    body = f"""# {title}
+
+This is a Hermes-native `{name}` workflow skill.
+
+{_quality_rubric_sections(definition)}
+
+{awareness_workflow_context_markdown(name)}
+
+## Design Interview
+
+Settle structure before capture: audience scale, the knowledge types that repeat, what someone will search for, and who maintains it. Skip answered turns, cap at five, and close with one model plus one alternative as a skeleton the user approves before anything is written. No maintainer means `unmaintained`, which rules out models needing curation.
+
+Load `references/wiki-blueprint.md` for the interview turns and `{WIKI_BLUEPRINT_SCHEMA_VERSION}` fields, `wiki-patterns.md` for models and what breaks them, `wiki-operations.md` for solo-versus-shared rules, and `wiki-ecosystem.md` for existing skills.
+
+## Boundary
+
+A `{WIKI_BLUEPRINT_SCHEMA_VERSION}` is prepared design context, not evidence that a store was created, written to, or migrated. OMH does not host the wiki; the user's own store does.
+
+## Use When
+
+{definition.use_when}
+
+    Strong routing signals: {triggers}
+
+## Catalog Metadata
+
+{_skill_metadata_block(definition)}
+
+{_common_rail_sections(definition, primary_harness)}
+"""
+    return SkillTemplate(name, _frontmatter(name, definition.description) + "\n" + body)
+
+
+def wiki_reference_templates() -> list[SkillReferenceTemplate]:
+    return list(_wiki_reference_templates_cached())
+
+
+@lru_cache(maxsize=1)
+def _wiki_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
+    return (
+        SkillReferenceTemplate("wiki", "references/wiki-blueprint.md", _wiki_blueprint_reference()),
+        SkillReferenceTemplate("wiki", "references/wiki-patterns.md", _wiki_patterns_reference()),
+        SkillReferenceTemplate("wiki", "references/wiki-operations.md", _wiki_operations_reference()),
+        SkillReferenceTemplate("wiki", "references/wiki-ecosystem.md", _wiki_ecosystem_reference()),
+    )
+
+
+def _wiki_blueprint_reference() -> str:
+    return f"""# Wiki Blueprint
+
+## Interview turns
+
+Two or three questions per turn, five turns at most. Skip what the request already answered; a full inventory is not the goal, a structure someone can start today is.
+
+1. **Audience** — who reads it, who writes it (only me / 2-5 people / a team / the whole organization), and which store already exists.
+2. **Content** — which two or three kinds of knowledge actually repeat: decisions, procedures, research, glossary, or troubleshooting.
+3. **Retrieval** — what someone will look for and when. Entry points and naming rules are decided here, not after the pages exist.
+4. **Maintenance** — cadence, owner, retirement rule. No owner means `unmaintained`, which rules out models that need curation.
+5. **Proposal** — one model plus one alternative, each with rationale and breaking conditions, shown as a skeleton to approve before anything is written.
+
+Route existing `USER.md`/`MEMORY.md` cleanup to `memory-sync`, new durable project facts to `memory-new`, and connector access or workspace permissions to `external-connector-readiness`.
+
+## `{WIKI_BLUEPRINT_SCHEMA_VERSION}` fields
+
+- `audience_scale` / `shared_audience` — personal, small_group, team, organization, or unknown.
+- `destination` — the classified store, from the destination classifier rather than a vendor assumption.
+- `organization_model` / `alternative_model` — name, rationale, fits_when, breaks_when, skeleton, audience note.
+- `skeleton` / `entry_points` — sections or namespaces, plus the page a reader lands on first.
+- `conventions` — naming, linking, and entry-point rules for this audience.
+- `maintenance` — owner, cadence, duplication, retirement, and access rules; `unmaintained` when nobody owns it.
+- `seed_page_cap` — at most ten pages worth creating today, each with a one-line purpose.
+- `ecosystem_candidates` — upstream skills worth evaluating first, metadata only.
+- `missing_facts` — what the interview still needs; never guessed.
+
+A blueprint is prepared design context. It is not evidence that a store was created, written to, migrated, or that any page exists.
+"""
+
+
+def _wiki_patterns_reference() -> str:
+    lines = [
+        "# Wiki Organization Patterns",
+        "",
+        "Pick one model, name why it fits, and say what would break it. A model presented without its breaking",
+        "conditions is a guess wearing a name. Pair with `references/wiki-operations.md` for the rules that keep",
+        "the chosen model alive.",
+        "",
+    ]
+    for pattern in wiki_patterns():
+        lines.append(f"## {pattern.name}")
+        lines.append("")
+        lines.append(pattern.one_line)
+        lines.append("")
+        lines.append("Fits when:")
+        lines.extend(f"- {item}" for item in pattern.fits_when)
+        lines.append("")
+        lines.append("Breaks when:")
+        lines.extend(f"- {item}" for item in pattern.breaks_when)
+        lines.append("")
+        skeleton = ", ".join(f"`{item}`" for item in pattern.skeleton)
+        lines.append(f"Skeleton: {skeleton}")
+        lines.append("")
+        lines.append(f"Audience: {pattern.audience_note}")
+        lines.append("")
+    lines.append("Models combine. A decision log inside a docs-as-code repository, or maps of content over a")
+    lines.append("Zettelkasten, are normal. Combining more than two is how a wiki becomes unmaintainable.")
+    return "\n".join(lines) + "\n"
+
+
+def _wiki_operations_reference() -> str:
+    lines = [
+        "# Wiki Operating Rules",
+        "",
+        "Each row is a decision that has to be made once. The personal and shared answers differ because a solo",
+        "vault and a multi-person wiki fail differently. Record the answer in the blueprint's `maintenance` and",
+        "`conventions` fields rather than leaving it implicit.",
+        "",
+    ]
+    for rule in wiki_operation_rules():
+        lines.append(f"## {rule.topic}")
+        lines.append("")
+        lines.append(f"- Personal or small group: {rule.personal}")
+        lines.append(f"- Team or organization: {rule.shared}")
+        lines.append(f"- Skipped: {rule.failure_if_skipped}")
+        lines.append("")
+    lines.append("Moving from personal to shared is the moment these change. When a solo vault gains readers,")
+    lines.append("revisit naming, ownership, and access before adding pages.")
+    return "\n".join(lines) + "\n"
+
+
+def _wiki_ecosystem_reference() -> str:
+    catalog = awesome_hermes_catalog()
+    entries = wiki_ecosystem_coverage()
+    lines = [
+        "# Wiki Ecosystem Candidates",
+        "",
+        f"Upstream `{catalog.source.repo}` entries whose OMH coverage names the `wiki` surface, derived from the",
+        f"catalog snapshot retrieved {catalog.source.retrieved_at} at commit `{catalog.source.commit[:12]}`.",
+        "",
+        "Check this list before designing a bespoke structure. Route a promising candidate to `skill-scout` for",
+        "evaluation; adopting one is a separate decision with its own evidence.",
+        "",
+    ]
+    if not entries:
+        lines.append("No upstream entry currently maps to the `wiki` surface. Design directly and say so.")
+        lines.append("")
+    for coverage in entries:
+        item = coverage.item
+        lines.append(f"## {item.name}")
+        lines.append("")
+        lines.append(f"- Source: {item.url}")
+        lines.append(f"- Section: {item.section} | maturity: {item.maturity}")
+        lines.append(f"- Summary: {item.summary}")
+        lines.append(f"- OMH coverage: {coverage.status} (adoption priority {coverage.priority})")
+        lines.append(f"- Related surfaces: {', '.join(coverage.omh_surfaces)}")
+        lines.append("")
+    lines.append(catalog.source.claim_boundary)
+    return "\n".join(lines) + "\n"
 
 
 def workflow_skill(name: str) -> SkillTemplate:
