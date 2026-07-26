@@ -14,13 +14,13 @@ wiki; the user's own store does, and the blueprint says so in its own boundary.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Final
 
 from ..catalogs.awesome_hermes_agent import AwesomeHermesCoverage, awesome_hermes_coverage
 from .knowledge_connections import KnowledgeConnectionOptions, build_knowledge_connection_intent
 from .wiki_patterns import (
-    SHARED_AUDIENCES,
+    MULTI_WRITER_AUDIENCES,
     WikiPattern,
     wiki_operation_rules,
     wiki_pattern,
@@ -90,7 +90,28 @@ _AUDIENCE_DEFAULT_MODELS: Final = {
     UNKNOWN_AUDIENCE: "Map of Content (MOC)",
 }
 
-_REPO_DESTINATION_KINDS: Final = {"markdown_folder", "local_markdown_folder"}
+# Only a folder the user actually asked for. `local_markdown_folder` is the
+# classifier's default when no destination was named at all, so treating it as a
+# repository signal would hand docs-as-code - review-gated and team-first - to a
+# solo user who said nothing about where the wiki lives.
+_REPO_DESTINATION_KINDS: Final = {"markdown_folder"}
+
+UNKNOWN_DESTINATION_KIND: Final = "unknown_external_destination"
+
+# Vault wording the shared classifier reads only from an explicit target. Bare
+# "vault" is left out on purpose: a secrets vault is not a knowledge vault.
+_VAULT_TERMS: Final = ("obsidian", "옵시디언", "markdown vault", "마크다운 볼트")
+
+# Kinds the classifier only returns when the request actually identified a store,
+# by message text or by option. `local_markdown_folder` is missing on purpose: it
+# is what comes back when nothing was said.
+_CLASSIFIED_DESTINATION_KINDS: Final = {
+    "markdown_vault",
+    "notion_knowledge_base",
+    "google_document_store",
+    "database",
+    "markdown_folder",
+}
 
 # Terms that mark an upstream entry as knowledge-structure material rather than a
 # storage backend.
@@ -118,13 +139,15 @@ class WikiBlueprintRequest:
 
 def build_wiki_blueprint(request: WikiBlueprintRequest) -> dict[str, object]:
     audience = normalize_audience(request.audience_scale)
-    destination = build_knowledge_connection_intent(request.text, options=request.connection)
+    destination = build_knowledge_connection_intent(request.text, options=_destination_options(request))
     primary, alternative = select_models(
         audience=audience,
         knowledge_types=request.knowledge_types,
         destination_kind=str(destination["kind"]),
     )
-    shared = audience in SHARED_AUDIENCES
+    # More than one writer, not "big". Two people already need agreed naming, a
+    # canonical link target, and a named owner.
+    shared = audience in MULTI_WRITER_AUDIENCES
     owner = request.maintenance_owner.strip()
     return {
         "schema_version": WIKI_BLUEPRINT_SCHEMA_VERSION,
@@ -161,6 +184,26 @@ def build_wiki_blueprint(request: WikiBlueprintRequest) -> dict[str, object]:
     }
 
 
+def _destination_options(request: WikiBlueprintRequest) -> KnowledgeConnectionOptions:
+    """Read a vault named in the message as the destination it plainly is.
+
+    The shared classifier resolves Notion, Google Drive, databases, and markdown
+    folders from message text, but Obsidian only from an explicit option, so
+    "structure my Obsidian vault" fell through to the unnamed-folder default.
+    Research-department depends on that asymmetry - a passing "using Obsidian if
+    possible" in a recurring-ops request must not become a store commitment - so
+    the promotion happens here, where naming a vault *is* choosing where the wiki
+    lives, instead of in the classifier both lanes share.
+    """
+    if request.connection.knowledge_store.strip() or request.connection.storage.strip():
+        return request.connection
+    haystack = request.text.casefold()
+    for term in _VAULT_TERMS:
+        if term in haystack:
+            return replace(request.connection, knowledge_store=term)
+    return request.connection
+
+
 def normalize_audience(value: str) -> str:
     normalized = str(value or "").strip().casefold()
     if not normalized:
@@ -184,7 +227,14 @@ def select_models(
     primary = resolved[0] if resolved else wiki_patterns()[0]
     alternative = next((pattern for pattern in resolved[1:] if pattern.name != primary.name), None)
     if alternative is None:
-        alternative = next(pattern for pattern in wiki_patterns() if pattern.name != primary.name)
+        # Falling back to the first catalog entry hands an organization-wide wiki
+        # a personal-scale model as its second option. Prefer one that fits the
+        # audience, and only then take whatever is left.
+        remaining = [pattern for pattern in wiki_patterns() if pattern.name != primary.name]
+        alternative = next(
+            (pattern for pattern in remaining if _suits_audience(pattern.name, audience)),
+            remaining[0],
+        )
     return primary, alternative
 
 
@@ -241,7 +291,22 @@ def _ranked_model_names(
     default_model = _AUDIENCE_DEFAULT_MODELS.get(audience, _AUDIENCE_DEFAULT_MODELS[UNKNOWN_AUDIENCE])
     if default_model not in names:
         names.append(default_model)
-    return names
+    # What the knowledge is about cannot outrank who the wiki is for. A solo
+    # developer documenting a repository matches docs-as-code on content and
+    # fails it on audience: the review step is friction with no reviewer. Models
+    # outside the audience drop behind the ones inside it, and behind the
+    # audience default, rather than disappearing - they stay available as the
+    # alternative, where the audience note explains the cost.
+    suited = [name for name in names if _suits_audience(name, audience)]
+    unsuited = [name for name in names if name not in suited]
+    return suited + unsuited
+
+
+def _suits_audience(model_name: str, audience: str) -> bool:
+    if audience == UNKNOWN_AUDIENCE:
+        return True
+    pattern = wiki_pattern(model_name)
+    return pattern is None or audience in pattern.suits_audiences
 
 
 def _model_payload(pattern: WikiPattern) -> dict[str, object]:
@@ -288,6 +353,12 @@ def _missing_facts(
         missing.append("maintenance owner and review cadence")
     if not [item for item in knowledge_types if str(item or "").strip()]:
         missing.append("knowledge types the wiki must hold")
-    if destination["kind"] == "unknown_external_destination" or not destination["explicit_target"]:
+    # Asking again for something the message already said is the round-trip this
+    # skill exists to remove. "Set up a wiki in Notion" names the store even
+    # though no `--knowledge-store` option was passed, so only a named-but-
+    # unverified target or a bare default stays open.
+    if destination["kind"] == UNKNOWN_DESTINATION_KIND:
+        missing.append("confirmation that the named destination exists")
+    elif str(destination["kind"]) not in _CLASSIFIED_DESTINATION_KINDS and not destination["explicit_target"]:
         missing.append("destination store or confirmation that it exists")
     return missing

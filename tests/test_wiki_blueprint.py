@@ -17,7 +17,7 @@ from omh.wiki_blueprint import (
     select_models,
     wiki_ecosystem_coverage,
 )
-from omh.wiki_patterns import wiki_operation_rules, wiki_patterns
+from omh.wiki_patterns import wiki_operation_rules, wiki_pattern, wiki_patterns
 
 
 def _blueprint(**kwargs: object) -> dict[str, object]:
@@ -56,9 +56,39 @@ class ModelSelectionTests(unittest.TestCase):
         _, alternative = select_models(
             audience="team",
             knowledge_types=("onboarding",),
-            destination_kind="local_markdown_folder",
+            destination_kind="markdown_folder",
         )
         self.assertEqual(alternative.name, "Docs-as-code")
+
+    def test_unstated_destination_is_not_a_repository_signal(self) -> None:
+        """`local_markdown_folder` is the classifier's default when nothing was said."""
+        primary, _ = select_models(
+            audience="personal",
+            knowledge_types=(),
+            destination_kind="local_markdown_folder",
+        )
+        self.assertNotEqual(primary.name, "Docs-as-code")
+        self.assertEqual(primary.name, "PARA")
+
+    def test_audience_outranks_knowledge_type_when_the_model_does_not_fit(self) -> None:
+        """A solo developer documenting a repo matches docs-as-code on content, not on audience."""
+        primary, alternative = select_models(
+            audience="personal",
+            knowledge_types=("code",),
+            destination_kind="markdown_folder",
+        )
+        self.assertNotEqual(primary.name, "Docs-as-code")
+        # Demoted, not dropped: its audience note explains what it would cost.
+        self.assertEqual(alternative.name, "Docs-as-code")
+
+    def test_fallback_alternative_fits_the_audience(self) -> None:
+        _, alternative = select_models(
+            audience="organization",
+            knowledge_types=("procedures",),
+            destination_kind="local_markdown_folder",
+        )
+        self.assertNotEqual(alternative.name, "PARA")
+        self.assertIn("organization", wiki_pattern(alternative.name).suits_audiences)
 
     def test_alternative_is_always_distinct(self) -> None:
         for audience in ("personal", "small_group", "team", "organization", UNKNOWN_AUDIENCE):
@@ -104,6 +134,56 @@ class BlueprintTests(unittest.TestCase):
         self.assertEqual(notion["destination"]["kind"], "notion_knowledge_base")
         self.assertEqual(obsidian["destination"]["vendor_hint"], "obsidian")
         self.assertFalse(notion["destination"]["write_observed"])
+
+    def test_two_writers_get_multi_writer_rules_not_solo_ones(self) -> None:
+        """Two people plus an agent is not a solo vault: naming has to be agreed."""
+        pair = _blueprint(
+            text="my colleague, an agent, and I will read and write this",
+            audience_scale="small group",
+            maintenance_owner="the two of us",
+        )
+        rules = {rule.topic: rule for rule in wiki_operation_rules()}
+        conventions = {row["topic"]: row["rule"] for row in pair["conventions"]}
+
+        self.assertTrue(pair["shared_audience"])
+        self.assertEqual(conventions["Naming"], rules["Naming"].shared)
+        self.assertEqual(conventions["Linking"], rules["Linking"].shared)
+
+    def test_a_store_named_in_the_message_is_not_asked_for_again(self) -> None:
+        """Re-asking for what the message already said is the round-trip this removes."""
+        for text in (
+            "set up a Notion knowledge base for the team",
+            "keep our docs in Google Drive",
+            "structure my Obsidian vault",
+            "a markdown folder in the repo",
+        ):
+            with self.subTest(text=text):
+                blueprint = _blueprint(
+                    text=text,
+                    audience_scale="team",
+                    maintenance_owner="me",
+                    knowledge_types=("decisions",),
+                )
+                self.assertEqual(blueprint["missing_facts"], [], blueprint["destination"]["kind"])
+
+    def test_a_vault_named_in_the_message_is_the_destination(self) -> None:
+        """Naming a vault while designing a wiki is choosing where it lives."""
+        for text in ("structure my Obsidian vault", "옵시디언 볼트 구조 잡아줘"):
+            with self.subTest(text=text):
+                destination = _blueprint(text=text, audience_scale="personal")["destination"]
+                self.assertEqual(destination["kind"], "markdown_vault")
+                self.assertEqual(destination["vendor_hint"], "obsidian")
+
+    def test_research_department_vendor_neutrality_is_left_alone(self) -> None:
+        """The promotion is wiki-local; a passing mention in research ops is not a commitment."""
+        from omh.workflows.research_department import build_research_department_plan
+
+        plan = build_research_department_plan(
+            "daily research department using NotebookLM and Obsidian if possible",
+            created_at="2026-06-17T00:00:00Z",
+        )
+        self.assertEqual(plan["knowledge_store"]["type"], "local_markdown_folder")
+        self.assertEqual(plan["knowledge_store"]["vendor_hint"], "")
 
     def test_missing_facts_name_what_the_interview_still_needs(self) -> None:
         bare = _blueprint(text="help me build a wiki")

@@ -18,8 +18,14 @@ from dataclasses import dataclass
 from typing import Final
 
 
+# Two different axes, and conflating them gives a pair of people the operating
+# rules of a solo vault. Model fit asks how big the corpus and its readership
+# are, so a small group still suits the personal-scale models. Operating rules
+# ask how many people write, and the answer stops being "one" at two: naming has
+# to be agreed, links need a canonical target, and sections need an owner.
 PERSONAL_AUDIENCES: Final = ("personal", "small_group")
 SHARED_AUDIENCES: Final = ("team", "organization")
+MULTI_WRITER_AUDIENCES: Final = ("small_group", "team", "organization")
 AUDIENCE_SCALES: Final = PERSONAL_AUDIENCES + SHARED_AUDIENCES
 
 
@@ -33,6 +39,10 @@ class WikiPattern:
     breaks_when: tuple[str, ...]
     skeleton: tuple[str, ...]
     audience_note: str
+    # Audiences this model is a primary recommendation for. A model outside its
+    # audience is still offered as the alternative rather than dropped, because
+    # the audience note explains what it would cost.
+    suits_audiences: tuple[str, ...] = AUDIENCE_SCALES
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +70,7 @@ _PATTERNS: Final = (
         ),
         ("projects/", "areas/", "resources/", "archive/"),
         "Strong for personal and small-group vaults; needs an explicit owner per area before a team can trust it.",
+        suits_audiences=PERSONAL_AUDIENCES,
     ),
     WikiPattern(
         "Zettelkasten / evergreen notes",
@@ -76,6 +87,7 @@ _PATTERNS: Final = (
         ),
         ("notes/", "index or entry note", "link conventions"),
         "Best solo. In a team it needs a curator, or two people write two competing notes on one idea.",
+        suits_audiences=PERSONAL_AUDIENCES,
     ),
     WikiPattern(
         "Diátaxis",
@@ -91,6 +103,7 @@ _PATTERNS: Final = (
         ),
         ("tutorials/", "how-to/", "reference/", "explanation/"),
         "Made for shared and public documentation; overkill for a personal vault.",
+        suits_audiences=SHARED_AUDIENCES,
     ),
     WikiPattern(
         "Map of Content (MOC)",
@@ -121,6 +134,7 @@ _PATTERNS: Final = (
         ),
         ("docs/", "docs/adr/", "docs/runbooks/"),
         "Team-first. For personal use the review step is friction with no reviewer.",
+        suits_audiences=SHARED_AUDIENCES,
     ),
     WikiPattern(
         "Decision log (ADR)",
