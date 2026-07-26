@@ -4,11 +4,13 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest import mock
 
 from _local_package import load_local_package
 
 load_local_package()
 from omh.context_safety import CONTEXT_ARTIFACT_REF_SCHEMA_VERSION
+from omh.ingress import CHAT_SOURCES
 from omh.paths import OmhPaths, resolve_paths
 from omh.profiles.setup import write_setup_profile
 from omh.runtime.records import build_wrapper_session_record
@@ -18,6 +20,7 @@ from omh.wrapper_contract import (
     build_chat_status_interaction,
     build_status_card_from_status,
     messenger_rendering_contract,
+    render_profile_for_source,
 )
 from omh.wrapper.localized_copy import detect_copy_locale
 from omh.wrapper.native_commands import build_native_command_surface, render_native_command_response
@@ -189,6 +192,150 @@ class WrapperContractTests(unittest.TestCase):
         self.assertIn("route_for_me", action_ids)
         self.assertIn("open_picker", action_ids)
         self.assertNotIn(message, json.dumps(payload))
+
+    def test_route_hint_rendering_honors_explicit_limited_markdown_for_generic_sources(self) -> None:
+        # Eleven of the fourteen Hermes-supported platforms reach OMH as
+        # `generic`; `source_metadata={"render_profile": ...}` is their only
+        # route to messenger-safe rendering. Parity with a natively limited
+        # source is the contract.
+        message = "please review my pull request diff"
+
+        limited = build_chat_route_hint_payload(
+            message,
+            source="generic",
+            source_metadata={"render_profile": "limited_markdown"},
+        )["chat_response"]["messenger_rendering"]
+        discord = build_chat_route_hint_payload(message, source="discord")["chat_response"][
+            "messenger_rendering"
+        ]
+
+        # Non-emptiness before shape: comparing two empty dicts proves nothing.
+        self.assertTrue(limited)
+        self.assertTrue(discord)
+        self.assertTrue(limited["body_text"].strip())
+        self.assertTrue(limited["body_blocks"])
+        self.assertEqual(limited["render_profile"], "limited_markdown")
+        self.assertEqual(discord["render_profile"], "limited_markdown")
+        # `profile` is the deprecated raw source echo and is the only field
+        # allowed to vary between an opted-in generic surface and discord.
+        self.assertEqual(limited["profile"], "generic")
+        self.assertEqual(discord["profile"], "discord")
+        self.assertEqual(
+            {key: value for key, value in limited.items() if key != "profile"},
+            {key: value for key, value in discord.items() if key != "profile"},
+        )
+
+    def test_route_hint_rendering_keeps_rich_markdown_for_generic_without_metadata(self) -> None:
+        message = "please review my pull request diff"
+
+        payload = build_chat_route_hint_payload(message, source="generic")
+        response = payload["chat_response"]
+        rendering = response["messenger_rendering"]
+
+        self.assertTrue(rendering)
+        self.assertTrue(response["body"].strip())
+        self.assertEqual(rendering["render_profile"], "rich_markdown")
+        # Regression pin: the rich path must render the untransformed body
+        # exactly as it did before the route-hint rendering fix.
+        self.assertEqual(rendering["body_text"], response["body"])
+        self.assertEqual(rendering["transforms_applied"], [])
+
+    def test_route_hint_rendering_runs_the_messenger_safe_body_under_the_limited_profile(self) -> None:
+        # The generated route-hint prose never contains a table, so the safe-body
+        # transform is proved through the one body fragment a wrapper can carry
+        # arbitrary Markdown into: the generic-tool checkpoint.
+        checkpoint_body = "\n".join(
+            [
+                "Route table follows.",
+                "| Surface | Result |",
+                "| --- | --- |",
+                "| Discord | convert to bullets |",
+            ]
+        )
+        message = "please review my pull request diff"
+
+        with mock.patch(
+            "omh.wrapper.route_hints.awareness_generic_tool_checkpoint_payload",
+            return_value={"body": checkpoint_body},
+        ):
+            limited = build_chat_route_hint_payload(message, source="discord")["chat_response"]
+            rich = build_chat_route_hint_payload(message, source="hermes")["chat_response"]
+
+        limited_rendering = limited["messenger_rendering"]
+        rich_rendering = rich["messenger_rendering"]
+        self.assertTrue(limited_rendering["body_text"].strip())
+        self.assertTrue(rich_rendering["body_text"].strip())
+        self.assertIn("markdown_table_to_bullets", limited_rendering["transforms_applied"])
+        self.assertNotIn("| --- |", limited_rendering["body_text"])
+        self.assertIn("- Discord: Result: convert to bullets", limited_rendering["body_text"])
+        self.assertIn("bullet", [block["type"] for block in limited_rendering["body_blocks"]])
+        # The unsafe source body is preserved for rich surfaces and for wrappers
+        # that read `body` directly.
+        self.assertIn("| --- |", limited["body"])
+        self.assertEqual(rich_rendering["transforms_applied"], [])
+        self.assertIn("| --- |", rich_rendering["body_text"])
+        self.assertIn("- Discord: Result: convert to bullets", rich_rendering["fallback_body_text"])
+
+    def test_route_hint_rendering_extends_v1_without_dropping_existing_keys(self) -> None:
+        rendering = build_chat_route_hint_payload("please review my pull request diff", source="discord")[
+            "chat_response"
+        ]["messenger_rendering"]
+
+        self.assertTrue(rendering)
+        self.assertEqual(rendering["schema_version"], "messenger_route_hint_rendering/v1")
+        self.assertLessEqual(
+            {
+                "schema_version",
+                "profile",
+                "title",
+                "body_text",
+                "checkpoint_text",
+                "primary_action",
+                "secondary_actions",
+            },
+            set(rendering),
+        )
+        self.assertLessEqual(
+            {"render_profile", "body_blocks", "fallback_body_text", "transforms_applied", "chunking"},
+            set(rendering),
+        )
+        self.assertEqual(rendering["chunking"]["max_recommended_chars"], 1800)
+
+    def test_route_hint_payload_rejects_sources_outside_the_chat_source_registry(self) -> None:
+        with self.assertRaises(ValueError) as raised:
+            build_chat_route_hint_payload("please review my pull request diff", source="whatsapp")
+        self.assertIn("unsupported chat route hint source", str(raised.exception))
+
+        for source in CHAT_SOURCES:
+            with self.subTest(source=source):
+                payload = build_chat_route_hint_payload("please review my pull request diff", source=source)
+                self.assertEqual(payload["source"], source)
+                self.assertIn(
+                    payload["chat_response"]["messenger_rendering"]["render_profile"],
+                    {"limited_markdown", "rich_markdown"},
+                )
+
+    def test_render_profile_for_source_coerces_an_explicit_unknown_profile_to_limited(self) -> None:
+        # An adapter that sends the key at all has told us the surface is narrow.
+        # A typo must not silently upgrade it to rich Markdown.
+        self.assertEqual(
+            render_profile_for_source("generic", {"render_profile": "limted_markdown"}),
+            "limited_markdown",
+        )
+        self.assertEqual(
+            render_profile_for_source("hermes", {"render_profile": "html"}),
+            "limited_markdown",
+        )
+        # Absent, empty, or whitespace-only metadata keeps the source default in
+        # both directions.
+        self.assertEqual(render_profile_for_source("generic", None), "rich_markdown")
+        self.assertEqual(render_profile_for_source("generic", {}), "rich_markdown")
+        self.assertEqual(render_profile_for_source("generic", {"render_profile": "   "}), "rich_markdown")
+        self.assertEqual(render_profile_for_source("discord", {}), "limited_markdown")
+        self.assertEqual(
+            render_profile_for_source("discord", {"render_profile": "rich_markdown"}),
+            "rich_markdown",
+        )
 
     def test_route_hint_payload_prioritizes_missed_route_feedback(self) -> None:
         message = "missed route: Hermes skipped OMH for my image request with secret-token-123"
