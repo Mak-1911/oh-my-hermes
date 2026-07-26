@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .advisory import AdvisoryReport, run_config_advisories
 from ..command_path import inspect_omh_command_path
-from ..config_adapter import external_dirs, read_config
+from ..config_adapter import external_dirs, plugin_enablement, plugin_is_enabled, read_config
 from ..hashutil import sha256_file
 from ..local_store import can_write_dir
 from ..manifest import local_modifications, read_manifest
@@ -15,7 +15,7 @@ from ..plugin_observations import (
     latest_plugin_host_observation,
     plugin_host_runtime_readiness,
 )
-from ..plugin_pack import inspect_plugin_bundle
+from ..plugin_pack import PLUGIN_NAME, inspect_plugin_bundle
 from ..runtime.artifacts import read_state, read_state_error
 from ..skill_pack import CORE_SKILLS
 from ..targets import read_target_registry_result, summarize_target_registry
@@ -250,6 +250,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
                     ),
                     observed=bool(latest_plugin_observation and latest_plugin_observation.get("observed")),
                 ),
+                _plugin_enabled_check(paths),
             ]
         )
     profile_installs = state.get("last_team_profile_install") if isinstance(state, dict) else None
@@ -367,6 +368,56 @@ def recommended_next_action(checks: list[Check]) -> str:
     if prioritized_warnings:
         return prioritized_warnings[0].next_action
     return DEFAULT_DOCTOR_NEXT_ACTION
+
+
+def _plugin_enabled_check(paths: OmhPaths) -> Check:
+    """Is the installed bridge actually switched on in Hermes?
+
+    Every other plugin check asks whether the bundle is installed, importable,
+    and registrable. None of them ask whether Hermes will load it, and that is a
+    separate switch in `plugins.enabled`. An install can pass all of them while
+    the plugin sits disabled, which is exactly what a live check found: doctor
+    reported `Hermes registration: ok (4/4)` while no OMH tool was reachable in
+    chat, so the whole tool surface was dark with nothing reporting it.
+    """
+    config_path = paths.hermes_config_path
+    try:
+        config_text = config_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return Check(
+            "plugin_enabled_in_hermes",
+            True,
+            f"no Hermes config at {config_path} yet; enablement cannot be read",
+            severity="ok",
+            observed=False,
+        )
+    except OSError as exc:
+        return Check(
+            "plugin_enabled_in_hermes",
+            True,
+            f"Hermes config unreadable: {exc}",
+            severity="warning",
+            observed=False,
+            next_action="Make the Hermes config readable, then rerun `omh doctor`.",
+        )
+    if plugin_is_enabled(config_text, PLUGIN_NAME):
+        return Check(
+            "plugin_enabled_in_hermes",
+            True,
+            f"`{PLUGIN_NAME}` is enabled in {config_path}",
+        )
+    listed = plugin_enablement(config_text)
+    reason = "listed as disabled" if PLUGIN_NAME in listed["disabled"] else "not in plugins.enabled"
+    return Check(
+        "plugin_enabled_in_hermes",
+        False,
+        (
+            f"`{PLUGIN_NAME}` is installed but {reason} in {config_path}; "
+            "Hermes will not load it, so no OMH tool is reachable in chat"
+        ),
+        remediation=f"Run `hermes plugins enable {PLUGIN_NAME}`.",
+        next_action=f"Run `hermes plugins enable {PLUGIN_NAME}`, then restart or reload Hermes and rerun `omh doctor`.",
+    )
 
 
 def _plugin_bridge_message(plugin: dict) -> str:

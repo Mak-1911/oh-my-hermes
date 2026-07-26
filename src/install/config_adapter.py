@@ -128,6 +128,95 @@ def external_dirs(config_text: str) -> list[str]:
     return result
 
 
+def plugin_enablement(config_text: str) -> dict[str, list[str]]:
+    """Read Hermes' `plugins.enabled` / `plugins.disabled` lists.
+
+    Read-only, and shaped like `external_dirs` above rather than pulling in a
+    YAML parser, since the core stays dependency-free.
+
+    A bundle can be installed, importable, and register cleanly while Hermes
+    still refuses to load it, because enablement lives here and nowhere else.
+    `omh doctor` reported `Hermes registration: ok (4/4)` against exactly that
+    state, so every OMH tool was unreachable in chat while the install looked
+    healthy.
+    """
+    lists: dict[str, list[str]] = {"enabled": [], "disabled": []}
+    in_plugins = False
+    current = ""
+    for line in config_text.splitlines():
+        stripped = line.strip()
+        if not line.startswith(" ") and stripped:
+            in_plugins = stripped == "plugins:"
+            current = ""
+            continue
+        if not in_plugins or not stripped:
+            continue
+        if line.startswith("  ") and not line.startswith("    "):
+            key, _, rest = stripped.partition(":")
+            key = key.strip()
+            inline = _parse_inline_list(rest.strip()) if rest.strip() else None
+            if key in lists and inline is not None:
+                lists[key] = list(inline)
+                current = ""
+                continue
+            current = key if key in lists else ""
+            continue
+        if current and stripped.startswith("- "):
+            lists[current].append(stripped[2:].strip().strip("\"'"))
+    return lists
+
+
+def plugin_is_enabled(config_text: str, name: str) -> bool:
+    listed = plugin_enablement(config_text)
+    return name in listed["enabled"] and name not in listed["disabled"]
+
+
+def ensure_plugin_enabled(config_text: str, name: str) -> ConfigChange:
+    """Add `name` to `plugins.enabled` so Hermes will actually load the bridge.
+
+    Installing the bundle and enabling it are separate steps, and setup only did
+    the first. The result is an install that passes every structural check while
+    no OMH tool is reachable in chat.
+
+    Never un-disables: if the plugin is listed under `plugins.disabled` that is a
+    deliberate opt-out, and setup must not override it. `omh doctor` reports that
+    state instead.
+    """
+    listed = plugin_enablement(config_text)
+    if name in listed["disabled"]:
+        return ConfigChange(False, f"{name} is explicitly disabled; leaving it alone", config_text)
+    if name in listed["enabled"]:
+        return ConfigChange(False, "plugin already enabled", config_text)
+
+    lines = config_text.splitlines()
+    plugins_index = next(
+        (idx for idx, line in enumerate(lines) if line.strip() == "plugins:" and not line.startswith(" ")),
+        None,
+    )
+    if plugins_index is None:
+        text = (config_text.rstrip() + f"\n\nplugins:\n  enabled:\n    - {name}\n").lstrip("\n")
+        return ConfigChange(True, "appended plugins.enabled", text)
+
+    for idx in range(plugins_index + 1, len(lines)):
+        line = lines[idx]
+        if line.strip() and not line.startswith(" "):
+            break
+        if line.startswith("  ") and not line.startswith("    "):
+            key, _, rest = line.strip().partition(":")
+            if key.strip() != "enabled":
+                continue
+            inline = _parse_inline_list(rest.strip()) if rest.strip() else None
+            if inline is not None:
+                lines[idx:idx + 1] = ["  enabled:", *[f"    - {value}" for value in [*inline, name]]]
+                return ConfigChange(True, "expanded inline plugins.enabled", "\n".join(lines) + "\n")
+            lines.insert(idx + 1, f"    - {name}")
+            return ConfigChange(True, "added plugin to plugins.enabled", "\n".join(lines) + "\n")
+
+    lines.insert(plugins_index + 1, f"    - {name}")
+    lines.insert(plugins_index + 1, "  enabled:")
+    return ConfigChange(True, "inserted plugins.enabled", "\n".join(lines) + "\n")
+
+
 def ensure_external_dir(config_text: str, skill_dir: str | Path) -> ConfigChange:
     _validate_external_dirs_mutation_shape(config_text)
     target = _normalize(skill_dir)
