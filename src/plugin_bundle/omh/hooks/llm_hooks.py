@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from ..awareness import (
     awareness_context_match_degradation,
     awareness_context_matches_message,
@@ -14,6 +16,7 @@ from ..degradation import (
     degradation_payload,
     safe_error_type,
 )
+from ..awareness_delivery import record_awareness_delivery
 from ..host_observation import observe_plugin_hook_call
 from ..omh_roles import extract_role_marker, role_context_payload
 from ..runtime_reader import read_omh_hud, read_omh_status
@@ -28,6 +31,19 @@ def _token_metadata_from_kwargs(kwargs: dict) -> dict[str, object]:
         "context_remaining_percent",
     )
     return {key: kwargs[key] for key in keys if kwargs.get(key) is not None}
+
+
+def _record_delivery(*, delivered: bool, route_hint: bool, context_chars: int) -> None:
+    """Note that this hook ran. Never let bookkeeping break the hook itself."""
+    try:
+        record_awareness_delivery(
+            delivered=delivered,
+            route_hint=route_hint,
+            context_chars=context_chars,
+            observed_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+    except (OSError, ValueError, TypeError):
+        return
 
 
 def pre_llm_call(**kwargs) -> dict[str, object] | None:
@@ -123,6 +139,7 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         and not status.get("runtime_state_present")
         and not status.get("runs")
     ):
+        _record_delivery(delivered=False, route_hint=False, context_chars=0)
         return None
 
     if status.get("runtime_state_present") or status.get("runs"):
@@ -161,4 +178,9 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
             "that failure only: not execution, review, CI, merge-readiness, or merge evidence."
         )
     payload["context"] = "\n\n".join(context_parts)
+    _record_delivery(
+        delivered=True,
+        route_hint=bool(route_hint_context),
+        context_chars=len(payload["context"]),
+    )
     return payload

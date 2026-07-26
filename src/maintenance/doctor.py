@@ -251,6 +251,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
                     observed=bool(latest_plugin_observation and latest_plugin_observation.get("observed")),
                 ),
                 _plugin_enabled_check(paths),
+                _awareness_delivery_check(paths),
             ]
         )
     profile_installs = state.get("last_team_profile_install") if isinstance(state, dict) else None
@@ -368,6 +369,50 @@ def recommended_next_action(checks: list[Check]) -> str:
     if prioritized_warnings:
         return prioritized_warnings[0].next_action
     return DEFAULT_DOCTOR_NEXT_ACTION
+
+
+def _awareness_delivery_check(paths: OmhPaths) -> Check:
+    """Has OMH's primer and route hint actually reached the model?
+
+    Reported, never blocking. A fresh install has legitimately delivered
+    nothing, and Hermes may not have been restarted since the bundle changed, so
+    a zero here is ambiguous in a way `plugin_enabled_in_hermes` is not. What it
+    buys is a way to tell "the bridge is on but silent" from "the bridge is
+    working", which previously nothing could distinguish.
+    """
+    from ..plugin_bundle.omh.awareness_delivery import read_awareness_delivery
+
+    record = read_awareness_delivery(str(paths.omh_home))
+    if record.get("unreadable"):
+        return Check(
+            "awareness_delivery",
+            True,
+            "awareness delivery ledger is unreadable",
+            severity="warning",
+            observed=False,
+            next_action="Delete the ledger and run one Hermes turn to repopulate it.",
+        )
+    delivered = int(record.get("delivery_count", 0) or 0)
+    if not delivered:
+        return Check(
+            "awareness_delivery",
+            True,
+            (
+                "no OMH awareness delivered to a model yet; run one Hermes turn, "
+                "restarting Hermes first if the bundle changed"
+            ),
+            severity="ok",
+            observed=False,
+        )
+    return Check(
+        "awareness_delivery",
+        True,
+        (
+            f"{delivered} awareness injection(s) observed, "
+            f"{int(record.get('route_hint_count', 0) or 0)} with a route hint; "
+            f"last at {record.get('last_delivered_at', 'unknown')}"
+        ),
+    )
 
 
 def _plugin_enabled_check(paths: OmhPaths) -> Check:
