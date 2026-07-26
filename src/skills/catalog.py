@@ -265,6 +265,19 @@ _CATEGORY_FINAL_CHECKLISTS = {
     ),
 }
 
+# Deep-interview round bounds. Single source of truth for every surface that states
+# the budget: the rendered skill protocol block, the catalog safety rule and recovery
+# note, the deep_interview_contract/v1 payload, the wrapper clarification ack, and the
+# harness stop condition. Never restate these numbers as literals or spelled-out
+# ordinals; interpolate them so one edit moves every surface together.
+DEEP_INTERVIEW_MAX_ROUNDS = 6
+DEEP_INTERVIEW_SOFT_CHECK_ROUND = 4
+DEEP_INTERVIEW_CLARITY_DIMENSIONS = (
+    "outcome",
+    "constraints and non-goals",
+    "success criteria",
+)
+
 _CATEGORY_RECOVERY_NOTES = {
     "accessibility": (
         "If transcript confidence or intent is weak, ask one short clarification before action.",
@@ -1272,7 +1285,11 @@ _DEFINITIONS = [
         safety_rules=(
             "Ask one question at a time.",
             "Gather discoverable repo facts before asking the user.",
-            "Stop interviewing once ambiguity is low enough to plan.",
+            f"Stop interviewing when all three clarity dimensions are resolved, the user asks to stop, or round {DEEP_INTERVIEW_MAX_ROUNDS} is reached.",
+        ),
+        recovery_notes=(
+            f"If an answer surfaces new ambiguity, file it under one of the three clarity dimensions and keep asking only while the round budget allows; once round {DEEP_INTERVIEW_MAX_ROUNDS} is reached, record the rest as assumptions and plan.",
+            "If repo evidence can answer the question, inspect it before asking the user.",
         ),
         quality_tier="clarity-gated",
         quality_bar=(
@@ -9414,7 +9431,11 @@ _HARNESSES = [
         "Use when intent, scope, non-goals, or decision authority are unclear.",
         ("initial idea", "current ambiguity", "known repo facts"),
         ("clarified spec", "non-goals", "decision boundaries", "acceptance criteria"),
-        ("ambiguity is low enough", "non-goals and decision boundaries are explicit"),
+        (
+            "ambiguity is low enough",
+            "non-goals and decision boundaries are explicit",
+            "the round budget is exhausted or the user asked to stop",
+        ),
         ("pressure-test assumptions", "capture transcript or summary"),
         "If structured question UI is unavailable, ask one direct question in the current surface.",
         ("interview_started", "question_asked", "clarity_recorded"),
@@ -9427,7 +9448,13 @@ _HARNESSES = [
             "Use discovered facts before asking the user for information already available locally.",
             "Produce a clarified brief with non-goals, acceptance criteria, and remaining unknowns before planning or handoff.",
         ),
-        evidence_ladder=("ambiguity_identified", "blocking_question_asked", "answer_recorded", "clarified_brief_ready"),
+        evidence_ladder=(
+            "ambiguity_identified",
+            "blocking_question_asked",
+            "answer_recorded",
+            "round_budget_respected",
+            "clarified_brief_ready",
+        ),
         wrapper_actions=("answer:clarify", "cancel", "rerun_plan"),
         overclaim_guards=(
             "A clarification question is not a plan approval.",

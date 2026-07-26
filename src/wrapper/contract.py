@@ -34,6 +34,7 @@ from ..plugin_bundle.omh.degradation import degradation_chat_note
 from ..probe import probe_capabilities
 from ..quickstart import build_quickstart_card
 from ..skills.catalog import (
+    DEEP_INTERVIEW_MAX_ROUNDS,
     installable_skill_definitions,
     omh_skill_display_name,
     primary_harness_for_skill,
@@ -4080,7 +4081,7 @@ def build_chat_response_from_route(
             return _chat_response(
                 kind="clarification",
                 headline="This needs a clarification workflow before planning.",
-                body="I will ask one blocking question in the same thread before any plan or handoff is treated as ready.",
+                body=f"I will ask one blocking question at a time in this thread — at most {DEEP_INTERVIEW_MAX_ROUNDS} rounds — then hand off a clarified brief.",
                 phase="clarifying",
                 next_action="answer_clarification",
                 thread_key=thread_key,

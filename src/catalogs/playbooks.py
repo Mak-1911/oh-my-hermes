@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from ..routing.localization import normalized_phrase, prepare_routing_text, routing_terms, routing_tokens
+from ..skills.catalog import DEEP_INTERVIEW_MAX_ROUNDS
 
 
 PLAYBOOK_CATALOG_SCHEMA_VERSION = "playbook_catalog/v1"
@@ -1482,7 +1483,7 @@ _PLAYBOOKS = (
                 "interview",
                 "Ask one blocking question",
                 "hermes",
-                "Resolve the decision that most changes the plan shape or stop condition.",
+                f"Resolve the decision that most changes the plan shape or stop condition. This stage repeats up to {DEEP_INTERVIEW_MAX_ROUNDS} rounds, one question per round.",
                 "chat_response/v1",
                 ("answer_question",),
                 ("blocking ambiguity", "user answer"),
