@@ -254,7 +254,14 @@ class EfficiencyContractTests(unittest.TestCase):
         self.assertLessEqual(len(awareness_primer_markdown()), AWARENESS_PRIMER_MARKDOWN_CHAR_LIMIT)
         self.assertLessEqual(max(workflow_context_lengths.values()), AWARENESS_WORKFLOW_CONTEXT_CHAR_LIMIT)
         self.assertIn("Hermes-native workflow", primer_context)
-        self.assertIn("consider OMH before generic tools", primer_context)
+        # The rail states a lane, not a claim on every category. It used to say
+        # "consider OMH before generic tools" across planning/research/files/
+        # visuals/automation/coding/review/status/loops, which named no position
+        # and read as noise.
+        self.assertIn("durable, evidence-bounded artifact or handoff", primer_context)
+        self.assertIn("tracks prepared against observed", primer_context)
+        self.assertIn("otherwise native skills and tools are correct", primer_context)
+        self.assertNotIn("consider OMH before generic tools", primer_context)
         self.assertIn("Use message-specific route hints", primer_context)
         self.assertIn("not observed execution", primer_context)
         self.assertIn("omh_context", primer_context)

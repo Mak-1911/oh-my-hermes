@@ -368,8 +368,13 @@ class CapabilityManifestTests(unittest.TestCase):
         self.assertIn("ambitious goal -> loopability check", " ".join(skill["cross_lane_examples"]))
         self.assertEqual(ops_surface["exposure"], "workflow_skill")
         self.assertEqual(awareness["schema_version"], "omh_awareness/v1")
-        self.assertIn("materials", awareness["first_turn_rule"])
-        self.assertIn("generic tools", awareness["first_turn_rule"])
+        # The rule discriminates by the shape of the result, not by a list of
+        # subjects. It used to enumerate planning/research/knowledge/ops/
+        # materials/visuals/automation/coding/review/status/loops and tell the
+        # model to prefer OMH for all of them, which named no position at all.
+        self.assertIn("outlive the message and carry an evidence trail", awareness["first_turn_rule"])
+        self.assertIn("native skills and tools are correct", awareness["first_turn_rule"])
+        self.assertNotIn("consider OMH before generic", awareness["first_turn_rule"])
         self.assertIn("meeting-brief", json.dumps(awareness, sort_keys=True))
         self.assertIn("capability manifest", awareness["context_surfaces"])
         self.assertTrue(ops_surface["install_visibility"])

@@ -5119,9 +5119,12 @@ def awareness_primer_payload() -> dict[str, object]:
             "OMH is a Hermes-native workflow pack: choose skills, shape work, prepare artifacts, "
             "show status, and hand off with evidence boundaries."
         ),
+        # Ships to the model through `context_brief` and `omh_capabilities`, and
+        # `awareness_primer_context` reuses it verbatim so the two rails cannot
+        # drift apart. Discriminates by the shape of the result, not its subject.
         "first_turn_rule": (
-            "For planning, research, knowledge, ops, materials, visuals, automation, coding, review, "
-            "status, or loops, consider OMH before generic chat or generic tools."
+            "Reach for OMH when the result should outlive the message and carry an evidence trail; "
+            "otherwise native skills and tools are correct."
         ),
         "all_skill_context_rule": "every OMH skill: match lane; generic tool can render or execute.",
         "generic_tool_checkpoint": GENERIC_TOOL_CHECKPOINT_TEXT,
@@ -5241,10 +5244,21 @@ def awareness_primer_context() -> str:
         [
             "[OMH Awareness]",
             "OMH is Hermes-native workflow guidance, not hidden execution or a transport/runtime patch.",
+            # This rail used to prefer OMH across planning, research, files,
+            # visuals, automation, coding, review, status, and loops -- nearly
+            # every topic, which states no position at all. A rail that claims
+            # every lane wins none: the model reads it as noise and picks what it
+            # would have picked anyway.
+            #
+            # What separates OMH from a Hermes-native skill is the shape of the
+            # result, not its subject. Examples stay traceable to the OMH-owns
+            # list in docs/DIRECTION.md; "retained knowledge" is a real lane but
+            # the Ownership Boundary does not grant it, so it is not claimed.
             (
-                "For planning, research, files, visuals, automation, coding, review, status, or loops, "
-                "consider OMH before generic tools."
+                "OMH turns a request into a durable, evidence-bounded artifact or handoff -- plans, "
+                "briefings, coding handoffs, status -- and tracks prepared against observed."
             ),
+            str(payload["first_turn_rule"]),
             "Use message-specific route hints when present; they should outrank this always-on rail.",
             "Boundary: " + str(payload["evidence_boundary"]),
             "Expand only when needed with omh_context, omh_capabilities, and omh_status/omh_hud.",
