@@ -33,7 +33,7 @@ class HudCliTests(unittest.TestCase):
 
             self.assertEqual(stderr, "")
             self.assertEqual(status, 0)
-            self.assertIn("[omh] v1.0.2", stdout)
+            self.assertIn("[omh] v1.0.3", stdout)
             self.assertIn("plugin:not-installed", stdout)
             # No run and no recorded coding-agent preference: the segment is
             # executor-neutral, not an idle agent named "ask". See
@@ -124,7 +124,7 @@ class HudCliTests(unittest.TestCase):
             self.assertEqual(status, 0)
             payload = json.loads(stdout)
             self.assertEqual(payload["schema_version"], "omh_hud/v1")
-            self.assertEqual(payload["version"], "1.0.2")
+            self.assertEqual(payload["version"], "1.0.3")
             self.assertEqual(payload["plugin"]["status"], "ready")
             self.assertNotIn("skills", payload)
             self.assertEqual(payload["target_topology"]["mode"], "single_agent_target")
