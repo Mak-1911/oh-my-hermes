@@ -414,6 +414,7 @@ def _release_update_status(
     previous_version = _string_value(previous.get("release_version") or previous.get("version"))
     previous_package_url = _string_value(previous.get("release_package_url") or previous.get("package_url"))
     previous_ref = _string_value(previous.get("release_source_ref") or previous.get("source_ref"))
+    previous_package_version = _string_value(previous.get("package_version"))
     current = {
         "release_channel": release_channel,
         "release_version": release_version,
@@ -421,6 +422,10 @@ def _release_update_status(
         "release_source_ref": source_ref,
         "package_version": __version__,
     }
+    previous_effective_version = _effective_release_version(
+        {"release_version": previous_version, "package_version": previous_package_version}
+    )
+    current_effective_version = _effective_release_version(current)
     command_status = str(command_package.get("status", ""))
     command_package_changed = bool(command_package.get("updated")) or command_status == "would_update"
     metadata_changed = any(
@@ -456,10 +461,11 @@ def _release_update_status(
             "release_version": previous_version,
             "release_package_url": previous_package_url,
             "release_source_ref": previous_ref,
+            "package_version": previous_package_version,
         },
         "current": current,
         "display": {
-            "version_change": _change_label(previous_version, release_version),
+            "version_change": _change_label(previous_effective_version, current_effective_version),
             "source_ref_change": _change_label(previous_ref, source_ref),
             "package_url_change": _change_label(previous_package_url, release_package_url),
         },
@@ -474,6 +480,23 @@ def _metadata_value_changed(previous: str, current: str, *, explicit: bool) -> b
     if explicit and current:
         return previous != current
     return bool(previous and previous != current)
+
+
+def _effective_release_version(release: dict[str, object]) -> str:
+    """Version to show a user for one release record.
+
+    `release_version` is only populated when the operator pinned one, which in
+    practice means the stable channel. Preview installs track a branch archive and
+    leave it empty, so fall back to the package version the command itself reports.
+    Without this an update reads `main -> main` and hides the upgrade that happened.
+    """
+
+    if not isinstance(release, dict):
+        return ""
+    pinned = _string_value(release.get("release_version") or release.get("version"))
+    if pinned:
+        return pinned
+    return _string_value(release.get("package_version"))
 
 
 def _change_label(previous: str, current: str) -> str:
@@ -2056,7 +2079,7 @@ def _print_update_release_card(
 
 
 def _release_card_identity(release: dict[str, object], *, language: str) -> str:
-    version = _string_value(release.get("release_version") or release.get("version"))
+    version = _effective_release_version(release)
     if version:
         return version
     source_ref = _string_value(release.get("release_source_ref") or release.get("source_ref"))
@@ -2079,8 +2102,8 @@ def _command_package_display_change(payload: dict[str, object], release_update: 
     version_change = str(display.get("version_change", "")).strip()
     source_ref_change = str(display.get("source_ref_change", "")).strip()
     package_url_change = str(display.get("package_url_change", "")).strip()
-    previous_version = str(previous.get("release_version", "")).strip()
-    current_version = str(current.get("release_version", "")).strip()
+    previous_version = _effective_release_version(previous)
+    current_version = _effective_release_version(current)
     previous_ref = str(previous.get("release_source_ref", "")).strip()
     current_ref = str(current.get("release_source_ref", "")).strip()
     previous_package_url = str(previous.get("release_package_url", "")).strip()
@@ -2088,7 +2111,10 @@ def _command_package_display_change(payload: dict[str, object], release_update: 
     version_changed = bool(current_version and previous_version != current_version)
     source_ref_changed = bool(current_ref and previous_ref != current_ref)
     package_url_changed = bool(current_package_url and previous_package_url != current_package_url)
-    if channel == "stable" and version_changed and version_change:
+    # A real version move is the most useful thing to show on any channel. Preview
+    # installs track a branch, so without this they report `main -> main` and the
+    # upgrade is invisible.
+    if version_changed and version_change:
         return version_change
     if channel == "stable" and current_version and source_ref_changed and source_ref_change:
         return f"{current_version} ({source_ref_change})"
@@ -2098,7 +2124,7 @@ def _command_package_display_change(payload: dict[str, object], release_update: 
         return source_ref_change
     if package_url_changed and package_url_change:
         return package_url_change
-    if channel == "stable" and current_version:
+    if current_version:
         return f"{current_version} -> {current_version}" if previous_version == current_version else current_version
     if current_ref:
         return f"{current_ref} -> {current_ref}" if previous_ref == current_ref else current_ref

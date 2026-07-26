@@ -10638,7 +10638,12 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(stderr, "")
             stable = json.loads(stdout)
             self.assertEqual(stable["release_update"]["status"], "updated")
-            self.assertEqual(stable["release_update"]["display"]["version_change"], "(none) -> 1.0.1")
+            # The preview steps above ran the current package, so pinning 1.0.1 is a move
+            # away from that version rather than a first-ever version record.
+            self.assertEqual(
+                stable["release_update"]["display"]["version_change"],
+                f"{setup_commands.__version__} -> 1.0.1",
+            )
             self.assertEqual(stable["release_update"]["display"]["source_ref_change"], "main@human -> v1.0.1")
 
             status, stdout, stderr = run_cli(
