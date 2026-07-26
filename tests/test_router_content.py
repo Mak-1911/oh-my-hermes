@@ -276,7 +276,11 @@ class RouterContentTests(unittest.TestCase):
         route_payload = build_chat_interaction_payload("웹서치해서 최신 자료 정리해줘", source="discord")
         context_payload = build_chat_interaction_payload("what can OMH do?", source="discord")
         self.assertLess(len(json.dumps(maintenance_payload, sort_keys=True)), 25_000)
-        self.assertLess(len(json.dumps(route_payload, sort_keys=True)), 15_000)
+        # Raised from 15,000 with PR #657's display names: a routed payload repeats
+        # the workflow name in several prose fields, and each `omh-` label costs 4
+        # bytes. The measured payload moved 14,997 -> 15,017, so this is a deliberate
+        # ceiling raise for a known one-off cost, not room for silent growth.
+        self.assertLess(len(json.dumps(route_payload, sort_keys=True)), 15_500)
         self.assertLess(len(json.dumps(context_payload, sort_keys=True)), 61_000)
 
     def test_role_surface_docs_match_catalog_and_avoid_runtime_claims(self) -> None:

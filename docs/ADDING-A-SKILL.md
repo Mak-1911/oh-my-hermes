@@ -17,6 +17,14 @@ the file and structure to edit.
   frontmatter `name` is a separate rendered display identifier that
   `omh_skill_display_name()` prefixes with `omh-` for the host status line, so
   never treat the two as interchangeable.
+- The display form also reaches messenger-visible prose: skill-picker bodies,
+  capability-family lines, route-hint copy, and `workflow_explanation` copy call
+  `display_workflow_name()` in `src/wrapper/contract.py` at render time. Never
+  store the `omh-` form in catalog data, routing fixtures, or state, and keep
+  `./<name>` invocation strings, `--skill <name>` recipes, and
+  `definition.triggers` canonical. Routing accepts the display form back through
+  `canonical_display_mentions()` in `src/routing/display_names.py`, so a new
+  skill gets echo-back for free; `tests/test_display_names.py` locks all three.
 
 ## 2. Hand-authored surfaces (curated order and UX copy)
 

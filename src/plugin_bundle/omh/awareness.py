@@ -548,6 +548,33 @@ try:  # File-loaded plugin bundles can still reuse OMH locale phrase packs.
 except ImportError:  # pragma: no cover - standalone plugin hosts keep the fallback above.
     pass
 
+try:  # Accept the `omh-` display labels wrapper bodies render back as routing input.
+    from ...routing.display_names import canonical_display_mentions as _canonical_display_mentions
+except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
+    _DISPLAY_MENTION_PATTERN = re.compile(r"(?<![0-9a-z])omh-[0-9a-z]+(?:-[0-9a-z]+)*")
+
+    def _canonical_display_mentions(value: str, canonical_by_display: dict[str, str]) -> str:
+        if not value or not canonical_by_display:
+            return value
+
+        def _replace(match: re.Match[str]) -> str:
+            mention = match.group(0)
+            segments = mention.split("-")
+            for end in range(len(segments), 1, -1):
+                candidate = "-".join(segments[:end])
+                canonical = canonical_by_display.get(candidate)
+                if canonical is not None:
+                    return canonical + mention[len(candidate) :]
+            return mention
+
+        return _DISPLAY_MENTION_PATTERN.sub(_replace, value)
+
+
+try:  # File-loaded plugin bundles should reuse the packaged display-name helper.
+    from omh.routing.display_names import canonical_display_mentions as _canonical_display_mentions
+except ImportError:  # pragma: no cover - standalone plugin hosts keep the fallback above.
+    pass
+
 try:  # Prefer the package copy table, but keep copied plugin bundles standalone.
     from ...routing.action_copy import next_action_label as _next_action_label
 except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
@@ -4514,7 +4541,7 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
     localized_normalized = unicodedata.normalize("NFKC", routing_text).casefold()
     diagnostic_status = _diagnostic_status_context(normalized)
     diagnostic_eval = _prefers_diagnostic_workflow_learning_hint(message, classify_workflow_intent(message))
-    routing_normalized = (
+    routing_normalized = _with_canonical_display_names(
         localized_normalized
         if diagnostic_eval or not diagnostic_status
         else _without_diagnostic_status_lines(localized_normalized)
@@ -5454,6 +5481,25 @@ def _workflow_not_evidence_yet(
         if candidate.get("workflow") == workflow and "not_evidence_yet" in candidate:
             return [str(item) for item in candidate["not_evidence_yet"]]
     return [str(item) for item in context_card.get("not_evidence_until_observed", [])]
+
+
+@lru_cache(maxsize=1)
+def _canonical_workflow_by_display_name() -> dict[str, str]:
+    """Map every `omh-` display label this module knows back to its workflow name.
+
+    Built from the module's own workflow tables so a copied plugin bundle needs no
+    catalog import. `oh-my-hermes` renders as `omh-routing`, which the mechanical
+    `omh-<name>` rule cannot derive, so it is an explicit pair;
+    `tests/test_router_content.py` locks both against `omh_skill_display_name()`.
+    """
+    workflows = set(_WORKFLOW_CONTEXT_CARD_BY_WORKFLOW) | set(_DIRECT_WORKFLOW_NEXT_ACTIONS)
+    mapping = {f"omh-{workflow}": workflow for workflow in workflows}
+    mapping["omh-routing"] = "oh-my-hermes"
+    return mapping
+
+
+def _with_canonical_display_names(value: str) -> str:
+    return _canonical_display_mentions(value, _canonical_workflow_by_display_name())
 
 
 def _direct_workflow_prefix(routing_normalized: str) -> str:

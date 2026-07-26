@@ -12,6 +12,7 @@ load_local_package()
 from omh.coding_delegation import build_coding_delegation_payload
 from omh.hermes_planning import build_hermes_plan_payload
 from omh.ingress import extract_message_text, extract_source_metadata
+from omh.skills.catalog import omh_skill_display_name
 from omh.skills.render import workflow_reference_payload
 from omh.wrapper.route_hints import build_chat_route_hint_payload
 
@@ -382,7 +383,7 @@ class WrapperGoldenExampleTests(unittest.TestCase):
                 self.assertIn("workflow_selection", payload["not_evidence_until_observed"])
                 self.assertIn("workflow_execution", payload["not_evidence_until_observed"])
                 self.assertEqual(action_ids, {"open_workflow", "route_for_me", "open_picker"})
-                self.assertIn(f"Open {workflow}", {action["label"] for action in payload["actions"]})
+                self.assertIn(f"Open {omh_skill_display_name(workflow)}", {action["label"] for action in payload["actions"]})
                 self.assertNotIn(raw_message, result.stdout)
 
     def test_plugin_interact_golden_examples_render_plugin_tool_sessions(self) -> None:

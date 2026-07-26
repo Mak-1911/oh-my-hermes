@@ -15,6 +15,7 @@ from ..routing.action_copy import next_action_label
 # rendering rules as the main interaction path instead of a second copy.
 from .contract import (
     RENDER_PROFILE_RICH_MARKDOWN,
+    display_workflow_name,
     _messenger_chunking_hint,
     _messenger_safe_body,
     _render_body_blocks,
@@ -163,8 +164,11 @@ def _response_for_hint(
         workflow = str(primary_hint.get("workflow") or "")
         next_action = str(primary_hint.get("next_action") or "")
         next_action_label_text = str(primary_hint.get("next_action_label") or next_action_label(next_action)).strip()
+        # `submit_text` stays canonical: it is invocation syntax OMH's own router
+        # has to match. Only the prose the user reads takes the display label.
         workflow_submit_text = "./omh" if workflow == "oh-my-hermes" and next_action == "choose_skill" else f"./{workflow}"
-        workflow_action_label = "Open omh" if workflow_submit_text == "./omh" else f"Open {workflow}"
+        workflow_display = display_workflow_name(workflow)
+        workflow_action_label = "Open omh" if workflow_submit_text == "./omh" else f"Open {workflow_display}"
         lane = str(primary_hint.get("lane") or "")
         if workflow == "oh-my-hermes" and next_action == "choose_skill":
             headline = "[omh] workflow picker is ready."
@@ -175,9 +179,9 @@ def _response_for_hint(
                 "This is only a route hint until a workflow is selected and observed."
             )
         else:
-            headline = f"[omh] {workflow} looks relevant."
+            headline = f"[omh] {workflow_display} looks relevant."
             body = (
-                f"I can open `{workflow}` first because this request matches the {lane.replace('_', ' ')} lane. "
+                f"I can open `{workflow_display}` first because this request matches the {lane.replace('_', ' ')} lane. "
                 f"Next action: {_action_label_with_id(next_action, next_action_label_text)}. "
                 "This is only a route hint until a workflow is selected and observed."
             )

@@ -17,6 +17,7 @@ from .catalog_questions import (
     is_skill_catalog_question,
 )
 from .action_copy import next_action_label as _route_next_action_label
+from .display_names import canonical_display_mentions
 from .intent import scrub_diagnostic_status_text
 from .localization import normalized_phrase, prepare_routing_text, routing_tokens
 from .missed_route import is_missed_route_feedback
@@ -48,7 +49,12 @@ from .visual_qa_cues import (
 from ..learning_candidate import build_learning_candidate_card
 from ..quality.skill_governance import build_skill_governance_policy, resolve_skill_governance
 from ..surfaces.evidence_copy import not_evidence_action_suffix, not_evidence_reply_suffix
-from ..skills.catalog import SkillDefinition, primary_harness_for_skill, routable_definitions
+from ..skills.catalog import (
+    SkillDefinition,
+    omh_skill_display_name,
+    primary_harness_for_skill,
+    routable_definitions,
+)
 
 
 FILE_LOOKUP_REASON = (
@@ -1378,6 +1384,23 @@ def public_chat_route_payload(
     )
 
 
+@lru_cache(maxsize=1)
+def _canonical_skill_by_display_name() -> dict[str, str]:
+    """Map every rendered `omh-` label back to the catalog name that owns routing."""
+    return {omh_skill_display_name(definition.name): definition.name for definition in routable_definitions()}
+
+
+def _with_canonical_display_names(routing_message: str) -> str:
+    """Accept the `omh-` labels wrapper bodies render as input to routing matching.
+
+    Chat bodies show `omh-visual-qa` so they match the host's own status line, and
+    users type that straight back. Rewriting it here keeps scoring on one vocabulary
+    instead of letting the extra `omh` token pull the request toward the router
+    skill. Names the catalog does not own are left alone.
+    """
+    return canonical_display_mentions(routing_message, _canonical_skill_by_display_name())
+
+
 @lru_cache(maxsize=2048)
 def _route_chat_message_cached(
     message: str,
@@ -1385,7 +1408,7 @@ def _route_chat_message_cached(
     limit: int,
     min_confidence: str,
 ) -> dict[str, object]:
-    routing_message = scrub_diagnostic_status_text(message)
+    routing_message = _with_canonical_display_names(scrub_diagnostic_status_text(message))
     fast_omh_help_decision = _omh_help_fast_path_decision(
         message,
         routing_message=routing_message,

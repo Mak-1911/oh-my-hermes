@@ -33,7 +33,12 @@ from ..plugin_bundle.omh.awareness import workflow_context_card_for_workflow, wo
 from ..plugin_bundle.omh.degradation import degradation_chat_note
 from ..probe import probe_capabilities
 from ..quickstart import build_quickstart_card
-from ..skills.catalog import installable_skill_definitions, primary_harness_for_skill, retained_delegation_skill_names
+from ..skills.catalog import (
+    installable_skill_definitions,
+    omh_skill_display_name,
+    primary_harness_for_skill,
+    retained_delegation_skill_names,
+)
 from ..setup_profiles import read_setup_profile
 from ..surfaces.evidence_copy import not_evidence_action_suffix, not_evidence_reply_suffix
 from ..visual_summary import image_generation_setup_fallback
@@ -4798,7 +4803,8 @@ def build_chat_response_from_route(
         evidence_boundary = str(policy.get("evidence_boundary", "")) or "Routing is not execution evidence."
         body = _HUMAN_ACK_BODY_BY_SKILL.get(
             selected,
-            wrapper_guidance or f"I will prepare a safe next step for `{selected}` before claiming any work happened.",
+            wrapper_guidance
+            or f"I will prepare a safe next step for `{display_workflow_name(selected)}` before claiming any work happened.",
         )
         return _chat_response(
             kind="ack",
@@ -5127,7 +5133,7 @@ def build_chat_response_from_plan(plan_payload: dict[str, object], *, thread_key
     )
     return _chat_response(
         kind="plan",
-        headline=f"I routed this to `{selected}` because it needs a safe plan first.",
+        headline=f"I routed this to `{display_workflow_name(selected)}` because it needs a safe plan first.",
         body=f"{next_copy} A draft plan is still only planning evidence.",
         phase="planning",
         next_action="accept_or_revise_plan",
@@ -6183,7 +6189,9 @@ def _workflow_explanation_reason_for_route(
 ) -> str:
     guidance = str(policy.get("wrapper_guidance") or "").strip()
     if guidance:
-        return f"Selected `{selected}` because this request matches that workflow's triggers. {guidance}"
+        return (
+            f"Selected `{display_workflow_name(selected)}` because this request matches that workflow's triggers. {guidance}"
+        )
     reason = str(decision.get("reason") or "").strip()
     if reason and reason != "Matched trigger metadata for this task.":
         return reason
@@ -6567,6 +6575,26 @@ def _skill_picker_response(decision: dict[str, object], *, thread_key: str = "",
     )
 
 
+def display_workflow_name(name: str) -> str:
+    """Return the `omh-` display label a chat body should show for a workflow.
+
+    The single canonical/display rule still lives in `omh_skill_display_name()`;
+    this only restricts it to real catalog names. Wrapper copy also carries
+    capability phrases that are not installable skills -- `capability_family_cards()`
+    lists "executor selection" and "coding runtime handoff" beside real workflows --
+    and those must stay unprefixed.
+    """
+    canonical = name.strip()
+    if canonical not in _installable_skill_names():
+        return canonical
+    return omh_skill_display_name(canonical)
+
+
+@lru_cache(maxsize=1)
+def _installable_skill_names() -> frozenset[str]:
+    return frozenset(definition.name for definition in installable_skill_definitions())
+
+
 def _skill_picker_body(*, catalog_question: bool, copy_locale: str = "en") -> str:
     return localized_skill_picker_body(
         catalog_question=catalog_question,
@@ -6583,7 +6611,10 @@ def _skill_picker_family_body_lines() -> list[str]:
 def _skill_picker_family_body_lines_cached() -> tuple[str, ...]:
     lines = []
     for family in capability_family_cards():
-        workflows = _as_string_list(family.get("primary_workflows", []))[:4]
+        # `primary_workflows` stays canonical in the family cards and in picker
+        # state; only this chat line switches to the `omh-` display label so the
+        # body matches the host's own `Reading skill omh-<name>` status line.
+        workflows = [display_workflow_name(name) for name in _as_string_list(family.get("primary_workflows", []))[:4]]
         workflow_text = ", ".join(workflows)
         executor_choices = _as_string_list(family.get("executor_choices", []))[:3]
         if executor_choices:
@@ -6973,19 +7004,24 @@ def _workflow_explanation_reason(state: dict[str, object], *, workflow: str, lab
     if reason:
         return reason
     if workflow:
-        return f"Selected `{workflow}` from the message, workflow metadata, and guardrail policy."
+        return f"Selected `{display_workflow_name(workflow)}` from the message, workflow metadata, and guardrail policy."
     return f"Using the `{label}` response state for this step."
 
 
+# `label` is a response-state word such as "status", "handoff", or "quickstart",
+# not a catalog name, so only the `workflow` branch takes the display label.
+def _display_workflow_or_label(workflow: str, label: str) -> str:
+    return display_workflow_name(workflow) if workflow else label
+
+
 def _workflow_recommended_reply(workflow: str, label: str, next_action_label: str, not_evidence_yet: list[str]) -> str:
-    name = workflow or label
+    name = _display_workflow_or_label(workflow, label)
     suffix = not_evidence_reply_suffix(not_evidence_yet, fallback=" This is guidance, not execution evidence.")
     return f"I will use `{name}` and start with {next_action_label}.{suffix}"
 
 
 def _workflow_primary_action_label(workflow: str, label: str) -> str:
-    name = workflow or label
-    return f"Open {name}"
+    return f"Open {_display_workflow_or_label(workflow, label)}"
 
 
 def _workflow_primary_action_hint(
@@ -6994,7 +7030,7 @@ def _workflow_primary_action_hint(
     next_action_label: str,
     not_evidence_yet: list[str],
 ) -> str:
-    name = workflow or label
+    name = _display_workflow_or_label(workflow, label)
     suffix = not_evidence_action_suffix(not_evidence_yet)
     return f"Route to `{name}` and run `{next_action_label}`{suffix}."
 
