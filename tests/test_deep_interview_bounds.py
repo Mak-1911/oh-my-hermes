@@ -82,6 +82,9 @@ class DeepInterviewProtocolTest(unittest.TestCase):
         self.assertIn("Never fold counters, ratios, or dimension names into the question sentence.", body)
         self.assertIn("If it reads like a form field, rewrite it.", body)
         self.assertIn("Never mix languages in one message.", body)
+        # QA caught a Korean run labeling its brief "클리어리파이드 브리프" — a transliteration
+        # of the English term, which reads as broken Korean.
+        self.assertIn("Translate those terms, never transliterate them.", _unwrapped_body())
 
     def test_soft_check_is_not_a_stop_rule_and_does_not_consume_a_round(self) -> None:
         body = _skill_body()

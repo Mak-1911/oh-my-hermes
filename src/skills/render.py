@@ -997,6 +997,8 @@ mid-interview check now and continue from Round {soft_round}.
 - Mirror the user's language in the header labels and the question. Korean header:
   `라운드 {{n}}/{max_rounds} · 명확도: {{percent}}% ({{resolved}}/3) · 확인 중: {{목표/제약과 비목표/성공 기준}}`.
   Never mix languages in one message.
+- The clarified brief follows the same rule: write its headings and labels in the user's
+  language. Translate those terms, never transliterate them.
 
 **Mid-interview check — this is not a stop rule.**
 
