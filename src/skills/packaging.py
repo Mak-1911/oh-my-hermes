@@ -11,6 +11,8 @@ from .render import (
     memory_sync_skill,
     router_reference_templates,
     router_skill,
+    wiki_reference_templates,
+    wiki_skill,
     workflow_skill,
 )
 
@@ -20,7 +22,7 @@ def builtin_skill_templates() -> list[SkillTemplate]:
 
 
 def builtin_skill_reference_templates() -> list[SkillReferenceTemplate]:
-    return router_reference_templates()
+    return [*router_reference_templates(), *wiki_reference_templates()]
 
 
 def _skill_template_for(name: str) -> SkillTemplate:
@@ -30,6 +32,8 @@ def _skill_template_for(name: str) -> SkillTemplate:
         return memory_new_skill()
     if name == "memory-sync":
         return memory_sync_skill()
+    if name == "wiki":
+        return wiki_skill()
     return workflow_skill(name)
 
 
