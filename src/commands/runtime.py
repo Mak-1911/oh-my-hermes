@@ -41,12 +41,14 @@ from ..runtime.artifacts import (
     write_wrapper_contract,
 )
 from ..runtime.context_budget import (
+    PROGRESS_STATUS_LEDGER_KEY,
     degrade_run_payload,
     payload_fingerprint,
     public_budget,
     record_context_emission,
     run_context_budget,
     run_show_surface,
+    unchanged_progress_status_payload,
     unchanged_run_payload,
 )
 from ..executors import CODING_RUNTIME_HANDOFF_TARGETS
@@ -466,7 +468,27 @@ def cmd_runtime_progress_observe(args: argparse.Namespace) -> int:
 
 
 def cmd_runtime_progress_status(args: argparse.Namespace) -> int:
-    _print_json(project_active_executor_status(_paths(args), limit=_bounded_limit(args)))
+    paths = _paths(args)
+    full = bool(getattr(args, "full", False))
+    limit = _bounded_limit(args)
+    shown = project_active_executor_status(paths, limit=limit)
+    # Keyed by limit for the same reason `runtime show` is keyed by history
+    # limit: a different limit is a different projection.
+    surface = f"progress_status:{limit}"
+    ledger = run_context_budget(paths, PROGRESS_STATUS_LEDGER_KEY, surface=surface)
+    fingerprint = payload_fingerprint(shown)
+    if not full and fingerprint == ledger["last_payload_fingerprint"]:
+        payload = unchanged_progress_status_payload(shown, ledger)
+    else:
+        payload = shown
+    _print_json(payload)
+    record_context_emission(
+        paths,
+        PROGRESS_STATUS_LEDGER_KEY,
+        surface=surface,
+        byte_count=len(json.dumps(payload, sort_keys=True)),
+        payload_fingerprint_value=fingerprint,
+    )
     return 0
 
 
@@ -629,6 +651,11 @@ def _add_progress_observe_args(parser: argparse.ArgumentParser) -> None:
 def _add_progress_status_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--limit", type=int, default=50)
     parser.add_argument("--all", action="store_true")
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Always print the full projection, even when nothing changed since the last call.",
+    )
     parser.set_defaults(func=cmd_runtime_progress_status)
 
 

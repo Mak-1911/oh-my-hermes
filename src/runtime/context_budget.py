@@ -25,7 +25,13 @@ from ..paths import OmhPaths
 
 RUN_CONTEXT_BUDGET_SCHEMA_VERSION = "omh_run_context_budget/v1"
 RUN_UNCHANGED_SCHEMA_VERSION = "omh_run_show_unchanged/v1"
+PROGRESS_STATUS_UNCHANGED_SCHEMA_VERSION = "omh_progress_status_unchanged/v1"
 CONTEXT_BUDGET_LEDGER_NAME = "context_budget.json"
+
+# `progress-status` spans every binding rather than one run, so it needs a
+# ledger bucket that is not a run id. The double underscores keep it from
+# colliding with a real one.
+PROGRESS_STATUS_LEDGER_KEY = "__executor_progress_status__"
 
 
 def run_show_surface(*, full: bool, history_limit: object = None) -> str:
@@ -210,6 +216,32 @@ def unchanged_run_payload(shown: dict[str, Any], budget: dict[str, Any]) -> dict
             "Nothing observable changed since the previous emission for this run. This is not "
             "execution, review, CI, merge-readiness, or merge evidence, and repeating the command "
             "will not produce new evidence."
+        ),
+    }
+
+
+def unchanged_progress_status_payload(shown: dict[str, Any], budget: dict[str, Any]) -> dict[str, Any]:
+    """Replacement for an executor-status projection nothing has moved since.
+
+    "What is running?" is the most repeatable question a supervising agent asks,
+    and the answer is the largest single payload in a delegated session -- one
+    full binding record per executor. Repeating it unchanged is pure cost, so
+    keep only the counts a reader needs to decide whether to look closer.
+    """
+    active = shown.get("active_executors") if isinstance(shown.get("active_executors"), list) else []
+    stale = shown.get("stale_executors") if isinstance(shown.get("stale_executors"), list) else []
+    return {
+        "schema_version": PROGRESS_STATUS_UNCHANGED_SCHEMA_VERSION,
+        "unchanged_since_last_emission": True,
+        "active_executor_count": len(active),
+        "stale_executor_count": len(stale),
+        "delta": {},
+        "context_budget": public_budget(budget),
+        "next_action": "wait_for_new_observed_evidence_instead_of_repeating_this_command",
+        "full_output_command": "omh runtime progress-status --full",
+        "claim_boundary": (
+            "No executor progress changed since the previous emission. This is not result, "
+            "verification, review, CI, merge-readiness, or merge evidence."
         ),
     }
 
