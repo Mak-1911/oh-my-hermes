@@ -9,6 +9,7 @@ from ..executor_progress import (
     PROGRESS_EVENT_TYPES,
     build_progress_binding,
     build_safe_progress_signal,
+    compact_suppressed_observation,
     observe_executor_progress,
     project_active_executor_status,
     read_progress_binding,
@@ -463,6 +464,8 @@ def cmd_runtime_progress_observe(args: argparse.Namespace) -> int:
         )
     except (OSError, ValueError, ExecutorProgressError) as exc:
         raise OmhError(str(exc)) from exc
+    if not bool(getattr(args, "full", False)) and not payload.get("reported"):
+        payload = compact_suppressed_observation(payload)
     _print_json(payload)
     return 0
 
@@ -630,6 +633,11 @@ def _add_progress_bind_args(parser: argparse.ArgumentParser) -> None:
 
 def _add_progress_observe_args(parser: argparse.ArgumentParser) -> None:
     _add_progress_target_args(parser)
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Print the complete binding record even when the observation reported nothing.",
+    )
     parser.add_argument("--process-status", default="")
     # Default None, not "": passing the flag with an empty value means "git was
     # checked and reports nothing changed", which is what contradicts a reported

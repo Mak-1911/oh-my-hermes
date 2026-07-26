@@ -550,6 +550,34 @@ def observe_executor_progress(
     }
 
 
+def compact_suppressed_observation(payload: dict[str, Any]) -> dict[str, Any]:
+    """Shrink an observation that reported nothing, for emission only.
+
+    A suppressed observation still returned the whole binding record -- hashes,
+    instance ids, correlation aliases, transition fingerprints -- which measured
+    at 1,728 of its 2,096 bytes. None of that helps a caller who was just told
+    there is nothing to report, and a polling agent pays it on every quiet call.
+
+    Only the emission path is trimmed. `observe_executor_progress` keeps
+    returning the full binding, because in-process callers feed it straight back
+    into the next observation.
+    """
+    binding = payload.get("binding") if isinstance(payload.get("binding"), dict) else {}
+    return {
+        **{key: value for key, value in payload.items() if key != "binding"},
+        "binding_ref": {
+            "binding_id": str(binding.get("binding_id", "")),
+            "target_type": str(binding.get("target_type", "")),
+            "target_id": str(binding.get("target_id", "")),
+            "executor_profile": str(binding.get("executor_profile", "")),
+            "state": str(binding.get("state", "")),
+            "report_count": int(binding.get("report_count", 0) or 0),
+            "last_reported_event_type": str(binding.get("last_reported_event_type", "")),
+        },
+        "full_output_hint": "re-run with --full for the complete binding record",
+    }
+
+
 def append_progress_event(paths: OmhPaths, binding: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
     _require_valid("binding", validate_progress_binding(binding))
     _require_valid("event", validate_progress_event(event))
