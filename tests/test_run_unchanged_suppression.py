@@ -10,7 +10,17 @@ from _local_package import load_local_package
 
 load_local_package()
 from omh.paths import resolve_paths
-from omh.runtime.context_budget import payload_fingerprint, record_context_emission, run_context_budget
+from omh.runtime.artifacts import DEFAULT_RUN_HISTORY_LIMIT
+from omh.runtime.context_budget import (
+    payload_fingerprint,
+    record_context_emission,
+    run_context_budget,
+    run_show_surface,
+)
+
+
+DEFAULT_SHOW_SURFACE = run_show_surface(full=False, history_limit=DEFAULT_RUN_HISTORY_LIMIT)
+FULL_SHOW_SURFACE = run_show_surface(full=True)
 
 
 class UnchangedRunSuppressionTests(unittest.TestCase):
@@ -101,7 +111,7 @@ class UnchangedRunSuppressionTests(unittest.TestCase):
             record_context_emission(
                 paths,
                 run_id,
-                surface="runtime_show",
+                surface=DEFAULT_SHOW_SURFACE,
                 byte_count=0,
                 payload_fingerprint_value="the-run-moved-on",
             )
@@ -126,9 +136,31 @@ class UnchangedRunSuppressionTests(unittest.TestCase):
             full = self._show(base, run_id, "--full")
             self.assertNotIn("last_payload_fingerprint", full["context_budget"])
             self.assertTrue(
-                run_context_budget(paths, run_id, surface="runtime_show")["last_payload_fingerprint"],
+                run_context_budget(paths, run_id, surface=FULL_SHOW_SURFACE)["last_payload_fingerprint"],
                 "the ledger still needs the fingerprint it just stopped emitting",
             )
+
+    def test_each_history_limit_keeps_its_own_comparison(self) -> None:
+        """A different limit is a different projection, so it needs its own key.
+
+        Sharing one key across limits meant an agent alternating `--full` and
+        the default view never matched its own previous emission, so suppression
+        silently never fired for either.
+        """
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = self._base(root)
+            run_id = self._recorded_run(base)
+
+            self._show(base, run_id, "--full")
+            self._show(base, run_id)
+            self.assertTrue(
+                self._show(base, run_id)["unchanged_since_last_emission"],
+                "an interleaved --full call must not reset the default view's comparison",
+            )
+
+            self.assertNotIn("unchanged_since_last_emission", self._show(base, run_id, "--limit", "5"))
+            self.assertTrue(self._show(base, run_id, "--limit", "5")["unchanged_since_last_emission"])
 
     def test_the_fingerprint_ignores_the_budget_envelope(self) -> None:
         """The budget changes on every call; fingerprinting it would defeat the check."""
@@ -145,9 +177,9 @@ class UnchangedRunSuppressionTests(unittest.TestCase):
             paths = resolve_paths(root / ".omh", root / ".hermes")
             run_id = self._recorded_run(base)
 
-            self.assertEqual(run_context_budget(paths, run_id, surface="runtime_show")["last_payload_fingerprint"], "")
+            self.assertEqual(run_context_budget(paths, run_id, surface=DEFAULT_SHOW_SURFACE)["last_payload_fingerprint"], "")
             self._show(base, run_id)
-            recorded = run_context_budget(paths, run_id, surface="runtime_show")["last_payload_fingerprint"]
+            recorded = run_context_budget(paths, run_id, surface=DEFAULT_SHOW_SURFACE)["last_payload_fingerprint"]
             self.assertTrue(recorded)
             self.assertEqual(run_context_budget(paths, run_id, surface="fanout_show")["last_payload_fingerprint"], "")
 

@@ -31,13 +31,11 @@ PROGRESS_EVENT_TYPES = (
     "executor_blocked",
     "executor_failed",
     "reported_change_not_observed",
-    "reported_success_contradicted",
     "progress_observed",
 )
-# Never suppressed. The first five are terminal states. The last two are
-# claim/observation mismatches: the executor said it did something and the
-# repository says otherwise. Suppressing those lets a supervising agent keep
-# narrating success past the point where the work stopped landing, which is the
+# Exempt from the volume rules -- an exact duplicate transition is still
+# deduplicated. `reported_change_not_observed` belongs here because it only
+# fires on a finished run whose claim the working tree contradicts, which is the
 # failure mode that produced "4 file(s) were NOT modified this turn despite any
 # wording above that may suggest otherwise" only at the end of a long session.
 TERMINAL_EVENT_TYPES = {
@@ -47,7 +45,15 @@ TERMINAL_EVENT_TYPES = {
     "tests_failed",
     "tests_passed",
     "reported_change_not_observed",
-    "reported_success_contradicted",
+}
+# Observations that end a binding's life. Kept as its own name rather than
+# reusing TERMINAL_EVENT_TYPES: `tests_failed` and `tests_passed` are reportable
+# end states but the executor may still be working, so they must not close.
+CLOSING_EVENT_TYPES = {
+    "executor_completed",
+    "executor_blocked",
+    "executor_failed",
+    "reported_change_not_observed",
 }
 DEFAULT_FRESHNESS_SECONDS = 900
 DEFAULT_EXPIRY_SECONDS = 86400
@@ -382,31 +388,43 @@ def build_safe_progress_signal(
     return _safe_signal(signal)
 
 
-_CHANGE_CLAIM_ACTIVITY = {"Codex changed files.", "Codex is editing files."}
-_CHANGE_CLAIM_EVENT_TYPES = {"diff_started", "file_changed"}
+_CHANGE_CLAIM_ACTIVITY = {"Codex changed files."}
+_CHANGE_CLAIM_EVENT_TYPES = {"diff_started"}
 _SUCCESS_PROCESS_STATUSES = {"completed", "complete", "done", "success", "succeeded", "exited_zero"}
-_FAILURE_LATEST_EVENT_TYPES = {"targeted_tests_failed", "full_tests_failed", "tests_failed", "failure_discovered"}
 
 
-def _change_reported_but_not_observed(signal: dict[str, Any], *, latest: str, activity: set[str]) -> bool:
-    """The executor said it changed files and the working tree disagrees.
+def _change_reported_but_not_observed(
+    signal: dict[str, Any],
+    *,
+    latest: str,
+    activity: set[str],
+    process_status: str,
+    progress_status: str,
+) -> bool:
+    """The executor finished claiming it changed files, and the tree disagrees.
 
-    Requires `git_observed`: without it a missing hash only means nobody looked,
-    and reporting a mismatch from that would cry wolf on every caller that does
-    not collect git state.
+    Three guards, each load-bearing:
+
+    `git_observed` -- without it a missing hash only means nobody looked, so a
+    mismatch inferred from it would cry wolf on every caller that does not
+    collect git state.
+
+    A finished run -- the upstream change claim is a coarse bucket. Codex sets
+    it from any log line containing `patch`, `write`, `edit`, or `diff`, so a
+    mid-flight "let me run git diff to see the state" reads as a change claim
+    against a tree that is legitimately still clean. Only a run that has stopped
+    can actually contradict itself.
+
+    An empty tree -- both hashes absent.
     """
     if not bool(signal.get("git_observed", False)):
+        return False
+    finished = process_status in _SUCCESS_PROCESS_STATUSES or progress_status == "completed_or_passed_observed"
+    if not finished:
         return False
     if not (latest in _CHANGE_CLAIM_EVENT_TYPES or activity.intersection(_CHANGE_CLAIM_ACTIVITY)):
         return False
     return not signal.get("git_status_hash") and not signal.get("git_diff_stat_hash")
-
-
-def _success_reported_but_contradicted(*, progress_status: str, latest: str, process_status: str) -> bool:
-    """The process exited clean while the observed progress says it failed."""
-    if process_status not in _SUCCESS_PROCESS_STATUSES:
-        return False
-    return progress_status == "failed_or_error_observed" or latest in _FAILURE_LATEST_EVENT_TYPES
 
 
 def infer_progress_event_type(signal: dict[str, Any]) -> str:
@@ -419,16 +437,24 @@ def infer_progress_event_type(signal: dict[str, Any]) -> str:
     process_status = str(signal.get("process_status", "")).casefold()
     test_activity = bool(activity.intersection({"Codex ran tests.", "Codex is running tests."}))
     inspect_activity = bool(activity.intersection({"Codex inspected the repo.", "Codex is inspecting files/tests."}))
-    if _change_reported_but_not_observed(signal, latest=latest, activity=activity):
-        return "reported_change_not_observed"
-    if _success_reported_but_contradicted(progress_status=progress_status, latest=latest, process_status=process_status):
-        return "reported_success_contradicted"
     if latest == "blocker_encountered" or progress_status == "blocked" or process_status in {"blocked", "blocker"}:
         return "executor_blocked"
     if progress_status == "failed_or_error_observed" or latest in {"targeted_tests_failed", "full_tests_failed", "tests_failed"}:
         return "tests_failed" if test_activity or latest in {"targeted_tests_failed", "full_tests_failed", "tests_failed"} else "executor_failed"
     if latest == "failure_discovered" or process_status in {"failed", "failure", "error", "errored", "exited_nonzero"}:
         return "executor_failed"
+    # After blocked/failed, before completed. A blocker whose text also mentions
+    # a patch is a blocker, not a contradiction, and blocked/failed carry the
+    # more actionable classification. What this preempts is the benign reading:
+    # a run that claims it changed files and is about to be called completed.
+    if _change_reported_but_not_observed(
+        signal,
+        latest=latest,
+        activity=activity,
+        process_status=process_status,
+        progress_status=progress_status,
+    ):
+        return "reported_change_not_observed"
     if progress_status == "completed_or_passed_observed":
         return "tests_passed" if (test_activity or latest in {"targeted_tests_passed", "full_tests_passed", "tests_passed"}) else "executor_completed"
     if latest in {"targeted_tests_passed", "full_tests_passed", "tests_passed"}:
@@ -602,6 +628,21 @@ def reported_event_types(binding: dict[str, Any]) -> list[str]:
     return [str(value) for value in recorded if str(value)]
 
 
+def _legacy_reported_seed(binding: dict[str, Any]) -> list[str]:
+    """Best-known history for a binding written before `reported_event_types`.
+
+    Migrating with an empty list would discard everything the binding already
+    reported, so the next event writes a one-entry list and every other type
+    then looks like a first occurrence -- a burst of un-suppression on a run
+    already in flight. The last reported type is the only history such a binding
+    kept, so seed from it.
+    """
+    last = str(binding.get("last_reported_event_type", ""))
+    if last and int(binding.get("report_count", 0) or 0) > 0:
+        return [last]
+    return []
+
+
 def _is_first_occurrence(binding: dict[str, Any], event_type: str) -> bool:
     """True when this event type has never been reported for this binding.
 
@@ -657,7 +698,7 @@ def update_binding_reporter_state(
     updated["last_observed_signal_hash"] = _signal_fingerprint(signal)
     updated["last_observed_event_count"] = _safe_int(signal.get("progress_event_count"), 0)
     updated["last_observed_artifact_sha256"] = str(signal.get("codex_artifact_sha256", ""))
-    if str(event.get("event_type", "")) in {"executor_completed", "executor_blocked", "executor_failed"}:
+    if str(event.get("event_type", "")) in CLOSING_EVENT_TYPES:
         updated["state"] = "closed"
     else:
         updated["state"] = "active"
@@ -666,7 +707,7 @@ def update_binding_reporter_state(
         updated["last_reported_at"] = now
         updated["last_transition_fingerprint"] = str(event.get("transition_fingerprint", ""))
         updated["last_reported_event_type"] = event_type
-        seen = reported_event_types(binding)
+        seen = reported_event_types(binding) or _legacy_reported_seed(binding)
         updated["reported_event_types"] = seen if event_type in seen else [*seen, event_type]
         updated["last_reported_state"] = str(event.get("status", ""))
         updated["last_reported_summary_hash"] = hashlib.sha256(str(event.get("summary", "")).encode("utf-8")).hexdigest()
@@ -1151,9 +1192,6 @@ def _summary_for_event_type(event_type: str) -> str:
         "executor_failed": "The coding executor reported a failure.",
         "reported_change_not_observed": (
             "The coding executor reported applying a change, but no file change was observed."
-        ),
-        "reported_success_contradicted": (
-            "The coding executor reported success, but the observed exit state contradicts it."
         ),
         "progress_observed": "The coding executor emitted a safe progress signal.",
     }

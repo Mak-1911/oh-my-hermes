@@ -10,6 +10,7 @@ from omh.context_safety import (
     build_progress_event as build_chat_progress_event,
 )
 from omh.executor_progress import (
+    CLOSING_EVENT_TYPES,
     DEFAULT_MINIMUM_REPEAT_INTERVAL_SECONDS,
     PROGRESS_EVENT_TYPES,
     TERMINAL_EVENT_TYPES,
@@ -24,7 +25,7 @@ from omh.executor_progress import (
 from omh.plugin_bundle.omh.runtime_reader import EXECUTOR_PROGRESS_EVENT_TYPES
 
 
-CLAIM_MISMATCH_EVENT_TYPES = ("reported_change_not_observed", "reported_success_contradicted")
+CLAIM_MISMATCH_EVENT_TYPES = ("reported_change_not_observed",)
 
 
 def _binding(**overrides: object) -> dict[str, object]:
@@ -107,7 +108,92 @@ class SuppressionExemptFloorTests(unittest.TestCase):
                 self.assertIn(event_type, CODING_PROGRESS_REPORTABLE_EVENTS)
 
 
+class BindingClosureTests(unittest.TestCase):
+    """A binding must still close when the run ends.
+
+    The closing set used to be hardcoded separately from TERMINAL_EVENT_TYPES.
+    Adding a mismatch type that intercepted observations previously classified
+    as `executor_failed` therefore left the binding `active`, and
+    `project_active_executor_status` reported a dead executor as running until
+    freshness aged it out 15 minutes later.
+    """
+
+    def _closed_state(self, event_type: str) -> str:
+        binding = _binding()
+        event = _event(binding, event_type, observed_at="2026-07-25T00:00:01Z")
+        updated = update_binding_reporter_state(
+            binding, event, reported=True, reported_at="2026-07-25T00:00:01Z"
+        )
+        return str(updated["state"])
+
+    def test_every_closing_event_type_closes_the_binding(self) -> None:
+        for event_type in CLOSING_EVENT_TYPES:
+            with self.subTest(event_type=event_type):
+                self.assertEqual(self._closed_state(event_type), "closed")
+
+    def test_a_claim_mismatch_closes_the_binding(self) -> None:
+        for event_type in CLAIM_MISMATCH_EVENT_TYPES:
+            with self.subTest(event_type=event_type):
+                self.assertIn(event_type, CLOSING_EVENT_TYPES)
+                self.assertEqual(self._closed_state(event_type), "closed")
+
+    def test_test_results_are_reportable_but_do_not_close(self) -> None:
+        """The executor may keep working after a test run reports."""
+        for event_type in ("tests_passed", "tests_failed"):
+            with self.subTest(event_type=event_type):
+                self.assertIn(event_type, TERMINAL_EVENT_TYPES)
+                self.assertNotIn(event_type, CLOSING_EVENT_TYPES)
+                self.assertEqual(self._closed_state(event_type), "active")
+
+
 class FirstOccurrenceGuaranteeTests(unittest.TestCase):
+    def test_migrating_a_legacy_binding_does_not_un_suppress_everything(self) -> None:
+        """Seeding the new field with an empty list discards real history.
+
+        A legacy binding that reported `repo_exploration` forty times would,
+        after one unrelated report, treat `repo_exploration` as never seen and
+        report it again -- a burst of un-suppression on a run already in flight.
+        """
+        binding = _binding(
+            last_reported_event_type="repo_exploration",
+            last_reported_at="2026-07-25T00:00:00Z",
+            report_count=40,
+        )
+        binding.pop("reported_event_types")
+
+        closing = _event(binding, "executor_completed", observed_at="2026-07-25T00:00:01Z")
+        binding = update_binding_reporter_state(
+            binding, closing, reported=True, reported_at="2026-07-25T00:00:01Z"
+        )
+        self.assertEqual(reported_event_types(binding), ["repo_exploration", "executor_completed"])
+
+        repeat = _event(
+            binding,
+            "repo_exploration",
+            observed_at="2026-07-25T00:00:05Z",
+            summary="observed repo_exploration again",
+        )
+        _should_report, reason = should_report_event(binding, repeat, now="2026-07-25T00:00:05Z")
+        self.assertNotEqual(
+            reason,
+            "first_occurrence",
+            "a type the legacy binding already reported must not read as new",
+        )
+        # It still reports, as `meaningful_transition` -- the pre-existing
+        # interval rule only guards a repeat of the immediately previous type,
+        # and an intervening `executor_completed` breaks that run. The point of
+        # the seed is that the reason is not `first_occurrence`, which would
+        # bypass the interval rule outright for every remaining type.
+        self.assertEqual(reason, "meaningful_transition")
+
+    def test_a_legacy_binding_with_no_reports_still_treats_types_as_new(self) -> None:
+        binding = _binding(report_count=0)
+        binding.pop("reported_event_types")
+        event = _event(binding, "repo_exploration", observed_at="2026-07-25T00:00:01Z")
+        _should_report, reason = should_report_event(binding, event, now="2026-07-25T00:00:01Z")
+        self.assertEqual(reason, "first_occurrence")
+
+
     def test_first_occurrence_of_a_non_terminal_type_always_reports(self) -> None:
         binding = _binding()
         event = _event(binding, "repo_exploration", observed_at="2026-07-25T00:00:01Z")
@@ -210,6 +296,7 @@ class ClaimMismatchDetectionTests(unittest.TestCase):
     def test_reported_change_with_clean_git_is_flagged(self) -> None:
         signal = build_safe_progress_signal(
             executor_profile="claude_code",
+            process_status="completed",
             profile_progress_summary={"observable_activity": ["Codex changed files."]},
             git_status_short="",
             git_diff_stat="",
@@ -220,6 +307,7 @@ class ClaimMismatchDetectionTests(unittest.TestCase):
     def test_reported_change_with_a_real_diff_is_not_flagged(self) -> None:
         signal = build_safe_progress_signal(
             executor_profile="claude_code",
+            process_status="completed",
             profile_progress_summary={"observable_activity": ["Codex changed files."]},
             git_status_short=" M src/coding/executor_progress.py",
             git_diff_stat="1 file changed, 2 insertions(+)",
@@ -230,6 +318,7 @@ class ClaimMismatchDetectionTests(unittest.TestCase):
         """Callers that do not collect git state must not trip the detector."""
         signal = build_safe_progress_signal(
             executor_profile="claude_code",
+            process_status="completed",
             profile_progress_summary={"observable_activity": ["Codex changed files."]},
         )
         self.assertFalse(signal["git_observed"])
@@ -243,29 +332,72 @@ class ClaimMismatchDetectionTests(unittest.TestCase):
         )
         self.assertEqual(infer_progress_event_type(signal), "repo_exploration")
 
-    def test_clean_exit_with_observed_failure_is_flagged(self) -> None:
+    def test_clean_exit_with_observed_failure_stays_executor_failed(self) -> None:
+        """A clean exit contradicted by an observed failure is already covered.
+
+        This was briefly its own `reported_success_contradicted` type. The
+        existing ladder classifies it as `executor_failed`, which is more
+        actionable and -- unlike a mismatch label -- closes the binding, so the
+        separate type only stole that behaviour.
+        """
         signal = build_safe_progress_signal(
             executor_profile="claude_code",
             process_status="exited_zero",
             profile_progress_summary={"status": "failed_or_error_observed"},
         )
-        self.assertEqual(infer_progress_event_type(signal), "reported_success_contradicted")
+        self.assertEqual(infer_progress_event_type(signal), "executor_failed")
 
     def test_clean_exit_without_observed_failure_stays_completed(self) -> None:
         signal = build_safe_progress_signal(executor_profile="claude_code", process_status="exited_zero")
         self.assertEqual(infer_progress_event_type(signal), "executor_completed")
 
-    def test_failing_exit_with_observed_failure_is_not_a_contradiction(self) -> None:
+    def test_a_mid_flight_run_mentioning_a_diff_is_not_accused(self) -> None:
+        """The upstream change claim is a coarse bucket.
+
+        Codex sets it from any log line containing patch/write/edit/diff, so
+        "let me run git diff to see the state" reads as a change claim against a
+        tree that is legitimately still clean. Only a finished run can
+        contradict itself.
+        """
         signal = build_safe_progress_signal(
             executor_profile="claude_code",
-            process_status="failed",
-            profile_progress_summary={"status": "failed_or_error_observed"},
+            process_status="running",
+            profile_progress_summary={"observable_activity": ["Codex changed files."]},
+            git_status_short="",
+            git_diff_stat="",
         )
-        self.assertNotEqual(infer_progress_event_type(signal), "reported_success_contradicted")
+        self.assertTrue(signal["git_observed"])
+        self.assertNotEqual(infer_progress_event_type(signal), "reported_change_not_observed")
+
+    def test_a_blocker_outranks_the_mismatch(self) -> None:
+        """Blocked text that also mentions a patch is a blocker, not a lie."""
+        signal = build_safe_progress_signal(
+            executor_profile="claude_code",
+            process_status="completed",
+            profile_progress_summary={
+                "status": "blocked",
+                "observable_activity": ["Codex changed files."],
+            },
+            git_status_short="",
+        )
+        self.assertEqual(infer_progress_event_type(signal), "executor_blocked")
+
+    def test_a_failure_outranks_the_mismatch(self) -> None:
+        signal = build_safe_progress_signal(
+            executor_profile="claude_code",
+            process_status="completed",
+            profile_progress_summary={
+                "status": "failed_or_error_observed",
+                "observable_activity": ["Codex changed files."],
+            },
+            git_status_short="",
+        )
+        self.assertEqual(infer_progress_event_type(signal), "executor_failed")
 
     def test_an_explicit_event_type_still_wins(self) -> None:
         signal = build_safe_progress_signal(
             executor_profile="claude_code",
+            process_status="completed",
             explicit_event_type="tests_passed",
             profile_progress_summary={"observable_activity": ["Codex changed files."]},
             git_status_short="",

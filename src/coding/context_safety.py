@@ -47,7 +47,6 @@ CODING_PROGRESS_REPORTABLE_EVENTS = (
     "dispatch_to_executor",
     "blocker_encountered",
     "reported_change_not_observed",
-    "reported_success_contradicted",
     "targeted_tests_failed",
     "root_cause_identified",
     "fix_strategy_selected",
@@ -83,7 +82,6 @@ _PROGRESS_EVENT_TYPES = {
     # does not normalize them down to "status_update", which would erase the one
     # signal that says the narration and the repository disagree.
     "reported_change_not_observed",
-    "reported_success_contradicted",
 }
 _PROGRESS_EVENT_STATUSES = {"prepared", "observed", "running", "passed", "failed", "blocked"}
 _PROGRESS_EVENT_SEVERITIES = {"info", "success", "warning", "error", "blocked"}

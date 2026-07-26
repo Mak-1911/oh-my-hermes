@@ -46,6 +46,7 @@ from ..runtime.context_budget import (
     public_budget,
     record_context_emission,
     run_context_budget,
+    run_show_surface,
     unchanged_run_payload,
 )
 from ..executors import CODING_RUNTIME_HANDOFF_TARGETS
@@ -118,7 +119,8 @@ def cmd_runtime_show(args: argparse.Namespace) -> int:
         shown = show_run(paths, args.run_id, history_limit=_history_limit(args))
     except FileNotFoundError as exc:
         raise OmhError(f"runtime run not found: {args.run_id}") from exc
-    ledger = run_context_budget(paths, args.run_id, surface="runtime_show")
+    surface = run_show_surface(full=full, history_limit=_history_limit(args))
+    ledger = run_context_budget(paths, args.run_id, surface=surface)
     fingerprint = payload_fingerprint(shown)
     unchanged = fingerprint == ledger["last_payload_fingerprint"]
     budget = public_budget(ledger)
@@ -137,7 +139,7 @@ def cmd_runtime_show(args: argparse.Namespace) -> int:
     record_context_emission(
         paths,
         args.run_id,
-        surface="runtime_show",
+        surface=surface,
         byte_count=len(json.dumps(payload, sort_keys=True)),
         payload_fingerprint_value=fingerprint,
     )

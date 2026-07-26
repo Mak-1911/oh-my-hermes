@@ -28,6 +28,16 @@ RUN_UNCHANGED_SCHEMA_VERSION = "omh_run_show_unchanged/v1"
 CONTEXT_BUDGET_LEDGER_NAME = "context_budget.json"
 
 
+def run_show_surface(*, full: bool, history_limit: object = None) -> str:
+    """Ledger key for a `runtime show` emission.
+
+    The projection varies with the history limit, so the comparison key has to
+    as well. One shared key across limits means alternating `--limit 20` and
+    `--limit 50` never matches and suppression silently never fires.
+    """
+    return f"runtime_show:{'full' if full else history_limit}"
+
+
 def payload_fingerprint(payload: Any) -> str:
     """Hash the observable content of a projection.
 
@@ -141,6 +151,7 @@ def unchanged_run_payload(shown: dict[str, Any], budget: dict[str, Any]) -> dict
     """
     run = shown.get("run") if isinstance(shown.get("run"), dict) else {}
     run_id = str(budget.get("run_id", ""))
+    budget = public_budget(budget)
     return {
         "schema_version": RUN_UNCHANGED_SCHEMA_VERSION,
         "run": {
@@ -170,6 +181,7 @@ def degrade_run_payload(shown: dict[str, Any], budget: dict[str, Any]) -> dict[s
     journal_events = shown.get("journal_events") if isinstance(shown.get("journal_events"), list) else []
     latest = journal_events[-1] if journal_events and isinstance(journal_events[-1], dict) else {}
     run_id = str(budget.get("run_id", ""))
+    budget = public_budget(budget)
     return {
         "schema_version": "omh_run_show_summary_only/v1",
         "run": {
