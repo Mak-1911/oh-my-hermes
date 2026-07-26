@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ..ingress import CHAT_SOURCES
 from ..plugin_bundle.omh.awareness import (
     awareness_generic_tool_checkpoint_payload,
     awareness_route_hint,
@@ -8,6 +9,17 @@ from ..plugin_bundle.omh.awareness import (
 from ..plugin_bundle.omh.degradation import degradation_chat_note
 from ..routing.catalog_questions import is_skill_catalog_question
 from ..routing.action_copy import next_action_label
+
+# `contract` never imports this module, so the edge is one-way and cycle-free.
+# Reusing its helpers keeps the route-hint path on the same messenger-safe
+# rendering rules as the main interaction path instead of a second copy.
+from .contract import (
+    RENDER_PROFILE_RICH_MARKDOWN,
+    _messenger_chunking_hint,
+    _messenger_safe_body,
+    _render_body_blocks,
+    render_profile_for_source,
+)
 
 CHAT_ROUTE_HINT_SCHEMA_VERSION = "chat_route_hint/v1"
 CHAT_ROUTE_HINT_RESPONSE_SCHEMA_VERSION = "chat_route_hint_response/v1"
@@ -22,6 +34,9 @@ def build_chat_route_hint_payload(
     include_prompt_context: bool = False,
 ) -> dict[str, object]:
     """Return a wrapper-facing route hint without storing or echoing raw prompt text."""
+    if source not in CHAT_SOURCES:
+        raise ValueError(f"unsupported chat route hint source: {source}")
+    metadata = dict(source_metadata or {})
     route_hint = awareness_route_hint(message, max_hints=max_hints)
     route_hint = _route_hint_with_catalog_picker(route_hint, message)
     generic_tool_checkpoint = _generic_tool_checkpoint()
@@ -32,13 +47,14 @@ def build_chat_route_hint_payload(
         hints,
         route_hint=route_hint,
         source=source,
+        render_profile=render_profile_for_source(source, metadata),
         generic_tool_checkpoint=generic_tool_checkpoint,
     )
     payload: dict[str, object] = {
         "schema_version": CHAT_ROUTE_HINT_SCHEMA_VERSION,
         "source": source,
         "message_length": len(message),
-        "source_metadata": dict(source_metadata or {}),
+        "source_metadata": metadata,
         "route_hint": route_hint,
         "generic_tool_checkpoint": generic_tool_checkpoint,
         "chat_response": response,
@@ -139,6 +155,7 @@ def _response_for_hint(
     *,
     route_hint: dict[str, object],
     source: str,
+    render_profile: str,
     generic_tool_checkpoint: dict[str, object],
 ) -> dict[str, object]:
     checkpoint_body = _checkpoint_body_text(generic_tool_checkpoint)
@@ -243,6 +260,16 @@ def _response_for_hint(
     # request must keep exactly today's key set.
     if isinstance(degradation, dict) and degradation:
         state_route_hint["degradation"] = degradation
+    # Built from the final `body`, so the degradation note (appended above) is
+    # inside the messenger-safe text exactly once instead of being re-added or
+    # dropped by the transform.
+    fallback_body_text, fallback_transforms = _messenger_safe_body(body)
+    if render_profile == RENDER_PROFILE_RICH_MARKDOWN:
+        rendered_body_text = body
+        transforms_applied: list[str] = []
+    else:
+        rendered_body_text = fallback_body_text
+        transforms_applied = fallback_transforms
     return {
         "schema_version": CHAT_ROUTE_HINT_RESPONSE_SCHEMA_VERSION,
         "kind": render_kind,
@@ -253,9 +280,17 @@ def _response_for_hint(
         "actions": actions,
         "messenger_rendering": {
             "schema_version": "messenger_route_hint_rendering/v1",
+            # `profile` is the raw source echo kept for backward compatibility.
+            # Deprecated in favour of `render_profile`, which is the resolved
+            # render profile a wrapper should actually render against.
             "profile": source,
+            "render_profile": render_profile,
             "title": headline,
-            "body_text": body,
+            "body_text": rendered_body_text,
+            "body_blocks": _render_body_blocks(rendered_body_text, render_profile=render_profile),
+            "fallback_body_text": fallback_body_text,
+            "transforms_applied": transforms_applied,
+            "chunking": _messenger_chunking_hint(),
             "checkpoint_text": checkpoint_body,
             "primary_action": actions[0],
             "secondary_actions": actions[1:],

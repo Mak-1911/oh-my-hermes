@@ -504,6 +504,39 @@ class WrapperSurfaceDegradationTests(DegradationSignalTestCase):
         self.assertTrue(body.endswith(DEGRADATION_CHAT_NOTE))
         self.assertIn(DEGRADATION_CHAT_NOTE, response["messenger_rendering"]["body_text"])
 
+    def test_a_degraded_route_hint_renders_the_note_once_in_the_messenger_safe_body(self) -> None:
+        """The note survives the render-profile transform on an opted-in generic surface.
+
+        The route-hint messenger body is now profile-resolved, so the note is
+        appended before the safe-body transform runs. It must land in the safe
+        text exactly once: neither dropped by the transform nor re-appended
+        after it.
+        """
+        message = "Users report a wrapper-surface messenger rendering bug"
+
+        with self.locale_failure():
+            payload = build_chat_route_hint_payload(
+                message,
+                source="generic",
+                source_metadata={"render_profile": "limited_markdown"},
+            )
+
+        rendering = payload["chat_response"]["messenger_rendering"]
+        self.assertEqual(rendering["render_profile"], "limited_markdown")
+        body_text = rendering["body_text"]
+        self.assertTrue(body_text.strip())
+        self.assertEqual(body_text.count(DEGRADATION_CHAT_NOTE), 1)
+        self.assertTrue(body_text.endswith(DEGRADATION_CHAT_NOTE))
+        self.assertEqual(rendering["fallback_body_text"].count(DEGRADATION_CHAT_NOTE), 1)
+        block_text = "\n".join(str(block.get("text", "")) for block in rendering["body_blocks"])
+        self.assertTrue(block_text.strip())
+        self.assertEqual(block_text.count(DEGRADATION_CHAT_NOTE), 1)
+
+        serialized = json.dumps(rendering, ensure_ascii=False, sort_keys=True)
+        self.assertNotIn(message, serialized)
+        self.assertNotIn(LOCALE_BOOM, serialized)
+        self.assertNotIn(COMPONENT_LOCALIZED_ROUTING_TEXT, serialized)
+
     def test_a_degraded_route_hint_never_renders_request_or_exception_message_text(self) -> None:
         with self.locale_failure():
             payload = build_chat_route_hint_payload(self.ROUTE_HINT_MESSAGE, source="discord")

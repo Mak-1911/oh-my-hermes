@@ -7149,10 +7149,7 @@ def messenger_rendering_contract(
         "fallback_body_blocks": _messenger_body_blocks(safe_body_text),
         "preferred_blocks": preferred_blocks,
         "avoid_blocks": avoid_blocks,
-        "chunking": {
-            "max_recommended_chars": 1800,
-            "split_on": ["headings", "bullets", "paragraphs"],
-        },
+        "chunking": _messenger_chunking_hint(),
         "transforms_applied": transforms,
         "fallback_transforms_applied": safe_transforms,
         "prefix_policy": {
@@ -7244,10 +7241,20 @@ def _default_delivery_obligation_claim_boundary() -> str:
 
 
 def render_profile_for_source(source: str, source_metadata: dict[str, object] | None = None) -> str:
+    """Resolve the render profile an adapter should use for ``source``.
+
+    An adapter that sets ``render_profile`` at all has told us the surface is
+    narrow enough to care. If the value it sent is not a known profile (a typo,
+    a renamed profile, a future value), falling back to the source default would
+    hand rich Markdown to exactly the adapter that asked to be treated
+    carefully. Explicit-but-unknown therefore coerces down to
+    ``limited_markdown``, matching ``_normalize_render_profile``. Only absent or
+    empty metadata keeps the per-source default.
+    """
     metadata = source_metadata or {}
     explicit = str(metadata.get("render_profile", "")).strip()
-    if explicit in RENDER_PROFILES:
-        return explicit
+    if explicit:
+        return _normalize_render_profile(explicit)
     if source in _LIMITED_MARKDOWN_SOURCES:
         return RENDER_PROFILE_LIMITED_MARKDOWN
     return RENDER_PROFILE_RICH_MARKDOWN
@@ -7257,6 +7264,18 @@ def _normalize_render_profile(render_profile: str) -> str:
     if render_profile in RENDER_PROFILES:
         return render_profile
     return RENDER_PROFILE_LIMITED_MARKDOWN
+
+
+def _messenger_chunking_hint() -> dict[str, object]:
+    """Return the advisory chunking hint shared by every messenger rendering block.
+
+    OMH advises, adapters split. A fresh dict per call so a caller embedding it
+    in a payload cannot mutate the hint for every other caller.
+    """
+    return {
+        "max_recommended_chars": 1800,
+        "split_on": ["headings", "bullets", "paragraphs"],
+    }
 
 
 def _render_body_blocks(body: str, *, render_profile: str) -> list[dict[str, object]]:
