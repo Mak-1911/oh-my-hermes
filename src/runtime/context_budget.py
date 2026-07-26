@@ -79,6 +79,25 @@ def _without_volatile_bookkeeping(payload: Any) -> Any:
     return payload
 
 
+def smaller_payload(original: dict[str, Any], compacted: dict[str, Any]) -> dict[str, Any]:
+    """Return whichever payload is actually smaller.
+
+    A compact replacement carries fixed overhead -- schema version, claim
+    boundary, next action, the full-output hint -- so when the real projection
+    is nearly empty the "compact" form is the larger of the two. Measured on a
+    live fanout dispatch: `progress-status` with no active binding cost 280
+    bytes in full and 854 once "compacted".
+
+    Suppression exists to shrink what reaches agent context. It must never be
+    the reason output grew.
+    """
+    if len(json.dumps(compacted, sort_keys=True, default=str)) < len(
+        json.dumps(original, sort_keys=True, default=str)
+    ):
+        return compacted
+    return original
+
+
 def payload_fingerprint(payload: Any) -> str:
     """Hash what a reader would act on, not every byte of the projection.
 

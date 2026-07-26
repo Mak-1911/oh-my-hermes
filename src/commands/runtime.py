@@ -49,6 +49,7 @@ from ..runtime.context_budget import (
     record_context_emission,
     run_context_budget,
     run_show_surface,
+    smaller_payload,
     unchanged_progress_status_payload,
     unchanged_run_payload,
 )
@@ -135,7 +136,7 @@ def cmd_runtime_show(args: argparse.Namespace) -> int:
         # artifacts, and its shape is an existing contract.
         payload = degrade_run_payload(shown, budget)
     elif unchanged:
-        payload = unchanged_run_payload(shown, budget)
+        payload = smaller_payload({**shown, "context_budget": budget}, unchanged_run_payload(shown, budget))
     else:
         payload = {**shown, "context_budget": budget}
     _print_json(payload)
@@ -465,7 +466,7 @@ def cmd_runtime_progress_observe(args: argparse.Namespace) -> int:
     except (OSError, ValueError, ExecutorProgressError) as exc:
         raise OmhError(str(exc)) from exc
     if not bool(getattr(args, "full", False)) and not payload.get("reported"):
-        payload = compact_suppressed_observation(payload)
+        payload = smaller_payload(payload, compact_suppressed_observation(payload))
     _print_json(payload)
     return 0
 
@@ -481,7 +482,7 @@ def cmd_runtime_progress_status(args: argparse.Namespace) -> int:
     ledger = run_context_budget(paths, PROGRESS_STATUS_LEDGER_KEY, surface=surface)
     fingerprint = payload_fingerprint(shown)
     if not full and fingerprint == ledger["last_payload_fingerprint"]:
-        payload = unchanged_progress_status_payload(shown, ledger)
+        payload = smaller_payload(shown, unchanged_progress_status_payload(shown, ledger))
     else:
         payload = shown
     _print_json(payload)

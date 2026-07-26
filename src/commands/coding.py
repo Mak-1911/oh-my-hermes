@@ -626,7 +626,7 @@ def cmd_coding_fanout_validate(args: argparse.Namespace) -> int:
 def cmd_coding_fanout_show(args: argparse.Namespace) -> int:
     from ..coding.fanout_artifacts import read_fanout_contract
     from ..runtime.artifacts import show_run
-    from ..runtime.context_budget import payload_fingerprint, run_context_budget
+    from ..runtime.context_budget import payload_fingerprint, run_context_budget, smaller_payload
 
     paths = _paths(args)
     try:
@@ -693,7 +693,8 @@ def cmd_coding_fanout_show(args: argparse.Namespace) -> int:
         ),
     }
     if not full and _fanout_board_unchanged(paths, watched_runs, fingerprint):
-        payload = {
+        full_board = {**board, "context_budget": context_budget, "claim_boundary": contract.get("claim_boundary", "")}
+        payload = smaller_payload(full_board, {
             "schema_version": "fanout_board_unchanged/v1",
             "fanout_id": contract.get("fanout_id"),
             "unchanged_since_last_emission": True,
@@ -702,7 +703,7 @@ def cmd_coding_fanout_show(args: argparse.Namespace) -> int:
             "next_action": "wait_for_new_observed_evidence_instead_of_repeating_this_command",
             "full_output_command": f"omh coding fanout show {contract.get('fanout_id')} --full",
             "claim_boundary": contract.get("claim_boundary", ""),
-        }
+        })
     else:
         payload = {**board, "context_budget": context_budget, "claim_boundary": contract.get("claim_boundary", "")}
     _print_json(payload)
