@@ -114,6 +114,8 @@ def _install_result(args: argparse.Namespace) -> dict[str, object]:
     source = str(source_dir) if source_dir else "builtin"
     source_ref = _release_source_ref(args, release)
     previous_release = _previous_release_update_state(paths)
+    # Read before install_skill_pack rewrites the manifest.
+    previous_manifest_sha256 = _previous_manifest_sha256(paths)
     skill_profile = "full" if getattr(args, "full", False) else "core"
     result = install_skill_pack(
         paths,
@@ -142,6 +144,11 @@ def _install_result(args: argparse.Namespace) -> dict[str, object]:
         source=source,
         dry_run=bool(args.dry_run),
         command_package_updated=bool(getattr(args, "command_package_updated", False)),
+    )
+    result["workflow_content"] = _workflow_content_status(
+        paths,
+        previous_manifest_sha256,
+        dry_run=bool(args.dry_run),
     )
     result["release_update"] = _release_update_status(
         release_channel=release.channel,
@@ -377,6 +384,35 @@ def _explicit_release_metadata_supplied(args: argparse.Namespace) -> bool:
         str(getattr(args, key, "") or "").strip()
         for key in ("source_ref", "version", "package_url")
     )
+
+
+def _previous_manifest_sha256(paths) -> str:
+    state, _ = read_state_result(paths)
+    return _string_value((state or {}).get("manifest_sha256"))
+
+
+def _workflow_content_status(paths, previous_sha256: str, *, dry_run: bool) -> dict[str, object]:
+    """Whether this run changed the installed workflow content.
+
+    On the preview channel the version does not move between updates, so the
+    version line alone cannot answer "did anything change?". The manifest hash
+    can, without a network call: it is already recorded on every install.
+    """
+
+    if dry_run:
+        return {"known": False, "reason": "dry run does not write the manifest"}
+    try:
+        current_sha256 = sha256_file(paths.manifest_path)
+    except OSError:
+        return {"known": False, "reason": "manifest is not readable"}
+    if not previous_sha256:
+        return {"known": False, "reason": "no previous manifest hash was recorded", "current_sha256": current_sha256}
+    return {
+        "known": True,
+        "changed": previous_sha256 != current_sha256,
+        "previous_sha256": previous_sha256,
+        "current_sha256": current_sha256,
+    }
 
 
 def _previous_release_update_state(paths) -> dict[str, object]:
@@ -2073,6 +2109,14 @@ def _print_update_release_card(
     print(f"  {tr(language, notes_label)}")
     print(f"    - {tr(language, workflows_label, count=workflow_count)}")
     print(f"    - {tr(language, command_key)}")
+    workflow_content = payload.get("workflow_content", {})
+    if isinstance(workflow_content, dict) and workflow_content.get("known"):
+        content_key = (
+            "update_card_workflow_content_changed"
+            if workflow_content.get("changed")
+            else "update_card_workflow_content_unchanged"
+        )
+        print(f"    - {tr(language, content_key)}")
     if previous_release != current_release:
         print(f"    - {tr(language, 'release_version_change', change=f'{previous_release} -> {current_release}')}")
     print("")
