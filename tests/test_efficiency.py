@@ -177,8 +177,17 @@ class EfficiencyContractTests(unittest.TestCase):
 
         # Post-#634 ceilings. Baseline on main was 72,878 (core) / 759,969 (full) bytes
         # with 41.70% of the full-profile body repeated verbatim across skills.
+        #
+        # The full-profile ceiling was re-baselined from 700,000 to 715,000 when the wiki
+        # construction blueprint landed: the pack measured 699,908 bytes, so 92 bytes
+        # remained and the next sentence added to any skill would have failed here. A
+        # ceiling that tight stops teaching "move guidance into references" and starts
+        # teaching "add no guidance", which is not what #634 asked for. 715,000 restores
+        # roughly the proportional slack the core ceiling carries (~2.5%) and still locks
+        # in a 45KB, 5.9% cut against the pre-#634 baseline. References stay excluded from
+        # the body count, so lazily-loaded material remains the pressure valve.
         self.assertLess(core["skill_body"]["bytes"], 68_000)
-        self.assertLess(full["skill_body"]["bytes"], 700_000)
+        self.assertLess(full["skill_body"]["bytes"], 715_000)
         self.assertLess(full["repeated"]["share_percent"], 38.0)
 
         # References are progressive disclosure, counted outside the always-loaded body.

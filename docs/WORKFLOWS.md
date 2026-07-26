@@ -3246,15 +3246,21 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Capture durable facts with source evidence and destination-aware retrieval hints.
   - Treat Obsidian as one vendor hint under a broader external knowledge connection model.
   - Never present prepared wiki guidance as an observed external write, store creation, or memory mutation.
+  - Mark stale or uncertain knowledge instead of presenting it as permanent truth.
+  - Extract separate coding tasks instead of burying them in notes.
 - Completion checklist:
   - Audience scale, destination, knowledge types, and maintenance owner are recorded or named as missing.
   - The proposed model carries its rationale, breaking conditions, and one alternative.
   - Skeleton, entry points, conventions, maintenance, and seed pages are concrete enough to start today.
+  - Destination-specific guidance is prepared for the named store or the unknown destination gap is explicit.
   - No output claims an external write, store creation, connector run, or memory mutation without evidence.
+  - Separate coding or connector tasks are extracted instead of buried in notes.
 - Recovery notes:
   - If the audience scale is unknown, ask for it before proposing structure; it changes the model.
   - If nobody owns maintenance, record 'unmaintained' and choose a model that survives it.
+  - If source evidence conflicts, route to memory or knowledge review before writing durable guidance.
   - If the destination is unknown, record the missing facts and keep the guidance vendor-neutral.
+  - If the fact may be stale, record the staleness warning and next refresh action.
 - Required inputs:
   - audience scale (personal, small group, team, or organization)
   - destination or existing store
@@ -3266,7 +3272,8 @@ These surfaces are generated command references, not installed Hermes workflow s
   - destination-aware note guidance with retrieval hint and staleness warning
   - prepared-versus-observed external write boundary
 - Artifact expectations:
-  - wiki skeleton proposal, repo-local markdown artifact, or metadata-only destination guidance
+  - wiki skeleton proposal covering sections, entry points, conventions, and maintenance
+  - repo-local markdown knowledge artifact or metadata-only destination guidance
 - Safety rules:
   - Do not imply hidden Hermes runtime behavior.
   - Use the smallest verification that can prove the claim.
