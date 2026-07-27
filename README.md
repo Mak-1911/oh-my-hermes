@@ -138,13 +138,13 @@ The full generated catalog, triggers, harnesses, and evidence rules live in
 
 | Capability | Try it with | What it does |
 | --- | --- | --- |
-| 🧭 **Clarify and plan** | `$deep-interview` · `$ralplan` · `$strategy-brief` | Turns an ambiguous request into explicit goals, constraints, tradeoffs, acceptance criteria, and a plan that can be handed off. |
-| ⚡ **Build with leverage** | `$ultrawork` · `$ultragoal` · `$team` · `$loop` | Scales from fast parallel work to durable multi-step execution while keeping ownership, checkpoints, and verification visible. |
-| 🔬 **Research and learn** | `$best-practice-research` · `$web-research` · `$research-brief` | Finds and synthesizes source-backed evidence with freshness, source-quality, and unresolved-uncertainty boundaries. |
-| 🛠️ **Code and ship safely** | `$request-to-handoff` · `$code-review` · `$ultraqa` | Prepares executor-neutral coding work, then makes review, QA, CI, and merge claims depend on observed evidence. |
-| 🎨 **Create polished deliverables** | `$design-quality-gate` · `$materials-package` · `$deliverable-package` · `$img-summary` | Shapes websites, visuals, reports, decks, documents, PDFs, posters, and packages around content, taste, accessibility, and render-quality gates. |
-| 🧠 **Remember and operate** | `$memory` · `$ops-observability-card` · `$doctor` | Keeps project memory review-first, surfaces operational readiness, and gives the next repair action without inventing provider or system state. |
-| 🔌 **Connect without hiding boundaries** | `omh mcp` · `omh plugin` · `$agent-board` | Exposes local metadata-only contracts for Hermes and compatible hosts while keeping host load, tool use, and external-provider access separately observable. |
+| 🧭 **Clarify and plan** | `ulw-deep-interview` · `ulw-ralplan` · `omh-strategy-brief` | Turns an ambiguous request into explicit goals, constraints, tradeoffs, acceptance criteria, and a plan that can be handed off. |
+| ⚡ **Build with leverage** | `ulw-ultrawork` · `ulw-ultragoal` · `ulw-team` · `ulw-loop` | Scales from fast parallel work to durable multi-step execution while keeping ownership, checkpoints, and verification visible. |
+| 🔬 **Research and learn** | `ulw-web-research` · `omh-best-practice-research` · `omh-research-brief` | Finds and synthesizes source-backed evidence with freshness, source-quality, and unresolved-uncertainty boundaries. |
+| 🛠️ **Code and ship safely** | `ulw-ultraprocess` · `omh-code-review` · `ulw-ultraqa` | Prepares executor-neutral coding work, then makes review, QA, CI, and merge claims depend on observed evidence. |
+| 🎨 **Create polished deliverables** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-img-summary` | Shapes websites, visuals, reports, decks, documents, PDFs, posters, and packages around content, taste, accessibility, and render-quality gates. |
+| 🧠 **Remember and operate** | `omh-memory-new` · `omh-memory-sync` · `omh-ops-observability-card` · `omh-doctor` | Keeps project memory review-first, surfaces operational readiness, and gives the next repair action without inventing provider or system state. |
+| 🔌 **Connect without hiding boundaries** | `omh-toolbelt-readiness` · `omh-external-connector-readiness` · `omh-agent-board` | Checks whether a needed tool, connector, or agent surface is really available before work depends on it, and keeps host load, tool use, and external-provider access separately observable. |
 
 <br>
 
