@@ -297,6 +297,15 @@ def _run_command_package_self_update(args: argparse.Namespace, plan: dict[str, o
             "install",
             "--disable-pip-version-check",
             "-q",
+            # A branch archive keeps one URL while its contents change, and pip
+            # caches by URL. Without this, `omh update` reinstalls whatever
+            # `main.zip` was downloaded last - it reports success, the version
+            # string does not move, and the user gets an older tree. Observed:
+            # a fresh venv still printed "Using cached main.zip" and installed
+            # a build from before the merge it was run to pick up.
+            # `--force-reinstall` does not help; it forces the reinstall, not
+            # the download.
+            "--no-cache-dir",
             "--force-reinstall",
             "--upgrade",
             package_url,
