@@ -124,7 +124,7 @@ OMH 将 **92 个**可安装的 workflow skill 组织为6个容易理解的能力
 
 | 能力 | 使用方式 | 作用 |
 | --- | --- | --- |
-| 🧭 **澄清与规划** | `ulw-deep-interview` · `ulw-ralplan` · `omh-strategy-brief` | 把模糊的请求转化为明确的目标、约束、权衡、验收标准，以及可以直接交接的计划。 |
+| 🧭 **澄清与规划** | `ulw-deep-interview` · `ulw-ralplan` · `omh-decide` | 把模糊的请求转化为明确的目标、约束、权衡、验收标准，以及可以直接交接的计划。 |
 | ⚡ **借助杠杆推进工作** | `ulw-ultrawork` · `ulw-ultragoal` · `ulw-team` · `ulw-loop` | 从快速并行工作扩展到持久的多步骤执行，同时保持所有权、检查点和验证始终可见。 |
 | 🔬 **研究与学习** | `ulw-web-research` · `omh-best-practice-research` · `omh-research-brief` | 在标明时效性、来源质量和尚未解决的不确定性边界的同时，查找并综合有依据的证据。 |
 | 🛠️ **安全地编码与交付** | `ulw-ultraprocess` · `omh-code-review` · `ulw-ultraqa` | 准备不依赖特定 executor 的编码工作，并让 review、QA、CI 和 merge 的相关声明只依据实际观测到的证据。 |

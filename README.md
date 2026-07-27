@@ -138,7 +138,7 @@ The full generated catalog, triggers, harnesses, and evidence rules live in
 
 | Capability | Try it with | What it does |
 | --- | --- | --- |
-| 🧭 **Clarify and plan** | `ulw-deep-interview` · `ulw-ralplan` · `omh-strategy-brief` | Turns an ambiguous request into explicit goals, constraints, tradeoffs, acceptance criteria, and a plan that can be handed off. |
+| 🧭 **Clarify and plan** | `ulw-deep-interview` · `ulw-ralplan` · `omh-decide` | Turns an ambiguous request into explicit goals, constraints, tradeoffs, acceptance criteria, and a plan that can be handed off. |
 | ⚡ **Build with leverage** | `ulw-ultrawork` · `ulw-ultragoal` · `ulw-team` · `ulw-loop` | Scales from fast parallel work to durable multi-step execution while keeping ownership, checkpoints, and verification visible. |
 | 🔬 **Research and learn** | `ulw-web-research` · `omh-best-practice-research` · `omh-research-brief` | Finds and synthesizes source-backed evidence with freshness, source-quality, and unresolved-uncertainty boundaries. |
 | 🛠️ **Code and ship safely** | `ulw-ultraprocess` · `omh-code-review` · `ulw-ultraqa` | Prepares executor-neutral coding work, then makes review, QA, CI, and merge claims depend on observed evidence. |

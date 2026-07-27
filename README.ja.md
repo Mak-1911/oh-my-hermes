@@ -128,7 +128,7 @@ OMH は **92 個**のインストール可能な workflow skill を、理解し�
 
 | 機能 | 使い方 | 内容 |
 | --- | --- | --- |
-| 🧭 **明確化と計画** | `ulw-deep-interview` · `ulw-ralplan` · `omh-strategy-brief` | 曖昧な依頼を、明確な目標・制約・トレードオフ・受け入れ基準、そしてそのまま引き渡せる計画に変えます。 |
+| 🧭 **明確化と計画** | `ulw-deep-interview` · `ulw-ralplan` · `omh-decide` | 曖昧な依頼を、明確な目標・制約・トレードオフ・受け入れ基準、そしてそのまま引き渡せる計画に変えます。 |
 | ⚡ **レバレッジを効かせた実行** | `ulw-ultrawork` · `ulw-ultragoal` · `ulw-team` · `ulw-loop` | 高速な並列作業から持続的な複数ステップの実行までスケールしながら、所有権・チェックポイント・検証を常に可視化します。 |
 | 🔬 **調査と学習** | `ulw-web-research` · `omh-best-practice-research` · `omh-research-brief` | 鮮度・情報源の質・未解決の不確実性の境界を示しながら、根拠に基づく証拠を収集・統合します。 |
 | 🛠️ **安全なコーディングと出荷** | `ulw-ultraprocess` · `omh-code-review` · `ulw-ultraqa` | executor に依存しないコーディング作業を準備し、review・QA・CI・merge に関する主張は観測された証拠にのみ基づかせます。 |
