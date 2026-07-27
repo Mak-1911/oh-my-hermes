@@ -521,11 +521,11 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertEqual(commands[0], ["hermes", "skills", "tap", "add", "rlaope/oh-my-hermes"])
         self.assertEqual(
             commands[1],
-            ["hermes", "skills", "install", "rlaope/oh-my-hermes/skills/oh-my-hermes", "--yes"],
+            ["hermes", "skills", "install", "rlaope/oh-my-hermes/skills/omh-routing", "--yes"],
         )
         self.assertIn(["hermes", "skills", "list", "--enabled-only"], commands)
         self.assertIn(["hermes", "skills", "check", "oh-my-hermes"], commands)
-        self.assertIn(["hermes", "skills", "inspect", "rlaope/oh-my-hermes/skills/oh-my-hermes"], commands)
+        self.assertIn(["hermes", "skills", "inspect", "rlaope/oh-my-hermes/skills/omh-routing"], commands)
         self.assertIn("does not touch", payload["proof_boundary"])
         self.assertEqual(payload["target_binding"]["hermes_home"], hermes_home)
         self.assertIn("--hermes-home", payload["live_command"])
@@ -774,7 +774,7 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertTrue(payload["observed"])
         self.assertEqual(payload["hermes_cli"]["path"], "/usr/local/bin/hermes")
         self.assertEqual(seen[0], ["hermes", "skills", "tap", "add", "rlaope/oh-my-hermes"])
-        self.assertEqual(seen[-1], ["hermes", "skills", "inspect", "rlaope/oh-my-hermes/skills/oh-my-hermes"])
+        self.assertEqual(seen[-1], ["hermes", "skills", "inspect", "rlaope/oh-my-hermes/skills/omh-routing"])
         self.assertTrue(all(env["HERMES_HOME"] == str(Path("/tmp/hermes-smoke").resolve()) for env in seen_env))
         self.assertTrue(all(result["environment"]["HERMES_HOME"] == str(Path("/tmp/hermes-smoke").resolve()) for result in payload["results"]))
         self.assertTrue(all(result["ok"] for result in payload["results"]))

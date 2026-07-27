@@ -11,6 +11,7 @@ from ..local_store import atomic_write_text, read_json_object_result
 from ..manifest import local_modifications, new_manifest, read_manifest, skill_records, write_manifest
 from ..paths import OmhPaths
 from ..profiles.team import TEAM_PROFILE_SCHEMA_VERSION
+from ..skills.catalog import omh_skill_display_name
 from ..skill_pack import (
     CORE_PROFILE_SKILLS,
     SkillReferenceTemplate,
@@ -37,8 +38,20 @@ RECONCILE_CONTEXT_COST_NOTE = (
 )
 
 
+def skill_directory_name(canonical: str) -> str:
+    """Directory a skill is installed under.
+
+    The directory now matches the label a host shows, because they were visibly
+    disagreeing: Hermes printed `Loading skill: ulw-process` and then
+    `[Skill directory: .../.omh/skills/ultraprocess]`. The canonical name still
+    owns routing keys, triggers, and CLI arguments - only where the files sit
+    changes, so `visual-qa` keeps working as something a user types.
+    """
+    return omh_skill_display_name(canonical)
+
+
 def _write_skill(skills_dir: Path, template: SkillTemplate, force: bool = False, managed: bool = False) -> None:
-    target_dir = skills_dir / template.name
+    target_dir = skills_dir / skill_directory_name(template.name)
     target_file = target_dir / "SKILL.md"
     if target_file.exists() and not force and not managed:
         existing = target_file.read_text(encoding="utf-8")
@@ -53,7 +66,7 @@ def _write_skill_reference(
     force: bool = False,
     managed: bool = False,
 ) -> None:
-    target_file = skills_dir / template.skill_name / template.relative_path
+    target_file = skills_dir / skill_directory_name(template.skill_name) / template.relative_path
     if target_file.exists() and not force and not managed:
         existing = target_file.read_text(encoding="utf-8")
         if existing != template.content:
@@ -87,7 +100,12 @@ def install_skill_pack(
         # serving `name: ultrawork` long after the catalog had moved to
         # `ulw-ultrawork`. Shedding full-only skills stays an explicit act -
         # `omh skill-profile reconcile --to core`.
-        refreshable = set(CORE_PROFILE_SKILLS) | _installed_skill_names(paths.skills_dir)
+        installed = _installed_skill_names(paths.skills_dir)
+        refreshable = {
+            template.name
+            for template in all_templates
+            if template.name in CORE_PROFILE_SKILLS or skill_directory_name(template.name) in installed
+        }
         templates = [template for template in all_templates if template.name in refreshable]
         reference_templates = [
             template for template in reference_templates if template.skill_name in refreshable
@@ -147,6 +165,7 @@ def _installed_skill_names(skills_dir: Path) -> set[str]:
     return {entry.name for entry in skills_dir.iterdir() if entry.is_dir() and not entry.is_symlink()}
 
 
+
 def _prune_orphaned_skills(
     skills_dir: Path,
     manifest: dict | None,
@@ -173,7 +192,7 @@ def _prune_orphaned_skills(
             continue
         if str(rel) in modified and not force:
             continue
-        target_dir = skills_dir / name
+        target_dir = skills_dir / name  # manifest-recorded path; already the installed directory
         if not target_dir.is_dir() or target_dir.is_symlink():
             continue
         shutil.rmtree(target_dir)
@@ -197,12 +216,22 @@ def _context_cost_warning(*, core_count: int, full_count: int) -> dict:
     }
 
 
+def _all_catalog_skill_names() -> list[str]:
+    return [template.name for template in builtin_skill_templates()]
+
+
 def installed_skill_names(skills_dir: Path) -> list[str]:
     """Names of skill directories that currently hold a SKILL.md under ``skills_dir``."""
     if not skills_dir.is_dir():
         return []
+    # Directories carry display labels; every caller reasons in canonical names
+    # (CORE_PROFILE_SKILLS, manifests, capability ids), so translate back here
+    # rather than leaving each caller to guess which namespace it is holding.
+    canonical_by_directory = {
+        skill_directory_name(name): name for name in _all_catalog_skill_names()
+    }
     names = [
-        entry.name
+        canonical_by_directory.get(entry.name, entry.name)
         for entry in skills_dir.iterdir()
         if entry.is_dir() and not entry.is_symlink() and (entry / "SKILL.md").is_file()
     ]
@@ -303,7 +332,7 @@ def _reconcile_plan(skills_dir: Path, manifest: dict) -> dict:
         if name not in managed_names:
             retained.append({"name": name, "reason": "no OMH install-manifest record; not OMH-managed"})
             continue
-        actual = _installed_skill_files(skills_dir / name)
+        actual = _installed_skill_files(skills_dir / skill_directory_name(name))
         if actual is None:
             retained.append({"name": name, "reason": "skill directory is not plainly readable managed content"})
             continue
@@ -368,7 +397,7 @@ def reconcile_skill_profile(
 
     removed: list[str] = []
     for name in plan["removable_skills"]:
-        target_dir = paths.skills_dir / name
+        target_dir = paths.skills_dir / skill_directory_name(name)
         if not target_dir.is_dir() or target_dir.is_symlink():
             continue
         shutil.rmtree(target_dir)

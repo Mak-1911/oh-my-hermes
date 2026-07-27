@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ..skills.catalog import omh_skill_display_name
 
 from functools import lru_cache
 import hashlib
@@ -5667,7 +5668,7 @@ def _omh_status_probe_projection(probe: dict[str, object]) -> dict[str, object]:
 def _omh_status_probe_fingerprint(paths: OmhPaths) -> tuple[tuple[str, int, int, int], ...]:
     watched = (
         paths.hermes_config_path,
-        paths.skills_dir / "oh-my-hermes" / "SKILL.md",
+        paths.skills_dir / omh_skill_display_name("oh-my-hermes") / "SKILL.md",
         paths.runtime_state_path,
         paths.runtime_runs_dir,
         paths.runtime_wrapper_sessions_dir,

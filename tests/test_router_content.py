@@ -134,7 +134,7 @@ class RouterContentTests(unittest.TestCase):
         from omh.skills.render import _router_catalog_index_reference
 
         rendered = _router_catalog_index_reference()
-        on_disk = Path("skills/oh-my-hermes/references/catalog-index.md").read_text(encoding="utf-8")
+        on_disk = Path("skills/omh-routing/references/catalog-index.md").read_text(encoding="utf-8")
         self.assertEqual(on_disk, rendered)
 
         self.assertLess(len(rendered.encode("utf-8")), 20_000)
@@ -735,7 +735,7 @@ class RouterContentTests(unittest.TestCase):
         `omh-ultrawork/` and the curated `DESCRIPTIONS` lookup misses, replacing
         the hand-written description with the generic stub.
         """
-        raw = Path("skills/ultrawork/SKILL.md").read_text(encoding="utf-8")
+        raw = Path("skills/ulw-work/SKILL.md").read_text(encoding="utf-8")
         template = convert_skill(raw, "ultrawork")
 
         self.assertEqual(template.name, "ultrawork")
@@ -3206,7 +3206,7 @@ class RouterContentTests(unittest.TestCase):
             "src/commands/ops.py",
             "src/skills/catalog.py",
             "src/skills/render.py",
-            "skills/oh-my-hermes/SKILL.md",
+            "skills/omh-routing/SKILL.md",
         )
         for source_path in expected_source_paths:
             self.assertIn(source_path, site_architecture_post)

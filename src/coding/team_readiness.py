@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ..skills.catalog import omh_skill_display_name
 
 from pathlib import Path
 from typing import Any
@@ -106,8 +107,8 @@ def _skill_surfaces(paths: OmhPaths) -> list[dict[str, Any]]:
         {
             "name": name,
             "available_in_package": name in template_names,
-            "installed_for_hermes": (paths.skills_dir / name / "SKILL.md").is_file(),
-            "managed_skill_path": str(paths.skills_dir / name / "SKILL.md"),
+            "installed_for_hermes": (paths.skills_dir / omh_skill_display_name(name) / "SKILL.md").is_file(),
+            "managed_skill_path": str(paths.skills_dir / omh_skill_display_name(name) / "SKILL.md"),
             "purpose": _skill_purpose(name),
         }
         for name in TEAM_WORKER_SKILLS

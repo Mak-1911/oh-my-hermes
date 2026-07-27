@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from ..skill_pack import builtin_skill_templates
+from ..skills.catalog import omh_skill_display_name
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -41,11 +44,19 @@ def skill_records(skills_dir: Path, source: str) -> list[SkillRecord]:
     records: list[SkillRecord] = []
     if not skills_dir.exists():
         return records
+    # `name` stays canonical and `path` carries the real directory. The two
+    # diverged when installs moved to display-labelled directories, and callers
+    # compare `name` against the catalog (CORE_PROFILE_SKILLS, capability ids),
+    # so recording the label there made every lookup miss.
+    canonical_by_directory = {
+        omh_skill_display_name(template.name): template.name for template in builtin_skill_templates()
+    }
     for skill_file in sorted(skills_dir.rglob("SKILL.md")):
         rel = skill_file.relative_to(skills_dir)
+        directory = skill_file.parent.name
         records.append(
             SkillRecord(
-                name=skill_file.parent.name,
+                name=canonical_by_directory.get(directory, directory),
                 path=str(rel),
                 sha256=sha256_file(skill_file),
                 source=source,
