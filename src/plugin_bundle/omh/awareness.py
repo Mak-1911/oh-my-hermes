@@ -5613,6 +5613,14 @@ def _canonical_workflow_by_display_name() -> dict[str, str]:
         f"{'ulw-' if workflow in _ULW_ENGINE_WORKFLOWS else 'omh-'}{workflow}": workflow for workflow in workflows
     }
     mapping["omh-routing"] = "oh-my-hermes"
+    # Hand-picked labels the mechanical prefix rule cannot derive. Mirrors
+    # `skills/catalog_types.OMH_SKILL_DISPLAY_NAME_OVERRIDES`; the copy exists
+    # because a copied plugin bundle has no catalog import, and
+    # `tests/test_display_names.py` locks the two together.
+    for display, workflow in (("omh-decide", "strategy-brief"),):
+        mapping.pop(f"omh-{workflow}", None)
+        if workflow in workflows:
+            mapping[display] = workflow
     return mapping
 
 

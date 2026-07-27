@@ -688,7 +688,7 @@ class RouterContentTests(unittest.TestCase):
 
     def test_display_name_helper_keeps_canonical_identifiers_unchanged(self) -> None:
         self.assertEqual(OMH_SKILL_NAME_PREFIX, "omh-")
-        self.assertEqual(OMH_SKILL_DISPLAY_NAME_OVERRIDES, {"oh-my-hermes": "omh-routing"})
+        self.assertEqual(OMH_SKILL_DISPLAY_NAME_OVERRIDES, {"oh-my-hermes": "omh-routing", "strategy-brief": "omh-decide"})
 
         self.assertEqual(omh_skill_display_name("oh-my-hermes"), "omh-routing")
         self.assertEqual(omh_skill_display_name("ultrawork"), "ulw-ultrawork")

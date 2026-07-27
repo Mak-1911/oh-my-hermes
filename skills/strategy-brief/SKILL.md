@@ -1,5 +1,5 @@
 ---
-name: omh-strategy-brief
+name: omh-decide
 description: [omh] Hermes Strategy Brief workflow: options, tradeoffs, recommendation, and decision notes.
 metadata:
   hermes:

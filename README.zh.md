@@ -124,13 +124,13 @@ OMH 将 **92 个**可安装的 workflow skill 组织为6个容易理解的能力
 
 | 能力 | 使用方式 | 作用 |
 | --- | --- | --- |
-| 🧭 **澄清与规划** | `$deep-interview` · `$ralplan` · `$strategy-brief` | 把模糊的请求转化为明确的目标、约束、权衡、验收标准，以及可以直接交接的计划。 |
-| ⚡ **借助杠杆推进工作** | `$ultrawork` · `$ultragoal` · `$team` · `$loop` | 从快速并行工作扩展到持久的多步骤执行，同时保持所有权、检查点和验证始终可见。 |
-| 🔬 **研究与学习** | `$best-practice-research` · `$web-research` · `$research-brief` | 在标明时效性、来源质量和尚未解决的不确定性边界的同时，查找并综合有依据的证据。 |
-| 🛠️ **安全地编码与交付** | `$request-to-handoff` · `$code-review` · `$ultraqa` | 准备不依赖特定 executor 的编码工作，并让 review、QA、CI 和 merge 的相关声明只依据实际观测到的证据。 |
-| 🎨 **打造精致的交付物** | `$design-quality-gate` · `$materials-package` · `$deliverable-package` · `$img-summary` | 围绕内容、审美、无障碍性和渲染质量 gate，制作网站、视觉素材、报告、演示文稿、文档、PDF、海报和交付包。 |
-| 🧠 **记忆与运维** | `$memory` · `$ops-observability-card` · `$doctor` | 让项目记忆保持“先审查后使用”，呈现运维就绪状态，并在不臆造 provider 或系统状态的前提下给出下一步修复动作。 |
-| 🔌 **在不隐藏边界的前提下连接** | `omh mcp` · `omh plugin` · `$agent-board` | 为 Hermes 及兼容的 host 提供仅含元数据的本地 contract，同时让 host 加载、工具使用和外部 provider 访问都能被分别观测。 |
+| 🧭 **澄清与规划** | `ulw-deep-interview` · `ulw-ralplan` · `omh-decide` | 把模糊的请求转化为明确的目标、约束、权衡、验收标准，以及可以直接交接的计划。 |
+| ⚡ **借助杠杆推进工作** | `ulw-ultrawork` · `ulw-ultragoal` · `ulw-team` · `ulw-loop` | 从快速并行工作扩展到持久的多步骤执行，同时保持所有权、检查点和验证始终可见。 |
+| 🔬 **研究与学习** | `ulw-web-research` · `omh-best-practice-research` · `omh-research-brief` | 在标明时效性、来源质量和尚未解决的不确定性边界的同时，查找并综合有依据的证据。 |
+| 🛠️ **安全地编码与交付** | `ulw-ultraprocess` · `omh-code-review` · `ulw-ultraqa` | 准备不依赖特定 executor 的编码工作，并让 review、QA、CI 和 merge 的相关声明只依据实际观测到的证据。 |
+| 🎨 **打造精致的交付物** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-img-summary` | 围绕内容、审美、无障碍性和渲染质量 gate，制作网站、视觉素材、报告、演示文稿、文档、PDF、海报和交付包。 |
+| 🧠 **记忆与运维** | `omh-memory-new` · `omh-memory-sync` · `omh-ops-observability-card` · `omh-doctor` | 让项目记忆保持“先审查后使用”，呈现运维就绪状态，并在不臆造 provider 或系统状态的前提下给出下一步修复动作。 |
+| 🔌 **在不隐藏边界的前提下连接** | `omh-toolbelt-readiness` · `omh-external-connector-readiness` · `omh-agent-board` | 在工作依赖某个工具、connector 或 agent 面之前先确认它是否真的可用，同时让 host 加载、工具使用和外部 provider 访问都能被分别观测。 |
 
 ## 面向真实工作的设计
 
