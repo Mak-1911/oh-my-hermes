@@ -45,6 +45,19 @@ DEFAULT_HEADROOM_FLOOR_CHARS = 300
 DREAMING_MODES = ("off", "reminder")
 DEFAULT_DREAMING_MODE = "reminder"
 
+# Reasons that describe a moment rather than a state. These clear themselves by
+# firing -- the turn counter resets, the compaction flag is lowered -- so they
+# may fire again the moment they recur. Everything not listed here is a standing
+# condition: it stays true until something outside OMH changes it, so repeating
+# it every turn says nothing the previous brief did not.
+_EVENT_REASONS = frozenset(
+    {
+        "turn_interval_reached",
+        "session_ending_with_unconsolidated_turns",
+        "context_compaction_observed",
+    }
+)
+
 
 def dreaming_state_path(omh_home: str | Path) -> Path:
     return Path(omh_home).expanduser() / "memory" / "dreaming.json"
@@ -144,6 +157,15 @@ def consolidation_reasons(
     the interval assumes a later turn will come and a closing session is exactly
     where that assumption fails. Three turns and a closed laptop would otherwise
     leave nothing behind.
+
+    A reason that describes a *condition* is suppressed until the condition
+    actually changes. Observed live: 19 consecutive briefs, every one of them
+    reading ``headroom_below_floor:289<=300``. Turn counts and compaction flags
+    clear themselves when they fire, but headroom only clears when somebody
+    consolidates -- and OMH cannot, by design. So a standing condition re-fired
+    on every single turn and the journal filled with the same sentence. Each
+    reason encodes its own value, so an unchanged condition is an unchanged
+    string, and that is what the suppression compares.
     """
     if normalize_dreaming_mode(mode) == "off":
         return []
@@ -162,7 +184,27 @@ def consolidation_reasons(
         reasons.append(f"duplicate_records:{duplicate_count}")
     if expiring_count > 0:
         reasons.append(f"expiring_records:{expiring_count}")
-    return reasons
+    return reasons if _has_unfired_reason(reasons, state) else []
+
+
+def _has_unfired_reason(reasons: list[str], state: dict[str, Any]) -> bool:
+    """Is anything here new since the last brief?
+
+    An event reason always counts: it describes a moment, and the moment
+    happened again. A condition reason counts only when its exact string has
+    changed, because an unchanged string means the same standing condition
+    nobody has cleared.
+
+    Returning the full reason list -- rather than only the unfired part -- when
+    anything is fresh is deliberate. A brief woken by the turn interval while
+    memory is also nearly full should still say memory is nearly full.
+    """
+    already = {str(reason) for reason in state.get("last_reasons", []) if isinstance(reason, str)}
+    return any(_is_event_reason(reason) or reason not in already for reason in reasons)
+
+
+def _is_event_reason(reason: str) -> bool:
+    return reason.split(":", 1)[0] in _EVENT_REASONS
 
 
 # What the executor is asked to do differs by which moment woke it. A brief
@@ -226,6 +268,29 @@ def build_consolidation_handoff(
             "consolidated, that Hermes read it, or that any entry was written, changed, or removed."
         ),
     }
+
+
+def consolidation_path(omh_home: str | Path) -> Path:
+    return Path(omh_home).expanduser() / "memory" / "consolidation.json"
+
+
+def read_latest_consolidation(omh_home: str | Path) -> dict[str, Any] | None:
+    """The newest brief on disk, or None when there is none to read.
+
+    Never raises. A brief nobody can read is a brief nobody has to act on, and
+    an unreadable file must not take down whatever asked -- `omh doctor`, in
+    the case this exists for.
+    """
+    path = consolidation_path(omh_home)
+    try:
+        if path.is_symlink() or not path.is_file():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("schema_version") != DREAMING_HANDOFF_SCHEMA_VERSION:
+        return None
+    return data
 
 
 def normalize_dreaming_mode(value: str | None) -> str:

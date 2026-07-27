@@ -47,9 +47,11 @@ from omh.plugin_bundle.omh.memory_blocks import (
 )
 from omh.plugin_bundle.omh.memory_dreaming import (
     DEFAULT_TURN_INTERVAL,
+    clear_after_consolidation,
     consolidation_reasons,
     empty_dreaming_state,
     read_dreaming_state,
+    read_latest_consolidation,
     record_compaction,
     record_memory_write,
     record_turn,
@@ -186,6 +188,95 @@ class DreamingScheduleTests(unittest.TestCase):
         state = record_memory_write(record_turn(empty_dreaming_state()))
         self.assertEqual(state["turns_since_consolidation"], 1)
         self.assertEqual(state["memory_writes_observed"], 1)
+
+
+class StandingConditionSuppressionTests(unittest.TestCase):
+    """A condition nobody can clear must not be reported on every turn.
+
+    Observed on a live install: 19 consecutive briefs, every one of them reading
+    `headroom_below_floor:289<=300`. Turn counts and compaction flags clear
+    themselves by firing; headroom clears only when somebody consolidates, and
+    OMH cannot -- by design. So the condition re-fired forever and the journal
+    filled with one repeated sentence.
+    """
+
+    HEADROOM = 289
+    FLOOR = 300
+
+    def test_a_standing_condition_is_reported_once_not_every_turn(self) -> None:
+        state = empty_dreaming_state()
+        fired = 0
+        for _ in range(20):
+            state = record_turn(state)
+            reasons = consolidation_reasons(state, headroom_chars=self.HEADROOM, headroom_floor_chars=self.FLOOR)
+            if reasons:
+                fired += 1
+                state = clear_after_consolidation(state, at="t", reasons=reasons)
+        # Once on the first turn, then only when the interval genuinely comes
+        # due. Twenty briefs in twenty turns is what this replaced.
+        self.assertEqual(fired, 4)
+
+    def test_the_condition_still_rides_along_on_a_real_trigger(self) -> None:
+        # Suppression must not hide it: a brief woken by the interval while
+        # memory is nearly full should still say memory is nearly full.
+        state = clear_after_consolidation(
+            empty_dreaming_state(), at="t", reasons=[f"headroom_below_floor:{self.HEADROOM}<={self.FLOOR}"]
+        )
+        for _ in range(DEFAULT_TURN_INTERVAL):
+            state = record_turn(state)
+        reasons = consolidation_reasons(state, headroom_chars=self.HEADROOM, headroom_floor_chars=self.FLOOR)
+        self.assertTrue(any(r.startswith("turn_interval_reached") for r in reasons))
+        self.assertTrue(any(r.startswith("headroom_below_floor") for r in reasons))
+
+    def test_a_changed_condition_fires_immediately(self) -> None:
+        state = clear_after_consolidation(
+            empty_dreaming_state(), at="t", reasons=[f"headroom_below_floor:{self.HEADROOM}<={self.FLOOR}"]
+        )
+        self.assertEqual(consolidation_reasons(state, headroom_chars=self.HEADROOM, headroom_floor_chars=self.FLOOR), [])
+        self.assertTrue(consolidation_reasons(state, headroom_chars=self.HEADROOM - 40, headroom_floor_chars=self.FLOOR))
+
+    def test_duplicate_and_expiry_counts_are_conditions_too(self) -> None:
+        for reason, kwargs in (
+            ("duplicate_records:2", {"duplicate_count": 2}),
+            ("expiring_records:3", {"expiring_count": 3}),
+        ):
+            with self.subTest(reason=reason):
+                state = clear_after_consolidation(empty_dreaming_state(), at="t", reasons=[reason])
+                self.assertEqual(consolidation_reasons(state, **kwargs), [])
+
+    def test_every_event_reason_may_fire_again_at_once(self) -> None:
+        # These describe a moment, and the moment happened again.
+        compaction = clear_after_consolidation(empty_dreaming_state(), at="t", reasons=["context_compaction_observed"])
+        self.assertIn("context_compaction_observed", consolidation_reasons(record_compaction(compaction)))
+
+        turns = clear_after_consolidation(
+            empty_dreaming_state(), at="t", reasons=[f"turn_interval_reached:{DEFAULT_TURN_INTERVAL}/{DEFAULT_TURN_INTERVAL}"]
+        )
+        for _ in range(DEFAULT_TURN_INTERVAL):
+            turns = record_turn(turns)
+        self.assertTrue(any(r.startswith("turn_interval_reached") for r in consolidation_reasons(turns)))
+
+    def test_a_session_ending_still_reports_its_unconsolidated_turns(self) -> None:
+        state = clear_after_consolidation(
+            empty_dreaming_state(), at="t", reasons=["session_ending_with_unconsolidated_turns:3"]
+        )
+        state = record_turn(record_turn(record_turn(state)))
+        reasons = consolidation_reasons(state, session_ending=True)
+        self.assertIn("session_ending_with_unconsolidated_turns:3", reasons)
+
+    def test_the_provider_stops_rewriting_the_same_brief(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_hermes_memory(root / ".hermes", "x" * 2100)
+            provider = OmhMemoryProvider(root / ".omh")
+            provider.initialize("s", hermes_home=str(root / ".hermes"), agent_context="primary")
+            journal = root / ".omh" / "memory" / "consolidation.jsonl"
+
+            for turn in range(1, DEFAULT_TURN_INTERVAL):
+                provider.on_turn_start(turn, "hi")
+            # One brief from `initialize`; the standing condition adds no more
+            # until the interval genuinely comes due.
+            self.assertEqual(len(journal.read_text(encoding="utf-8").splitlines()), 1)
 
 
 class EvictionPlanTests(unittest.TestCase):
@@ -388,9 +479,14 @@ class ProviderLifecycleTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             _write_hermes_memory(root / ".hermes", "x" * 2100)
-            handoff = self._provider(root).consolidation_due()
-            self.assertTrue(any(str(r).startswith("headroom_below_floor") for r in handoff["reasons"]))
-            self.assertEqual(handoff["eviction_plan"]["cap"], 2200)
+            self._provider(root)
+
+            # The pressure is picked up by the evaluation `initialize` already
+            # runs, so the brief exists before anything else asks. Asking again
+            # finds the same standing condition suppressed rather than restated.
+            brief = json.loads((root / ".omh" / "memory" / "consolidation.json").read_text(encoding="utf-8"))
+            self.assertTrue(any(str(r).startswith("headroom_below_floor") for r in brief["reasons"]))
+            self.assertEqual(brief["eviction_plan"]["cap"], 2200)
 
     def test_a_read_only_home_costs_a_journal_line_not_the_turn(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -688,8 +784,16 @@ class MemoryCliTests(unittest.TestCase):
             _write_hermes_memory(root / ".hermes", "x" * 2100)
             status, payload, stderr = self._json(run_cli(self._base(root) + ["memory", "dream", "--evaluate"]))
             self.assertEqual(status, 0, stderr)
-            self.assertTrue(payload["due"])
             self.assertIn("not evidence that memory was consolidated", payload["claim_boundary"])
+            # The brief lands on disk whether or not this particular call is the
+            # one that weighed the trigger: `initialize` evaluates first, and a
+            # standing condition is not restated once it has been reported.
+            self.assertTrue((root / ".omh" / "memory" / "consolidation.json").is_file())
+
+            # Asking twice does not write twice, which is the whole point.
+            before = (root / ".omh" / "memory" / "consolidation.jsonl").read_text(encoding="utf-8")
+            run_cli(self._base(root) + ["memory", "dream", "--evaluate"])
+            self.assertEqual((root / ".omh" / "memory" / "consolidation.jsonl").read_text(encoding="utf-8"), before)
 
     def test_the_provider_slot_can_be_taken_and_handed_back(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -849,6 +953,197 @@ class SetupTurnsMemoryOnTests(unittest.TestCase):
             self.assertEqual(status, 0, stderr)
             self.assertTrue(json.loads(stdout)["changed"])
             self.assertFalse(json.loads(stdout)["is_omh"])
+
+
+class DoctorSurfacesTheBriefTests(unittest.TestCase):
+    """The scheduler's decision has to reach a human somewhere.
+
+    A brief was written to `consolidation.json` and nothing read it back, so
+    OMH knew memory was nearly full and said so only to itself. Doctor is where
+    an operator already looks.
+
+    It is a warning, never a fault: OMH cannot run the consolidation, and it
+    cannot tell whether Hermes already did.
+    """
+
+    def _checks(self, root: Path) -> dict[str, dict]:
+        status, stdout, stderr = run_cli(
+            ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes"), "doctor"]
+        )
+        self.assertIn(status, (0, 1), stderr)
+        return {check["name"]: check for check in json.loads(stdout)["checks"]}
+
+    def _fire_a_brief(self, root: Path) -> None:
+        _write_hermes_memory(root / ".hermes", "x" * 2100)
+        provider = OmhMemoryProvider(root / ".omh")
+        provider.initialize("s", hermes_home=str(root / ".hermes"), agent_context="primary")
+
+    def test_a_pending_brief_is_reported_with_its_reasons(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._fire_a_brief(root)
+            check = self._checks(root)["memory_consolidation"]
+            self.assertEqual(check["severity"], "warning")
+            self.assertIn("headroom_below_floor", check["message"])
+            self.assertIn("consolidat", check["message"].lower())
+
+    def test_a_pending_brief_never_fails_the_install(self) -> None:
+        # OMH cannot run the consolidation and cannot tell whether Hermes has,
+        # so an outstanding brief is a thing to know, not a thing that is broken.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._fire_a_brief(root)
+            self.assertTrue(self._checks(root)["memory_consolidation"]["ok"])
+
+    def test_no_brief_reads_as_nothing_pending(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            check = self._checks(root)["memory_consolidation"]
+            self.assertEqual(check["severity"], "ok")
+            self.assertIn("No memory consolidation is pending", check["message"])
+
+    def test_an_unreadable_brief_reads_as_nothing_pending(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / ".omh" / "memory" / "consolidation.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{not json", encoding="utf-8")
+            self.assertEqual(self._checks(root)["memory_consolidation"]["severity"], "ok")
+
+    def test_a_brief_that_was_not_due_is_not_reported_as_pending(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider = OmhMemoryProvider(root / ".omh")
+            provider.initialize("s", hermes_home=str(root / ".hermes"), agent_context="primary")
+            # Nothing fired, so no brief was written at all.
+            self.assertEqual(self._checks(root)["memory_consolidation"]["severity"], "ok")
+
+    def test_the_reader_is_defensive_about_the_schema(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "memory" / "consolidation.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"schema_version": "something_else/v1"}), encoding="utf-8")
+            self.assertIsNone(read_latest_consolidation(tmp))
+
+
+class ChatNoticeOnEveryMessengerTests(unittest.TestCase):
+    """A pending consolidation brief reaches chat, whatever the messenger.
+
+    `omh doctor` surfaced the brief for people who run commands. Someone talking
+    to Hermes from Slack or Telegram never runs commands, so for them the brief
+    did not exist. The notice attaches at the one seam every chat surface passes
+    through, so covering the seam covers Slack, Telegram, Discord, CLI, and
+    desktop at once.
+    """
+
+    NOTICE_LINE = "Memory tidy-up is pending"
+
+    def _due_paths(self, root: Path):
+        from omh.paths import resolve_paths
+
+        memories = root / ".hermes" / "memories"
+        memories.mkdir(parents=True, exist_ok=True)
+        (memories / "MEMORY.md").write_text("x" * 2100, encoding="utf-8")
+        provider = OmhMemoryProvider(root / ".omh")
+        provider.initialize("s", hermes_home=str(root / ".hermes"), agent_context="primary")
+        return resolve_paths(root / ".omh", root / ".hermes")
+
+    def _payload(self, paths, source: str) -> dict:
+        from omh.wrapper.contract import build_chat_interaction_payload
+
+        return build_chat_interaction_payload("이 레포에 기능 하나 안전하게 추가하고 싶어", source=source, paths=paths)
+
+    def test_every_chat_source_carries_the_notice_in_its_rendered_body(self) -> None:
+        from omh.ingress import CHAT_SOURCES
+
+        with TemporaryDirectory() as tmp:
+            paths = self._due_paths(Path(tmp))
+            for source in sorted(CHAT_SOURCES):
+                with self.subTest(source=source):
+                    payload = self._payload(paths, source)
+                    notice = payload.get("memory_consolidation_notice")
+                    self.assertIsInstance(notice, dict)
+                    self.assertIn("not evidence", str(notice["claim_boundary"]))
+                    body = str(payload["chat_response"]["body"])
+                    self.assertIn(self.NOTICE_LINE, body)
+                    rendering = payload["chat_response"].get("messenger_rendering")
+                    if isinstance(rendering, dict):
+                        self.assertIn(self.NOTICE_LINE, str(rendering.get("body_text", "")))
+
+    def test_the_routed_card_is_not_displaced(self) -> None:
+        # Additive means additive: same kind, same headline, one extra sentence.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            from omh.paths import resolve_paths
+
+            clean = resolve_paths(root / ".clean-omh", root / ".clean-hermes")
+            control = self._payload(clean, "slack")["chat_response"]
+            noticed = self._payload(self._due_paths(root), "slack")["chat_response"]
+            self.assertEqual(noticed["kind"], control["kind"])
+            self.assertEqual(noticed["headline"], control["headline"])
+            self.assertTrue(str(noticed["body"]).startswith(str(control["body"])))
+
+    def test_no_brief_means_no_notice_anywhere(self) -> None:
+        with TemporaryDirectory() as tmp:
+            from omh.paths import resolve_paths
+
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            payload = self._payload(paths, "telegram")
+            self.assertNotIn("memory_consolidation_notice", payload)
+            self.assertNotIn(self.NOTICE_LINE, str(payload["chat_response"]["body"]))
+
+    def test_an_unreadable_brief_degrades_to_no_notice(self) -> None:
+        with TemporaryDirectory() as tmp:
+            from omh.paths import resolve_paths
+
+            root = Path(tmp)
+            broken = root / ".omh" / "memory" / "consolidation.json"
+            broken.parent.mkdir(parents=True, exist_ok=True)
+            broken.write_text("{not json", encoding="utf-8")
+            payload = self._payload(resolve_paths(root / ".omh", root / ".hermes"), "slack")
+            self.assertNotIn("memory_consolidation_notice", payload)
+
+    def test_messenger_copy_carries_no_filesystem_paths(self) -> None:
+        # A Slack channel is a shared surface; a local path in the body leaks
+        # the operator's machine layout to everyone in it.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payload = self._payload(self._due_paths(root), "slack")
+            body = str(payload["chat_response"]["body"])
+            self.assertNotIn(str(root), body)
+            self.assertNotIn("/Users/", body)
+            self.assertNotIn(".omh", body)
+
+    def test_the_cached_pathless_call_stays_notice_free(self) -> None:
+        # The cache key excludes any OMH home, so a cached payload must never
+        # carry state it could not have read.
+        from omh.wrapper.contract import build_chat_interaction_payload
+
+        payload = build_chat_interaction_payload("hello", source="slack")
+        self.assertNotIn("memory_consolidation_notice", payload)
+
+    def test_the_real_plugin_tool_carries_it_on_both_paths(self) -> None:
+        from omh.plugin_bundle.omh.tools.chat_tool import omh_interact_handler
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            self._due_paths(root)
+            with patch.dict(os.environ, {"OMH_HOME": str(root / ".omh"), "HERMES_HOME": str(root / ".hermes")}):
+                for record_session in (True, False):
+                    with self.subTest(record_session=record_session):
+                        out = json.loads(
+                            omh_interact_handler(
+                                {
+                                    "message": "PR 하나 올리고 싶은데 도와줘",
+                                    "source": "slack",
+                                    "record_session": record_session,
+                                    "omh_home": str(root / ".omh"),
+                                    "hermes_home": str(root / ".hermes"),
+                                }
+                            )
+                        )
+                        self.assertIn("memory_consolidation_notice", out)
+                        self.assertIn(self.NOTICE_LINE, str(out["chat_response"]["body"]))
 
 
 class BlockBudgetDefaultTests(unittest.TestCase):

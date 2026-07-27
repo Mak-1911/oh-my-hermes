@@ -2780,7 +2780,11 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("**92 個**", localized_readmes["ja"])
         self.assertIn("**92 个**", localized_readmes["zh"])
         for localized_readme in localized_readmes.values():
-            self.assertLess(len(localized_readme.splitlines()), 240)
+            # A localized README stays a trimmed landing page, never a full
+            # translation of every English section. The budget grew from 240
+            # when the four-surface demo table (22 lines) was added above the
+            # h1 in every language; it still sits below README.md's length.
+            self.assertLess(len(localized_readme.splitlines()), 260)
             self.assertIn("prepared_not_observed", localized_readme)
             self.assertIn("omh setup", localized_readme)
             self.assertIn("```sh\nomh update\nomh doctor\n```", localized_readme)
@@ -3022,7 +3026,24 @@ class RouterContentTests(unittest.TestCase):
             hero,
         )
         self.assertLess(hero.index("Top install commands"), hero.index("Installation options"))
-        self.assertEqual(site.count("<img"), 1)
+        # The landing page carries one hero illustration plus the four surface
+        # demos, and nothing else. The exact count is the point: it is what
+        # keeps decorative images off the page. It was 1 before the surfaces
+        # section existed.
+        self.assertEqual(site.count("<img"), 5)
+        surface_gifs = (
+            "assets/hermes-desktop.gif",
+            "assets/hermes-cli.gif",
+            "assets/hermes-messenger.gif",
+            "assets/omh-setup.gif",
+        )
+        for gif in surface_gifs:
+            self.assertEqual(site.count(f'src="{gif}"'), 1)
+            # The demos live once under assets/ and are copied in at build
+            # time. Without the copy step the section 404s on the deployed
+            # site while every local check still passes.
+            self.assertIn(f"cp {gif} _site/{gif}", pages)
+        self.assertEqual(site.count('loading="lazy"'), len(surface_gifs))
         self.assertIn('href="docs/">Read the docs</a>', site)
         self.assertIn("A stronger operating layer for the Hermes you already use.", site)
         self.assertIn('class="product-frame"', site)

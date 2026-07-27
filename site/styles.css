@@ -792,6 +792,58 @@ code {
   padding: var(--section) 0 36px;
 }
 
+.surfaces-section {
+  background: var(--soft);
+}
+
+.surfaces-section .home-section__inner {
+  padding-top: 0;
+}
+
+.surface-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+}
+
+.surface-card {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-frame);
+  background: var(--canvas);
+  box-shadow: var(--shadow-frame);
+}
+
+.surface-card img {
+  width: 100%;
+  height: auto;
+  border-bottom: 1px solid var(--line);
+}
+
+.surface-card figcaption {
+  display: grid;
+  gap: 4px;
+  margin-top: auto;
+  padding: 16px 20px 18px;
+}
+
+.surface-card figcaption strong {
+  font-size: 15px;
+}
+
+.surface-card figcaption code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.surface-card figcaption span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .section-heading--split {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(320px, 0.7fr);
@@ -2007,6 +2059,11 @@ a.reference-link:hover,
   :root {
     --gutter: 20px;
     --section: 48px;
+  }
+
+  .surface-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
   }
 
   h1 {

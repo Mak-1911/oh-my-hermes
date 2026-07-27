@@ -2,6 +2,29 @@
   <img src="assets/oh-my-hermes-wordmark.png" alt="OH-MY-HERMES" width="100%" style="display:block;max-width:none;height:auto">
 </p>
 
+<table align="center" width="100%">
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/hermes-desktop.gif" alt="Hermes Desktop with oh-my-hermes - the skill picker lists the OMH workflows and /ulw-process asks scoping questions before building" width="100%"><br>
+      <sub><b>Hermes 데스크톱, oh-my-hermes와 함께.</b><br>스킬 피커에서 워크플로를 고르면, Hermes가 만들기 전에 먼저 확인합니다.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/hermes-cli.gif" alt="Hermes CLI with oh-my-hermes - the installed OMH workflows run from the terminal session" width="100%"><br>
+      <sub><b>Hermes CLI, oh-my-hermes와 함께.</b><br>이미 Hermes를 쓰던 터미널에서, 같은 워크플로를 그대로.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/hermes-messenger.gif" alt="Hermes Agent messenger app with oh-my-hermes - an OMH workflow invoked from a Slack thread and reporting back in that thread" width="100%"><br>
+      <sub><b>Hermes 메신저 앱, oh-my-hermes와 함께.</b><br>채팅 스레드에서 요청하면, 실행 결과가 같은 스레드로 돌아옵니다.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/omh-setup.gif" alt="omh setup installing the OMH workflows, connecting them to Hermes, and printing the install summary" width="100%"><br>
+      <sub><b><code>omh setup</code>, 명령 하나로.</b><br>워크플로를 설치하고 Hermes에 연결한 뒤, 무엇을 했는지 출력합니다.</sub>
+    </td>
+  </tr>
+</table>
+
 # oh-my-hermes
 
 <p align="center">

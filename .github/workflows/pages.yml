@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/pages.yml"
       - "assets/hermes-agent-hero.png"
+      - "assets/*.gif"
       - "site/**"
       - "README.md"
       - "docs/**"
@@ -43,6 +44,12 @@ jobs:
           mkdir -p _site/assets
           cp -R site/. _site/
           cp assets/hermes-agent-hero.png _site/assets/hermes-agent-hero.png
+          # The four surface demos live once in assets/ and are copied in at
+          # build time rather than duplicated under site/assets/.
+          cp assets/hermes-desktop.gif _site/assets/hermes-desktop.gif
+          cp assets/hermes-cli.gif _site/assets/hermes-cli.gif
+          cp assets/hermes-messenger.gif _site/assets/hermes-messenger.gif
+          cp assets/omh-setup.gif _site/assets/omh-setup.gif
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:
