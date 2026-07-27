@@ -548,10 +548,10 @@ try:  # File-loaded plugin bundles can still reuse OMH locale phrase packs.
 except ImportError:  # pragma: no cover - standalone plugin hosts keep the fallback above.
     pass
 
-try:  # Accept the `omh-` display labels wrapper bodies render back as routing input.
+try:  # Accept the `omh-`/`ulw-` display labels wrapper bodies render back as routing input.
     from ...routing.display_names import canonical_display_mentions as _canonical_display_mentions
 except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
-    _DISPLAY_MENTION_PATTERN = re.compile(r"(?<![0-9a-z])omh-[0-9a-z]+(?:-[0-9a-z]+)*")
+    _DISPLAY_MENTION_PATTERN = re.compile(r"(?<![0-9a-z])(?:omh|ulw)-[0-9a-z]+(?:-[0-9a-z]+)*")
 
     def _canonical_display_mentions(value: str, canonical_by_display: dict[str, str]) -> str:
         if not value or not canonical_by_display:
@@ -5579,17 +5579,39 @@ def _workflow_not_evidence_yet(
     return [str(item) for item in context_card.get("not_evidence_until_observed", [])]
 
 
+# Workflow-engine skills render a `ulw-` label instead of `omh-`. Duplicated from
+# `skills/catalog.ULW_ENGINE_SKILL_NAMES` on purpose: a copied plugin bundle has
+# no catalog import, and `tests/test_display_names.py` locks this list against the
+# catalog so the copy cannot drift.
+_ULW_ENGINE_WORKFLOWS = frozenset(
+    {
+        "deep-interview",
+        "loop",
+        "ralph",
+        "ralplan",
+        "team",
+        "ultragoal",
+        "ultraprocess",
+        "ultraqa",
+        "ultrawork",
+        "web-research",
+    }
+)
+
+
 @lru_cache(maxsize=1)
 def _canonical_workflow_by_display_name() -> dict[str, str]:
-    """Map every `omh-` display label this module knows back to its workflow name.
+    """Map every `omh-`/`ulw-` display label this module knows back to its workflow name.
 
     Built from the module's own workflow tables so a copied plugin bundle needs no
     catalog import. `oh-my-hermes` renders as `omh-routing`, which the mechanical
-    `omh-<name>` rule cannot derive, so it is an explicit pair;
+    prefix rule cannot derive, so it is an explicit pair;
     `tests/test_router_content.py` locks both against `omh_skill_display_name()`.
     """
     workflows = set(_WORKFLOW_CONTEXT_CARD_BY_WORKFLOW) | set(_DIRECT_WORKFLOW_NEXT_ACTIONS)
-    mapping = {f"omh-{workflow}": workflow for workflow in workflows}
+    mapping = {
+        f"{'ulw-' if workflow in _ULW_ENGINE_WORKFLOWS else 'omh-'}{workflow}": workflow for workflow in workflows
+    }
     mapping["omh-routing"] = "oh-my-hermes"
     return mapping
 

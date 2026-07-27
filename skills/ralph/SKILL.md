@@ -1,5 +1,5 @@
 ---
-name: omh-ralph
+name: ulw-ralph
 description: [omh] Hermes Ralph workflow: persistent execution with verification and review.
 metadata:
   hermes:

@@ -669,7 +669,7 @@ class RouterContentTests(unittest.TestCase):
         definitions = {definition.name: definition for definition in builtin_definitions()}
 
         ultrawork = templates["ultrawork"]
-        self.assertIn("\nname: omh-ultrawork\n", ultrawork)
+        self.assertIn("\nname: ulw-ultrawork\n", ultrawork)
         self.assertIn("\n    category: execution\n", ultrawork)
         self.assertIn("\n    phase: parallel-delivery\n", ultrawork)
         self.assertIn("\n    role: handoff-guide\n", ultrawork)
@@ -691,7 +691,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertEqual(OMH_SKILL_DISPLAY_NAME_OVERRIDES, {"oh-my-hermes": "omh-routing"})
 
         self.assertEqual(omh_skill_display_name("oh-my-hermes"), "omh-routing")
-        self.assertEqual(omh_skill_display_name("ultrawork"), "omh-ultrawork")
+        self.assertEqual(omh_skill_display_name("ultrawork"), "ulw-ultrawork")
         self.assertEqual(omh_skill_display_name("omh-ultrawork"), "omh-ultrawork")
 
         # Branch order: the override lookup must run before the idempotency guard.
@@ -725,7 +725,7 @@ class RouterContentTests(unittest.TestCase):
 
         self.assertEqual(template.name, "ultrawork")
         self.assertIn(f"\ndescription: {DESCRIPTIONS['ultrawork']}\n", template.content)
-        self.assertIn("\nname: omh-ultrawork\n", template.content)
+        self.assertIn("\nname: ulw-ultrawork\n", template.content)
 
         # Imported third-party skills carry the prefix too, so nothing installed by
         # omh reads as a Hermes built-in - but the directory identity stays canonical.
@@ -2760,10 +2760,10 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[GitHub Pages site](site/index.html)", readme)
         self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal request", readme)
         self.assertIn("replacing Hermes or hiding a coding executor", readme)
-        self.assertIn("**88 installable workflow skills**", readme)
-        self.assertIn("**88개**", localized_readmes["ko"])
-        self.assertIn("**88 個**", localized_readmes["ja"])
-        self.assertIn("**88 个**", localized_readmes["zh"])
+        self.assertIn("**92 installable workflow skills**", readme)
+        self.assertIn("**92개**", localized_readmes["ko"])
+        self.assertIn("**92 個**", localized_readmes["ja"])
+        self.assertIn("**92 个**", localized_readmes["zh"])
         for localized_readme in localized_readmes.values():
             self.assertLess(len(localized_readme.splitlines()), 240)
             self.assertIn("prepared_not_observed", localized_readme)
@@ -2950,7 +2950,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[Roles](ROLES.md)", docs_readme)
         self.assertIn("Agent Install Protocol", docs_readme)
         self.assertIn("`deep-interview`, `ralplan`, `ultragoal`, `loop`", docs_readme)
-        self.assertIn("**88 installable skills**", docs_readme)
+        self.assertIn("**92 installable skills**", docs_readme)
         self.assertIn("**Retain knowledge**", docs_readme)
         self.assertIn("python -m unittest discover -s tests", ci)
         self.assertIn("python -m compileall src", ci)

@@ -6114,7 +6114,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("Workflow: ralplan", stdout)
         self.assertIn("Next action: preparing a reviewed plan", stdout)
         self.assertNotIn("(`present_plan`)", stdout)
-        self.assertIn("[omh] ralplan - I routed this to `omh-ralplan`", stdout)
+        self.assertIn("[omh] ralplan - I routed this to `ulw-ralplan`", stdout)
         self.assertIn("Actions:", stdout)
         self.assertIn("- Accept plan - enabled", stdout)
         self.assertIn("- Prepare handoff - disabled", stdout)

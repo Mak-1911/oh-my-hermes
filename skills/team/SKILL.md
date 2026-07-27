@@ -1,5 +1,5 @@
 ---
-name: omh-team
+name: ulw-team
 description: [omh] Hermes Team workflow: coordinated parallel or sequential work lanes.
 metadata:
   hermes:
