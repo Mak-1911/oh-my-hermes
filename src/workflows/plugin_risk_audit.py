@@ -14,7 +14,7 @@ _HOOK_CAPABILITY = re.compile(r"\b(?:on_session_end|pre_llm_call|pre_tool_call)\
 _PROCESS_EXECUTION = re.compile(
     r"\b(?:os\.system|subprocess\.(?:call|check_call|check_output|Popen|run)|child_process\.(?:exec|execFile|fork|spawn))\s*\("
 )
-_DYNAMIC_EXECUTION = re.compile(r"\b(?:compile|eval|exec)\s*\(|\bnew\s+Function\s*\(")
+_DYNAMIC_EXECUTION = re.compile(r"(?<!\.)\b(?:compile|eval|exec)\s*\(|\bnew\s+Function\s*\(")
 _NETWORK_REQUEST = re.compile(
     r"\b(?:axios|httpx|requests|urllib(?:\.request|3)?|https?|http)\.(?:get|post|put|request|urlopen)\s*\(|\bfetch\s*\("
 )

@@ -104,6 +104,15 @@ class PluginRiskAuditTests(unittest.TestCase):
             ],
         )
 
+    def test_audit_does_not_treat_javascript_process_execution_as_dynamic_code(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "plugin.js").write_text("child_process.exec('tool');\n", encoding="utf-8")
+
+            payload = audit_plugin_risk(root)
+
+        self.assertEqual(payload["summary"]["risk_categories"], ["process_execution"])
+
     def test_audit_rejects_the_filesystem_root_before_scanning(self) -> None:
         filesystem_root = Path(Path.cwd().anchor)
 
