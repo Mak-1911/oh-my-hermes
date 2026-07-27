@@ -9,6 +9,7 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "ask_clarification": "asking one clarification",
     "ask_goal_boundary": "asking for the loop boundary",
     "assess_loopability": "checking whether the goal is loopable",
+    "audit_plugin_risk": "auditing one explicit local plugin directory",
     "audit_prompt_compatibility": "auditing explicitly supplied prompt compatibility",
     "audit_learning_readiness": "reviewing workflow learning readiness",
     "cancel": "cancelling the active workflow state",

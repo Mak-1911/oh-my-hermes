@@ -47,7 +47,6 @@ def audit_plugin_risk(plugin_root: Path) -> JsonObject:
     return {
         "schema_version": PLUGIN_RISK_AUDIT_SCHEMA_VERSION,
         "source": {
-            "root_path": str(root),
             "explicit_root": True,
             "manifest_status": _manifest_status(sources),
         },
@@ -76,14 +75,14 @@ def audit_plugin_risk(plugin_root: Path) -> JsonObject:
 def _audit_static_source(source: PluginAuditSource) -> _StaticSource:
     text = source.content.decode("utf-8", errors="replace")
     return _StaticSource(
-        _source_manifest_status(source.name, text),
+        _source_manifest_status(source.name, source.is_root_file, text),
         len(source.content),
         _risk_categories(source.name, text),
     )
 
 
-def _source_manifest_status(name: str, text: str) -> ManifestStatus | None:
-    if name != "plugin.json":
+def _source_manifest_status(name: str, is_root_file: bool, text: str) -> ManifestStatus | None:
+    if name != "plugin.json" or not is_root_file:
         return None
     try:
         json.loads(text)

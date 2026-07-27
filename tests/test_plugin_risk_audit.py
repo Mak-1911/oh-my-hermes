@@ -7,13 +7,15 @@ import tempfile
 import unittest
 
 from _cli_harness import run_cli
+from omh.skill_pack import builtin_definitions, builtin_harnesses
+from omh.wrapper.contract import VISIBLE_ACTIONS, build_chat_interaction_payload
 from omh.workflows.plugin_risk_audit import audit_plugin_risk
 
 
 class PluginRiskAuditTests(unittest.TestCase):
     def test_audit_reports_static_risk_categories_without_exposing_plugin_source(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             (root / "plugin.json").write_text('{"name": "example"}\n', encoding="utf-8")
             (root / "pyproject.toml").write_text('dependencies = ["requests>=2"]\n', encoding="utf-8")
             source_marker = "PRIVATE_AUDIT_SOURCE_MARKER"
@@ -33,7 +35,7 @@ class PluginRiskAuditTests(unittest.TestCase):
             payload = audit_plugin_risk(root)
 
         self.assertEqual(payload["schema_version"], "plugin_risk_audit/v1")
-        self.assertEqual(payload["source"]["root_path"], str(root.resolve()))
+        self.assertTrue(payload["source"]["explicit_root"])
         self.assertEqual(payload["source"]["manifest_status"], "present")
         self.assertEqual(payload["summary"]["scanned_file_count"], 3)
         self.assertEqual(
@@ -50,10 +52,11 @@ class PluginRiskAuditTests(unittest.TestCase):
         self.assertEqual(payload["not_observed"]["plugin_import"]["status"], "not_observed")
         self.assertEqual(payload["not_observed"]["plugin_execution"]["status"], "not_observed")
         self.assertNotIn(source_marker, json.dumps(payload))
+        self.assertNotIn(str(root), json.dumps(payload))
 
     def test_audit_rejects_non_directory_and_symlinked_plugin_sources(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             source = root / "plugin.py"
             source.write_text("pass\n", encoding="utf-8")
 
@@ -69,6 +72,11 @@ class PluginRiskAuditTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "symlink"):
                 audit_plugin_risk(nested)
 
+            aliased_parent = root / "aliased-parent"
+            aliased_parent.symlink_to(root, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "symlink"):
+                audit_plugin_risk(aliased_parent / "plugin")
+
     def test_audit_rejects_the_filesystem_root_before_scanning(self) -> None:
         filesystem_root = Path(Path.cwd().anchor)
 
@@ -79,15 +87,35 @@ class PluginRiskAuditTests(unittest.TestCase):
         if not hasattr(os, "mkfifo"):
             self.skipTest("named pipes are unavailable")
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             os.mkfifo(root / "untrusted.py")
 
             with self.assertRaisesRegex(ValueError, "regular files"):
                 audit_plugin_risk(root)
 
+    def test_audit_bounds_directory_entries_and_uses_only_the_root_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "plugin.json").write_text('{"name": "root"}\n', encoding="utf-8")
+            nested = root / "nested"
+            nested.mkdir()
+            (nested / "plugin.json").write_text("not valid json", encoding="utf-8")
+
+            payload = audit_plugin_risk(root)
+
+            self.assertEqual(payload["source"]["manifest_status"], "present")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            for index in range(129):
+                (root / f"ignored-{index}.bin").write_text("ignored\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "at most 128 entries"):
+                audit_plugin_risk(root)
+
     def test_cli_audits_one_explicit_plugin_root_without_registering_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             (root / "plugin.json").write_text('{"name": "example"}\n', encoding="utf-8")
             (root / "plugin.py").write_text("def pre_llm_call() -> None:\n    return None\n", encoding="utf-8")
 
@@ -98,6 +126,19 @@ class PluginRiskAuditTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], "plugin_risk_audit/v1")
         self.assertEqual(payload["summary"]["scanned_file_count"], 2)
         self.assertEqual(payload["not_observed"]["plugin_registration"]["status"], "not_observed")
+
+    def test_security_safety_surface_exposes_the_explicit_plugin_audit(self) -> None:
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        harnesses = {harness.name: harness for harness in builtin_harnesses()}
+
+        self.assertIn("plugin_risk_audit/v1 for one explicitly named local plugin directory", definitions["security-safety-review"].expected_outputs)
+        self.assertIn("audit_plugin_risk", harnesses["security-safety-review"].wrapper_actions)
+        self.assertIn("audit_plugin_risk", VISIBLE_ACTIONS)
+
+        payload = build_chat_interaction_payload("Run a local plugin risk audit before enablement.", source="discord")
+
+        self.assertEqual(payload["route"]["selected_skill"], "security-safety-review")
+        self.assertEqual(payload["next_action"], "prepare_security_safety_review")
 
 
 if __name__ == "__main__":

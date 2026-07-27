@@ -12,6 +12,7 @@ from ..system.metadata_safety import is_sensitive_metadata_text
 MAX_PLUGIN_AUDIT_DEPTH: Final = 8
 MAX_PLUGIN_AUDIT_DIRECTORIES: Final = 128
 MAX_PLUGIN_AUDIT_FILES: Final = 128
+MAX_PLUGIN_AUDIT_DIRECTORY_ENTRIES: Final = 128
 MAX_PLUGIN_AUDIT_FILE_BYTES: Final = 131_072
 _NOFOLLOW_FLAG: Final = getattr(os, "O_NOFOLLOW", None)
 _DIRECTORY_FLAG: Final = getattr(os, "O_DIRECTORY", 0)
@@ -29,6 +30,7 @@ class PluginAuditSourceError(ValueError):
 class PluginAuditSource:
     name: str
     content: bytes
+    is_root_file: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,19 +43,13 @@ def resolve_plugin_audit_root(plugin_root: Path) -> Path:
     provided_root = Path(os.path.abspath(plugin_root.expanduser()))
     if is_sensitive_metadata_text(str(provided_root)):
         raise PluginAuditSourceError("plugin audit root path must be safe metadata")
-    if provided_root.is_symlink():
-        raise PluginAuditSourceError("plugin audit root must not be a symlink")
-    try:
-        root = provided_root.resolve(strict=True)
-    except OSError as exc:
-        raise PluginAuditSourceError("plugin audit root cannot be resolved") from exc
-    if root == Path(root.anchor):
-        raise PluginAuditSourceError("plugin audit root must not be a filesystem root")
-    if any(component.is_symlink() for component in root.parents):
+    if any(component.is_symlink() for component in (provided_root, *provided_root.parents)):
         raise PluginAuditSourceError("plugin audit root path must not contain a symlink")
-    if not root.is_dir():
+    if provided_root == Path(provided_root.anchor):
+        raise PluginAuditSourceError("plugin audit root must not be a filesystem root")
+    if not provided_root.is_dir():
         raise PluginAuditSourceError("plugin audit root must be a directory")
-    return root
+    return provided_root
 
 
 def read_static_plugin_sources(root: Path) -> tuple[PluginAuditSource, ...]:
@@ -95,7 +91,7 @@ def _scan_directory(directory_fd: int, depth: int, state: _ScanState) -> _ScanSt
         raise PluginAuditSourceError(f"plugin audit scans at most {MAX_PLUGIN_AUDIT_DIRECTORIES} directories")
     next_state = _ScanState(state.sources, state.directory_count + 1)
     try:
-        names = sorted(os.listdir(directory_fd))
+        names = _bounded_directory_names(directory_fd)
     except OSError as exc:
         raise PluginAuditSourceError("plugin audit source directory cannot be read") from exc
     for name in names:
@@ -119,7 +115,10 @@ def _scan_entry(directory_fd: int, name: str, depth: int, state: _ScanState) -> 
             raise PluginAuditSourceError("plugin audit source must contain regular files")
         if len(state.sources) >= MAX_PLUGIN_AUDIT_FILES:
             raise PluginAuditSourceError(f"plugin audit scans at most {MAX_PLUGIN_AUDIT_FILES} files")
-        return _ScanState((*state.sources, PluginAuditSource(name, _read_regular_file(directory_fd, name))), state.directory_count)
+        return _ScanState(
+            (*state.sources, PluginAuditSource(name, _read_regular_file(directory_fd, name), depth == 0)),
+            state.directory_count,
+        )
     return state
 
 
@@ -139,6 +138,18 @@ def _scan_child_directory(directory_fd: int, name: str, depth: int, state: _Scan
         return _scan_directory(child_descriptor, depth + 1, state)
     finally:
         os.close(child_descriptor)
+
+
+def _bounded_directory_names(directory_fd: int) -> tuple[str, ...]:
+    names: list[str] = []
+    with os.scandir(directory_fd) as entries:
+        for entry in entries:
+            if len(names) >= MAX_PLUGIN_AUDIT_DIRECTORY_ENTRIES:
+                raise PluginAuditSourceError(
+                    f"plugin audit scans at most {MAX_PLUGIN_AUDIT_DIRECTORY_ENTRIES} entries per directory"
+                )
+            names.append(entry.name)
+    return tuple(sorted(names))
 
 
 def _is_audited_file(name: str) -> bool:
