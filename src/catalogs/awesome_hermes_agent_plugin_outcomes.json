@@ -42,6 +42,19 @@
       "native_capability_ids": ["provider-profile-posture"]
     },
     {
+      "plugin_id": "hermes-plugin-slash-prompts",
+      "upstream_outcome_summary": "Loads external CLI-agent prompt files as Hermes slash commands across multiple source formats and argument syntaxes.",
+      "implementation_state": "omh_native",
+      "owner_boundary": "omh",
+      "claim_status": "prepared_not_observed",
+      "evidence_refs": [
+        {"kind": "code", "ref": "src/workflows/prompt_compatibility.py"},
+        {"kind": "test", "ref": "tests/test_prompt_compatibility.py"}
+      ],
+      "rationale": "OMH audits explicitly supplied local prompt files for format, argument syntax, and command collisions without discovery, import, registration, mutation, or host activation.",
+      "native_capability_ids": ["prompt-import-readiness"]
+    },
+    {
       "plugin_id": "robrain",
       "upstream_outcome_summary": "Records rejected alternatives and resurfaces their reasons when a decision is revisited.",
       "implementation_state": "omh_native",

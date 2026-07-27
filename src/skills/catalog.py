@@ -6080,6 +6080,8 @@ _FEATURE_SURFACE_SKILLS = (
             "codex prompt import",
             "Gemini CLI prompt import",
             "frontmatter prompt import",
+            "prompt compatibility audit",
+            "explicit prompt file audit",
             "argument interpolation",
             "$ARGUMENTS mapping",
             "{{args}} mapping",
@@ -6097,11 +6099,12 @@ _FEATURE_SURFACE_SKILLS = (
         category="prompt",
         phase="prompt-import-readiness",
         next_action="prepare_prompt_import_readiness",
-        boundary="A prompt import readiness card is not prompt file access, prompt parsing success, slash command registration, prompt mutation, command activation, imported prompt trust, or successful dry-run evidence unless observed prompt-import evidence records it.",
+        boundary="An explicit-path prompt compatibility audit observes only bounded local file classification and metadata. It is not source-directory discovery, prompt import, slash command registration, prompt mutation, command activation, imported prompt trust, or successful dry-run evidence.",
         good_prompt="prompt-import-readiness review Codex and Claude Code prompt folders before exposing them as Hermes slash commands with $ARGUMENTS mapping.",
         bad_prompt="prompt-import-readiness silently import every external prompt, overwrite slash commands, and claim the prompts are trusted without review.",
         expected_outputs=(
             "prompt_import_readiness_card/v1",
+            "prompt_compatibility_audit/v1 for explicitly named local files",
             "prompt_source_inventory/v1",
             "prompt_format_matrix/v1",
             "argument_interpolation_policy/v1",
@@ -6113,6 +6116,7 @@ _FEATURE_SURFACE_SKILLS = (
         ),
         artifact_expectations=(
             "prompt_import_readiness_card/v1 metadata-only wrapper card when prepared",
+            "prompt_compatibility_audit/v1 with bounded source metadata, format classification, argument syntax, collisions, and review reasons for explicitly named local files",
             "prompt_source_inventory/v1 with source directory, agent family, file count, format claim, and review state",
             "prompt_format_matrix/v1 separating YAML frontmatter, TOML frontmatter, raw markdown/text, and unsupported formats",
             "argument_interpolation_policy/v1 for $ARGUMENTS, $1-$9, {{args}}, named placeholders, escaping, and missing argument handling",
@@ -6122,7 +6126,7 @@ _FEATURE_SURFACE_SKILLS = (
         ),
         final_checklist=(
             "Prompt sources, agent family, expected file formats, argument syntax, slash-command names, trust level, and stop condition are explicit.",
-            "Prompt file reads, parser results, command registration, prompt mutation, slash-command activation, and dry-run execution are marked observed, missing, risky, or not_observed.",
+            "Explicit-path audit reads and compatibility results are observed only in their audit output; source discovery, command registration, prompt mutation, slash-command activation, and dry-run execution remain marked not_observed.",
             "Route broad candidate discovery to skill-scout, prompt/tool safety to security-safety-review, missing CLIs or directories to toolbelt-readiness, and approved implementation to a selected executor handoff.",
             "Imported prompts, generated command files, registry updates, and dry-run results are reported only from observed prompt-import evidence.",
         ),
@@ -9925,8 +9929,8 @@ _FEATURE_SURFACE_HARNESSES = (
     ),
     _feature_surface_harness(
         "prompt-import-readiness",
-        "Score external CLI-agent prompt files before they become Hermes slash-command candidates.",
-        "Use before Hermes imports, normalizes, or exposes external prompt files so source trust, format support, argument interpolation, command collisions, and dry-run evidence are explicit.",
+        "Audit explicitly named CLI-agent prompt files before they become Hermes slash-command candidates.",
+        "Use before Hermes imports, normalizes, or exposes external prompt files so bounded local compatibility, source trust, format support, argument interpolation, command collisions, and dry-run evidence are explicit.",
         (
             "prompt source directory or candidate package",
             "agent family and prompt format",
@@ -9936,6 +9940,7 @@ _FEATURE_SURFACE_HARNESSES = (
         ),
         (
             "prompt_import_readiness_card/v1",
+            "prompt_compatibility_audit/v1 for explicitly named local files",
             "prompt_source_inventory/v1",
             "prompt_format_matrix/v1",
             "argument_interpolation_policy/v1",
@@ -9946,6 +9951,7 @@ _FEATURE_SURFACE_HARNESSES = (
         quality_tier="prompt-import-gated",
         evidence_ladder=(
             "prompt_sources_recorded",
+            "prompt_compatibility_audit_observed_for_explicit_paths",
             "prompt_format_matrix_recorded",
             "argument_interpolation_policy_recorded",
             "slash_command_collisions_recorded",
@@ -9954,6 +9960,7 @@ _FEATURE_SURFACE_HARNESSES = (
         ),
         wrapper_actions=(
             "prepare_prompt_import_readiness",
+            "audit_prompt_compatibility",
             "show_prompt_import_readiness_card",
             "record_prompt_source_inventory",
             "record_argument_interpolation_policy",
@@ -9961,7 +9968,7 @@ _FEATURE_SURFACE_HARNESSES = (
             "record_prompt_import_observation",
             "show_status",
         ),
-        overclaim_guard="A prompt import readiness card is not prompt file access, parsing success, slash command registration, prompt mutation, command activation, imported prompt trust, or dry-run evidence.",
+        overclaim_guard="An explicit-path compatibility audit is not prompt discovery, import, slash command registration, prompt mutation, command activation, imported prompt trust, or dry-run evidence.",
     ),
     _feature_surface_harness(
         "physical-device-readiness",
