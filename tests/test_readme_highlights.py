@@ -71,7 +71,7 @@ class ReadmeHighlightsTests(unittest.TestCase):
         english = Path("README.md").read_text(encoding="utf-8")
         rows = "\n".join(_highlight_rows(english))
 
-        for engine in ("ulw-ultrawork", "ulw-ultragoal", "ulw-team", "ulw-loop"):
+        for engine in ("ulw-work", "ulw-goal", "ulw-team", "ulw-loop"):
             with self.subTest(engine=engine):
                 self.assertIn(f"`{engine}`", rows)
 

@@ -5617,8 +5617,18 @@ def _canonical_workflow_by_display_name() -> dict[str, str]:
     # `skills/catalog_types.OMH_SKILL_DISPLAY_NAME_OVERRIDES`; the copy exists
     # because a copied plugin bundle has no catalog import, and
     # `tests/test_display_names.py` locks the two together.
-    for display, workflow in (("omh-decide", "strategy-brief"),):
+    for display, workflow in (
+        ("omh-decide", "strategy-brief"),
+        ("ulw-interview", "deep-interview"),
+        ("ulw-plan", "ralplan"),
+        ("ulw-research", "web-research"),
+        ("ulw-goal", "ultragoal"),
+        ("ulw-process", "ultraprocess"),
+        ("ulw-qa", "ultraqa"),
+        ("ulw-work", "ultrawork"),
+    ):
         mapping.pop(f"omh-{workflow}", None)
+        mapping.pop(f"ulw-{workflow}", None)
         if workflow in workflows:
             mapping[display] = workflow
     return mapping

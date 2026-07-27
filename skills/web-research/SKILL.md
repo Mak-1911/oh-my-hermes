@@ -1,5 +1,5 @@
 ---
-name: ulw-web-research
+name: ulw-research
 description: [omh] Hermes Web Research workflow: source-backed current information gathering.
 metadata:
   hermes:

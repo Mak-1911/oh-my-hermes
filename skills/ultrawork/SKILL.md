@@ -1,5 +1,5 @@
 ---
-name: ulw-ultrawork
+name: ulw-work
 description: [omh] Hermes Ultrawork compatibility workflow: bounded parallel delivery guidance.
 metadata:
   hermes:

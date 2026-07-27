@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .skill_pack import DESCRIPTIONS, SkillTemplate
 from .skills.catalog import (
+    OMH_SKILL_DISPLAY_NAME_OVERRIDES,
     OMH_SKILL_NAME_PREFIX,
     ULW_SKILL_NAME_PREFIX,
     omh_description,
@@ -12,6 +13,11 @@ from .skills.catalog import (
 )
 
 FRONTMATTER_RE = re.compile(r"^---\n(?P<meta>.*?)\n---\n(?P<body>.*)$", re.DOTALL)
+
+
+_CANONICAL_BY_OVERRIDE = {
+    display: canonical for canonical, display in OMH_SKILL_DISPLAY_NAME_OVERRIDES.items()
+}
 
 
 def extract_name(raw: str, fallback: str) -> str:
@@ -33,6 +39,13 @@ def extract_name(raw: str, fallback: str) -> str:
     for line in match.group("meta").splitlines():
         if line.startswith("name:"):
             rendered = line.split(":", 1)[1].strip().strip("'\"")
+            # A hand-picked label is not `prefix + canonical`, so stripping the
+            # prefix invents a name that owns nothing: `omh-routing` became
+            # `routing`, `ulw-work` became `work`. Reverse the override map first
+            # and only fall back to stripping for the mechanical labels.
+            canonical = _CANONICAL_BY_OVERRIDE.get(rendered)
+            if canonical is not None:
+                return canonical
             for prefix in (OMH_SKILL_NAME_PREFIX, ULW_SKILL_NAME_PREFIX):
                 if rendered.startswith(prefix):
                     return rendered.removeprefix(prefix) or fallback

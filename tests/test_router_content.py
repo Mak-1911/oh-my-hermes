@@ -669,7 +669,7 @@ class RouterContentTests(unittest.TestCase):
         definitions = {definition.name: definition for definition in builtin_definitions()}
 
         ultrawork = templates["ultrawork"]
-        self.assertIn("\nname: ulw-ultrawork\n", ultrawork)
+        self.assertIn("\nname: ulw-work\n", ultrawork)
         self.assertIn("\n    category: execution\n", ultrawork)
         self.assertIn("\n    phase: parallel-delivery\n", ultrawork)
         self.assertIn("\n    role: handoff-guide\n", ultrawork)
@@ -688,10 +688,10 @@ class RouterContentTests(unittest.TestCase):
 
     def test_display_name_helper_keeps_canonical_identifiers_unchanged(self) -> None:
         self.assertEqual(OMH_SKILL_NAME_PREFIX, "omh-")
-        self.assertEqual(OMH_SKILL_DISPLAY_NAME_OVERRIDES, {"oh-my-hermes": "omh-routing", "strategy-brief": "omh-decide"})
+        self.assertEqual(OMH_SKILL_DISPLAY_NAME_OVERRIDES, {'deep-interview': 'ulw-interview', 'oh-my-hermes': 'omh-routing', 'ralplan': 'ulw-plan', 'strategy-brief': 'omh-decide', 'ultragoal': 'ulw-goal', 'ultraprocess': 'ulw-process', 'ultraqa': 'ulw-qa', 'ultrawork': 'ulw-work', 'web-research': 'ulw-research'})
 
         self.assertEqual(omh_skill_display_name("oh-my-hermes"), "omh-routing")
-        self.assertEqual(omh_skill_display_name("ultrawork"), "ulw-ultrawork")
+        self.assertEqual(omh_skill_display_name("ultrawork"), "ulw-work")
         self.assertEqual(omh_skill_display_name("omh-ultrawork"), "omh-ultrawork")
 
         # Branch order: the override lookup must run before the idempotency guard.
@@ -712,6 +712,21 @@ class RouterContentTests(unittest.TestCase):
         for name in names & {path.parent.name for path in Path("skills").glob("*/SKILL.md")}:
             self.assertTrue((Path("skills") / name / "SKILL.md").exists())
 
+    def test_every_display_override_round_trips_to_its_canonical_name(self) -> None:
+        """A hand-picked label must restore the skill it belongs to, not a made-up one.
+
+        `extract_name()` stripped the prefix mechanically, so every override
+        resolved to a name that owns nothing: `omh-routing` gave `routing`,
+        `ulw-work` gave `work`. `omh setup --source <dir>` re-importing a
+        generated tap would then install the skill into the wrong directory.
+        """
+        from omh.omh.converter import extract_name
+
+        for canonical, display in OMH_SKILL_DISPLAY_NAME_OVERRIDES.items():
+            with self.subTest(display=display):
+                raw = f"---\nname: {display}\ndescription: [omh] x\n---\n\nbody\n"
+                self.assertEqual(extract_name(raw, "fallback"), canonical)
+
     def test_converter_round_trip_restores_canonical_identity(self) -> None:
         """`omh setup --source <dir>` must not degrade a generated tap.
 
@@ -725,7 +740,7 @@ class RouterContentTests(unittest.TestCase):
 
         self.assertEqual(template.name, "ultrawork")
         self.assertIn(f"\ndescription: {DESCRIPTIONS['ultrawork']}\n", template.content)
-        self.assertIn("\nname: ulw-ultrawork\n", template.content)
+        self.assertIn("\nname: ulw-work\n", template.content)
 
         # Imported third-party skills carry the prefix too, so nothing installed by
         # omh reads as a Hermes built-in - but the directory identity stays canonical.

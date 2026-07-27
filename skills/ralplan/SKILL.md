@@ -1,5 +1,5 @@
 ---
-name: ulw-ralplan
+name: ulw-plan
 description: [omh] Hermes Ralplan workflow: consensus planning with review gates.
 metadata:
   hermes:
