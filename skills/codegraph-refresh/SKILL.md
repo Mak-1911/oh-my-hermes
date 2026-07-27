@@ -119,7 +119,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `codegraph-refresh`.
+Preferred harness for this skill: `codegraph-refresh`.
 
 ```sh
 omh runtime record --skill codegraph-refresh --harness codegraph-refresh --status started

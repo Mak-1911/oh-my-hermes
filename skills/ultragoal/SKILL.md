@@ -123,7 +123,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `goal-execution`.
+Preferred harness for this skill: `goal-execution`.
 
 ```sh
 omh runtime record --skill ultragoal --harness goal-execution --status started

@@ -115,7 +115,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `workspace-file-operator`.
+Preferred harness for this skill: `workspace-file-operator`.
 
 ```sh
 omh runtime record --skill workspace-file-operator --harness workspace-file-operator --status started

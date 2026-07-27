@@ -110,7 +110,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `report-package`.
+Preferred harness for this skill: `report-package`.
 
 ```sh
 omh runtime record --skill report-package --harness report-package --status started

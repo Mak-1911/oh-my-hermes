@@ -115,7 +115,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `ops-observability-card`.
+Preferred harness for this skill: `ops-observability-card`.
 
 ```sh
 omh runtime record --skill ops-observability-card --harness ops-observability-card --status started

@@ -134,7 +134,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `accessibility-audit`.
+Preferred harness for this skill: `accessibility-audit`.
 
 ```sh
 omh runtime record --skill accessibility-audit --harness accessibility-audit --status started

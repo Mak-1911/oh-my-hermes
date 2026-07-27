@@ -115,7 +115,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `rules-distill`.
+Preferred harness for this skill: `rules-distill`.
 
 ```sh
 omh runtime record --skill rules-distill --harness rules-distill --status started

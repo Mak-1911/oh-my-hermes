@@ -117,7 +117,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `workspace-audit`.
+Preferred harness for this skill: `workspace-audit`.
 
 ```sh
 omh runtime record --skill workspace-audit --harness workspace-audit --status started

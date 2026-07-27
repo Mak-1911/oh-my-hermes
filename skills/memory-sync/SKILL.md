@@ -127,7 +127,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `memory-sync`.
+Preferred harness for this skill: `memory-sync`.
 
 ```sh
 omh runtime record --skill memory-sync --harness memory-sync --status started

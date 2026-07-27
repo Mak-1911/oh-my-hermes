@@ -132,7 +132,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `memory-new`.
+Preferred harness for this skill: `memory-new`.
 
 ```sh
 omh runtime record --skill memory-new --harness memory-new --status started

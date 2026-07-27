@@ -69,6 +69,20 @@ class RunEfficiencyReportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "metric"):
             parse_run_efficiency_input(unknown_metric)
 
+        secret_source = _input_payload()
+        observations = secret_source["observations"]
+        self.assertIsInstance(observations, list)
+        observations[0]["source_ref"] = "AKIAIOSFODNN7EXAMPLE"
+        with self.assertRaisesRegex(ValueError, "safe opaque metadata reference"):
+            parse_run_efficiency_input(secret_source)
+
+        too_many_surfaces = _input_payload()
+        budget = too_many_surfaces["context_budget"]
+        self.assertIsInstance(budget, dict)
+        budget["surfaces"] = {f"surface-{index}": index for index in range(33)}
+        with self.assertRaisesRegex(ValueError, "at most 32"):
+            parse_run_efficiency_input(too_many_surfaces)
+
     def test_write_uses_a_deterministic_hash_id_under_the_runtime_efficiency_store(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
@@ -80,6 +94,19 @@ class RunEfficiencyReportTests(unittest.TestCase):
             self.assertTrue(written["path"].startswith(str(paths.runtime_efficiency_reports_dir)))
             self.assertTrue(Path(written["path"]).exists())
             self.assertTrue(written["report_id"].startswith("efficiency_"))
+
+    def test_write_rejects_storage_resolving_outside_omh_home(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            paths.omh_home.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            paths.runtime_dir.symlink_to(outside, target_is_directory=True)
+            report = build_run_efficiency_report(parse_run_efficiency_input(_input_payload()))
+
+            with self.assertRaisesRegex(ValueError, "resolve under OMH home"):
+                write_run_efficiency_report(paths, report)
 
     def test_cli_writes_only_when_requested(self) -> None:
         with TemporaryDirectory() as tmp:

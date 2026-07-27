@@ -110,7 +110,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `coding-handling`.
+Preferred harness for this skill: `coding-handling`.
 
 ```sh
 omh runtime record --skill websearch-setup --harness coding-handling --status started

@@ -110,7 +110,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `operating-rhythm`.
+Preferred harness for this skill: `operating-rhythm`.
 
 ```sh
 omh runtime record --skill operating-rhythm --harness operating-rhythm --status started

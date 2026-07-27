@@ -116,7 +116,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `design-orchestration`.
+Preferred harness for this skill: `design-orchestration`.
 
 ```sh
 omh runtime record --skill design-orchestration --harness design-orchestration --status started

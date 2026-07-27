@@ -108,7 +108,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `run-efficiency`.
+Preferred harness for this skill: `run-efficiency`.
 
 ```sh
 omh runtime record --skill run-efficiency --harness run-efficiency --status started

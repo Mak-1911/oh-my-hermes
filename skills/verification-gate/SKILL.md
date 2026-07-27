@@ -115,7 +115,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `verification-gate`.
+Preferred harness for this skill: `verification-gate`.
 
 ```sh
 omh runtime record --skill verification-gate --harness verification-gate --status started

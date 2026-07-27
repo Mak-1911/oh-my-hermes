@@ -108,7 +108,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `agent-board`.
+Preferred harness for this skill: `agent-board`.
 
 ```sh
 omh runtime record --skill agent-board --harness agent-board --status started

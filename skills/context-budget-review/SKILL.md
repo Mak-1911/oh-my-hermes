@@ -117,7 +117,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `context-budget-review`.
+Preferred harness for this skill: `context-budget-review`.
 
 ```sh
 omh runtime record --skill context-budget-review --harness context-budget-review --status started

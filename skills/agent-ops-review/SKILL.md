@@ -108,7 +108,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `agent-ops-review`.
+Preferred harness for this skill: `agent-ops-review`.
 
 ```sh
 omh runtime record --skill agent-ops-review --harness agent-ops-review --status started

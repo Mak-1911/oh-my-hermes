@@ -108,7 +108,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `qa-specialist`.
+Preferred harness for this skill: `qa-specialist`.
 
 ```sh
 omh runtime record --skill ultraqa --harness qa-specialist --status started

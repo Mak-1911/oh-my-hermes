@@ -115,7 +115,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `skill-scout`.
+Preferred harness for this skill: `skill-scout`.
 
 ```sh
 omh runtime record --skill skill-scout --harness skill-scout --status started

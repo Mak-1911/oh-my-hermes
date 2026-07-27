@@ -115,7 +115,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `harness-session-inventory`.
+Preferred harness for this skill: `harness-session-inventory`.
 
 ```sh
 omh runtime record --skill harness-session-inventory --harness harness-session-inventory --status started

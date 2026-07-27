@@ -109,7 +109,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `reliability-review`.
+Preferred harness for this skill: `reliability-review`.
 
 ```sh
 omh runtime record --skill reliability-review --harness reliability-review --status started

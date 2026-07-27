@@ -108,7 +108,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `gateway-intent-card`.
+Preferred harness for this skill: `gateway-intent-card`.
 
 ```sh
 omh runtime record --skill gateway-intent-card --harness gateway-intent-card --status started

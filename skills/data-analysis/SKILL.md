@@ -120,7 +120,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `data-analysis`.
+Preferred harness for this skill: `data-analysis`.
 
 ```sh
 omh runtime record --skill data-analysis --harness data-analysis --status started

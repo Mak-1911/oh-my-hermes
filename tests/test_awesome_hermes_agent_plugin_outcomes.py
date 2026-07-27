@@ -12,7 +12,7 @@ from omh.catalogs.awesome_hermes_agent_outcomes import (
 
 
 class AwesomeHermesAgentPluginOutcomeTests(unittest.TestCase):
-    def test_selected_plugin_outcomes_reference_real_omh_native_contracts(self) -> None:
+    def test_selected_plugin_outcomes_distinguish_native_and_contract_only_capabilities(self) -> None:
         payload = awesome_hermes_plugin_outcomes()
 
         self.assertEqual(payload["schema_version"], PLUGIN_OUTCOME_SCHEMA_VERSION)
@@ -30,11 +30,14 @@ class AwesomeHermesAgentPluginOutcomeTests(unittest.TestCase):
         }
         for plugin_id, capability_ids in expected_capabilities.items():
             outcome = outcomes[plugin_id]
-            self.assertEqual(outcome["implementation_state"], "omh_native")
             self.assertEqual(outcome["owner_boundary"], "omh")
             self.assertEqual(outcome["claim_status"], "prepared_not_observed")
             self.assertEqual(outcome["native_capability_ids"], capability_ids)
             self.assertTrue({reference["kind"] for reference in outcome["evidence_refs"]}.intersection({"code", "test"}))
+        self.assertEqual(outcomes["rtk-hermes"]["implementation_state"], "contract_only")
+        self.assertIn("does not intercept shell calls", outcomes["rtk-hermes"]["rationale"])
+        for plugin_id in set(outcomes) - {"rtk-hermes"}:
+            self.assertEqual(outcomes[plugin_id]["implementation_state"], "omh_native")
 
     def test_loader_rejects_native_claims_without_implementation_evidence(self) -> None:
         payload = awesome_hermes_plugin_outcomes()

@@ -112,7 +112,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `agent-debug`.
+Preferred harness for this skill: `agent-debug`.
 
 ```sh
 omh runtime record --skill agent-debug --harness agent-debug --status started

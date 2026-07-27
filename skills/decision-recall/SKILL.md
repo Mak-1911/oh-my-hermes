@@ -108,7 +108,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `decision-recall`.
+Preferred harness for this skill: `decision-recall`.
 
 ```sh
 omh runtime record --skill decision-recall --harness decision-recall --status started

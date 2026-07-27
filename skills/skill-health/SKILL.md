@@ -111,7 +111,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `skill-health`.
+Preferred harness for this skill: `skill-health`.
 
 ```sh
 omh runtime record --skill skill-health --harness skill-health --status started

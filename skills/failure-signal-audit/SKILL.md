@@ -118,7 +118,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `failure-signal-audit`.
+Preferred harness for this skill: `failure-signal-audit`.
 
 ```sh
 omh runtime record --skill failure-signal-audit --harness failure-signal-audit --status started

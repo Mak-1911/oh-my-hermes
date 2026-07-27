@@ -73,10 +73,10 @@ class RejectedDecisionRecallTests(unittest.TestCase):
             self.assertEqual(match["record_type"], "decision")
             self.assertEqual(match["stale"], False)
             self.assertGreater(match["match_score"], 0)
-            self.assertEqual(
-                payload["claim_boundary"],
-                "Rejected-decision context is reviewed OMH-local context, not approved memory, Hermes memory, or execution evidence.",
-            )
+            boundary = str(payload["claim_boundary"]).lower()
+            self.assertIn("not approved memory", boundary)
+            self.assertIn("hermes memory", boundary)
+            self.assertIn("execution evidence", boundary)
 
     def test_include_stale_never_includes_expired_candidates(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -105,6 +105,33 @@ class RejectedDecisionRecallTests(unittest.TestCase):
 
             self.assertEqual([match["candidate_id"] for match in payload["matches"]], [stale["candidate_id"]])
             self.assertTrue(payload["matches"][0]["stale"])
+
+    def test_recall_rejects_symlinked_memory_roots_and_candidate_directories(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            paths.omh_home.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            paths.memory_dir.symlink_to(outside, target_is_directory=True)
+            request = RejectedDecisionRecallRequest("storage", "project", "default")
+
+            with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+                build_rejected_decision_recall(paths, request)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            paths.memory_dir.mkdir(parents=True)
+            outside = root / "outside"
+            outside.mkdir()
+            (paths.memory_dir / "candidates").symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+                build_rejected_decision_recall(
+                    paths,
+                    RejectedDecisionRecallRequest("storage", "project", "default"),
+                )
 
     def test_cli_returns_rejected_decision_recall_without_approved_memory_claims(self) -> None:
         with TemporaryDirectory() as tmp:

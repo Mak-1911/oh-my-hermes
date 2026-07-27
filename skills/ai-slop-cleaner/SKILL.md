@@ -115,7 +115,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `coding-handling`.
+Preferred harness for this skill: `coding-handling`.
 
 ```sh
 omh runtime record --skill ai-slop-cleaner --harness coding-handling --status started

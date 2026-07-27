@@ -114,7 +114,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `instinct-ledger`.
+Preferred harness for this skill: `instinct-ledger`.
 
 ```sh
 omh runtime record --skill instinct-ledger --harness instinct-ledger --status started

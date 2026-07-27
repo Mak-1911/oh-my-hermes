@@ -143,7 +143,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `frontend`.
+Preferred harness for this skill: `frontend`.
 
 ```sh
 omh runtime record --skill frontend --harness frontend --status started

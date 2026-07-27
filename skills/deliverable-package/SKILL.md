@@ -108,7 +108,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `deliverable-package`.
+Preferred harness for this skill: `deliverable-package`.
 
 ```sh
 omh runtime record --skill deliverable-package --harness deliverable-package --status started

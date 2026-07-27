@@ -110,7 +110,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `coding-handling`.
+Preferred harness for this skill: `coding-handling`.
 
 ```sh
 omh runtime record --skill morning-brief --harness coding-handling --status started

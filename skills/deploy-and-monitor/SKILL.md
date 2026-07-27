@@ -111,7 +111,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `app-delivery-loop`.
+Preferred harness for this skill: `app-delivery-loop`.
 
 ```sh
 omh runtime record --skill deploy-and-monitor --harness app-delivery-loop --status started

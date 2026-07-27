@@ -107,7 +107,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `business-research`.
+Preferred harness for this skill: `business-research`.
 
 ```sh
 omh runtime record --skill research-brief --harness business-research --status started

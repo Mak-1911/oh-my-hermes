@@ -115,7 +115,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `live-info-operator`.
+Preferred harness for this skill: `live-info-operator`.
 
 ```sh
 omh runtime record --skill live-info-operator --harness live-info-operator --status started

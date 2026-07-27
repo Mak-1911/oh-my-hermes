@@ -114,7 +114,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `research-department`.
+Preferred harness for this skill: `research-department`.
 
 ```sh
 omh runtime record --skill research-department --harness research-department --status started

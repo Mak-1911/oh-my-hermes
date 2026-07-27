@@ -118,7 +118,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `codebase-onboarding`.
+Preferred harness for this skill: `codebase-onboarding`.
 
 ```sh
 omh runtime record --skill codebase-onboarding --harness codebase-onboarding --status started

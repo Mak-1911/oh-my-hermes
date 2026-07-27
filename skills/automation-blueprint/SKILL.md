@@ -110,7 +110,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `scheduled-ops-blueprint`.
+Preferred harness for this skill: `scheduled-ops-blueprint`.
 
 ```sh
 omh runtime record --skill automation-blueprint --harness scheduled-ops-blueprint --status started

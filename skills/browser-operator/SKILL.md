@@ -116,7 +116,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `browser-operator`.
+Preferred harness for this skill: `browser-operator`.
 
 ```sh
 omh runtime record --skill browser-operator --harness browser-operator --status started

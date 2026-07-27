@@ -117,7 +117,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `media-input-operator`.
+Preferred harness for this skill: `media-input-operator`.
 
 ```sh
 omh runtime record --skill media-input-operator --harness media-input-operator --status started

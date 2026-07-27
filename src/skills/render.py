@@ -175,7 +175,7 @@ def _common_rail_sections(definition: SkillDefinition, primary_harness: str) -> 
     """
     return f"""## Runtime Evidence
 
-Harness: `{primary_harness}`.
+Preferred harness for this skill: `{primary_harness}`.
 
 ```sh
 omh runtime record --skill {definition.name} --harness {primary_harness} --status started

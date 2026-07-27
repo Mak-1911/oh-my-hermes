@@ -118,7 +118,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `content-operator`.
+Preferred harness for this skill: `content-operator`.
 
 ```sh
 omh runtime record --skill content-operator --harness content-operator --status started

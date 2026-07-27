@@ -122,7 +122,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `prompt-import-readiness`.
+Preferred harness for this skill: `prompt-import-readiness`.
 
 ```sh
 omh runtime record --skill prompt-import-readiness --harness prompt-import-readiness --status started

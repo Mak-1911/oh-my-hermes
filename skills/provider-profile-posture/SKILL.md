@@ -108,7 +108,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `provider-profile-posture`.
+Preferred harness for this skill: `provider-profile-posture`.
 
 ```sh
 omh runtime record --skill provider-profile-posture --harness provider-profile-posture --status started

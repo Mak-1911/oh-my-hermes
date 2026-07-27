@@ -122,7 +122,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `paper-learning`.
+Preferred harness for this skill: `paper-learning`.
 
 ```sh
 omh runtime record --skill paper-learning --harness paper-learning --status started

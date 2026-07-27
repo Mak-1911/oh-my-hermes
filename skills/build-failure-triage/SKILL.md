@@ -129,7 +129,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `build-failure-triage`.
+Preferred harness for this skill: `build-failure-triage`.
 
 ```sh
 omh runtime record --skill build-failure-triage --harness build-failure-triage --status started

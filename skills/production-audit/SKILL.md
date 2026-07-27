@@ -115,7 +115,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `production-audit`.
+Preferred harness for this skill: `production-audit`.
 
 ```sh
 omh runtime record --skill production-audit --harness production-audit --status started

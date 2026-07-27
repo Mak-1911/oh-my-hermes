@@ -163,7 +163,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `deep-interview`.
+Preferred harness for this skill: `deep-interview`.
 
 ```sh
 omh runtime record --skill deep-interview --harness deep-interview --status started

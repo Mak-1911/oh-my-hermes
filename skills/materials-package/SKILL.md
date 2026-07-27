@@ -111,7 +111,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `materials-package`.
+Preferred harness for this skill: `materials-package`.
 
 ```sh
 omh runtime record --skill materials-package --harness materials-package --status started

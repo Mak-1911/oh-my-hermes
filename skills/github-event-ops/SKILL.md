@@ -108,7 +108,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `github-event-ops`.
+Preferred harness for this skill: `github-event-ops`.
 
 ```sh
 omh runtime record --skill github-event-ops --harness github-event-ops --status started

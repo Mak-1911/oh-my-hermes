@@ -57,14 +57,14 @@
     {
       "plugin_id": "rtk-hermes",
       "upstream_outcome_summary": "Intercepts shell output and compresses it before it reaches the model context window.",
-      "implementation_state": "omh_native",
+      "implementation_state": "contract_only",
       "owner_boundary": "omh",
       "claim_status": "prepared_not_observed",
       "evidence_refs": [
         {"kind": "code", "ref": "src/runtime/run_efficiency.py"},
         {"kind": "test", "ref": "tests/test_run_efficiency.py"}
       ],
-      "rationale": "OMH reports supplied local efficiency metadata without intercepting shell calls or rewriting tool output.",
+      "rationale": "OMH can prepare bounded efficiency-report metadata, but does not intercept shell calls or rewrite tool output.",
       "native_capability_ids": ["run-efficiency"]
     }
   ],

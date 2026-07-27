@@ -130,7 +130,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `design-quality-gate`.
+Preferred harness for this skill: `design-quality-gate`.
 
 ```sh
 omh runtime record --skill design-quality-gate --harness design-quality-gate --status started

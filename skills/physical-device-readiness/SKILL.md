@@ -124,7 +124,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `physical-device-readiness`.
+Preferred harness for this skill: `physical-device-readiness`.
 
 ```sh
 omh runtime record --skill physical-device-readiness --harness physical-device-readiness --status started

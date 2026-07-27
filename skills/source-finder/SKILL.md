@@ -119,7 +119,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `source-finder`.
+Preferred harness for this skill: `source-finder`.
 
 ```sh
 omh runtime record --skill source-finder --harness source-finder --status started

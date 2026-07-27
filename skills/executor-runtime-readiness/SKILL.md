@@ -116,7 +116,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `executor-runtime-readiness`.
+Preferred harness for this skill: `executor-runtime-readiness`.
 
 ```sh
 omh runtime record --skill executor-runtime-readiness --harness executor-runtime-readiness --status started

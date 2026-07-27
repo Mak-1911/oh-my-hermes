@@ -116,7 +116,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `agent-evaluation`.
+Preferred harness for this skill: `agent-evaluation`.
 
 ```sh
 omh runtime record --skill agent-evaluation --harness agent-evaluation --status started

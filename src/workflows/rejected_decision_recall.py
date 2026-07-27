@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 import re
 
 from ..local_store import read_json_object
+from ..system.metadata_safety import redact_metadata_text
 from ..paths import OmhPaths
-from .memory import _redact
 
 
 REJECTED_DECISION_RECALL_SCHEMA_VERSION = "rejected_decision_recall/v1"
@@ -116,18 +117,32 @@ def build_rejected_decision_recall(paths: OmhPaths, request: RejectedDecisionRec
 
 
 def _read_rejected_candidates(paths: OmhPaths) -> tuple[_RejectedCandidate, ...]:
-    candidates_dir = paths.memory_dir / "candidates"
+    candidates_dir = _managed_candidates_dir(paths)
     if not candidates_dir.exists():
         return ()
-    memory_root = paths.memory_dir.resolve()
     candidates: list[_RejectedCandidate] = []
     for path in sorted(candidates_dir.glob("*.json")):
-        if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(memory_root):
+        if path.is_symlink() or not path.is_file() or path.resolve().parent != candidates_dir.resolve():
             continue
         candidate = _parse_rejected_candidate(read_json_object(path))
         if candidate is not None:
             candidates.append(candidate)
     return tuple(candidates)
+
+
+def _managed_candidates_dir(paths: OmhPaths) -> Path:
+    memory_root = paths.memory_dir
+    if memory_root.is_symlink():
+        raise ValueError("rejected-decision memory storage must not be a symlink")
+    resolved_memory_root = memory_root.resolve(strict=False)
+    if not resolved_memory_root.is_relative_to(paths.omh_home.resolve(strict=False)):
+        raise ValueError("rejected-decision memory storage must resolve under OMH home")
+    candidates_dir = memory_root / "candidates"
+    if candidates_dir.is_symlink():
+        raise ValueError("rejected-decision candidate storage must not be a symlink")
+    if candidates_dir.resolve(strict=False).parent != resolved_memory_root:
+        raise ValueError("rejected-decision candidate storage must resolve under OMH memory")
+    return candidates_dir
 
 
 def _parse_rejected_candidate(raw: object) -> _RejectedCandidate | None:
@@ -148,8 +163,8 @@ def _parse_rejected_candidate(raw: object) -> _RejectedCandidate | None:
     return _RejectedCandidate(
         candidate_id,
         record_type,
-        _redact(summary)[:500],
-        _redact(_safe_string(raw.get("rejection_reason")))[:300],
+        redact_metadata_text(summary, limit=500),
+        redact_metadata_text(_safe_string(raw.get("rejection_reason")), limit=300),
         scope_kind,
         scope_ref,
         _normalized_tags(raw.get("tags")),

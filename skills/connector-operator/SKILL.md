@@ -117,7 +117,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `connector-operator`.
+Preferred harness for this skill: `connector-operator`.
 
 ```sh
 omh runtime record --skill connector-operator --harness connector-operator --status started

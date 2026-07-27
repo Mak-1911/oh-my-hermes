@@ -140,7 +140,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `img-summary`.
+Preferred harness for this skill: `img-summary`.
 
 ```sh
 omh runtime record --skill img-summary --harness img-summary --status started

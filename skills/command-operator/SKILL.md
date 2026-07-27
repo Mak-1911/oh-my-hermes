@@ -115,7 +115,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `command-operator`.
+Preferred harness for this skill: `command-operator`.
 
 ```sh
 omh runtime record --skill command-operator --harness command-operator --status started

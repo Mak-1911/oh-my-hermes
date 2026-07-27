@@ -110,7 +110,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `meeting-facilitation`.
+Preferred harness for this skill: `meeting-facilitation`.
 
 ```sh
 omh runtime record --skill meeting-brief --harness meeting-facilitation --status started

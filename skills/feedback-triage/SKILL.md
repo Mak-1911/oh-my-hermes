@@ -110,7 +110,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `customer-insight-triage`.
+Preferred harness for this skill: `customer-insight-triage`.
 
 ```sh
 omh runtime record --skill feedback-triage --harness customer-insight-triage --status started

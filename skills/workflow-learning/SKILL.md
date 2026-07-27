@@ -108,7 +108,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `workflow-learning`.
+Preferred harness for this skill: `workflow-learning`.
 
 ```sh
 omh runtime record --skill workflow-learning --harness workflow-learning --status started

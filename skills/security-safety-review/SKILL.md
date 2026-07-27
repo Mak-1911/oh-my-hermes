@@ -118,7 +118,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `security-safety-review`.
+Preferred harness for this skill: `security-safety-review`.
 
 ```sh
 omh runtime record --skill security-safety-review --harness security-safety-review --status started

@@ -108,7 +108,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `voice-operator`.
+Preferred harness for this skill: `voice-operator`.
 
 ```sh
 omh runtime record --skill voice-operator --harness voice-operator --status started

@@ -103,7 +103,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `docs-specialist`.
+Preferred harness for this skill: `docs-specialist`.
 
 ```sh
 omh runtime record --skill skill --harness docs-specialist --status started

@@ -78,6 +78,13 @@ class ProviderProfilePostureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "secret requirement"):
             parse_provider_profile_posture_input(secret_value)
 
+        secret_reference = _input_payload()
+        observations = secret_reference["host_observations"]
+        self.assertIsInstance(observations, list)
+        observations[0]["reference"] = "sk-live-123456789"
+        with self.assertRaisesRegex(ValueError, "safe opaque metadata reference"):
+            parse_provider_profile_posture_input(secret_reference)
+
     def test_write_uses_the_operations_provider_profile_store(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
@@ -89,6 +96,19 @@ class ProviderProfilePostureTests(unittest.TestCase):
             self.assertTrue(artifact["path"].startswith(str(paths.provider_profile_postures_dir)))
             self.assertTrue(Path(artifact["path"]).exists())
             self.assertTrue(artifact["posture_id"].startswith("provider_profile_"))
+
+    def test_write_rejects_storage_resolving_outside_omh_home(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            paths.omh_home.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            paths.operations_dir.symlink_to(outside, target_is_directory=True)
+            posture = build_provider_profile_posture(parse_provider_profile_posture_input(_input_payload()))
+
+            with self.assertRaisesRegex(ValueError, "resolve under OMH home"):
+                write_provider_profile_posture(paths, posture)
 
     def test_ops_cli_writes_a_prepared_posture_without_connecting_to_a_provider(self) -> None:
         with TemporaryDirectory() as tmp:

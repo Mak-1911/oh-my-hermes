@@ -109,7 +109,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `strategy-synthesis`.
+Preferred harness for this skill: `strategy-synthesis`.
 
 ```sh
 omh runtime record --skill strategy-brief --harness strategy-synthesis --status started

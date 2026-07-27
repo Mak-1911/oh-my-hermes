@@ -3,10 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+from pathlib import Path
 import re
 
 from ..local_store import atomic_write_json, ensure_dir
 from ..paths import OmhPaths
+from ..system.metadata_safety import require_opaque_metadata_ref
 
 
 RUN_EFFICIENCY_INPUT_SCHEMA_VERSION = "run_efficiency_input/v1"
@@ -88,8 +90,9 @@ def build_run_efficiency_report(value: RunEfficiencyInput) -> dict[str, object]:
 def write_run_efficiency_report(paths: OmhPaths, report: dict[str, object]) -> dict[str, object]:
     encoded = json.dumps(report, sort_keys=True, separators=(",", ":"))
     report_id = "efficiency_" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
-    path = paths.runtime_efficiency_reports_dir / f"{report_id}.json"
-    ensure_dir(paths.runtime_efficiency_reports_dir, private=True)
+    directory = _managed_efficiency_reports_dir(paths)
+    path = directory / f"{report_id}.json"
+    ensure_dir(directory, private=True)
     atomic_write_json(path, {**report, "report_id": report_id}, private=True)
     return {"written": True, "report_id": report_id, "path": str(path)}
 
@@ -111,11 +114,13 @@ def _parse_budget(raw: object, run_id: str) -> RunEfficiencyBudget:
     surfaces = raw.get("surfaces")
     if not isinstance(surfaces, dict):
         raise ValueError("context_budget.surfaces must be an object")
+    if len(surfaces) > 32:
+        raise ValueError("context_budget.surfaces must contain at most 32 entries")
     counts: list[tuple[str, int]] = []
     for surface, count in surfaces.items():
-        if not isinstance(surface, str) or not surface or not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
             raise ValueError("context_budget.surfaces must map names to nonnegative integer counts")
-        counts.append((surface, count))
+        counts.append((require_opaque_metadata_ref(surface, field="context_budget surface"), count))
     return RunEfficiencyBudget(run_id, budget_bytes, emitted_bytes, remaining_bytes, tuple(sorted(counts)))
 
 
@@ -133,8 +138,7 @@ def _parse_observations(raw: object) -> tuple[RunEfficiencyObservation, ...]:
             raise ValueError("run efficiency observation metric is unsupported")
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             raise ValueError("run efficiency observation value must be a nonnegative integer")
-        if not isinstance(source_ref, str) or not 1 <= len(source_ref) <= 160:
-            raise ValueError("run efficiency observation source_ref must contain 1 to 160 characters")
+        source_ref = require_opaque_metadata_ref(source_ref, field="run efficiency observation source_ref")
         observations.append(RunEfficiencyObservation(metric, value, source_ref))
     return tuple(observations)
 
@@ -149,3 +153,12 @@ def _nonnegative_int(value: object, field: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"context_budget.{field} must be a nonnegative integer")
     return value
+
+
+def _managed_efficiency_reports_dir(paths: OmhPaths) -> Path:
+    root = paths.runtime_efficiency_reports_dir
+    if root.is_symlink():
+        raise ValueError("run efficiency report storage must not be a symlink")
+    if not root.resolve(strict=False).is_relative_to(paths.omh_home.resolve(strict=False)):
+        raise ValueError("run efficiency report storage must resolve under OMH home")
+    return root

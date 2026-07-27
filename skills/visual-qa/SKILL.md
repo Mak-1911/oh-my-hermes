@@ -163,7 +163,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `visual-qa`.
+Preferred harness for this skill: `visual-qa`.
 
 ```sh
 omh runtime record --skill visual-qa --harness visual-qa --status started

@@ -107,7 +107,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `planning`.
+Preferred harness for this skill: `planning`.
 
 ```sh
 omh runtime record --skill plan --harness planning --status started

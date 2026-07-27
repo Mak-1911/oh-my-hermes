@@ -149,7 +149,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `goal-loop`.
+Preferred harness for this skill: `goal-loop`.
 
 ```sh
 omh runtime record --skill loop --harness goal-loop --status started

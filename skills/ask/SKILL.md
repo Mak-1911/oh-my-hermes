@@ -106,7 +106,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `critic`.
+Preferred harness for this skill: `critic`.
 
 ```sh
 omh runtime record --skill ask --harness critic --status started

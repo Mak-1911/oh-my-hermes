@@ -121,7 +121,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `external-connector-readiness`.
+Preferred harness for this skill: `external-connector-readiness`.
 
 ```sh
 omh runtime record --skill external-connector-readiness --harness external-connector-readiness --status started

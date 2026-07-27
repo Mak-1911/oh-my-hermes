@@ -106,7 +106,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `research`.
+Preferred harness for this skill: `research`.
 
 ```sh
 omh runtime record --skill autoresearch-goal --harness research --status started

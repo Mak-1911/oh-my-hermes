@@ -108,7 +108,7 @@ Safety rules:
 
 ## Runtime Evidence
 
-Harness: `toolbelt-readiness`.
+Preferred harness for this skill: `toolbelt-readiness`.
 
 ```sh
 omh runtime record --skill toolbelt-readiness --harness toolbelt-readiness --status started

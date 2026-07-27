@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 import json
+from pathlib import Path
 import re
 
 from ..local_store import atomic_write_json, ensure_dir
 from ..paths import OmhPaths
+from ..system.metadata_safety import require_opaque_metadata_ref
 
 
 PROVIDER_PROFILE_POSTURE_INPUT_SCHEMA_VERSION = "provider_profile_posture_input/v1"
@@ -94,8 +97,9 @@ def build_provider_profile_posture(value: ProviderProfilePostureInput) -> dict[s
 def write_provider_profile_posture(paths: OmhPaths, posture: dict[str, object]) -> dict[str, object]:
     encoded = json.dumps(posture, sort_keys=True, separators=(",", ":"))
     posture_id = "provider_profile_" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
-    path = paths.provider_profile_postures_dir / f"{posture_id}.json"
-    ensure_dir(paths.provider_profile_postures_dir, private=True)
+    directory = _managed_provider_profile_postures_dir(paths)
+    path = directory / f"{posture_id}.json"
+    ensure_dir(directory, private=True)
     atomic_write_json(path, {**posture, "posture_id": posture_id}, private=True)
     return {"written": True, "posture_id": posture_id, "path": str(path)}
 
@@ -140,9 +144,23 @@ def _host_observations(raw: object) -> tuple[HostObservation, ...]:
     for item in raw:
         if not isinstance(item, dict) or set(item) != _HOST_OBSERVATION_KEYS:
             raise ValueError("host observation must contain kind, reference, and observed_at")
-        values = tuple(item.get(field) for field in ("kind", "reference", "observed_at"))
-        if not all(isinstance(value, str) and value for value in values):
-            raise ValueError("host observation fields must be non-empty strings")
-        kind, reference, observed_at = values
+        kind = require_opaque_metadata_ref(item.get("kind"), field="host observation kind")
+        reference = require_opaque_metadata_ref(item.get("reference"), field="host observation reference")
+        observed_at = item.get("observed_at")
+        if not isinstance(observed_at, str) or not observed_at.endswith("Z"):
+            raise ValueError("host observation observed_at must be an ISO-8601 UTC timestamp")
+        try:
+            datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("host observation observed_at must be an ISO-8601 UTC timestamp") from exc
         observations.append(HostObservation(kind, reference, observed_at))
     return tuple(observations)
+
+
+def _managed_provider_profile_postures_dir(paths: OmhPaths) -> Path:
+    root = paths.provider_profile_postures_dir
+    if root.is_symlink():
+        raise ValueError("provider profile posture storage must not be a symlink")
+    if not root.resolve(strict=False).is_relative_to(paths.omh_home.resolve(strict=False)):
+        raise ValueError("provider profile posture storage must resolve under OMH home")
+    return root
