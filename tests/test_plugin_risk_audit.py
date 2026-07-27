@@ -78,6 +78,32 @@ class PluginRiskAuditTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "symlink"):
                 audit_plugin_risk(aliased_parent / "plugin")
 
+    def test_audit_classifies_javascript_plugins_and_package_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "plugin.json").write_text('{"name": "javascript-example"}\n', encoding="utf-8")
+            (root / "package.json").write_text('{"dependencies": {"axios": "1.0.0"}}\n', encoding="utf-8")
+            (root / "plugin.mjs").write_text(
+                "child_process.exec('tool');\n"
+                "new Function('return 1');\n"
+                "fetch('https://example.invalid');\n"
+                "const pre_tool_call = true;\n",
+                encoding="utf-8",
+            )
+
+            payload = audit_plugin_risk(root)
+
+        self.assertEqual(
+            payload["summary"]["risk_categories"],
+            [
+                "declared_dependency",
+                "dynamic_code_execution",
+                "hermes_hook_capability",
+                "network_request",
+                "process_execution",
+            ],
+        )
+
     def test_audit_rejects_the_filesystem_root_before_scanning(self) -> None:
         filesystem_root = Path(Path.cwd().anchor)
 

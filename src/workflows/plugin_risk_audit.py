@@ -11,14 +11,19 @@ from .plugin_audit_source_io import PluginAuditSource, read_static_plugin_source
 
 PLUGIN_RISK_AUDIT_SCHEMA_VERSION: Final = "plugin_risk_audit/v1"
 _HOOK_CAPABILITY = re.compile(r"\b(?:on_session_end|pre_llm_call|pre_tool_call)\b")
-_PROCESS_EXECUTION = re.compile(r"\b(?:os\.system|subprocess\.(?:call|check_call|check_output|Popen|run))\s*\(")
-_DYNAMIC_EXECUTION = re.compile(r"\b(?:compile|eval|exec)\s*\(")
-_NETWORK_REQUEST = re.compile(r"\b(?:httpx|requests|urllib(?:3)?)\.(?:get|post|put|request|urlopen)\s*\(")
+_PROCESS_EXECUTION = re.compile(
+    r"\b(?:os\.system|subprocess\.(?:call|check_call|check_output|Popen|run)|child_process\.(?:exec|execFile|fork|spawn))\s*\("
+)
+_DYNAMIC_EXECUTION = re.compile(r"\b(?:compile|eval|exec)\s*\(|\bnew\s+Function\s*\(")
+_NETWORK_REQUEST = re.compile(
+    r"\b(?:axios|httpx|requests|urllib(?:\.request|3)?|https?|http)\.(?:get|post|put|request|urlopen)\s*\(|\bfetch\s*\("
+)
 _SECRET_ASSIGNMENT = re.compile(
     r"\b(?:api[_-]?key|password|private[_-]?key|secret|token)\b\s*[:=]\s*['\"][A-Za-z0-9_-]{16,}['\"]",
     re.IGNORECASE,
 )
 _DEPENDENCY_DECLARATION = re.compile(r"(?:^\s*dependencies\s*=|^\s*[A-Za-z0-9_.-]+\s*(?:[<>=!~]|$))", re.MULTILINE)
+_PACKAGE_DEPENDENCY_FIELDS: Final = frozenset({"dependencies", "optionalDependencies", "peerDependencies"})
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 JsonObject: TypeAlias = dict[str, JsonValue]
@@ -93,7 +98,7 @@ def _source_manifest_status(name: str, is_root_file: bool, text: str) -> Manifes
 
 def _risk_categories(name: str, text: str) -> frozenset[RiskCategory]:
     categories: set[RiskCategory] = set()
-    if _DEPENDENCY_DECLARATION.search(text) and name in {"pyproject.toml", "requirements.txt", "setup.cfg", "setup.py"}:
+    if _declares_dependencies(name, text):
         categories.add("declared_dependency")
     if _HOOK_CAPABILITY.search(text):
         categories.add("hermes_hook_capability")
@@ -106,6 +111,20 @@ def _risk_categories(name: str, text: str) -> frozenset[RiskCategory]:
     if _SECRET_ASSIGNMENT.search(text):
         categories.add("potential_committed_secret")
     return frozenset(categories)
+
+
+def _declares_dependencies(name: str, text: str) -> bool:
+    if name in {"pyproject.toml", "requirements.txt", "setup.cfg", "setup.py"}:
+        return _DEPENDENCY_DECLARATION.search(text) is not None
+    if name != "package.json":
+        return False
+    try:
+        package = json.loads(text)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(package, dict) and any(
+        isinstance(package.get(field), dict) and package[field] for field in _PACKAGE_DEPENDENCY_FIELDS
+    )
 
 
 def _manifest_status(sources: tuple[_StaticSource, ...]) -> ManifestStatus:

@@ -19,7 +19,9 @@ _DIRECTORY_FLAG: Final = getattr(os, "O_DIRECTORY", 0)
 _NONBLOCK_FLAG: Final = getattr(os, "O_NONBLOCK", 0)
 _IGNORED_DIRECTORIES: Final = frozenset({".git", ".venv", "__pycache__", "node_modules"})
 _AUDITED_FILENAMES: Final = frozenset({".env", "plugin.json", "pyproject.toml", "requirements.txt", "setup.cfg", "setup.py"})
-_AUDITED_SUFFIXES: Final = frozenset({".json", ".py", ".toml", ".txt", ".yaml", ".yml"})
+_AUDITED_SUFFIXES: Final = frozenset(
+    {".cjs", ".cts", ".js", ".json", ".mjs", ".mts", ".py", ".toml", ".ts", ".txt", ".yaml", ".yml"}
+)
 
 
 class PluginAuditSourceError(ValueError):
