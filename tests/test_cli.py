@@ -2805,6 +2805,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         pip_args = run.call_args_list[0].args[0]
         self.assertEqual(pip_args[:4], [sys.executable, "-m", "pip", "install"])
         self.assertIn("--force-reinstall", pip_args)
+        # A branch archive keeps one URL while its contents change, so pip
+        # would reinstall a cached `main.zip` and report success on an older
+        # tree. `--force-reinstall` forces the reinstall, not the download.
+        self.assertIn("--no-cache-dir", pip_args)
         self.assertIn("https://example.invalid/omh.zip", pip_args)
         reentry_args = run.call_args_list[1].args[0]
         self.assertEqual(reentry_args[:3], [sys.executable, "-m", "omh.cli"])
