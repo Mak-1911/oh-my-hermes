@@ -157,7 +157,7 @@ class MemorySyncSkillTests(unittest.TestCase):
     def test_memory_sync_skill_context_rail_markers(self) -> None:
         markers = ("OMH Context Rail", "not a standalone executor", "Prepared OMH routing")
         template_content = _template_content("memory-sync")
-        on_disk = Path("skills/memory-sync/SKILL.md").read_text(encoding="utf-8")
+        on_disk = Path("skills/omh-memory-sync/SKILL.md").read_text(encoding="utf-8")
         for marker in markers:
             self.assertIn(marker, template_content, marker)
             self.assertIn(marker, on_disk, marker)

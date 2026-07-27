@@ -1,0 +1,146 @@
+---
+name: ulw-process
+description: [omh] Ultra Process - Research - Ralplan - Ultragoal - Code Review - Sync Circle: one PR-ready delivery cycle.
+metadata:
+  hermes:
+    tags: [workflow, oh-my-hermes, process]
+    category: process
+    phase: single-cycle-plan-to-pr
+    role: handoff-guide
+    quality_tier: process-gated
+---
+
+# Ultraprocess
+
+This is a Hermes-native `ultraprocess` workflow skill.
+
+## Why This Exists
+
+`ultraprocess` exists to give Hermes one clean plan-to-PR operating cycle: research, reviewed plan, selected implementation handoff, review gate, docs sync, and PR-ready evidence.
+
+## Do Not Use When
+
+- The user wants an open-ended feedback loop or long-horizon campaign; use `loop` instead.
+- The task is still ambiguous enough that a deep interview is required before planning.
+- No repo, product, or delivery surface is available to support a plan-to-PR cycle.
+- The goal is removing existing slop or duplication with identical observable behavior rather than delivering new or changed behavior; use `ai-slop-cleaner`.
+
+## Examples
+
+Good example:
+
+- Prompt: $ultraprocess research this setup bug, plan the fix, implement, review, sync docs, and prepare a PR.
+- Expected behavior: Run exactly one delivery cycle and report which stages are observed, prepared, or blocked.
+- Why: The user explicitly asks for the full but bounded delivery path ending at PR readiness.
+
+Bad example:
+
+- Prompt: $ultraprocess keep improving the project until it becomes popular.
+- Expected behavior: Route to `loop` or ask for a bounded goal rather than promise endless delivery.
+- Why: Popularity and indefinite improvement need long-horizon loop management, not one PR-ready cycle.
+
+## Completion Checklist
+
+- Research and codebase context are captured before implementation handoff.
+- A ralplan-style or reviewed plan names acceptance criteria, risks, and verification commands.
+- The implementation owner is selected and handoff, dispatch, run, review, CI, and PR readiness are separated.
+- If the implementation owner is Hermes, `hermes_coding_harness/v1` names the current stage, lane owner, next action, and missing evidence.
+- The code-review gate is observed or explicitly marked not_observed.
+- Docs sync is checked when behavior, setup, commands, examples, or public claims changed.
+
+## Recovery Notes
+
+- If the task expands beyond one delivery cycle, stop and route to loop with the current evidence as input.
+- If no implementation owner is selected, keep the work prepared_not_observed and ask for Codex, Claude Code, Hermes, or another runtime.
+- If review, CI, docs sync, or PR evidence is missing, report the stage gap instead of saying the process is complete.
+
+## OMH Context Rail
+
+- This skill is part of OMH's Hermes workflow layer, not a standalone executor.
+- Product context: OMH is a Hermes-native workflow pack: choose skills, shape work, prepare artifacts, show status, and hand off with evidence boundaries.
+- Current lane: **Intent -> plan** (`oh-my-hermes`, `meta-router`, `deep-interview`, `plan`, `ralplan`, `codebase-onboarding`, `codegraph-refresh`, `ultragoal`, `+4 more`) - clarify, plan, ship, or loop goals.
+- If intent belongs to another lane, hand back to `oh-my-hermes` or name the adjacent workflow.
+- Cross-skill context: every OMH skill: match lane; generic tool can render or execute.
+- Generic-tool checkpoint: image->img-summary; frontend->frontend/a11y/visual-qa; paper->paper-learning; content->content-operator; media->media-input-operator; file->materials-package; search->web-research; live->live-info-operator; audit->workspace/production/security; failures->build-failure; verify->verification-gate; code->codegraph/onboarding/ultraprocess.
+- Coverage: Every generated workflow skill carries this rail.
+- Normal users talk to Hermes; OMH CLI is infra.
+- Boundary: Prepared OMH routing/cards/handoffs/artifacts are not observed execution, image generation, delivery, review, CI, merge-readiness, or merge evidence.
+
+## Use When
+
+Use when the user asks Hermes to take a concrete task through one full delivery cycle: research/codebase context, reviewed plan, selected implementation handoff, code review, docs sync when needed, and PR preparation.
+
+    Strong routing signals: `ultraprocess`, `$ultraprocess`, `./ultraprocess`, `/ultraprocess`, `single-cycle delivery`, `one-cycle delivery`, `end-to-end process`, `delivery process`, `research plan implement review docs pr`, `plan implement review docs pr`, `ralplan ultragoal code-review`, `codebase source research planning implementation review docs sync pr`, `docs sync`, `pr-ready`, `prepare a pr`, `sync docs and prepare a pr`, `code-review sync docs and prepare a pr`, `delegate to codex`, `send to codex`, `codex implement`, `codex progress tracking`, `codex session tracking`, `make a pr`, `open a pr`, `끝까지 해줘`, `PR까지`, `계획 구현 리뷰 문서 PR`, `기획 구현 리뷰 문서 PR`, `코드베이스 조사 웹리서치 계획 구현 리뷰 문서 최신화 PR`, `codex로 구현`, `코덱스로 구현`, `codex에게 맡기`, `codex로 맡기`, `코덱스에게 맡기`, `코딩 에이전트에게 맡기`, `구현하게 맡기고 진행상태 추적`, `진행상태 추적`, `진행 상태 추적`, `문서 최신화 PR`, `test driven development`, `write tests first`, `tests first`, `tdd implementation`, `테스트부터 작성`, `테스트 먼저 작성`, `테스트 우선 구현`, `TDD로 구현`
+
+## Catalog Metadata
+
+Category: `process`
+Phase: `single-cycle-plan-to-pr`
+Hermes role: `handoff-guide`
+Quality tier: `process-gated`
+
+Quality bar:
+
+- Complete exactly one plan-to-PR delivery cycle, then stop with status, evidence gaps, or a next recommended workflow.
+- Start with codebase/source research and a ralplan-style decision record before implementation handoff.
+- Use ultragoal or the selected executor/runtime path for implementation, with acceptance criteria and verification commands attached.
+- Run code-review as a gate after implementation evidence exists; review preparation alone is not review evidence.
+- Add docs-specialist sync when public behavior, commands, setup, examples, or claims changed.
+- End with a PR-ready or PR-observed report that separates prepared, executed, reviewed, verified, CI, and PR evidence.
+
+Handoff policy:
+
+Keep the one-cycle process orchestration, source/codebase research, planning, review framing, docs-sync checks, PR narration, and evidence boundaries in Hermes; convert implementation into a selected executor/runtime handoff such as Codex, Claude Code, OMX/OMO/OMC, another coding agent, or explicit Hermes coding runtime only when the user accepts that owner.
+
+Executor readiness:
+
+- When accepted work mutates code, check `executor_readiness/v1` for the selected Codex, Claude Code, Hermes, or oh-my runtime path before first dispatch.
+- If readiness is `missing` or `blocked`, ask the user to choose another coding agent, configure PATH, continue in Hermes, or keep a prompt/runtime handoff; retry only after that state changes.
+- A readiness probe is not dispatch, implementation, verification, review, CI, merge-readiness, or merge evidence.
+
+Required inputs:
+
+- task statement
+- repo or workspace context
+- executor preference or choose-at-handoff policy
+- verification expectations
+
+Expected outputs:
+
+- ralplan-ready context and plan
+- ultragoal or selected executor/runtime handoff
+- code-review gate
+- docs sync checklist
+- single-cycle PR-ready summary with observed evidence and gaps
+
+Artifact expectations:
+
+- process checklist or runtime record when a wrapper can observe the stages
+- prepared handoff artifact only after implementation owner selection
+- docs-specialist claim check when public behavior changes
+
+Safety rules:
+
+- Do not skip planning when the request is broad, risky, or user-visible.
+- Do not continue into a repeated feedback loop; recommend `loop` when the user wants ongoing cycles.
+- Do not claim implementation, review, CI, merge readiness, or PR creation without observed executor or GitHub evidence.
+- Keep web research source-backed and permission-aware; do not run hidden network or LLM calls from OMH core.
+- Run docs sync only when behavior, setup, commands, or public claims changed.
+
+## Runtime Evidence
+
+Preferred harness for this skill: `goal-execution`.
+
+```sh
+omh runtime record --skill ultraprocess --harness goal-execution --status started
+```
+
+Record observed delegation results; otherwise return `not_available` or `not_observed`.
+
+## Hermes Compatibility Contract
+
+- Preserve workflow intent and stop conditions; verify before claiming completion.
+- Use Hermes-native tools, file operations, and subagent/delegation features when available; do not require unavailable runtime tools, role prompts, or overlays. If a capability is unavailable: native subagents -> Hermes delegation when available, otherwise sequential lanes.
+- Respect `omh_target_topology/v1`: bind state to the current target/thread, use single-target behavior when `active_agent_count` is one, and name a one-to-many or many-to-one change before treating it as persistent.
+- When wrapper metadata includes `memory_review_card/v1` or `handoff_context_pack/v1`, treat it as reviewed OMH-local or wrapper-supplied context only. Use conflict-free context summaries to shape plans and handoffs, but do not claim Hermes internal memory was read or changed.
+- Shared rail: `omh-routing/references/skill-common-rail.md` has harness discipline, runtime translations, the delegation command, and execution checklist. Load it when applicable; otherwise name an unavailable capability.

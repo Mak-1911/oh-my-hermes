@@ -22,6 +22,8 @@ whose body text is byte-identical across skills are duplicates, and
 
 from __future__ import annotations
 
+from .catalog import omh_skill_display_name
+
 from dataclasses import dataclass
 
 from .catalog import CORE_PROFILE_SKILLS
@@ -128,7 +130,9 @@ def _reference_payload(names: set[str], reference_templates: list[_SkillReferenc
     return {
         "file_count": len(templates),
         **_size_payload(total_chars, total_lines),
-        "files": sorted(f"{template.skill_name}/{template.relative_path}" for template in templates),
+        "files": sorted(
+            f"{omh_skill_display_name(template.skill_name)}/{template.relative_path}" for template in templates
+        ),
     }
 
 

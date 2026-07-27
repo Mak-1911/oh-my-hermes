@@ -111,7 +111,7 @@ omh setup
 
 ```sh
 hermes skills tap add rlaope/oh-my-hermes
-hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes
+hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes
 ```
 
 **or ask Your AI Agent:**

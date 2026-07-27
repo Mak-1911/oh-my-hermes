@@ -134,7 +134,7 @@ class RouterContentTests(unittest.TestCase):
         from omh.skills.render import _router_catalog_index_reference
 
         rendered = _router_catalog_index_reference()
-        on_disk = Path("skills/oh-my-hermes/references/catalog-index.md").read_text(encoding="utf-8")
+        on_disk = Path("skills/omh-routing/references/catalog-index.md").read_text(encoding="utf-8")
         self.assertEqual(on_disk, rendered)
 
         self.assertLess(len(rendered.encode("utf-8")), 20_000)
@@ -635,18 +635,24 @@ class RouterContentTests(unittest.TestCase):
         }
 
         for name, template in templates.items():
-            path = Path("skills") / name / "SKILL.md"
+            path = Path("skills") / omh_skill_display_name(name) / "SKILL.md"
             self.assertTrue(path.exists(), f"{path} should be present for Hermes skill taps")
             self.assertEqual(path.read_text(encoding="utf-8"), template.content)
         for rel_path, template in reference_templates.items():
-            path = Path("skills") / rel_path
+            path = Path("skills") / omh_skill_display_name(rel_path.parts[0]) / Path(*rel_path.parts[1:])
             self.assertTrue(path.exists(), f"{path} should be present for Hermes skill tap references")
             self.assertEqual(path.read_text(encoding="utf-8"), template.content)
 
-        self.assertEqual({path.parent.name for path in Path("skills").glob("*/SKILL.md")}, set(templates))
+        self.assertEqual(
+            {path.parent.name for path in Path("skills").glob("*/SKILL.md")},
+            {omh_skill_display_name(name) for name in templates},
+        )
         self.assertEqual(
             {path.relative_to(Path("skills")) for path in Path("skills").glob("*/references/*.md")},
-            set(reference_templates),
+            {
+                Path(omh_skill_display_name(rel.parts[0])) / Path(*rel.parts[1:])
+                for rel in reference_templates
+            },
         )
         installable_surfaces = {name for name, (_, installable) in FEATURE_SURFACE_EXPOSURES.items() if installable}
         self.assertLessEqual(installable_surfaces, set(templates))
@@ -735,7 +741,7 @@ class RouterContentTests(unittest.TestCase):
         `omh-ultrawork/` and the curated `DESCRIPTIONS` lookup misses, replacing
         the hand-written description with the generic stub.
         """
-        raw = Path("skills/ultrawork/SKILL.md").read_text(encoding="utf-8")
+        raw = Path("skills/ulw-work/SKILL.md").read_text(encoding="utf-8")
         template = convert_skill(raw, "ultrawork")
 
         self.assertEqual(template.name, "ultrawork")
@@ -791,14 +797,18 @@ class RouterContentTests(unittest.TestCase):
         rail = next(
             template
             for template in builtin_skill_reference_templates()
-            if template.skill_name == rail_skill and template.relative_path == rail_relative
+            # `SHARED_RAIL_REFERENCE_PATH` is the installed path, so its first
+            # segment is a display label while `skill_name` stays canonical.
+            if omh_skill_display_name(template.skill_name) == rail_skill and template.relative_path == rail_relative
         )
 
-        # The rail lives on a skill the core profile installs, so both profiles resolve it.
-        self.assertIn(rail_skill, CORE_PROFILE_SKILLS)
+        # The rail lives on a skill the core profile installs, so both profiles
+        # resolve it. `rail_skill` is the installed label; the profile is keyed
+        # on canonical names.
+        self.assertIn(rail.skill_name, CORE_PROFILE_SKILLS)
         self.assertEqual(
             Path("skills") / SHARED_RAIL_REFERENCE_PATH,
-            Path("skills") / rail.skill_name / rail.relative_path,
+            Path("skills") / omh_skill_display_name(rail.skill_name) / rail.relative_path,
         )
         self.assertEqual(
             (Path("skills") / SHARED_RAIL_REFERENCE_PATH).read_text(encoding="utf-8"),
@@ -818,7 +828,8 @@ class RouterContentTests(unittest.TestCase):
                 self.assertIn(fragment, rail.content)
 
         for template in builtin_skill_templates():
-            if template.name == rail_skill:
+            # The rail owner does not point at itself with an installed path.
+            if template.name == rail.skill_name:
                 continue
             with self.subTest(skill=template.name):
                 self.assertIn(SHARED_RAIL_REFERENCE_PATH, template.content)
@@ -2409,7 +2420,7 @@ class RouterContentTests(unittest.TestCase):
         # Harness discipline moved to the shared rail reference (issue #634); each skill
         # keeps the pointer instead of its own verbatim copy. The rail's own content is
         # gated by test_shared_common_rail_reference_carries_moved_policy below.
-        self.assertIn("oh-my-hermes/references/skill-common-rail.md", skills["ultragoal"].content)
+        self.assertIn("omh-routing/references/skill-common-rail.md", skills["ultragoal"].content)
         self.assertIn("Catalog Metadata", skills["ultragoal"].content)
         self.assertIn("Category: `execution`", skills["ultragoal"].content)
         self.assertIn("Phase: `durable-goals`", skills["ultragoal"].content)
@@ -2762,9 +2773,9 @@ class RouterContentTests(unittest.TestCase):
 
         self.assertIn("Hermes skill tap path", readme)
         self.assertIn("hermes skills tap add rlaope/oh-my-hermes", readme)
-        self.assertIn("hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes", readme)
+        self.assertIn("hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes", readme)
         self.assertIn("hermes skills tap add rlaope/oh-my-hermes", installation)
-        self.assertIn("hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes", installation)
+        self.assertIn("hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes", installation)
         self.assertIn("curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh", readme)
         self.assertIn("https://rlaope.github.io/oh-my-hermes/", readme)
         self.assertIn("[Documentation](docs/README.md)", readme)
@@ -3054,7 +3065,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("omh update", site)
         self.assertIn("omh doctor", site)
         self.assertIn("hermes skills tap add rlaope/oh-my-hermes", site)
-        self.assertIn("hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes", site)
+        self.assertIn("hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes", site)
         self.assertNotIn("omh capabilities summary --json", site)
         self.assertIn("Three commands for people. The rest belongs to the agent layer.", site)
         self.assertIn("agent / maintainer evaluation", site)
@@ -3227,7 +3238,7 @@ class RouterContentTests(unittest.TestCase):
             "src/commands/ops.py",
             "src/skills/catalog.py",
             "src/skills/render.py",
-            "skills/oh-my-hermes/SKILL.md",
+            "skills/omh-routing/SKILL.md",
         )
         for source_path in expected_source_paths:
             self.assertIn(source_path, site_architecture_post)
@@ -3283,7 +3294,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("omh update", install_command)
         self.assertIn("omh doctor", install_command)
         self.assertIn("hermes skills tap add rlaope/oh-my-hermes", install_command)
-        self.assertIn("hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes", install_command)
+        self.assertIn("hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes", install_command)
         self.assertTrue(Path("site/assets/omh-loop-engineering.png").is_file())
         self.assertTrue(Path("site/assets/omh-img-summary-card.png").is_file())
         self.assertNotIn("github.com/rlaope/oh-my-hermes/tree/main/docs", site)

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ..skills.catalog import omh_skill_display_name
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -119,7 +120,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
             )
         )
     for skill in CORE_SKILLS:
-        path = paths.skills_dir / skill / "SKILL.md"
+        path = paths.skills_dir / omh_skill_display_name(skill) / "SKILL.md"
         checks.append(Check(f"skill:{skill}", path.exists(), str(path)))
     config_text = read_config(paths.hermes_config_path)
     dirs = external_dirs(config_text)

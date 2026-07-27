@@ -13,7 +13,7 @@ load_local_package()
 from _cli_harness import run_cli
 from omh.core.errors import OmhError
 from omh.hashutil import sha256_file
-from omh.installer import install_skill_pack, reconcile_skill_profile, skill_profile_report
+from omh.installer import install_skill_pack, skill_directory_name, reconcile_skill_profile, skill_profile_report
 from omh.maintenance.doctor import run_doctor
 from omh.manifest import read_manifest, write_manifest
 from omh.paths import resolve_paths
@@ -40,7 +40,7 @@ class InstallerSkillProfileTests(unittest.TestCase):
             full_only = sorted(set(name for name in _installed_names(paths)) - set(CORE_PROFILE_SKILLS))
             self.assertTrue(full_only, "fixture needs at least one full-only skill")
 
-            victim = paths.skills_dir / full_only[0] / "SKILL.md"
+            victim = paths.skills_dir / skill_directory_name(full_only[0]) / "SKILL.md"
             fresh = victim.read_text(encoding="utf-8")
             victim.write_text("---\nname: stale-on-purpose\n" + fresh.split("---\n", 2)[2], encoding="utf-8")
 
@@ -200,7 +200,7 @@ class InstallerSkillProfileTests(unittest.TestCase):
             full_only_names = full_names - set(CORE_PROFILE_SKILLS)
             self.assertTrue(full_only_names)
             for name in full_only_names:
-                self.assertTrue((paths.skills_dir / name / "SKILL.md").exists(), name)
+                self.assertTrue((paths.skills_dir / skill_directory_name(name) / "SKILL.md").exists(), name)
 
             result = install_skill_pack(paths, profile="core", force=True)
 
@@ -208,7 +208,7 @@ class InstallerSkillProfileTests(unittest.TestCase):
             # still keeps every sha-unmodified full-only skill on a full->core reinstall.
             self.assertEqual(result["pruned_skills"], [])
             for name in full_only_names:
-                self.assertTrue((paths.skills_dir / name / "SKILL.md").exists(), name)
+                self.assertTrue((paths.skills_dir / skill_directory_name(name) / "SKILL.md").exists(), name)
 
             # ...but the recorded profile must no longer imply the core footprint.
             state = result["skill_profile_state"]
@@ -265,7 +265,7 @@ class SkillProfileReconcileTests(unittest.TestCase):
             report = skill_profile_report(paths)
             self.assertEqual(set(report["reconcilable_skills"]), self._full_only_names())
             for name in self._full_only_names():
-                self.assertTrue((paths.skills_dir / name / "SKILL.md").exists(), name)
+                self.assertTrue((paths.skills_dir / skill_directory_name(name) / "SKILL.md").exists(), name)
 
     def test_reconcile_full_to_core_removes_only_unmodified_managed_full_only_skills(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -284,9 +284,9 @@ class SkillProfileReconcileTests(unittest.TestCase):
             self.assertTrue(result["profile_state_after"]["matches_requested_profile"])
 
             for name in full_only_names:
-                self.assertFalse((paths.skills_dir / name).exists(), name)
+                self.assertFalse((paths.skills_dir / skill_directory_name(name)).exists(), name)
             for name in CORE_PROFILE_SKILLS:
-                self.assertTrue((paths.skills_dir / name / "SKILL.md").exists(), name)
+                self.assertTrue((paths.skills_dir / skill_directory_name(name) / "SKILL.md").exists(), name)
 
             on_disk = json.loads(paths.manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(on_disk["skill_profile"], "core")
@@ -316,7 +316,7 @@ class SkillProfileReconcileTests(unittest.TestCase):
             self.assertNotIn("profile_state_after", result)
             self.assertEqual(result["profile_state_before"]["effective_profile"], "full")
             for name in full_only_names:
-                self.assertTrue((paths.skills_dir / name / "SKILL.md").exists(), name)
+                self.assertTrue((paths.skills_dir / skill_directory_name(name) / "SKILL.md").exists(), name)
             self.assertEqual(paths.manifest_path.read_text(encoding="utf-8"), before)
 
     def test_reconcile_retains_modified_and_unmanaged_skill_directories(self) -> None:
@@ -324,7 +324,7 @@ class SkillProfileReconcileTests(unittest.TestCase):
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
             install_skill_pack(paths, profile="full")
             modified_name = sorted(self._full_only_names())[0]
-            modified_file = paths.skills_dir / modified_name / "SKILL.md"
+            modified_file = paths.skills_dir / skill_directory_name(modified_name) / "SKILL.md"
             modified_file.write_text(
                 modified_file.read_text(encoding="utf-8") + "\nlocal operator note\n",
                 encoding="utf-8",
@@ -353,7 +353,7 @@ class SkillProfileReconcileTests(unittest.TestCase):
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
             install_skill_pack(paths, profile="full")
             skill_name = sorted(self._full_only_names())[0]
-            extra = paths.skills_dir / skill_name / "references" / "team-note.md"
+            extra = paths.skills_dir / skill_directory_name(skill_name) / "references" / "team-note.md"
             extra.parent.mkdir(parents=True, exist_ok=True)
             extra.write_text("# team note\n", encoding="utf-8")
 
@@ -398,7 +398,7 @@ class SkillProfileReconcileTests(unittest.TestCase):
             self.assertTrue(preview["dry_run"])
             self.assertEqual(set(preview["would_remove_skills"]), full_only_names)
             for name in full_only_names:
-                self.assertTrue((paths.skills_dir / name / "SKILL.md").exists(), name)
+                self.assertTrue((paths.skills_dir / skill_directory_name(name) / "SKILL.md").exists(), name)
 
             status, stdout, stderr = run_cli(
                 base + ["skill-profile", "reconcile", "--to", "core", "--json"],
@@ -409,7 +409,7 @@ class SkillProfileReconcileTests(unittest.TestCase):
             self.assertEqual(set(applied["removed_skills"]), full_only_names)
             self.assertEqual(applied["profile_state_after"]["effective_profile"], "core")
             for name in full_only_names:
-                self.assertFalse((paths.skills_dir / name).exists(), name)
+                self.assertFalse((paths.skills_dir / skill_directory_name(name)).exists(), name)
 
             # The reconcile command also refreshes the runtime state manifest hash, so
             # doctor's manifest/skill checks stay healthy after the removal.

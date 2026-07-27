@@ -7,6 +7,7 @@ from ..catalogs.roles import roles_reference_markdown
 from ..installer import OmhError
 from ..local_store import atomic_write_text
 from ..skill_pack import builtin_skill_reference_templates, builtin_skill_templates
+from ..skills.catalog import omh_skill_display_name
 from ..skills.context_cost import skill_context_cost_markdown, skill_context_cost_payload
 from ..skills.render import workflow_reference_markdown, workflow_reference_payload
 from ..skills.validation import harness_inspection_payload, harness_summary_payload, validate_catalog_contract
@@ -102,9 +103,10 @@ def _default_capability_families_path() -> Path:
 
 
 def _tap_skills_check_payload(skills_root: Path) -> dict[str, object]:
-    templates = {template.name: template for template in builtin_skill_templates()}
+    templates = {omh_skill_display_name(template.name): template for template in builtin_skill_templates()}
     reference_templates = {
-        Path(template.skill_name) / template.relative_path: template for template in builtin_skill_reference_templates()
+        Path(omh_skill_display_name(template.skill_name)) / template.relative_path: template
+        for template in builtin_skill_reference_templates()
     }
     paths = {path.parent.name: path for path in skills_root.glob("*/SKILL.md")}
     reference_paths = {path.relative_to(skills_root): path for path in skills_root.glob("*/references/*.md")}

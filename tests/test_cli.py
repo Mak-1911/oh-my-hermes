@@ -9813,7 +9813,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("Hermes Agent chat", payload["hermes_native"]["normal_user_surface"])
             self.assertIn("hermes skills tap add rlaope/oh-my-hermes", payload["hermes_native"]["equivalent_hermes_commands"])
             self.assertIn(
-                "hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes",
+                "hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes",
                 payload["hermes_native"]["equivalent_hermes_commands"],
             )
             self.assertEqual(payload["hermes_native"]["hermes_config_key"], "skills.external_dirs")
@@ -10473,7 +10473,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
 
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full"])[0], 0)
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full"])[0], 0)
-            skill_file = omh_home / "skills" / "ralph" / "SKILL.md"
+            skill_file = omh_home / "skills" / "ulw-ralph" / "SKILL.md"
             skill_file.write_text(skill_file.read_text(encoding="utf-8") + "\nlocal edit\n", encoding="utf-8")
 
             status, _, stderr = run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full"])
@@ -10522,7 +10522,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             omh_home = root / ".omh"
 
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "convert", "--from-skills-dir", str(root / "local-skills")])[0], 0)
-            converted = (omh_home / "skills" / "ralph" / "SKILL.md").read_text(encoding="utf-8")
+            converted = (omh_home / "skills" / "ulw-ralph" / "SKILL.md").read_text(encoding="utf-8")
             self.assertIn("description: [omh] Hermes Ralph workflow", converted)
             self.assertIn("Hermes Compatibility Contract", converted)
 
@@ -10546,7 +10546,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 encoding="utf-8",
             )
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "update", "--source", str(root / "release-archive")])[0], 0)
-            updated = (omh_home / "skills" / "team" / "SKILL.md").read_text(encoding="utf-8")
+            updated = (omh_home / "skills" / "ulw-team" / "SKILL.md").read_text(encoding="utf-8")
             self.assertIn("Updated.", updated)
 
     def test_release_channel_metadata_and_validation(self) -> None:

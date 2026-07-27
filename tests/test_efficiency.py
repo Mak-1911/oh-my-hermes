@@ -193,7 +193,7 @@ class EfficiencyContractTests(unittest.TestCase):
         # References are progressive disclosure, counted outside the always-loaded body.
         self.assertEqual(full["references"]["file_count"], len(builtin_skill_reference_templates()))
         self.assertIn(
-            "oh-my-hermes/references/skill-common-rail.md",
+            "omh-routing/references/skill-common-rail.md",
             full["references"]["files"],
         )
 

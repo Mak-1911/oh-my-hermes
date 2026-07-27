@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ..skills.catalog import omh_skill_display_name
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -409,7 +410,7 @@ def probe_capabilities(paths: OmhPaths, *, include_parity: bool = False, include
     configured_dirs = external_dirs(config_text)
     skills_registered = str(paths.skills_dir) in configured_dirs
     capabilities: list[Capability] = []
-    managed_skill_path = paths.skills_dir / "oh-my-hermes" / "SKILL.md"
+    managed_skill_path = paths.skills_dir / omh_skill_display_name("oh-my-hermes") / "SKILL.md"
 
     capabilities.append(
         Capability(

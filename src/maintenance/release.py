@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..skills.catalog import omh_skill_display_name
+
 from dataclasses import dataclass
 import importlib.resources as resources
 import json
@@ -1096,7 +1098,9 @@ def _shell_word(value: str) -> str:
 def _tap_skill_identifier(*, tap: str, skill: str) -> str:
     if "/" in skill:
         return skill
-    return f"{tap.rstrip('/')}/skills/{skill}"
+    # The tap path is a real directory in the published repo, and those carry
+    # display labels, so a canonical name here would point at nothing.
+    return f"{tap.rstrip('/')}/skills/{omh_skill_display_name(skill)}"
 
 
 def hermes_release_smoke_plan(
@@ -2633,7 +2637,7 @@ def _hermes_smoke_next_action(ok: bool, failed_step: str) -> str:
     if failed_step == "skill_install":
         return (
             "Check tap visibility and Hermes skill scan output, then rerun "
-            "`hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes`."
+            "`hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes`."
         )
     if failed_step == "omh_setup":
         return "Run `omh setup` manually and inspect `omh doctor` for blocking setup checks."
