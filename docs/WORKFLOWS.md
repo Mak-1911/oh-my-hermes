@@ -2429,7 +2429,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The user asks for production readiness across release, rollback, and observability; use `production-audit`.
   - The user asks for merge verification commands; use `verification-gate`.
   - The user asks for a normal code review focused on bugs; use `code-review`.
-- Strong routing signals: `security-safety-review`, `security safety review`, `ai coding safety`, `agent safety review`, `prompt injection review`, `tool permission review`, `secret exposure review`, `destructive action review`, `supply chain safety`, `sandbox safety`, `plugin risk audit`, `Hermes plugin audit`, `local plugin guard`, `보안 안전 검토`, `에이전트 안전`, `프롬프트 인젝션`, `시크릿 노출`, `파괴적 명령`, `플러그인 위험 감사`
+- Strong routing signals: `security-safety-review`, `security safety review`, `ai coding safety`, `agent safety review`, `prompt injection review`, `tool permission review`, `secret exposure review`, `destructive action review`, `supply chain safety`, `sandbox safety`, `plugin risk audit`, `Hermes plugin audit`, `local plugin guard`, `보안 안전 검토`, `에이전트 안전`, `프롬프트 인젝션`, `시크릿 노출`, `파괴적 명령`
 - Good example:
   - Prompt: security-safety-review 이 자동화가 프롬프트 인젝션, 시크릿, 파괴적 명령 위험이 있는지 봐줘.
   - Expected behavior: Prepare threat_surface_map/v1, permission/secret risk matrix, prompt injection review, safe action policy, and remediation handoff if needed.

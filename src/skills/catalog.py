@@ -3964,7 +3964,6 @@ _DEFINITIONS = [
             "프롬프트 인젝션",
             "시크릿 노출",
             "파괴적 명령",
-            "플러그인 위험 감사",
         ),
         "Use when Hermes should identify security, prompt-injection, tool-permission, secret, dependency, destructive-action, or explicit local plugin risks before execution or release.",
         category="review",

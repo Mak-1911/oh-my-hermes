@@ -65,7 +65,7 @@ Bad example:
 
 Use when Hermes should identify security, prompt-injection, tool-permission, secret, dependency, destructive-action, or explicit local plugin risks before execution or release.
 
-    Strong routing signals: `security-safety-review`, `security safety review`, `ai coding safety`, `agent safety review`, `prompt injection review`, `tool permission review`, `secret exposure review`, `destructive action review`, `supply chain safety`, `sandbox safety`, `plugin risk audit`, `Hermes plugin audit`, `local plugin guard`, `보안 안전 검토`, `에이전트 안전`, `프롬프트 인젝션`, `시크릿 노출`, `파괴적 명령`, `플러그인 위험 감사`
+    Strong routing signals: `security-safety-review`, `security safety review`, `ai coding safety`, `agent safety review`, `prompt injection review`, `tool permission review`, `secret exposure review`, `destructive action review`, `supply chain safety`, `sandbox safety`, `plugin risk audit`, `Hermes plugin audit`, `local plugin guard`, `보안 안전 검토`, `에이전트 안전`, `프롬프트 인젝션`, `시크릿 노출`, `파괴적 명령`
 
 ## Catalog Metadata
 

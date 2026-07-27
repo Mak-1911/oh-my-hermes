@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from _cli_harness import run_cli
+from omh.routing import recommend as recommend_module
 from omh.skill_pack import builtin_definitions, builtin_harnesses
 from omh.wrapper.contract import VISIBLE_ACTIONS, build_chat_interaction_payload
 from omh.workflows.plugin_risk_audit import audit_plugin_risk
@@ -134,6 +135,10 @@ class PluginRiskAuditTests(unittest.TestCase):
         self.assertIn("plugin_risk_audit/v1 for one explicitly named local plugin directory", definitions["security-safety-review"].expected_outputs)
         self.assertIn("audit_plugin_risk", harnesses["security-safety-review"].wrapper_actions)
         self.assertIn("audit_plugin_risk", VISIBLE_ACTIONS)
+
+        policy = recommend_module._SKILL_POLICIES["security-safety-review"]
+        self.assertIn("plugin_risk_audit/v1", policy.evidence_boundary)
+        self.assertIn("plugin_risk_audit/v1", policy.wrapper_guidance)
 
         payload = build_chat_interaction_payload("Run a local plugin risk audit before enablement.", source="discord")
 
