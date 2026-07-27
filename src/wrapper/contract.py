@@ -1,5 +1,4 @@
 from __future__ import annotations
-from ..skills.catalog import omh_skill_display_name
 
 from functools import lru_cache
 import hashlib

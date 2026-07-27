@@ -21,7 +21,7 @@ from omh.skills.render import deep_interview_skill
 from omh.workflows.hermes_planning import _deep_interview_contract, _missing_decisions
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SKILL_MD = REPO_ROOT / "skills" / "deep-interview" / "SKILL.md"
+SKILL_MD = REPO_ROOT / "skills" / "ulw-interview" / "SKILL.md"
 
 # Measured 9,469 chars at introduction. The ceiling keeps the always-loaded body from
 # drifting upward unnoticed; the repo-wide gate is tests/test_efficiency.py.

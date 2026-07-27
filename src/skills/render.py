@@ -102,7 +102,8 @@ GOAL_STATUS_REFERENCE_CONTEXT = (
 # core and full install profiles resolve it. Each workflow skill keeps a compact
 # inline restatement of the safety-critical duties plus the pointer below; the
 # verbatim policy text below is the single maintained copy.
-SHARED_RAIL_REFERENCE_PATH = "oh-my-hermes/references/skill-common-rail.md"
+# Points at the installed directory, which carries the display label.
+SHARED_RAIL_REFERENCE_PATH = "omh-routing/references/skill-common-rail.md"
 
 HARNESS_DISCIPLINE_RULES = (
     "Start from the representative harness registry in `oh-my-hermes` when the workflow needs coding, "
@@ -854,7 +855,7 @@ Choosing a skill is routing intent, not plan acceptance, dispatch, execution, or
 
 Hermes-native install paths should converge on the same skill-visible state:
 
-- `hermes skills tap add rlaope/oh-my-hermes`, then `hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes` installs this tap-compatible skill pack directly when Hermes supports taps.
+- `hermes skills tap add rlaope/oh-my-hermes`, then `hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes` installs this tap-compatible skill pack directly when Hermes supports taps.
 - `omh setup` installs generated managed skills and registers their directory through `skills.external_dirs` when a local bootstrap or repair path is preferred.
 
 Use compact human summaries for normal `omh setup`, `omh doctor`, `omh update`, `omh uninstall`, `omh install`, and `omh list` operator flows.

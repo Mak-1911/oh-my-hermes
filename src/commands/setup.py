@@ -1341,7 +1341,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         "setup_scope": _setup_scope(args),
         "equivalent_hermes_commands": [
             "hermes skills tap add rlaope/oh-my-hermes",
-            "hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes",
+            "hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes",
         ],
         "bootstrap_final_state": bootstrap_final_state,
         "skills_dir": str(paths.skills_dir),

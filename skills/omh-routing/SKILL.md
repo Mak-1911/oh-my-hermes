@@ -100,7 +100,7 @@ Choosing a skill is routing intent, not plan acceptance, dispatch, execution, or
 
 Hermes-native install paths should converge on the same skill-visible state:
 
-- `hermes skills tap add rlaope/oh-my-hermes`, then `hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes` installs this tap-compatible skill pack directly when Hermes supports taps.
+- `hermes skills tap add rlaope/oh-my-hermes`, then `hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes` installs this tap-compatible skill pack directly when Hermes supports taps.
 - `omh setup` installs generated managed skills and registers their directory through `skills.external_dirs` when a local bootstrap or repair path is preferred.
 
 Use compact human summaries for normal `omh setup`, `omh doctor`, `omh update`, `omh uninstall`, `omh install`, and `omh list` operator flows.

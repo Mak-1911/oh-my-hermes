@@ -362,7 +362,7 @@ Use this path when the target Hermes environment supports skill taps:
 
 ```sh
 hermes skills tap add rlaope/oh-my-hermes
-hermes skills install rlaope/oh-my-hermes/skills/oh-my-hermes --yes
+hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes
 ```
 
 Use the full identifier for first install. It avoids short-name resolver
@@ -468,7 +468,7 @@ The live smoke runs the selected install path and then verifies:
 hermes skills tap list
 hermes skills list --enabled-only
 hermes skills check oh-my-hermes
-hermes skills inspect rlaope/oh-my-hermes/skills/oh-my-hermes
+hermes skills inspect rlaope/oh-my-hermes/skills/omh-routing
 ```
 
 The tap path proves Hermes CLI install/list/check/inspect for the target
