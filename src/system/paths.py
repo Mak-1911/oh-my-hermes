@@ -180,6 +180,10 @@ class OmhPaths:
         return self.runtime_dir / "executor-readiness.json"
 
     @property
+    def executor_limit_signals_path(self) -> Path:
+        return self.runtime_dir / "executor-limit-signals.json"
+
+    @property
     def dynamic_coding_workflows_dir(self) -> Path:
         return self.omh_home / "coding" / "dynamic-workflows"
 

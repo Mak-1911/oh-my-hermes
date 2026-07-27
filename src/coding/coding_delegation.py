@@ -74,6 +74,12 @@ from ..skills.catalog import (
 
 SCHEMA_VERSION = "coding_delegation/v1"
 DELEGATION_ACTIONS = ("delegate", "clarify", "fallback")
+DELEGATION_POLICY_SCHEMA_VERSION = "coding_delegation_policy/v1"
+INLINE_CODING_POLICY_STATEMENT = (
+    "Hermes never implements main coding work inline. Coding-shaped work always becomes a prepared "
+    "handoff owned by a selected coding executor; when no executor is resolvable, ask the user which "
+    "coding agent should own the work instead of retaining it."
+)
 MESSAGE_CONTEXT_SCHEMA_VERSION = "coding_delegation_message_context/v1"
 MESSAGE_CONTEXT_MODES = ("full", "bounded")
 # Four rules pinned from one live Slack session where a chat wrapper went wrong in front of a user:
@@ -379,6 +385,10 @@ def build_coding_delegation_payload(
     )
     if isolation_plan:
         payload["isolation_plan"] = isolation_plan
+    if _inline_coding_policy_applies(
+        message.lower(), delegation.intent, delegation.action, selection.choice_required
+    ):
+        payload["delegation_policy"] = inline_coding_policy_payload()
     if selection.selected_executor_profile == "codex" and delegation.action == "delegate":
         payload["executor_handoff"] = _executor_handoff(executor_target, delegation, isolation_plan=isolation_plan)
         _attach_context_pack(payload["executor_handoff"], context_pack)
@@ -603,6 +613,48 @@ def coding_delegation_record_payload(
     if isinstance(payload.get("plan_artifact"), dict):
         record["plan_artifact"] = payload["plan_artifact"]
     return record
+
+
+def inline_coding_policy_payload() -> dict[str, object]:
+    """Return the delegation-mandatory policy block for coding-shaped requests."""
+    return {
+        "schema_version": DELEGATION_POLICY_SCHEMA_VERSION,
+        "inline_coding_prohibited": True,
+        "policy": INLINE_CODING_POLICY_STATEMENT,
+        "ask_user_shape": (
+            "Ask which coding agent should own the work — for example Claude Code or Codex — "
+            "before any implementation starts."
+        ),
+    }
+
+
+# Cues that mark a message as coding-shaped for the prohibition even when
+# scoring produced no intent (score 0 → "unknown" → fallback is exactly the
+# path a bare "코딩 해줘" takes). Extends the catalog's coding terms with the
+# bare activity words the catalog reserves for stronger signals; matched with
+# the same substring rule `_intent_for` already uses for these terms.
+_INLINE_CODING_POLICY_EXTRA_TERMS = ("coding", "코딩", "패치", "patch ", " 짜줘", "코드 좀")
+
+
+def _message_is_coding_shaped(lowered_message: str, intent: str) -> bool:
+    if intent in {"coding", "review"}:
+        return True
+    if _has_any(lowered_message, coding_terms_for_intent("coding")):
+        return True
+    return _has_any(lowered_message, _INLINE_CODING_POLICY_EXTRA_TERMS)
+
+
+def _inline_coding_policy_applies(lowered_message: str, intent: str, action: str, choice_required: bool) -> bool:
+    # The prohibition is product-wide; the block rides every payload where a
+    # wrapper could otherwise read "Hermes keeps it" into coding-shaped work:
+    # clarify/fallback outcomes (including score-0 fallbacks like a bare
+    # "코딩 해줘") and unresolved-owner delegations, including retained
+    # workflows. Wrappers read it from the payload; retained-workflow chat
+    # cards keep their contractually executor-free copy and never render it
+    # into user-facing text.
+    if not _message_is_coding_shaped(lowered_message, intent):
+        return False
+    return action != "delegate" or choice_required
 
 
 def _intent_for(message: str, workflow: str, score: int) -> str:

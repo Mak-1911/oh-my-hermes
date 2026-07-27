@@ -21,6 +21,19 @@ goal to Hermes in chat; these commands are the backend surface.
    history, so repeated checks cost the same context instead of growing with
    the run. `--limit N` changes the tail; `--full` reads everything and is
    expensive for agent context.
+   For user-facing briefings, `omh coding fanout brief <id>` renders one
+   line per unit in merge-plan order — unit, owner, `(model effort)` label
+   (for example `(gpt-5-codex xhigh)`), status, elapsed seconds, token
+   count, session ref, last observed summary — as plain text by default
+   with `--json` for the `fanout_briefing/v1` payload. It joins the
+   contract, the persisted dispatch summary, and a one-event journal tail;
+   unknown fields stay the literal `unknown` rather than being inferred,
+   and never-dispatched units keep `prepared_not_observed`. Without an id
+   it lists known fanouts. Session refs and token counts are `unknown`
+   until a structured-output dispatch contract lands (deliberate deferral
+   — the current templates keep executor stdout as opaque bounded text);
+   executor-progress bindings for `omh runtime progress-status` are
+   deferred with that same follow-up.
 5. **Merge (human/agent-gated)** — dispatch never merges. The summary lists
    merge-ready units in the contract's `merge_order`; merging and the final
    integration gate remain the operator's or reviewing agent's job.
@@ -65,10 +78,36 @@ goal to Hermes in chat; these commands are the backend surface.
   nothing broader. Template drift in either CLI surfaces as a clean
   readiness or exit-code failure recorded as observed evidence, and the fix
   is a one-line data edit in `DISPATCH_COMMAND_TEMPLATES`.
+- **Model routing.** A unit may declare `model`, `reasoning_effort`, and/or
+  `role` (brain, implementation, design_visual, review, docs). Prepare embeds
+  the resolved `coding_model_route/v1` in the unit handoff, and dispatch
+  turns it into argv fragments (`codex --model … --config
+  model_reasoning_effort=…`; `claude --model … --effort …`). No route means
+  the argv stays byte-identical to the base template and the executor CLI
+  default model applies. Model availability and entitlement are provider
+  truth; a routed model that the CLI rejects surfaces as a normal observed
+  exit failure. `omh coding model-route` previews routes standalone.
+- **Telemetry.** Each dispatched unit records `started_at`, `finished_at`,
+  and `duration_seconds`, and the full dispatch summary persists to
+  `~/.omh/coding/fanout/<id>/dispatch_summary.json` (latest wins,
+  metadata only, skipped on `--dry-run`).
+- **Limit signals.** A failed spawn whose bounded output matches a fixed,
+  context-anchored limit-shape pattern (rate limit, usage limit, quota
+  exceeded, HTTP 429, credits) is flagged `limit_shaped` with a pattern
+  label; the last such failure per executor persists to
+  `~/.omh/runtime/executor-limit-signals.json` (plus its transient `.lock`
+  sibling) and surfaces as an advisory — with read-time `age_seconds` and
+  a 6-hour `stale` marker — in `omh coding executor-readiness` and the
+  choose-executor context, where candidates rank logged-in/no-fresh-limit
+  first without ever removing an option. A later successful dispatch to
+  the same executor clears its signal. Only the boolean and label persist
+  — never the matched text, and stderr is matched in memory only.
 - **Resume.** Re-running dispatch skips units whose runs already carry an
   observed successful result. `--unit <id>` selects subsets.
 - **Never**: auto-merge, default-on execution, network calls by omh itself,
-  raw-prompt persistence under `.omh`.
+  raw-prompt persistence under `.omh`, Hermes-inline coding (coding-shaped
+  work that cannot resolve an executor becomes an explicit user choice, not
+  retained Hermes implementation).
 
 ## Command reference
 
@@ -76,9 +115,11 @@ goal to Hermes in chat; these commands are the backend surface.
 omh coding fanout prepare --goal <words...> --units units.json [--record] [--source discord]
 omh coding fanout validate --units units.json
 omh coding fanout show <fanout-id> [--limit 20] [--full]
+omh coding fanout brief [<fanout-id>] [--json]
 omh coding fanout dispatch <fanout-id> --goal-file goal.txt \
   [--repo-root .] [--base-ref HEAD] [--concurrency 2] [--timeout 1800] \
   [--unit <id> ...] [--dry-run]
+omh coding model-route --executor <profile> [--role <role>] [--model <id>] [--effort <level>] [--json]
 ```
 
 `--units` and `--goal-file` accept `-` for stdin. `--dry-run` resolves
