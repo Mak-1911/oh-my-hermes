@@ -128,6 +128,11 @@ select = ["F"]
 # other modules (src/conformance/checker.py imports straight from
 # src/conformance/contract.py; src/commands/main.py imports command
 # functions by name from src/commands/coding.py).
+# `catalog.py` keeps the pre-split import surface: 30 modules and the test
+# suite import names from it that now live in `catalog_types` or upstream
+# modules. Re-exporting them here is what lets the catalog be split without
+# touching every caller.
+"src/skills/catalog.py" = ["F401"]
 "src/commands/main.py" = ["F401"]
 "src/commands/coding.py" = ["F401"]
 "src/runtime/artifacts.py" = ["F401"]
