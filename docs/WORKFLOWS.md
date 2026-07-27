@@ -4626,7 +4626,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The request is already handled by a narrower explicit skill with stronger evidence.
   - The user asks OMH to secretly run external platforms, connectors, schedulers, file exports, or runtime agents.
   - The only safe answer is to ask for missing authority, credentials, target, or observed evidence first.
-- Strong routing signals: `prompt-import-readiness`, `prompt import readiness`, `slash prompt import`, `slash prompts import`, `slash command prompt import`, `prompt library import`, `prompt folder import`, `prompt directory import`, `import CLI prompts`, `import agent prompts`, `CLI agent prompt files`, `OpenCode prompt import`, `Claude Code prompt import`, `Codex prompt import`, `codex prompt import`, `Gemini CLI prompt import`, `frontmatter prompt import`, `argument interpolation`, `$ARGUMENTS mapping`, `{{args}} mapping`, `$1-$9 prompt arguments`, `prompt slash command collision`, `Hermes slash prompts`, `슬래시 프롬프트 가져오기`, `프롬프트 가져오기`, `프롬프트 디렉터리 가져오기`, `프롬프트 폴더 가져오기`, `슬래시 명령 프롬프트`, `프롬프트 인자 매핑`
+- Strong routing signals: `prompt-import-readiness`, `prompt import readiness`, `slash prompt import`, `slash prompts import`, `slash command prompt import`, `prompt library import`, `prompt folder import`, `prompt directory import`, `import CLI prompts`, `import agent prompts`, `CLI agent prompt files`, `OpenCode prompt import`, `Claude Code prompt import`, `Codex prompt import`, `codex prompt import`, `Gemini CLI prompt import`, `frontmatter prompt import`, `prompt compatibility audit`, `explicit prompt file audit`, `argument interpolation`, `$ARGUMENTS mapping`, `{{args}} mapping`, `$1-$9 prompt arguments`, `prompt slash command collision`, `Hermes slash prompts`, `슬래시 프롬프트 가져오기`, `프롬프트 가져오기`, `프롬프트 디렉터리 가져오기`, `프롬프트 폴더 가져오기`, `슬래시 명령 프롬프트`, `프롬프트 인자 매핑`
 - Good example:
   - Prompt: prompt-import-readiness review Codex and Claude Code prompt folders before exposing them as Hermes slash commands with $ARGUMENTS mapping.
   - Expected behavior: Produce `prepare_prompt_import_readiness` with required context, wrapper actions, and not-evidence boundaries.
@@ -4641,7 +4641,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Expose missing tools, credentials, targets, or observations as user-visible gaps.
 - Completion checklist:
   - Prompt sources, agent family, expected file formats, argument syntax, slash-command names, trust level, and stop condition are explicit.
-  - Prompt file reads, parser results, command registration, prompt mutation, slash-command activation, and dry-run execution are marked observed, missing, risky, or not_observed.
+  - Explicit-path audit reads and compatibility results are observed only in their audit output; source discovery, command registration, prompt mutation, slash-command activation, and dry-run execution remain marked not_observed.
   - Route broad candidate discovery to skill-scout, prompt/tool safety to security-safety-review, missing CLIs or directories to toolbelt-readiness, and approved implementation to a selected executor handoff.
   - Imported prompts, generated command files, registry updates, and dry-run results are reported only from observed prompt-import evidence.
 - Recovery notes:
@@ -4655,6 +4655,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - known missing evidence
 - Expected outputs:
   - prompt_import_readiness_card/v1
+  - prompt_compatibility_audit/v1 for explicitly named local files
   - prompt_source_inventory/v1
   - prompt_format_matrix/v1
   - argument_interpolation_policy/v1
@@ -4665,6 +4666,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - prepared-vs-observed boundary
 - Artifact expectations:
   - prompt_import_readiness_card/v1 metadata-only wrapper card when prepared
+  - prompt_compatibility_audit/v1 with bounded source metadata, format classification, argument syntax, collisions, and review reasons for explicitly named local files
   - prompt_source_inventory/v1 with source directory, agent family, file count, format claim, and review state
   - prompt_format_matrix/v1 separating YAML frontmatter, TOML frontmatter, raw markdown/text, and unsupported formats
   - argument_interpolation_policy/v1 for $ARGUMENTS, $1-$9, {{args}}, named placeholders, escaping, and missing argument handling
@@ -4672,7 +4674,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - prompt_trust_review/v1 with source trust, prompt-injection risk, secret leakage risk, license/source notes, and review owner
   - prompt_import_manifest/v1 only when file reads, parsed prompts, generated slash-command candidates, or dry-run output are observed
 - Safety rules:
-  - A prompt import readiness card is not prompt file access, prompt parsing success, slash command registration, prompt mutation, command activation, imported prompt trust, or successful dry-run evidence unless observed prompt-import evidence records it.
+  - An explicit-path prompt compatibility audit observes only bounded local file classification and metadata. It is not source-directory discovery, prompt import, slash command registration, prompt mutation, command activation, imported prompt trust, or successful dry-run evidence.
   - Do not claim connector, gateway, runtime, file generation, memory mutation, or host automation evidence from prepared guidance.
 
 ### physical-device-readiness
@@ -8920,9 +8922,9 @@ Score external plugin, connector, API, live-data, data, and multimodal candidate
 
 ### prompt-import-readiness
 
-Score external CLI-agent prompt files before they become Hermes slash-command candidates.
+Audit explicitly named CLI-agent prompt files before they become Hermes slash-command candidates.
 
-- Use when: Use before Hermes imports, normalizes, or exposes external prompt files so source trust, format support, argument interpolation, command collisions, and dry-run evidence are explicit.
+- Use when: Use before Hermes imports, normalizes, or exposes external prompt files so bounded local compatibility, source trust, format support, argument interpolation, command collisions, and dry-run evidence are explicit.
 - Quality tier: `prompt-import-gated`
 - Quality bar:
   - Name the workflow objective, owner, input boundary, next action, and stop condition.
@@ -8936,6 +8938,7 @@ Score external CLI-agent prompt files before they become Hermes slash-command ca
   - trust, safety, and review boundary
 - Outputs:
   - prompt_import_readiness_card/v1
+  - prompt_compatibility_audit/v1 for explicitly named local files
   - prompt_source_inventory/v1
   - prompt_format_matrix/v1
   - argument_interpolation_policy/v1
@@ -8951,6 +8954,7 @@ Score external CLI-agent prompt files before they become Hermes slash-command ca
   - record only observed external actions
 - Evidence ladder:
   - `prompt_sources_recorded`
+  - `prompt_compatibility_audit_observed_for_explicit_paths`
   - `prompt_format_matrix_recorded`
   - `argument_interpolation_policy_recorded`
   - `slash_command_collisions_recorded`
@@ -8958,6 +8962,7 @@ Score external CLI-agent prompt files before they become Hermes slash-command ca
   - `prompt_import_manifest_recorded_when_observed`
 - Wrapper actions:
   - `prepare_prompt_import_readiness`
+  - `audit_prompt_compatibility`
   - `show_prompt_import_readiness_card`
   - `record_prompt_source_inventory`
   - `record_argument_interpolation_policy`
@@ -8971,7 +8976,7 @@ Score external CLI-agent prompt files before they become Hermes slash-command ca
 - Delegation expectation: Record this harness as Hermes-retained orchestration; external runtime/platform/file/memory/connector evidence requires a separate observed artifact.
 - Privacy default: `metadata_only`
 - Overclaim guards:
-  - A prompt import readiness card is not prompt file access, parsing success, slash command registration, prompt mutation, command activation, imported prompt trust, or dry-run evidence.
+  - An explicit-path compatibility audit is not prompt discovery, import, slash command registration, prompt mutation, command activation, imported prompt trust, or dry-run evidence.
 - Fallback: If a required target, credential, runtime, or observation is missing, show a blocker or confirmation action instead of claiming completion.
 
 ### physical-device-readiness

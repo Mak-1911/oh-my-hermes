@@ -893,6 +893,7 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     ),
     "prepare_provider_profile_posture": ("prepare_provider_profile_posture", "Prepare provider profile"),
     "prepare_prompt_import_readiness": ("prepare_prompt_import_readiness", "Check prompt import"),
+    "audit_prompt_compatibility": ("audit_prompt_compatibility", "Audit prompt compatibility"),
     "prepare_physical_device_readiness": (
         "prepare_physical_device_readiness",
         "Check device readiness",
