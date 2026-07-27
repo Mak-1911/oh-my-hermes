@@ -1830,3 +1830,6 @@ def _stable_ref(value: Any) -> str:
     if _SAFE_REF.match(text):
         return text
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+from .rejected_decision_recall import RejectedDecisionRecallRequest, build_rejected_decision_recall  # noqa: E402,F401

@@ -5,12 +5,18 @@ from dataclasses import dataclass
 from functools import lru_cache
 from importlib.resources import files
 import json
+from typing import Final
 
 
 CATALOG_SCHEMA_VERSION = "awesome_hermes_agent_catalog/v1"
 COVERAGE_SCHEMA_VERSION = "awesome_hermes_agent_coverage/v1"
 SOURCE_REPO = "0xNyk/awesome-hermes-agent"
 PLUGIN_SUBSECTION = "Plugins"
+UPSTREAM_SOURCE_URL: Final = "https://github.com/0xNyk/awesome-hermes-agent"
+UPSTREAM_SOURCE_COMMIT: Final = "27389ad544f923ee67b455457c214c679f26ad8a"
+UPSTREAM_README_SHA256: Final = "33d58901d6f8a96f1801406c293d5c3061dce2e23a0525796ee22639bed01bcf"
+UPSTREAM_ITEM_COUNT: Final = 216
+UPSTREAM_PLUGIN_COUNT: Final = 35
 
 
 class AwesomeHermesCatalogError(ValueError):
@@ -219,17 +225,27 @@ def _awesome_hermes_coverage_cached(
 def _awesome_hermes_catalog_cached() -> AwesomeHermesCatalog:
     resource = files("omh.catalogs").joinpath("awesome_hermes_agent_catalog.json")
     raw = json.loads(resource.read_text(encoding="utf-8"))
+    return _parse_catalog(raw)
+
+
+def _parse_catalog(raw: object) -> AwesomeHermesCatalog:
     if not isinstance(raw, dict):
         raise AwesomeHermesCatalogError("awesome Hermes catalog must be a JSON object")
     if raw.get("schema_version") != CATALOG_SCHEMA_VERSION:
         raise AwesomeHermesCatalogError("unsupported awesome Hermes catalog schema")
     source = _parse_source(raw.get("source"))
+    _validate_pinned_source(source)
     raw_items = raw.get("items")
     if not isinstance(raw_items, list):
         raise AwesomeHermesCatalogError("awesome Hermes catalog items must be a list")
     items = tuple(_parse_item(item) for item in raw_items)
     if raw.get("item_count") != len(items):
         raise AwesomeHermesCatalogError("awesome Hermes catalog item_count does not match items")
+    if len(items) != UPSTREAM_ITEM_COUNT:
+        raise AwesomeHermesCatalogError("awesome Hermes catalog item count deviates from pinned upstream source")
+    plugin_count = sum(item.subsection == PLUGIN_SUBSECTION for item in items)
+    if plugin_count != UPSTREAM_PLUGIN_COUNT:
+        raise AwesomeHermesCatalogError("awesome Hermes catalog plugin count deviates from pinned upstream source")
     return AwesomeHermesCatalog(source, items)
 
 
@@ -255,6 +271,17 @@ def _parse_source(raw: object) -> AwesomeHermesSource:
         retrieved_at=_required_str(raw, "retrieved_at"),
         claim_boundary=_required_str(raw, "claim_boundary"),
     )
+
+
+def _validate_pinned_source(source: AwesomeHermesSource) -> None:
+    if (
+        source.repo != SOURCE_REPO
+        or source.url != UPSTREAM_SOURCE_URL
+        or source.default_branch != "main"
+        or source.commit != UPSTREAM_SOURCE_COMMIT
+        or source.readme_sha256 != UPSTREAM_README_SHA256
+    ):
+        raise AwesomeHermesCatalogError("awesome Hermes catalog deviates from pinned upstream source")
 
 
 def _parse_item(raw: object) -> AwesomeHermesItem:

@@ -134,6 +134,7 @@ VISIBLE_ACTIONS = (
     "change_memory_scope",
     "apply_memory_updates",
     "show_memory_status",
+    "show_rejected_decision_recall",
     "show_research_department_plan",
     "revise_research_sources",
     "confirm_cadence_delivery_tooling",
@@ -214,6 +215,7 @@ VISIBLE_ACTIONS = (
     "show_command_operator_card",
     "prepare_external_connector_readiness",
     "show_external_connector_readiness_card",
+    "prepare_provider_profile_posture",
     "record_connector_capability_matrix",
     "record_auth_cost_boundary",
     "record_multimodal_routing_policy",
@@ -317,6 +319,7 @@ VISIBLE_ACTIONS = (
     "route_to_doctor_skill_or_workflow_learning",
     "prepare_context_budget_review",
     "show_context_budget_review",
+    "show_run_efficiency_report",
     "record_must_keep_context",
     "record_checkpoint_plan",
     "record_budget_risk",
@@ -864,6 +867,7 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "prepare_skill_scout": ("prepare_skill_scout", "Prepare skill scout"),
     "prepare_skill_health": ("prepare_skill_health", "Prepare skill health"),
     "prepare_context_budget_review": ("prepare_context_budget_review", "Review context"),
+    "show_run_efficiency_report": ("show_run_efficiency_report", "Show run efficiency"),
     "prepare_security_safety_review": ("prepare_security_safety_review", "Review safety"),
     "prepare_material_package": ("prepare_material_package", "Prepare package"),
     "prepare_design_quality_gate": ("prepare_design_quality_gate", "Prepare design gate"),
@@ -877,6 +881,7 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "prepare_executor_runtime_readiness": ("prepare_executor_runtime_readiness", "Check runtime"),
     "prepare_memory_new": ("prepare_memory_new", "Add memory"),
     "prepare_memory_sync": ("prepare_memory_sync", "Review memory"),
+    "show_rejected_decision_recall": ("show_rejected_decision_recall", "Show rejected decisions"),
     "prepare_gateway_intent_card": ("prepare_gateway_intent_card", "Open gateway card"),
     "prepare_voice_operator_card": ("prepare_voice_operator_card", "Open voice card"),
     "prepare_browser_operator_card": ("prepare_browser_operator_card", "Open browser card"),
@@ -886,6 +891,7 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
         "prepare_external_connector_readiness",
         "Check connector readiness",
     ),
+    "prepare_provider_profile_posture": ("prepare_provider_profile_posture", "Prepare provider profile"),
     "prepare_prompt_import_readiness": ("prepare_prompt_import_readiness", "Check prompt import"),
     "prepare_physical_device_readiness": (
         "prepare_physical_device_readiness",
@@ -2840,6 +2846,66 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS: dict[str, dict[str, object]] = {
         ],
     },
 }
+
+_WORKFLOW_OPERATIONS_CHAT_CARDS.update(
+    {
+        "decision-recall": {
+            "kind": "decision_recall",
+            "headline": "I can show reviewed rejected decisions without treating them as approved memory.",
+            "body": (
+                "I will prepare a scoped recall of reviewed rejected alternatives, matching query, scope, tags, and stale policy. "
+                "The result remains OMH-local context, not approved memory, Hermes memory, source freshness, or execution evidence."
+            ),
+            "phase": "decision_recall_prepared",
+            "next_action": "show_rejected_decision_recall",
+            "artifact_schema": "rejected_decision_recall/v1",
+            "claim_boundary_suffix": "It is not approved memory, Hermes memory, source freshness, or execution evidence.",
+            "actions": [
+                {"id": "show_rejected_decision_recall", "label": "Show rejected decisions", "style": "primary"},
+                {"id": "show_memory_status", "label": "Show memory status", "style": "secondary"},
+            ],
+            "recommended_flow": ["scope_query", "match_rejected_candidates", "separate_recall_from_approved_memory"],
+            "evidence_not_observed": ["approved memory", "Hermes memory", "source freshness", "execution"],
+        },
+        "run-efficiency": {
+            "kind": "run_efficiency",
+            "headline": "I can show a local run efficiency report from supplied metadata.",
+            "body": (
+                "I will prepare context utilization, surface counts, and supplied timing observations for this run. "
+                "Provider billing, cron activity, host behavior, and performance beyond supplied local metadata stay not observed."
+            ),
+            "phase": "run_efficiency_prepared",
+            "next_action": "show_run_efficiency_report",
+            "artifact_schema": "run_efficiency_report/v1",
+            "claim_boundary_suffix": "It is not provider billing, cron, host, or performance proof beyond supplied local metadata.",
+            "actions": [
+                {"id": "show_run_efficiency_report", "label": "Show run efficiency", "style": "primary"},
+                {"id": "show_status", "label": "Show status", "style": "secondary"},
+            ],
+            "recommended_flow": ["validate_run_metadata", "render_context_utilization", "show_not_observed_gaps"],
+            "evidence_not_observed": ["provider billing", "cron activity", "host behavior", "performance proof"],
+        },
+        "provider-profile-posture": {
+            "kind": "provider_profile_posture",
+            "headline": "I can prepare provider/profile posture without accessing a provider or secret.",
+            "body": (
+                "I will prepare requested capabilities, metadata-only secret presence, and allowed or prohibited actions. "
+                "Credential validation, provider connectivity, model routing, payment/wallet, and host execution remain unobserved."
+            ),
+            "phase": "provider_profile_posture_prepared",
+            "next_action": "prepare_provider_profile_posture",
+            "artifact_schema": "provider_profile_posture/v1",
+            "claim_boundary_suffix": "It is not credential validation, provider connectivity, model routing, payment/wallet, or host execution evidence.",
+            "actions": [
+                {"id": "prepare_provider_profile_posture", "label": "Prepare provider profile", "style": "primary"},
+                {"id": "prepare_external_connector_readiness", "label": "Check connector readiness", "style": "secondary"},
+                {"id": "show_status", "label": "Show status", "style": "secondary"},
+            ],
+            "recommended_flow": ["scope_profile", "record_secret_presence", "separate_posture_from_connectivity"],
+            "evidence_not_observed": ["credential validation", "provider connectivity", "model routing", "payment/wallet", "host execution"],
+        },
+    }
+)
 
 def _ack_actions_for_next_action(next_action: str) -> list[dict[str, object]]:
     actions: list[dict[str, object]] = []

@@ -22,6 +22,11 @@ from ..source_finder import (
     SOURCE_FINDER_PLAN_SCHEMA_VERSION,
     SOURCE_FINDER_SOURCE_KINDS,
 )
+from .native_capability_surfaces import (
+    native_capability_harnesses,
+    native_capability_skill_definitions,
+    native_capability_surface_exposures,
+)
 
 
 OMH_DESCRIPTION_PREFIX = "[omh] "
@@ -10502,6 +10507,24 @@ _PRIMARY_HARNESSES.update(
         "workflow-learning": "workflow-learning",
     }
 )
+
+_DEFINITIONS.extend(native_capability_skill_definitions(_feature_surface_skill))
+_HARNESSES.extend(native_capability_harnesses(_feature_surface_harness))
+_PRIMARY_HARNESSES.update(
+    {
+        "decision-recall": "decision-recall",
+        "run-efficiency": "run-efficiency",
+        "provider-profile-posture": "provider-profile-posture",
+    }
+)
+_CODING_INTENT_BY_SKILL.update(
+    {
+        "decision-recall": "planning",
+        "run-efficiency": "planning",
+        "provider-profile-posture": "planning",
+    }
+)
+_SURFACE_EXPOSURES = (*_SURFACE_EXPOSURES, *native_capability_surface_exposures(SurfaceExposure))
 
 
 def builtin_definitions() -> list[SkillDefinition]:

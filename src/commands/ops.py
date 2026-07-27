@@ -531,8 +531,12 @@ def _add_artifact_args(parser: argparse.ArgumentParser, *, surface: str, default
 
 
 def _add_ops_commands(sub) -> None:
+    from .provider_profile_posture import add_ops_provider_profile_posture_command
+
     ops = sub.add_parser("ops", help="Create, inspect, validate, and export local operations artifacts.")
     ops_sub = ops.add_subparsers(dest="ops_command", required=True)
+
+    add_ops_provider_profile_posture_command(ops_sub)
 
     data_harness = ops_sub.add_parser(
         "data-harness",

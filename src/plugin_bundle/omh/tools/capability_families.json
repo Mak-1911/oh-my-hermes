@@ -86,6 +86,7 @@
   "primary_workflows": [
    "memory-new",
    "memory-sync",
+   "decision-recall",
    "wiki"
   ],
   "route_summary": "Separate new-memory capture from existing-memory cleanup, then prepare notes and hints without claiming writes.",
@@ -98,7 +99,7 @@
   "source_lanes": [
    "retained_knowledge"
   ],
-  "use_for": "New durable memory, existing memory cleanup, project wiki notes, and external connection hints."
+  "use_for": "New durable memory, existing memory cleanup, rejected-decision recall, project wiki notes, and external connection hints."
  },
  {
   "example_prompt": "Make a PR summary card for reviewers.",
@@ -222,6 +223,8 @@
    "agent-evaluation",
    "rules-distill",
    "context-budget-review",
+   "run-efficiency",
+   "provider-profile-posture",
    "toolbelt-readiness",
    "external-connector-readiness",
    "prompt-import-readiness",

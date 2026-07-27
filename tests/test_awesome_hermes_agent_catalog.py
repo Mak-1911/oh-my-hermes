@@ -9,6 +9,7 @@ from omh.catalogs.awesome_hermes_agent import (
     AwesomeHermesItem,
     PLUGIN_SUBSECTION,
     SOURCE_REPO,
+    UPSTREAM_SOURCE_COMMIT,
     awesome_hermes_coverage,
     awesome_hermes_coverage_payload,
     awesome_hermes_item,
@@ -44,14 +45,15 @@ class AwesomeHermesAgentCatalogTests(unittest.TestCase):
 
         self.assertEqual(summary["schema_version"], "awesome_hermes_agent_coverage/v1")
         self.assertEqual(summary["source_repo"], SOURCE_REPO)
-        self.assertEqual(summary["source_commit"], "67ac9d079bc9a2074084d4dbd537f7158b08f4eb")
-        self.assertEqual(summary["item_count"], 201)
-        self.assertEqual(summary["plugin_count"], 33)
-        self.assertEqual(summary["status_counts"], {"covered": 1, "partial": 200})
+        self.assertEqual(summary["source_commit"], UPSTREAM_SOURCE_COMMIT)
+        self.assertEqual(summary["source_commit"], "27389ad544f923ee67b455457c214c679f26ad8a")
+        self.assertEqual(summary["item_count"], 216)
+        self.assertEqual(summary["plugin_count"], 35)
+        self.assertEqual(summary["status_counts"], {"covered": 2, "partial": 214})
 
         coverage = awesome_hermes_coverage()
-        self.assertEqual(len({item.item.id for item in coverage}), 201)
-        self.assertEqual(sum(1 for item in coverage if item.item.subsection == PLUGIN_SUBSECTION), 33)
+        self.assertEqual(len({item.item.id for item in coverage}), 216)
+        self.assertEqual(sum(1 for item in coverage if item.item.subsection == PLUGIN_SUBSECTION), 35)
 
     def test_plugin_coverage_maps_high_value_gaps_to_existing_omh_surfaces(self) -> None:
         web_search = awesome_hermes_item("hermes-web-search-plus")
@@ -168,6 +170,19 @@ class AwesomeHermesAgentCatalogTests(unittest.TestCase):
         self.assertEqual(onequery.matched_rule_id, "external_connector_readiness")
         self.assertIn("data-analysis", onequery.omh_surfaces)
         self.assertIn("security-safety-review", onequery.omh_surfaces)
+
+    def test_new_utility_and_gateway_candidates_have_specific_review_boundaries(self) -> None:
+        plugin_guard = awesome_hermes_item("hermes-plugin-guard")
+        self.assertEqual(plugin_guard.status, "partial")
+        self.assertEqual(plugin_guard.matched_rule_id, "plugin_static_analysis")
+        self.assertIn("security-safety-review", plugin_guard.omh_surfaces)
+        self.assertIn("verification-gate", plugin_guard.omh_surfaces)
+
+        gateway = awesome_hermes_item("agent37-gateway")
+        self.assertEqual(gateway.status, "partial")
+        self.assertEqual(gateway.matched_rule_id, "gateway_api_bridge")
+        self.assertIn("external-connector-readiness", gateway.omh_surfaces)
+        self.assertIn("security-safety-review", gateway.omh_surfaces)
 
     def test_ecosystem_bridge_candidates_have_connector_readiness_surface(self) -> None:
         for item_id in (
@@ -512,7 +527,7 @@ class AwesomeHermesAgentCatalogTests(unittest.TestCase):
         payload = awesome_hermes_coverage_payload(subsection=PLUGIN_SUBSECTION)
 
         self.assertEqual(payload["schema_version"], "awesome_hermes_agent_coverage/v1")
-        self.assertEqual(payload["item_count"], 33)
+        self.assertEqual(payload["item_count"], 35)
         items = payload["items"]
         self.assertIsInstance(items, list)
         self.assertTrue(items)
@@ -536,8 +551,8 @@ class AwesomeHermesAgentCatalogTests(unittest.TestCase):
         self.assertEqual(status, 0, stderr)
         self.assertEqual(stderr, "")
         summary = json.loads(stdout)
-        self.assertEqual(summary["item_count"], 201)
-        self.assertEqual(summary["plugin_count"], 33)
+        self.assertEqual(summary["item_count"], 216)
+        self.assertEqual(summary["plugin_count"], 35)
 
         status, stdout, stderr = run_cli(
             ["ecosystem", "awesome-hermes", "list", "--subsection", PLUGIN_SUBSECTION, "--json"]
@@ -546,9 +561,9 @@ class AwesomeHermesAgentCatalogTests(unittest.TestCase):
         self.assertEqual(status, 0, stderr)
         self.assertEqual(stderr, "")
         listing = json.loads(stdout)
-        self.assertEqual(listing["item_count"], 33)
-        self.assertEqual(listing["summary"]["item_count"], 33)
-        self.assertEqual(listing["catalog_summary"]["item_count"], 201)
+        self.assertEqual(listing["item_count"], 35)
+        self.assertEqual(listing["summary"]["item_count"], 35)
+        self.assertEqual(listing["catalog_summary"]["item_count"], 216)
         self.assertEqual(listing["items"][0]["subsection"], PLUGIN_SUBSECTION)
         self.assertIn("rule_set_version", listing["items"][0])
         self.assertIn("matched_rule_id", listing["items"][0])

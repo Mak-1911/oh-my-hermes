@@ -72,6 +72,7 @@ FEATURE_SURFACE_EXPOSURES = {
     "agent-board": ("workflow_skill", True),
     "memory-new": ("workflow_skill", True),
     "memory-sync": ("workflow_skill", True),
+    "decision-recall": ("workflow_skill", True),
     "gateway-intent-card": ("workflow_skill", True),
     "executor-runtime-readiness": ("workflow_skill", True),
     "deliverable-package": ("workflow_skill", True),
@@ -95,6 +96,8 @@ FEATURE_SURFACE_EXPOSURES = {
     "toolbelt-readiness": ("workflow_skill", True),
     "harness-session-inventory": ("workflow_skill", True),
     "ops-observability-card": ("workflow_skill", True),
+    "run-efficiency": ("workflow_skill", True),
+    "provider-profile-posture": ("workflow_skill", True),
     "achievements": ("workflow_skill", True),
     "agent-ops-review": ("workflow_skill", True),
     "agent-debug": ("workflow_skill", True),
@@ -908,6 +911,9 @@ class RouterContentTests(unittest.TestCase):
                 "operating-rhythm",
                 "report-package",
                 "materials-package",
+                "decision-recall",
+                "run-efficiency",
+                "provider-profile-posture",
                 "img-summary",
                 "design-orchestration",
                 "design-quality-gate",
@@ -1096,7 +1102,10 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("Obsidian", wiki.triggers)
         self.assertTrue(any("destination or existing store" in item for item in wiki.required_inputs))
         self.assertIn("destination-aware", " ".join(wiki.expected_outputs))
-        self.assertIn("Current lane: **Retained knowledge** (`memory-new`, `memory-sync`, `wiki`)", content)
+        self.assertIn(
+            "Current lane: **Retained knowledge** (`memory-new`, `memory-sync`, `decision-recall`, `wiki`)",
+            content,
+        )
         self.assertIn("observed external write", content)
         self.assertNotIn("Current lane: **Materials and visual summaries** (`wiki`)", content)
         self.assertNotEqual(wiki.category, "materials")

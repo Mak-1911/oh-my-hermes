@@ -11,6 +11,22 @@ RULE_SET_VERSION: Final = "awesome_hermes_agent_rules/v1"
 
 _RULES = (
     CoverageRule(
+        ("hermes plugin guard", "local static scanner for hermes plugins", "github annotation reports"),
+        "partial",
+        "high",
+        ("security-safety-review", "verification-gate", "toolbelt-readiness", "skill-scout"),
+        "OMH can prepare static plugin-review evidence for manifests, capabilities, dependencies, and secret-exposure risk without importing or executing an external plugin.",
+        "plugin_static_analysis",
+    ),
+    CoverageRule(
+        ("agent37 gateway", "responses style http sse api", "reconnectable stream replay"),
+        "partial",
+        "high",
+        ("gateway-intent-card", "external-connector-readiness", "connector-operator", "security-safety-review"),
+        "OMH can prepare gateway API and connector-readiness review for a local or external backend while connection, streaming, model discovery, and host execution remain observed-only.",
+        "gateway_api_bridge",
+    ),
+    CoverageRule(
         ("oh-my-hermes", "omh"),
         "covered",
         "high",
