@@ -80,9 +80,17 @@ def install_skill_pack(
     if source_dir or profile == "full":
         templates = all_templates
     else:
-        templates = [template for template in all_templates if template.name in CORE_PROFILE_SKILLS]
+        # The profile decides what gets ADDED, never what gets REFRESHED. A skill
+        # already on disk is refreshed whichever profile is recorded, because
+        # `omh update` promising "updated" while leaving installed skills on an
+        # older render is the same as lying: that is how an install ended up
+        # serving `name: ultrawork` long after the catalog had moved to
+        # `ulw-ultrawork`. Shedding full-only skills stays an explicit act -
+        # `omh skill-profile reconcile --to core`.
+        refreshable = set(CORE_PROFILE_SKILLS) | _installed_skill_names(paths.skills_dir)
+        templates = [template for template in all_templates if template.name in refreshable]
         reference_templates = [
-            template for template in reference_templates if template.skill_name in CORE_PROFILE_SKILLS
+            template for template in reference_templates if template.skill_name in refreshable
         ]
     manifest = read_manifest(paths.manifest_path)
     modified = local_modifications(manifest, paths.skills_dir)
@@ -125,6 +133,18 @@ def install_skill_pack(
     manifest_data["skill_profile_state"] = skill_profile_state(paths.skills_dir, manifest_data)
     write_manifest(paths.manifest_path, manifest_data)
     return manifest_data
+
+
+def _installed_skill_names(skills_dir: Path) -> set[str]:
+    """Skill directories already present, whatever profile put them there.
+
+    Read from disk rather than the manifest on purpose: a core-profile manifest
+    records only the core skills, so the full-only directories beside them are
+    exactly the ones the manifest cannot see and the ones that were going stale.
+    """
+    if not skills_dir.is_dir():
+        return set()
+    return {entry.name for entry in skills_dir.iterdir() if entry.is_dir() and not entry.is_symlink()}
 
 
 def _prune_orphaned_skills(

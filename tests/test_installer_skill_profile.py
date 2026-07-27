@@ -20,7 +20,39 @@ from omh.paths import resolve_paths
 from omh.skill_pack import CORE_PROFILE_SKILLS, CORE_SKILLS, builtin_skill_templates
 
 
+def _installed_names(paths) -> set[str]:
+    return {entry.name for entry in paths.skills_dir.iterdir() if entry.is_dir()}
+
+
 class InstallerSkillProfileTests(unittest.TestCase):
+    def test_a_core_refresh_updates_full_only_skills_already_on_disk(self) -> None:
+        """`omh update` must leave nothing stale, whatever profile is recorded.
+
+        A core-profile refresh used to write only the core skills, so a machine
+        that had once installed `--full` kept 73 skills frozen at whatever render
+        they were installed with. That is how an install kept serving
+        `name: ultrawork` long after the catalog had moved to `ulw-ultrawork`,
+        while `omh update` still reported success.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            install_skill_pack(paths, profile="full")
+            full_only = sorted(set(name for name in _installed_names(paths)) - set(CORE_PROFILE_SKILLS))
+            self.assertTrue(full_only, "fixture needs at least one full-only skill")
+
+            victim = paths.skills_dir / full_only[0] / "SKILL.md"
+            fresh = victim.read_text(encoding="utf-8")
+            victim.write_text("---\nname: stale-on-purpose\n" + fresh.split("---\n", 2)[2], encoding="utf-8")
+
+            before = _installed_names(paths)
+
+            install_skill_pack(paths, profile="core", force=True)
+
+            self.assertEqual(victim.read_text(encoding="utf-8"), fresh)
+            # Refreshing must not shed skills either; that stays an explicit
+            # `omh skill-profile reconcile --to core`.
+            self.assertEqual(_installed_names(paths), before)
+
     def test_core_profile_is_a_strict_subset_of_full_and_covers_doctor_core_skills(self) -> None:
         full_names = {template.name for template in builtin_skill_templates()}
 
