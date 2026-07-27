@@ -15,10 +15,12 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-# `omh-<segment>(-<segment>)*`. The leading boundary keeps `foo-omh-x` and a bare
-# `omh` out of the match, and requiring one segment after the dash keeps a bare
-# `omh-` out of it too.
-_DISPLAY_MENTION_RE = re.compile(r"(?<![0-9a-z])omh-[0-9a-z]+(?:-[0-9a-z]+)*")
+# `omh-<segment>(-<segment>)*`, and the same for the `ulw-` label the workflow-
+# engine skills render. The leading boundary keeps `foo-omh-x` and a bare `omh`
+# out of the match, and requiring one segment after the dash keeps a bare `omh-`
+# out of it too. That guard matters more for `ulw`: a bare `ulw` is `ultrawork`'s
+# own routing alias, so it must stay untouched here and reach the router as-is.
+_DISPLAY_MENTION_RE = re.compile(r"(?<![0-9a-z])(?:omh|ulw)-[0-9a-z]+(?:-[0-9a-z]+)*")
 
 
 def canonical_display_mentions(value: str, canonical_by_display: Mapping[str, str]) -> str:

@@ -4,7 +4,12 @@ import re
 from pathlib import Path
 
 from .skill_pack import DESCRIPTIONS, SkillTemplate
-from .skills.catalog import OMH_SKILL_NAME_PREFIX, omh_description, omh_skill_display_name
+from .skills.catalog import (
+    OMH_SKILL_NAME_PREFIX,
+    ULW_SKILL_NAME_PREFIX,
+    omh_description,
+    omh_skill_display_name,
+)
 
 FRONTMATTER_RE = re.compile(r"^---\n(?P<meta>.*?)\n---\n(?P<body>.*)$", re.DOTALL)
 
@@ -12,11 +17,15 @@ FRONTMATTER_RE = re.compile(r"^---\n(?P<meta>.*?)\n---\n(?P<body>.*)$", re.DOTAL
 def extract_name(raw: str, fallback: str) -> str:
     """Return the canonical install identity for a source SKILL.md.
 
-    The frontmatter `name` is a rendered display label and may already carry the
-    `omh-` prefix (re-importing OMH's own generated taps through
+    The frontmatter `name` is a rendered display label and may already carry a
+    display prefix (re-importing OMH's own generated taps through
     `omh setup --source <dir>` hits exactly that). Strip it here so the install
     directory, the manifest key, and the curated `DESCRIPTIONS` lookup all key on
     the canonical name.
+
+    Both prefixes have to be stripped: workflow-engine skills render `ulw-`, so
+    stripping only `omh-` would round-trip `ultrawork` back as `ulw-ultrawork`
+    and install it into the wrong directory under a name nothing routes to.
     """
     match = FRONTMATTER_RE.match(raw)
     if not match:
@@ -24,7 +33,10 @@ def extract_name(raw: str, fallback: str) -> str:
     for line in match.group("meta").splitlines():
         if line.startswith("name:"):
             rendered = line.split(":", 1)[1].strip().strip("'\"")
-            return rendered.removeprefix(OMH_SKILL_NAME_PREFIX) or fallback
+            for prefix in (OMH_SKILL_NAME_PREFIX, ULW_SKILL_NAME_PREFIX):
+                if rendered.startswith(prefix):
+                    return rendered.removeprefix(prefix) or fallback
+            return rendered or fallback
     return fallback
 
 

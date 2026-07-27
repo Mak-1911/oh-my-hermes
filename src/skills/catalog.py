@@ -50,6 +50,34 @@ OMH_SKILL_NAME_PREFIX = "omh-"
 # forward-looking contract rather than a live behavior.
 OMH_SKILL_DISPLAY_NAME_OVERRIDES = {"oh-my-hermes": "omh-routing"}
 
+ULW_SKILL_NAME_PREFIX = "ulw-"
+
+# The workflow-engine skills: the ones that drive a run rather than do a domain
+# job. A user reaching for `ultrawork` wants an execution engine pointed at
+# whatever they are already doing; a user reaching for `content-operator` wants
+# that specific job done. The two read differently in a status line, so they get
+# different labels.
+#
+# Membership is enumerated rather than derived from `category`, because these
+# seven span execution, clarification, research, planning, and verification -
+# the grouping is what the skill is FOR, not where it sits in the catalog. Keep
+# it small and explicit: a domain skill that drifts in here would make the
+# distinction meaningless, which is the only thing the split is buying.
+ULW_ENGINE_SKILL_NAMES = frozenset(
+    {
+        "deep-interview",
+        "loop",
+        "ralph",
+        "ralplan",
+        "team",
+        "ultragoal",
+        "ultraprocess",
+        "ultraqa",
+        "ultrawork",
+        "web-research",
+    }
+)
+
 
 def omh_skill_display_name(name: str) -> str:
     """Return the rendered frontmatter label for a canonical catalog name.
@@ -62,9 +90,10 @@ def omh_skill_display_name(name: str) -> str:
     override = OMH_SKILL_DISPLAY_NAME_OVERRIDES.get(text)
     if override is not None:
         return override
-    if text.startswith(OMH_SKILL_NAME_PREFIX):
+    prefix = ULW_SKILL_NAME_PREFIX if text in ULW_ENGINE_SKILL_NAMES else OMH_SKILL_NAME_PREFIX
+    if text.startswith(prefix):
         return text
-    return f"{OMH_SKILL_NAME_PREFIX}{text}"
+    return f"{prefix}{text}"
 
 
 _ROLE_BY_CATEGORY = {

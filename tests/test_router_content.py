@@ -669,7 +669,7 @@ class RouterContentTests(unittest.TestCase):
         definitions = {definition.name: definition for definition in builtin_definitions()}
 
         ultrawork = templates["ultrawork"]
-        self.assertIn("\nname: omh-ultrawork\n", ultrawork)
+        self.assertIn("\nname: ulw-ultrawork\n", ultrawork)
         self.assertIn("\n    category: execution\n", ultrawork)
         self.assertIn("\n    phase: parallel-delivery\n", ultrawork)
         self.assertIn("\n    role: handoff-guide\n", ultrawork)
@@ -691,7 +691,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertEqual(OMH_SKILL_DISPLAY_NAME_OVERRIDES, {"oh-my-hermes": "omh-routing"})
 
         self.assertEqual(omh_skill_display_name("oh-my-hermes"), "omh-routing")
-        self.assertEqual(omh_skill_display_name("ultrawork"), "omh-ultrawork")
+        self.assertEqual(omh_skill_display_name("ultrawork"), "ulw-ultrawork")
         self.assertEqual(omh_skill_display_name("omh-ultrawork"), "omh-ultrawork")
 
         # Branch order: the override lookup must run before the idempotency guard.
@@ -725,7 +725,7 @@ class RouterContentTests(unittest.TestCase):
 
         self.assertEqual(template.name, "ultrawork")
         self.assertIn(f"\ndescription: {DESCRIPTIONS['ultrawork']}\n", template.content)
-        self.assertIn("\nname: omh-ultrawork\n", template.content)
+        self.assertIn("\nname: ulw-ultrawork\n", template.content)
 
         # Imported third-party skills carry the prefix too, so nothing installed by
         # omh reads as a Hermes built-in - but the directory identity stays canonical.
