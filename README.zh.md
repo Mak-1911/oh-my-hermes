@@ -2,24 +2,24 @@
   <img src="assets/oh-my-hermes-wordmark.png" alt="OH-MY-HERMES" width="100%" style="display:block;max-width:none;height:auto">
 </p>
 
-<table align="center">
+<table align="center" width="100%">
   <tr>
     <td width="50%" align="center">
-      <img src="assets/hermes-desktop.gif" alt="Hermes Desktop with oh-my-hermes - the skill picker lists the OMH workflows and /ulw-process asks scoping questions before building" width="410"><br>
+      <img src="assets/hermes-desktop.gif" alt="Hermes Desktop with oh-my-hermes - the skill picker lists the OMH workflows and /ulw-process asks scoping questions before building" width="100%"><br>
       <sub><b>Hermes 桌面端，搭配 oh-my-hermes。</b><br>在技能选择器里选一个工作流，Hermes 会先确认再开始构建。</sub>
     </td>
     <td width="50%" align="center">
-      <img src="assets/hermes-cli.gif" alt="Hermes CLI with oh-my-hermes - the installed OMH workflows run from the terminal session" width="410"><br>
+      <img src="assets/hermes-cli.gif" alt="Hermes CLI with oh-my-hermes - the installed OMH workflows run from the terminal session" width="100%"><br>
       <sub><b>Hermes CLI，搭配 oh-my-hermes。</b><br>在你已经在用的终端里，运行同样的工作流。</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" align="center">
-      <img src="assets/hermes-messenger.gif" alt="Hermes Agent messenger app with oh-my-hermes - an OMH workflow invoked from a Slack thread and reporting back in that thread" width="410"><br>
+      <img src="assets/hermes-messenger.gif" alt="Hermes Agent messenger app with oh-my-hermes - an OMH workflow invoked from a Slack thread and reporting back in that thread" width="100%"><br>
       <sub><b>Hermes 消息应用，搭配 oh-my-hermes。</b><br>在聊天话题里提出请求，运行结果回到同一个话题。</sub>
     </td>
     <td width="50%" align="center">
-      <img src="assets/omh-setup.gif" alt="omh setup installing the OMH workflows, connecting them to Hermes, and printing the install summary" width="410"><br>
+      <img src="assets/omh-setup.gif" alt="omh setup installing the OMH workflows, connecting them to Hermes, and printing the install summary" width="100%"><br>
       <sub><b><code>omh setup</code>，一条命令。</b><br>安装工作流、连接到 Hermes，并打印它做了什么。</sub>
     </td>
   </tr>

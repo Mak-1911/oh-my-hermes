@@ -3025,7 +3025,24 @@ class RouterContentTests(unittest.TestCase):
             hero,
         )
         self.assertLess(hero.index("Top install commands"), hero.index("Installation options"))
-        self.assertEqual(site.count("<img"), 1)
+        # The landing page carries one hero illustration plus the four surface
+        # demos, and nothing else. The exact count is the point: it is what
+        # keeps decorative images off the page. It was 1 before the surfaces
+        # section existed.
+        self.assertEqual(site.count("<img"), 5)
+        surface_gifs = (
+            "assets/hermes-desktop.gif",
+            "assets/hermes-cli.gif",
+            "assets/hermes-messenger.gif",
+            "assets/omh-setup.gif",
+        )
+        for gif in surface_gifs:
+            self.assertEqual(site.count(f'src="{gif}"'), 1)
+            # The demos live once under assets/ and are copied in at build
+            # time. Without the copy step the section 404s on the deployed
+            # site while every local check still passes.
+            self.assertIn(f"cp {gif} _site/{gif}", pages)
+        self.assertEqual(site.count('loading="lazy"'), len(surface_gifs))
         self.assertIn('href="docs/">Read the docs</a>', site)
         self.assertIn("A stronger operating layer for the Hermes you already use.", site)
         self.assertIn('class="product-frame"', site)
