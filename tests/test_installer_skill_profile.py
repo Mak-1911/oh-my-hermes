@@ -13,11 +13,16 @@ load_local_package()
 from _cli_harness import run_cli
 from omh.core.errors import OmhError
 from omh.hashutil import sha256_file
-from omh.installer import install_skill_pack, skill_directory_name, reconcile_skill_profile, skill_profile_report
+from omh.installer import install_skill_pack, reconcile_skill_profile, skill_directory_name, skill_profile_report
 from omh.maintenance.doctor import run_doctor
-from omh.manifest import read_manifest, write_manifest
+from omh.manifest import new_manifest, read_manifest, skill_records, write_manifest
 from omh.paths import resolve_paths
-from omh.skill_pack import CORE_PROFILE_SKILLS, CORE_SKILLS, builtin_skill_templates
+from omh.skill_pack import (
+    CORE_PROFILE_SKILLS,
+    CORE_SKILLS,
+    builtin_skill_templates,
+    installable_skill_names,
+)
 
 
 def _installed_names(paths) -> set[str]:
@@ -25,6 +30,77 @@ def _installed_names(paths) -> set[str]:
 
 
 class InstallerSkillProfileTests(unittest.TestCase):
+    def test_installing_over_a_pre_relabel_pack_removes_the_old_directories(self) -> None:
+        """The relabel must not leave both layouts installed.
+
+        Skills moved from `skills/<canonical>/` to `skills/<label>/`. Installs are
+        non-destructive, so the first install after that change wrote the new
+        directories and left the old ones beside them: an observed machine went
+        from 92 skills to 184, doubling the pack's per-turn context weight, and
+        the manifest then reported every vanished old path as a local
+        modification.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            install_skill_pack(paths, profile="full")
+            labelled = _installed_names(paths)
+
+            # Recreate the pre-relabel layout: every skill also present under its
+            # canonical directory, recorded in the manifest.
+            relabelled = [
+                name for name in installable_skill_names() if skill_directory_name(name) != name
+            ]
+            self.assertTrue(relabelled, "fixture needs at least one relabelled skill")
+            for name in relabelled:
+                legacy = paths.skills_dir / name
+                legacy.mkdir(parents=True, exist_ok=True)
+                (legacy / "SKILL.md").write_text(
+                    (paths.skills_dir / skill_directory_name(name) / "SKILL.md").read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
+            manifest = new_manifest("builtin", paths.skills_dir, skill_records(paths.skills_dir, "builtin"))
+            write_manifest(paths.manifest_path, manifest)
+            self.assertEqual(len(_installed_names(paths)), len(labelled) + len(relabelled))
+
+            result = install_skill_pack(paths, profile="full", force=True)
+
+            self.assertEqual(_installed_names(paths), labelled)
+            self.assertEqual(sorted(result["relabelled_skills_removed"]), sorted(relabelled))
+            self.assertEqual(result["relabelled_skills_retained"], [])
+
+    def test_a_locally_edited_pre_relabel_directory_blocks_the_install(self) -> None:
+        """The migration never gets to delete an edit; the existing guard stops first.
+
+        `install_skill_pack` refuses outright when a managed file differs from the
+        manifest, so an edited pre-relabel directory makes the install ask the user
+        to resolve it rather than being quietly cleaned up. `--force` is the
+        explicit way through, and it does remove the directory.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            install_skill_pack(paths, profile="full")
+            victim = next(
+                name for name in sorted(installable_skill_names()) if skill_directory_name(name) != name
+            )
+            legacy = paths.skills_dir / victim
+            legacy.mkdir(parents=True, exist_ok=True)
+            (legacy / "SKILL.md").write_text("recorded content\n", encoding="utf-8")
+            write_manifest(
+                paths.manifest_path,
+                new_manifest("builtin", paths.skills_dir, skill_records(paths.skills_dir, "builtin")),
+            )
+            (legacy / "SKILL.md").write_text("edited after the manifest\n", encoding="utf-8")
+
+            with self.assertRaises(OmhError) as refused:
+                install_skill_pack(paths, profile="full")
+            self.assertIn(f"{victim}/SKILL.md", str(refused.exception))
+            self.assertTrue((legacy / "SKILL.md").is_file())
+
+            result = install_skill_pack(paths, profile="full", force=True)
+
+            self.assertFalse(legacy.exists())
+            self.assertIn(victim, result["relabelled_skills_removed"])
+
     def test_a_core_refresh_updates_full_only_skills_already_on_disk(self) -> None:
         """`omh update` must leave nothing stale, whatever profile is recorded.
 
