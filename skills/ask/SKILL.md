@@ -64,7 +64,7 @@ Bad example:
 
 Use only when an external advisor is configured and would materially improve the answer.
 
-    Strong routing signals: `ask`, `$ask`, `external advisor`, `claude`, `gemini`
+    Strong routing signals: `ask`, `$ask`, `external advisor`, `claude`, `gemini`, `ask claude`, `ask gemini`, `consult claude`, `consult gemini`, `opinion from claude`, `opinion from gemini`, `second opinion`, `claude 의견`, `gemini 의견`
 
 ## Catalog Metadata
 

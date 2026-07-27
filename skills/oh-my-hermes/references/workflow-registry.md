@@ -44,7 +44,7 @@ When Hermes exposes installed skill descriptions to the model, use this registry
 - `deep-interview`: `deep-interview`, `$deep-interview`, `interview`, `don't assume`, `clarify`, `feature shaping`, `ambiguous product request`, `one question`, `온보딩`
 - `team`: `team`, `$team`, `swarm`, `parallel agents`, `coordinated workers`
 - `ultrawork`: `ultrawork`, `$ultrawork`, `ulw`, `$ulw`, `parallel work`, `parallel implementation`, `high throughput`
-- `web-research`: `web-research`, `web research`, `web search`, `search the web`, `internet search`, `latest`, `fresh sources`, `current sources`, `current web evidence`
+- `web-research`: `web-research`, `web research`, `web search`, `search the web`, `internet search`, `fresh sources`, `current sources`, `current web evidence`, `source-backed research`
 - `source-finder`: `source-finder`, `source finder`, `source acquisition`, `source intake`, `find papers and datasets`, `find datasets and repos`, `find papers`, `find arxiv link`, `find arxiv paper`
 - `research-brief`: `research-brief`, `business-research`, `business research`, `research brief`, `source-backed business research`, `customer feedback trends`, `feedback trends`, `market evidence`, `data search`
 - `research-department`: `research-department`, `research department`, `research ops department`, `research operations department`, `scout analyst briefer`, `scout analyst brief`, `daily research department`, `competitor research department`, `market research department`
@@ -78,7 +78,7 @@ When Hermes exposes installed skill descriptions to the model, use this registry
 - `cto-loop`: `cto-loop`, `cto loop`, `cto`, `cto pm`, `pm dev qa security ops`, `roadmap technical tradeoffs`, `technical tradeoff`, `delivery risk`, `release readiness`
 - `deploy-and-monitor`: `deploy-and-monitor`, `deploy and monitor`, `deploy monitor`, `deployment monitoring`, `release monitor`, `post deploy`, `post-deploy`, `rollback`, `rollback gate`
 - `ultraqa`: `ultraqa`, `$ultraqa`, `adversarial qa`, `hostile scenarios`, `e2e qa`, `real-world qa`, `qa scenario`, `release qa`, `장애 상황`
-- `plan`: `plan`, `$plan`, `implementation plan`, `strategy`, `task breakdown`, `safe feature`, `safely add a feature`, `add a feature`, `feature request`
+- `plan`: `plan`, `$plan`, `implementation plan`, `task breakdown`, `safe feature`, `safely add a feature`, `add a feature`, `feature request`, `new feature`
 - `ralplan`: `ralplan`, `$ralplan`, `consensus plan`, `reviewed plan`, `issue to PR`, `acceptance criteria`, `verification command`, `reviewable PR`, `risky planning`
 - `code-review`: `code-review`, `$code-review`, `review`, `audit`, `find bugs`, `release gate`, `claim audit`, `evidence audit`, `README claim`
 - `ai-slop-cleaner`: `ai-slop-cleaner`, `$ai-slop-cleaner`, `cleanup`, `deslop`, `refactor`, `risky`, `behavior-preserving refactor`, `risk analysis`, `refactor workflow`
@@ -86,8 +86,8 @@ When Hermes exposes installed skill descriptions to the model, use this registry
 - `autoresearch-goal`: `autoresearch-goal`, `research goal`, `durable research`, `critic research`
 - `performance-goal`: `performance-goal`, `performance goal`, `latency`, `throughput`, `benchmark`
 - `wiki`: `wiki`, `project wiki`, `build a wiki`, `start a wiki`, `organize my notes`, `external knowledge store`, `knowledge base`, `Obsidian`, `markdown vault`
-- `ask`: `ask`, `$ask`, `external advisor`, `claude`, `gemini`
-- `cancel`: `cancel`, `$cancel`, `stop`, `abort`
+- `ask`: `ask`, `$ask`, `external advisor`, `claude`, `gemini`, `ask claude`, `ask gemini`, `consult claude`, `consult gemini`
+- `cancel`: `cancel`, `$cancel`, `stop the workflow`, `abort the run`, `cancel the loop`
 - `skill`: `skill`, `$skill`, `skills`, `manage skills`
 - `doctor`: `doctor`, `$doctor`, `diagnose omh`, `installation health`
 - `model-setup`: `model-setup`, `hermes model setup`, `set up my models`, `set up my model`, `configure my models`, `configure model provider`, `connect my model provider`, `set up model role slots`, `switch my session model`

@@ -384,6 +384,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The user wants an open-ended feedback loop or long-horizon campaign; use `loop` instead.
   - The task is still ambiguous enough that a deep interview is required before planning.
   - No repo, product, or delivery surface is available to support a plan-to-PR cycle.
+  - The goal is removing existing slop or duplication with identical observable behavior rather than delivering new or changed behavior; use `ai-slop-cleaner`.
 - Strong routing signals: `ultraprocess`, `$ultraprocess`, `./ultraprocess`, `/ultraprocess`, `single-cycle delivery`, `one-cycle delivery`, `end-to-end process`, `delivery process`, `research plan implement review docs pr`, `plan implement review docs pr`, `ralplan ultragoal code-review`, `codebase source research planning implementation review docs sync pr`, `docs sync`, `pr-ready`, `prepare a pr`, `sync docs and prepare a pr`, `code-review sync docs and prepare a pr`, `delegate to codex`, `send to codex`, `codex implement`, `codex progress tracking`, `codex session tracking`, `make a pr`, `open a pr`, `끝까지 해줘`, `PR까지`, `계획 구현 리뷰 문서 PR`, `기획 구현 리뷰 문서 PR`, `코드베이스 조사 웹리서치 계획 구현 리뷰 문서 최신화 PR`, `codex로 구현`, `코덱스로 구현`, `codex에게 맡기`, `codex로 맡기`, `코덱스에게 맡기`, `코딩 에이전트에게 맡기`, `구현하게 맡기고 진행상태 추적`, `진행상태 추적`, `진행 상태 추적`, `문서 최신화 PR`, `test driven development`, `write tests first`, `tests first`, `tdd implementation`, `테스트부터 작성`, `테스트 먼저 작성`, `테스트 우선 구현`, `TDD로 구현`
 - Good example:
   - Prompt: $ultraprocess research this setup bug, plan the fix, implement, review, sync docs, and prepare a PR.
@@ -623,7 +624,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The user asks for a full plan-to-PR delivery cycle; use `ultraprocess` or a planning workflow after research instead.
   - The request is purely local repo inspection with no external, current, citation, or source-comparison need.
   - The user needs coding execution, review, CI, or merge evidence rather than research synthesis.
-- Strong routing signals: `web-research`, `web research`, `web search`, `search the web`, `internet search`, `latest`, `fresh sources`, `current sources`, `current web evidence`, `source-backed research`, `source search`, `find sources`, `find citations`, `citation check`, `evidence scan`, `source diversity`, `retrieval gap`, `look up`, `lookup`, `investigate`, `research plan`, `웹서치`, `웹 서치`, `웹 검색`, `인터넷 검색`, `검색해줘`, `검색해서`, `최신 자료`, `최신 출처`, `자료 찾아`, `조사`, `근거`, `출처`, `고객 피드백`, `literature review`, `research literature`, `review recent papers`, `문헌 검토`, `논문들 검토`
+- Strong routing signals: `web-research`, `web research`, `web search`, `search the web`, `internet search`, `fresh sources`, `current sources`, `current web evidence`, `source-backed research`, `source search`, `find sources`, `find citations`, `citation check`, `evidence scan`, `source diversity`, `retrieval gap`, `look up`, `look up sources`, `latest sources`, `research plan`, `웹서치`, `웹 서치`, `웹 검색`, `인터넷 검색`, `검색해줘`, `검색해서`, `최신 자료`, `최신 출처`, `자료 찾아`, `조사`, `근거`, `출처`, `고객 피드백`, `literature review`, `research literature`, `review recent papers`, `문헌 검토`, `논문들 검토`
 - Good example:
   - Prompt: 웹서치해서 최신 자료와 출처를 정리해줘.
   - Expected behavior: Run the Hermes web-research lane, ask for or state source boundaries and freshness, then summarize citations, confidence, and retrieval gaps.
@@ -2833,7 +2834,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Do not use when:
   - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
   - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
-- Strong routing signals: `plan`, `$plan`, `implementation plan`, `strategy`, `task breakdown`, `safe feature`, `safely add a feature`, `add a feature`, `feature request`, `new feature`, `product triage`, `bug triage`, `issue triage`, `reproduction plan`, `workflow hub`, `coding handoff`, `답할 차례`, `준비할 차례`, `project template`, `재현 계획`, `요구사항 정리`, `작업 허브`, `작업 허브가 필요`, `github pr workflow`, `상태와 다음 행동`, `프로젝트별 운영`
+- Strong routing signals: `plan`, `$plan`, `implementation plan`, `task breakdown`, `safe feature`, `safely add a feature`, `add a feature`, `feature request`, `new feature`, `product triage`, `bug triage`, `issue triage`, `reproduction plan`, `workflow hub`, `coding handoff`, `답할 차례`, `준비할 차례`, `project template`, `재현 계획`, `요구사항 정리`, `작업 허브`, `작업 허브가 필요`, `github pr workflow`, `상태와 다음 행동`, `프로젝트별 운영`
 - Good example:
   - Prompt: plan: handle a planning request that needs explicit evidence boundaries and a clear stop condition.
   - Expected behavior: Run `plan` only after naming the target, evidence boundary, and stop condition.
@@ -2887,8 +2888,9 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Do not use when:
   - The request is still too ambiguous to name requirements, non-goals, or acceptance criteria; use `deep-interview` first.
   - The user asks for one full research-plan-implementation-review-PR cycle; use `ultraprocess` and keep ralplan as the planning stage.
+  - The change is a small local refactor or cleanup with no architectural or regression risk; use `ultraprocess`, or `ai-slop-cleaner` when observable behavior must stay identical.
   - The user wants a pure source lookup, citation check, or paper explanation with no implementation plan.
-- Strong routing signals: `ralplan`, `$ralplan`, `consensus plan`, `reviewed plan`, `issue to PR`, `acceptance criteria`, `verification command`, `reviewable PR`, `risky planning`, `dangerous`, `dangerous planning`, `unsafe`, `refactor safety`, `PR로 만들`, `PR로 만들 수 있게`, `위험한 리팩터링`, `리팩터링 위험`, `리스크 있는 리팩터링`, `검증 command`, `리뷰 가능한 단위`, `코드베이스 조사`, `웹리서치 계획`, `대안 비교`, `리스크 검토`
+- Strong routing signals: `ralplan`, `$ralplan`, `consensus plan`, `reviewed plan`, `issue to PR`, `acceptance criteria`, `verification command`, `reviewable PR`, `risky planning`, `dangerous planning`, `unsafe change`, `refactor safety`, `PR로 만들`, `PR로 만들 수 있게`, `위험한 리팩터링`, `리팩터링 위험`, `리스크 있는 리팩터링`, `검증 command`, `리뷰 가능한 단위`, `코드베이스 조사`, `웹리서치 계획`, `대안 비교`, `리스크 검토`
 - Good example:
   - Prompt: $ralplan turn this risky refactor into a reviewable plan with acceptance criteria and verification commands.
   - Expected behavior: Produce repo/source facts, alternatives, risk review, acceptance criteria, exact verification commands, and handoff readiness without editing code.
@@ -2997,7 +2999,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### ai-slop-cleaner
 
-[omh] Hermes AI slop cleaner workflow: behavior-preserving cleanup.
+[omh] Hermes AI slop cleaner workflow: delete AI-generated slop, dead code, and duplication while observable behavior stays identical.
 
 - Category: `maintenance`
 - Phase: `cleanup`
@@ -3010,10 +3012,11 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Use Hermes to define cleanup scope and regression checks; route behavior-preserving edits to the selected coding runtime once tests are clear.
 - Why this exists: `ai-slop-cleaner` exists to keep `maintenance` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
-- Use when: Use for behavior-preserving cleanup with tests before and after edits.
+- Use when: Use when the goal is removing existing low-quality, duplicated, or AI-generated code and the observable behavior must not change; lock behavior with tests before and after the edits.
 - Do not use when:
-  - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-  - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+  - The goal is new or changed behavior rather than removing existing code; a plain refactor, feature, or fix request belongs to `ultraprocess`.
+  - The cleanup would change architecture, module boundaries, or carry regression risk that needs a reviewed plan first; use `ralplan`.
+  - The user wants existing code judged rather than changed; use `code-review` for a bug-first review and `failure-signal-audit` for swallowed failures.
 - Strong routing signals: `ai-slop-cleaner`, `$ai-slop-cleaner`, `cleanup`, `deslop`, `refactor`, `risky`, `behavior-preserving refactor`, `risk analysis`, `refactor workflow`, `legacy refactor`, `리팩터링`, `리팩토링`, `위험 분석`, `변경 범위 제한`, `회귀 테스트`
 - Good example:
   - Prompt: $ai-slop-cleaner remove duplicated router branches and lock behavior with regression tests before refactoring.
@@ -3298,7 +3301,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Do not use when:
   - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
   - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
-- Strong routing signals: `ask`, `$ask`, `external advisor`, `claude`, `gemini`
+- Strong routing signals: `ask`, `$ask`, `external advisor`, `claude`, `gemini`, `ask claude`, `ask gemini`, `consult claude`, `consult gemini`, `opinion from claude`, `opinion from gemini`, `second opinion`, `claude 의견`, `gemini 의견`
 - Good example:
   - Prompt: ask: ask Claude as an external advisor to critique this plugin bridge plan before implementation.
   - Expected behavior: Prepare an advisor prompt, capture the response boundary, and summarize reusable critique.
@@ -3351,7 +3354,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Do not use when:
   - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
   - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
-- Strong routing signals: `cancel`, `$cancel`, `stop`, `abort`
+- Strong routing signals: `cancel`, `$cancel`, `stop the workflow`, `abort the run`, `cancel the loop`
 - Good example:
   - Prompt: cancel: handle a operator request that needs explicit evidence boundaries and a clear stop condition.
   - Expected behavior: Run `cancel` only after naming the target, evidence boundary, and stop condition.

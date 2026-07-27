@@ -1,6 +1,6 @@
 ---
 name: omh-ai-slop-cleaner
-description: [omh] Hermes AI slop cleaner workflow: behavior-preserving cleanup.
+description: [omh] Hermes AI slop cleaner workflow: delete AI-generated slop, dead code, and duplication while observable behavior stays identical.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, maintenance]
@@ -20,8 +20,9 @@ This is a Hermes-native `ai-slop-cleaner` workflow skill.
 
 ## Do Not Use When
 
-- The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-- The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+- The goal is new or changed behavior rather than removing existing code; a plain refactor, feature, or fix request belongs to `ultraprocess`.
+- The cleanup would change architecture, module boundaries, or carry regression risk that needs a reviewed plan first; use `ralplan`.
+- The user wants existing code judged rather than changed; use `code-review` for a bug-first review and `failure-signal-audit` for swallowed failures.
 
 ## Examples
 
@@ -64,7 +65,7 @@ Bad example:
 
 ## Use When
 
-Use for behavior-preserving cleanup with tests before and after edits.
+Use when the goal is removing existing low-quality, duplicated, or AI-generated code and the observable behavior must not change; lock behavior with tests before and after the edits.
 
     Strong routing signals: `ai-slop-cleaner`, `$ai-slop-cleaner`, `cleanup`, `deslop`, `refactor`, `risky`, `behavior-preserving refactor`, `risk analysis`, `refactor workflow`, `legacy refactor`, `리팩터링`, `리팩토링`, `위험 분석`, `변경 범위 제한`, `회귀 테스트`
 

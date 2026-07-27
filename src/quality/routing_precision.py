@@ -421,6 +421,24 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         "answer_directly",
         "direct_answer",
     ),
+    # Overroute guard for the generic single-token triggers removed from
+    # `web-research`: `latest` and `investigate` are ordinary English words, so
+    # scoring them pulled version questions and debugging requests into
+    # source-backed research. The multi-word intents they were standing in for
+    # ("latest sources", "look up sources") stay as phrase triggers.
+    #
+    # `investigate this crash` is also no longer captured by web-research, but it
+    # settles on the clarification path rather than a direct answer, and this
+    # negative-control corpus can only express cases that end in a direct-answer
+    # lookup kind with a no-workflow claim boundary. It stays uncovered here
+    # instead of loosening the corpus contract to fit it.
+    RoutingPrecisionCase(
+        "latest-version-question-direct",
+        "Version question stays direct instead of opening web research",
+        "what is the latest version of python",
+        "answer_directly",
+        "direct_answer",
+    ),
 )
 
 
@@ -1573,6 +1591,28 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "oh-my-hermes",
         "choose_skill",
         "skill_picker",
+    ),
+    # The intents behind the removed generic tokens must still route: `look up`
+    # stays a web-research phrase after `lookup` was dropped, and a strategy
+    # request reaches `strategy-brief` instead of being captured by `plan`'s
+    # former bare `strategy` token.
+    RoutingInterventionCase(
+        "look-up-phrase-still-web-research",
+        "A look-up request still routes to web research without the bare lookup token",
+        "look up the pricing table",
+        "dispatch",
+        "web-research",
+        "run_hermes_research",
+        "web_research",
+    ),
+    RoutingInterventionCase(
+        "strategy-request-reaches-strategy-brief",
+        "A strategy request routes to strategy-brief instead of generic planning",
+        "our pricing strategy needs work",
+        "dispatch",
+        "strategy-brief",
+        "prepare_strategy_brief",
+        "strategy_brief",
     ),
 )
 

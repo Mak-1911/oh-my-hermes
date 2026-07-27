@@ -65,7 +65,7 @@ Bad example:
 
 Use for current web evidence, links, citations, source diversity, or comparison before planning or handoff, including AI-agent usability research.
 
-    Strong routing signals: `web-research`, `web research`, `web search`, `search the web`, `internet search`, `latest`, `fresh sources`, `current sources`, `current web evidence`, `source-backed research`, `source search`, `find sources`, `find citations`, `citation check`, `evidence scan`, `source diversity`, `retrieval gap`, `look up`, `lookup`, `investigate`, `research plan`, `웹서치`, `웹 서치`, `웹 검색`, `인터넷 검색`, `검색해줘`, `검색해서`, `최신 자료`, `최신 출처`, `자료 찾아`, `조사`, `근거`, `출처`, `고객 피드백`, `literature review`, `research literature`, `review recent papers`, `문헌 검토`, `논문들 검토`
+    Strong routing signals: `web-research`, `web research`, `web search`, `search the web`, `internet search`, `fresh sources`, `current sources`, `current web evidence`, `source-backed research`, `source search`, `find sources`, `find citations`, `citation check`, `evidence scan`, `source diversity`, `retrieval gap`, `look up`, `look up sources`, `latest sources`, `research plan`, `웹서치`, `웹 서치`, `웹 검색`, `인터넷 검색`, `검색해줘`, `검색해서`, `최신 자료`, `최신 출처`, `자료 찾아`, `조사`, `근거`, `출처`, `고객 피드백`, `literature review`, `research literature`, `review recent papers`, `문헌 검토`, `논문들 검토`
 
 ## Catalog Metadata
 

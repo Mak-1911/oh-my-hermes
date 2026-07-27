@@ -1233,6 +1233,7 @@ _DEFINITIONS = [
             "The user wants an open-ended feedback loop or long-horizon campaign; use `loop` instead.",
             "The task is still ambiguous enough that a deep interview is required before planning.",
             "No repo, product, or delivery surface is available to support a plan-to-PR cycle.",
+            "The goal is removing existing slop or duplication with identical observable behavior rather than delivering new or changed behavior; use `ai-slop-cleaner`.",
         ),
         good_example=SkillExample(
             prompt="$ultraprocess research this setup bug, plan the fix, implement, review, sync docs, and prepare a PR.",
@@ -1413,7 +1414,6 @@ _DEFINITIONS = [
             "web search",
             "search the web",
             "internet search",
-            "latest",
             "fresh sources",
             "current sources",
             "current web evidence",
@@ -1426,8 +1426,8 @@ _DEFINITIONS = [
             "source diversity",
             "retrieval gap",
             "look up",
-            "lookup",
-            "investigate",
+            "look up sources",
+            "latest sources",
             "research plan",
             "웹서치",
             "웹 서치",
@@ -4354,7 +4354,6 @@ _DEFINITIONS = [
             "plan",
             "$plan",
             "implementation plan",
-            "strategy",
             "task breakdown",
             "safe feature",
             "safely add a feature",
@@ -4406,9 +4405,8 @@ _DEFINITIONS = [
             "verification command",
             "reviewable PR",
             "risky planning",
-            "dangerous",
             "dangerous planning",
-            "unsafe",
+            "unsafe change",
             "refactor safety",
             "PR로 만들",
             "PR로 만들 수 있게",
@@ -4457,6 +4455,7 @@ _DEFINITIONS = [
         do_not_use_when=(
             "The request is still too ambiguous to name requirements, non-goals, or acceptance criteria; use `deep-interview` first.",
             "The user asks for one full research-plan-implementation-review-PR cycle; use `ultraprocess` and keep ralplan as the planning stage.",
+            "The change is a small local refactor or cleanup with no architectural or regression risk; use `ultraprocess`, or `ai-slop-cleaner` when observable behavior must stay identical.",
             "The user wants a pure source lookup, citation check, or paper explanation with no implementation plan.",
         ),
         good_example=SkillExample(
@@ -4556,7 +4555,7 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "ai-slop-cleaner",
-        "Hermes AI slop cleaner workflow: behavior-preserving cleanup.",
+        "Hermes AI slop cleaner workflow: delete AI-generated slop, dead code, and duplication while observable behavior stays identical.",
         (
             "ai-slop-cleaner",
             "$ai-slop-cleaner",
@@ -4574,9 +4573,14 @@ _DEFINITIONS = [
             "변경 범위 제한",
             "회귀 테스트",
         ),
-        "Use for behavior-preserving cleanup with tests before and after edits.",
+        "Use when the goal is removing existing low-quality, duplicated, or AI-generated code and the observable behavior must not change; lock behavior with tests before and after the edits.",
         category="maintenance",
         phase="cleanup",
+        do_not_use_when=(
+            "The goal is new or changed behavior rather than removing existing code; a plain refactor, feature, or fix request belongs to `ultraprocess`.",
+            "The cleanup would change architecture, module boundaries, or carry regression risk that needs a reviewed plan first; use `ralplan`.",
+            "The user wants existing code judged rather than changed; use `code-review` for a bug-first review and `failure-signal-audit` for swallowed failures.",
+        ),
         hermes_role="runtime-handoff-guidance",
         handoff_policy="Use Hermes to define cleanup scope and regression checks; route behavior-preserving edits to the selected coding runtime once tests are clear.",
         required_inputs=("target smell", "current behavior", "regression checks"),
@@ -4739,7 +4743,32 @@ _DEFINITIONS = [
     SkillDefinition(
         "ask",
         "Hermes adaptation for consulting an external advisor when configured.",
-        ("ask", "$ask", "external advisor", "claude", "gemini"),
+        (
+            "ask",
+            "$ask",
+            "external advisor",
+            # Bare `claude`/`gemini` are ambiguous advisor-vs-executor names, exactly as
+            # `routing/executor_cues.py` documents for NAMED_CODING_AGENT_PHRASES, and the
+            # phrase triggers below carry every real advisor intent without them. They
+            # cannot be removed yet: `coding_delegation.build_coding_delegation_payload`
+            # picks its own top workflow, and for "Claude Code로 바로 열어줘" the bare token
+            # is the only reason `ask` outranks the retained `executor-runtime-readiness`
+            # and yields action=delegate. Dropping the token turns that into clarify and
+            # loses the coding handoff. Fix the delegation path first: detect the executor
+            # through NAMED_CODING_AGENT_PHRASES (`claude code` is already listed) instead
+            # of via this trigger, then drop these two tokens.
+            "claude",
+            "gemini",
+            "ask claude",
+            "ask gemini",
+            "consult claude",
+            "consult gemini",
+            "opinion from claude",
+            "opinion from gemini",
+            "second opinion",
+            "claude 의견",
+            "gemini 의견",
+        ),
         "Use only when an external advisor is configured and would materially improve the answer.",
         category="review",
         phase="external-advice",
@@ -4757,7 +4786,7 @@ _DEFINITIONS = [
     SkillDefinition(
         "cancel",
         "Hermes adaptation for ending active workflow state cleanly.",
-        ("cancel", "$cancel", "stop", "abort"),
+        ("cancel", "$cancel", "stop the workflow", "abort the run", "cancel the loop"),
         "Use to cleanly end active adapted workflow state.",
         category="operator",
         phase="state-cleanup",
