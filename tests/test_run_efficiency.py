@@ -69,12 +69,28 @@ class RunEfficiencyReportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "metric"):
             parse_run_efficiency_input(unknown_metric)
 
-        secret_source = _input_payload()
-        observations = secret_source["observations"]
-        self.assertIsInstance(observations, list)
-        observations[0]["source_ref"] = "AKIAIOSFODNN7EXAMPLE"
+        for secret_source_value in (
+            "AKIAIOSFODNN7EXAMPLE",
+            "AIzaSyDUMMYABCDEFGHIJKLMNOPQRSTUVWX123",
+            "npm_12345678901234567890",
+            "gho_12345678901234567890",
+            "whsec_12345678901234567890",
+        ):
+            with self.subTest(source_ref=secret_source_value):
+                secret_source = _input_payload()
+                observations = secret_source["observations"]
+                self.assertIsInstance(observations, list)
+                observations[0]["source_ref"] = secret_source_value
+                with self.assertRaisesRegex(ValueError, "safe opaque metadata reference"):
+                    parse_run_efficiency_input(secret_source)
+
+        secret_run_id = _input_payload()
+        secret_run_id["run_id"] = "npm_12345678901234567890"
+        budget = secret_run_id["context_budget"]
+        self.assertIsInstance(budget, dict)
+        budget["run_id"] = secret_run_id["run_id"]
         with self.assertRaisesRegex(ValueError, "safe opaque metadata reference"):
-            parse_run_efficiency_input(secret_source)
+            parse_run_efficiency_input(secret_run_id)
 
         too_many_surfaces = _input_payload()
         budget = too_many_surfaces["context_budget"]

@@ -58,7 +58,7 @@ def _skill_capability(
         "safety_rules": _compact_safety_rules(definition.safety_rules),
         "quality_tier": definition.quality_tier,
         "quality_bar": _bounded_list(definition.quality_bar, 4),
-        "handoff_policy": _capability_handoff_policy(definition.handoff_policy),
+        "handoff_policy": definition.handoff_policy,
         "delegation_boundary": definition.delegation_boundary,
         "awareness_lane": lane_id,
         "awareness_lane_label": lane_label,
@@ -104,11 +104,6 @@ def _orchestration_eligibility(definition: SkillDefinition) -> list[str]:
 
 def _bounded_list(items: tuple[str, ...], limit: int) -> list[str]:
     return list(items[:limit])
-
-
-def _capability_handoff_policy(value: str) -> str:
-    sentence, separator, _ = value.partition(". ")
-    return sentence + ("." if separator else "")
 
 
 def _bounded_list_with_overflow(items: tuple[str, ...], limit: int, label: str) -> list[str]:

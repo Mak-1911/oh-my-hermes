@@ -10,6 +10,7 @@ from _local_package import load_local_package
 
 
 load_local_package()
+from omh.local_store import atomic_write_json
 from omh.memory import (
     RejectedDecisionRecallRequest,
     build_rejected_decision_recall,
@@ -132,6 +133,46 @@ class RejectedDecisionRecallTests(unittest.TestCase):
                     paths,
                     RejectedDecisionRecallRequest("storage", "project", "default"),
                 )
+
+    def test_recall_redacts_secret_shaped_text_and_skips_secret_shaped_metadata(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            candidates = paths.memory_dir / "candidates"
+            candidates.mkdir(parents=True)
+            atomic_write_json(
+                candidates / "safe.json",
+                {
+                    "candidate_id": "cand_safe",
+                    "status": "rejected",
+                    "record_type": "decision",
+                    "summary": "AIzaSyDUMMYABCDEFGHIJKLMNOPQRSTUVWX123",
+                    "rejection_reason": "whsec_12345678901234567890",
+                    "scope": {"kind": "project", "ref": "default"},
+                    "tags": ["storage"],
+                    "reviewed_at": "2026-07-27T00:00:00Z",
+                },
+            )
+            atomic_write_json(
+                candidates / "unsafe.json",
+                {
+                    "candidate_id": "gho_12345678901234567890",
+                    "status": "rejected",
+                    "record_type": "decision",
+                    "summary": "Storage decision",
+                    "scope": {"kind": "project", "ref": "default"},
+                    "tags": ["storage"],
+                    "reviewed_at": "2026-07-27T00:00:00Z",
+                },
+            )
+
+            payload = build_rejected_decision_recall(
+                paths,
+                RejectedDecisionRecallRequest("", "project", "default"),
+            )
+
+            self.assertEqual(len(payload["matches"]), 1)
+            self.assertEqual(payload["matches"][0]["summary"], "[redacted]")
+            self.assertEqual(payload["matches"][0]["rejection_reason"], "[redacted]")
 
     def test_cli_returns_rejected_decision_recall_without_approved_memory_claims(self) -> None:
         with TemporaryDirectory() as tmp:

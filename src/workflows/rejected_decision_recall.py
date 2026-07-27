@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 
 from ..local_store import read_json_object
-from ..system.metadata_safety import redact_metadata_text
+from ..system.metadata_safety import is_sensitive_metadata_text, redact_metadata_text
 from ..paths import OmhPaths
 
 
@@ -106,7 +106,7 @@ def build_rejected_decision_recall(paths: OmhPaths, request: RejectedDecisionRec
     matches.sort(key=lambda match: match.match_score, reverse=True)
     return {
         "schema_version": REJECTED_DECISION_RECALL_SCHEMA_VERSION,
-        "query": query,
+        "query": redact_metadata_text(query, limit=240),
         "scope": {"kind": scope_kind, "ref": scope_ref},
         "requested_tags": list(requested_tags),
         "include_stale": request.include_stale,
@@ -148,16 +148,16 @@ def _managed_candidates_dir(paths: OmhPaths) -> Path:
 def _parse_rejected_candidate(raw: object) -> _RejectedCandidate | None:
     if not isinstance(raw, dict) or raw.get("status") != "rejected":
         return None
-    candidate_id = _safe_string(raw.get("candidate_id"))
-    record_type = _safe_string(raw.get("record_type"))
+    candidate_id = _safe_metadata_ref(raw.get("candidate_id"))
+    record_type = _safe_metadata_ref(raw.get("record_type"))
     summary = _safe_string(raw.get("summary"))
     reviewed_at = _safe_string(raw.get("reviewed_at"))
     scope = raw.get("scope")
-    if not candidate_id or not record_type or not summary or not reviewed_at or not isinstance(scope, dict):
+    if not candidate_id or not record_type or not summary or _timestamp(reviewed_at) is None or not isinstance(scope, dict):
         return None
     scope_kind = _safe_string(scope.get("kind"))
-    scope_ref = _safe_string(scope.get("ref"))
-    if scope_kind not in _ALLOWED_SCOPE_KINDS or not _SAFE_REF.fullmatch(scope_ref):
+    scope_ref = _safe_metadata_ref(scope.get("ref"))
+    if scope_kind not in _ALLOWED_SCOPE_KINDS or not scope_ref:
         return None
     stale, expired = _staleness(raw)
     return _RejectedCandidate(
@@ -203,7 +203,7 @@ def _match_score(candidate: _RejectedCandidate, query_tokens: frozenset[str]) ->
 def _validated_scope(request: RejectedDecisionRecallRequest) -> tuple[str, str]:
     if request.scope_kind not in _ALLOWED_SCOPE_KINDS:
         raise ValueError(f"unsupported rejected-decision scope kind: {request.scope_kind}")
-    if not _SAFE_REF.fullmatch(request.scope_ref):
+    if not _SAFE_REF.fullmatch(request.scope_ref) or is_sensitive_metadata_text(request.scope_ref):
         raise ValueError(f"unsafe rejected-decision scope ref: {request.scope_ref!r}")
     return request.scope_kind, request.scope_ref
 
@@ -220,7 +220,7 @@ def _normalized_tags(values: object) -> tuple[str, ...]:
     tags: list[str] = []
     for value in values:
         tag = str(value).strip().lower()
-        if tag and _SAFE_REF.fullmatch(tag) and tag not in tags:
+        if tag and _SAFE_REF.fullmatch(tag) and not is_sensitive_metadata_text(tag) and tag not in tags:
             tags.append(tag)
     return tuple(tags[:12])
 
@@ -231,3 +231,8 @@ def _tokens(value: str) -> frozenset[str]:
 
 def _safe_string(value: object) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _safe_metadata_ref(value: object) -> str:
+    text = _safe_string(value)
+    return text if _SAFE_REF.fullmatch(text) and not is_sensitive_metadata_text(text) else ""

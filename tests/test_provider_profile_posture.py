@@ -78,12 +78,25 @@ class ProviderProfilePostureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "secret requirement"):
             parse_provider_profile_posture_input(secret_value)
 
-        secret_reference = _input_payload()
-        observations = secret_reference["host_observations"]
-        self.assertIsInstance(observations, list)
-        observations[0]["reference"] = "sk-live-123456789"
+        for secret_reference_value in (
+            "sk-live-123456789",
+            "AIzaSyDUMMYABCDEFGHIJKLMNOPQRSTUVWX123",
+            "npm_12345678901234567890",
+            "gho_12345678901234567890",
+            "whsec_12345678901234567890",
+        ):
+            with self.subTest(reference=secret_reference_value):
+                secret_reference = _input_payload()
+                observations = secret_reference["host_observations"]
+                self.assertIsInstance(observations, list)
+                observations[0]["reference"] = secret_reference_value
+                with self.assertRaisesRegex(ValueError, "safe opaque metadata reference"):
+                    parse_provider_profile_posture_input(secret_reference)
+
+        secret_profile = _input_payload()
+        secret_profile["profile_id"] = "gho_12345678901234567890"
         with self.assertRaisesRegex(ValueError, "safe opaque metadata reference"):
-            parse_provider_profile_posture_input(secret_reference)
+            parse_provider_profile_posture_input(secret_profile)
 
     def test_write_uses_the_operations_provider_profile_store(self) -> None:
         with TemporaryDirectory() as tmp:

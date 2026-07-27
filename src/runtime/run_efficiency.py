@@ -146,7 +146,7 @@ def _parse_observations(raw: object) -> tuple[RunEfficiencyObservation, ...]:
 def _required_run_id(value: object) -> str:
     if not isinstance(value, str) or not _RUN_ID.fullmatch(value):
         raise ValueError("run_id must contain 1 to 120 safe identifier characters")
-    return value
+    return require_opaque_metadata_ref(value, field="run_id")
 
 
 def _nonnegative_int(value: object, field: str) -> int:

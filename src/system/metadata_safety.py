@@ -15,16 +15,26 @@ _SENSITIVE_MARKERS = (
     "authorization",
     "bearer",
 )
-_SECRET_PREFIX = re.compile(r"(?:^|[^a-z0-9])(?:sk|pk|rk|ghp|github_pat|xox[a-z]?)[_-][a-z0-9_-]{8,}", re.IGNORECASE)
+_COMMON_SECRET_PREFIX = re.compile(
+    r"(?:^|[^a-z0-9])(?:sk|pk|rk|xox[a-z]?)[_-][a-z0-9_-]{8,}",
+    re.IGNORECASE,
+)
+_PLATFORM_SECRET_PREFIX = re.compile(
+    r"(?:^|[^a-z0-9])(?:gh[oprs]|github_pat|npm|whsec|glpat)[_-][a-z0-9_-]{16,}",
+    re.IGNORECASE,
+)
 _AWS_ACCESS_KEY = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")
+_GOOGLE_API_KEY = re.compile(r"\bAIza[A-Za-z0-9_-]{20,}\b", re.IGNORECASE)
 
 
 def is_sensitive_metadata_text(value: str) -> bool:
     lowered = value.lower()
     return (
         any(marker in lowered for marker in _SENSITIVE_MARKERS)
-        or bool(_SECRET_PREFIX.search(value))
+        or bool(_COMMON_SECRET_PREFIX.search(value))
+        or bool(_PLATFORM_SECRET_PREFIX.search(value))
         or bool(_AWS_ACCESS_KEY.search(value))
+        or bool(_GOOGLE_API_KEY.search(value))
     )
 
 

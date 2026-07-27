@@ -107,7 +107,7 @@ def write_provider_profile_posture(paths: OmhPaths, posture: dict[str, object]) 
 def _profile_id(value: object, field: str) -> str:
     if not isinstance(value, str) or not _PROFILE_ID.fullmatch(value):
         raise ValueError(f"{field} must match [a-z0-9][a-z0-9._-]{{0,63}}")
-    return value
+    return require_opaque_metadata_ref(value, field=field)
 
 
 def _capabilities(raw: object) -> tuple[str, ...]:
