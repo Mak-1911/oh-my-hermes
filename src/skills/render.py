@@ -148,7 +148,7 @@ def _target_topology_router_section() -> str:
 def _memory_context_skill_contract_bullets(definition: SkillDefinition) -> str:
     if _needs_explicit_memory_context(definition):
         return f"- {MEMORY_CONTEXT_SKILL_CONTRACT}"
-    return f"- {MEMORY_CONTEXT_COMPACT_SKILL_CONTRACT}"
+    return "- Treat wrapper memory/context summaries as advisory local context, not proof of opaque Hermes memory reads or changes."
 
 
 def _needs_explicit_memory_context(definition: SkillDefinition) -> bool:
@@ -157,9 +157,9 @@ def _needs_explicit_memory_context(definition: SkillDefinition) -> bool:
 
 def _target_topology_skill_contract_bullet() -> str:
     return (
-        f"- Respect `{TARGET_TOPOLOGY_SCHEMA}` when a wrapper reports it: bind state to the current "
-        "target/thread, fall back to single-target behavior when `active_agent_count` is one, and give one "
-        "concise setup-change comment before treating a one-to-many or many-to-one change as persistent."
+        f"- Respect `{TARGET_TOPOLOGY_SCHEMA}`: bind state to the current target/thread, use single-target "
+        "behavior when `active_agent_count` is one, and name a one-to-many or many-to-one change before "
+        "treating it as persistent."
     )
 
 
@@ -175,21 +175,21 @@ def _common_rail_sections(definition: SkillDefinition, primary_harness: str) -> 
     """
     return f"""## Runtime Evidence
 
-Preferred harness for this skill: `{primary_harness}`.
+Harness: `{primary_harness}`.
 
 ```sh
 omh runtime record --skill {definition.name} --harness {primary_harness} --status started
 ```
 
-Record observed delegation results when Hermes or the wrapper exposes them. If delegation is unavailable, keep the result explicit as `not_available` or `not_observed`.
+Record observed delegation results; otherwise return `not_available` or `not_observed`.
 
 ## Hermes Compatibility Contract
 
-- Preserve the workflow intent, stop conditions, and verification discipline; verify with the smallest relevant test or inspection before claiming completion.
-- Use Hermes-native tools, file operations, and subagent/delegation features when available, and do not require runtime tools, role prompts, or overlays that Hermes Agent does not expose. If Hermes cannot provide a required runtime capability, say so and fall back: native subagents -> Hermes delegation when available, otherwise sequential lanes.
+- Preserve workflow intent and stop conditions; verify before claiming completion.
+- Use Hermes-native tools, file operations, and subagent/delegation features when available; do not require unavailable runtime tools, role prompts, or overlays. If a capability is unavailable: native subagents -> Hermes delegation when available, otherwise sequential lanes.
 {_target_topology_skill_contract_bullet()}
 {_memory_context_skill_contract_bullets(definition)}
-- {SHARED_RAIL_POINTER}"""
+- Shared rail: `{SHARED_RAIL_REFERENCE_PATH}` has harness discipline, runtime translations, the delegation command, and execution checklist. Load it when applicable; otherwise name an unavailable capability."""
 
 
 @lru_cache(maxsize=1)

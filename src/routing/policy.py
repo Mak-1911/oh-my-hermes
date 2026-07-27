@@ -4486,6 +4486,15 @@ TOOLBELT_READINESS_GUARD = RoutingGuardRule(
     why="Matched guard/trigger metadata; missing tool, connector, credential, or image generator setup should show readiness gaps before claiming workflow execution.",
     activation_status="active",
 )
+PROVIDER_PROFILE_POSTURE_GUARD = RoutingGuardRule(
+    id="provider_profile_posture_before_toolbelt_readiness",
+    rule="Explicit provider/profile posture requests should route to metadata-only provider-profile-posture before general toolbelt readiness.",
+    matched_label="guard:provider_profile_posture",
+    preferred_skills=("provider-profile-posture",),
+    score_boost=58,
+    why="Matched provider/profile posture language; prepare capability and secret-presence metadata without credential validation or provider calls.",
+    activation_status="active",
+)
 HARNESS_SESSION_INVENTORY_GUARD = RoutingGuardRule(
     id="harness_session_inventory_before_toolbelt_or_observability",
     rule="Cross-harness session, MCP inventory, connector drift, or worktree inventory requests should route to harness-session-inventory before setup readiness.",
@@ -4738,6 +4747,7 @@ ROUTING_GUARD_RULES = (
     RELEASE_CLAIM_REVIEW_GUARD,
     DOCTOR_HEALTH_GUARD,
     EXECUTOR_RUNTIME_READINESS_GUARD,
+    PROVIDER_PROFILE_POSTURE_GUARD,
     TOOLBELT_READINESS_GUARD,
     CONNECTOR_OPERATOR_GUARD,
     VOICE_OPERATOR_GUARD,
@@ -4998,6 +5008,8 @@ def _active_routing_guard_rules_cached(
         rules.append(EXECUTOR_RUNTIME_READINESS_GUARD)
     if _harness_session_inventory_guard_applies(normalized_query, query_tokens):
         rules.append(HARNESS_SESSION_INVENTORY_GUARD)
+    if _provider_profile_posture_guard_applies(normalized_query):
+        rules.append(PROVIDER_PROFILE_POSTURE_GUARD)
     if _toolbelt_readiness_guard_applies(normalized_query, query_tokens):
         rules.append(TOOLBELT_READINESS_GUARD)
     if (
@@ -7142,8 +7154,24 @@ def _executor_readiness_check_requested(normalized_query: str, query_tokens: set
     return named_executor and readiness
 
 
+def _provider_profile_posture_guard_applies(normalized_query: str) -> bool:
+    return _contains_phrase(
+        normalized_query,
+        (
+            "provider-profile-posture",
+            "provider profile posture",
+            "provider profile readiness",
+            "connector profile posture",
+            "공급자 프로필 상태",
+            "커넥터 프로필 상태",
+        ),
+    )
+
+
 def _toolbelt_readiness_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:
     if _hermes_setup_guide_requested(normalized_query):
+        return False
+    if _provider_profile_posture_guard_applies(normalized_query):
         return False
     if _public_plugin_connector_readiness_requested(normalized_query):
         return False

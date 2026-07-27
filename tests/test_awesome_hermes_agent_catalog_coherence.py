@@ -6,6 +6,10 @@ import unittest
 
 from omh.catalogs.awesome_hermes_agent import (
     CATALOG_SCHEMA_VERSION,
+    AwesomeHermesCatalogError,
+    UPSTREAM_README_SHA256,
+    UPSTREAM_SOURCE_COMMIT,
+    _parse_catalog,
     awesome_hermes_catalog,
     awesome_hermes_items,
 )
@@ -49,6 +53,23 @@ class AwesomeHermesAgentCatalogCoherenceTests(unittest.TestCase):
                 value = source.get(field)
                 self.assertIsInstance(value, str)
                 self.assertTrue(value.strip())
+
+    def test_source_provenance_is_pinned_to_the_reviewed_upstream_snapshot(self) -> None:
+        source = self._raw_catalog()["source"]
+
+        self.assertIsInstance(source, dict)
+        self.assertEqual(source["repo"], "0xNyk/awesome-hermes-agent")
+        self.assertEqual(source["commit"], UPSTREAM_SOURCE_COMMIT)
+        self.assertEqual(source["readme_sha256"], UPSTREAM_README_SHA256)
+
+    def test_loader_rejects_catalogs_that_deviate_from_the_pinned_snapshot(self) -> None:
+        raw = self._raw_catalog()
+        source = raw["source"]
+        self.assertIsInstance(source, dict)
+        source["commit"] = "0" * 40
+
+        with self.assertRaisesRegex(AwesomeHermesCatalogError, "pinned upstream source"):
+            _parse_catalog(raw)
 
     def test_item_ids_are_unique(self) -> None:
         ids = [item.id for item in awesome_hermes_items()]

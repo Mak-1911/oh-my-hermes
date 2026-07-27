@@ -57,6 +57,14 @@ CHAT_CARD_COVERAGE_CASES: tuple[ChatCardCoverageCase, ...] = (
         "prepare_memory_sync",
     ),
     ChatCardCoverageCase(
+        "decision-recall",
+        "Rejected-decision recall",
+        "Show rejected decisions for this project.",
+        "decision-recall",
+        "decision_recall",
+        "show_rejected_decision_recall",
+    ),
+    ChatCardCoverageCase(
         "gateway-intent-card",
         "Gateway intent card",
         "route Discord Slack Telegram threads with delivery policy",
@@ -95,6 +103,22 @@ CHAT_CARD_COVERAGE_CASES: tuple[ChatCardCoverageCase, ...] = (
         "ops-observability-card",
         "ops_observability",
         "prepare_ops_observability_card",
+    ),
+    ChatCardCoverageCase(
+        "run-efficiency",
+        "Local run efficiency",
+        "Show the local run efficiency report.",
+        "run-efficiency",
+        "run_efficiency",
+        "show_run_efficiency_report",
+    ),
+    ChatCardCoverageCase(
+        "provider-profile-posture",
+        "Provider profile posture",
+        "Prepare provider profile posture for this connector.",
+        "provider-profile-posture",
+        "provider_profile_posture",
+        "prepare_provider_profile_posture",
     ),
     ChatCardCoverageCase(
         "operating-rhythm",

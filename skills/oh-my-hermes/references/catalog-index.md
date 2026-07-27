@@ -29,6 +29,7 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `context-budget-review`: [omh] Hermes Context Budget Review workflow: plan compact context, token/cost budgets, summarization checkpoints, and overflow recovery before long agent work.
 - `cto-loop`: [omh] Hermes CTO Loop workflow: roadmap, PM, technical tradeoffs, risk, delivery, release, and follow-up operating cadence.
 - `data-analysis`: [omh] Hermes data analysis workflow: scope supplied data with provenance, causal-claim, and hallucination guards.
+- `decision-recall`: [omh] Recall scoped reviewed rejected decisions without elevating them to approved memory.
 - `deep-interview`: [omh] Hermes Deep Interview workflow: one-question-at-a-time clarification.
 - `deliverable-package`: [omh] Hermes deliverable package workflow: track PPT, PDF, XLSX, DOCX, HWP, Markdown, and attachments through prepared, generated, QA, approved, and attached states.
 - `deploy-and-monitor`: [omh] Hermes Deploy-and-Monitor workflow: release checklist, deploy decision, health signals, rollback gate, and post-deploy status.
@@ -67,6 +68,7 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `plan`: [omh] Hermes Plan workflow: structured planning before execution.
 - `production-audit`: [omh] Hermes Production Audit workflow: evaluate release, deploy, security, observability, rollback, docs, and support readiness without claiming production access.
 - `prompt-import-readiness`: [omh] Hermes prompt import readiness workflow: decide whether external CLI-agent prompt files can be safely reviewed, normalized, and offered as Hermes slash-command candidates without mutating prompts or command registries.
+- `provider-profile-posture`: [omh] Prepare provider-profile metadata without reading secrets or calling providers.
 - `ralph`: [omh] Hermes Ralph workflow: persistent execution with verification and review.
 - `ralplan`: [omh] Hermes Ralplan workflow: consensus planning with review gates.
 - `reliability-review`: [omh] Hermes Reliability Review workflow: postmortems, SLOs, error budgets, incident follow-ups, and service reliability evidence.
@@ -74,6 +76,7 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `research-brief`: [omh] Hermes Research Brief workflow: source-backed business research without pretending evidence was fetched.
 - `research-department`: [omh] Hermes Research Department workflow pack: prepare Scout, Analyst, and Briefer research operations with source inbox and briefing status boundaries.
 - `rules-distill`: [omh] Hermes Rules Distill workflow: extract repeated principles from skills, prompts, traces, reviews, and failures into reviewed rule candidates without auto-mutating guidance.
+- `run-efficiency`: [omh] Report supplied local run efficiency while provider and host data stay unobserved.
 - `security-safety-review`: [omh] Hermes Security Safety Review workflow: review prompt, tool, secret, dependency, and destructive-action risks before agent or code execution.
 - `skill`: [omh] Hermes adaptation for managing local skills.
 - `skill-health`: [omh] Skill Health workflow: prepare a metadata-only OMH skill portfolio dashboard with stale surfaces, observed failure signals, pending amendments, and top actions.

@@ -59,6 +59,7 @@ from .ecosystem import (
     _add_ecosystem_commands,
     cmd_ecosystem_awesome_inspect,
     cmd_ecosystem_awesome_list,
+    cmd_ecosystem_awesome_outcomes,
     cmd_ecosystem_awesome_summary,
 )
 from .goal import (

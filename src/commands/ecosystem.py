@@ -8,6 +8,7 @@ from ..catalogs.awesome_hermes_agent import (
     awesome_hermes_item,
     awesome_hermes_summary,
 )
+from ..catalogs.awesome_hermes_agent_outcomes import awesome_hermes_plugin_outcomes
 from ..installer import OmhError
 from .common import _print_json, _wants_json
 
@@ -96,6 +97,23 @@ def cmd_ecosystem_awesome_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ecosystem_awesome_outcomes(args: argparse.Namespace) -> int:
+    try:
+        payload = awesome_hermes_plugin_outcomes()
+    except AwesomeHermesCatalogError as exc:
+        raise OmhError(str(exc)) from exc
+    if _wants_json(args):
+        _print_json(payload)
+        return 0
+    print("Awesome Hermes selected plugin outcomes")
+    for outcome in payload["outcomes"]:
+        if not isinstance(outcome, dict):
+            continue
+        print(f"- {outcome['plugin_id']}: {outcome['implementation_state']}")
+    print(f"Boundary: {payload['claim_boundary']}")
+    return 0
+
+
 def _add_ecosystem_commands(sub) -> None:
     ecosystem = sub.add_parser("ecosystem", help="Inspect external Hermes ecosystem catalogs against OMH surfaces.")
     ecosystem_sub = ecosystem.add_subparsers(dest="ecosystem_command", required=True)
@@ -124,10 +142,15 @@ def _add_ecosystem_commands(sub) -> None:
     inspect.add_argument("--json", action="store_true", help="Print machine-readable item coverage.")
     inspect.set_defaults(func=cmd_ecosystem_awesome_inspect)
 
+    outcomes = awesome_sub.add_parser("outcomes", help="Show selected plugin outcomes and OMH claim boundaries.")
+    outcomes.add_argument("--json", action="store_true", help="Print the machine-readable outcome matrix.")
+    outcomes.set_defaults(func=cmd_ecosystem_awesome_outcomes)
+
 
 __all__ = [
     "_add_ecosystem_commands",
     "cmd_ecosystem_awesome_inspect",
     "cmd_ecosystem_awesome_list",
+    "cmd_ecosystem_awesome_outcomes",
     "cmd_ecosystem_awesome_summary",
 ]

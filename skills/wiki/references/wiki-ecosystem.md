@@ -1,7 +1,7 @@
 # Wiki Ecosystem Candidates
 
 Upstream `0xNyk/awesome-hermes-agent` entries whose OMH coverage names the `wiki` surface, derived from the
-catalog snapshot retrieved 2026-07-22 at commit `67ac9d079bc9`.
+catalog snapshot retrieved 2026-07-27 at commit `27389ad544f9`.
 
 Check this list before designing a bespoke structure. Route a promising candidate to `skill-scout` for
 evaluation; adopting one is a separate decision with its own evidence.
@@ -37,6 +37,22 @@ evaluation; adopting one is a separate decision with its own evidence.
 - Summary: Reflective memory layer. Stores and resurfaces notes at contextually relevant moments.
 - OMH coverage: partial (adoption priority high)
 - Related surfaces: memory-sync, wiki, workflow-learning, instinct-ledger, skill-health
+
+## loremaster
+
+- Source: https://github.com/loremaster-ai/loremaster
+- Section: Skills & Plugins | maturity: experimental
+- Summary: AI scrum-master and PM skill pack extracted from a production multi-project deployment. Sprint ceremonies with planning poker, backlog proposals with verifiable done criteria, plan-conflict detection, and a per-project wiki vault with a knowledge graph. Every external write (Jira, wiki commits) goes through per-item human approval. MIT.
+- OMH coverage: partial (adoption priority high)
+- Related surfaces: memory-sync, wiki, workflow-learning, instinct-ledger, skill-health
+
+## obsidian-auto-context
+
+- Source: https://github.com/SkillForge-Labs/obsidian-auto-context
+- Section: Skills & Plugins | maturity: experimental
+- Summary: Captures each session's findings, decisions, and action items into an Obsidian vault as tagged, wiki-linked Markdown with daily-note rollups. Secrets are redacted before anything touches disk. MIT.
+- OMH coverage: partial (adoption priority high)
+- Related surfaces: memory-sync, wiki, prompt-import-readiness, external-connector-readiness, skill-scout
 
 ## personal-api
 

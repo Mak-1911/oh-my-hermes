@@ -769,6 +769,11 @@ _SKILL_POLICIES.update(
             evidence_boundary="An existing-memory curation review is not Hermes internal memory, MEMORY.md, USER.md, or skill-file modification evidence.",
             wrapper_guidance="Present stale/conflicting/duplicate/overgeneralized existing USER.md, MEMORY.md, and skill-memory claims with approve/reject/update actions; write only after observed approval.",
         ),
+        "decision-recall": RecommendationPolicy(
+            next_action="show_rejected_decision_recall",
+            evidence_boundary="Rejected-decision context is reviewed OMH-local context, not approved memory, Hermes memory, source freshness, or execution evidence.",
+            wrapper_guidance="Scope a query to reviewed rejected candidates, preserve tags and stale policy, and keep recall separate from approved-memory writes or execution claims.",
+        ),
         "gateway-intent-card": RecommendationPolicy(
             next_action="prepare_gateway_intent_card",
             evidence_boundary="A gateway intent card is not platform login, message send, thread mutation, attachment upload, or delivery evidence.",
@@ -952,6 +957,16 @@ _SKILL_POLICIES.update(
                 "Report token/cost/latency/run-history telemetry and supplied external_metric_provider/v1 payloads "
                 "as a command-board with clear local-estimate, provider-truth, connector, SLO, incident, and remediation boundaries."
             ),
+        ),
+        "run-efficiency": RecommendationPolicy(
+            next_action="show_run_efficiency_report",
+            evidence_boundary="A run efficiency report is supplied OMH-local metadata, not provider billing, cron, host, or performance proof beyond supplied local metadata.",
+            wrapper_guidance="Render run_efficiency_report/v1 from supplied context-budget, surface-count, and timing metadata; keep provider, billing, cron, and host gaps explicit as not observed.",
+        ),
+        "provider-profile-posture": RecommendationPolicy(
+            next_action="prepare_provider_profile_posture",
+            evidence_boundary="Provider/profile posture is OMH-local preparation metadata; it is not credential validation, provider connectivity, model routing, payment/wallet, or host execution evidence.",
+            wrapper_guidance="Prepare provider_profile_posture/v1 using capability and secret-presence metadata only; do not read secrets, call providers, validate credentials, route models, or create wallet/payment actions.",
         ),
         "agent-ops-review": RecommendationPolicy(
             next_action="prepare_agent_ops_review",

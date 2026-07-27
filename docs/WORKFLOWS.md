@@ -5592,6 +5592,171 @@ These surfaces are generated command references, not installed Hermes workflow s
   - A workflow learning trace, self-improvement store route, patch proposal, or export is process evidence for review. It is not automatic model training, memory mutation, skill mutation, wiki write, automation creation, execution, verification, CI, or merge evidence.
   - Do not claim connector, gateway, runtime, file generation, memory mutation, or host automation evidence from prepared guidance.
 
+### decision-recall
+
+[omh] Recall scoped reviewed rejected decisions without elevating them to approved memory.
+
+- Category: `memory`
+- Phase: `decision-recall`
+- Hermes role: `memory-keeper`
+- Quality tier: `workflow-surface-gated`
+- Exposure: `workflow_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill to recall scoped rejected alternatives without promoting them to approved memory or execution evidence.
+- Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
+- Why this exists: `decision-recall` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Use when: Use for scoped reviewed rejected-decision context; it is not approved memory or execution evidence.
+- Do not use when:
+  - The request is already handled by a narrower explicit skill with stronger evidence.
+  - The user asks OMH to secretly run external platforms, connectors, schedulers, file exports, or runtime agents.
+  - The only safe answer is to ask for missing authority, credentials, target, or observed evidence first.
+- Strong routing signals: `decision-recall`, `rejected decision recall`, `rejected decisions`, `why was this rejected`, `previously rejected alternative`, `거절된 결정`, `기각된 대안`
+- Good example:
+  - Prompt: Show rejected decisions for this project before we choose an alternative.
+  - Expected behavior: Produce `show_rejected_decision_recall` with required context, wrapper actions, and not-evidence boundaries.
+  - Why: The prompt names a real workflow surface that Hermes can orchestrate without hiding execution.
+- Bad example:
+  - Prompt: Claim the recalled rejected decision is an approved memory write or proof the replacement ran.
+  - Expected behavior: Report the missing observed evidence or authority instead of claiming the external step happened.
+  - Why: Prepared OMH guidance is not platform, runtime, connector, file, memory, or delivery evidence.
+- Quality bar:
+  - Name the user-facing workflow objective, required context, next action, and stop condition.
+  - Separate prepared guidance from observed platform, runtime, connector, file, memory, or delivery evidence.
+  - Expose missing tools, credentials, targets, or observations as user-visible gaps.
+- Completion checklist:
+  - The query, scope, tags, stale policy, and match limit are explicit.
+  - Only reviewed rejected candidates are returned; expired candidates stay excluded.
+  - Recall output is not presented as approved memory, source freshness, or execution evidence.
+- Recovery notes:
+  - If required context is missing, ask one blocking question or route back to the narrower workflow.
+  - If runtime or wrapper evidence is unavailable, keep the status as not_observed and expose the next observable action.
+- Required inputs:
+  - user request
+  - target context
+  - delivery or status expectation
+  - known missing evidence
+- Expected outputs:
+  - rejected_decision_recall/v1
+  - scoped rejected-decision matches
+  - claim boundary
+- Artifact expectations:
+  - rejected_decision_recall/v1 metadata-only recall result
+- Safety rules:
+  - Rejected-decision context is reviewed OMH-local context, not approved memory, Hermes memory, or execution evidence.
+  - Do not claim connector, gateway, runtime, file generation, memory mutation, or host automation evidence from prepared guidance.
+
+### run-efficiency
+
+[omh] Report supplied local run efficiency while provider and host data stay unobserved.
+
+- Category: `observability`
+- Phase: `run-efficiency`
+- Hermes role: `tracker`
+- Quality tier: `workflow-surface-gated`
+- Exposure: `workflow_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill to render bounded local run efficiency from supplied metadata and keep provider/host gaps visible.
+- Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
+- Why this exists: `run-efficiency` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Use when: Use for a bounded local efficiency report from supplied metadata with provider and host gaps explicit.
+- Do not use when:
+  - The request is already handled by a narrower explicit skill with stronger evidence.
+  - The user asks OMH to secretly run external platforms, connectors, schedulers, file exports, or runtime agents.
+  - The only safe answer is to ask for missing authority, credentials, target, or observed evidence first.
+- Strong routing signals: `run-efficiency`, `run efficiency report`, `local run efficiency`, `context utilization`, `tool duration report`, `실행 효율 리포트`, `컨텍스트 사용량`, `도구 지연 시간`
+- Good example:
+  - Prompt: Show the local run efficiency report from this run's supplied context budget and timings.
+  - Expected behavior: Produce `show_run_efficiency_report` with required context, wrapper actions, and not-evidence boundaries.
+  - Why: The prompt names a real workflow surface that Hermes can orchestrate without hiding execution.
+- Bad example:
+  - Prompt: Claim this report proves provider billing, host load, or cron execution without observations.
+  - Expected behavior: Report the missing observed evidence or authority instead of claiming the external step happened.
+  - Why: Prepared OMH guidance is not platform, runtime, connector, file, memory, or delivery evidence.
+- Quality bar:
+  - Name the user-facing workflow objective, required context, next action, and stop condition.
+  - Separate prepared guidance from observed platform, runtime, connector, file, memory, or delivery evidence.
+  - Expose missing tools, credentials, targets, or observations as user-visible gaps.
+- Completion checklist:
+  - The run ID, context budget, surfaces, and supplied observations are explicit.
+  - Provider billing, cron, and host claims remain not_observed unless separately recorded.
+  - The report does not intercept, route, or execute provider or host work.
+- Recovery notes:
+  - If provider metrics are unavailable, report only local metadata and mark provider truth not_observed.
+  - If cost or latency looks risky, surface a warning plus the next measurement rather than a completion claim.
+- Required inputs:
+  - user request
+  - target context
+  - delivery or status expectation
+  - known missing evidence
+- Expected outputs:
+  - run_efficiency_report/v1
+  - context utilization
+  - not_observed provider and host gaps
+- Artifact expectations:
+  - run_efficiency_report/v1 metadata-only report
+- Safety rules:
+  - Run efficiency is supplied OMH-local metadata, not provider, billing, cron, or host evidence.
+  - Do not claim connector, gateway, runtime, file generation, memory mutation, or host automation evidence from prepared guidance.
+
+### provider-profile-posture
+
+[omh] Prepare provider-profile metadata without reading secrets or calling providers.
+
+- Category: `operations`
+- Phase: `provider-profile-posture`
+- Hermes role: `operator`
+- Quality tier: `workflow-surface-gated`
+- Exposure: `workflow_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill to prepare provider/profile metadata without reading secrets, calling providers, or routing models.
+- Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
+- Why this exists: `provider-profile-posture` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+- Use when: Use for provider/profile capability and secret-presence preparation before connector or credential action.
+- Do not use when:
+  - The request is already handled by a narrower explicit skill with stronger evidence.
+  - The user asks OMH to secretly run external platforms, connectors, schedulers, file exports, or runtime agents.
+  - The only safe answer is to ask for missing authority, credentials, target, or observed evidence first.
+- Strong routing signals: `provider-profile-posture`, `provider profile posture`, `provider profile readiness`, `secret presence confirmation`, `connector profile posture`, `공급자 프로필 상태`, `시크릿 존재 확인`, `커넥터 준비 상태`
+- Good example:
+  - Prompt: Prepare provider profile posture for this connector using metadata-only secret presence.
+  - Expected behavior: Produce `prepare_provider_profile_posture` with required context, wrapper actions, and not-evidence boundaries.
+  - Why: The prompt names a real workflow surface that Hermes can orchestrate without hiding execution.
+- Bad example:
+  - Prompt: Read the secret, validate the credential, call the provider, or create a payment route.
+  - Expected behavior: Report the missing observed evidence or authority instead of claiming the external step happened.
+  - Why: Prepared OMH guidance is not platform, runtime, connector, file, memory, or delivery evidence.
+- Quality bar:
+  - Name the user-facing workflow objective, required context, next action, and stop condition.
+  - Separate prepared guidance from observed platform, runtime, connector, file, memory, or delivery evidence.
+  - Expose missing tools, credentials, targets, or observations as user-visible gaps.
+- Completion checklist:
+  - Provider ID, profile ID, requested capabilities, and secret-presence metadata are explicit.
+  - No secret value, credential validation, provider call, model route, wallet, or payment action is claimed.
+  - Any host observation reference remains supplied metadata, not a live connector check.
+- Recovery notes:
+  - If required context is missing, ask one blocking question or route back to the narrower workflow.
+  - If runtime or wrapper evidence is unavailable, keep the status as not_observed and expose the next observable action.
+- Required inputs:
+  - user request
+  - target context
+  - delivery or status expectation
+  - known missing evidence
+- Expected outputs:
+  - provider_profile_posture/v1
+  - metadata-only secret requirements
+  - allowed and prohibited actions
+- Artifact expectations:
+  - provider_profile_posture/v1 metadata-only preparation record
+- Safety rules:
+  - Provider/profile posture is OMH-local preparation metadata; it is not credential validation, provider connectivity, model routing, payment/wallet, or host execution evidence.
+  - Do not claim connector, gateway, runtime, file generation, memory mutation, or host automation evidence from prepared guidance.
+
 ## Representative Harnesses
 
 ### coding-handling
@@ -9580,4 +9745,131 @@ Route self-improvement signals to memory, skill, wiki, failure-retrospective, au
 - Privacy default: `metadata_only`
 - Overclaim guards:
   - A workflow learning artifact, store route, or export bundle is not automatic model training, memory mutation, skill mutation, wiki write, automation creation, execution, verification, review, CI, merge, or proof that future behavior is fixed.
+- Fallback: If a required target, credential, runtime, or observation is missing, show a blocker or confirmation action instead of claiming completion.
+
+### decision-recall
+
+Prepare a scope-limited recall of reviewed rejected decisions.
+
+- Use when: Use when an operator needs past rejected alternatives before a new decision.
+- Quality tier: `workflow-surface-gated`
+- Quality bar:
+  - Name the workflow objective, owner, input boundary, next action, and stop condition.
+  - Represent prepared, observed, blocked, and missing evidence as separate states.
+  - Never upgrade a card, blueprint, or readiness check into external execution proof.
+- Inputs:
+  - query
+  - scope
+  - optional tags
+  - stale policy
+  - result limit
+- Outputs:
+  - rejected_decision_recall/v1
+  - ranked rejected candidates
+  - claim boundary
+- Stop conditions:
+  - card is prepared or a missing decision is surfaced
+  - observed evidence is separated from prepared guidance
+- Verification:
+  - validate required fields
+  - check not-evidence boundaries
+  - record only observed external actions
+- Evidence ladder:
+  - `query_scoped`
+  - `rejected_candidates_matched`
+  - `recall_rendered`
+- Wrapper actions:
+  - `show_rejected_decision_recall`
+- Artifact events:
+  - `decision-recall_scoped`
+  - `decision-recall_card_prepared`
+  - `decision-recall_status_recorded`
+- Delegation expectation: Record this harness as Hermes-retained orchestration; external runtime/platform/file/memory/connector evidence requires a separate observed artifact.
+- Privacy default: `metadata_only`
+- Overclaim guards:
+  - A rejected-decision recall is not approved memory, Hermes memory, source freshness, or execution evidence.
+- Fallback: If a required target, credential, runtime, or observation is missing, show a blocker or confirmation action instead of claiming completion.
+
+### run-efficiency
+
+Render a deterministic report from supplied local run metadata.
+
+- Use when: Use when an operator has run/context-budget metadata and needs a bounded latency or context report.
+- Quality tier: `workflow-surface-gated`
+- Quality bar:
+  - Name the workflow objective, owner, input boundary, next action, and stop condition.
+  - Represent prepared, observed, blocked, and missing evidence as separate states.
+  - Never upgrade a card, blueprint, or readiness check into external execution proof.
+- Inputs:
+  - run ID
+  - context budget
+  - surface counts
+  - supplied observations
+- Outputs:
+  - run_efficiency_report/v1
+  - context utilization
+  - not_observed gaps
+- Stop conditions:
+  - card is prepared or a missing decision is surfaced
+  - observed evidence is separated from prepared guidance
+- Verification:
+  - validate required fields
+  - check not-evidence boundaries
+  - record only observed external actions
+- Evidence ladder:
+  - `input_validated`
+  - `local_report_prepared`
+  - `not_observed_gaps_rendered`
+- Wrapper actions:
+  - `show_run_efficiency_report`
+- Artifact events:
+  - `run-efficiency_scoped`
+  - `run-efficiency_card_prepared`
+  - `run-efficiency_status_recorded`
+- Delegation expectation: Record this harness as Hermes-retained orchestration; external runtime/platform/file/memory/connector evidence requires a separate observed artifact.
+- Privacy default: `metadata_only`
+- Overclaim guards:
+  - A run efficiency report is not provider billing, cron, host, or performance proof beyond supplied local metadata.
+- Fallback: If a required target, credential, runtime, or observation is missing, show a blocker or confirmation action instead of claiming completion.
+
+### provider-profile-posture
+
+Prepare a provider/profile posture card without accessing a provider or secret value.
+
+- Use when: Use before adopting a connector profile when capability and secret-presence requirements need a safe review boundary.
+- Quality tier: `workflow-surface-gated`
+- Quality bar:
+  - Name the workflow objective, owner, input boundary, next action, and stop condition.
+  - Represent prepared, observed, blocked, and missing evidence as separate states.
+  - Never upgrade a card, blueprint, or readiness check into external execution proof.
+- Inputs:
+  - provider ID
+  - profile ID
+  - requested capabilities
+  - secret-presence metadata
+- Outputs:
+  - provider_profile_posture/v1
+  - allowed actions
+  - prohibited actions
+- Stop conditions:
+  - card is prepared or a missing decision is surfaced
+  - observed evidence is separated from prepared guidance
+- Verification:
+  - validate required fields
+  - check not-evidence boundaries
+  - record only observed external actions
+- Evidence ladder:
+  - `profile_scoped`
+  - `secret_presence_declared`
+  - `posture_prepared`
+- Wrapper actions:
+  - `prepare_provider_profile_posture`
+- Artifact events:
+  - `provider-profile-posture_scoped`
+  - `provider-profile-posture_card_prepared`
+  - `provider-profile-posture_status_recorded`
+- Delegation expectation: Record this harness as Hermes-retained orchestration; external runtime/platform/file/memory/connector evidence requires a separate observed artifact.
+- Privacy default: `metadata_only`
+- Overclaim guards:
+  - A provider/profile posture is not secret access, credential validation, provider connectivity, model routing, payment, wallet, or host execution evidence.
 - Fallback: If a required target, credential, runtime, or observation is missing, show a blocker or confirmation action instead of claiming completion.

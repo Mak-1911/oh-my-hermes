@@ -36,6 +36,10 @@ class OmhPaths:
         return self.runtime_dir / "runs"
 
     @property
+    def runtime_efficiency_reports_dir(self) -> Path:
+        return self.runtime_dir / "efficiency-reports"
+
+    @property
     def runtime_wrapper_sessions_dir(self) -> Path:
         return self.runtime_dir / "wrapper_sessions"
 
@@ -74,6 +78,10 @@ class OmhPaths:
     @property
     def operations_dir(self) -> Path:
         return self.omh_home / "operations"
+
+    @property
+    def provider_profile_postures_dir(self) -> Path:
+        return self.operations_dir / "provider-profile-postures"
 
     @property
     def operations_index_path(self) -> Path:
