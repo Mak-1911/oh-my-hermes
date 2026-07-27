@@ -142,15 +142,72 @@ def install_skill_pack(
         {template.name for template in all_templates},
         force=force,
     )
+    relabelled = _prune_relabelled_skill_directories(
+        paths.skills_dir,
+        manifest,
+        {template.name for template in all_templates},
+        force=force,
+    )
     records = skill_records(paths.skills_dir, source)
     manifest_data = new_manifest(source, paths.skills_dir, records)
     manifest_data["skill_profile"] = profile
     if context_cost_warning is not None:
         manifest_data["context_cost_warning"] = context_cost_warning
     manifest_data["pruned_skills"] = pruned_skills
+    manifest_data["relabelled_skills_removed"] = relabelled["removed"]
+    manifest_data["relabelled_skills_retained"] = relabelled["retained"]
     manifest_data["skill_profile_state"] = skill_profile_state(paths.skills_dir, manifest_data)
     write_manifest(paths.manifest_path, manifest_data)
     return manifest_data
+
+
+def _prune_relabelled_skill_directories(
+    skills_dir: Path,
+    manifest: dict | None,
+    catalog_names: set[str],
+    *,
+    force: bool,
+) -> dict[str, list[str]]:
+    """Drop the pre-relabel directory once its labelled replacement is in place.
+
+    Skills moved from `skills/<canonical>/` to `skills/<label>/`. Installs are
+    non-destructive, so the first install after that change wrote the new
+    directories and left the old ones beside them: an observed machine went from
+    92 skills to 184, doubling the per-turn context weight of the pack, and the
+    manifest then reported every vanished old path as a local modification.
+
+    The safety rules match `_prune_orphaned_skills`: remove only a directory that
+    is (a) named after a catalog skill whose label differs, (b) recorded in the
+    prior manifest, (c) already replaced by a labelled directory holding a
+    SKILL.md, and (d) byte-identical to what the manifest recorded. Anything a
+    user edited is kept and reported instead, unless ``force``.
+    """
+    if not manifest:
+        return {"removed": [], "retained": []}
+    modified = set(local_modifications(manifest, skills_dir))
+    recorded = {str(record.get("name")) for record in manifest.get("skills", []) if record.get("name")}
+    recorded_paths = {
+        str(record.get("name")): str(record.get("path", "")) for record in manifest.get("skills", [])
+    }
+    removed: list[str] = []
+    retained: list[str] = []
+    for name in sorted(catalog_names):
+        label = skill_directory_name(name)
+        if label == name or name not in recorded:
+            continue
+        old_dir = skills_dir / name
+        if not old_dir.is_dir() or old_dir.is_symlink():
+            continue
+        if not (skills_dir / label / "SKILL.md").is_file():
+            # Nothing to fall back on yet; never leave the skill uninstalled.
+            retained.append(name)
+            continue
+        if recorded_paths.get(name, "") in modified and not force:
+            retained.append(name)
+            continue
+        shutil.rmtree(old_dir)
+        removed.append(name)
+    return {"removed": removed, "retained": retained}
 
 
 def _installed_skill_names(skills_dir: Path) -> set[str]:
