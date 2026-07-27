@@ -38,7 +38,7 @@ class DisplayNamesInBodiesTests(unittest.TestCase):
         # The QA observation: this line used to read "deep-interview, ralplan".
         # Both are workflow engines, so they render the `ulw-` label while the
         # domain skills beside them keep `omh-`.
-        self.assertIn("- Plan and decide: ulw-deep-interview, ulw-ralplan, omh-codebase-onboarding", body)
+        self.assertIn("- Plan and decide: ulw-interview, ulw-plan, omh-codebase-onboarding", body)
         self.assertIn("omh-visual-qa", body)
 
         # A family card also lists capability phrases that are not installable
@@ -79,9 +79,9 @@ class DisplayNamesInBodiesTests(unittest.TestCase):
         # the `ulw-` label. The contract is that prose uses the display form, not
         # that the display form is always `omh-`.
         self.assertTrue(response["headline"].strip())
-        self.assertIn("`ulw-ralplan", response["headline"])
-        self.assertIn("ulw-ralplan", explanation["recommended_reply"])
-        self.assertEqual(str(explanation["primary_action_label"]), "Open ulw-ralplan")
+        self.assertIn("`ulw-plan", response["headline"])
+        self.assertIn("ulw-plan", explanation["recommended_reply"])
+        self.assertEqual(str(explanation["primary_action_label"]), "Open ulw-plan")
 
     def test_router_skill_renders_as_omh_routing_rather_than_the_mechanical_prefix(self) -> None:
         self.assertEqual(omh_skill_display_name("oh-my-hermes"), "omh-routing")

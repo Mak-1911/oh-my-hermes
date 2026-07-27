@@ -42,6 +42,16 @@ OMH_SKILL_DISPLAY_NAME_OVERRIDES = {
     # (directory, manifest, tap URL, triggers); only the label a reader sees
     # changes.
     "strategy-brief": "omh-decide",
+    # `ulw` already carries the "ultra". `ulw-ultrawork` says it twice, and the
+    # duplicated syllable is the part a reader has to skip past to reach the
+    # word that means something. Canonical names are untouched.
+    "deep-interview": "ulw-interview",
+    "ralplan": "ulw-plan",
+    "ultragoal": "ulw-goal",
+    "ultraprocess": "ulw-process",
+    "ultraqa": "ulw-qa",
+    "ultrawork": "ulw-work",
+    "web-research": "ulw-research",
 }
 
 ULW_SKILL_NAME_PREFIX = "ulw-"

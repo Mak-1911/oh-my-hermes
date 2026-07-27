@@ -1,5 +1,5 @@
 ---
-name: ulw-deep-interview
+name: ulw-interview
 description: [omh] Hermes Deep Interview workflow: one-question-at-a-time clarification.
 metadata:
   hermes:
