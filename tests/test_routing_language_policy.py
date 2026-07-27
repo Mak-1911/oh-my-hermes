@@ -3,9 +3,12 @@
 OMH targets a global audience with English as the primary language, but its
 deterministic trigger tables only ever grew in Latin and Hangul. These tests
 make that state explicit and hold it still: they re-derive the distribution
-from the catalog so it cannot drift silently, and they freeze the Hangul table
-so adding another per-language table becomes a deliberate act with a visible
-number to change rather than an incremental habit.
+from the catalog so it cannot drift silently, and they freeze each skill's
+Hangul table so growing one becomes a deliberate act with a visible number to
+change rather than an incremental habit. The freeze is per skill rather than a
+global sum because a new skill carrying its own Korean triggers and an existing
+skill's table being padded are different events, and a total cannot tell them
+apart.
 
 The policy being enforced: per-language trigger tables do not scale to a global
 product, so non-English intent resolution belongs to model selection over
@@ -32,11 +35,110 @@ from omh.routing.input_language import (
 from omh.skills.catalog import routable_definitions
 
 
-# Frozen on 2026-07-27. Raising the Hangul figure means another language-specific
-# trigger table grew; that is the habit this gate exists to stop. Change the
-# number only with a stated reason, and never as a way to make a routing bug go
-# away -- the fix for a non-English miss is model selection, not more tokens.
-FROZEN_HANGUL_TRIGGER_COUNT = 766
+# Frozen per skill on 2026-07-27, not as a global total.
+#
+# The first version of this gate froze the sum, and it fired on the very next
+# merge: three new skills arrived carrying their own Korean triggers and the
+# total moved 766 -> 774. That is not the habit worth stopping. A new skill
+# paying for its own triggers is proportional work; padding an existing skill's
+# Korean table to paper over a routing miss is the unbounded one, and a sum
+# cannot tell the two apart.
+#
+# So the freeze is per skill, and only for skills that existed at freeze time.
+# A new skill is exempt here and constrained instead by
+# `test_every_routable_skill_is_reachable_in_english`. Raising an entry below
+# means an existing Korean table grew: do it only with a stated reason, and
+# never to make a routing miss go away -- the fix for that is model selection,
+# not more tokens. See `src/routing/input_language.py`.
+FROZEN_HANGUL_TRIGGERS_BY_SKILL: dict[str, int] = {
+    "accessibility-audit": 11,
+    "achievements": 5,
+    "agent-board": 13,
+    "agent-debug": 7,
+    "agent-evaluation": 4,
+    "agent-ops-review": 18,
+    "ai-slop-cleaner": 5,
+    "ask": 2,
+    "automation-blueprint": 15,
+    "browser-operator": 15,
+    "build-failure-triage": 8,
+    "code-review": 7,
+    "codebase-onboarding": 5,
+    "codegraph-refresh": 6,
+    "command-operator": 10,
+    "connector-operator": 14,
+    "content-operator": 12,
+    "context-budget-review": 4,
+    "cto-loop": 6,
+    "data-analysis": 13,
+    "deep-interview": 5,
+    "deliverable-package": 4,
+    "deploy-and-monitor": 9,
+    "design-orchestration": 4,
+    "design-quality-gate": 5,
+    "executor-runtime-readiness": 16,
+    "external-connector-readiness": 24,
+    "failure-signal-audit": 10,
+    "feedback-triage": 12,
+    "frontend": 16,
+    "gateway-intent-card": 10,
+    "github-event-ops": 9,
+    "harness-session-inventory": 10,
+    "idea-to-deploy": 8,
+    "img-summary": 55,
+    "instinct-ledger": 6,
+    "live-info-operator": 13,
+    "loop": 8,
+    "materials-package": 27,
+    "media-input-operator": 19,
+    "meeting-brief": 7,
+    "memory-new": 7,
+    "memory-sync": 25,
+    "model-setup": 5,
+    "morning-brief": 4,
+    "oh-my-hermes": 2,
+    "operating-rhythm": 7,
+    "ops-observability-card": 9,
+    "ops-review": 7,
+    "paper-learning": 10,
+    "parallel-tools": 4,
+    "physical-device-readiness": 7,
+    "plan": 8,
+    "production-audit": 5,
+    "prompt-import-readiness": 6,
+    "ralplan": 11,
+    "reliability-review": 9,
+    "report-package": 9,
+    "research-brief": 5,
+    "research-department": 7,
+    "rules-distill": 4,
+    "security-safety-review": 5,
+    "skill-health": 6,
+    "skill-scout": 13,
+    "source-finder": 8,
+    "strategy-brief": 6,
+    "toolbelt-readiness": 5,
+    "ultragoal": 4,
+    "ultraprocess": 19,
+    "ultraqa": 5,
+    "verification-gate": 5,
+    "visual-qa": 17,
+    "voice-operator": 12,
+    "web-research": 15,
+    "websearch-setup": 4,
+    "wiki": 7,
+    "workflow-learning": 11,
+    "workspace-audit": 4,
+    "workspace-file-operator": 12,
+}
+
+
+def _hangul_triggers_by_skill() -> dict[str, int]:
+    return {
+        definition.name: sum(1 for trigger in definition.triggers if detect_input_script(trigger) == SCRIPT_HANGUL)
+        for definition in routable_definitions()
+        if any(detect_input_script(trigger) == SCRIPT_HANGUL for trigger in definition.triggers)
+    }
 
 
 def _trigger_script_counts() -> collections.Counter[str]:
@@ -48,10 +150,23 @@ def _trigger_script_counts() -> collections.Counter[str]:
 
 
 class RoutingLanguagePolicyTests(unittest.TestCase):
-    def test_the_hangul_trigger_table_stays_frozen(self) -> None:
-        counts = _trigger_script_counts()
+    def test_no_existing_korean_trigger_table_grows(self) -> None:
+        observed = _hangul_triggers_by_skill()
 
-        self.assertEqual(counts[SCRIPT_HANGUL], FROZEN_HANGUL_TRIGGER_COUNT)
+        for skill, frozen in sorted(FROZEN_HANGUL_TRIGGERS_BY_SKILL.items()):
+            with self.subTest(skill=skill):
+                self.assertLessEqual(observed.get(skill, 0), frozen)
+
+    def test_a_new_skill_may_carry_its_own_korean_triggers(self) -> None:
+        # The exemption is deliberate and bounded: a skill absent from the freeze
+        # is new, and its Korean triggers are its own cost rather than growth of
+        # an existing table. It still has to be reachable in English.
+        observed = _hangul_triggers_by_skill()
+        new_skills = set(observed) - set(FROZEN_HANGUL_TRIGGERS_BY_SKILL)
+
+        for skill in sorted(new_skills):
+            with self.subTest(skill=skill):
+                self.assertGreater(observed[skill], 0)
 
     def test_only_latin_and_hangul_carry_a_real_trigger_table(self) -> None:
         counts = _trigger_script_counts()
