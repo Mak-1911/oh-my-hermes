@@ -658,6 +658,81 @@ class FanoutBriefCliTests(unittest.TestCase):
             self.assertEqual(manual["observed_run_status"], "not_observed")
             self.assertIn("unknown fields stay", brief["claim_boundary"])
 
+    def test_brief_surfaces_chain_alternative_additively(self) -> None:
+        # The JSON model_label format is a stable part of fanout_briefing/v1;
+        # the chain alternative ships only as the additive model_alternative
+        # field, and the (alt: …) suffix appears in plain text alone.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+            units = [
+                {"unit_id": "review", "title": "Review", "owner": "codex", "file_scope": ["src/r/"], "role": "review"},
+                {"unit_id": "docs", "title": "Docs", "owner": "codex", "file_scope": ["docs/"], "role": "docs"},
+            ]
+            contract = write_fanout_contract(paths, build_fanout_contract(_GOAL, units))
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+
+            status, stdout, stderr = run_cli(base + ["coding", "fanout", "brief", str(contract["fanout_id"])])
+            self.assertEqual(status, 0, stderr)
+            brief = json.loads(stdout)
+            by_unit = {entry["unit_id"]: entry for entry in brief["units"]}
+            # Behavior change #3 (display consequence of the review-on-codex
+            # chain head): the model field is a concrete id, no longer
+            # executor_default, and the alternative is the second chain entry.
+            review = by_unit["review"]
+            self.assertEqual(review["model"], "gpt-5-codex")
+            self.assertEqual(review["model_label"], "gpt-5-codex")
+            self.assertEqual(review["model_alternative"], "gpt-5")
+            # Single-entry chain (docs on codex): no alternative, empty string.
+            self.assertEqual(by_unit["docs"]["model_alternative"], "")
+
+            status, stdout, stderr = run_cli(
+                base + ["coding", "fanout", "brief", str(contract["fanout_id"])], output_json=False
+            )
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("(gpt-5-codex, alt: gpt-5)", stdout)
+            self.assertNotIn("(gpt-5, alt:", stdout)
+
+    def test_brief_degrades_silently_for_v1_routes(self) -> None:
+        # A persisted v1 route carries no chain[]: the alternative must be
+        # absent (empty field, no suffix), never "unknown" — a chain that does
+        # not exist is not an unobserved value. The v1 payload is annotated.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+            units = [
+                {"unit_id": "core", "title": "Core", "owner": "codex", "file_scope": ["src/core/"], "role": "brain"},
+                {"unit_id": "docs", "title": "Docs", "owner": "claude-code", "file_scope": ["docs/"]},
+            ]
+            contract = write_fanout_contract(paths, build_fanout_contract(_GOAL, units))
+            contract_path = paths.fanout_contracts_dir / str(contract["fanout_id"]) / "fanout_contract.json"
+            stored = json.loads(contract_path.read_text(encoding="utf-8"))
+            for unit in stored["units"]:
+                if unit["unit_id"] == "core":
+                    unit["handoff"]["model_route"] = {
+                        "schema_version": "coding_model_route/v1",
+                        "source": "role_catalog_default",
+                        "selected_model": "gpt-5-codex",
+                        "selected_reasoning_effort": "high",
+                    }
+            contract_path.write_text(json.dumps(stored), encoding="utf-8")
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+
+            status, stdout, stderr = run_cli(base + ["coding", "fanout", "brief", str(contract["fanout_id"])])
+            self.assertEqual(status, 0, stderr)
+            brief = json.loads(stdout)
+            core = {entry["unit_id"]: entry for entry in brief["units"]}["core"]
+            self.assertEqual(core["model_label"], "gpt-5-codex high")
+            self.assertEqual(core["model_alternative"], "")
+            self.assertEqual(core["route_schema_version"], "coding_model_route/v1")
+
+            status, stdout, stderr = run_cli(
+                base + ["coding", "fanout", "brief", str(contract["fanout_id"])], output_json=False
+            )
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("(gpt-5-codex high [schema v1])", stdout)
+            self.assertNotIn("alt:", stdout.split("docs")[0].split("core")[-1])
+
     def test_brief_without_id_lists_known_fanouts(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

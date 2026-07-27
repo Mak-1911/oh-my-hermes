@@ -585,8 +585,78 @@ def _payload_choice_required(payload: dict[str, object]) -> bool:
 
 
 def cmd_coding_model_route(args: argparse.Namespace) -> int:
-    from ..coding.model_routing import resolve_model_route
+    from ..coding.executors import EXECUTOR_PROFILES
+    from ..coding.model_routing import (
+        EXECUTOR_MODEL_OPTIONS,
+        MODEL_ROLES,
+        resolve_model_route,
+        route_provenance,
+    )
 
+    if getattr(args, "explain", False):
+        profiles = [args.executor] if args.executor else list(EXECUTOR_MODEL_OPTIONS)
+        unknown = [profile for profile in profiles if profile not in EXECUTOR_MODEL_OPTIONS]
+        if unknown:
+            raise OmhError(f"--explain covers catalog profiles only; unknown: {', '.join(unknown)}")
+        cells = []
+        cell_lines = []
+        for profile in profiles:
+            for role in MODEL_ROLES:
+                route = resolve_model_route(profile, role=role)
+                provenance, _vocabulary = route_provenance(route)
+                chain = route.get("chain", [])
+                cells.append(
+                    {
+                        "executor_profile": profile,
+                        "role": role,
+                        "selected_model": route.get("selected_model", ""),
+                        "selected_reasoning_effort": route.get("selected_reasoning_effort", ""),
+                        "status": route.get("status", ""),
+                        "provenance": provenance,
+                        "chain": chain,
+                    }
+                )
+                # The text line is built here, from the same locals the cell
+                # was built from, so nothing re-reads provenance off a payload
+                # (route_provenance is the sole sanctioned accessor).
+                chain_text = " > ".join(
+                    f"{entry.get('model_id')}"
+                    + (f" {entry.get('reasoning_effort')}" if entry.get("reasoning_effort") else "")
+                    + ("*" if entry.get("selected") else "")
+                    for entry in chain
+                )
+                selected_model = str(route.get("selected_model", "") or "")
+                selected_effort = str(route.get("selected_reasoning_effort", "") or "")
+                cell_lines.append(
+                    f"- {profile:12s} {role:15s} -> "
+                    f"{selected_model or 'executor default'}"
+                    + (f" {selected_effort}" if selected_effort else "")
+                    + f"  [{provenance}]  chain: {chain_text or '-'}"
+                )
+        catalogless = sorted(set(EXECUTOR_PROFILES) - set(EXECUTOR_MODEL_OPTIONS) - {"choose"})
+        matrix = {
+            "schema_version": "coding_model_route_matrix/v1",
+            "cells": cells,
+            "catalogless_profiles": catalogless,
+            "claim_boundary": (
+                "An effective-route matrix is prepared resolution metadata only; it is not dispatch, "
+                "execution, or provider availability evidence."
+            ),
+        }
+        if _wants_json(args):
+            _print_json(matrix)
+            return 0
+        lines = ["Effective model routes (profile x role):"] + cell_lines
+        if catalogless:
+            lines.append(
+                "Profiles without a model catalog (executor CLI default applies): " + ", ".join(catalogless)
+            )
+        lines.append(str(matrix["claim_boundary"]))
+        print("\n".join(lines))
+        return 0
+
+    if not args.executor:
+        raise OmhError("--executor is required unless --explain is given")
     route = resolve_model_route(
         args.executor,
         requested_model=args.model or "",
@@ -596,12 +666,28 @@ def cmd_coding_model_route(args: argparse.Namespace) -> int:
     if _wants_json(args):
         _print_json(route)
         return 0
+    provenance, _vocabulary = route_provenance(route)
     selected = str(route.get("selected_model", "") or "")
     effort = str(route.get("selected_reasoning_effort", "") or "")
     selected_label = " ".join(part for part in (selected, effort) if part) or "executor default"
     lines = [
-        f"Model route for {route['executor_profile']}: {selected_label} ({route['status']}, {route['source']})",
+        f"Model route for {route['executor_profile']}: {selected_label} ({route['status']}, {provenance})",
     ]
+    chain = route.get("chain", [])
+    if chain:
+        chain_text = " > ".join(
+            f"{entry.get('model_id')}"
+            + (f" {entry.get('reasoning_effort')}" if entry.get("reasoning_effort") else "")
+            + ("*" if entry.get("selected") else "")
+            for entry in chain
+        )
+        lines.append(f"chain: {chain_text}")
+    effort_change = route.get("effort_change")
+    if isinstance(effort_change, dict) and effort_change.get("kind") not in (None, "", "unchanged"):
+        lines.append(
+            f"effort: requested `{effort_change.get('requested')}` -> `{effort_change.get('selected') or 'CLI default'}` "
+            f"({effort_change.get('kind')}: {effort_change.get('reason')})"
+        )
     for candidate in route.get("candidates", []):
         roles = ", ".join(str(role) for role in candidate.get("recommended_roles", []))
         lines.append(f"- candidate {candidate.get('model_id')} [{candidate.get('tier')}] roles: {roles or 'any'}")
@@ -822,7 +908,13 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
         effort = str(model_route.get("selected_reasoning_effort", "") or "")
         # One human-readable label per subagent, e.g. "gpt-5-codex xhigh" —
         # what a briefing renders next to the unit without joining two fields.
+        # The format is a stable part of fanout_briefing/v1; the chain
+        # alternative ships as the separate additive `model_alternative`
+        # field, never as a suffix here.
         model_label = " ".join(part for part in (model_id, effort) if part) or "executor default"
+        chain = model_route.get("chain", []) if isinstance(model_route.get("chain"), list) else []
+        model_alternative = str(chain[1].get("model_id", "")) if len(chain) > 1 and isinstance(chain[1], dict) else ""
+        route_version = str(model_route.get("schema_version", "") or "") if model_route else ""
         units.append(
             {
                 "unit_id": unit_id,
@@ -830,6 +922,8 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
                 "model": model_id or "executor_default",
                 "reasoning_effort": effort,
                 "model_label": model_label,
+                "model_alternative": model_alternative,
+                "route_schema_version": route_version,
                 "session_ref": str(dispatched.get("session_ref", "") or "") or "unknown",
                 "status": status,
                 "observed_run_status": observed_status,
@@ -858,6 +952,9 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
     return 0
 
 
+from ..coding.model_routing import CODING_MODEL_ROUTE_V1_SCHEMA_VERSION as _MODEL_ROUTE_V1_VERSION
+
+
 def _render_fanout_brief_text(payload: dict) -> str:
     lines = [f"Fanout {payload.get('fanout_id')} briefing:"]
     for unit in payload.get("units", []):
@@ -865,10 +962,20 @@ def _render_fanout_brief_text(payload: dict) -> str:
         elapsed_text = f"{elapsed}s" if isinstance(elapsed, (int, float)) else "elapsed unknown"
         tokens = unit.get("tokens_total", "unknown")
         tokens_text = f"{tokens} tokens" if isinstance(tokens, (int, float)) else "tokens unknown"
+        # The (alt: …) suffix lives in plain text only; a route without a
+        # second chain entry (including every v1 route) renders no suffix at
+        # all — a chain that does not exist is not an unknown value.
+        model_text = str(unit.get("model_label", "executor default"))
+        alternative = str(unit.get("model_alternative", "") or "")
+        if alternative:
+            model_text += f", alt: {alternative}"
+        route_version = str(unit.get("route_schema_version", "") or "")
+        if route_version == _MODEL_ROUTE_V1_VERSION:
+            model_text += " [schema v1]"
         parts = [
             str(unit.get("unit_id", "")),
             str(unit.get("owner", "")),
-            f"({unit.get('model_label', 'executor default')})",
+            f"({model_text})",
             str(unit.get("status", "")),
             elapsed_text,
             tokens_text,
@@ -1097,10 +1204,19 @@ def _add_coding_commands(sub) -> None:
         "model-route",
         help="Resolve the prepared model route for one executor profile (metadata only, never invocation).",
     )
-    model_route.add_argument("--executor", required=True, help="Executor profile, for example codex or claude-code.")
+    model_route.add_argument(
+        "--executor",
+        default=None,
+        help="Executor profile, for example codex or claude-code. Required unless --explain is given.",
+    )
     model_route.add_argument("--model", default=None, help="Explicit model id; always passes through unvalidated.")
     model_route.add_argument("--effort", default=None, help="Reasoning effort for profiles that support one.")
     model_route.add_argument("--role", default=None, help="Subagent role: brain, implementation, design_visual, review, docs.")
+    model_route.add_argument(
+        "--explain",
+        action="store_true",
+        help="Render the effective profile x role resolution matrix with full chains and provenance.",
+    )
     model_route.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
     model_route.set_defaults(func=cmd_coding_model_route)
 
