@@ -21,6 +21,7 @@ from ..quality.localized_chat_copy import (
 )
 from ..quality.route_hint_alignment import build_route_hint_alignment_demo, format_route_hint_alignment_summary
 from ..quality.router_fast_path import build_router_fast_path_demo, format_router_fast_path_summary
+from ..quality.routing_accuracy import build_routing_accuracy_demo, format_routing_accuracy_summary
 from ..quality.routing_precision import build_routing_precision_demo, format_routing_precision_summary
 from ..ingress import CHAT_SOURCES
 from ..installer import OmhError
@@ -34,6 +35,7 @@ DEMO_EPILOG = """Demo lanes:
   route-hint-alignment    Checks plugin/router route hints agree before Hermes speaks.
   context-brief-coverage  Checks compact OMH context briefs keep the right workflow visible.
   routing-precision       Guards against over-routing simple requests and missing OMH interventions.
+  routing-accuracy        Measures whether routing is right per language, not merely unchanged.
   router-fast-path        Checks common chat turns stay on deterministic fast-path routes.
   common-request-coverage Checks ordinary Hermes-agent request breadth against a 95% target.
   localized-chat-copy     Verifies common non-English prompts keep local Hermes card framing.
@@ -124,6 +126,18 @@ def cmd_demo_routing_precision(args: argparse.Namespace) -> int:
         raise OmhError(str(exc)) from exc
     if args.summary:
         print(format_routing_precision_summary(payload))
+    else:
+        _print_json(payload)
+    return 0
+
+
+def cmd_demo_routing_accuracy(args: argparse.Namespace) -> int:
+    try:
+        payload = build_routing_accuracy_demo(source=args.source)
+    except ValueError as exc:
+        raise OmhError(str(exc)) from exc
+    if args.summary:
+        print(format_routing_accuracy_summary(payload))
     else:
         _print_json(payload)
     return 0
@@ -264,6 +278,17 @@ def _add_demo_commands(sub) -> None:
     precision_output.add_argument("--json", action="store_true", help="Print the full machine-readable JSON payload. This is the default.")
     precision_output.add_argument("--summary", action="store_true", help="Print a compact human-readable routing precision summary.")
     routing_precision.set_defaults(func=cmd_demo_routing_precision)
+
+    routing_accuracy = demo_sub.add_parser(
+        "routing-accuracy",
+        help="Measure whether routing is right, per language, instead of only unchanged.",
+        description="Score one intent set across en/ko/ja/zh/es/hi against the expected workflow, with a ceiling on high-confidence misroutes.",
+    )
+    routing_accuracy.add_argument("--source", choices=CHAT_SOURCES, default="generic")
+    accuracy_output = routing_accuracy.add_mutually_exclusive_group()
+    accuracy_output.add_argument("--json", action="store_true", help="Print the full machine-readable JSON payload. This is the default.")
+    accuracy_output.add_argument("--summary", action="store_true", help="Print a compact human-readable routing accuracy summary.")
+    routing_accuracy.set_defaults(func=cmd_demo_routing_accuracy)
 
     localized_chat_copy = demo_sub.add_parser(
         "localized-chat-copy",
