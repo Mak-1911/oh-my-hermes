@@ -2780,7 +2780,11 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("**92 個**", localized_readmes["ja"])
         self.assertIn("**92 个**", localized_readmes["zh"])
         for localized_readme in localized_readmes.values():
-            self.assertLess(len(localized_readme.splitlines()), 240)
+            # A localized README stays a trimmed landing page, never a full
+            # translation of every English section. The budget grew from 240
+            # when the four-surface demo table (22 lines) was added above the
+            # h1 in every language; it still sits below README.md's length.
+            self.assertLess(len(localized_readme.splitlines()), 260)
             self.assertIn("prepared_not_observed", localized_readme)
             self.assertIn("omh setup", localized_readme)
             self.assertIn("```sh\nomh update\nomh doctor\n```", localized_readme)

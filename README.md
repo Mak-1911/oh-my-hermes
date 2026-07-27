@@ -2,6 +2,29 @@
   <img src="assets/oh-my-hermes-wordmark.png" alt="OH-MY-HERMES" width="100%" style="display:block;max-width:none;height:auto">
 </p>
 
+<table align="center">
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/hermes-desktop.gif" alt="Hermes Desktop with oh-my-hermes — the skill picker lists the OMH workflows and /ulw-process asks scoping questions before building" width="410"><br>
+      <sub><b>Hermes Desktop, with oh-my-hermes.</b><br>Pick a workflow from the skill picker; Hermes clarifies before it builds.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/hermes-cli.gif" alt="Hermes CLI with oh-my-hermes — the installed OMH workflows run from the terminal session" width="410"><br>
+      <sub><b>Hermes CLI, with oh-my-hermes.</b><br>The same workflows, in the terminal you already run Hermes in.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/hermes-messenger.gif" alt="Hermes Agent messenger app with oh-my-hermes — an OMH workflow invoked from a Slack thread and reporting back in that thread" width="410"><br>
+      <sub><b>Hermes messenger app, with oh-my-hermes.</b><br>Ask from a chat thread; the run reports back in the same thread.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/omh-setup.gif" alt="omh setup installing the OMH workflows, connecting them to Hermes, and printing the install summary" width="410"><br>
+      <sub><b><code>omh setup</code>, one command.</b><br>Installs the workflows, connects them to Hermes, prints what it did.</sub>
+    </td>
+  </tr>
+</table>
+
 # oh-my-hermes
 
 <p align="center">
