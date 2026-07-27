@@ -17,7 +17,9 @@ from .catalog_questions import (
     is_skill_catalog_question,
 )
 from .action_copy import next_action_label as _route_next_action_label
+from .candidate_handoff import build_candidate_handoff
 from .display_names import canonical_display_mentions
+from .input_language import routing_input_language
 from .intent import scrub_diagnostic_status_text
 from .localization import normalized_phrase, prepare_routing_text, routing_tokens
 from .missed_route import is_missed_route_feedback
@@ -1288,6 +1290,11 @@ class ChatRouteDecision:
     learning_candidate_card: dict[str, object] | None
     recommendations: tuple[dict[str, object], ...]
     route_next_action: str = ""
+    # Which script the request arrived in, and whether the trigger tables carry
+    # entries for it at all. Trigger coverage was previously an implicit
+    # Latin/Hangul accident; naming it here keeps a zero score on a Japanese or
+    # Hindi request readable as missing coverage instead of missing intent.
+    input_language: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload = {
@@ -1315,6 +1322,8 @@ class ChatRouteDecision:
         }
         if self.route_next_action:
             payload["route_next_action"] = self.route_next_action
+        if self.input_language:
+            payload["input_language"] = dict(self.input_language)
         return payload
 
 
@@ -1343,6 +1352,14 @@ def route_chat_message(
         raise ValueError(f"unsupported chat route confidence threshold: {min_confidence}")
 
     route = _clone_jsonish(_route_chat_message_cached(message, source, limit, min_confidence))
+    # Attach the input script here rather than at each ChatRouteDecision site so
+    # every route -- fast path, catalog path, and full scoring -- reports it.
+    route["input_language"] = routing_input_language(message)
+    # An undecidable route carries its shortlist forward for model selection
+    # instead of stopping at a picker or a bare fallback.
+    candidate_handoff = build_candidate_handoff(route)
+    if candidate_handoff:
+        route["candidate_handoff"] = candidate_handoff
     return _apply_skill_governance(route, skill_policy)
 
 

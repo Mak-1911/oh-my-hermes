@@ -64,7 +64,7 @@ Bad example:
 
 Use to cleanly end active adapted workflow state.
 
-    Strong routing signals: `cancel`, `$cancel`, `stop`, `abort`
+    Strong routing signals: `cancel`, `$cancel`, `stop the workflow`, `abort the run`, `cancel the loop`
 
 ## Catalog Metadata
 

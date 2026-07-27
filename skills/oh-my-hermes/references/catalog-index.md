@@ -12,7 +12,7 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `agent-debug`: [omh] Agent Debug workflow: capture a stuck, looping, drifting, or repeatedly failing agent run, diagnose the likely failure pattern, and prepare the smallest safe recovery action.
 - `agent-evaluation`: [omh] Hermes Agent Evaluation workflow: compare executor or agent choices on reproducible tasks using quality, cost, time, tool, and evidence metrics.
 - `agent-ops-review`: [omh] Hermes agent ops review workflow: help managers inspect AI-agent progress, blockers, quality gates, and throughput levers.
-- `ai-slop-cleaner`: [omh] Hermes AI slop cleaner workflow: behavior-preserving cleanup.
+- `ai-slop-cleaner`: [omh] Hermes AI slop cleaner workflow: delete AI-generated slop, dead code, and duplication while observable behavior stays identical.
 - `ask`: [omh] Hermes adaptation for consulting an external advisor when configured.
 - `automation-blueprint`: [omh] Hermes Scheduled Ops Blueprint workflow: design recurring Hermes operations with schedule, delivery, silence policy, context chain, and prepared-vs-observed status.
 - `autoresearch-goal`: [omh] Hermes adaptation for durable research-goal execution.
