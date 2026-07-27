@@ -2,25 +2,25 @@
   <img src="assets/oh-my-hermes-wordmark.png" alt="OH-MY-HERMES" width="100%" style="display:block;max-width:none;height:auto">
 </p>
 
-<table align="center" width="100%">
+<table align="center">
   <tr>
     <td width="50%" align="center">
-      <img src="assets/hermes-desktop.gif" alt="Hermes Desktop with oh-my-hermes - the skill picker lists the OMH workflows and /ulw-process asks scoping questions before building" width="100%"><br>
-      <sub><b>Hermes デスクトップ、oh-my-hermes とともに。</b><br>スキルピッカーでワークフローを選ぶと、Hermes は作る前に確認します。</sub>
+      <img src="assets/hermes-desktop.gif" alt="Hermes Desktop running an OMH workflow" width="380" height="266"><br>
+      <sub><b>Hermes デスクトップ、oh-my-hermes とともに。</b><br>ワークフローを選ぶと、作る前に確認します。</sub>
     </td>
     <td width="50%" align="center">
-      <img src="assets/hermes-cli.gif" alt="Hermes CLI with oh-my-hermes - the installed OMH workflows run from the terminal session" width="100%"><br>
-      <sub><b>Hermes CLI、oh-my-hermes とともに。</b><br>すでに Hermes を使っているターミナルで、同じワークフローを。</sub>
+      <img src="assets/hermes-cli.gif" alt="Hermes CLI running an OMH workflow" width="380" height="266"><br>
+      <sub><b>Hermes CLI、oh-my-hermes とともに。</b><br>使っているターミナルで同じワークフローを。</sub>
     </td>
   </tr>
   <tr>
     <td width="50%" align="center">
-      <img src="assets/hermes-messenger.gif" alt="Hermes Agent messenger app with oh-my-hermes - an OMH workflow invoked from a Slack thread and reporting back in that thread" width="100%"><br>
-      <sub><b>Hermes メッセンジャーアプリ、oh-my-hermes とともに。</b><br>チャットのスレッドから依頼すると、実行結果が同じスレッドに返ります。</sub>
+      <img src="assets/hermes-messenger.gif" alt="Hermes messenger app running an OMH workflow" width="380" height="266"><br>
+      <sub><b>Hermes メッセンジャーアプリ、oh-my-hermes とともに。</b><br>スレッドで依頼すると同じスレッドに返ります。</sub>
     </td>
     <td width="50%" align="center">
-      <img src="assets/omh-setup.gif" alt="omh setup installing the OMH workflows, connecting them to Hermes, and printing the install summary" width="100%"><br>
-      <sub><b><code>omh setup</code>、コマンド一つで。</b><br>ワークフローをインストールし、Hermes に接続し、何をしたかを出力します。</sub>
+      <img src="assets/omh-setup.gif" alt="omh setup installing the OMH workflows" width="380" height="266"><br>
+      <sub><b><code>omh setup</code>、コマンド一つで。</b><br>ワークフローをインストールし、Hermes に接続します。</sub>
     </td>
   </tr>
 </table>
