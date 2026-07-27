@@ -216,6 +216,7 @@ VISIBLE_ACTIONS = (
     "prepare_external_connector_readiness",
     "show_external_connector_readiness_card",
     "prepare_provider_profile_posture",
+    "audit_plugin_risk",
     "record_connector_capability_matrix",
     "record_auth_cost_boundary",
     "record_multimodal_routing_policy",
@@ -892,6 +893,7 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
         "Check connector readiness",
     ),
     "prepare_provider_profile_posture": ("prepare_provider_profile_posture", "Prepare provider profile"),
+    "audit_plugin_risk": ("audit_plugin_risk", "Audit plugin risk"),
     "prepare_prompt_import_readiness": ("prepare_prompt_import_readiness", "Check prompt import"),
     "audit_prompt_compatibility": ("audit_prompt_compatibility", "Audit prompt compatibility"),
     "prepare_physical_device_readiness": (

@@ -42,6 +42,19 @@
       "native_capability_ids": ["provider-profile-posture"]
     },
     {
+      "plugin_id": "hermes-plugin-guard",
+      "upstream_outcome_summary": "Statically scans local Hermes plugin manifests, capabilities, dependencies, likely secrets, and repository hygiene before enablement.",
+      "implementation_state": "omh_native",
+      "owner_boundary": "omh",
+      "claim_status": "prepared_not_observed",
+      "evidence_refs": [
+        {"kind": "code", "ref": "src/workflows/plugin_risk_audit.py"},
+        {"kind": "test", "ref": "tests/test_plugin_risk_audit.py"}
+      ],
+      "rationale": "OMH statically audits one explicitly supplied local plugin directory for bounded aggregate risk categories without source disclosure, plugin import, registration, execution, dependency installation, network access, or safety approval claims.",
+      "native_capability_ids": ["plugin-risk-audit"]
+    },
+    {
       "plugin_id": "hermes-plugin-slash-prompts",
       "upstream_outcome_summary": "Loads external CLI-agent prompt files as Hermes slash commands across multiple source formats and argument syntaxes.",
       "implementation_state": "omh_native",

@@ -23,6 +23,7 @@ class AwesomeHermesAgentPluginOutcomeTests(unittest.TestCase):
                 "clawrouter-hermes",
                 "cronalytics",
                 "hermes-doppler",
+                "hermes-plugin-guard",
                 "hermes-plugin-slash-prompts",
                 "robrain",
                 "rtk-hermes",
@@ -32,6 +33,7 @@ class AwesomeHermesAgentPluginOutcomeTests(unittest.TestCase):
             "clawrouter-hermes": ["provider-profile-posture"],
             "cronalytics": ["run-efficiency"],
             "hermes-doppler": ["provider-profile-posture"],
+            "hermes-plugin-guard": ["plugin-risk-audit"],
             "hermes-plugin-slash-prompts": ["prompt-import-readiness"],
             "robrain": ["decision-recall"],
             "rtk-hermes": ["run-efficiency"],
@@ -62,7 +64,7 @@ class AwesomeHermesAgentPluginOutcomeTests(unittest.TestCase):
         self.assertEqual(stderr, "")
         payload = json.loads(stdout)
         self.assertEqual(payload["schema_version"], PLUGIN_OUTCOME_SCHEMA_VERSION)
-        self.assertEqual(len(payload["outcomes"]), 6)
+        self.assertEqual(len(payload["outcomes"]), 7)
         self.assertIn("claim_boundary", payload)
 
 

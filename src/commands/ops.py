@@ -531,6 +531,7 @@ def _add_artifact_args(parser: argparse.ArgumentParser, *, surface: str, default
 
 
 def _add_ops_commands(sub) -> None:
+    from .plugin_risk_audit import add_ops_plugin_risk_audit_command
     from .provider_profile_posture import add_ops_provider_profile_posture_command
     from .prompt_compatibility import add_ops_prompt_compatibility_command
 
@@ -539,6 +540,7 @@ def _add_ops_commands(sub) -> None:
 
     add_ops_provider_profile_posture_command(ops_sub)
     add_ops_prompt_compatibility_command(ops_sub)
+    add_ops_plugin_risk_audit_command(ops_sub)
 
     data_harness = ops_sub.add_parser(
         "data-harness",

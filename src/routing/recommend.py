@@ -638,11 +638,13 @@ _SKILL_POLICIES = {
         next_action="prepare_security_safety_review",
         evidence_boundary=(
             "A security safety review is not vulnerability absence, scanner execution, dependency update, credential validity, "
-            "sandbox proof, permission change, or remediation evidence."
+            "sandbox proof, permission change, or remediation evidence. An explicit plugin_risk_audit/v1 result is not plugin "
+            "safety approval, import, registration, activation, execution, dependency installation, network access, or CI evidence."
         ),
         wrapper_guidance=(
             "Prepare security_safety_review_plan/v1, threat_surface_map/v1, permission_and_secret_risk_matrix/v1, "
-            "prompt_injection_risk_review/v1, safe_action_policy/v1, and remediation_handoff/v1 when needed."
+            "prompt_injection_risk_review/v1, safe_action_policy/v1, and remediation_handoff/v1 when needed. Prepare "
+            "plugin_risk_audit/v1 only for one explicitly supplied local plugin directory."
         ),
     ),
     "instinct-ledger": RecommendationPolicy(

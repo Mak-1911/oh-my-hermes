@@ -77,7 +77,7 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `research-department`: [omh] Hermes Research Department workflow pack: prepare Scout, Analyst, and Briefer research operations with source inbox and briefing status boundaries.
 - `rules-distill`: [omh] Hermes Rules Distill workflow: extract repeated principles from skills, prompts, traces, reviews, and failures into reviewed rule candidates without auto-mutating guidance.
 - `run-efficiency`: [omh] Report supplied local run efficiency while provider and host data stay unobserved.
-- `security-safety-review`: [omh] Hermes Security Safety Review workflow: review prompt, tool, secret, dependency, and destructive-action risks before agent or code execution.
+- `security-safety-review`: [omh] Hermes Security Safety Review workflow: review prompt, tool, secret, dependency, destructive-action, and explicit local plugin risks before agent or code execution.
 - `skill`: [omh] Hermes adaptation for managing local skills.
 - `skill-health`: [omh] Skill Health workflow: prepare a metadata-only OMH skill portfolio dashboard with stale surfaces, observed failure signals, pending amendments, and top actions.
 - `skill-scout`: [omh] Skill Scout workflow: prepare a metadata-only search-before-creation report for local, marketplace, GitHub, and web skill candidates with risk review and adoption options.
