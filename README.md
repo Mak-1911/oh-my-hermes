@@ -113,9 +113,14 @@ Maintenance paths such as reconciling a `--full` install back to core live in
 
 ## What OMH Adds
 
-OMH packages **88 installable workflow skills** behind six human-readable
+OMH packages **92 installable workflow skills** behind six human-readable
 capability families. The family is the front door; exact skill names remain
 available when a wrapper or operator needs precise control.
+
+Ten of them are workflow engines - `deep-interview`, `loop`, `ralph`, `ralplan`,
+`team`, `ultragoal`, `ultraprocess`, `ultraqa`, `ultrawork`, `web-research` -
+and render a `ulw-` label so a status line says which kind of skill is running.
+The other 82 render `omh-`. Canonical names are unchanged either way.
 
 | Capability family | What it helps Hermes do |
 | --- | --- |

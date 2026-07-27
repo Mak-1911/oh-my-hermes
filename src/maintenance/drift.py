@@ -82,6 +82,12 @@ def _routing_precision_case_count() -> int:
     return int(build_routing_precision_demo()["summary"]["case_count"])
 
 
+def _installable_skill_count() -> int:
+    from ..skills.catalog import installable_skill_names
+
+    return len(installable_skill_names())
+
+
 def _common_request_case_count() -> int:
     from ..quality.common_request_coverage import build_common_request_coverage_demo
 
@@ -140,6 +146,20 @@ def count_metrics() -> tuple[CountMetric, ...]:
                 "tests/test_hermes_ux_quality.py",
                 "tests/test_release_smoke.py",
                 "tests/test_routing_precision.py",
+            ),
+        ),
+        CountMetric(
+            name="installable_skill_count",
+            describe="Installable workflow skills quoted in the public READMEs",
+            live=_installable_skill_count,
+            expected=92,
+            sites=(
+                "README.md",
+                "README.ko.md",
+                "README.ja.md",
+                "README.zh.md",
+                "docs/README.md",
+                "tests/test_router_content.py",
             ),
         ),
         CountMetric(
