@@ -135,6 +135,38 @@ OMH is not:
   evidence — the opposite of hidden)
 - a claim that Hermes executed work that only a handoff prepared
 
+## Routing Language Policy
+
+OMH targets a global audience with English as the primary language. Its
+deterministic trigger tables, however, only ever grew in two scripts: of the
+catalog's routing triggers, Latin and Hangul hold effectively all of them,
+against single-digit Han and Kana entries and none at all in Devanagari,
+Arabic, or Cyrillic. `src/routing/localization.py` meanwhile renders chat copy
+in ko/ja/zh/hi. OMH therefore answers in four non-English languages while the
+router recognises two.
+
+Per-language trigger tables are not the fix. Matching the Korean table for one
+more language means hundreds of hand-maintained entries, the work is unbounded
+across the languages a global product must serve, and precision decays as the
+catalog grows because more tokens mean more cross-skill collisions.
+
+The policy:
+
+- English is the primary trigger surface and stays the precision target.
+- The existing Korean table is frozen, not extended. `tests/test_routing_language_policy.py`
+  holds the count so growing it is a deliberate act with a visible number to
+  change, and a non-English routing miss is never fixed by adding tokens.
+- Input script is an explicit routing input, not an implicit accident.
+  `src/routing/input_language.py` classifies it and states whether the trigger
+  tables carry that script, so a zero score on a Japanese or Hindi request reads
+  as missing coverage rather than missing intent.
+- Non-English intent resolution belongs to model selection. Hermes already
+  understands every language OMH would target; OMH supplies candidates,
+  reasons, and evidence boundaries and lets the model choose.
+
+This keeps the "not an LLM router" boundary above intact: the selection happens
+in Hermes, and core `omh` still makes no LLM, API, or network call.
+
 ## Ownership Boundary
 
 Hermes owns:
