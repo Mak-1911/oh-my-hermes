@@ -174,7 +174,7 @@ The full generated catalog, triggers, harnesses, and evidence rules live in
 ## Built For Real Work
 
 <p align="center">
-  <img src="assets/built-for-real-work-orchestration.png" alt="OMH orchestrating coding agents and creative tools" width="900">
+  <img src="assets/built-for-real-work-orchestration-ai.png" alt="OMH orchestrating coding agents, creative tools, and AI" width="900">
 </p>
 
 > **OMH (Oh-My-Hermes)** — Anyone can use hermes-agent professionally.<br>
