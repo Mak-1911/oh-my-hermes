@@ -74,6 +74,26 @@
   owners.
 </p>
 
+[Website](https://rlaope.github.io/oh-my-hermes/) ·
+[Documentation](docs/README.md) ·
+[Installation](docs/INSTALLATION.md) ·
+[Capabilities](docs/CAPABILITIES.md) ·
+[Capability Impact](docs/CAPABILITY_IMPACT.md) ·
+[Agent Install](INSTALL_FOR_AGENTS.md) ·
+[GitHub Pages site](site/index.html)
+
+> [!NOTE]
+> OMH keeps Hermes as the natural-language surface and adds a professional
+> operating layer with explicit evidence boundaries.
+>
+> <p align="center">
+>   <img src="assets/hermes-omh-terminal-orchestration.png" alt="Hermes Agent and OH-MY-HERMES working side by side" width="1080">
+> </p>
+>
+> <p align="center">
+>   <img src="assets/friren-agent-omh-callout.png" alt="Friren Agent explaining OMH in Art&Engine" width="720">
+> </p>
+
 > [!TIP]
 > Be with us!
 >
@@ -95,26 +115,6 @@
 >     <td>Thank you to <a href="https://nousresearch.com/">Nous Research</a> for creating Hermes Agent.</td>
 >   </tr>
 > </table>
-
-[Website](https://rlaope.github.io/oh-my-hermes/) ·
-[Documentation](docs/README.md) ·
-[Installation](docs/INSTALLATION.md) ·
-[Capabilities](docs/CAPABILITIES.md) ·
-[Capability Impact](docs/CAPABILITY_IMPACT.md) ·
-[Agent Install](INSTALL_FOR_AGENTS.md) ·
-[GitHub Pages site](site/index.html)
-
-> [!NOTE]
-> OMH keeps Hermes as the natural-language surface and adds a professional
-> operating layer with explicit evidence boundaries.
->
-> <p align="center">
->   <img src="assets/hermes-omh-terminal-orchestration.png" alt="Hermes Agent and OH-MY-HERMES working side by side" width="1080">
-> </p>
->
-> <p align="center">
->   <img src="assets/friren-agent-omh-callout.png" alt="Friren Agent explaining OMH in Art&Engine" width="720">
-> </p>
 
 <br>
 
