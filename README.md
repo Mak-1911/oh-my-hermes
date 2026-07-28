@@ -77,10 +77,20 @@
 > [!TIP]
 > Be with us!
 >
-> | [<img alt="X link" src="https://img.shields.io/badge/Follow-%40rlaope-00CED1?style=flat-square&logo=x&labelColor=black" width="112px" style="min-width: 96px" />](https://x.com/rlaope) | Follow [@rlaope](https://x.com/rlaope) on X. |
-> | :-----| :----- |
-> | [<img alt="GitHub Follow" src="https://img.shields.io/github/followers/rlaope?style=flat-square&logo=github&labelColor=black&color=24292f" width="112px" style="min-width: 96px" />](https://github.com/rlaope) | Follow [@rlaope](https://github.com/rlaope) on GitHub. |
-> | [<img alt="AI agent collaborators" src="https://img.shields.io/badge/With-AI%20agents%3A%20Friren%20%2B%20Killua-6f42c1?style=flat-square&labelColor=black" width="112px" style="min-width: 96px" />](https://github.com/rlaope/oh-my-hermes/graphs/contributors) | With AI agents **Friren** + **Killua**. |
+> <table>
+>   <tr>
+>     <td width="124"><a href="https://x.com/rlaope"><img alt="X link" src="https://img.shields.io/badge/Follow-%40rlaope-00CED1?style=flat-square&logo=x&labelColor=black" width="112px" /></a></td>
+>     <td>Follow <a href="https://x.com/rlaope">@rlaope</a> on X.</td>
+>   </tr>
+>   <tr>
+>     <td width="124"><a href="https://github.com/rlaope"><img alt="GitHub Follow" src="https://img.shields.io/github/followers/rlaope?style=flat-square&logo=github&labelColor=black&color=24292f" width="112px" /></a></td>
+>     <td>Follow <a href="https://github.com/rlaope">@rlaope</a> on GitHub.</td>
+>   </tr>
+>   <tr>
+>     <td width="124"><a href="https://github.com/rlaope/oh-my-hermes/graphs/contributors"><img alt="AI agent collaborators" src="https://img.shields.io/badge/With-AI%20agents%3A%20Friren%20%2B%20Killua-6f42c1?style=flat-square&labelColor=black" width="112px" /></a></td>
+>     <td>With AI agents <strong>Friren</strong> + <strong>Killua</strong>.</td>
+>   </tr>
+> </table>
 
 [Website](https://rlaope.github.io/oh-my-hermes/) ·
 [Documentation](docs/README.md) ·
