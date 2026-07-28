@@ -155,6 +155,15 @@ goal to Hermes in chat; these commands are the backend surface.
   stays in the chain, built-in chains are never reordered (a domain there is
   recorded and explicitly skipped), a requested model still wins, and no
   text matching ever infers a domain.
+- **Composer calibration.** The MAIN agent composing the split runs on
+  whatever model the user configured (a claude-family fable/opus, a
+  gpt-family sol/terra, a gemini, a kimi, ...), and each family fails
+  composition differently. `omh coding composition-guide --model <id>`
+  returns the discipline that agent applies to ITSELF while writing the
+  split, the unit prompts, and the briefings — same family key set as the
+  subagent calibrations (parity-gated), generic fallback for unmet
+  families, selected by the composer's own model id (provider prefixes
+  welcome).
 - **Unit prompt protocol.** Every dispatched unit prompt carries a fixed
   verification discipline (`src/coding/unit_prompt_protocol.py`): the
   subagent first echoes the goal, its deliverable, and the numbered
@@ -206,6 +215,7 @@ omh coding fanout dispatch <fanout-id> --goal-file goal.txt \
   [--unit <id> ...] [--dry-run]
 omh coding model-route [--executor <profile>] [--role <role>] [--model <id>] [--effort <level>] [--domain <name>] [--explain] [--from-inventory] [--json]
 omh coding model-inventory [--json]
+omh coding composition-guide [--model <id>] [--json]
 ```
 
 `--units` and `--goal-file` accept `-` for stdin. `--dry-run` resolves
