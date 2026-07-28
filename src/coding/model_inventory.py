@@ -52,6 +52,7 @@ CLI_PRESENCE_COMMANDS: Final[tuple[str, ...]] = (
     "codex",
     "claude",
     "opencode",
+    "pi",
     "senpi",
     "gemini",
     "grok",
@@ -108,6 +109,7 @@ OMO_CATEGORY_ROLE_SOURCES: Final[dict[str, tuple[str, ...]]] = {
 _OMO_AGENT_CONFIG_RELATIVE: Final[str] = ".config/opencode/oh-my-openagent.json"
 _OPENCODE_CONFIG_RELATIVE: Final[str] = ".config/opencode/opencode.json"
 _OPENCODE_AUTH_RELATIVE: Final[str] = ".local/share/opencode/auth.json"
+_PI_AUTH_RELATIVE: Final[str] = ".pi/agent/auth.json"
 _SENPI_AUTH_RELATIVE: Final[str] = ".senpi/agent/auth.json"
 
 # Narrow by design (mirrors `_claude_marker`): a failure to read or parse a
@@ -123,6 +125,7 @@ def local_model_inventory(home: Path | None = None) -> dict[str, object]:
     provider_source = _top_level_key_source(base / _OPENCODE_CONFIG_RELATIVE, section="provider")
     auth_source = _top_level_key_source(base / _OPENCODE_AUTH_RELATIVE, section="")
     senpi_auth_source = _top_level_key_source(base / _SENPI_AUTH_RELATIVE, section="")
+    pi_auth_source = _top_level_key_source(base / _PI_AUTH_RELATIVE, section="")
     auth_signals = executor_auth_signals(base)
     signal_profiles = auth_signals.get("profiles", {})
     login_markers = {
@@ -143,6 +146,7 @@ def local_model_inventory(home: Path | None = None) -> dict[str, object]:
             "omo_agent_config": omo_source,
             "opencode_config_providers": provider_source,
             "opencode_auth_providers": auth_source,
+            "pi_auth_providers": pi_auth_source,
             "senpi_auth_providers": senpi_auth_source,
             "executor_auth_signals": {"status": "present", "login_markers": login_markers},
         },

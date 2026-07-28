@@ -43,8 +43,13 @@ goal to Hermes in chat; these commands are the backend surface.
 - **Spawnability is data.** `DISPATCH_COMMAND_TEMPLATES` in
   `src/coding/fanout_dispatch.py` maps profiles with a local headless CLI to
   fixed argv templates — currently codex (`codex exec`), claude-code
-  (`claude -p`), and omo-runtime (`senpi --print`, since omo ships as an
-  extension of the senpi host CLI; readiness probes `senpi` accordingly).
+  (`claude -p`), and omo-runtime. The omo runtime's host CLI is DETECTED at
+  dispatch/readiness time in a fixed order (`pi`, then its `senpi`
+  distribution, then `opencode`) — first on PATH wins, no personal stack is
+  hardcoded, and the selected host is visible in the planned argv and the
+  probed command. The pi-family surface was validated in a live bridge
+  dispatch; the opencode template is prepared from its verified flags and
+  validates on first live dispatch (claude-template precedent).
   Profiles without a template (hermes, omx/omc runtimes, generic,
   unassigned) are reported `unsupported_for_local_dispatch` with the unit
   handoff as a prepared-prompt fallback — no profile is privileged.
@@ -77,8 +82,8 @@ goal to Hermes in chat; these commands are the backend surface.
   alone let the agent create files but blocked the requested `git commit`,
   so the template additionally grants `--allowedTools
   "Bash(git add:*),Bash(git commit:*)"` — exactly those two git verbs,
-  nothing broader. The senpi template was validated in a live bridge
-  dispatch (2026-07): a routed unit spawned non-interactively via
+  nothing broader. The pi-family template was validated in a live bridge
+  dispatch (2026-07, senpi distribution): a routed unit spawned non-interactively via
   `--print --no-session`, the `workspace` permission preset allowed file
   creation plus the exact `git add`/`git commit` the unit prompt asks for
   (the unit completed with a real commit inside its isolated worktree, no
