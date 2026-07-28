@@ -1,6 +1,6 @@
 ---
 name: omh-voice-operator
-description: [omh] Hermes voice operator workflow: turn short voice or mobile commands into clarify, plan, status, handoff, or confirmation actions.
+description: [omh] Hermes voice operator workflow: turn short voice or mobile commands into clarify, plan, status, handoff, or confirmation actions. Use when the user says: voice-operator, voice operator, voice-first, voice command, mobile command, short command, dictated command, dictated request.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, accessibility]

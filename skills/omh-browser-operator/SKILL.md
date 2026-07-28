@@ -1,6 +1,6 @@
 ---
 name: omh-browser-operator
-description: [omh] Hermes browser operator workflow: scope URL opening, page interaction, login/form boundaries, observations, and destructive confirmation gates.
+description: [omh] Hermes browser operator workflow: scope URL opening, page interaction, login/form boundaries, observations, and destructive confirmation gates. Use when the user says: browser-operator, browser operator, browser task, browser operation, browser automation, browser session, webpage operation, web page operation.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, browser]

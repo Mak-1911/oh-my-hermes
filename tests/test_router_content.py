@@ -143,7 +143,14 @@ class RouterContentTests(unittest.TestCase):
 
         skill_lines = [line for line in rendered.splitlines() if line.startswith("- `")]
         names = [line.split("`")[1] for line in skill_lines]
-        expected = sorted(definition.name for definition in routable_definitions())
+        # The shortlist names skills by the label a host can actually invoke
+        # (the installed directory / slash-command name), never the internal
+        # canonical key — a shortlist entry the host cannot type is a dead
+        # recommendation.
+        expected = [
+            omh_skill_display_name(definition.name)
+            for definition in sorted(routable_definitions(), key=lambda definition: definition.name)
+        ]
         self.assertEqual(names, expected)
         self.assertEqual(len(names), len(set(names)))
 

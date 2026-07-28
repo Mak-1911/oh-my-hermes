@@ -1,6 +1,6 @@
 ---
 name: ulw-process
-description: [omh] Ultra Process - Research - Ralplan - Ultragoal - Code Review - Sync Circle: one PR-ready delivery cycle.
+description: [omh] Ultra Process - Research - Ralplan - Ultragoal - Code Review - Sync Circle: one PR-ready delivery cycle. Use when the user says: ultraprocess, single-cycle delivery, one-cycle delivery, end-to-end process, delivery process, research plan implement review docs pr, plan implement review docs pr, ralplan ultragoal code-review.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, process]

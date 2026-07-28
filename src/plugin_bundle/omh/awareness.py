@@ -5330,6 +5330,15 @@ def awareness_primer_context() -> str:
                 "briefings, coding handoffs, status -- and tracks prepared against observed."
             ),
             str(payload["first_turn_rule"]),
+            # Collision rule, previously reachable only inside the omh-routing
+            # skill body — a document the model must have already chosen to
+            # load before reading the rule that influences choosing. The
+            # always-on rail is the only surface that reliably arrives before
+            # selection, so the one-sentence version lives here.
+            (
+                "On a collision, prefer the OMH workflow when the result should persist or carry "
+                "evidence; natives win one-shot lookups."
+            ),
             "Use message-specific route hints when present; they should outrank this always-on rail.",
             "Boundary: " + str(payload["evidence_boundary"]),
             # `tool_hints` in the context brief is not this rail: `pre_llm_call`

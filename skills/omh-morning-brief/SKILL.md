@@ -1,6 +1,6 @@
 ---
 name: omh-morning-brief
-description: [omh] Hermes Morning Brief setup workflow: diagnose mail and calendar MCP connection, guide read/draft-only access, and apply changes only after diff approval.
+description: [omh] Hermes Morning Brief setup workflow: diagnose mail and calendar MCP connection, guide read/draft-only access, and apply changes only after diff approval. Use when the user says: morning-brief, morning brief, connect my email for a morning brief, set up morning brief, configure morning brief, connect mail for morning brief, connect calendar for morning brief, set up my morning brief.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, hermes-setup]

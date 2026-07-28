@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
+import re
 
 from .catalog import (
     DEEP_INTERVIEW_MAX_ROUNDS,
@@ -198,6 +199,34 @@ def _definitions_by_name() -> dict[str, SkillDefinition]:
     return {definition.name: definition for definition in builtin_definitions()}
 
 
+# A host's skill picker reads frontmatter `name` + `description` only — the
+# curated trigger phrases rendered into skill BODIES are invisible at
+# selection time (measured live: `ulw` routes because the token is in the
+# NAME; body-only triggers, Korean ones included, never influenced a pick).
+# The description therefore carries the top trigger phrases itself. Only
+# plain-scalar-safe phrases are surfaced so the unquoted YAML stays valid;
+# sigil/path aliases (`$ulw`, `./x`, `/x`) duplicate a bare form anyway.
+_FRONTMATTER_TRIGGER_LIMIT = 8
+_FRONTMATTER_SAFE_TRIGGER = re.compile(r"^[0-9A-Za-z가-힣][0-9A-Za-z가-힣 _.-]*$")
+
+
+def _frontmatter_trigger_tail(definition: SkillDefinition | None) -> str:
+    if definition is None:
+        return ""
+    # The router describes plumbing, not an intent; surfacing its `omh`
+    # tokens would also collide with the substring-trap detectors.
+    if definition.name == "oh-my-hermes":
+        return ""
+    safe = [
+        trigger
+        for trigger in definition.triggers
+        if _FRONTMATTER_SAFE_TRIGGER.fullmatch(trigger)
+    ]
+    if not safe:
+        return ""
+    return " Use when the user says: " + ", ".join(safe[:_FRONTMATTER_TRIGGER_LIMIT]) + "."
+
+
 def _frontmatter(name: str, description: str) -> str:
     # `name` is the CANONICAL catalog name and is used as the lookup key below.
     # The display prefix is applied after the lookup, never at the call sites:
@@ -206,7 +235,7 @@ def _frontmatter(name: str, description: str) -> str:
     definition = _definitions_by_name().get(name)
     category = definition.category if definition else "workflow"
     phase = definition.phase if definition else "general"
-    description = omh_description(description)
+    description = omh_description(description) + _frontmatter_trigger_tail(definition)
     display_name = omh_skill_display_name(name)
     return (
         f"---\nname: {display_name}\ndescription: {description}\nmetadata:\n"
@@ -491,8 +520,11 @@ preparation, not execution, review, CI, merge-readiness, or merge evidence.
 
 
 def _router_catalog_index_reference() -> str:
+    # The shortlist must name skills by the label a host can actually invoke
+    # (`ulw-work`, `omh-plan`), not the canonical catalog key — a shortlist
+    # entry the host cannot type is a dead recommendation.
     lines = "\n".join(
-        f"- `{definition.name}`: {definition.description}"
+        f"- `{omh_skill_display_name(definition.name)}`: {definition.description}"
         for definition in sorted(routable_definitions(), key=lambda definition: definition.name)
     )
     return f"""# OMH Skill Catalog Index
