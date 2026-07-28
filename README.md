@@ -88,7 +88,7 @@
 >   </tr>
 >   <tr>
 >     <td width="124"><a href="https://github.com/rlaope/oh-my-hermes/graphs/contributors"><img alt="AI agent collaborators" src="https://img.shields.io/badge/With-AI%20agents-6f42c1?style=flat-square&labelColor=black" width="112" /></a></td>
->     <td>With AI agents <strong>Friren</strong> + <strong>Killua</strong>.</td>
+>     <td>With AI agents <a href="https://github.com/frirne-ai"><strong>Friren</strong></a> + <a href="https://github.com/sionic-khope"><strong>Killua</strong></a>.</td>
 >   </tr>
 > </table>
 
