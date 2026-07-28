@@ -28,6 +28,27 @@ from omh.coding.model_routing import (  # noqa: E402
 )
 
 
+class ResearchRoleTests(unittest.TestCase):
+    def test_research_defaults_to_the_cheap_sweep(self) -> None:
+        """Read-only investigation lanes route to the fast tier by default;
+        depth is the caller's explicit dial, never an inferred one."""
+        codex = resolve_model_route("codex", role="research")
+        self.assertEqual(codex["selected_model"], "gpt-5")
+        self.assertEqual(codex["selected_reasoning_effort"], "low")
+        self.assertEqual(codex["provenance"], "role_chain_head")
+        claude = resolve_model_route("claude-code", role="research")
+        self.assertEqual(claude["selected_model"], "haiku")
+        self.assertEqual(claude["selected_reasoning_effort"], "")
+
+    def test_deep_research_escalates_only_explicitly(self) -> None:
+        route = resolve_model_route(
+            "claude-code", role="research", requested_model="opus", requested_effort="high"
+        )
+        self.assertEqual(route["provenance"], "request_named_model")
+        self.assertEqual(route["selected_model"], "opus")
+        self.assertEqual(route["selected_reasoning_effort"], "high")
+
+
 class FamilyPrefixParityTests(unittest.TestCase):
     def test_family_prefixes_match_dynamic_workflow_target_prefixes(self) -> None:
         """The two prefix lists must name families the same way; drift between
@@ -313,7 +334,10 @@ class ModelRouteResolverTests(unittest.TestCase):
         self.assertIn("never retries or switches", route["claim_boundary"])
 
     def test_model_roles_vocabulary_is_stable(self) -> None:
-        self.assertEqual(MODEL_ROLES, ("brain", "implementation", "design_visual", "review", "docs"))
+        self.assertEqual(
+            MODEL_ROLES,
+            ("brain", "implementation", "design_visual", "review", "docs", "research"),
+        )
 
 
 class RouteVocabularyPolicyTests(unittest.TestCase):

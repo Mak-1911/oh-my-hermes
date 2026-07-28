@@ -41,6 +41,11 @@ MODEL_ROLES: Final[tuple[str, ...]] = (
     "design_visual",
     "review",
     "docs",
+    # Read-only investigation lanes. The chain default is the cheap sweep;
+    # a deep multi-system investigation escalates model/effort EXPLICITLY on
+    # the unit (requested values always win) — scope is the caller's dial,
+    # never an inferred one.
+    "research",
 )
 
 MODEL_ROUTE_STATUSES: Final[tuple[str, ...]] = (
@@ -110,7 +115,7 @@ EXECUTOR_MODEL_OPTIONS: Final[dict[str, tuple[dict[str, object], ...]]] = {
             "model_id": "gpt-5",
             "label": "General frontier model",
             "tier": "standard",
-            "recommended_roles": ("implementation", "docs", "review"),
+            "recommended_roles": ("implementation", "docs", "review", "research"),
             "reasoning_efforts": ("low", "medium", "high", "xhigh"),
         },
     ),
@@ -133,7 +138,7 @@ EXECUTOR_MODEL_OPTIONS: Final[dict[str, tuple[dict[str, object], ...]]] = {
             "model_id": "haiku",
             "label": "Claude fast tier alias",
             "tier": "fast",
-            "recommended_roles": ("docs",),
+            "recommended_roles": ("docs", "research"),
             "reasoning_efforts": ("low", "medium", "high", "xhigh", "max"),
         },
     ),
@@ -165,6 +170,10 @@ ROLE_MODEL_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = {
         "docs": (
             {"model_id": "gpt-5", "reasoning_effort": ""},
         ),
+        "research": (
+            {"model_id": "gpt-5", "reasoning_effort": "low"},
+            {"model_id": "gpt-5-codex", "reasoning_effort": ""},
+        ),
     },
     "claude-code": {
         "brain": (
@@ -184,6 +193,10 @@ ROLE_MODEL_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = {
             {"model_id": "sonnet", "reasoning_effort": ""},
         ),
         "docs": (
+            {"model_id": "haiku", "reasoning_effort": ""},
+            {"model_id": "sonnet", "reasoning_effort": ""},
+        ),
+        "research": (
             {"model_id": "haiku", "reasoning_effort": ""},
             {"model_id": "sonnet", "reasoning_effort": ""},
         ),

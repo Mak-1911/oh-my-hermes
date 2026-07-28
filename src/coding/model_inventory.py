@@ -97,6 +97,9 @@ OMO_CATEGORY_ROLE_SOURCES: Final[dict[str, tuple[str, ...]]] = {
     "design_visual": ("visual-engineering", "artistry"),
     "review": ("unspecified-high", "deep"),
     "docs": ("writing", "quick"),
+    # Read-only investigation lanes default to the cheap sweep; deep
+    # investigations escalate explicitly on the unit.
+    "research": ("quick", "unspecified-low"),
 }
 
 _OMO_AGENT_CONFIG_RELATIVE: Final[str] = ".config/opencode/oh-my-openagent.json"
