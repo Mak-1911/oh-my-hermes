@@ -23,6 +23,7 @@ from omh.memory import (
     memory_recall_pack_for_handoff,
     read_handoff_context_pack_file,
     reject_project_memory_candidate,
+    validate_project_memory_recall_pack,
 )
 from omh.paths import resolve_paths
 from omh.profiles.setup import write_setup_profile
@@ -106,6 +107,43 @@ class MemoryContractTests(unittest.TestCase):
             self.assertTrue(captured["auto_approved"])
             self.assertEqual(captured["record"]["schema_version"], "project_memory_record/v1")
             self.assertEqual(build_project_memory_status(paths)["counts"]["approved_records"], 1)
+
+    def test_project_memory_recall_pack_budget_marks_truncation(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            for idx in range(4):
+                capture_project_memory_candidate(
+                    paths,
+                    f"Release tests procedure variant {idx} keeps workflow docs verified",
+                    record_type="procedure",
+                    tags=["release", "tests"],
+                )
+
+            untouched = build_project_memory_recall_pack(paths, "release tests")
+            self.assertEqual(untouched["record_count"], 4)
+            self.assertFalse(untouched["truncated"])
+            self.assertEqual(validate_project_memory_recall_pack(untouched), [])
+
+            by_records = build_project_memory_recall_pack(paths, "release tests", limit=2)
+            self.assertTrue(by_records["truncated"])
+            self.assertEqual(by_records["record_count"], 2)
+            over_budget = [item for item in by_records["excluded_records"] if item["reason"] == "over_budget"]
+            self.assertEqual(len(over_budget), 2)
+            included_ids = {item["record_id"] for item in by_records["included_records"]}
+            self.assertFalse(included_ids & {item["record_id"] for item in over_budget})
+            self.assertEqual(included_ids, {item["record_id"] for item in untouched["included_records"][:2]})
+            self.assertEqual(validate_project_memory_recall_pack(by_records), [])
+
+            summary_chars = len(str(untouched["included_records"][0]["summary"]))
+            by_chars = build_project_memory_recall_pack(paths, "release tests", max_chars=summary_chars * 2)
+            self.assertTrue(by_chars["truncated"])
+            self.assertEqual(by_chars["record_count"], 2)
+            self.assertEqual(
+                sum(1 for item in by_chars["excluded_records"] if item["reason"] == "over_budget"),
+                2,
+            )
+            self.assertEqual(validate_project_memory_recall_pack(by_chars), [])
 
     def test_project_memory_recall_pack_feeds_coding_handoff_when_enabled(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -126,6 +126,7 @@ def cmd_memory_recall(args: argparse.Namespace) -> int:
             scope_kind=args.scope_kind,
             scope_ref=args.scope_ref,
             limit=_optional_positive_int(args.limit, "--limit") or 6,
+            max_chars=_optional_positive_int(args.max_chars, "--max-chars"),
             include_stale=args.include_stale,
         )
     except (OSError, ValueError) as exc:
