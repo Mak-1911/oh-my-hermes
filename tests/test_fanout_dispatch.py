@@ -83,6 +83,40 @@ class FanoutDispatchEngineTests(unittest.TestCase):
         contract = write_fanout_contract(paths, build_fanout_contract(_GOAL, _UNITS))
         return paths, repo, sha, contract
 
+    def test_choice_required_route_blocks_the_unit_fail_closed(self) -> None:
+        """A frozen choice_required route must never dispatch on the silent
+        executor default: the unit reports model_choice_required, stays
+        un-merge-ready, and its dependents block (issue #716, option 2)."""
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            for unit in contract["units"]:
+                if unit["unit_id"] == "core":
+                    unit["handoff"]["model_route"] = {
+                        "schema_version": "coding_model_route/v2",
+                        "status": "choice_required",
+                        "provenance": "role_unchained",
+                        "selected_model": "",
+                        "selected_reasoning_effort": "",
+                    }
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                runner=_agent_runner(),
+                readiness=_ready,
+            )
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["core"]["status"], "model_choice_required")
+            self.assertFalse(by_unit["core"]["merge_ready"])
+            self.assertIn("re-prepare", by_unit["core"]["reason"])
+            self.assertNotIn("core", summary["merge_ready_units"])
+            # The dependent of the blocked unit must not build on an
+            # unstarted base; the independent unit still completes.
+            self.assertNotEqual(by_unit["tests"]["status"], "completed")
+            self.assertEqual(by_unit["docs"]["status"], "completed")
+
     def test_happy_path_dispatches_units_and_records_observed_evidence(self) -> None:
         with TemporaryDirectory() as tmp:
             paths, repo, sha, contract = self._setup(tmp)

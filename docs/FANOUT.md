@@ -70,8 +70,11 @@ goal to Hermes in chat; these commands are the backend surface.
 - **Dependency bar.** A satisfied dependency means only that the owner agent
   process exited 0. It is not verified, reviewed, or correct work. Failed
   units block their dependents, never their independents.
-- **Blocked-by-design cascades.** An `unsupported_for_local_dispatch` or
-  `executor_not_ready` dependency also blocks its dependents — dependents must
+- **Blocked-by-design cascades.** An `unsupported_for_local_dispatch`,
+  `executor_not_ready`, or `model_choice_required` dependency (a frozen
+  route that reserves the model choice is never dispatched on the silent
+  executor default — re-prepare the unit with a declared model or a
+  resolvable role) also blocks its dependents — dependents must
   never build on an unstarted base. Recovery: complete that unit manually (or
   via its owner's own tooling), record its observed result on the unit's
   `run_ref` run, then re-run `dispatch --unit <dependent>`; completed units
