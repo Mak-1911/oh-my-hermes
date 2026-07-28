@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import shutil
 import subprocess
 import time
 from typing import Any, Callable, Iterable, Mapping, Sequence
@@ -64,13 +65,19 @@ DISPATCH_COMMAND_TEMPLATES: dict[str, tuple[str, ...]] = {
         "--allowedTools",
         "Bash(git add:*),Bash(git commit:*)",
     ),
-    # omo runs as an extension of the senpi host CLI. Validated live
-    # (2026-07): `--print --no-session` completes non-interactively with a
-    # clean exit code on failure (missing API key, plan 402), and the
-    # `workspace` permission preset allowed file creation plus the exact
-    # `git add`/`git commit` the unit prompt asks for — no interactive
-    # prompt, no broader grant. `--no-session` keeps the dispatch ephemeral
-    # so no session state accumulates outside the worktree.
+    # omo ships as an extension of a pi-family host CLI (usually `pi`;
+    # `senpi` is a distribution of it with the same headless surface) or of
+    # opencode. The host is DETECTED at dispatch time in a fixed order —
+    # see OMO_RUNTIME_HOST_CANDIDATES — and the placeholder below is
+    # replaced by the detected host's template; no personal stack is
+    # hardcoded. The pi/senpi surface was validated in a live bridge
+    # dispatch (2026-07, senpi): `--print --no-session` completes
+    # non-interactively with clean exit codes on failure, and the
+    # `workspace` permission preset allowed file creation plus exactly the
+    # `git add`/`git commit` the unit prompt asks for. The opencode
+    # template is prepared from `opencode run --help` (model/variant flags
+    # verified locally); its permission behavior validates on first live
+    # dispatch, claude-template precedent.
     "omo-runtime": (
         "senpi",
         "--print",
@@ -80,6 +87,47 @@ DISPATCH_COMMAND_TEMPLATES: dict[str, tuple[str, ...]] = {
         "{prompt}",
     ),
 }
+
+# Fixed detection order for the omo runtime's local host CLI: first on PATH
+# wins ("usually pi" — user-stated common case; senpi is a pi distribution;
+# opencode hosts omo as a plugin). Detection is presence-only and recorded
+# implicitly by argv[0]/probe command.
+OMO_RUNTIME_HOST_CANDIDATES: tuple[str, ...] = ("pi", "senpi", "opencode")
+
+_OMO_HOST_TEMPLATES: dict[str, dict[str, tuple[str, ...] | int | None]] = {
+    "pi": {
+        "argv": ("pi", "--print", "--no-session", "--permission-preset", "workspace", "{prompt}"),
+        "model": ("--model", "{model}"),
+        "effort": ("--thinking", "{effort}"),
+        "insert": 5,
+    },
+    "senpi": {
+        "argv": ("senpi", "--print", "--no-session", "--permission-preset", "workspace", "{prompt}"),
+        "model": ("--model", "{model}"),
+        "effort": ("--thinking", "{effort}"),
+        "insert": 5,
+    },
+    "opencode": {
+        "argv": ("opencode", "run", "{prompt}"),
+        "model": ("--model", "{model}"),
+        "effort": ("--variant", "{effort}"),
+        "insert": 2,
+    },
+}
+
+
+def omo_runtime_host(which: Callable[[str], str | None] | None = None) -> str | None:
+    """Return the first omo host CLI present on PATH, or None.
+
+    The default resolves `shutil.which` at CALL time (a def-time default
+    would freeze the binding and make the probe untestable/unpatchable).
+    """
+    resolved_which = shutil.which if which is None else which
+    for candidate in OMO_RUNTIME_HOST_CANDIDATES:
+        if resolved_which(candidate):
+            return candidate
+    return None
+
 
 # Model routing is prepared metadata on the unit handoff; these fragments turn
 # it into argv only at dispatch time. Codex takes options before the prompt
@@ -116,7 +164,20 @@ def build_dispatch_argv(
     Without a model route the argv is byte-identical to the base template; a
     routed model/effort inserts the per-owner option fragments only.
     """
-    template = DISPATCH_COMMAND_TEMPLATES.get(owner)
+    if owner == "omo-runtime":
+        host = omo_runtime_host()
+        if host is None:
+            return None
+        host_table = _OMO_HOST_TEMPLATES[host]
+        template = host_table["argv"]
+        model_template = host_table["model"]
+        effort_template = host_table["effort"]
+        insert_index = host_table["insert"]
+    else:
+        template = DISPATCH_COMMAND_TEMPLATES.get(owner)
+        model_template = DISPATCH_MODEL_OPTION_TEMPLATES.get(owner, ())
+        effort_template = DISPATCH_REASONING_OPTION_TEMPLATES.get(owner, ())
+        insert_index = _DISPATCH_OPTION_INSERT_INDEX.get(owner)
     if template is None:
         return None
     argv = [part.replace("{prompt}", prompt) for part in template]
@@ -125,12 +186,12 @@ def build_dispatch_argv(
     model = str(route.get("selected_model", "") or "")
     effort = str(route.get("selected_reasoning_effort", "") or "")
     if model:
-        options.extend(part.replace("{model}", model) for part in DISPATCH_MODEL_OPTION_TEMPLATES.get(owner, ()))
+        options.extend(part.replace("{model}", model) for part in model_template)
     if effort:
-        options.extend(part.replace("{effort}", effort) for part in DISPATCH_REASONING_OPTION_TEMPLATES.get(owner, ()))
+        options.extend(part.replace("{effort}", effort) for part in effort_template)
     if not options:
         return argv
-    insert_at = _DISPATCH_OPTION_INSERT_INDEX.get(owner)
+    insert_at = insert_index
     if insert_at is None:
         return argv + options
     return argv[:insert_at] + options + argv[insert_at:]

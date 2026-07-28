@@ -196,7 +196,7 @@ class ModelInventoryTests(unittest.TestCase):
     def test_cli_presence_table_is_fixed_vocabulary(self) -> None:
         self.assertEqual(
             CLI_PRESENCE_COMMANDS,
-            ("codex", "claude", "opencode", "senpi", "gemini", "grok", "qwen"),
+            ("codex", "claude", "opencode", "pi", "senpi", "gemini", "grok", "qwen"),
         )
 
     def test_senpi_auth_provider_names_are_presence_only(self) -> None:

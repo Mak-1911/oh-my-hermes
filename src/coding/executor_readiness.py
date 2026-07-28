@@ -39,13 +39,12 @@ _COMMANDS: dict[str, tuple[str, tuple[str, ...]]] = {
     "codex": ("codex", ("--version",)),
     "claude-code": ("claude", ("--version",)),
     "omx-runtime": ("omx", ("--version",)),
-    # omo ships as an extension of a host agent CLI, not as its own binary;
-    # the locally-dispatchable host surface is the senpi CLI (observed
-    # 2026-07: non-interactive --print completes, workspace permission
-    # preset allows file edits plus git add/commit). An opencode-hosted omo
-    # install without senpi reads `missing` here — that is a truthful
-    # bridge-readiness answer, and the runtime prompt-handoff path never
-    # needed a local CLI.
+    # omo ships as an extension of a host agent CLI, not as its own binary.
+    # The probed command is the DETECTED host (usually `pi`; `senpi` is a pi
+    # distribution; opencode hosts omo as a plugin) — see
+    # `omo_runtime_host` in fanout_dispatch. No host on PATH probes the
+    # first candidate and truthfully reads `missing`; the runtime
+    # prompt-handoff path never needed a local CLI.
     "omo-runtime": ("senpi", ("--version",)),
     "omc-runtime": ("omc", ("--version",)),
 }
@@ -73,7 +72,7 @@ def _executor_readiness_contract_cached(normalized: str) -> dict[str, object]:
             },
             "claim_boundary": "Executor readiness is not dispatch, execution, verification, review, CI, or merge evidence.",
         }
-    command, args = _COMMANDS.get(normalized, ("", ()))
+    command, args = _resolved_command(normalized) or ("", ())
     probe_kind = "local_command" if command else "wrapper_observed_profile"
     return {
         "schema_version": EXECUTOR_READINESS_SCHEMA_VERSION,
@@ -260,6 +259,16 @@ def _resolution_report(command: str, args: list[str]) -> list[dict[str, str]]:
         {"path": path, "observed_version": _observed_version(path, args)}
         for path in _path_resolutions(command)[:_MAX_OBSERVED_RESOLUTIONS]
     ]
+
+
+def _resolved_command(profile: str) -> tuple[str, tuple[str, ...]] | None:
+    entry = _COMMANDS.get(profile)
+    if profile == "omo-runtime":
+        from .fanout_dispatch import OMO_RUNTIME_HOST_CANDIDATES, omo_runtime_host
+
+        host = omo_runtime_host()
+        return ((host, ("--version",)) if host else (OMO_RUNTIME_HOST_CANDIDATES[0], ("--version",)))
+    return entry
 
 
 def _run_probe(contract: dict[str, object]) -> dict[str, object]:

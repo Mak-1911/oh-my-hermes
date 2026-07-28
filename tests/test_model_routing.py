@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 from tempfile import TemporaryDirectory
 import unittest
+from unittest import mock
 
 from _local_package import load_local_package
 
@@ -597,7 +598,8 @@ class DispatchArgvTests(unittest.TestCase):
         claude = build_dispatch_argv("claude-code", "do the work")
         self.assertEqual(claude[0:3], ["claude", "-p", "do the work"])
         self.assertNotIn("--model", claude)
-        senpi = build_dispatch_argv("omo-runtime", "do the work")
+        with mock.patch("omh.coding.fanout_dispatch.shutil.which", lambda name: "/x/senpi" if name == "senpi" else None):
+            senpi = build_dispatch_argv("omo-runtime", "do the work")
         self.assertEqual(
             senpi,
             ["senpi", "--print", "--no-session", "--permission-preset", "workspace", "do the work"],
@@ -613,7 +615,8 @@ class DispatchArgvTests(unittest.TestCase):
             "selected_model": "kimi-coding/k3",
             "selected_reasoning_effort": "high",
         }
-        argv = build_dispatch_argv("omo-runtime", "do the work", route)
+        with mock.patch("omh.coding.fanout_dispatch.shutil.which", lambda name: "/x/senpi" if name == "senpi" else None):
+            argv = build_dispatch_argv("omo-runtime", "do the work", route)
         self.assertEqual(
             argv,
             [
@@ -683,6 +686,38 @@ class DispatchArgvTests(unittest.TestCase):
         self.assertIn("model_reasoning_effort=max", build_dispatch_argv("codex", "p", old_shape_route))
         new_route = resolve_model_route("codex", requested_model="gpt-5-codex", requested_effort="max")
         self.assertIn("model_reasoning_effort=xhigh", build_dispatch_argv("codex", "p", new_route))
+
+
+class OmoHostDetectionTests(unittest.TestCase):
+    def test_detection_order_prefers_pi_then_senpi_then_opencode(self) -> None:
+        """The usual host is `pi`; senpi is its distribution; opencode hosts
+        omo as a plugin. First on PATH wins, deterministically."""
+        from omh.coding.fanout_dispatch import OMO_RUNTIME_HOST_CANDIDATES, omo_runtime_host
+
+        self.assertEqual(OMO_RUNTIME_HOST_CANDIDATES, ("pi", "senpi", "opencode"))
+        both = lambda name: f"/x/{name}" if name in ("pi", "senpi") else None
+        self.assertEqual(omo_runtime_host(both), "pi")
+        self.assertEqual(omo_runtime_host(lambda name: "/x/senpi" if name == "senpi" else None), "senpi")
+        self.assertEqual(omo_runtime_host(lambda name: "/x/opencode" if name == "opencode" else None), "opencode")
+        self.assertIsNone(omo_runtime_host(lambda name: None))
+
+    def test_pi_and_opencode_hosts_shape_the_argv(self) -> None:
+        route = {
+            "schema_version": CODING_MODEL_ROUTE_SCHEMA_VERSION,
+            "selected_model": "zai/glm-5.2",
+            "selected_reasoning_effort": "high",
+        }
+        with mock.patch("omh.coding.fanout_dispatch.shutil.which", lambda name: "/x/pi" if name == "pi" else None):
+            pi_argv = build_dispatch_argv("omo-runtime", "work", route)
+        self.assertEqual(pi_argv[0], "pi")
+        self.assertEqual(pi_argv[5:9], ["--model", "zai/glm-5.2", "--thinking", "high"])
+        with mock.patch("omh.coding.fanout_dispatch.shutil.which", lambda name: "/x/opencode" if name == "opencode" else None):
+            oc_argv = build_dispatch_argv("omo-runtime", "work", route)
+        self.assertEqual(oc_argv, ["opencode", "run", "--model", "zai/glm-5.2", "--variant", "high", "work"])
+
+    def test_no_host_on_path_means_no_argv(self) -> None:
+        with mock.patch("omh.coding.fanout_dispatch.shutil.which", lambda name: None):
+            self.assertIsNone(build_dispatch_argv("omo-runtime", "work"))
 
 
 class UnitModelRouteTests(unittest.TestCase):

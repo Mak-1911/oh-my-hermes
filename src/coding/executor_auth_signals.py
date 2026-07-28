@@ -25,10 +25,15 @@ AUTH_MARKER_STATES: Final[tuple[str, ...]] = ("present", "absent", "unknown")
 _CLAUDE_CONFIG_RELATIVE: Final[str] = ".claude.json"
 _CLAUDE_LOGIN_KEY: Final[str] = "oauthAccount"
 _CODEX_AUTH_RELATIVE: Final[str] = ".codex/auth.json"
-# senpi hosts the omo runtime locally; its credential store is a JSON object
-# keyed by provider name. Presence of at least one key is the marker — key
-# names and values are never read into state.
-_SENPI_AUTH_RELATIVE: Final[str] = ".senpi/agent/auth.json"
+# A pi-family host CLI carries the omo runtime locally; its credential
+# store is a JSON object keyed by provider name. Presence of at least one
+# key in the first store found (fixed order: pi, then its senpi
+# distribution) is the marker — key names and values are never read into
+# state, and an absent marker never vetoes.
+_PI_FAMILY_AUTH_RELATIVES: Final[tuple[str, ...]] = (
+    ".pi/agent/auth.json",
+    ".senpi/agent/auth.json",
+)
 
 AUTH_SIGNAL_PROFILES: Final[tuple[str, ...]] = ("codex", "claude-code", "omo-runtime")
 
@@ -126,16 +131,18 @@ def _claude_marker(home: Path) -> str:
 
 
 def _senpi_marker(home: Path) -> str:
-    auth_path = home / _SENPI_AUTH_RELATIVE
-    try:
+    for relative in _PI_FAMILY_AUTH_RELATIVES:
+        auth_path = home / relative
         if not auth_path.is_file():
-            return "absent"
-        parsed = json.loads(auth_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return "unknown"
-    if not isinstance(parsed, dict):
-        return "unknown"
-    return "present" if parsed else "absent"
+            continue
+        try:
+            parsed = json.loads(auth_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return "unknown"
+        if not isinstance(parsed, dict):
+            return "unknown"
+        return "present" if parsed else "absent"
+    return "absent"
 
 
 def _codex_marker(home: Path) -> str:
