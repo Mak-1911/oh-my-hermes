@@ -74,6 +74,14 @@
   owners.
 </p>
 
+> [!TIP]
+> Be with us!
+>
+> | [<img alt="X link" src="https://img.shields.io/badge/Follow-%40rlaope-00CED1?style=flat-square&logo=x&labelColor=black" width="156px" />](https://x.com/rlaope) | Follow [@rlaope](https://x.com/rlaope) on X for project updates. |
+> | :-----| :----- |
+> | [<img alt="GitHub Follow" src="https://img.shields.io/github/followers/rlaope?style=flat-square&logo=github&labelColor=black&color=24292f" width="156px" />](https://github.com/rlaope) | Follow [@rlaope](https://github.com/rlaope) on GitHub for more projects. |
+> | [<img alt="AI agent collaborators" src="https://img.shields.io/badge/With-AI%20agents%3A%20Friren%20%2B%20Killua-6f42c1?style=flat-square&labelColor=black" width="156px" />](https://github.com/rlaope/oh-my-hermes/graphs/contributors) | Built with AI agents **Friren** and **Killua**, collaborators helping ship `oh-my-hermes`. |
+
 [Website](https://rlaope.github.io/oh-my-hermes/) ·
 [Documentation](docs/README.md) ·
 [Installation](docs/INSTALLATION.md) ·
