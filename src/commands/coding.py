@@ -666,6 +666,7 @@ def cmd_coding_model_route(args: argparse.Namespace) -> int:
         requested_effort=args.effort or "",
         role=args.role or "",
         requested_domain=getattr(args, "domain", None) or "",
+        requested_depth=getattr(args, "depth", None) or "",
         local_catalog=local_catalog,
     )
     if _wants_json(args):
@@ -1337,6 +1338,11 @@ def _add_coding_commands(sub) -> None:
             "Declared work domain (for example x_platform_data); advisorily reorders a "
             "locally-derived chain toward affine families, recorded in the route, never a veto."
         ),
+    )
+    model_route.add_argument(
+        "--depth",
+        default=None,
+        help="Research-lane depth dial: shallow, standard, or deep (explicit, never inferred).",
     )
     model_route.add_argument(
         "--from-inventory",

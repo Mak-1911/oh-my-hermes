@@ -1553,6 +1553,7 @@ def _compact_memory_recall_pack(value: Any) -> dict[str, Any]:
         "included_records": [],
         "excluded_records": [],
         "record_count": len(value.get("included_records", [])) if isinstance(value.get("included_records"), list) else 0,
+        "truncated": bool(value.get("truncated", False)),
         "redaction_policy": str(value.get("redaction_policy", "")),
         "claim_boundary": str(value.get("claim_boundary", "")),
     }

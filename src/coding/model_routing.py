@@ -171,7 +171,7 @@ ROLE_MODEL_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = {
             {"model_id": "gpt-5", "reasoning_effort": ""},
         ),
         "research": (
-            {"model_id": "gpt-5", "reasoning_effort": "low"},
+            {"model_id": "gpt-5", "reasoning_effort": "medium"},
             {"model_id": "gpt-5-codex", "reasoning_effort": ""},
         ),
     },
@@ -197,8 +197,35 @@ ROLE_MODEL_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = {
             {"model_id": "sonnet", "reasoning_effort": ""},
         ),
         "research": (
-            {"model_id": "haiku", "reasoning_effort": ""},
             {"model_id": "sonnet", "reasoning_effort": ""},
+            {"model_id": "haiku", "reasoning_effort": ""},
+        ),
+    },
+}
+
+# Explicit research-depth dial (surveyed autorouting consensus: depth is a
+# DECLARED dial, never inferred from text; standard is the default, shallow
+# is the declared saving, deep is the declared escalation). `standard` has
+# no entry here on purpose: it IS the role chain above.
+RESEARCH_DEPTHS: Final[tuple[str, ...]] = ("shallow", "standard", "deep")
+
+RESEARCH_DEPTH_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = {
+    "codex": {
+        "shallow": (
+            {"model_id": "gpt-5", "reasoning_effort": "low"},
+        ),
+        "deep": (
+            {"model_id": "gpt-5-codex", "reasoning_effort": "xhigh"},
+            {"model_id": "gpt-5", "reasoning_effort": "high"},
+        ),
+    },
+    "claude-code": {
+        "shallow": (
+            {"model_id": "haiku", "reasoning_effort": ""},
+        ),
+        "deep": (
+            {"model_id": "opus", "reasoning_effort": "high"},
+            {"model_id": "sonnet", "reasoning_effort": "high"},
         ),
     },
 }
@@ -248,6 +275,7 @@ def resolve_model_route(
     requested_effort: str = "",
     role: str = "",
     requested_domain: str = "",
+    requested_depth: str = "",
     chains: Mapping[str, Mapping[str, tuple[Mapping[str, str], ...]]] | None = None,
     local_catalog: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
@@ -278,6 +306,12 @@ def resolve_model_route(
     to the front — an advisory reorder recorded in `attempted[]`, never a
     veto: every entry stays in the chain and a requested model still wins.
     Outside a local catalog the domain is recorded and explicitly skipped.
+
+    `requested_depth` is the research-lane dial (shallow|standard|deep) —
+    explicit unit data, never inferred. It applies only to `role="research"`:
+    shallow/deep swap in their declared depth chain, standard (or no depth)
+    keeps the role chain. On other roles or unknown vocabulary the depth is
+    recorded and explicitly skipped.
     """
     profile = str(executor_profile or "").strip().casefold()
     raw_role = str(role or "").strip()
@@ -323,6 +357,11 @@ def resolve_model_route(
         chain_table = ROLE_MODEL_CHAINS if chains is None else chains
         role_chain = tuple(chain_table.get(profile, {}).get(normalized_role, ())) if normalized_role else ()
     attempted: list[dict[str, str]] = []
+    depth = str(requested_depth or "").strip().casefold()
+    if depth:
+        role_chain = _depth_selected_chain(
+            depth, normalized_role, profile, role_chain, local_chains if catalog_kind == "local_inventory" else None, attempted
+        )
     domain = str(requested_domain or "").strip().casefold().replace("-", "_")
     if domain:
         role_chain = _domain_ordered_chain(
@@ -350,6 +389,7 @@ def resolve_model_route(
             catalog_kind=catalog_kind,
             catalog_fingerprint=catalog_fingerprint,
             domain=domain,
+            depth=depth,
             chain=_chain_payload(options, role_chain, selected_model=""),
             attempted=attempted,
             candidates=candidates,
@@ -377,6 +417,7 @@ def resolve_model_route(
             catalog_kind=catalog_kind,
             catalog_fingerprint=catalog_fingerprint,
             domain=domain,
+            depth=depth,
             chain=[],
             attempted=attempted,
             candidates=[],
@@ -408,6 +449,7 @@ def resolve_model_route(
                 catalog_kind=catalog_kind,
                 catalog_fingerprint=catalog_fingerprint,
                 domain=domain,
+                depth=depth,
                 chain=_chain_payload(options, role_chain, selected_model=selected),
                 attempted=attempted,
                 candidates=candidates,
@@ -436,6 +478,7 @@ def resolve_model_route(
             catalog_kind=catalog_kind,
             catalog_fingerprint=catalog_fingerprint,
             domain=domain,
+            depth=depth,
             chain=[],
             attempted=attempted,
             candidates=candidates,
@@ -468,6 +511,7 @@ def resolve_model_route(
         catalog_kind=catalog_kind,
         catalog_fingerprint=catalog_fingerprint,
         domain=domain,
+        depth=depth,
         chain=[],
         attempted=attempted,
         candidates=candidates,
@@ -498,6 +542,7 @@ def model_route_for_unit(
         requested_effort=effort,
         role=role,
         requested_domain=str(unit.get("domain", "") or "").strip(),
+        requested_depth=str(unit.get("depth", "") or "").strip(),
         local_catalog=local_catalog,
     )
 
@@ -530,6 +575,82 @@ def route_provenance(route: Mapping[str, object] | object) -> tuple[str, str]:
 def _normalized_role(role: str) -> str:
     normalized = str(role or "").strip().casefold().replace("-", "_")
     return normalized if normalized in MODEL_ROLES else ""
+
+
+def _depth_selected_chain(
+    depth: str,
+    normalized_role: str,
+    profile: str,
+    role_chain: tuple[Mapping[str, str], ...],
+    local_chains: Mapping[str, object] | None,
+    attempted: list[dict[str, str]],
+) -> tuple[Mapping[str, str], ...]:
+    """Swap in the declared research-depth chain, recording the outcome.
+
+    Depth never infers: unknown vocabulary and non-research roles keep the
+    chain untouched with a named skip, and `standard` is the role chain by
+    definition.
+    """
+    if normalized_role != "research":
+        attempted.append(
+            {
+                "stage": "research_depth",
+                "outcome": "skipped",
+                "reason": f"depth `{depth}` recorded; the depth dial applies to the research role only",
+            }
+        )
+        return role_chain
+    if depth not in RESEARCH_DEPTHS:
+        attempted.append(
+            {
+                "stage": "research_depth",
+                "outcome": "unknown_depth",
+                "reason": f"depth `{depth}` is not in ({', '.join(RESEARCH_DEPTHS)}); standard chain kept",
+            }
+        )
+        return role_chain
+    if depth == "standard":
+        attempted.append(
+            {"stage": "research_depth", "outcome": "standard", "reason": "standard is the role chain"}
+        )
+        return role_chain
+    if local_chains is not None:
+        depth_chain = local_chains.get(f"research:{depth}")
+        if isinstance(depth_chain, (list, tuple)) and depth_chain:
+            attempted.append(
+                {
+                    "stage": "research_depth",
+                    "outcome": "applied",
+                    "reason": f"declared `{depth}` research depth uses its locally-derived chain",
+                }
+            )
+            return tuple(entry for entry in depth_chain if isinstance(entry, Mapping))
+        attempted.append(
+            {
+                "stage": "research_depth",
+                "outcome": "no_depth_chain",
+                "reason": f"the local catalog derives no `{depth}` research chain; standard chain kept",
+            }
+        )
+        return role_chain
+    depth_chain = RESEARCH_DEPTH_CHAINS.get(profile, {}).get(depth, ())
+    if depth_chain:
+        attempted.append(
+            {
+                "stage": "research_depth",
+                "outcome": "applied",
+                "reason": f"declared `{depth}` research depth uses its declared chain",
+            }
+        )
+        return tuple(depth_chain)
+    attempted.append(
+        {
+            "stage": "research_depth",
+            "outcome": "no_depth_chain",
+            "reason": f"no `{depth}` research chain is declared for `{profile}`; standard chain kept",
+        }
+    )
+    return role_chain
 
 
 def _domain_ordered_chain(
@@ -748,6 +869,7 @@ def _route_payload(
     catalog_kind: str = MODEL_CATALOG_KIND,
     catalog_fingerprint: dict[str, object] | None = None,
     domain: str = "",
+    depth: str = "",
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "schema_version": CODING_MODEL_ROUTE_SCHEMA_VERSION,
@@ -778,6 +900,8 @@ def _route_payload(
         # Present only when the unit declared a domain: existing payloads
         # stay byte-identical.
         payload["domain"] = domain
+    if depth:
+        payload["depth"] = depth
     if catalog_fingerprint is not None:
         payload["catalog_fingerprint"] = catalog_fingerprint
     if effort_change is not None:

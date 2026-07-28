@@ -50,6 +50,12 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     recall.add_argument("--scope-kind", choices=("project", "target", "thread", "run"), default=None)
     recall.add_argument("--scope-ref", default=None)
     recall.add_argument("--limit", type=int, default=6)
+    recall.add_argument(
+        "--max-chars",
+        type=int,
+        default=None,
+        help="Optional summary-character budget; records cut by it are marked over_budget and the pack says truncated.",
+    )
     recall.add_argument("--include-stale", action="store_true")
     recall.set_defaults(func=memory.cmd_memory_recall)
 

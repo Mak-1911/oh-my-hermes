@@ -118,6 +118,7 @@ _PROJECT_MEMORY_RECALL_PACK_KEYS = {
     "included_records",
     "excluded_records",
     "record_count",
+    "truncated",
     "redaction_policy",
     "claim_boundary",
 }
@@ -412,6 +413,7 @@ def build_project_memory_recall_pack(
     scope_kind: str | None = None,
     scope_ref: str | None = None,
     limit: int = 6,
+    max_chars: int | None = None,
     include_stale: bool = False,
     now: datetime | None = None,
 ) -> dict[str, object]:
@@ -450,7 +452,32 @@ def build_project_memory_recall_pack(
             continue
         included.append(_recall_item(record, score=score, staleness=staleness))
     included.sort(key=lambda item: (-int(item.get("score", 0)), str(item.get("record_id", ""))))
-    included = included[: max(limit, 0)]
+    # Budget cut follows the priority ladder above: once either budget is
+    # crossed, everything after that point is cut, so a lower-priority record
+    # never displaces a higher-priority one. Cut records are recorded as
+    # over_budget rather than dropped silently -- the pack must be able to say
+    # "this is not everything".
+    kept: list[dict[str, object]] = []
+    kept_chars = 0
+    budget_exhausted = False
+    for item in included:
+        summary_chars = len(str(item.get("summary", "")))
+        if not budget_exhausted:
+            over_records = len(kept) >= max(limit, 0)
+            over_chars = max_chars is not None and kept_chars + summary_chars > max_chars
+            budget_exhausted = over_records or over_chars
+        if budget_exhausted:
+            excluded.append(
+                {
+                    "record_id": str(item.get("record_id", "")),
+                    "reason": "over_budget",
+                    "staleness": item.get("staleness", {"state": "not_checked"}),
+                }
+            )
+            continue
+        kept.append(item)
+        kept_chars += summary_chars
+    included = kept
     return {
         "schema_version": PROJECT_MEMORY_RECALL_PACK_SCHEMA_VERSION,
         "enabled": True,
@@ -462,6 +489,7 @@ def build_project_memory_recall_pack(
         "included_records": included,
         "excluded_records": excluded,
         "record_count": len(included),
+        "truncated": budget_exhausted,
         "redaction_policy": "metadata_only",
         "claim_boundary": (
             "Memory recall packs contain reviewed OMH project summaries only; "
@@ -967,6 +995,8 @@ def validate_project_memory_recall_pack(value: Any, *, label: str = "memory_reca
     _validate_context_list(value.get("included_records"), _PROJECT_MEMORY_RECALL_ITEM_KEYS, errors, f"{label}.included_records", scope_key="scope")
     _validate_context_list(value.get("excluded_records"), _PROJECT_MEMORY_EXCLUDED_KEYS, errors, f"{label}.excluded_records")
     _validate_context_map(value.get("task_ref"), _PROJECT_MEMORY_TASK_REF_KEYS, errors, f"{label}.task_ref")
+    if not isinstance(value.get("truncated"), bool):
+        errors.append(f"{label}.truncated must be a boolean")
     if not isinstance(value.get("policy"), dict):
         errors.append(f"{label}.policy must be an object")
     if value.get("redaction_policy") != "metadata_only":
@@ -1103,6 +1133,7 @@ def _empty_recall_pack(
         "included_records": [],
         "excluded_records": [{"record_id": "", "reason": reason, "staleness": {"state": "not_checked"}}],
         "record_count": 0,
+        "truncated": False,
         "redaction_policy": "metadata_only",
         "claim_boundary": "Memory recall is disabled or empty; no execution, review, CI, merge, or Hermes internal-memory evidence is produced.",
     }
