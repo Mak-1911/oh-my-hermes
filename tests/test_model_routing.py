@@ -44,6 +44,113 @@ class FamilyPrefixParityTests(unittest.TestCase):
     def test_grok_family_is_recognized(self) -> None:
         self.assertEqual(model_family("grok-code-fast-1"), "grok")
 
+    def test_provider_prefixed_ids_classify_by_model_segment(self) -> None:
+        self.assertEqual(model_family("opencode/kimi-k3"), "kimi")
+        self.assertEqual(model_family("anthropic/claude-opus-5"), "claude")
+        self.assertEqual(model_family("openai/gpt-5.6-sol"), "gpt")
+        self.assertEqual(model_family("opencode/big-pickle"), "unknown")
+
+
+_LOCAL_CATALOG = {
+    "schema_version": "local_model_catalog/v1",
+    "executor_profile": "omo-runtime",
+    "catalog_kind": "local_inventory",
+    "options": (
+        {
+            "model_id": "opencode/kimi-k3",
+            "label": "kimi family via opencode",
+            "tier": "",
+            "recommended_roles": (),
+            "reasoning_efforts": (),
+        },
+        {
+            "model_id": "opencode/gemini-3.1-pro",
+            "label": "gemini family via opencode",
+            "tier": "",
+            "recommended_roles": (),
+            "reasoning_efforts": (),
+        },
+    ),
+    "chains": {
+        "brain": (
+            {"model_id": "opencode/kimi-k3", "reasoning_effort": "high"},
+            {"model_id": "opencode/gemini-3.1-pro", "reasoning_effort": ""},
+        ),
+    },
+    "fingerprint": {"digest": "cafe1234beef5678", "sources": {"omo_agent_config": "present"}, "observed_at": "t"},
+}
+
+
+class LocalCatalogRouteTests(unittest.TestCase):
+    def test_catalogless_profile_routes_from_local_catalog_with_fingerprint(self) -> None:
+        route = resolve_model_route("omo-runtime", role="brain", local_catalog=_LOCAL_CATALOG)
+        self.assertEqual(route["status"], "routed")
+        self.assertEqual(route["provenance"], "role_chain_head")
+        self.assertEqual(route["selected_model"], "opencode/kimi-k3")
+        self.assertEqual(route["selected_reasoning_effort"], "high")
+        self.assertEqual(route["model_family"], "kimi")
+        self.assertEqual(route["catalog_kind"], "local_inventory")
+        self.assertEqual(route["catalog_fingerprint"]["digest"], "cafe1234beef5678")
+        self.assertEqual(len(route["chain"]), 2)
+
+    def test_local_catalog_never_applies_to_built_in_profiles(self) -> None:
+        """Built-in catalogs always win: a local catalog naming codex (or
+        handed to a codex resolution) must change nothing, byte for byte."""
+        hostile = dict(_LOCAL_CATALOG)
+        hostile["executor_profile"] = "codex"
+        baseline = resolve_model_route("codex", role="brain")
+        self.assertEqual(resolve_model_route("codex", role="brain", local_catalog=hostile), baseline)
+        self.assertEqual(resolve_model_route("codex", role="brain", local_catalog=_LOCAL_CATALOG), baseline)
+
+    def test_local_catalog_for_other_profile_is_ignored(self) -> None:
+        route = resolve_model_route("hermes", role="brain", local_catalog=_LOCAL_CATALOG)
+        self.assertEqual(route["status"], "no_model_catalog")
+        self.assertEqual(route["catalog_kind"], "built_in_defaults")
+        self.assertNotIn("catalog_fingerprint", route)
+
+    def test_local_catalog_never_gains_effort_authority(self) -> None:
+        """Observed config variants are evidence of use, not vocabulary: a
+        requested ladder effort passes through untouched, never downgraded."""
+        route = resolve_model_route(
+            "omo-runtime", role="brain", requested_effort="max", local_catalog=_LOCAL_CATALOG
+        )
+        self.assertEqual(route["selected_reasoning_effort"], "max")
+        self.assertEqual(route["effort_change"]["kind"], "catalog_no_authority_passthrough")
+
+    def test_requested_model_still_wins_over_local_chain(self) -> None:
+        route = resolve_model_route(
+            "omo-runtime",
+            role="brain",
+            requested_model="opencode/glm-5",
+            local_catalog=_LOCAL_CATALOG,
+        )
+        self.assertEqual(route["provenance"], "request_named_model")
+        self.assertEqual(route["selected_model"], "opencode/glm-5")
+        self.assertEqual(route["model_family"], "glm")
+        self.assertEqual(route["catalog_kind"], "local_inventory")
+
+    def test_unchained_role_on_local_catalog_is_explicit_choice(self) -> None:
+        route = resolve_model_route("omo-runtime", role="docs", local_catalog=_LOCAL_CATALOG)
+        self.assertEqual(route["status"], "choice_required")
+        self.assertEqual(route["provenance"], "role_unchained")
+        self.assertEqual(route["catalog_kind"], "local_inventory")
+
+    def test_empty_or_corrupt_local_catalog_claims_no_basis(self) -> None:
+        """A frozen record must never name a basis that adjudicated nothing:
+        an offered catalog with no usable options falls through to the
+        executor default WITHOUT catalog_kind/fingerprint, and says so."""
+        for hostile_options in ([], ["not-a-mapping", 42]):
+            hostile = dict(_LOCAL_CATALOG)
+            hostile["options"] = hostile_options
+            route = resolve_model_route("omo-runtime", role="brain", local_catalog=hostile)
+            self.assertEqual(route["status"], "no_model_catalog")
+            self.assertEqual(route["catalog_kind"], "built_in_defaults")
+            self.assertNotIn("catalog_fingerprint", route)
+            self.assertTrue(
+                any("no usable options" in reason for reason in route["reasons"]),
+                route["reasons"],
+            )
+
 
 class ModelRouteResolverTests(unittest.TestCase):
     def test_requested_model_always_wins_and_passes_through_unvalidated(self) -> None:

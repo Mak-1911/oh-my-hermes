@@ -657,11 +657,15 @@ def cmd_coding_model_route(args: argparse.Namespace) -> int:
 
     if not args.executor:
         raise OmhError("--executor is required unless --explain is given")
+    local_catalog = None
+    if getattr(args, "from_inventory", False):
+        local_catalog = _local_model_catalogs().get(str(args.executor or "").strip().casefold())
     route = resolve_model_route(
         args.executor,
         requested_model=args.model or "",
         requested_effort=args.effort or "",
         role=args.role or "",
+        local_catalog=local_catalog,
     )
     if _wants_json(args):
         _print_json(route)
@@ -746,21 +750,46 @@ def cmd_coding_model_inventory(args: argparse.Namespace) -> int:
     return 0
 
 
+def _local_model_catalogs() -> dict[str, dict[str, object]]:
+    """Observe the local inventory once and key its derived catalog by profile.
+
+    The I/O boundary lives here in the command layer: the route resolver and
+    contract builder receive the catalog as data and stay pure.
+    """
+    from ..coding.model_inventory import inventory_model_catalog, local_model_inventory
+
+    catalog = inventory_model_catalog(local_model_inventory())
+    if catalog is None:
+        return {}
+    return {str(catalog.get("executor_profile", "")): catalog}
+
+
 def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
     from ..coding.fanout import build_fanout_contract, is_degenerate_single_unit, single_unit_redirect
     from ..coding.fanout_artifacts import write_fanout_contract
     from ..coding.fanout_contracts import FanoutContractError
+    from ..coding.model_routing import EXECUTOR_MODEL_OPTIONS
 
     units = _read_fanout_units(args.units)
     if is_degenerate_single_unit(units):
         _print_json(single_unit_redirect(units))
         return 0
+    # The inventory is observed only when some unit names a profile without a
+    # built-in catalog — a codex/claude-only contract must stay byte-identical
+    # across machines regardless of what local config exists.
+    needs_inventory = any(
+        isinstance(unit, dict)
+        and str(unit.get("owner", "") or "")
+        and str(unit.get("owner", "") or "") not in EXECUTOR_MODEL_OPTIONS
+        for unit in units
+    )
     try:
         contract = build_fanout_contract(
             " ".join(args.goal).strip(),
             units,
             source=args.source,
             source_metadata=_explicit_source_metadata(args),
+            local_catalogs=_local_model_catalogs() if needs_inventory else {},
         )
     except FanoutContractError as exc:
         raise OmhError(str(exc)) from exc
@@ -1264,6 +1293,15 @@ def _add_coding_commands(sub) -> None:
         "--explain",
         action="store_true",
         help="Render the effective profile x role resolution matrix with full chains and provenance.",
+    )
+    model_route.add_argument(
+        "--from-inventory",
+        action="store_true",
+        dest="from_inventory",
+        help=(
+            "Consult the locally-derived model catalog (fingerprint-recorded) for profiles without "
+            "a built-in catalog; built-in catalogs always win."
+        ),
     )
     model_route.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
     model_route.set_defaults(func=cmd_coding_model_route)

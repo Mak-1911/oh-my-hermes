@@ -13,9 +13,14 @@ load_local_package()
 from _cli_harness import run_cli  # noqa: E402
 from omh.coding.model_inventory import (  # noqa: E402
     CLI_PRESENCE_COMMANDS,
+    LOCAL_MODEL_CATALOG_SCHEMA_VERSION,
     MODEL_DOMAIN_AFFINITIES,
     MODEL_DOMAIN_AFFINITY_CLAIM_BOUNDARY,
+    MODEL_INVENTORY_CATALOG_PROFILE,
     MODEL_INVENTORY_SCHEMA_VERSION,
+    OMO_CATEGORY_ROLE_SOURCES,
+    catalog_fingerprint_note,
+    inventory_model_catalog,
     local_model_inventory,
 )
 
@@ -192,7 +197,170 @@ class ModelInventoryTests(unittest.TestCase):
         )
 
 
+class InventoryModelCatalogTests(unittest.TestCase):
+    def _catalog(self) -> dict:
+        with TemporaryDirectory() as tmp:
+            inventory = local_model_inventory(_write_home(tmp, omo_config=_OMO_FIXTURE))
+        catalog = inventory_model_catalog(inventory)
+        assert catalog is not None
+        return catalog
+
+    def test_catalog_targets_the_omo_runtime_profile(self) -> None:
+        catalog = self._catalog()
+        self.assertEqual(catalog["schema_version"], LOCAL_MODEL_CATALOG_SCHEMA_VERSION)
+        self.assertEqual(catalog["executor_profile"], MODEL_INVENTORY_CATALOG_PROFILE)
+        self.assertEqual(catalog["catalog_kind"], "local_inventory")
+
+    def test_chains_derive_from_category_role_sources_in_config_order(self) -> None:
+        catalog = self._catalog()
+        chains = catalog["chains"]
+        # The fixture declares only visual-engineering; only roles sourcing it
+        # gain a chain, in the config's own primary-then-fallback order.
+        self.assertEqual(
+            [entry["model_id"] for entry in chains["design_visual"]],
+            ["opencode/gemini-3.1-pro", "anthropic/claude-opus-5"],
+        )
+        self.assertEqual(chains["design_visual"][0]["reasoning_effort"], "high")
+        self.assertNotIn("brain", chains)
+        self.assertIn("design_visual", OMO_CATEGORY_ROLE_SOURCES)
+
+    def test_options_never_carry_effort_authority(self) -> None:
+        catalog = self._catalog()
+        for option in catalog["options"]:
+            self.assertEqual(option["reasoning_efforts"], ())
+
+    def test_fingerprint_is_deterministic_for_an_unchanged_config(self) -> None:
+        first = self._catalog()
+        second = self._catalog()
+        self.assertEqual(first["fingerprint"]["digest"], second["fingerprint"]["digest"])
+        self.assertIn("omo_agent_config", first["fingerprint"]["sources"])
+
+    def test_fingerprint_changes_when_chains_move_across_the_same_models(self) -> None:
+        """The digest anchors the derived artifact: reassigning a category to
+        an already-present model must change the digest even though the model
+        SET is identical — that reassignment is exactly the drift the
+        fingerprint exists to make visible."""
+        base = {
+            "categories": {
+                "ultrabrain": {"model": "opencode/glm-5"},
+                "quick": {"model": "opencode/gemini-3-flash"},
+            }
+        }
+        swapped = {
+            "categories": {
+                "ultrabrain": {"model": "opencode/gemini-3-flash"},
+                "quick": {"model": "opencode/glm-5"},
+            }
+        }
+        digests = []
+        for config in (base, swapped):
+            with TemporaryDirectory() as tmp:
+                inventory = local_model_inventory(_write_home(tmp, omo_config=config))
+            catalog = inventory_model_catalog(inventory)
+            assert catalog is not None
+            digests.append(catalog["fingerprint"]["digest"])
+        self.assertNotEqual(digests[0], digests[1])
+
+    def test_empty_inventory_yields_no_catalog(self) -> None:
+        with TemporaryDirectory() as tmp:
+            inventory = local_model_inventory(Path(tmp))
+        self.assertIsNone(inventory_model_catalog(inventory))
+
+    def test_fingerprint_note_reports_skew_advisorily(self) -> None:
+        route = {"catalog_fingerprint": {"digest": "abc123"}}
+        note = catalog_fingerprint_note(route, "abc123")
+        self.assertEqual(note, {"frozen_digest": "abc123", "current_digest": "abc123", "match": True})
+        drifted = catalog_fingerprint_note(route, "def456")
+        self.assertFalse(drifted["match"])
+        self.assertIsNone(catalog_fingerprint_note({"selected_model": "x"}, "abc123"))
+        self.assertIsNone(catalog_fingerprint_note(None, "abc123"))
+
+
 class ModelInventoryCliTests(unittest.TestCase):
+    def test_fanout_prepare_freezes_local_route_with_fingerprint(self) -> None:
+        """A unit owned by the OMO runtime with a declared role freezes a
+        route resolved from the user's own config — catalog_kind plus the
+        inventory fingerprint land in the contract so the basis is named."""
+        units = json.dumps(
+            [
+                {
+                    "unit_id": "visual",
+                    "title": "Visual work",
+                    "owner": "omo-runtime",
+                    "file_scope": ["src/ui/"],
+                    "role": "design_visual",
+                },
+                {
+                    "unit_id": "aux",
+                    "title": "Aux",
+                    "owner": "codex",
+                    "file_scope": ["docs/"],
+                },
+            ]
+        )
+        with TemporaryDirectory() as tmp:
+            home = _write_home(tmp, omo_config=_OMO_FIXTURE)
+            with mock.patch.dict("os.environ", {"HOME": str(home)}):
+                status, stdout, _stderr = run_cli(
+                    ["coding", "fanout", "prepare", "--goal", "ship", "the", "feature", "--units", "-"],
+                    stdin_text=units,
+                )
+        self.assertEqual(status, 0)
+        contract = json.loads(stdout)
+        by_id = {unit["unit_id"]: unit for unit in contract["units"]}
+        route = by_id["visual"]["handoff"]["model_route"]
+        self.assertEqual(route["catalog_kind"], "local_inventory")
+        self.assertEqual(route["selected_model"], "opencode/gemini-3.1-pro")
+        self.assertTrue(route["catalog_fingerprint"]["digest"])
+        # Built-in-catalog owners stay on built-in resolution, untouched.
+        self.assertNotIn("model_route", by_id["aux"]["handoff"])
+
+    def test_prepare_without_catalogless_owners_is_home_independent(self) -> None:
+        """A codex/claude-only contract must stay byte-identical across
+        machines: prepare consults the inventory only when a unit names a
+        profile without a built-in catalog, so whatever local config exists
+        must not leak into the contract."""
+        units = json.dumps(
+            [
+                {"unit_id": "core", "title": "Core", "owner": "codex", "file_scope": ["src/a/"], "role": "brain"},
+                {"unit_id": "aux", "title": "Aux", "owner": "claude-code", "file_scope": ["docs/"], "role": "docs"},
+            ]
+        )
+        outputs = []
+        for config in (_OMO_FIXTURE, None):
+            with TemporaryDirectory() as tmp:
+                home = _write_home(tmp, omo_config=config) if config else Path(tmp)
+                with mock.patch.dict("os.environ", {"HOME": str(home)}):
+                    status, stdout, _stderr = run_cli(
+                        ["coding", "fanout", "prepare", "--goal", "ship", "it", "--units", "-"],
+                        stdin_text=units,
+                    )
+            self.assertEqual(status, 0)
+            outputs.append(stdout)
+        self.assertEqual(outputs[0], outputs[1])
+
+    def test_model_route_cli_from_inventory_flag(self) -> None:
+        with TemporaryDirectory() as tmp:
+            home = _write_home(tmp, omo_config=_OMO_FIXTURE)
+            with mock.patch.dict("os.environ", {"HOME": str(home)}):
+                status, stdout, _stderr = run_cli(
+                    [
+                        "coding",
+                        "model-route",
+                        "--executor",
+                        "omo-runtime",
+                        "--role",
+                        "design_visual",
+                        "--from-inventory",
+                        "--json",
+                    ]
+                )
+        self.assertEqual(status, 0)
+        route = json.loads(stdout)
+        self.assertEqual(route["status"], "routed")
+        self.assertEqual(route["catalog_kind"], "local_inventory")
+        self.assertEqual(route["selected_model"], "opencode/gemini-3.1-pro")
+
     def test_cli_plain_text_default_and_json_optin(self) -> None:
         with TemporaryDirectory() as tmp:
             home = _write_home(tmp, omo_config=_OMO_FIXTURE)

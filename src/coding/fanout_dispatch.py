@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import subprocess
 import time
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from ..runtime.artifacts import append_journal_observation, create_run, show_run
 from ..system.local_store import atomic_write_json, locked_json_update, utc_now
@@ -168,6 +168,7 @@ def dispatch_fanout(
     verify_goal_matches_contract(contract, goal_text)
     units = {str(unit["unit_id"]): unit for unit in contract.get("units", []) if isinstance(unit, Mapping)}
     order = [str(unit_id) for unit_id in contract.get("merge_plan", {}).get("merge_order", [])]
+    current_catalog_digest = _current_catalog_digest(units.values())
     selected = set(only_units) if only_units else set(order)
     results: dict[str, dict[str, Any]] = {}
 
@@ -217,6 +218,7 @@ def dispatch_fanout(
                     dry_run=dry_run,
                     runner=runner,
                     readiness=readiness,
+                    current_catalog_digest=current_catalog_digest,
                 )
                 for unit_id in ready
             }
@@ -290,6 +292,26 @@ def _merged_dispatch_summary(summary_path: Path, summary: dict[str, Any]) -> dic
     return merged
 
 
+def _current_catalog_digest(units: Iterable[Mapping[str, Any]]) -> str:
+    """Observe the current local-catalog digest once per dispatch, and only
+    when some unit's frozen route actually carries a catalog fingerprint —
+    contracts routed purely from built-in catalogs never trigger the read."""
+    for unit in units:
+        handoff = unit.get("handoff", {}) if isinstance(unit.get("handoff"), Mapping) else {}
+        route = handoff.get("model_route")
+        if isinstance(route, Mapping) and isinstance(route.get("catalog_fingerprint"), Mapping):
+            break
+    else:
+        return ""
+    from .model_inventory import inventory_model_catalog, local_model_inventory
+
+    catalog = inventory_model_catalog(local_model_inventory())
+    if not isinstance(catalog, Mapping):
+        return ""
+    fingerprint = catalog.get("fingerprint")
+    return str(fingerprint.get("digest", "") or "") if isinstance(fingerprint, Mapping) else ""
+
+
 def _dispatch_unit(
     paths: OmhPaths,
     unit: Mapping[str, Any],
@@ -301,7 +323,10 @@ def _dispatch_unit(
     dry_run: bool,
     runner: Callable[..., Any],
     readiness: Callable[..., dict[str, object]],
+    current_catalog_digest: str = "",
 ) -> dict[str, Any]:
+    from .model_inventory import catalog_fingerprint_note
+
     unit_id = str(unit["unit_id"])
     run_ref = str(unit.get("run_ref", unit_id))
     handoff = unit.get("handoff", {}) if isinstance(unit.get("handoff"), Mapping) else {}
@@ -309,6 +334,7 @@ def _dispatch_unit(
     model_route = handoff.get("model_route") if isinstance(handoff.get("model_route"), Mapping) else None
     routed_model = str(model_route.get("selected_model", "") or "") if model_route else ""
     routed_effort = str(model_route.get("selected_reasoning_effort", "") or "") if model_route else ""
+    fingerprint_note = catalog_fingerprint_note(model_route, current_catalog_digest)
     if DISPATCH_COMMAND_TEMPLATES.get(owner) is None:
         return {
             "unit_id": unit_id,
@@ -332,7 +358,7 @@ def _dispatch_unit(
     argv = build_dispatch_argv(owner, prompt, model_route)
     worktree = _worktree_path(repo_root, unit_id)
     if dry_run:
-        return {
+        planned: dict[str, Any] = {
             "unit_id": unit_id,
             "run_ref": run_ref,
             "owner": owner,
@@ -342,6 +368,9 @@ def _dispatch_unit(
             "worktree_path": str(worktree),
             "merge_ready": False,
         }
+        if fingerprint_note is not None:
+            planned["inventory_fingerprint"] = fingerprint_note
+        return planned
     from .worktree_creator import ensure_fanout_unit_worktree
 
     worktree_record = ensure_fanout_unit_worktree(
@@ -434,6 +463,8 @@ def _dispatch_unit(
         "finished_at": finished_at,
         "duration_seconds": duration_seconds,
     }
+    if fingerprint_note is not None:
+        result["inventory_fingerprint"] = fingerprint_note
     if limit_label:
         result["limit_shaped"] = True
         result["limit_pattern"] = limit_label
