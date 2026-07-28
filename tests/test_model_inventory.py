@@ -195,8 +195,23 @@ class ModelInventoryTests(unittest.TestCase):
 
     def test_cli_presence_table_is_fixed_vocabulary(self) -> None:
         self.assertEqual(
-            CLI_PRESENCE_COMMANDS, ("codex", "claude", "opencode", "gemini", "grok", "qwen")
+            CLI_PRESENCE_COMMANDS,
+            ("codex", "claude", "opencode", "senpi", "gemini", "grok", "qwen"),
         )
+
+    def test_senpi_auth_provider_names_are_presence_only(self) -> None:
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            senpi_dir = home / ".senpi" / "agent"
+            senpi_dir.mkdir(parents=True)
+            (senpi_dir / "auth.json").write_text(
+                json.dumps({"kimi-coding": {"type": "api", "key": _SECRET}}), encoding="utf-8"
+            )
+            inventory = local_model_inventory(home)
+        source = inventory["sources"]["senpi_auth_providers"]
+        self.assertEqual(source["status"], "present")
+        self.assertEqual(source["providers"], ["kimi-coding"])
+        self.assertNotIn(_SECRET, json.dumps(inventory))
 
 
 class InventoryModelCatalogTests(unittest.TestCase):

@@ -39,7 +39,14 @@ _COMMANDS: dict[str, tuple[str, tuple[str, ...]]] = {
     "codex": ("codex", ("--version",)),
     "claude-code": ("claude", ("--version",)),
     "omx-runtime": ("omx", ("--version",)),
-    "omo-runtime": ("omo", ("--version",)),
+    # omo ships as an extension of a host agent CLI, not as its own binary;
+    # the locally-dispatchable host surface is the senpi CLI (observed
+    # 2026-07: non-interactive --print completes, workspace permission
+    # preset allows file edits plus git add/commit). An opencode-hosted omo
+    # install without senpi reads `missing` here — that is a truthful
+    # bridge-readiness answer, and the runtime prompt-handoff path never
+    # needed a local CLI.
+    "omo-runtime": ("senpi", ("--version",)),
     "omc-runtime": ("omc", ("--version",)),
 }
 
@@ -336,7 +343,11 @@ def _run_probe(contract: dict[str, object]) -> dict[str, object]:
     return result
 
 
-EXECUTOR_CHOICE_CONTEXT_PROFILES = ("codex", "claude-code")
+# CLI-backed candidates for the choose-executor question: profiles with a
+# locally probeable agent CLI. omo-runtime joined when the senpi host CLI
+# gained a validated dispatch template — the choice card should offer every
+# surface the user can actually run.
+EXECUTOR_CHOICE_CONTEXT_PROFILES = ("codex", "claude-code", "omo-runtime")
 EXECUTOR_CHOICE_CONTEXT_CLAIM_BOUNDARY = (
     "Choice context ranks locally-installed executor candidates from cached readiness and local "
     "markers only. It is not provider quota, entitlement, or login truth, and it never removes a "

@@ -530,6 +530,38 @@ class DispatchArgvTests(unittest.TestCase):
         claude = build_dispatch_argv("claude-code", "do the work")
         self.assertEqual(claude[0:3], ["claude", "-p", "do the work"])
         self.assertNotIn("--model", claude)
+        senpi = build_dispatch_argv("omo-runtime", "do the work")
+        self.assertEqual(
+            senpi,
+            ["senpi", "--print", "--no-session", "--permission-preset", "workspace", "do the work"],
+        )
+
+    def test_omo_runtime_model_and_thinking_insert_before_prompt(self) -> None:
+        """The senpi host treats trailing tokens as message positionals, so
+        routed options must land before the prompt — validated live: --print
+        completes non-interactively and the workspace preset allowed file
+        edits plus git add/commit."""
+        route = {
+            "schema_version": CODING_MODEL_ROUTE_SCHEMA_VERSION,
+            "selected_model": "kimi-coding/k3",
+            "selected_reasoning_effort": "high",
+        }
+        argv = build_dispatch_argv("omo-runtime", "do the work", route)
+        self.assertEqual(
+            argv,
+            [
+                "senpi",
+                "--print",
+                "--no-session",
+                "--permission-preset",
+                "workspace",
+                "--model",
+                "kimi-coding/k3",
+                "--thinking",
+                "high",
+                "do the work",
+            ],
+        )
 
     def test_codex_model_and_effort_insert_before_prompt(self) -> None:
         route = resolve_model_route("codex", requested_model="gpt-5-codex", requested_effort="xhigh")

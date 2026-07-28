@@ -59,6 +59,26 @@ class AuthSignalMarkerTests(unittest.TestCase):
         entry = auth_signal_for_profile("hermes")
         self.assertEqual(entry["login_marker"], "not_applicable")
 
+    def test_senpi_marker_is_presence_only(self) -> None:
+        """omo-runtime's marker is the senpi credential store: present iff a
+        non-empty JSON object exists; provider names and values never read."""
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            self.assertEqual(executor_auth_signals(home=home)["profiles"]["omo-runtime"]["login_marker"], "absent")
+            senpi_dir = home / ".senpi" / "agent"
+            senpi_dir.mkdir(parents=True)
+            (senpi_dir / "auth.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(executor_auth_signals(home=home)["profiles"]["omo-runtime"]["login_marker"], "absent")
+            (senpi_dir / "auth.json").write_text(
+                json.dumps({"kimi-coding": {"key": "sk-SECRET-VALUE-12345"}}), encoding="utf-8"
+            )
+            signals = executor_auth_signals(home=home)
+            self.assertEqual(signals["profiles"]["omo-runtime"]["login_marker"], "present")
+            self.assertNotIn("sk-SECRET-VALUE-12345", json.dumps(signals))
+            self.assertNotIn("kimi-coding", json.dumps(signals))
+            (senpi_dir / "auth.json").write_text("not json {", encoding="utf-8")
+            self.assertEqual(executor_auth_signals(home=home)["profiles"]["omo-runtime"]["login_marker"], "unknown")
+
 
 class LimitSignalReadTests(unittest.TestCase):
     def test_missing_state_reads_as_empty(self) -> None:
@@ -134,13 +154,15 @@ class ReadinessAdvisoryFreshnessTests(unittest.TestCase):
 
 
 class ExecutorChoiceContextTests(unittest.TestCase):
-    def test_choice_context_lists_both_cli_candidates_without_probing(self) -> None:
+    def test_choice_context_lists_every_cli_candidate_without_probing(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
             context = executor_choice_context(paths)
             profiles = [entry["profile"] for entry in context["candidates"]]
-            self.assertEqual(profiles, ["codex", "claude-code"])
+            # Ranking may reorder by live local login markers; membership and
+            # count are the contract.
+            self.assertEqual(sorted(profiles), ["claude-code", "codex", "omo-runtime"])
             for entry in context["candidates"]:
                 self.assertEqual(entry["readiness_status"], "not_observed")
                 self.assertIn("auth_signal", entry)
