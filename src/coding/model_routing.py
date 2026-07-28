@@ -194,6 +194,7 @@ _MODEL_FAMILY_PREFIXES: Final[tuple[tuple[str, str], ...]] = (
     ("openai-", "openai"),
     ("anthropic-", "anthropic"),
     ("gemini-", "gemini"),
+    ("grok-", "grok"),
     ("qwen-", "qwen"),
     ("kimi-", "kimi"),
     ("mistral-", "mistral"),

@@ -28,6 +28,23 @@ from omh.coding.model_routing import (  # noqa: E402
 )
 
 
+class FamilyPrefixParityTests(unittest.TestCase):
+    def test_family_prefixes_match_dynamic_workflow_target_prefixes(self) -> None:
+        """The two prefix lists must name families the same way; drift between
+        them was previously silent (no gate) and is a live risk each time a
+        family is added. The family label is the prefix minus its dash."""
+        from omh.coding.dynamic_workflow_specs import _MODEL_TARGET_PREFIXES
+        from omh.coding.model_routing import _MODEL_FAMILY_PREFIXES
+
+        routing_prefixes = tuple(prefix for prefix, _family in _MODEL_FAMILY_PREFIXES)
+        self.assertEqual(routing_prefixes, _MODEL_TARGET_PREFIXES)
+        for prefix, family in _MODEL_FAMILY_PREFIXES:
+            self.assertEqual(family, prefix.rstrip("-"), prefix)
+
+    def test_grok_family_is_recognized(self) -> None:
+        self.assertEqual(model_family("grok-code-fast-1"), "grok")
+
+
 class ModelRouteResolverTests(unittest.TestCase):
     def test_requested_model_always_wins_and_passes_through_unvalidated(self) -> None:
         route = resolve_model_route("codex", requested_model="gpt-6-terra", requested_effort="xhigh", role="brain")

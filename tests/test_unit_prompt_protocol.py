@@ -121,8 +121,15 @@ class CalibrationSelectionTests(unittest.TestCase):
     def test_unknown_family_high_effort_falls_back_to_generic(self) -> None:
         route = {"selected_reasoning_effort": "xhigh", "model_family": "unknown"}
         self.assertEqual(calibration_for_route(route), HIGH_EFFORT_CALIBRATIONS["generic"])
-        route = {"selected_reasoning_effort": "xhigh", "model_family": "kimi"}
+        route = {"selected_reasoning_effort": "xhigh", "model_family": "mistral"}
         self.assertEqual(calibration_for_route(route), HIGH_EFFORT_CALIBRATIONS["generic"])
+
+    def test_each_declared_family_gets_its_own_block(self) -> None:
+        # gemini/grok/kimi/glm ride opencode-surfaced routes; each family's
+        # counter-text is distinct data, selected by the recorded model_family.
+        for family in ("gpt", "claude", "gemini", "grok", "kimi", "glm"):
+            route = {"selected_reasoning_effort": "high", "model_family": family}
+            self.assertEqual(calibration_for_route(route), HIGH_EFFORT_CALIBRATIONS[family], family)
 
     def test_no_route_means_no_calibration(self) -> None:
         self.assertEqual(calibration_for_route(None), "")
@@ -140,25 +147,32 @@ class PromptBudgetPolicyTests(unittest.TestCase):
     def test_worst_case_prompt_stays_under_budget(self) -> None:
         """Unit prompts become subprocess argv; the ceiling is policy-gated
         here rather than trimmed at runtime. Exercises every profile x role
-        combination plus a wide sibling boundary."""
+        combination plus, per calibration family, a requested model that
+        selects that family's block (requested models pass through
+        unvalidated, so every declared block is reachable on any profile)."""
         wide_scope = [f"src/area{i}/" for i in range(12)]
+        requested_models = [""] + [f"{family}-x" for family in HIGH_EFFORT_CALIBRATIONS]
         worst = 0
         for profile in EXECUTOR_MODEL_OPTIONS:
             for role in MODEL_ROLES:
-                units = [
-                    {
+                for requested_model in requested_models:
+                    target: dict[str, object] = {
                         "unit_id": "target",
                         "title": "A deliberately verbose unit title for budget measurement",
                         "owner": profile,
                         "file_scope": ["src/target/"],
                         "role": role,
                         "reasoning_effort": "max",
-                    },
-                    {"unit_id": "sibling", "title": "Sibling", "owner": profile, "file_scope": wide_scope},
-                ]
-                unit = _contract_unit(units, "target")
-                prompt = build_unit_prompt(unit, _GOAL * 3)
-                worst = max(worst, len(prompt.encode("utf-8")))
+                    }
+                    if requested_model:
+                        target["model"] = requested_model
+                    units = [
+                        target,
+                        {"unit_id": "sibling", "title": "Sibling", "owner": profile, "file_scope": wide_scope},
+                    ]
+                    unit = _contract_unit(units, "target")
+                    prompt = build_unit_prompt(unit, _GOAL * 3)
+                    worst = max(worst, len(prompt.encode("utf-8")))
         self.assertLess(worst, UNIT_PROMPT_MAX_BYTES, f"worst-case unit prompt {worst}B")
 
     def test_protocol_lines_are_deterministic(self) -> None:
