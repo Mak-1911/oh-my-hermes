@@ -197,6 +197,29 @@ class CompositionCalibrationTests(unittest.TestCase):
         self.assertEqual(set(payload["calibrations"]), set(MAIN_AGENT_COMPOSITION_CALIBRATIONS))
 
 
+class DomainSkillBundleTests(unittest.TestCase):
+    def test_declared_work_domain_bundles_the_matching_skill(self) -> None:
+        unit = _contract_unit(
+            [
+                {"unit_id": "ops", "title": "Fix CI", "owner": "codex", "file_scope": ["ci/"], "role": "implementation", "domain": "devops"},
+                {"unit_id": "aux", "title": "Aux", "owner": "claude-code", "file_scope": ["docs/"]},
+            ],
+            "ops",
+        )
+        prompt = build_unit_prompt(unit, _GOAL)
+        self.assertIn("OMH skill bundle (devops)", prompt)
+        self.assertIn("omh-build-failure-triage", prompt)
+
+    def test_no_domain_or_unknown_domain_means_no_bundle(self) -> None:
+        from omh.coding.unit_prompt_protocol import DOMAIN_SKILL_GUIDANCE, domain_skill_guidance_line
+
+        self.assertEqual(domain_skill_guidance_line({"unit_id": "x"}), "")
+        self.assertEqual(domain_skill_guidance_line({"domain": "gardening"}), "")
+        self.assertEqual(
+            set(DOMAIN_SKILL_GUIDANCE), {"devops", "app_development", "research", "x_platform_data"}
+        )
+
+
 class PromptBudgetPolicyTests(unittest.TestCase):
     def test_worst_case_prompt_stays_under_budget(self) -> None:
         """Unit prompts become subprocess argv; the ceiling is policy-gated
@@ -217,6 +240,7 @@ class PromptBudgetPolicyTests(unittest.TestCase):
                         "file_scope": ["src/target/"],
                         "role": role,
                         "reasoning_effort": "max",
+                        "domain": "x_platform_data",
                     }
                     if requested_model:
                         target["model"] = requested_model

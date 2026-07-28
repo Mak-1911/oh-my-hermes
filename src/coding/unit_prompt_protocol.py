@@ -173,6 +173,55 @@ def composition_calibration_for_model(model_id: str) -> str:
     )
 
 
+# Work-domain skill bundles: when a unit DECLARES a work domain, the
+# delegate prompt carries the matching OMH skill's distilled discipline and
+# a pointer to the full generated guidance. Deterministic data — the domain
+# is explicit unit data, never inferred from text — and executor-neutral:
+# the delegate follows the discipline inline; it does not need omh
+# installed.
+DOMAIN_SKILL_GUIDANCE: Final[dict[str, tuple[str, str]]] = {
+    "devops": (
+        "omh-build-failure-triage",
+        "Classify the failure (build/typecheck/lint/test/CI) before fixing; ship the minimal safe fix "
+        "and re-run exactly the failed gate as proof.",
+    ),
+    "app_development": (
+        "omh-frontend",
+        "Ship user-visible increments with evidence: after each feature slice, run the app-level check "
+        "that proves the screen/flow works, not just unit tests.",
+    ),
+    "research": (
+        "omh-research-brief",
+        "Every claim carries its source; mark anything not actually fetched as not observed instead of "
+        "guessing, and separate evidence from inference in the summary.",
+    ),
+    "x_platform_data": (
+        "omh-live-info-operator",
+        "Treat platform data as time-stamped observations: record when and where each datum was read, "
+        "and never extrapolate silently past the observation window.",
+    ),
+}
+
+
+def domain_skill_guidance_line(unit: Mapping[str, Any]) -> str:
+    """Return the OMH skill-bundle line for a unit's declared work domain, or ''."""
+    domain = str(unit.get("domain", "") or "").strip().casefold().replace("-", "_")
+    if not domain:
+        handoff = unit.get("handoff", {}) if isinstance(unit.get("handoff"), Mapping) else {}
+        route = handoff.get("model_route") if isinstance(handoff.get("model_route"), Mapping) else None
+        domain = str(route.get("domain", "") or "") if route else ""
+    if not domain:
+        return ""
+    entry = DOMAIN_SKILL_GUIDANCE.get(domain)
+    if entry is None:
+        return ""
+    label, discipline = entry
+    return (
+        f"OMH skill bundle ({domain}): follow the `{label}` discipline — {discipline} "
+        f"(full guidance ships as skills/{label}/SKILL.md in the oh-my-hermes install)."
+    )
+
+
 def completion_criteria_for_unit(unit: Mapping[str, Any]) -> list[str]:
     """Return the pre-declared, numbered 'done means' criteria for one unit.
 
@@ -223,4 +272,7 @@ def unit_protocol_lines(unit: Mapping[str, Any]) -> list[str]:
     calibration = calibration_for_route(model_route)
     if calibration:
         lines.append(calibration)
+    bundle = domain_skill_guidance_line(unit)
+    if bundle:
+        lines.append(bundle)
     return lines
