@@ -136,9 +136,9 @@ Maintenance paths such as reconciling a `--full` install back to core live in
 
 ## What OMH Adds
 
-### MoM
+### Mixture of Modes
 
-<p align="center">
+<p align="left">
   <img src="assets/hermes-agent-mom.png" alt="Hermes-Agent mixture-of-models orchestration illustration" width="520">
 </p>
 
