@@ -1444,3 +1444,98 @@ class BlockBudgetDefaultTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- record expiry classifier (memory-expiry-retirement todo 1) ---
+
+import time as _time
+from datetime import datetime as _datetime, timezone as _timezone
+
+from omh.plugin_bundle.omh.hermes_memory import classify_record_expiry, count_record_expiry
+
+_EXPIRY_NOW = _datetime(2026, 7, 28, 12, 0, 0, tzinfo=_timezone.utc)
+
+
+def _write_expiry_record(
+    omh_home: Path,
+    record_id: str,
+    expires_at: str | None,
+    *,
+    include_ttl: bool = True,
+    status: str = "approved",
+    schema: str = "project_memory_record/v1",
+) -> Path:
+    directory = omh_home / "memory" / "records"
+    directory.mkdir(parents=True, exist_ok=True)
+    record: dict = {
+        "schema_version": schema,
+        "review_status": status,
+        "record_id": record_id,
+        "summary": "expiry fixture",
+    }
+    if include_ttl:
+        record["ttl"] = {"ttl_days": 1, "expires_at": expires_at}
+    path = directory / f"{record_id}.json"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    return path
+
+
+class ExpiryClassifierTests(unittest.TestCase):
+    def _record(self, expires_at: str | None = None, *, include_ttl: bool = True) -> dict:
+        record: dict = {
+            "schema_version": "project_memory_record/v1",
+            "review_status": "approved",
+            "record_id": "mem_fixture",
+        }
+        if include_ttl:
+            record["ttl"] = {"ttl_days": 1, "expires_at": expires_at}
+        return record
+
+    def test_classifier_states_and_exact_boundary(self) -> None:
+        self.assertEqual(classify_record_expiry(self._record("2026-07-28T11:59:59Z"), now=_EXPIRY_NOW), "expired")
+        # The exact boundary expires_at == now is expired: same <= operator as recall.
+        self.assertEqual(classify_record_expiry(self._record("2026-07-28T12:00:00Z"), now=_EXPIRY_NOW), "expired")
+        self.assertEqual(classify_record_expiry(self._record("2026-07-30T12:00:00Z"), now=_EXPIRY_NOW), "expiring")
+        # Window edge: now + 7d exactly is still expiring.
+        self.assertEqual(classify_record_expiry(self._record("2026-08-04T12:00:00Z"), now=_EXPIRY_NOW), "expiring")
+        self.assertEqual(classify_record_expiry(self._record("2026-08-04T12:00:01Z"), now=_EXPIRY_NOW), "fresh")
+        self.assertEqual(classify_record_expiry(self._record(""), now=_EXPIRY_NOW), "no_ttl")
+        self.assertEqual(classify_record_expiry(self._record(include_ttl=False), now=_EXPIRY_NOW), "no_ttl")
+        self.assertEqual(classify_record_expiry(self._record("not-a-date"), now=_EXPIRY_NOW), "malformed")
+
+    def test_naive_timestamps_read_as_utc_under_any_host_timezone(self) -> None:
+        naive_expired = self._record("2026-07-28T11:00:00")
+        naive_fresh = self._record("2026-09-01T00:00:00")
+        original = os.environ.get("TZ")
+        try:
+            results = []
+            for tz in ("Pacific/Kiritimati", "Pacific/Niue"):
+                os.environ["TZ"] = tz
+                _time.tzset()
+                results.append(
+                    (
+                        classify_record_expiry(naive_expired, now=_EXPIRY_NOW),
+                        classify_record_expiry(naive_fresh, now=_EXPIRY_NOW),
+                    )
+                )
+            self.assertEqual(results[0], results[1])
+            self.assertEqual(results[0], ("expired", "fresh"))
+        finally:
+            if original is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = original
+            _time.tzset()
+
+    def test_count_record_expiry_counts_only_expiry_states(self) -> None:
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / ".omh"
+            _write_expiry_record(home, "mem_expired", "2026-07-28T00:00:00Z")
+            _write_expiry_record(home, "mem_soon", "2026-07-30T00:00:00Z")
+            _write_expiry_record(home, "mem_fresh", "2026-09-01T00:00:00Z")
+            _write_expiry_record(home, "mem_malformed", "garbage")
+            _write_expiry_record(home, "mem_no_ttl", None, include_ttl=False)
+            _write_expiry_record(home, "mem_rejected", "2026-07-01T00:00:00Z", status="rejected")
+            _write_expiry_record(home, "mem_wrong_schema", "2026-07-01T00:00:00Z", schema="other/v1")
+            counts = count_record_expiry(home, now=_EXPIRY_NOW)
+            self.assertEqual(counts, {"expired": 1, "expiring_soon": 1})
