@@ -1620,3 +1620,67 @@ class RecordExpiryWiringTests(unittest.TestCase):
                 self.assertEqual(counter.call_count, 1)
                 provider.on_memory_write("replace", "memory", "merged", {"write_origin": "memory_tool"})
                 self.assertEqual(counter.call_count, 1)
+
+
+class ReasonAwareOperatorSurfaceTests(unittest.TestCase):
+    """Chat notice and doctor must name the remedy that actually fits the brief."""
+
+    def _write_brief(self, root: Path, *, record_expiry: dict | None) -> None:
+        home = root / ".omh" / "memory"
+        home.mkdir(parents=True, exist_ok=True)
+        brief: dict = {
+            "schema_version": "omh_memory_consolidation_handoff/v1",
+            "due": True,
+            "reasons": ["expiring_records:2"],
+            "raised_at": "2026-07-28T00:00:00Z",
+            "trigger": "turn",
+        }
+        if record_expiry is not None:
+            brief["record_expiry"] = record_expiry
+        (home / "consolidation.json").write_text(json.dumps(brief), encoding="utf-8")
+
+    def test_chat_next_action_forks_on_expired_records_in_both_fields(self) -> None:
+        from omh.paths import resolve_paths
+        from omh.wrapper.contract import build_chat_interaction_payload
+
+        cases = [
+            ({"expired": 2, "expiring_soon": 0}, "run_omh_memory_retire"),
+            ({"expired": 0, "expiring_soon": 2}, "ask_hermes_to_consolidate_memory"),
+            (None, "ask_hermes_to_consolidate_memory"),  # pre-change brief on disk
+        ]
+        for record_expiry, expected in cases:
+            with self.subTest(record_expiry=record_expiry):
+                with TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    (root / ".omh").mkdir()
+                    self._write_brief(root, record_expiry=record_expiry)
+                    paths = resolve_paths(root / ".omh", root / ".hermes")
+                    payload = build_chat_interaction_payload("hello there", source="discord", paths=paths)
+                    notice = payload["memory_consolidation_notice"]
+                    self.assertEqual(notice["next_action"], expected)
+                    state = payload["chat_response"]["state"]["memory_consolidation"]
+                    self.assertEqual(state["next_action"], expected)
+
+    def test_doctor_names_retire_only_when_expired_records_exist(self) -> None:
+        from omh.maintenance.doctor import _memory_consolidation_check
+        from omh.paths import resolve_paths
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".omh").mkdir()
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+
+            self._write_brief(root, record_expiry={"expired": 2, "expiring_soon": 0})
+            expired_check = _memory_consolidation_check(paths)
+            self.assertEqual(expired_check.severity, "warning")
+            self.assertIn("omh memory retire", expired_check.message)
+            self.assertIn("2 expired record(s)", expired_check.message)
+
+            self._write_brief(root, record_expiry={"expired": 0, "expiring_soon": 2})
+            pending_check = _memory_consolidation_check(paths)
+            self.assertNotIn("retire", pending_check.message)
+            self.assertIn("consolidate", pending_check.message.lower())
+
+            self._write_brief(root, record_expiry=None)
+            legacy_check = _memory_consolidation_check(paths)
+            self.assertNotIn("retire", legacy_check.message)
