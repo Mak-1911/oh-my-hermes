@@ -61,7 +61,7 @@ FROZEN_HANGUL_TRIGGERS_BY_SKILL: dict[str, int] = {
     "ask": 2,
     "automation-blueprint": 15,
     "browser-operator": 15,
-    "build-failure-triage": 8,
+    "build-failure-triage": 14,
     "code-review": 7,
     "codebase-onboarding": 5,
     "codegraph-refresh": 6,

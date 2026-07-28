@@ -1851,7 +1851,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The user needs a code review of changed behavior rather than failing command triage; use `code-review`.
   - The user needs broad production readiness; use `production-audit`.
   - The user asks for incident or SLO review after deployment; use `reliability-review`.
-- Strong routing signals: `build-failure-triage`, `build failure triage`, `build failure`, `build-failure`, `build fix`, `build failed`, `build failing`, `compile error`, `compilation error`, `typecheck failed`, `typecheck failure`, `type check failed`, `tsc failed`, `lint failed`, `lint failure`, `test failed`, `test failure`, `tests failed`, `ci failed`, `ci failure`, `github actions failed`, `pr checks failed`, `pr check failure`, `dco failed`, `dco failure`, `pytest failed`, `pytest failure`, `cargo build failed`, `npm build failed`, `빌드 실패`, `빌드 고쳐`, `컴파일 에러`, `타입체크 실패`, `테스트 실패`, `CI 실패`, `체크 실패`, `DCO 실패`
+- Strong routing signals: `build-failure-triage`, `build failure triage`, `build failure`, `빌드 실패`, `배포 파이프라인`, `파이프라인 깨짐`, `파이프라인 실패`, `배포 실패`, `CI 실패`, `build-failure`, `build fix`, `build failed`, `build failing`, `compile error`, `compilation error`, `typecheck failed`, `typecheck failure`, `type check failed`, `tsc failed`, `lint failed`, `lint failure`, `test failed`, `test failure`, `tests failed`, `ci failed`, `ci failure`, `github actions failed`, `pr checks failed`, `pr check failure`, `dco failed`, `dco failure`, `pytest failed`, `pytest failure`, `cargo build failed`, `npm build failed`, `빌드 실패`, `빌드 고쳐`, `컴파일 에러`, `타입체크 실패`, `테스트 실패`, `CI 실패`, `체크 실패`, `DCO 실패`
 - Good example:
   - Prompt: build-failure-triage PR 체크에서 Python 3.12 test가 실패했는데 로그를 기준으로 최소 수정 handoff 만들어줘.
   - Expected behavior: Prepare failure_log_digest/v1, failure_cluster_matrix/v1, root-cause hypotheses, minimal_fix_handoff/v1, rerun_plan/v1, and a FIX_READY verdict without claiming CI is fixed.
@@ -4202,7 +4202,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The request is already handled by a narrower explicit skill with stronger evidence.
   - The user asks OMH to secretly run external platforms, connectors, schedulers, file exports, or runtime agents.
   - The only safe answer is to ask for missing authority, credentials, target, or observed evidence first.
-- Strong routing signals: `voice-operator`, `voice operator`, `voice-first`, `voice command`, `mobile command`, `short command`, `dictated command`, `dictated request`, `spoken request`, `speech command`, `accessibility`, `hands free`, `hands-free`, `phone command`, `phone request`, `push command`, `음성`, `음성으로`, `음성 명령`, `모바일`, `모바일 명령`, `핸드폰`, `폰으로`, `말로`, `말로 한 요청`, `접근성`, `짧은 명령`, `짧게 말한 요청`
+- Strong routing signals: `voice-operator`, `voice operator`, `voice-first`, `voice command`, `mobile command`, `short command`, `dictated command`, `dictated request`, `spoken request`, `speech command`, `accessibility`, `hands free`, `hands-free`, `phone command`, `phone request`, `push command`, `음성`, `음성으로`, `음성 명령`, `모바일 명령`, `모바일 음성`, `핸드폰`, `폰으로`, `말로`, `말로 한 요청`, `접근성`, `짧은 명령`, `짧게 말한 요청`
 - Good example:
   - Prompt: voice-operator 'release before lunch, check risky parts' from mobile.
   - Expected behavior: Produce `prepare_voice_operator_card` with required context, wrapper actions, and not-evidence boundaries.
