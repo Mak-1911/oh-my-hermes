@@ -136,23 +136,15 @@ Maintenance paths such as reconciling a `--full` install back to core live in
 
 ## What OMH Adds
 
+### MoM
+
+<p align="center">
+  <img src="assets/hermes-agent-mom.png" alt="Hermes-Agent mixture-of-models orchestration illustration" width="520">
+</p>
+
 OMH packages **92 installable workflow skills** behind six human-readable
 capability families. The family is the front door; exact skill names remain
 available when a wrapper or operator needs precise control.
-
-Ten of them are workflow engines - `deep-interview`, `loop`, `ralph`, `ralplan`,
-`team`, `ultragoal`, `ultraprocess`, `ultraqa`, `ultrawork`, `web-research` -
-and render a `ulw-` label so a status line says which kind of skill is running.
-The other 82 render `omh-`. Canonical names are unchanged either way.
-
-| Capability family | What it helps Hermes do |
-| --- | --- |
-| **Plan and decide** | Clarify ambiguous goals, prepare reviewed plans, and run durable goal loops. |
-| **Learn and gather** | Find sources, explain papers, inspect data, and prepare source-backed briefs. |
-| **Create materials and visuals** | Prepare websites, visual QA, images, decks, reports, documents, and deliverable packages with format-specific quality gates. |
-| **Delegate coding and ship** | Prepare scoped, skill-aware coding handoffs for Codex, Claude Code, Hermes runtime, or another selected executor. |
-| **Operate and observe** | Review setup, service quality, releases, incidents, automation, tools, sessions, and workflow learning. |
-| **Retain knowledge** | Build reviewed project memory and connect external knowledge systems through provider-neutral boundaries. |
 
 The full generated catalog, triggers, harnesses, and evidence rules live in
 [Workflow Reference](docs/WORKFLOWS.md).
