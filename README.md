@@ -80,15 +80,19 @@
 > <table>
 >   <tr>
 >     <td width="124"><a href="https://x.com/rlaope"><img alt="X link" src="https://img.shields.io/badge/Follow-%40rlaope-00CED1?style=flat-square&logo=x&labelColor=black" width="112" /></a></td>
->     <td>Follow <a href="https://x.com/rlaope">@rlaope</a> on X.</td>
+>     <td>Updates for <code>oh-my-hermes</code> are shared on <a href="https://x.com/rlaope">@rlaope</a> on X, alongside release notes and project news.</td>
 >   </tr>
 >   <tr>
 >     <td width="124"><a href="https://github.com/rlaope"><img alt="GitHub Follow" src="https://img.shields.io/github/followers/rlaope?style=flat-square&logo=github&labelColor=black&color=24292f" width="112" /></a></td>
->     <td>Follow <a href="https://github.com/rlaope">@rlaope</a> on GitHub.</td>
+>     <td>Follow <a href="https://github.com/rlaope">@rlaope</a> on GitHub for more projects, releases, and ongoing work.</td>
 >   </tr>
 >   <tr>
 >     <td width="124"><a href="https://github.com/rlaope/oh-my-hermes/graphs/contributors"><img alt="AI agent collaborators" src="https://img.shields.io/badge/With-AI%20agents-6f42c1?style=flat-square&labelColor=black" width="112" /></a></td>
->     <td>With AI agents <a href="https://github.com/frirne-ai"><strong>Friren</strong></a> + <a href="https://github.com/sionic-khope"><strong>Killua</strong></a>.</td>
+>     <td>Built with AI agents <a href="https://github.com/frirne-ai"><strong>Friren</strong></a> and <a href="https://github.com/sionic-khope"><strong>Killua</strong></a>, collaborators helping ship <code>oh-my-hermes</code>.</td>
+>   </tr>
+>   <tr>
+>     <td width="124"><a href="https://nousresearch.com/"><img alt="Thanks to Nous Research" src="https://img.shields.io/badge/Thanks-Nous%20Research-4B2E83?style=flat-square&labelColor=black" width="112" /></a></td>
+>     <td>Thank you to <a href="https://nousresearch.com/">Nous Research</a> for creating Hermes Agent.</td>
 >   </tr>
 > </table>
 
