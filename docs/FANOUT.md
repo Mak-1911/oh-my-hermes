@@ -89,7 +89,11 @@ goal to Hermes in chat; these commands are the backend surface.
   observed evidence, and the fix is a one-line data edit in
   `DISPATCH_COMMAND_TEMPLATES`.
 - **Model routing.** A unit may declare `model`, `reasoning_effort`, and/or
-  `role` (brain, implementation, design_visual, review, docs). Prepare embeds
+  `role` (brain, implementation, design_visual, review, docs, research —
+  research is the read-only investigation lane: its chain default is the
+  fast-tier cheap sweep, and a deep multi-system investigation escalates
+  model tier or effort explicitly on the unit, since requested values
+  always win). Prepare embeds
   the resolved `coding_model_route/v2` in the unit handoff, and dispatch
   turns it into argv fragments (`codex --model … --config
   model_reasoning_effort=…`; `claude --model … --effort …`). Resolution is a

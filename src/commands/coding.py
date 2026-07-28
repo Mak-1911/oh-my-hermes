@@ -1324,7 +1324,7 @@ def _add_coding_commands(sub) -> None:
     )
     model_route.add_argument("--model", default=None, help="Explicit model id; always passes through unvalidated.")
     model_route.add_argument("--effort", default=None, help="Reasoning effort for profiles that support one.")
-    model_route.add_argument("--role", default=None, help="Subagent role: brain, implementation, design_visual, review, docs.")
+    model_route.add_argument("--role", default=None, help="Subagent role: brain, implementation, design_visual, review, docs, research.")
     model_route.add_argument(
         "--explain",
         action="store_true",
