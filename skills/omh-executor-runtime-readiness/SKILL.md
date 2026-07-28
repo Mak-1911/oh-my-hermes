@@ -1,6 +1,6 @@
 ---
 name: omh-executor-runtime-readiness
-description: [omh] Hermes executor runtime readiness workflow: compare Codex, Claude Code, Hermes coding, and oh-my runtimes by available tools, missing tools, and handoff mode.
+description: [omh] Hermes executor runtime readiness workflow: compare Codex, Claude Code, Hermes coding, and oh-my runtimes by available tools, missing tools, and handoff mode. Use when the user says: executor-runtime-readiness, executor readiness, runtime readiness, codex readiness, claude code readiness, hermes coding readiness, executor tools, missing tools.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, executor-readiness]

@@ -1,6 +1,6 @@
 ---
 name: omh-command-operator
-description: [omh] Hermes command operator workflow: scope terminal, shell, CLI, package-manager, and test commands with cwd, environment, safety, and result-evidence gates.
+description: [omh] Hermes command operator workflow: scope terminal, shell, CLI, package-manager, and test commands with cwd, environment, safety, and result-evidence gates. Use when the user says: command-operator, command operator, terminal command, terminal task, shell command, shell task, cli command, command execution.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, command]

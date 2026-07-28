@@ -1,6 +1,6 @@
 ---
 name: ulw-ralph
-description: [omh] Hermes Ralph workflow: persistent execution with verification and review.
+description: [omh] Hermes Ralph workflow: persistent execution with verification and review. Use when the user says: ralph, finish until done, persistent execution, self-referential loop.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, execution]

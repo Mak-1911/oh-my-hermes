@@ -1,6 +1,6 @@
 ---
 name: omh-memory-new
-description: [omh] Hermes new-memory capture workflow: add reviewed project, product, or durable context candidates through capture, review, and approve actions.
+description: [omh] Hermes new-memory capture workflow: add reviewed project, product, or durable context candidates through capture, review, and approve actions. Use when the user says: memory-new, new memory, project memory, product memory, remember this project, remember this product, memory capture, capture memory.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, memory]

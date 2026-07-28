@@ -1,6 +1,6 @@
 ---
 name: ulw-research
-description: [omh] Hermes Web Research workflow: source-backed current information gathering.
+description: [omh] Hermes Web Research workflow: source-backed current information gathering. Use when the user says: web-research, web research, web search, search the web, internet search, fresh sources, current sources, current web evidence.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, research]

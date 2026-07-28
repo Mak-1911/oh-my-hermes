@@ -1,6 +1,6 @@
 ---
 name: omh-external-connector-readiness
-description: [omh] Hermes external connector readiness workflow: decide whether a candidate plugin, connector, API, data provider, or multimodal route is safe, affordable, fresh, and observable enough to adopt, route, or trial.
+description: [omh] Hermes external connector readiness workflow: decide whether a candidate plugin, connector, API, data provider, or multimodal route is safe, affordable, fresh, and observable enough to adopt, route, or trial. Use when the user says: external-connector-readiness, external connector readiness, connector readiness matrix, plugin readiness matrix, provider readiness, api readiness, connector adoption, external plugin adoption.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, connector]

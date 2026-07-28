@@ -925,7 +925,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### strategy-brief
 
-[omh] Hermes Strategy Brief workflow: options, tradeoffs, recommendation, and decision notes.
+[omh] Decide between options: tradeoffs, a recommendation, and a decision note you can act on.
 
 - Category: `strategy`
 - Phase: `brief`

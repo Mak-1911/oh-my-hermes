@@ -1,6 +1,6 @@
 ---
 name: omh-img-summary
-description: [omh] Hermes img-summary workflow: turn meetings, reports, PRs, issues, research, and releases into domain-aware image prompt cards.
+description: [omh] Hermes img-summary workflow: turn meetings, reports, PRs, issues, research, and releases into domain-aware image prompt cards. Use when the user says: img-summary, img summary, visual prompt card, image card, image generation, image edit, edit this image, remove the background.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, materials]
