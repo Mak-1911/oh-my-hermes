@@ -24,6 +24,7 @@ Boundaries, in order of importance:
 
 from __future__ import annotations
 
+from hashlib import sha256
 import json
 from pathlib import Path
 import shutil
@@ -74,6 +75,27 @@ MODEL_DOMAIN_AFFINITY_CLAIM_BOUNDARY: Final[str] = (
     "rank an option; the user's explicit choice always wins."
 )
 
+# The executor profile a locally-derived catalog belongs to: omo ships as an
+# opencode plugin, so models named by its config run under the OMO runtime
+# surface, never under codex/claude-code (whose catalogs stay built-in).
+MODEL_INVENTORY_CATALOG_PROFILE: Final[str] = "omo-runtime"
+
+LOCAL_MODEL_CATALOG_SCHEMA_VERSION: Final[str] = "local_model_catalog/v1"
+
+# Ordered category sources per role: deterministic data, not inference. The
+# omo config's semantic categories map onto the fanout roles; where several
+# categories serve one role, the order below decides chain concatenation and
+# ties break toward the stronger-signal category. Review deliberately reuses
+# the high-capability categories — reviewer-vs-author separation is advisory
+# handoff text, not a catalog property.
+OMO_CATEGORY_ROLE_SOURCES: Final[dict[str, tuple[str, ...]]] = {
+    "brain": ("ultrabrain", "deep", "unspecified-high"),
+    "implementation": ("unspecified-high", "unspecified-low"),
+    "design_visual": ("visual-engineering", "artistry"),
+    "review": ("unspecified-high", "deep"),
+    "docs": ("writing", "quick"),
+}
+
 _OMO_AGENT_CONFIG_RELATIVE: Final[str] = ".config/opencode/oh-my-openagent.json"
 _OPENCODE_CONFIG_RELATIVE: Final[str] = ".config/opencode/opencode.json"
 _OPENCODE_AUTH_RELATIVE: Final[str] = ".local/share/opencode/auth.json"
@@ -87,7 +109,7 @@ def local_model_inventory(home: Path | None = None) -> dict[str, object]:
     """Return the metadata-only inventory of locally-activated coding models."""
     base = home if home is not None else Path.home()
     cli_presence = {command: shutil.which(command) is not None for command in CLI_PRESENCE_COMMANDS}
-    omo_source, omo_models = _omo_agent_config_source(base / _OMO_AGENT_CONFIG_RELATIVE)
+    omo_source, omo_models, category_chains = _omo_agent_config_source(base / _OMO_AGENT_CONFIG_RELATIVE)
     provider_source = _top_level_key_source(base / _OPENCODE_CONFIG_RELATIVE, section="provider")
     auth_source = _top_level_key_source(base / _OPENCODE_AUTH_RELATIVE, section="")
     auth_signals = executor_auth_signals(base)
@@ -114,6 +136,7 @@ def local_model_inventory(home: Path | None = None) -> dict[str, object]:
         },
         "available_models": available_models,
         "families_present": families,
+        "omo_category_chains": {name: list(chain) for name, chain in sorted(category_chains.items())},
         "domain_affinity_notes": [
             {
                 "domain": domain,
@@ -127,24 +150,38 @@ def local_model_inventory(home: Path | None = None) -> dict[str, object]:
     }
 
 
-def _omo_agent_config_source(path: Path) -> tuple[dict[str, object], list[tuple[str, str, str]]]:
-    """Read (source payload, [(provider, model_id, variant), ...]) from the omo config."""
+def _omo_agent_config_source(
+    path: Path,
+) -> tuple[dict[str, object], list[tuple[str, str, str]], dict[str, list[dict[str, str]]]]:
+    """Read (source payload, model entries, per-category ordered chains).
+
+    Model entries are `(provider, model_id, variant)` tuples from both agents
+    and categories. Category chains keep the config's own primary-then-
+    fallback order per category name so a local catalog can derive role
+    chains from them deterministically.
+    """
     parsed = _read_json(path)
     if parsed is None:
-        return {"status": "absent" if not path.is_file() else "unreadable", "model_count": 0, "rejected": 0}, []
+        return (
+            {"status": "absent" if not path.is_file() else "unreadable", "model_count": 0, "rejected": 0},
+            [],
+            {},
+        )
     entries: list[tuple[str, str, str]] = []
+    category_chains: dict[str, list[dict[str, str]]] = {}
     rejected = 0
     for section in ("agents", "categories"):
         table = parsed.get(section)
         if not isinstance(table, Mapping):
             continue
-        for spec in table.values():
+        for name, spec in table.items():
             if not isinstance(spec, Mapping):
                 continue
             candidates = [spec]
             fallbacks = spec.get("fallback_models")
             if isinstance(fallbacks, list):
                 candidates.extend(entry for entry in fallbacks if isinstance(entry, Mapping))
+            accepted_chain: list[dict[str, str]] = []
             for candidate in candidates:
                 if "model" not in candidate:
                     continue
@@ -154,7 +191,18 @@ def _omo_agent_config_source(path: Path) -> tuple[dict[str, object], list[tuple[
                     rejected += 1
                 else:
                     entries.append(accepted)
-    return {"status": "present", "model_count": len(entries), "rejected": rejected}, entries
+                    provider, model_id, variant = accepted
+                    accepted_chain.append(
+                        {"model_id": f"{provider}/{model_id}", "reasoning_effort": variant}
+                    )
+            if section == "categories" and accepted_chain:
+                try:
+                    category = require_opaque_metadata_ref(name, field="category")
+                except ValueError:
+                    rejected += 1
+                    continue
+                category_chains[category] = accepted_chain
+    return {"status": "present", "model_count": len(entries), "rejected": rejected}, entries, category_chains
 
 
 def _accepted_model_entry(candidate: Mapping[str, object]) -> tuple[str, str, str] | None:
@@ -202,6 +250,121 @@ def _read_json(path: Path) -> dict[str, object] | None:
     except _READ_ERRORS:
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def inventory_model_catalog(inventory: Mapping[str, object]) -> dict[str, object] | None:
+    """Derive the local model catalog for the OMO runtime from an inventory payload.
+
+    Pure data transform (no I/O): callers observe the inventory once and pass
+    it in, so the route resolver stays free of filesystem reads. Returns None
+    when the inventory names no models — a missing catalog must read as
+    "nothing configured", never as an empty-but-authoritative catalog.
+
+    The fingerprint is the reproducibility anchor for any route frozen from
+    this catalog: digest of the sorted model ids plus per-source statuses and
+    the observation time. `reasoning_efforts` stays empty on every option —
+    observed config variants are evidence of use, not of a model's effort
+    vocabulary, so this catalog never gains effort authority.
+    """
+    models = inventory.get("available_models", [])
+    if not isinstance(models, list) or not models:
+        return None
+    option_ids: list[str] = []
+    options: list[dict[str, object]] = []
+    for entry in models:
+        if not isinstance(entry, Mapping):
+            continue
+        model_id = f"{entry.get('provider')}/{entry.get('model_id')}"
+        option_ids.append(model_id)
+        options.append(
+            {
+                "model_id": model_id,
+                "label": f"{entry.get('family') or 'unknown'} family via {entry.get('provider')}",
+                "tier": "",
+                "recommended_roles": (),
+                "reasoning_efforts": (),
+            }
+        )
+    category_chains = inventory.get("omo_category_chains", {})
+    chains: dict[str, tuple[dict[str, str], ...]] = {}
+    if isinstance(category_chains, Mapping):
+        for role, categories in OMO_CATEGORY_ROLE_SOURCES.items():
+            merged: list[dict[str, str]] = []
+            seen: set[tuple[str, str]] = set()
+            for category in categories:
+                chain = category_chains.get(category)
+                if not isinstance(chain, list):
+                    continue
+                for entry in chain:
+                    if not isinstance(entry, Mapping):
+                        continue
+                    key = (str(entry.get("model_id", "")), str(entry.get("reasoning_effort", "")))
+                    if key in seen or not key[0]:
+                        continue
+                    seen.add(key)
+                    merged.append({"model_id": key[0], "reasoning_effort": key[1]})
+            if merged:
+                chains[role] = tuple(merged)
+    sources = inventory.get("sources", {})
+    source_statuses = (
+        {name: str(entry.get("status", "unknown")) for name, entry in sources.items() if isinstance(entry, Mapping)}
+        if isinstance(sources, Mapping)
+        else {}
+    )
+    # The digest anchors the derived ARTIFACT, not just the input model set:
+    # reassigning a category (and with it a role chain) to an already-present
+    # model is exactly the drift the fingerprint exists to make visible, so
+    # the chains participate in the digest alongside the option ids.
+    canonical = json.dumps(
+        {
+            "options": sorted(option_ids),
+            "chains": {
+                role: [[entry["model_id"], entry["reasoning_effort"]] for entry in chain]
+                for role, chain in sorted(chains.items())
+            },
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    return {
+        "schema_version": LOCAL_MODEL_CATALOG_SCHEMA_VERSION,
+        "executor_profile": MODEL_INVENTORY_CATALOG_PROFILE,
+        "catalog_kind": "local_inventory",
+        "options": options,
+        "chains": chains,
+        "fingerprint": {
+            "digest": digest,
+            "sources": source_statuses,
+            "observed_at": str(inventory.get("observed_at", "")),
+        },
+    }
+
+
+def catalog_fingerprint_note(
+    model_route: Mapping[str, object] | None, current_digest: str
+) -> dict[str, object] | None:
+    """Advisory prepare-vs-dispatch skew record for a frozen route.
+
+    A route resolved from a local catalog froze that catalog's fingerprint;
+    the local config may have changed between prepare and dispatch. The note
+    names both digests and whether they match — advisory only: a mismatch
+    never blocks dispatch (the frozen contract stays the explicit instruction
+    and provider truth adjudicates the model), it only makes the skew visible.
+    Returns None for routes without a fingerprint.
+    """
+    if not isinstance(model_route, Mapping):
+        return None
+    fingerprint = model_route.get("catalog_fingerprint")
+    if not isinstance(fingerprint, Mapping):
+        return None
+    frozen = str(fingerprint.get("digest", "") or "")
+    current = str(current_digest or "")
+    return {
+        "frozen_digest": frozen,
+        "current_digest": current,
+        "match": bool(frozen) and frozen == current,
+    }
 
 
 def _aggregated_models(entries: list[tuple[str, str, str]]) -> list[dict[str, object]]:

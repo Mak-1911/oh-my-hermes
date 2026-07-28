@@ -91,6 +91,12 @@ CODING_MODEL_ROUTE_CLAIM_BOUNDARY: Final[str] = (
 # the catalog is a default candidate list, not an allowlist.
 MODEL_CATALOG_KIND: Final[str] = "built_in_defaults"
 
+# Closed vocabulary for a route's catalog basis. `local_inventory` marks a
+# catalog derived from the user's own local configuration at observation time;
+# such routes additionally carry `catalog_fingerprint` so a frozen record
+# names the exact basis it was resolved from.
+MODEL_CATALOG_KINDS: Final[tuple[str, ...]] = ("built_in_defaults", "local_inventory")
+
 EXECUTOR_MODEL_OPTIONS: Final[dict[str, tuple[dict[str, object], ...]]] = {
     "codex": (
         {
@@ -209,6 +215,11 @@ def model_family(model_id: str) -> str:
     normalized = str(model_id or "").strip().casefold()
     if not normalized:
         return ""
+    # Provider-prefixed ids (`opencode/kimi-k3`, `anthropic/claude-opus-5`)
+    # classify by the model segment: the provider names where it runs, the
+    # family names what it is.
+    if "/" in normalized:
+        normalized = normalized.rsplit("/", 1)[1]
     if normalized in _CLAUDE_TIER_ALIASES:
         return "claude"
     for prefix, family in _MODEL_FAMILY_PREFIXES:
@@ -224,6 +235,7 @@ def resolve_model_route(
     requested_effort: str = "",
     role: str = "",
     chains: Mapping[str, Mapping[str, tuple[Mapping[str, str], ...]]] | None = None,
+    local_catalog: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Return the deterministic prepared model route for one executor profile.
 
@@ -232,8 +244,19 @@ def resolve_model_route(
     to its chain head; a role whose chain is missing is an explicit choice;
     no data leaves the executor CLI default in place as a named outcome.
 
-    `chains` is injectable for tests only; production callers always use
-    `ROLE_MODEL_CHAINS`.
+    Injection precedence — the two parameters never apply to the same profile:
+    `chains` (tests only) overrides role chains for profiles WITH a built-in
+    catalog; `local_catalog` (a `local_model_catalog/v1` payload derived by
+    the caller from an observed inventory — I/O stays in the caller, this
+    function remains pure) is consulted ONLY when the profile has no built-in
+    catalog and the payload names this profile. A route resolved from a local
+    catalog records `catalog_kind: "local_inventory"` plus the catalog's
+    `fingerprint` so the frozen record names its exact basis, and a local
+    catalog never gains effort authority — observed config variants are
+    evidence of use, not of a model's effort vocabulary. An absent
+    `catalog_fingerprint` on any route means "no local basis was consulted",
+    never "unknown basis" — v1 routes and built-in-catalog routes correctly
+    carry none.
     """
     profile = str(executor_profile or "").strip().casefold()
     raw_role = str(role or "").strip()
@@ -249,16 +272,44 @@ def resolve_model_route(
     model = str(requested_model or "").strip()
     effort = str(requested_effort or "").strip().casefold()
     options = EXECUTOR_MODEL_OPTIONS.get(profile, ())
+    catalog_kind = MODEL_CATALOG_KIND
+    catalog_fingerprint: dict[str, object] | None = None
+    effort_authoritative = True
+    local_chains: Mapping[str, tuple[Mapping[str, str], ...]] = {}
+    if not options and _local_catalog_applies(profile, local_catalog):
+        raw_options = local_catalog.get("options", []) if isinstance(local_catalog, Mapping) else []
+        resolved_options = tuple(option for option in raw_options if isinstance(option, Mapping))
+        if resolved_options:
+            # The local basis is claimed only once it demonstrably exists: an
+            # empty or corrupt payload must fall through to the executor
+            # default WITHOUT a fingerprint, or the frozen record would name
+            # a basis that never adjudicated anything.
+            options = resolved_options
+            raw_chains = local_catalog.get("chains", {}) if isinstance(local_catalog, Mapping) else {}
+            local_chains = raw_chains if isinstance(raw_chains, Mapping) else {}
+            raw_fingerprint = local_catalog.get("fingerprint") if isinstance(local_catalog, Mapping) else None
+            catalog_fingerprint = dict(raw_fingerprint) if isinstance(raw_fingerprint, Mapping) else None
+            catalog_kind = "local_inventory"
+            effort_authoritative = False
+        else:
+            role_reasons.append(
+                "A local model catalog was offered but carried no usable options; it was not consulted."
+            )
     candidates = [dict(option) for option in options]
-    chain_table = ROLE_MODEL_CHAINS if chains is None else chains
-    role_chain = tuple(chain_table.get(profile, {}).get(normalized_role, ())) if normalized_role else ()
+    if catalog_kind == "local_inventory":
+        role_chain = tuple(local_chains.get(normalized_role, ())) if normalized_role else ()
+    else:
+        chain_table = ROLE_MODEL_CHAINS if chains is None else chains
+        role_chain = tuple(chain_table.get(profile, {}).get(normalized_role, ())) if normalized_role else ()
     attempted: list[dict[str, str]] = []
 
     if model:
         attempted.append(
             {"stage": "requested_model", "outcome": "selected", "reason": f"request names `{model}`"}
         )
-        selected_effort, effort_change = _selected_effort(profile, effort, "", model)
+        selected_effort, effort_change = _selected_effort(
+            options, effort, "", model, authoritative=effort_authoritative
+        )
         return _route_payload(
             profile,
             status="routed",
@@ -267,7 +318,9 @@ def resolve_model_route(
             selected_model=model,
             selected_reasoning_effort=selected_effort,
             effort_change=effort_change,
-            chain=_chain_payload(profile, role_chain, selected_model=""),
+            catalog_kind=catalog_kind,
+            catalog_fingerprint=catalog_fingerprint,
+            chain=_chain_payload(options, role_chain, selected_model=""),
             attempted=attempted,
             candidates=candidates,
             reasons=role_reasons + [f"The request names `{model}` directly, so the catalog is advisory only."],
@@ -281,7 +334,9 @@ def resolve_model_route(
         attempted.append(
             {"stage": "executor_default", "outcome": "selected", "reason": "no catalog; executor CLI default applies"}
         )
-        selected_effort, effort_change = _selected_effort(profile, effort, "", "")
+        selected_effort, effort_change = _selected_effort(
+            options, effort, "", "", authoritative=effort_authoritative
+        )
         return _route_payload(
             profile,
             status="no_model_catalog",
@@ -289,6 +344,8 @@ def resolve_model_route(
             role=normalized_role,
             selected_reasoning_effort=selected_effort,
             effort_change=effort_change,
+            catalog_kind=catalog_kind,
+            catalog_fingerprint=catalog_fingerprint,
             chain=[],
             attempted=attempted,
             candidates=[],
@@ -306,7 +363,8 @@ def resolve_model_route(
                 {"stage": "role_chain", "outcome": "selected", "reason": f"chain head `{selected}` for role `{normalized_role}`"}
             )
             selected_effort, effort_change = _selected_effort(
-                profile, effort, str(head.get("reasoning_effort", "") or ""), selected
+                options, effort, str(head.get("reasoning_effort", "") or ""), selected,
+                authoritative=effort_authoritative,
             )
             return _route_payload(
                 profile,
@@ -316,7 +374,9 @@ def resolve_model_route(
                 selected_model=selected,
                 selected_reasoning_effort=selected_effort,
                 effort_change=effort_change,
-                chain=_chain_payload(profile, role_chain, selected_model=selected),
+                catalog_kind=catalog_kind,
+                catalog_fingerprint=catalog_fingerprint,
+                chain=_chain_payload(options, role_chain, selected_model=selected),
                 attempted=attempted,
                 candidates=candidates,
                 reasons=role_reasons
@@ -331,7 +391,9 @@ def resolve_model_route(
         attempted.append(
             {"stage": "role_chain", "outcome": "unavailable", "reason": f"no chain declared for role `{normalized_role}`"}
         )
-        selected_effort, effort_change = _selected_effort(profile, effort, "", "")
+        selected_effort, effort_change = _selected_effort(
+            options, effort, "", "", authoritative=effort_authoritative
+        )
         return _route_payload(
             profile,
             status="choice_required",
@@ -339,6 +401,8 @@ def resolve_model_route(
             role=normalized_role,
             selected_reasoning_effort=selected_effort,
             effort_change=effort_change,
+            catalog_kind=catalog_kind,
+            catalog_fingerprint=catalog_fingerprint,
             chain=[],
             attempted=attempted,
             candidates=candidates,
@@ -358,7 +422,9 @@ def resolve_model_route(
         if not raw_role
         else "No usable model or role remained, so the executor CLI default model applies."
     )
-    selected_effort, effort_change = _selected_effort(profile, effort, "", "")
+    selected_effort, effort_change = _selected_effort(
+        options, effort, "", "", authoritative=effort_authoritative
+    )
     return _route_payload(
         profile,
         status="model_unrouted",
@@ -366,6 +432,8 @@ def resolve_model_route(
         role=normalized_role,
         selected_reasoning_effort=selected_effort,
         effort_change=effort_change,
+        catalog_kind=catalog_kind,
+        catalog_fingerprint=catalog_fingerprint,
         chain=[],
         attempted=attempted,
         candidates=candidates,
@@ -373,8 +441,16 @@ def resolve_model_route(
     )
 
 
-def model_route_for_unit(unit: Mapping[str, object], executor_target: str) -> dict[str, object] | None:
-    """Return the prepared model route for a fanout unit, or None when unrouted."""
+def model_route_for_unit(
+    unit: Mapping[str, object],
+    executor_target: str,
+    local_catalog: Mapping[str, object] | None = None,
+) -> dict[str, object] | None:
+    """Return the prepared model route for a fanout unit, or None when unrouted.
+
+    `local_catalog` is passed through verbatim; this function stays pure and
+    the resolver's precedence rules decide whether it applies.
+    """
     model = str(unit.get("model", "") or "").strip()
     effort = str(unit.get("reasoning_effort", "") or "").strip()
     role = str(unit.get("role", "") or "").strip()
@@ -385,6 +461,7 @@ def model_route_for_unit(unit: Mapping[str, object], executor_target: str) -> di
         requested_model=model,
         requested_effort=effort,
         role=role,
+        local_catalog=local_catalog,
     )
 
 
@@ -418,20 +495,31 @@ def _normalized_role(role: str) -> str:
     return normalized if normalized in MODEL_ROLES else ""
 
 
-def _supported_efforts(profile: str, model_id: str) -> tuple[tuple[str, ...], str]:
+def _local_catalog_applies(profile: str, local_catalog: Mapping[str, object] | None) -> bool:
+    """A local catalog applies only to the profile it names — never to a
+    profile with a built-in catalog (the caller gate) and never to a payload
+    resolved for some other executor."""
+    if not isinstance(local_catalog, Mapping):
+        return False
+    return str(local_catalog.get("executor_profile", "") or "").strip().casefold() == profile
+
+
+def _supported_efforts(
+    options: tuple[Mapping[str, object], ...], model_id: str
+) -> tuple[tuple[str, ...], str]:
     """Return (efforts, authority) with authority "exact_model" | "profile_union".
 
     Only an exact catalog match grants the catalog authority over a model's
     effort vocabulary. The union fallback exists so a requested effort is never
     silently dropped for a model the catalog has not met — the catalog
     disclaims authority there, so its answer is advisory, never adjudicating.
-    A profile absent from the catalog returns ((), "profile_union").
+    An empty options tuple returns ((), "profile_union").
     """
-    for option in EXECUTOR_MODEL_OPTIONS.get(profile, ()):
+    for option in options:
         if str(option.get("model_id", "")).casefold() == str(model_id or "").casefold():
             return tuple(str(value) for value in option.get("reasoning_efforts", ())), "exact_model"
     union: list[str] = []
-    for option in EXECUTOR_MODEL_OPTIONS.get(profile, ()):
+    for option in options:
         for value in option.get("reasoning_efforts", ()):
             if str(value) not in union:
                 union.append(str(value))
@@ -451,20 +539,25 @@ _EFFORT_SHAPE_CHARSET: Final[frozenset[str]] = frozenset("abcdefghijklmnopqrstuv
 
 
 def _selected_effort(
-    profile: str,
+    options: tuple[Mapping[str, object], ...],
     requested_effort: str,
     chain_effort: str,
     model_id: str,
+    *,
+    authoritative: bool = True,
 ) -> tuple[str, dict[str, str] | None]:
     """Resolve the effort and its typed change record.
 
     Precedence: requested > chain-entry > none. The change record exists only
     when the user requested an effort; chain-supplied efforts never appear in
     it. The ladder downgrades only under exact-model catalog authority — the
-    catalog never adjudicates a model it has not met.
+    catalog never adjudicates a model it has not met, and a non-authoritative
+    catalog (local inventory) never adjudicates at all.
     """
     if requested_effort:
-        supported, authority = _supported_efforts(profile, model_id)
+        supported, authority = _supported_efforts(options, model_id)
+        if not authoritative:
+            authority = "profile_union"
         if requested_effort in supported:
             return requested_effort, _effort_change(requested_effort, requested_effort, "unchanged", "supported as requested")
         if requested_effort in _EFFORT_LADDER and authority == "exact_model":
@@ -505,13 +598,13 @@ def _effort_change(requested: str, selected: str, kind: str, reason: str) -> dic
 
 
 def _chain_payload(
-    profile: str,
+    options: tuple[Mapping[str, object], ...],
     role_chain: tuple[Mapping[str, str], ...],
     *,
     selected_model: str,
 ) -> list[dict[str, object]]:
-    by_model: dict[str, dict[str, object]] = {
-        str(option.get("model_id", "")): option for option in EXECUTOR_MODEL_OPTIONS.get(profile, ())
+    by_model: dict[str, Mapping[str, object]] = {
+        str(option.get("model_id", "")): option for option in options
     }
     payload: list[dict[str, object]] = []
     for position, entry in enumerate(role_chain):
@@ -543,6 +636,8 @@ def _route_payload(
     selected_model: str = "",
     selected_reasoning_effort: str = "",
     effort_change: dict[str, str] | None = None,
+    catalog_kind: str = MODEL_CATALOG_KIND,
+    catalog_fingerprint: dict[str, object] | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "schema_version": CODING_MODEL_ROUTE_SCHEMA_VERSION,
@@ -565,10 +660,12 @@ def _route_payload(
             }
             for option in candidates
         ],
-        "catalog_kind": MODEL_CATALOG_KIND,
+        "catalog_kind": catalog_kind,
         "reasons": list(reasons),
         "claim_boundary": CODING_MODEL_ROUTE_CLAIM_BOUNDARY,
     }
+    if catalog_fingerprint is not None:
+        payload["catalog_fingerprint"] = catalog_fingerprint
     if effort_change is not None:
         payload["effort_change"] = effort_change
     return payload

@@ -115,11 +115,28 @@ goal to Hermes in chat; these commands are the backend surface.
   favors the grok family) under their own claim boundary: editorial
   defaults, not observed capability, no routing effect. The inventory never
   enters a model route, a frozen contract, or persisted state — it is
-  read-time advisory context for the operator or wrapper proposing a split,
-  and routing consumption is a recorded follow-up. A compact hint (families
-  present, model count, the full-report command) rides the choose-executor
-  context automatically, so Hermes proposes owners from what the user
-  actually has instead of asking blind.
+  read-time advisory context for the operator or wrapper proposing a split.
+  A compact hint (families present, model count, the full-report command)
+  rides the choose-executor context automatically, so Hermes proposes owners
+  from what the user actually has instead of asking blind.
+- **Inventory-derived routing (fingerprint-recorded).** For profiles without
+  a built-in model catalog, the command layer derives a
+  `local_model_catalog/v1` from the observed inventory — today that means
+  the OMO runtime, whose role chains come from the user's own omo category
+  config (ordered category→role sources declared as data). Built-in
+  catalogs always win; the derived catalog applies only to the profile it
+  names; and it never gains effort authority (observed config variants are
+  evidence of use, not of a model's effort vocabulary, so requested ladder
+  efforts pass through untouched). A route resolved this way records
+  `catalog_kind: "local_inventory"` plus a `catalog_fingerprint` (model-set
+  digest, per-source statuses, observation time) so the frozen contract
+  names the exact basis it was resolved from. At dispatch, units carrying a
+  fingerprint gain an advisory `inventory_fingerprint` note comparing the
+  frozen digest against the current one — a mismatch never blocks (the
+  frozen contract stays the instruction; provider truth adjudicates), it
+  only makes prepare-vs-dispatch skew visible. `omh coding model-route
+  --from-inventory` previews these routes; fanout prepare consults the
+  derived catalog automatically.
 - **Unit prompt protocol.** Every dispatched unit prompt carries a fixed
   verification discipline (`src/coding/unit_prompt_protocol.py`): the
   subagent first echoes the goal, its deliverable, and the numbered
@@ -169,7 +186,7 @@ omh coding fanout brief [<fanout-id>] [--json]
 omh coding fanout dispatch <fanout-id> --goal-file goal.txt \
   [--repo-root .] [--base-ref HEAD] [--concurrency 2] [--timeout 1800] \
   [--unit <id> ...] [--dry-run]
-omh coding model-route [--executor <profile>] [--role <role>] [--model <id>] [--effort <level>] [--explain] [--json]
+omh coding model-route [--executor <profile>] [--role <role>] [--model <id>] [--effort <level>] [--explain] [--from-inventory] [--json]
 omh coding model-inventory [--json]
 ```
 

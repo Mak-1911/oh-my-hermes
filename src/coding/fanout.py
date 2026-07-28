@@ -24,6 +24,7 @@ def build_fanout_contract(
     *,
     source: str = "generic",
     source_metadata: Mapping[str, object] | None = None,
+    local_catalogs: Mapping[str, Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
     normalized_goal = " ".join(goal.split())
     if not normalized_goal:
@@ -36,7 +37,12 @@ def build_fanout_contract(
     fanout_id = f"fanout-{digest[:12]}"
     unit_ids = [str(unit["unit_id"]) for unit in normalized_units]
     contract_units = [
-        _contract_unit(unit, sibling_scopes=_sibling_scopes(normalized_units, str(unit["unit_id"])), fanout_id=fanout_id)
+        _contract_unit(
+            unit,
+            sibling_scopes=_sibling_scopes(normalized_units, str(unit["unit_id"])),
+            fanout_id=fanout_id,
+            local_catalogs=local_catalogs,
+        )
         for unit in normalized_units
     ]
     return {
@@ -188,11 +194,18 @@ def _sibling_scopes(units: Sequence[Mapping[str, object]], unit_id: str) -> list
     return sorted(scopes)
 
 
-def _contract_unit(unit: Mapping[str, object], *, sibling_scopes: list[str], fanout_id: str) -> dict[str, object]:
+def _contract_unit(
+    unit: Mapping[str, object],
+    *,
+    sibling_scopes: list[str],
+    fanout_id: str,
+    local_catalogs: Mapping[str, Mapping[str, object]] | None = None,
+) -> dict[str, object]:
     unit_id = str(unit["unit_id"])
     own_scope = set(str(path) for path in unit.get("file_scope", []))
     executor_target = str(unit.get("owner")) if unit.get("owner") else "choose"
-    model_route = model_route_for_unit(unit, executor_target)
+    local_catalog = (local_catalogs or {}).get(executor_target)
+    model_route = model_route_for_unit(unit, executor_target, local_catalog)
     handoff: dict[str, object] = {
         "schema_version": "fanout_unit_handoff/v1",
         "executor_target": executor_target,
