@@ -459,6 +459,82 @@ def memory_recall_pack_for_handoff(
     return pack
 
 
+RETIREMENT_REPORT_SCHEMA_VERSION = "omh_memory_retirement_report/v1"
+
+
+def _memory_archive_dir(paths: OmhPaths) -> Path:
+    return paths.memory_dir / "archive"
+
+
+def build_memory_retirement(
+    paths: OmhPaths,
+    *,
+    now: datetime | None = None,
+    window_days: int = 7,
+) -> dict[str, object]:
+    """Which approved records are past or near their deadline. Report only.
+
+    Scans the records directory directly rather than through
+    ``_read_project_memory_records`` because that reader raises on the first
+    corrupt file -- and corrupt files are exactly what accumulates in a store
+    nothing ever cleans. Here one unreadable file costs one ``skipped`` row,
+    never the run.
+
+    Fail-closed: only canonical records (right schema, approved, safe
+    ``record_id`` matching the filename) are classified, and only the
+    classifier's ``expired`` verdict can ever nominate a move. A missing or
+    empty TTL is a healthy record that never expires; a present-but-unreadable
+    one is surfaced as ``malformed_expires_at`` and left alone.
+    """
+    now = now if now is not None else datetime.now(timezone.utc)
+    records_dir = _memory_records_dir(paths)
+    expired: list[dict[str, object]] = []
+    expiring_soon: list[dict[str, object]] = []
+    skipped: list[dict[str, object]] = []
+    candidates = sorted(records_dir.glob("*.json")) if records_dir.exists() else []
+    for path in candidates:
+        if path.is_symlink() or not path.is_file():
+            skipped.append({"path_name": path.name, "reason": "symlink_or_not_file"})
+            continue
+        data, _error = read_json_object_result(path)
+        if data is None:
+            skipped.append({"path_name": path.name, "reason": "corrupt_json"})
+            continue
+        if data.get("schema_version") != PROJECT_MEMORY_RECORD_SCHEMA_VERSION or data.get("review_status") != "approved":
+            skipped.append({"path_name": path.name, "reason": "not_canonical"})
+            continue
+        record_id = str(data.get("record_id", ""))
+        if not _SAFE_REF.match(record_id) or record_id != path.stem:
+            skipped.append({"path_name": path.name, "reason": "unsafe_record_id"})
+            continue
+        state = _classify_record_expiry(data, now=now, window_days=window_days)
+        ttl = data.get("ttl", {}) if isinstance(data.get("ttl"), dict) else {}
+        row = {"record_id": record_id, "expires_at": str(ttl.get("expires_at", "") or ""), "path_name": path.name}
+        if state == "expired":
+            expired.append(row)
+        elif state == "expiring":
+            expiring_soon.append(row)
+        elif state == "malformed":
+            skipped.append({"path_name": path.name, "reason": "malformed_expires_at"})
+    return {
+        "schema_version": RETIREMENT_REPORT_SCHEMA_VERSION,
+        "applied": False,
+        "window_days": window_days,
+        "expired": expired,
+        "expiring_soon": expiring_soon,
+        "skipped": skipped,
+        "reconciled": [],
+        "counts": {"expired": len(expired), "expiring_soon": len(expiring_soon), "skipped": len(skipped)},
+        "archive_dir": str(_memory_archive_dir(paths)),
+        "redaction_policy": "metadata_only",
+        "claim_boundary": (
+            "A retirement report proposes what is past its deadline. It is not a deletion, not a move, "
+            "and not evidence that Hermes memory or OMH records changed."
+        ),
+        "next_action": "Run `omh memory retire --apply` to move expired records into the archive.",
+    }
+
+
 def build_memory_inspection(
     paths: OmhPaths,
     *,

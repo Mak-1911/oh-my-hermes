@@ -18,6 +18,7 @@ from omh.memory import (
     approve_project_memory_candidate,
     build_handoff_context_pack,
     build_memory_inspection,
+    build_memory_retirement,
     build_memory_review_card,
     build_project_memory_recall_pack,
     build_project_memory_review,
@@ -176,6 +177,72 @@ class MemoryContractTests(unittest.TestCase):
                 else:
                     os.environ["TZ"] = original
                 time.tzset()
+
+    def test_memory_retirement_report_is_fail_closed_and_write_free(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(
+                paths, "Expired fixture keeps release tests honest", record_type="procedure", tags=["release"], ttl_days=5
+            )
+            capture_project_memory_candidate(
+                paths, "Expiring fixture keeps release tests honest", record_type="procedure", tags=["release"], ttl_days=7
+            )
+            records_dir = paths.memory_dir / "records"
+            by_ttl = {}
+            for path in records_dir.glob("*.json"):
+                data = json.loads(path.read_text(encoding="utf-8"))
+                by_ttl[data["ttl"]["ttl_days"]] = data
+            expired_id = by_ttl[5]["record_id"]
+            expiring_id = by_ttl[7]["record_id"]
+            created = datetime.fromisoformat(str(by_ttl[5]["ttl"]["expires_at"]).replace("Z", "+00:00"))
+            probe_now = created + timedelta(days=1)  # 5d TTL expired, 7d TTL expiring within window
+
+            (records_dir / "mem_corrupt.json").write_text("{", encoding="utf-8")
+            (records_dir / "mem_link.json").symlink_to("/etc/hosts")
+            (records_dir / "mem_other.json").write_text(json.dumps({"schema_version": "other/v1"}), encoding="utf-8")
+            rejected = dict(by_ttl[5])
+            rejected["record_id"] = "mem_rejfix"
+            rejected["review_status"] = "rejected"
+            (records_dir / "mem_rejfix.json").write_text(json.dumps(rejected), encoding="utf-8")
+            mismatch = dict(by_ttl[5])
+            mismatch["record_id"] = "mem_realid"
+            (records_dir / "mem_wrongname.json").write_text(json.dumps(mismatch), encoding="utf-8")
+            malformed = dict(by_ttl[5])
+            malformed["record_id"] = "mem_badttl"
+            malformed["ttl"] = {"ttl_days": 1, "expires_at": "garbage"}
+            (records_dir / "mem_badttl.json").write_text(json.dumps(malformed), encoding="utf-8")
+            no_ttl = dict(by_ttl[5])
+            no_ttl["record_id"] = "mem_nottl"
+            no_ttl["ttl"] = {"ttl_days": None, "expires_at": ""}
+            (records_dir / "mem_nottl.json").write_text(json.dumps(no_ttl), encoding="utf-8")
+
+            names_before = sorted(p.name for p in records_dir.glob("*.json"))
+            mtimes_before = {p.name: p.lstat().st_mtime_ns for p in records_dir.glob("*.json")}
+
+            report = build_memory_retirement(paths, now=probe_now)
+
+            self.assertEqual(report["schema_version"], "omh_memory_retirement_report/v1")
+            self.assertFalse(report["applied"])
+            self.assertEqual(report["window_days"], 7)
+            self.assertEqual([row["record_id"] for row in report["expired"]], [expired_id])
+            self.assertEqual([row["record_id"] for row in report["expiring_soon"]], [expiring_id])
+            reasons = {row["path_name"]: row["reason"] for row in report["skipped"]}
+            self.assertEqual(reasons["mem_corrupt.json"], "corrupt_json")
+            self.assertEqual(reasons["mem_link.json"], "symlink_or_not_file")
+            self.assertEqual(reasons["mem_other.json"], "not_canonical")
+            self.assertEqual(reasons["mem_rejfix.json"], "not_canonical")
+            self.assertEqual(reasons["mem_wrongname.json"], "unsafe_record_id")
+            self.assertEqual(reasons["mem_badttl.json"], "malformed_expires_at")
+            self.assertNotIn("mem_nottl.json", reasons)
+            self.assertEqual(report["counts"]["expired"], 1)
+            self.assertEqual(report["counts"]["expiring_soon"], 1)
+            self.assertEqual(report["redaction_policy"], "metadata_only")
+            self.assertTrue(report["claim_boundary"])
+            self.assertNotIn("summary", json.dumps(report["expired"] + report["expiring_soon"]))
+
+            self.assertEqual(sorted(p.name for p in records_dir.glob("*.json")), names_before)
+            self.assertEqual({p.name: p.lstat().st_mtime_ns for p in records_dir.glob("*.json")}, mtimes_before)
 
     def test_project_memory_recall_pack_feeds_coding_handoff_when_enabled(self) -> None:
         with TemporaryDirectory() as tmp:
