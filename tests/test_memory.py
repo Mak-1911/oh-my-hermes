@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -27,6 +30,13 @@ from omh.memory import (
 from omh.paths import resolve_paths
 from omh.profiles.setup import write_setup_profile
 from omh.targets import record_target_observation
+
+
+def _read_only_record(paths):
+    records_dir = paths.memory_dir / "records"
+    files = sorted(records_dir.glob("*.json"))
+    assert len(files) == 1, files
+    return json.loads(files[0].read_text(encoding="utf-8"))
 
 
 class MemoryContractTests(unittest.TestCase):
@@ -106,6 +116,66 @@ class MemoryContractTests(unittest.TestCase):
             self.assertTrue(captured["auto_approved"])
             self.assertEqual(captured["record"]["schema_version"], "project_memory_record/v1")
             self.assertEqual(build_project_memory_status(paths)["counts"]["approved_records"], 1)
+
+    def test_staleness_uses_injected_now_and_utc_naive_rule(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(
+                paths,
+                "Deterministic staleness fixture for release tests",
+                record_type="procedure",
+                tags=["release", "tests"],
+                ttl_days=5,
+            )
+            record = _read_only_record(paths)
+            expires_at = datetime.fromisoformat(str(record["ttl"]["expires_at"]).replace("Z", "+00:00"))
+
+            before = build_project_memory_recall_pack(paths, "release tests", now=expires_at - timedelta(seconds=1))
+            self.assertEqual(before["record_count"], 1)
+
+            boundary = build_project_memory_recall_pack(paths, "release tests", now=expires_at)
+            self.assertEqual(boundary["record_count"], 0)
+            self.assertEqual(boundary["excluded_records"][0]["reason"], "expired")
+
+            after = build_project_memory_recall_pack(paths, "release tests", now=expires_at + timedelta(days=30))
+            self.assertEqual(after["record_count"], 0)
+            self.assertEqual(after["excluded_records"][0]["reason"], "expired")
+
+    def test_recall_reads_naive_expiry_as_utc_under_any_host_timezone(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(
+                paths,
+                "Naive timestamp fixture for release tests",
+                record_type="procedure",
+                tags=["release", "tests"],
+                ttl_days=5,
+            )
+            record = _read_only_record(paths)
+            record_path = paths.memory_dir / "records" / f"{record['record_id']}.json"
+            mutated = json.loads(record_path.read_text(encoding="utf-8"))
+            mutated["ttl"]["expires_at"] = "2026-07-28T12:00:00"  # naive, by definition UTC
+            record_path.write_text(json.dumps(mutated), encoding="utf-8")
+
+            probe_now = datetime(2026, 7, 28, 12, 0, 0, tzinfo=timezone.utc)
+            original = os.environ.get("TZ")
+            try:
+                results = []
+                for tz in ("Pacific/Kiritimati", "Pacific/Niue"):
+                    os.environ["TZ"] = tz
+                    time.tzset()
+                    pack = build_project_memory_recall_pack(paths, "release tests", now=probe_now)
+                    results.append((pack["record_count"], pack["excluded_records"][0]["reason"]))
+                self.assertEqual(results[0], results[1])
+                self.assertEqual(results[0], (0, "expired"))
+            finally:
+                if original is None:
+                    os.environ.pop("TZ", None)
+                else:
+                    os.environ["TZ"] = original
+                time.tzset()
 
     def test_project_memory_recall_pack_feeds_coding_handoff_when_enabled(self) -> None:
         with TemporaryDirectory() as tmp:

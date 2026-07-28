@@ -8,6 +8,7 @@ from typing import Any
 
 from ..local_store import atomic_write_json, ensure_dir, file_lock, read_json_object, read_json_object_result, utc_now
 from ..plugin_bundle.omh.hermes_memory import build_hermes_memory_bridge as _bundle_memory_bridge
+from ..plugin_bundle.omh.hermes_memory import classify_record_expiry as _classify_record_expiry
 from ..paths import OmhPaths
 from ..profiles.setup import read_setup_profile
 from ..targets import summarize_target_registry
@@ -387,6 +388,7 @@ def build_project_memory_recall_pack(
     scope_ref: str | None = None,
     limit: int = 6,
     include_stale: bool = False,
+    now: datetime | None = None,
 ) -> dict[str, object]:
     policy = read_project_memory_policy(paths)
     task_ref = {
@@ -410,7 +412,7 @@ def build_project_memory_recall_pack(
     for record in records:
         if not _record_scope_matches(record, scope_kind=scope_kind, scope_ref=scope_ref):
             continue
-        staleness = _record_staleness(record)
+        staleness = _record_staleness(record, now=now)
         if staleness["state"] == "expired":
             excluded.append({"record_id": str(record.get("record_id", "")), "reason": "expired", "staleness": staleness})
             continue
@@ -872,11 +874,17 @@ def _record_scope_matches(record: dict[str, Any], *, scope_kind: str | None, sco
     return (not scope_kind or scope["kind"] == scope_kind) and (not scope_ref or scope["ref"] == scope_ref)
 
 
-def _record_staleness(record: dict[str, Any]) -> dict[str, object]:
-    now = datetime.now(timezone.utc)
+def _record_staleness(record: dict[str, Any], *, now: datetime | None = None) -> dict[str, object]:
+    """TTL and staleness state at ``now`` (wall clock when omitted).
+
+    The TTL half is decided by the bundle classifier, the single source of
+    truth for what "expired" means: it reads naive timestamps as UTC, where
+    the local ``_parse_utc`` would read them as host-local time and move the
+    verdict by up to +/-14 hours depending on where the host happens to be.
+    """
+    now = now if now is not None else datetime.now(timezone.utc)
     ttl = record.get("ttl", {}) if isinstance(record.get("ttl"), dict) else {}
-    expires_at = _parse_utc(str(ttl.get("expires_at", "") or ""))
-    if expires_at and expires_at <= now:
+    if _classify_record_expiry(record, now=now) == "expired":
         return {"state": "expired", "expires_at": str(ttl.get("expires_at", ""))}
     staleness = record.get("staleness", {}) if isinstance(record.get("staleness"), dict) else {}
     stale_after = _parse_utc(str(staleness.get("stale_after", "") or ""))
