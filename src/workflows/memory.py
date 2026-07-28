@@ -1,13 +1,31 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from ..local_store import atomic_write_json, ensure_dir, file_lock, read_json_object, read_json_object_result, utc_now
+from ..local_store import (
+    atomic_write_json,
+    ensure_dir,
+    ensure_file,
+    file_lock,
+    read_json_object,
+    read_json_object_result,
+    read_jsonl_objects,
+    utc_now,
+)
+
+try:  # pragma: no cover - non-POSIX fallback is exercised only on platforms without fcntl.
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
 from ..plugin_bundle.omh.hermes_memory import build_hermes_memory_bridge as _bundle_memory_bridge
+from ..plugin_bundle.omh.hermes_memory import classify_record_expiry as _classify_record_expiry
+from ..plugin_bundle.omh.memory_dreaming import consolidation_path as _consolidation_path
 from ..paths import OmhPaths
 from ..profiles.setup import read_setup_profile
 from ..targets import summarize_target_registry
@@ -191,6 +209,8 @@ def build_project_memory_status(paths: OmhPaths) -> dict[str, object]:
     candidates = _read_project_memory_candidates(paths)
     records = _read_project_memory_records(paths)
     reviews = _read_project_memory_reviews(paths)
+    now = datetime.now(timezone.utc)
+    expired_records = sum(1 for record in records if _classify_record_expiry(record, now=now) == "expired")
     candidate_status_counts: dict[str, int] = {}
     for candidate in candidates:
         status = str(candidate.get("status", "unknown"))
@@ -211,6 +231,7 @@ def build_project_memory_status(paths: OmhPaths) -> dict[str, object]:
             "candidates": len(candidates),
             "pending_review": sum(1 for candidate in candidates if str(candidate.get("status", "")) in {"pending_review", "blocked_review_required"}),
             "approved_records": len(records),
+            "expired_records": expired_records,
             "review_records": len(reviews),
             "candidate_statuses": candidate_status_counts,
         },
@@ -336,11 +357,15 @@ def approve_project_memory_candidate(paths: OmhPaths, candidate_id: str, *, appr
         raise ValueError("blocked memory candidates must be rejected or recaptured without protected raw content")
     now = utc_now()
     record = _record_from_candidate(candidate, approved_by=approved_by, approved_at=now)
-    _write_project_memory_record(paths, record)
-    candidate = {**candidate, "status": "approved", "reviewed_at": now, "reviewed_by": approved_by, "record_id": record["record_id"]}
-    _write_project_memory_candidate(paths, candidate)
-    review = _write_project_memory_review_decision(paths, candidate, decision="approved", reviewer=approved_by, reason="")
-    _write_memory_index(paths)
+    # The whole mutate sequence holds the store lock so a concurrent retirement
+    # cannot observe a half-written approval. Candidate writes go through the
+    # unlocked helper: the public wrapper acquires this same non-reentrant lock.
+    with file_lock(paths.memory_index_path, private=True):
+        _write_project_memory_record(paths, record)
+        candidate = {**candidate, "status": "approved", "reviewed_at": now, "reviewed_by": approved_by, "record_id": record["record_id"]}
+        _write_project_memory_candidate_unlocked(paths, candidate)
+        review = _write_project_memory_review_decision(paths, candidate, decision="approved", reviewer=approved_by, reason="")
+        _write_memory_index_unlocked(paths)
     return {
         "schema_version": PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION,
         "decision": "approved",
@@ -363,9 +388,10 @@ def reject_project_memory_candidate(
         raise FileNotFoundError(candidate_id)
     now = utc_now()
     candidate = {**candidate, "status": "rejected", "reviewed_at": now, "reviewed_by": rejected_by, "rejection_reason": _redact(str(reason or ""))[:300]}
-    _write_project_memory_candidate(paths, candidate)
-    review = _write_project_memory_review_decision(paths, candidate, decision="rejected", reviewer=rejected_by, reason=reason)
-    _write_memory_index(paths)
+    with file_lock(paths.memory_index_path, private=True):
+        _write_project_memory_candidate_unlocked(paths, candidate)
+        review = _write_project_memory_review_decision(paths, candidate, decision="rejected", reviewer=rejected_by, reason=reason)
+        _write_memory_index_unlocked(paths)
     return {
         "schema_version": PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION,
         "decision": "rejected",
@@ -389,6 +415,7 @@ def build_project_memory_recall_pack(
     limit: int = 6,
     max_chars: int | None = None,
     include_stale: bool = False,
+    now: datetime | None = None,
 ) -> dict[str, object]:
     policy = read_project_memory_policy(paths)
     task_ref = {
@@ -412,7 +439,7 @@ def build_project_memory_recall_pack(
     for record in records:
         if not _record_scope_matches(record, scope_kind=scope_kind, scope_ref=scope_ref):
             continue
-        staleness = _record_staleness(record)
+        staleness = _record_staleness(record, now=now)
         if staleness["state"] == "expired":
             excluded.append({"record_id": str(record.get("record_id", "")), "reason": "expired", "staleness": staleness})
             continue
@@ -483,6 +510,256 @@ def memory_recall_pack_for_handoff(
     if not pack.get("enabled") or not pack.get("included_records"):
         return None
     return pack
+
+
+RETIREMENT_REPORT_SCHEMA_VERSION = "omh_memory_retirement_report/v1"
+RETIREMENT_JOURNAL_SCHEMA_VERSION = "omh_memory_retirement_journal/v1"
+_RETIREMENT_JOURNAL_CLAIM_BOUNDARY = (
+    "A retirement journal line records that OMH moved one of its own expired records to its "
+    "local archive. It is not a deletion and not Hermes internal-memory evidence."
+)
+_ARCHIVE_COMPACT_FORMAT = "%Y%m%dT%H%M%SZ"
+
+
+def _compact_retired_at(retired_at: str) -> str:
+    return retired_at.replace("-", "").replace(":", "")
+
+
+def _iso_from_compact(compact: str) -> str | None:
+    try:
+        parsed = datetime.strptime(compact, _ARCHIVE_COMPACT_FORMAT)
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _retirements_journal_path(paths: OmhPaths) -> Path:
+    return _memory_archive_dir(paths) / "retirements.jsonl"
+
+
+def _append_retirement_journal(paths: OmhPaths, record_id: str, retired_at: str, expires_at: str) -> dict[str, object]:
+    entry = {
+        "schema_version": RETIREMENT_JOURNAL_SCHEMA_VERSION,
+        "record_id": record_id,
+        "retired_at": retired_at,
+        "expires_at": expires_at,
+        "redaction_policy": "metadata_only",
+        "claim_boundary": _RETIREMENT_JOURNAL_CLAIM_BOUNDARY,
+    }
+    journal_path = _retirements_journal_path(paths)
+    ensure_dir(journal_path.parent, private=True)
+    ensure_file(journal_path, private=True)
+    with journal_path.open("a", encoding="utf-8") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            handle.write(json.dumps(entry, sort_keys=True) + "\n")
+            handle.flush()
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    return entry
+
+
+def _mark_candidate_retired(paths: OmhPaths, record_id: str) -> bool:
+    """Flip the approved candidate that produced ``record_id`` to retired.
+
+    Without this, the candidate keeps claiming an approval whose record no
+    longer exists, and re-approving it resurrects the retired record silently.
+    """
+    for candidate in _read_project_memory_candidates(paths):
+        if str(candidate.get("record_id", "")) == record_id and str(candidate.get("status", "")) == "approved":
+            _write_project_memory_candidate_unlocked(paths, {**candidate, "status": "retired", "retired_at": utc_now()})
+            return True
+    return False
+
+
+def _journal_pairs(paths: OmhPaths) -> set[tuple[str, str]]:
+    entries, _errors = read_jsonl_objects(_retirements_journal_path(paths))
+    return {
+        (str(entry.get("record_id", "")), str(entry.get("retired_at", "")))
+        for entry in entries
+        if entry.get("schema_version") == RETIREMENT_JOURNAL_SCHEMA_VERSION
+    }
+
+
+def _reconcile_retirement_archive(paths: OmhPaths) -> list[dict[str, object]]:
+    """Heal archives a crash left half-recorded. Runs inside the store lock.
+
+    Each invariant is repaired independently: a missing journal line is
+    appended, a still-approved source candidate is flipped to retired, and the
+    index is covered by the transaction's final rewrite. A fully consistent
+    entry produces no row, so a post-recovery rerun reports nothing.
+    """
+    archive_dir = _memory_archive_dir(paths)
+    if not archive_dir.exists():
+        return []
+    pairs = _journal_pairs(paths)
+    reconciled: list[dict[str, object]] = []
+    for path in sorted(archive_dir.glob("*.json")):
+        if path.is_symlink() or not path.is_file():
+            continue
+        stem = path.name[: -len(".json")]
+        record_id, _, compact = stem.rpartition(".")
+        retired_at = _iso_from_compact(compact) if record_id else None
+        if not record_id or retired_at is None or not _SAFE_REF.match(record_id):
+            continue
+        repaired: list[str] = []
+        if (record_id, retired_at) not in pairs:
+            data, _error = read_json_object_result(path)
+            ttl = data.get("ttl", {}) if isinstance(data, dict) and isinstance(data.get("ttl"), dict) else {}
+            _append_retirement_journal(paths, record_id, retired_at, str(ttl.get("expires_at", "") or ""))
+            repaired.append("journal")
+        if _mark_candidate_retired(paths, record_id):
+            repaired.append("candidate")
+        if repaired:
+            reconciled.append({"record_id": record_id, "retired_at": retired_at, "repaired": repaired})
+    return reconciled
+
+
+def _clear_expiring_only_brief(paths: OmhPaths) -> bool:
+    """Retire a brief whose only ask was the retirement that just ran."""
+    brief_path = _consolidation_path(paths.omh_home)
+    brief, _error = read_json_object_result(brief_path)
+    if not isinstance(brief, dict) or brief.get("schema_version") != "omh_memory_consolidation_handoff/v1":
+        return False
+    reasons = [str(reason) for reason in brief.get("reasons", []) if isinstance(reason, str)]
+    if not brief.get("due") or not reasons or not all(reason.startswith("expiring_records:") for reason in reasons):
+        return False
+    retired = dict(brief)
+    retired["due"] = False
+    retired["superseded_at"] = utc_now()
+    retired["superseded_by"] = "omh memory retire --apply"
+    atomic_write_json(brief_path, retired, private=True)
+    return True
+
+
+def apply_memory_retirement(
+    paths: OmhPaths,
+    *,
+    now: datetime | None = None,
+    window_days: int = 7,
+) -> dict[str, object]:
+    """Move expired records into the archive. The only mover in the store.
+
+    One store-lock acquisition covers reconciliation, the scan, every move,
+    the journal appends, the candidate flips, and the index rewrite --
+    ``file_lock`` is not reentrant, so everything inside goes through the
+    unlocked helpers. Files are moved with ``os.replace`` and never deleted;
+    a crash at any point heals on the next run via the reconciliation pass.
+    """
+    now = now if now is not None else datetime.now(timezone.utc)
+    retired_at = now.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    archive_dir = _memory_archive_dir(paths)
+    ensure_dir(archive_dir, private=True)
+    records_dir = _memory_records_dir(paths)
+    with file_lock(paths.memory_index_path, private=True):
+        reconciled = _reconcile_retirement_archive(paths)
+        report = build_memory_retirement(paths, now=now, window_days=window_days)
+        moved: list[dict[str, object]] = []
+        skipped = list(report["skipped"])
+        for row in report["expired"]:
+            source = records_dir / str(row["path_name"])
+            if source.is_symlink() or not source.is_file():
+                skipped.append({"path_name": str(row["path_name"]), "reason": "symlink_or_not_file"})
+                continue
+            destination = archive_dir / f"{row['record_id']}.{_compact_retired_at(retired_at)}.json"
+            _assert_under_memory_root(paths, destination)
+            if destination.exists():
+                skipped.append({"path_name": str(row["path_name"]), "reason": "archive_collision"})
+                continue
+            os.replace(source, destination)
+            os.chmod(destination, 0o600)
+            _append_retirement_journal(paths, str(row["record_id"]), retired_at, str(row["expires_at"]))
+            _mark_candidate_retired(paths, str(row["record_id"]))
+            moved.append({**row, "archived_as": destination.name, "retired_at": retired_at})
+        _write_memory_index_unlocked(paths)
+        brief_cleared = bool(moved or reconciled) and _clear_expiring_only_brief(paths)
+    payload = dict(report)
+    payload["applied"] = True
+    payload["moved"] = moved
+    payload["reconciled"] = reconciled
+    payload["skipped"] = skipped
+    payload["brief_cleared"] = brief_cleared
+    payload["claim_boundary"] = (
+        "A retirement apply moves OMH's own expired records into OMH's local archive. It never "
+        "deletes, and it is not evidence that Hermes memory changed."
+    )
+    payload["next_action"] = "Archived records stay readable under .omh/memory/archive/."
+    return payload
+
+
+def _memory_archive_dir(paths: OmhPaths) -> Path:
+    return paths.memory_dir / "archive"
+
+
+def build_memory_retirement(
+    paths: OmhPaths,
+    *,
+    now: datetime | None = None,
+    window_days: int = 7,
+) -> dict[str, object]:
+    """Which approved records are past or near their deadline. Report only.
+
+    Scans the records directory directly rather than through
+    ``_read_project_memory_records`` because that reader raises on the first
+    corrupt file -- and corrupt files are exactly what accumulates in a store
+    nothing ever cleans. Here one unreadable file costs one ``skipped`` row,
+    never the run.
+
+    Fail-closed: only canonical records (right schema, approved, safe
+    ``record_id`` matching the filename) are classified, and only the
+    classifier's ``expired`` verdict can ever nominate a move. A missing or
+    empty TTL is a healthy record that never expires; a present-but-unreadable
+    one is surfaced as ``malformed_expires_at`` and left alone.
+    """
+    now = now if now is not None else datetime.now(timezone.utc)
+    records_dir = _memory_records_dir(paths)
+    expired: list[dict[str, object]] = []
+    expiring_soon: list[dict[str, object]] = []
+    skipped: list[dict[str, object]] = []
+    candidates = sorted(records_dir.glob("*.json")) if records_dir.exists() else []
+    for path in candidates:
+        if path.is_symlink() or not path.is_file():
+            skipped.append({"path_name": path.name, "reason": "symlink_or_not_file"})
+            continue
+        data, _error = read_json_object_result(path)
+        if data is None:
+            skipped.append({"path_name": path.name, "reason": "corrupt_json"})
+            continue
+        if data.get("schema_version") != PROJECT_MEMORY_RECORD_SCHEMA_VERSION or data.get("review_status") != "approved":
+            skipped.append({"path_name": path.name, "reason": "not_canonical"})
+            continue
+        record_id = str(data.get("record_id", ""))
+        if not _SAFE_REF.match(record_id) or record_id != path.stem:
+            skipped.append({"path_name": path.name, "reason": "unsafe_record_id"})
+            continue
+        state = _classify_record_expiry(data, now=now, window_days=window_days)
+        ttl = data.get("ttl", {}) if isinstance(data.get("ttl"), dict) else {}
+        row = {"record_id": record_id, "expires_at": str(ttl.get("expires_at", "") or ""), "path_name": path.name}
+        if state == "expired":
+            expired.append(row)
+        elif state == "expiring":
+            expiring_soon.append(row)
+        elif state == "malformed":
+            skipped.append({"path_name": path.name, "reason": "malformed_expires_at"})
+    return {
+        "schema_version": RETIREMENT_REPORT_SCHEMA_VERSION,
+        "applied": False,
+        "window_days": window_days,
+        "expired": expired,
+        "expiring_soon": expiring_soon,
+        "skipped": skipped,
+        "reconciled": [],
+        "counts": {"expired": len(expired), "expiring_soon": len(expiring_soon), "skipped": len(skipped)},
+        "archive_dir": str(_memory_archive_dir(paths)),
+        "redaction_policy": "metadata_only",
+        "claim_boundary": (
+            "A retirement report proposes what is past its deadline. It is not a deletion, not a move, "
+            "and not evidence that Hermes memory or OMH records changed."
+        ),
+        "next_action": "Run `omh memory retire --apply` to move expired records into the archive.",
+    }
 
 
 def build_memory_inspection(
@@ -903,11 +1180,17 @@ def _record_scope_matches(record: dict[str, Any], *, scope_kind: str | None, sco
     return (not scope_kind or scope["kind"] == scope_kind) and (not scope_ref or scope["ref"] == scope_ref)
 
 
-def _record_staleness(record: dict[str, Any]) -> dict[str, object]:
-    now = datetime.now(timezone.utc)
+def _record_staleness(record: dict[str, Any], *, now: datetime | None = None) -> dict[str, object]:
+    """TTL and staleness state at ``now`` (wall clock when omitted).
+
+    The TTL half is decided by the bundle classifier, the single source of
+    truth for what "expired" means: it reads naive timestamps as UTC, where
+    the local ``_parse_utc`` would read them as host-local time and move the
+    verdict by up to +/-14 hours depending on where the host happens to be.
+    """
+    now = now if now is not None else datetime.now(timezone.utc)
     ttl = record.get("ttl", {}) if isinstance(record.get("ttl"), dict) else {}
-    expires_at = _parse_utc(str(ttl.get("expires_at", "") or ""))
-    if expires_at and expires_at <= now:
+    if _classify_record_expiry(record, now=now) == "expired":
         return {"state": "expired", "expires_at": str(ttl.get("expires_at", ""))}
     staleness = record.get("staleness", {}) if isinstance(record.get("staleness"), dict) else {}
     stale_after = _parse_utc(str(staleness.get("stale_after", "") or ""))
@@ -1078,9 +1361,14 @@ def _read_memory_json_files(paths: OmhPaths, directory: Path) -> list[dict[str, 
     return items
 
 
-def _write_project_memory_candidate(paths: OmhPaths, candidate: dict[str, object]) -> None:
+def _write_project_memory_candidate_unlocked(paths: OmhPaths, candidate: dict[str, object]) -> None:
+    """Candidate write with NO index rewrite: for callers already holding the store lock."""
     path = _memory_candidate_path(paths, str(candidate.get("candidate_id", "")))
     atomic_write_json(path, candidate, private=True)
+
+
+def _write_project_memory_candidate(paths: OmhPaths, candidate: dict[str, object]) -> None:
+    _write_project_memory_candidate_unlocked(paths, candidate)
     _write_memory_index(paths)
 
 
@@ -1719,23 +2007,34 @@ def _read_scope_file(path: Path, scope: dict[str, str]) -> dict[str, Any]:
 def _write_memory_index(paths: OmhPaths) -> None:
     ensure_dir(paths.memory_dir, private=True)
     with file_lock(paths.memory_index_path, private=True):
-        scopes = [str(path.relative_to(paths.memory_dir)) for path in _memory_scope_paths(paths)]
-        candidates = [str(path.relative_to(paths.memory_dir)) for path in _safe_memory_files(paths, _memory_candidates_dir(paths))]
-        records = [str(path.relative_to(paths.memory_dir)) for path in _safe_memory_files(paths, _memory_records_dir(paths))]
-        reviews = [str(path.relative_to(paths.memory_dir)) for path in _safe_memory_files(paths, _memory_reviews_dir(paths))]
-        atomic_write_json(
-            paths.memory_index_path,
-            {
-                "schema_version": MEMORY_INDEX_SCHEMA_VERSION,
-                "updated_at": utc_now(),
-                "scope_files": sorted(scopes),
-                "candidate_files": sorted(candidates),
-                "record_files": sorted(records),
-                "review_files": sorted(reviews),
-                "claim_boundary": "OMH local memory only; this index is not Hermes internal memory.",
-            },
-            private=True,
-        )
+        _write_memory_index_unlocked(paths)
+
+
+def _write_memory_index_unlocked(paths: OmhPaths) -> None:
+    """Index rewrite for callers already inside the store lock.
+
+    ``file_lock`` flocks a fresh handle, so it is not reentrant: the retirement
+    and approval transactions that already hold the lock must come through
+    here, or they wait out the full timeout against themselves.
+    """
+    ensure_dir(paths.memory_dir, private=True)
+    scopes = [str(path.relative_to(paths.memory_dir)) for path in _memory_scope_paths(paths)]
+    candidates = [str(path.relative_to(paths.memory_dir)) for path in _safe_memory_files(paths, _memory_candidates_dir(paths))]
+    records = [str(path.relative_to(paths.memory_dir)) for path in _safe_memory_files(paths, _memory_records_dir(paths))]
+    reviews = [str(path.relative_to(paths.memory_dir)) for path in _safe_memory_files(paths, _memory_reviews_dir(paths))]
+    atomic_write_json(
+        paths.memory_index_path,
+        {
+            "schema_version": MEMORY_INDEX_SCHEMA_VERSION,
+            "updated_at": utc_now(),
+            "scope_files": sorted(scopes),
+            "candidate_files": sorted(candidates),
+            "record_files": sorted(records),
+            "review_files": sorted(reviews),
+            "claim_boundary": "OMH local memory only; this index is not Hermes internal memory.",
+        },
+        private=True,
+    )
 
 
 def _safe_memory_files(paths: OmhPaths, directory: Path) -> list[Path]:

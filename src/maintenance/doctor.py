@@ -308,11 +308,18 @@ def _memory_consolidation_check(paths: OmhPaths) -> Check:
     if not brief.get("due") or not reasons:
         return Check("memory_consolidation", True, "No memory consolidation is pending", observed=True)
     at = str(brief.get("raised_at", "") or read_dreaming_state(paths.omh_home).get("last_consolidated_at", "") or "unknown time")
+    record_expiry = brief.get("record_expiry", {}) if isinstance(brief.get("record_expiry"), dict) else {}
+    expired = int(record_expiry.get("expired", 0) or 0)
+    if expired > 0:
+        # Expired records have an operator-runnable fix; consolidation does not.
+        remedy = f"Run `omh memory retire` to archive {expired} expired record(s); OMH never deletes them."
+    else:
+        remedy = "Ask Hermes to review and consolidate its memory; OMH prepared the brief and cannot run it."
     return Check(
         "memory_consolidation",
         True,
         f"Memory consolidation is due ({', '.join(reasons)}), raised at {at} by {brief.get('trigger', 'unknown')}. "
-        "Ask Hermes to review and consolidate its memory; OMH prepared the brief and cannot run it.",
+        + remedy,
         severity="warning",
         observed=True,
     )

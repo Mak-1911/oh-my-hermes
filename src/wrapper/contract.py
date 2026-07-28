@@ -6181,13 +6181,21 @@ def _with_memory_consolidation_notice(
     if not isinstance(response, dict):
         return payload
     payload = dict(payload)
+    # The remedy depends on what the brief actually found: expired records have
+    # an OMH-local fix an operator can run; everything else needs the model.
+    record_expiry = brief.get("record_expiry", {}) if isinstance(brief.get("record_expiry"), dict) else {}
+    next_action = (
+        "run_omh_memory_retire"
+        if int(record_expiry.get("expired", 0) or 0) > 0
+        else "ask_hermes_to_consolidate_memory"
+    )
     payload["memory_consolidation_notice"] = {
         "schema_version": MEMORY_CONSOLIDATION_NOTICE_SCHEMA_VERSION,
         "due": True,
         "trigger": str(brief.get("trigger", "")),
         "reasons": reasons,
         "raised_at": str(brief.get("raised_at", "")),
-        "next_action": "ask_hermes_to_consolidate_memory",
+        "next_action": next_action,
         "redaction_policy": "metadata_only",
         "claim_boundary": (
             "A consolidation notice is prepared context. It is not evidence that memory was "
@@ -6196,7 +6204,7 @@ def _with_memory_consolidation_notice(
     }
     updated = dict(response)
     state = dict(_nested(updated, "state"))
-    state["memory_consolidation"] = {"due": True, "next_action": "ask_hermes_to_consolidate_memory"}
+    state["memory_consolidation"] = {"due": True, "next_action": next_action}
     updated["state"] = state
     body = str(updated.get("body", ""))
     # The locale comes from the user's message through the same detector the

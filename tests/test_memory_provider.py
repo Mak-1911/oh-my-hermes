@@ -1444,3 +1444,243 @@ class BlockBudgetDefaultTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- record expiry classifier (memory-expiry-retirement todo 1) ---
+
+import time as _time
+from datetime import datetime as _datetime, timedelta, timezone as _timezone
+
+from omh.plugin_bundle.omh.hermes_memory import classify_record_expiry, count_record_expiry
+
+_EXPIRY_NOW = _datetime(2026, 7, 28, 12, 0, 0, tzinfo=_timezone.utc)
+
+
+def _write_expiry_record(
+    omh_home: Path,
+    record_id: str,
+    expires_at: str | None,
+    *,
+    include_ttl: bool = True,
+    status: str = "approved",
+    schema: str = "project_memory_record/v1",
+) -> Path:
+    directory = omh_home / "memory" / "records"
+    directory.mkdir(parents=True, exist_ok=True)
+    record: dict = {
+        "schema_version": schema,
+        "review_status": status,
+        "record_id": record_id,
+        "summary": "expiry fixture",
+    }
+    if include_ttl:
+        record["ttl"] = {"ttl_days": 1, "expires_at": expires_at}
+    path = directory / f"{record_id}.json"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    return path
+
+
+class ExpiryClassifierTests(unittest.TestCase):
+    def _record(self, expires_at: str | None = None, *, include_ttl: bool = True) -> dict:
+        record: dict = {
+            "schema_version": "project_memory_record/v1",
+            "review_status": "approved",
+            "record_id": "mem_fixture",
+        }
+        if include_ttl:
+            record["ttl"] = {"ttl_days": 1, "expires_at": expires_at}
+        return record
+
+    def test_classifier_states_and_exact_boundary(self) -> None:
+        self.assertEqual(classify_record_expiry(self._record("2026-07-28T11:59:59Z"), now=_EXPIRY_NOW), "expired")
+        # The exact boundary expires_at == now is expired: same <= operator as recall.
+        self.assertEqual(classify_record_expiry(self._record("2026-07-28T12:00:00Z"), now=_EXPIRY_NOW), "expired")
+        self.assertEqual(classify_record_expiry(self._record("2026-07-30T12:00:00Z"), now=_EXPIRY_NOW), "expiring")
+        # Window edge: now + 7d exactly is still expiring.
+        self.assertEqual(classify_record_expiry(self._record("2026-08-04T12:00:00Z"), now=_EXPIRY_NOW), "expiring")
+        self.assertEqual(classify_record_expiry(self._record("2026-08-04T12:00:01Z"), now=_EXPIRY_NOW), "fresh")
+        self.assertEqual(classify_record_expiry(self._record(""), now=_EXPIRY_NOW), "no_ttl")
+        self.assertEqual(classify_record_expiry(self._record(include_ttl=False), now=_EXPIRY_NOW), "no_ttl")
+        self.assertEqual(classify_record_expiry(self._record("not-a-date"), now=_EXPIRY_NOW), "malformed")
+
+    def test_naive_timestamps_read_as_utc_under_any_host_timezone(self) -> None:
+        naive_expired = self._record("2026-07-28T11:00:00")
+        naive_fresh = self._record("2026-09-01T00:00:00")
+        original = os.environ.get("TZ")
+        try:
+            results = []
+            for tz in ("Pacific/Kiritimati", "Pacific/Niue"):
+                os.environ["TZ"] = tz
+                _time.tzset()
+                results.append(
+                    (
+                        classify_record_expiry(naive_expired, now=_EXPIRY_NOW),
+                        classify_record_expiry(naive_fresh, now=_EXPIRY_NOW),
+                    )
+                )
+            self.assertEqual(results[0], results[1])
+            self.assertEqual(results[0], ("expired", "fresh"))
+        finally:
+            if original is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = original
+            _time.tzset()
+
+    def test_count_record_expiry_counts_only_expiry_states(self) -> None:
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / ".omh"
+            _write_expiry_record(home, "mem_expired", "2026-07-28T00:00:00Z")
+            _write_expiry_record(home, "mem_soon", "2026-07-30T00:00:00Z")
+            _write_expiry_record(home, "mem_fresh", "2026-09-01T00:00:00Z")
+            _write_expiry_record(home, "mem_malformed", "garbage")
+            _write_expiry_record(home, "mem_no_ttl", None, include_ttl=False)
+            _write_expiry_record(home, "mem_rejected", "2026-07-01T00:00:00Z", status="rejected")
+            _write_expiry_record(home, "mem_wrong_schema", "2026-07-01T00:00:00Z", schema="other/v1")
+            counts = count_record_expiry(home, now=_EXPIRY_NOW)
+            self.assertEqual(counts, {"expired": 1, "expiring_soon": 1})
+
+
+class RecordExpiryWiringTests(unittest.TestCase):
+    def _provider(self, root: Path) -> OmhMemoryProvider:
+        provider = OmhMemoryProvider(root / ".omh")
+        provider.initialize("session-1", hermes_home=str(root / ".hermes"), agent_context="primary")
+        return provider
+
+    @staticmethod
+    def _iso(moment: _datetime) -> str:
+        return moment.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    def _briefs(self, root: Path) -> tuple[dict, int]:
+        home = root / ".omh" / "memory"
+        latest = json.loads((home / "consolidation.json").read_text(encoding="utf-8"))
+        lines = (home / "consolidation.jsonl").read_text(encoding="utf-8").splitlines()
+        return latest, len([line for line in lines if line.strip()])
+
+    def test_expiring_record_wakes_a_brief_with_record_expiry(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            soon = _datetime.now(_timezone.utc) + timedelta(days=3)
+            _write_expiry_record(root / ".omh", "mem_soonfix", self._iso(soon))
+            self._provider(root)
+            latest, _count = self._briefs(root)
+            self.assertTrue(latest["due"])
+            self.assertIn("expiring_records:1", latest["reasons"])
+            self.assertEqual(latest["record_expiry"], {"expired": 0, "expiring_soon": 1})
+
+    def test_standing_expiry_never_blocks_brief_retirement(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            soon = _datetime.now(_timezone.utc) + timedelta(days=3)
+            _write_expiry_record(root / ".omh", "mem_soonfix", self._iso(soon))
+            provider = self._provider(root)
+            latest, _count = self._briefs(root)
+            self.assertTrue(latest["due"])
+            provider.on_memory_write("replace", "memory", "merged entries", {"write_origin": "memory_tool"})
+            self.assertFalse(read_latest_consolidation(root / ".omh")["due"])
+
+    def test_expired_transition_refreshes_brief_without_new_notification(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            soon = _datetime.now(_timezone.utc) + timedelta(days=3)
+            record_path = _write_expiry_record(root / ".omh", "mem_soonfix", self._iso(soon))
+            provider = self._provider(root)
+            _latest, lines_before = self._briefs(root)
+            mutated = json.loads(record_path.read_text(encoding="utf-8"))
+            mutated["ttl"]["expires_at"] = "2020-01-01T00:00:00Z"
+            record_path.write_text(json.dumps(mutated), encoding="utf-8")
+            provider.on_turn_start(2, "next turn")
+            latest, lines_after = self._briefs(root)
+            self.assertEqual(latest["record_expiry"], {"expired": 1, "expiring_soon": 0})
+            self.assertTrue(latest["due"])
+            self.assertEqual(lines_after, lines_before)
+
+    def test_pre_change_brief_normalizes_record_expiry_to_zeros(self) -> None:
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / ".omh"
+            (home / "memory").mkdir(parents=True)
+            (home / "memory" / "consolidation.json").write_text(
+                json.dumps({"schema_version": "omh_memory_consolidation_handoff/v1", "due": True, "reasons": ["turn_interval_reached:5/5"]}),
+                encoding="utf-8",
+            )
+            brief = read_latest_consolidation(home)
+            self.assertEqual(brief["record_expiry"], {"expired": 0, "expiring_soon": 0})
+
+    def test_expiry_scan_runs_once_per_evaluation_and_not_in_standing(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            soon = _datetime.now(_timezone.utc) + timedelta(days=3)
+            _write_expiry_record(root / ".omh", "mem_soonfix", self._iso(soon))
+            provider = self._provider(root)
+            with patch(
+                "omh.plugin_bundle.omh.memory_provider.count_record_expiry",
+                return_value={"expired": 0, "expiring_soon": 1},
+            ) as counter:
+                provider.consolidation_due(trigger="manual")
+                self.assertEqual(counter.call_count, 1)
+                provider.on_memory_write("replace", "memory", "merged", {"write_origin": "memory_tool"})
+                self.assertEqual(counter.call_count, 1)
+
+
+class ReasonAwareOperatorSurfaceTests(unittest.TestCase):
+    """Chat notice and doctor must name the remedy that actually fits the brief."""
+
+    def _write_brief(self, root: Path, *, record_expiry: dict | None) -> None:
+        home = root / ".omh" / "memory"
+        home.mkdir(parents=True, exist_ok=True)
+        brief: dict = {
+            "schema_version": "omh_memory_consolidation_handoff/v1",
+            "due": True,
+            "reasons": ["expiring_records:2"],
+            "raised_at": "2026-07-28T00:00:00Z",
+            "trigger": "turn",
+        }
+        if record_expiry is not None:
+            brief["record_expiry"] = record_expiry
+        (home / "consolidation.json").write_text(json.dumps(brief), encoding="utf-8")
+
+    def test_chat_next_action_forks_on_expired_records_in_both_fields(self) -> None:
+        from omh.paths import resolve_paths
+        from omh.wrapper.contract import build_chat_interaction_payload
+
+        cases = [
+            ({"expired": 2, "expiring_soon": 0}, "run_omh_memory_retire"),
+            ({"expired": 0, "expiring_soon": 2}, "ask_hermes_to_consolidate_memory"),
+            (None, "ask_hermes_to_consolidate_memory"),  # pre-change brief on disk
+        ]
+        for record_expiry, expected in cases:
+            with self.subTest(record_expiry=record_expiry):
+                with TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    (root / ".omh").mkdir()
+                    self._write_brief(root, record_expiry=record_expiry)
+                    paths = resolve_paths(root / ".omh", root / ".hermes")
+                    payload = build_chat_interaction_payload("hello there", source="discord", paths=paths)
+                    notice = payload["memory_consolidation_notice"]
+                    self.assertEqual(notice["next_action"], expected)
+                    state = payload["chat_response"]["state"]["memory_consolidation"]
+                    self.assertEqual(state["next_action"], expected)
+
+    def test_doctor_names_retire_only_when_expired_records_exist(self) -> None:
+        from omh.maintenance.doctor import _memory_consolidation_check
+        from omh.paths import resolve_paths
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".omh").mkdir()
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+
+            self._write_brief(root, record_expiry={"expired": 2, "expiring_soon": 0})
+            expired_check = _memory_consolidation_check(paths)
+            self.assertEqual(expired_check.severity, "warning")
+            self.assertIn("omh memory retire", expired_check.message)
+            self.assertIn("2 expired record(s)", expired_check.message)
+
+            self._write_brief(root, record_expiry={"expired": 0, "expiring_soon": 2})
+            pending_check = _memory_consolidation_check(paths)
+            self.assertNotIn("retire", pending_check.message)
+            self.assertIn("consolidate", pending_check.message.lower())
+
+            self._write_brief(root, record_expiry=None)
+            legacy_check = _memory_consolidation_check(paths)
+            self.assertNotIn("retire", legacy_check.message)

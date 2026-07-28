@@ -32,6 +32,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -311,6 +312,82 @@ def read_approved_records(omh_home: str | Path) -> list[dict[str, Any]]:
             continue
         records.append(data)
     return records
+
+
+# "Expiring soon" reaches this many days ahead. No upstream default exists for
+# TTL look-ahead; seven days is chosen conservative and is threaded, not read
+# from config, so every caller states the window it asked about.
+RECORD_EXPIRY_WINDOW_DAYS = 7
+
+
+def _parse_expires_at(value: Any) -> tuple[datetime | None, str]:
+    """An aware UTC datetime, or (None, why-not).
+
+    Naive timestamps are UTC by definition here. The workflows-side parser reads
+    a naive value through ``astimezone``, which means host-local time -- up to
+    +/-14h of skew depending on where the host happens to be. A classifier
+    whose verdict moves files cannot inherit that; one rule, stated once:
+    no offset means Z.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None, "no_ttl"
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None, "malformed"
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc), ""
+
+
+def classify_record_expiry(
+    record: dict[str, Any],
+    *,
+    now: datetime,
+    window_days: int = RECORD_EXPIRY_WINDOW_DAYS,
+) -> str:
+    """One record's TTL state: fresh, expiring, expired, no_ttl, or malformed.
+
+    The single source of truth for what "expired" means. Recall exclusion and
+    retirement both route through this so they can never disagree; ``expired``
+    uses the same ``<=`` recall has always used. ``no_ttl`` (absent or empty
+    ``expires_at``) is a healthy record that never expires. ``malformed`` is a
+    value that claims to be a deadline but cannot be read -- never treated as
+    expired, because a move on a misread is a move that cannot be defended.
+    """
+    ttl = record.get("ttl") if isinstance(record.get("ttl"), dict) else {}
+    expires_at, problem = _parse_expires_at(ttl.get("expires_at"))
+    if expires_at is None:
+        return problem
+    if expires_at <= now:
+        return "expired"
+    if expires_at <= now + timedelta(days=max(window_days, 0)):
+        return "expiring"
+    return "fresh"
+
+
+def count_record_expiry(
+    omh_home: str | Path,
+    *,
+    now: datetime,
+    window_days: int = RECORD_EXPIRY_WINDOW_DAYS,
+) -> dict[str, int]:
+    """How many approved records are past or approaching their deadline.
+
+    Only the two actionable states are counted: ``no_ttl`` records cannot
+    expire and ``malformed`` records must not be acted on from here -- the
+    retirement report is where an unreadable deadline is surfaced, per file,
+    with its reason.
+    """
+    counts = {"expired": 0, "expiring_soon": 0}
+    for record in read_approved_records(omh_home):
+        state = classify_record_expiry(record, now=now, window_days=window_days)
+        if state == "expired":
+            counts["expired"] += 1
+        elif state == "expiring":
+            counts["expiring_soon"] += 1
+    return counts
 
 
 def build_hermes_memory_bridge(omh_home: str | Path, hermes_home: str | Path) -> dict[str, object]:

@@ -26,8 +26,10 @@ from ..plugin_bundle.omh.memory_provider import OmhMemoryProvider
 from ..plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
 from ..memory import (
     RejectedDecisionRecallRequest,
+    apply_memory_retirement,
     apply_memory_update_batch,
     approve_project_memory_candidate,
+    build_memory_retirement,
     build_handoff_context_pack,
     build_memory_inspection,
     build_project_memory_recall_pack,
@@ -263,6 +265,21 @@ def cmd_memory_dream(args: argparse.Namespace) -> int:
     payload = dict(provider.consolidation_due()) if args.evaluate else {}
     payload["state"] = read_dreaming_state(paths.omh_home)
     payload["evaluated"] = bool(args.evaluate)
+    _print_json(payload)
+    return 0
+
+
+def cmd_memory_retire(args: argparse.Namespace) -> int:
+    """Report expired records, or move them into the archive with --apply. Never deletes."""
+    paths = _paths(args)
+    window_days = _optional_positive_int(args.window_days, "--window-days") or 7
+    try:
+        if args.apply:
+            payload = apply_memory_retirement(paths, window_days=window_days)
+        else:
+            payload = build_memory_retirement(paths, window_days=window_days)
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
     _print_json(payload)
     return 0
 
