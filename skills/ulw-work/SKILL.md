@@ -1,6 +1,6 @@
 ---
 name: ulw-work
-description: [omh] Hermes Ultrawork compatibility workflow: bounded parallel delivery guidance. Use when the user says: ultrawork, ulw, parallel work, parallel implementation, high throughput.
+description: [omh] Ultrawork - split an accepted plan into disjoint parallel lanes with per-lane acceptance criteria, verification commands, and owners; prevents two lanes editing the same file. Use when the user says: ultrawork, ulw, parallel work, parallel implementation, high throughput.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, execution]

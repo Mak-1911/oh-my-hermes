@@ -1774,7 +1774,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(status, 0)
         self.assertIn("Why: Risky code-change requests should get a reviewed plan before cleanup.", stdout)
         self.assertIn("Why: Matched workflow trigger language for this task.", stdout)
-        self.assertIn("Why: Matched catalog keywords for this task.", stdout)
+        self.assertIn("Why: Matched workflow trigger language for this task.", stdout)
         self.assertNotIn("metadata metadata", stdout)
         self.assertNotIn("Matched guard/trigger metadata", stdout)
 
@@ -1785,7 +1785,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         payload = json.loads(stdout)
         reasons = [str(item.get("why", "")) for item in payload["recommendations"]]
         self.assertIn("Risky code-change requests should get a reviewed plan before cleanup.", reasons)
-        self.assertIn("Matched catalog keywords for this task.", reasons)
+        self.assertIn("Matched workflow trigger language for this task.", reasons)
         self.assertFalse(any("metadata metadata" in reason for reason in reasons))
         self.assertFalse(any("Matched guard/trigger metadata" in reason for reason in reasons))
 
@@ -4732,7 +4732,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 recommendations = json.loads(stdout)["recommendations"]
                 self.assertEqual(recommendations[0]["skill"], "web-research")
                 self.assertEqual(recommendations[0]["hermes_role"], "researcher")
-                self.assertIn("source-backed", recommendations[0]["description"].lower())
+                self.assertIn("citation discipline", recommendations[0]["description"].lower())
                 self.assertIn("retrieval", recommendations[0]["evidence_boundary"].lower())
                 self.assertIn("freshness", recommendations[0]["wrapper_guidance"].lower())
 
@@ -10523,7 +10523,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
 
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "convert", "--from-skills-dir", str(root / "local-skills")])[0], 0)
             converted = (omh_home / "skills" / "ulw-ralph" / "SKILL.md").read_text(encoding="utf-8")
-            self.assertIn("description: [omh] Hermes Ralph workflow", converted)
+            self.assertIn("description: [omh] Ralph - one owner drives", converted)
             self.assertIn("Hermes Compatibility Contract", converted)
 
     def test_mocked_source_install_update(self) -> None:

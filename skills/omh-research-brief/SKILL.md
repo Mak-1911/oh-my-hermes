@@ -1,6 +1,6 @@
 ---
 name: omh-research-brief
-description: [omh] Hermes Research Brief workflow: source-backed business research without pretending evidence was fetched. Use when the user says: research-brief, business-research, business research, research brief, source-backed business research, customer feedback trends, feedback trends, market evidence.
+description: [omh] Business research brief - turns a market, competitor, pricing, or customer question into a structured brief with an explicit evidence-vs-inference split; for raw link gathering use ulw-research. Use when the user says: research-brief, business-research, business research, research brief, source-backed business research, customer feedback trends, feedback trends, market evidence.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, research]

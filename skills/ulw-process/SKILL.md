@@ -1,6 +1,6 @@
 ---
 name: ulw-process
-description: [omh] Ultra Process - Research - Ralplan - Ultragoal - Code Review - Sync Circle: one PR-ready delivery cycle. Use when the user says: ultraprocess, single-cycle delivery, one-cycle delivery, end-to-end process, delivery process, research plan implement review docs pr, plan implement review docs pr, ralplan ultragoal code-review.
+description: [omh] Ultraprocess - one full task-to-PR cycle: codebase research, reviewed plan, coding handoff to the selected executor, code review, docs sync, and PR, tracked end to end. Use when the user says: ultraprocess, ulp, single-cycle delivery, one-cycle delivery, end-to-end process, delivery process, research plan implement review docs pr, plan implement review docs pr.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, process]
@@ -70,7 +70,7 @@ Bad example:
 
 Use when the user asks Hermes to take a concrete task through one full delivery cycle: research/codebase context, reviewed plan, selected implementation handoff, code review, docs sync when needed, and PR preparation.
 
-    Strong routing signals: `ultraprocess`, `$ultraprocess`, `./ultraprocess`, `/ultraprocess`, `single-cycle delivery`, `one-cycle delivery`, `end-to-end process`, `delivery process`, `research plan implement review docs pr`, `plan implement review docs pr`, `ralplan ultragoal code-review`, `codebase source research planning implementation review docs sync pr`, `docs sync`, `pr-ready`, `prepare a pr`, `sync docs and prepare a pr`, `code-review sync docs and prepare a pr`, `delegate to codex`, `send to codex`, `codex implement`, `codex progress tracking`, `codex session tracking`, `make a pr`, `open a pr`, `끝까지 해줘`, `PR까지`, `계획 구현 리뷰 문서 PR`, `기획 구현 리뷰 문서 PR`, `코드베이스 조사 웹리서치 계획 구현 리뷰 문서 최신화 PR`, `codex로 구현`, `코덱스로 구현`, `codex에게 맡기`, `codex로 맡기`, `코덱스에게 맡기`, `코딩 에이전트에게 맡기`, `구현하게 맡기고 진행상태 추적`, `진행상태 추적`, `진행 상태 추적`, `문서 최신화 PR`, `test driven development`, `write tests first`, `tests first`, `tdd implementation`, `테스트부터 작성`, `테스트 먼저 작성`, `테스트 우선 구현`, `TDD로 구현`
+    Strong routing signals: `ultraprocess`, `$ultraprocess`, `ulp`, `$ulp`, `./ultraprocess`, `/ultraprocess`, `single-cycle delivery`, `one-cycle delivery`, `end-to-end process`, `delivery process`, `research plan implement review docs pr`, `plan implement review docs pr`, `ralplan ultragoal code-review`, `codebase source research planning implementation review docs sync pr`, `docs sync`, `pr-ready`, `prepare a pr`, `sync docs and prepare a pr`, `code-review sync docs and prepare a pr`, `delegate to codex`, `send to codex`, `codex implement`, `codex progress tracking`, `codex session tracking`, `make a pr`, `open a pr`, `끝까지 해줘`, `PR까지`, `계획 구현 리뷰 문서 PR`, `기획 구현 리뷰 문서 PR`, `코드베이스 조사 웹리서치 계획 구현 리뷰 문서 최신화 PR`, `codex로 구현`, `코덱스로 구현`, `codex에게 맡기`, `codex로 맡기`, `코덱스에게 맡기`, `코딩 에이전트에게 맡기`, `구현하게 맡기고 진행상태 추적`, `진행상태 추적`, `진행 상태 추적`, `문서 최신화 PR`, `test driven development`, `write tests first`, `tests first`, `tdd implementation`, `테스트부터 작성`, `테스트 먼저 작성`, `테스트 우선 구현`, `TDD로 구현`
 
 ## Catalog Metadata
 

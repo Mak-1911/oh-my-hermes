@@ -52,11 +52,11 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-materials-package`: [omh] Hermes Materials Package workflow: decks, PDFs, spreadsheets, documents, HWP, Markdown, and binary export handoffs.
 - `omh-media-input-operator`: [omh] Hermes media input workflow: scope audio, video, YouTube, screenshot, receipt image, OCR, meeting recording, transcript, timestamp, and clip-summary requests with source, permission, extraction, transcription, and hallucination gates.
 - `omh-meeting-brief`: [omh] Hermes Meeting Brief workflow: agenda, prompts, decisions, and record template.
-- `omh-memory-new`: [omh] Hermes new-memory capture workflow: add reviewed project, product, or durable context candidates through capture, review, and approve actions.
-- `omh-memory-sync`: [omh] Hermes existing-memory curation workflow: review stale, conflicting, duplicate, overgeneralized, or risky USER.md, MEMORY.md, and skill memories through approve/reject/update actions.
+- `omh-memory-new`: [omh] Save a new durable project or product fact - captures a candidate, shows it for review, and writes only on approval; for auditing memories that already exist use omh-memory-sync.
+- `omh-memory-sync`: [omh] Audit what Hermes already remembers - walks USER.md, MEMORY.md, and skill memories claim by claim, flags stale, conflicting, duplicate, or overgeneralized entries, and rewrites only after an approved diff.
 - `omh-meta-router`: [omh] Meta-routing guidance for a leading /omh command: reason over the imperative task, consult the live workflow catalog, and select or chain the right workflow(s).
 - `omh-model-setup`: [omh] Hermes Model Setup workflow: diagnose role-slot model configuration, guide provider connection, and apply changes only after diff approval.
-- `omh-morning-brief`: [omh] Hermes Morning Brief setup workflow: diagnose mail and calendar MCP connection, guide read/draft-only access, and apply changes only after diff approval.
+- `omh-morning-brief`: [omh] Morning brief SETUP (one-time) - connects mail and calendar MCP with read-and-draft-only scope and diff approval; produces the configuration, not the daily brief itself.
 - `omh-routing`: [omh] Router guidance for using oh-my-hermes workflow skills inside Hermes Agent.
 - `omh-operating-rhythm`: [omh] Hermes Operating Rhythm workflow: meeting minutes, scrum/sprint records, retros, decisions, and follow-up history.
 - `omh-ops-observability-card`: [omh] Hermes ops observability workflow: prepare an operations command-board for wrapper-safe token, cost, latency, run history, queue, failure-mode, external metric-provider, and service-quality evidence boundaries.
@@ -69,11 +69,11 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-production-audit`: [omh] Hermes Production Audit workflow: evaluate release, deploy, security, observability, rollback, docs, and support readiness without claiming production access.
 - `omh-prompt-import-readiness`: [omh] Hermes prompt import readiness workflow: decide whether external CLI-agent prompt files can be safely reviewed, normalized, and offered as Hermes slash-command candidates without mutating prompts or command registries.
 - `omh-provider-profile-posture`: [omh] Prepare provider-profile metadata without reading secrets or calling providers.
-- `ulw-ralph`: [omh] Hermes Ralph workflow: persistent execution with verification and review.
+- `ulw-ralph`: [omh] Ralph - one owner drives a concrete task to done: implement, verify, review, repeat until the gate passes; prefer over one-shot delegation when the task needs a verification loop.
 - `ulw-plan`: [omh] Hermes Ralplan workflow: consensus planning with review gates.
 - `omh-reliability-review`: [omh] Hermes Reliability Review workflow: postmortems, SLOs, error budgets, incident follow-ups, and service reliability evidence.
 - `omh-report-package`: [omh] Hermes Report Package workflow: weekly/monthly reports, executive briefs, PPT-ready outlines, and upload packages.
-- `omh-research-brief`: [omh] Hermes Research Brief workflow: source-backed business research without pretending evidence was fetched.
+- `omh-research-brief`: [omh] Business research brief - turns a market, competitor, pricing, or customer question into a structured brief with an explicit evidence-vs-inference split; for raw link gathering use ulw-research.
 - `omh-research-department`: [omh] Hermes Research Department workflow pack: prepare Scout, Analyst, and Briefer research operations with source inbox and briefing status boundaries.
 - `omh-rules-distill`: [omh] Hermes Rules Distill workflow: extract repeated principles from skills, prompts, traces, reviews, and failures into reviewed rule candidates without auto-mutating guidance.
 - `omh-run-efficiency`: [omh] Report supplied local run efficiency while provider and host data stay unobserved.
@@ -83,16 +83,16 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-skill-scout`: [omh] Skill Scout workflow: prepare a metadata-only search-before-creation report for local, marketplace, GitHub, and web skill candidates with risk review and adoption options.
 - `omh-source-finder`: [omh] Hermes Source Finder workflow: prepare typed source candidates and acquisition status before downstream work.
 - `omh-decide`: [omh] Decide between options: tradeoffs, a recommendation, and a decision note you can act on.
-- `ulw-team`: [omh] Hermes Team workflow: coordinated parallel or sequential work lanes.
+- `ulw-team`: [omh] Team - run N coordinated workers on one shared task list with explicit lane ownership and merged verification; choose over raw subagents when lanes must not collide.
 - `omh-toolbelt-readiness`: [omh] Hermes toolbelt readiness workflow: check which MCP servers, CLIs, APIs, credentials, and connectors a workflow needs before claiming it can run.
-- `ulw-goal`: [omh] Hermes Ultragoal workflow: file-backed durable goal ledgers.
-- `ulw-process`: [omh] Ultra Process - Research - Ralplan - Ultragoal - Code Review - Sync Circle: one PR-ready delivery cycle.
+- `ulw-goal`: [omh] Ultragoal - durable multi-session goal tracking: a checkpointed ledger survives context loss and resumes exactly where work stopped, with a final completion gate.
+- `ulw-process`: [omh] Ultraprocess - one full task-to-PR cycle: codebase research, reviewed plan, coding handoff to the selected executor, code review, docs sync, and PR, tracked end to end.
 - `ulw-qa`: [omh] Hermes UltraQA workflow: adversarial QA and fix loops.
-- `ulw-work`: [omh] Hermes Ultrawork compatibility workflow: bounded parallel delivery guidance.
+- `ulw-work`: [omh] Ultrawork - split an accepted plan into disjoint parallel lanes with per-lane acceptance criteria, verification commands, and owners; prevents two lanes editing the same file.
 - `omh-verification-gate`: [omh] Hermes Verification Gate workflow: define and record build, lint, typecheck, test, security, docs, generated-output, and CI evidence before completion or merge.
 - `omh-visual-qa`: [omh] Hermes visual-qa workflow: prepare observed-only rendered QA gates for web, frontend, image, document, and TUI surfaces.
 - `omh-voice-operator`: [omh] Hermes voice operator workflow: turn short voice or mobile commands into clarify, plan, status, handoff, or confirmation actions.
-- `ulw-research`: [omh] Hermes Web Research workflow: source-backed current information gathering.
+- `ulw-research`: [omh] Web research with citation discipline on top of native search - every claim carries a live URL, sources are diversity-checked, and anything not fetched is marked not observed instead of guessed.
 - `omh-websearch-setup`: [omh] Hermes Web Search Setup workflow: diagnose scraper and auxiliary extract-model configuration, guide account setup, and apply each change as its own diff approval.
 - `omh-wiki`: [omh] Hermes adaptation for wiki construction blueprints and retained knowledge capture with destination-aware external knowledge connection guidance.
 - `omh-workflow-learning`: [omh] Hermes workflow learning workflow: classify and review self-improvement store routes as an auxiliary review lane before durable writes, then record workflow attempts as metadata-only traces, evals, review queues, patch proposals, regression cases, audits, indexes, and exports.

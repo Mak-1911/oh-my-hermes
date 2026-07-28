@@ -175,7 +175,7 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "ralph",
-        "Hermes Ralph workflow: persistent execution with verification and review.",
+        "Ralph - one owner drives a concrete task to done: implement, verify, review, repeat until the gate passes; prefer over one-shot delegation when the task needs a verification loop.",
         ("ralph", "$ralph", "finish until done", "persistent execution", "self-referential loop"),
         "Use after scope is concrete and the user wants one owner to continue through implementation and verification.",
         category="execution",
@@ -194,10 +194,12 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "ultragoal",
-        "Hermes Ultragoal workflow: file-backed durable goal ledgers.",
+        "Ultragoal - durable multi-session goal tracking: a checkpointed ledger survives context loss and resumes exactly where work stopped, with a final completion gate.",
         (
             "ultragoal",
             "$ultragoal",
+            "ulg",
+            "$ulg",
             "durable goal",
             "multi-goal",
             "goal ledger",
@@ -349,10 +351,12 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "ultraprocess",
-        "Ultra Process - Research - Ralplan - Ultragoal - Code Review - Sync Circle: one PR-ready delivery cycle.",
+        "Ultraprocess - one full task-to-PR cycle: codebase research, reviewed plan, coding handoff to the selected executor, code review, docs sync, and PR, tracked end to end.",
         (
             "ultraprocess",
             "$ultraprocess",
+            "ulp",
+            "$ulp",
             "./ultraprocess",
             "/ultraprocess",
             "single-cycle delivery",
@@ -517,7 +521,7 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "team",
-        "Hermes Team workflow: coordinated parallel or sequential work lanes.",
+        "Team - run N coordinated workers on one shared task list with explicit lane ownership and merged verification; choose over raw subagents when lanes must not collide.",
         ("team", "$team", "swarm", "parallel agents", "coordinated workers"),
         "Use when multiple independent lanes materially improve throughput or verification.",
         category="execution",
@@ -552,7 +556,7 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "ultrawork",
-        "Hermes Ultrawork compatibility workflow: bounded parallel delivery guidance.",
+        "Ultrawork - split an accepted plan into disjoint parallel lanes with per-lane acceptance criteria, verification commands, and owners; prevents two lanes editing the same file.",
         ("ultrawork", "$ultrawork", "ulw", "$ulw", "parallel work", "parallel implementation", "high throughput"),
         "Use when an accepted implementation plan can be split into independent, reviewable work lanes.",
         category="execution",
@@ -604,7 +608,7 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "web-research",
-        "Hermes Web Research workflow: source-backed current information gathering.",
+        "Web research with citation discipline on top of native search - every claim carries a live URL, sources are diversity-checked, and anything not fetched is marked not observed instead of guessed.",
         (
             "web-research",
             "web research",
@@ -805,7 +809,7 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "research-brief",
-        "Hermes Research Brief workflow: source-backed business research without pretending evidence was fetched.",
+        "Business research brief - turns a market, competitor, pricing, or customer question into a structured brief with an explicit evidence-vs-inference split; for raw link gathering use ulw-research.",
         (
             "research-brief",
             "business-research",
@@ -4292,7 +4296,7 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "morning-brief",
-        "Hermes Morning Brief setup workflow: diagnose mail and calendar MCP connection, guide read/draft-only access, and apply changes only after diff approval.",
+        "Morning brief SETUP (one-time) - connects mail and calendar MCP with read-and-draft-only scope and diff approval; produces the configuration, not the daily brief itself.",
         (
             "morning-brief",
             "morning brief",
