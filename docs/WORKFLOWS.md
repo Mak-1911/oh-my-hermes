@@ -925,7 +925,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### strategy-brief
 
-[omh] Hermes Strategy Brief workflow: options, tradeoffs, recommendation, and decision notes.
+[omh] Decide between options: tradeoffs, a recommendation, and a decision note you can act on.
 
 - Category: `strategy`
 - Phase: `brief`
@@ -5786,6 +5786,9 @@ Route implementation requests through scoped context, edit discipline, tests, re
   - When an explicit project root is supplied, attach only conflict-free project_governance_profile/v1 metadata; existing project rules override advisory defaults and a declined default stays non-blocking.
   - Use product_family_template/v1 for prepared web, mobile, desktop, or API quality guidance without implying installed tools, execution, or observed QA.
   - Report coding progress from lifecycle evidence, not from the existence of a prepared prompt.
+  - Name every delegated or parallel lane's model and reasoning effort inline as `(model effort)` in status and briefing lines — including runtime-native subagents; write the literal `unknown` when the host does not expose a value, never empty parentheses, and carry token and elapsed figures the same way.
+  - When the user asks mid-run which models are working or how many tokens are spent, answer immediately with one line per lane in that same format plus a one-line total; a steering question never waits for lane completion.
+  - When delegating, show the composed delegate prompt in a fenced code block in the status message; truncate a long prompt to a bounded preview ending with `... [truncated, N chars total]` — the user must see WHAT was asked, not just that something was.
 - Inputs:
   - task statement
   - repo context
@@ -5829,7 +5832,7 @@ Route implementation requests through scoped context, edit discipline, tests, re
   - `run_started`
   - `coding_delegation_recorded`
   - `verification_recorded`
-- Delegation expectation: Consult omh coding model-inventory before proposing which executor or model owns the work, and propose only from what the user actually has locally. Record prepared coding delegation with omh coding delegate; record observed execution only when Hermes exposes a separate coding, review, or verification lane.
+- Delegation expectation: Consult omh coding model-inventory before proposing which executor or model owns the work, and propose only from what the user actually has locally; when composing a split or unit prompts, apply your own model family's discipline from omh coding composition-guide --model <your model>. Record prepared coding delegation with omh coding delegate; record observed execution only when Hermes exposes a separate coding, review, or verification lane.
 - Privacy default: `metadata_only`
 - Overclaim guards:
   - A prepared coding_delegation.json is not implementation evidence.

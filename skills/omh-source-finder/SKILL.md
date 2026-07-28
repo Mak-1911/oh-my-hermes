@@ -1,6 +1,6 @@
 ---
 name: omh-source-finder
-description: [omh] Hermes Source Finder workflow: prepare typed source candidates and acquisition status before downstream work.
+description: [omh] Hermes Source Finder workflow: prepare typed source candidates and acquisition status before downstream work. Use when the user says: source-finder, source finder, source acquisition, source intake, find papers and datasets, find datasets and repos, find papers, find arxiv link.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, research]

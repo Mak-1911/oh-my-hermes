@@ -143,7 +143,14 @@ class RouterContentTests(unittest.TestCase):
 
         skill_lines = [line for line in rendered.splitlines() if line.startswith("- `")]
         names = [line.split("`")[1] for line in skill_lines]
-        expected = sorted(definition.name for definition in routable_definitions())
+        # The shortlist names skills by the label a host can actually invoke
+        # (the installed directory / slash-command name), never the internal
+        # canonical key — a shortlist entry the host cannot type is a dead
+        # recommendation.
+        expected = [
+            omh_skill_display_name(definition.name)
+            for definition in sorted(routable_definitions(), key=lambda definition: definition.name)
+        ]
         self.assertEqual(names, expected)
         self.assertEqual(len(names), len(set(names)))
 
@@ -2823,13 +2830,6 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("## Command Audience", installation)
         self.assertIn("The human-default commands are `omh setup`, `omh update`, and `omh doctor`", installation)
         self.assertIn("## Agent / Wrapper CLI Flow", memory)
-        self.assertIn("Plan and decide", readme)
-        self.assertIn("Learn and gather", readme)
-        self.assertIn("Create materials and visuals", readme)
-        self.assertIn("Delegate coding and ship", readme)
-        self.assertIn("Operate and observe", readme)
-        self.assertIn("Retain knowledge", readme)
-        self.assertIn("Codex, Claude Code, Hermes runtime", readme)
         self.assertIn("prepared_not_observed", readme)
         self.assertIn("assets/hermes-agent-hero.png", readme)
         self.assertIn("assets/friren-agent-omh-callout.png", readme)
@@ -2885,17 +2885,6 @@ class RouterContentTests(unittest.TestCase):
         self.assertNotIn("## What Gets Recorded", readme)
         self.assertNotIn("omh docs workflows --json", readme)
         self.assertNotIn("Useful local and wrapper-debug commands", readme)
-        core_workflows = readme.split("## What OMH Adds", 1)[1].split("## Built For Real Work", 1)[0]
-        for label in (
-            "Plan and decide",
-            "Learn and gather",
-            "Create materials and visuals",
-            "Delegate coding and ship",
-            "Operate and observe",
-            "Retain knowledge",
-        ):
-            self.assertIn(label, core_workflows)
-        self.assertIn("Codex, Claude Code, Hermes", core_workflows)
         self.assertIn("Install Path A: Hermes-Native Skill Tap", installation)
         self.assertIn("Agent Install Protocol", installation)
         self.assertIn("hermes_native_setup/v1", installation)

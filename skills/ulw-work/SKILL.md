@@ -1,6 +1,6 @@
 ---
 name: ulw-work
-description: [omh] Hermes Ultrawork compatibility workflow: bounded parallel delivery guidance.
+description: [omh] Hermes Ultrawork compatibility workflow: bounded parallel delivery guidance. Use when the user says: ultrawork, ulw, parallel work, parallel implementation, high throughput.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, execution]

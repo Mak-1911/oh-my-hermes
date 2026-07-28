@@ -106,6 +106,73 @@ HIGH_EFFORT_CALIBRATIONS: Final[dict[str, str]] = {
 }
 
 
+# Calibration for the MAIN agent — the one COMPOSING the split, the unit
+# prompts, and the briefings — keyed by ITS OWN model family. The user picks
+# what Hermes runs on (a claude-family fable/opus, a gpt-family sol/terra, a
+# gemini, a kimi, ...), and each family fails composition differently: the
+# guidance counters the composer's own defaults, never the subagents'.
+# Same key set as HIGH_EFFORT_CALIBRATIONS (parity-tested) so no family gets
+# subagent discipline without composer discipline, and "generic" stays the
+# mandatory fallback for families the table has not met.
+MAIN_AGENT_COMPOSITION_CALIBRATIONS: Final[dict[str, str]] = {
+    "gpt": (
+        "Composition calibration: compose outcome-first, but never compress the contract away — "
+        "every unit prompt keeps its declared boundary, dependencies, numbered criteria, and the "
+        "one-pass verification floor spelled out. A tighter prompt that drops a stated invariant is "
+        "a worse prompt."
+    ),
+    "claude": (
+        "Composition calibration: split only what the goal requires — do not grow the fanout with "
+        "speculative units, and never spawn a subagent to double-check your own composition. The "
+        "criteria you write are a closed checklist: state them once, completely, and freeze."
+    ),
+    "gemini": (
+        "Composition calibration: compose from tool-verified facts, not recall — run the inventory "
+        "and readiness commands before naming owners or models, and never describe a unit as "
+        "prepared until the actual prepare command produced its artifact. A split narrated without "
+        "the commands behind it is not a split."
+    ),
+    "kimi": (
+        "Composition calibration: partitioning work is mostly low-entropy — decide the split once, "
+        "freeze it, and reserve deep reasoning for boundary overlaps and dependency cycles. Do not "
+        "enumerate alternative splits nobody asked for; if two partitions both satisfy the "
+        "boundaries, take the first and move."
+    ),
+    "glm": (
+        "Composition calibration: fill the contract fields literally — every unit carries its "
+        "owner, boundary, and (when known) model, role, and domain; 'every' means every. Sufficient "
+        "context beats complete context: once boundaries are clean and dependencies acyclic, freeze "
+        "the smallest split that covers the goal."
+    ),
+    "grok": (
+        "Composition calibration: speed never skips freeze-time validation — run the overlap and "
+        "cycle checks before recording the contract, not after dispatch fails. Pick the partition "
+        "once by the stated boundaries and dispatch; re-querying for a better split is re-verifying "
+        "a settled decision."
+    ),
+    "generic": (
+        "Composition calibration: compose the contract fields exactly, validate the split once with "
+        "the validation command, and stop — composing is preparing evidence, and a prepared "
+        "contract is the only proof a split exists."
+    ),
+}
+
+
+def composition_calibration_for_model(model_id: str) -> str:
+    """Return the main-agent composition calibration for the composer's own model.
+
+    Family comes from `model_family()` (provider-prefixed ids welcome);
+    unknown or blank families get the generic block — a composer never goes
+    without discipline just because the table has not met its model.
+    """
+    from .model_routing import model_family
+
+    family = model_family(str(model_id or ""))
+    return MAIN_AGENT_COMPOSITION_CALIBRATIONS.get(
+        family, MAIN_AGENT_COMPOSITION_CALIBRATIONS["generic"]
+    )
+
+
 def completion_criteria_for_unit(unit: Mapping[str, Any]) -> list[str]:
     """Return the pre-declared, numbered 'done means' criteria for one unit.
 

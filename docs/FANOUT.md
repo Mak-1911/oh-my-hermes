@@ -42,10 +42,12 @@ goal to Hermes in chat; these commands are the backend surface.
 
 - **Spawnability is data.** `DISPATCH_COMMAND_TEMPLATES` in
   `src/coding/fanout_dispatch.py` maps profiles with a local headless CLI to
-  fixed argv templates. Profiles without a template (hermes, omx/omo/omc
-  runtimes, generic, unassigned) are reported
-  `unsupported_for_local_dispatch` with the unit handoff as a prepared-prompt
-  fallback — no profile is privileged.
+  fixed argv templates — currently codex (`codex exec`), claude-code
+  (`claude -p`), and omo-runtime (`senpi --print`, since omo ships as an
+  extension of the senpi host CLI; readiness probes `senpi` accordingly).
+  Profiles without a template (hermes, omx/omc runtimes, generic,
+  unassigned) are reported `unsupported_for_local_dispatch` with the unit
+  handoff as a prepared-prompt fallback — no profile is privileged.
 - **Bridge dispatch is a separate axis from chat prompt-handoff.** Chat
   surfaces keep their prompt-only semantics for prompt-only profiles; the
   bridge is an operator-invoked command on a different surface.
@@ -75,11 +77,23 @@ goal to Hermes in chat; these commands are the backend surface.
   alone let the agent create files but blocked the requested `git commit`,
   so the template additionally grants `--allowedTools
   "Bash(git add:*),Bash(git commit:*)"` — exactly those two git verbs,
-  nothing broader. Template drift in either CLI surfaces as a clean
-  readiness or exit-code failure recorded as observed evidence, and the fix
-  is a one-line data edit in `DISPATCH_COMMAND_TEMPLATES`.
+  nothing broader. The senpi template was validated in a live bridge
+  dispatch (2026-07): a routed unit spawned non-interactively via
+  `--print --no-session`, the `workspace` permission preset allowed file
+  creation plus the exact `git add`/`git commit` the unit prompt asks for
+  (the unit completed with a real commit inside its isolated worktree, no
+  interactive prompt), and a missing provider key and an inactive plan each
+  surfaced as a clean exit-1 failure with bounded output (feeding the usual
+  limit-signal path). Template drift
+  in any CLI surfaces as a clean readiness or exit-code failure recorded as
+  observed evidence, and the fix is a one-line data edit in
+  `DISPATCH_COMMAND_TEMPLATES`.
 - **Model routing.** A unit may declare `model`, `reasoning_effort`, and/or
-  `role` (brain, implementation, design_visual, review, docs). Prepare embeds
+  `role` (brain, implementation, design_visual, review, docs, research —
+  research is the read-only investigation lane: its chain default is the
+  fast-tier cheap sweep, and a deep multi-system investigation escalates
+  model tier or effort explicitly on the unit, since requested values
+  always win). Prepare embeds
   the resolved `coding_model_route/v2` in the unit handoff, and dispatch
   turns it into argv fragments (`codex --model … --config
   model_reasoning_effort=…`; `claude --model … --effort …`). Resolution is a
@@ -145,6 +159,15 @@ goal to Hermes in chat; these commands are the backend surface.
   stays in the chain, built-in chains are never reordered (a domain there is
   recorded and explicitly skipped), a requested model still wins, and no
   text matching ever infers a domain.
+- **Composer calibration.** The MAIN agent composing the split runs on
+  whatever model the user configured (a claude-family fable/opus, a
+  gpt-family sol/terra, a gemini, a kimi, ...), and each family fails
+  composition differently. `omh coding composition-guide --model <id>`
+  returns the discipline that agent applies to ITSELF while writing the
+  split, the unit prompts, and the briefings — same family key set as the
+  subagent calibrations (parity-gated), generic fallback for unmet
+  families, selected by the composer's own model id (provider prefixes
+  welcome).
 - **Unit prompt protocol.** Every dispatched unit prompt carries a fixed
   verification discipline (`src/coding/unit_prompt_protocol.py`): the
   subagent first echoes the goal, its deliverable, and the numbered
@@ -196,6 +219,7 @@ omh coding fanout dispatch <fanout-id> --goal-file goal.txt \
   [--unit <id> ...] [--dry-run]
 omh coding model-route [--executor <profile>] [--role <role>] [--model <id>] [--effort <level>] [--domain <name>] [--explain] [--from-inventory] [--json]
 omh coding model-inventory [--json]
+omh coding composition-guide [--model <id>] [--json]
 ```
 
 `--units` and `--goal-file` accept `-` for stdin. `--dry-run` resolves

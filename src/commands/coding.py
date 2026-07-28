@@ -765,6 +765,41 @@ def _local_model_catalogs() -> dict[str, dict[str, object]]:
     return {str(catalog.get("executor_profile", "")): catalog}
 
 
+def cmd_coding_composition_guide(args: argparse.Namespace) -> int:
+    from ..coding.model_routing import model_family
+    from ..coding.unit_prompt_protocol import (
+        MAIN_AGENT_COMPOSITION_CALIBRATIONS,
+        composition_calibration_for_model,
+    )
+
+    model = str(args.model or "").strip()
+    if model:
+        payload: dict[str, object] = {
+            "schema_version": "composition_guide/v1",
+            "model_id": model,
+            "family": model_family(model) or "unknown",
+            "calibration": composition_calibration_for_model(model),
+        }
+        if _wants_json(args):
+            _print_json(payload)
+            return 0
+        print(f"Composition guidance for `{model}` ({payload['family']} family):")
+        print(str(payload["calibration"]))
+        return 0
+    payload = {
+        "schema_version": "composition_guide/v1",
+        "calibrations": dict(MAIN_AGENT_COMPOSITION_CALIBRATIONS),
+    }
+    if _wants_json(args):
+        _print_json(payload)
+        return 0
+    lines = ["Main-agent composition calibrations by model family:"]
+    for family, block in MAIN_AGENT_COMPOSITION_CALIBRATIONS.items():
+        lines.append(f"- {family}: {block}")
+    print("\n".join(lines))
+    return 0
+
+
 def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
     from ..coding.fanout import build_fanout_contract, is_degenerate_single_unit, single_unit_redirect
     from ..coding.fanout_artifacts import write_fanout_contract
@@ -1289,7 +1324,7 @@ def _add_coding_commands(sub) -> None:
     )
     model_route.add_argument("--model", default=None, help="Explicit model id; always passes through unvalidated.")
     model_route.add_argument("--effort", default=None, help="Reasoning effort for profiles that support one.")
-    model_route.add_argument("--role", default=None, help="Subagent role: brain, implementation, design_visual, review, docs.")
+    model_route.add_argument("--role", default=None, help="Subagent role: brain, implementation, design_visual, review, docs, research.")
     model_route.add_argument(
         "--explain",
         action="store_true",
@@ -1321,6 +1356,18 @@ def _add_coding_commands(sub) -> None:
     )
     model_inventory.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
     model_inventory.set_defaults(func=cmd_coding_model_inventory)
+
+    composition_guide = coding_sub.add_parser(
+        "composition-guide",
+        help="Composition calibration for the MAIN agent's own model family (how to compose splits and unit prompts).",
+    )
+    composition_guide.add_argument(
+        "--model",
+        default=None,
+        help="The main agent's own model id (for example claude-fable-5, gpt-5.6-sol, kimi-k3); omit to list all families.",
+    )
+    composition_guide.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
+    composition_guide.set_defaults(func=cmd_coding_composition_guide)
 
     delegate = coding_sub.add_parser("delegate")
     delegate.add_argument("message", nargs="*", help="Coding task description to prepare for executor delegation.")

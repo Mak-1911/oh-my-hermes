@@ -1,6 +1,6 @@
 ---
 name: ulw-goal
-description: [omh] Hermes Ultragoal workflow: file-backed durable goal ledgers.
+description: [omh] Hermes Ultragoal workflow: file-backed durable goal ledgers. Use when the user says: ultragoal, durable goal, multi-goal, goal ledger, long running goal, 완료조건까지 계속, keep working until acceptance criteria pass, 장기 목표.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, execution]

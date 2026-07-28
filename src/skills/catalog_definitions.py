@@ -1049,7 +1049,9 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "strategy-brief",
-        "Hermes Strategy Brief workflow: options, tradeoffs, recommendation, and decision notes.",
+        # Installed label is `omh-decide`; the description must lead with the
+        # word the label promises or the picker sees a self-contradiction.
+        "Decide between options: tradeoffs, a recommendation, and a decision note you can act on.",
         (
             "strategy-brief",
             "strategy brief",

@@ -1,6 +1,6 @@
 ---
 name: ulw-team
-description: [omh] Hermes Team workflow: coordinated parallel or sequential work lanes.
+description: [omh] Hermes Team workflow: coordinated parallel or sequential work lanes. Use when the user says: team, swarm, parallel agents, coordinated workers.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, execution]
