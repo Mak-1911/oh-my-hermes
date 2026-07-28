@@ -255,11 +255,25 @@ _TRIGGER_INSTRUCTIONS = {
 }
 
 
+def normalize_record_expiry(value: Any) -> dict[str, int]:
+    """Non-negative expired/expiring_soon counts, whatever was on disk.
+
+    Briefs written before this key existed -- and briefs a hand edit mangled --
+    must read as zeros, not as a TypeError in every consumer.
+    """
+    source = value if isinstance(value, dict) else {}
+    return {
+        "expired": _non_negative_int(source.get("expired")),
+        "expiring_soon": _non_negative_int(source.get("expiring_soon")),
+    }
+
+
 def build_consolidation_handoff(
     reasons: list[str],
     *,
     block_summaries: list[dict[str, object]] | None = None,
     eviction_plan: dict[str, object] | None = None,
+    record_expiry: dict[str, int] | None = None,
     mode: str = DEFAULT_DREAMING_MODE,
     trigger: str = "manual",
     messages_at_risk: int = 0,
@@ -292,6 +306,7 @@ def build_consolidation_handoff(
         "session_id": session_id,
         "messages_at_risk": messages_at_risk,
         "reasons": list(reasons),
+        "record_expiry": normalize_record_expiry(record_expiry),
         "blocks": list(block_summaries or []),
         "eviction_plan": dict(eviction_plan or {}),
         "requested_of_executor": requested,
@@ -335,6 +350,7 @@ def read_latest_consolidation(omh_home: str | Path) -> dict[str, Any] | None:
     )
     normalized["trigger"] = str(data.get("trigger", "") or "")
     normalized["raised_at"] = str(data.get("raised_at", "") or "")
+    normalized["record_expiry"] = normalize_record_expiry(data.get("record_expiry"))
     if normalized["due"] and not normalized["reasons"]:
         # A brief that claims to be due but cannot say why is not actionable.
         normalized["due"] = False

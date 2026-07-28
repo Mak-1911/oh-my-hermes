@@ -42,7 +42,7 @@ try:  # Present only inside the Hermes process.
 except ImportError:  # pragma: no cover - exercised by the repo's own test run
     _MemoryProviderBase = object
 
-from .hermes_memory import read_hermes_memory
+from .hermes_memory import count_record_expiry, read_hermes_memory
 from .memory_blocks import (
     DEFAULT_SYSTEM_RENDER_BUDGET_CHARS,
     REFERENCE_TIER,
@@ -234,12 +234,13 @@ class OmhMemoryProvider(_MemoryProviderBase):
         weighed, not only the ones that fired.
         """
         state = read_dreaming_state(self._omh_home)
-        plan, reason_kwargs = self._evaluation_inputs(trigger)
+        plan, reason_kwargs, record_expiry = self._evaluation_inputs(trigger)
         reasons = consolidation_reasons(state, **reason_kwargs)
         handoff = build_consolidation_handoff(
             reasons,
             block_summaries=[block.to_summary() for block in read_memory_blocks(self._omh_home)],
             eviction_plan=plan,
+            record_expiry=record_expiry,
             trigger=trigger,
             messages_at_risk=messages_at_risk,
             session_id=self._session_id,
@@ -253,21 +254,57 @@ class OmhMemoryProvider(_MemoryProviderBase):
                 self._omh_home,
                 clear_after_consolidation(state, at=_utc_now(), reasons=reasons),
             )
+        else:
+            # Suppression keeps an unchanged `expiring_records:N` from re-firing,
+            # which is right -- but the breakdown behind that N can still move
+            # (a record crossing from expiring into expired keeps N identical).
+            # The persisted brief is refreshed in place: no new notification,
+            # no suppression reset, no counter mutation.
+            self._refresh_brief_record_expiry(record_expiry)
         return handoff
 
-    def _evaluation_inputs(self, trigger: str) -> tuple[dict[str, object], dict[str, object]]:
-        """The eviction plan and reason kwargs for one evaluation, no writes."""
+    def _evaluation_inputs(
+        self, trigger: str, *, count_expiry: bool = True
+    ) -> tuple[dict[str, object], dict[str, object], dict[str, int]]:
+        """The eviction plan, reason kwargs, and expiry counts for one evaluation.
+
+        The expiry scan is one glob plus a JSON parse per approved record and
+        runs at most once per evaluation. The retirement standing-check passes
+        ``count_expiry=False``: expiry is a standing condition only retirement
+        itself can clear, so counting it there would both waste the scan and
+        block `_retire_stale_brief` forever.
+        """
         reading = self._memory_reading()
         plan = (
             build_eviction_plan(reading.entries, cap=reading.cap, cap_source=reading.cap_source)
             if reading is not None
             else {}
         )
-        return plan, {
-            "headroom_chars": reading.headroom_chars if reading is not None else None,
-            "duplicate_count": len(plan.get("duplicate_clusters", []) or []),
-            "session_ending": trigger in _SESSION_ENDING_TRIGGERS,
-        }
+        record_expiry = (
+            count_record_expiry(self._omh_home, now=datetime.now(timezone.utc))
+            if count_expiry
+            else {"expired": 0, "expiring_soon": 0}
+        )
+        return (
+            plan,
+            {
+                "headroom_chars": reading.headroom_chars if reading is not None else None,
+                "duplicate_count": len(plan.get("duplicate_clusters", []) or []),
+                "expiring_count": record_expiry["expired"] + record_expiry["expiring_soon"],
+                "session_ending": trigger in _SESSION_ENDING_TRIGGERS,
+            },
+            record_expiry,
+        )
+
+    def _refresh_brief_record_expiry(self, record_expiry: dict[str, int]) -> None:
+        """Keep the persisted due brief's expiry breakdown current, silently."""
+        brief = read_latest_consolidation(self._omh_home)
+        if not brief or not brief.get("due") or brief.get("record_expiry") == record_expiry:
+            return
+        updated = dict(brief)
+        updated["record_expiry"] = dict(record_expiry)
+        payload = json.dumps(updated, ensure_ascii=False, sort_keys=True)
+        self._safely(lambda: _write_text(self._omh_home / "memory" / "consolidation.json", payload))
 
     def _standing_reasons(self) -> list[str]:
         """Is anything still true at all? Read-only, suppression bypassed.
@@ -276,7 +313,7 @@ class OmhMemoryProvider(_MemoryProviderBase):
         while remaining true; retirement must see through that, or it would
         clear a notice whose fact had not cleared.
         """
-        _, reason_kwargs = self._evaluation_inputs("memory_write")
+        _, reason_kwargs, _record_expiry = self._evaluation_inputs("memory_write", count_expiry=False)
         return consolidation_reasons(read_dreaming_state(self._omh_home), suppress=False, **reason_kwargs)
 
     def _retire_stale_brief(self, trigger: str) -> None:
