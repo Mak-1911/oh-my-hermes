@@ -769,9 +769,22 @@ def _local_model_catalogs() -> dict[str, dict[str, object]]:
 def cmd_coding_composition_guide(args: argparse.Namespace) -> int:
     from ..coding.model_routing import model_family
     from ..coding.unit_prompt_protocol import (
+        GOAL_ECHO_PROTOCOL,
         MAIN_AGENT_COMPOSITION_CALIBRATIONS,
+        REVIEW_ROLE_PROTOCOL,
+        VERIFICATION_STOP_PROTOCOL,
         composition_calibration_for_model,
     )
+
+    delegation_protocol = {
+        "goal_echo": GOAL_ECHO_PROTOCOL,
+        "verification_stop": VERIFICATION_STOP_PROTOCOL,
+        "review_cap": REVIEW_ROLE_PROTOCOL,
+        "applies_to": (
+            "EVERY delegated or reviewer prompt the main agent composes — runtime-native "
+            "spawns included, not only bridge-dispatched fanout units."
+        ),
+    }
 
     model = str(args.model or "").strip()
     if model:
@@ -780,16 +793,22 @@ def cmd_coding_composition_guide(args: argparse.Namespace) -> int:
             "model_id": model,
             "family": model_family(model) or "unknown",
             "calibration": composition_calibration_for_model(model),
+            "delegation_protocol": delegation_protocol,
         }
         if _wants_json(args):
             _print_json(payload)
             return 0
         print(f"Composition guidance for `{model}` ({payload['family']} family):")
         print(str(payload["calibration"]))
+        print("Delegation protocol (embed in every delegated or reviewer prompt, runtime-native included):")
+        print(f"- {GOAL_ECHO_PROTOCOL}")
+        print(f"- {VERIFICATION_STOP_PROTOCOL}")
+        print(f"- {REVIEW_ROLE_PROTOCOL}")
         return 0
     payload = {
         "schema_version": "composition_guide/v1",
         "calibrations": dict(MAIN_AGENT_COMPOSITION_CALIBRATIONS),
+        "delegation_protocol": delegation_protocol,
     }
     if _wants_json(args):
         _print_json(payload)
