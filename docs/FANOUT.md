@@ -80,13 +80,27 @@ goal to Hermes in chat; these commands are the backend surface.
   is a one-line data edit in `DISPATCH_COMMAND_TEMPLATES`.
 - **Model routing.** A unit may declare `model`, `reasoning_effort`, and/or
   `role` (brain, implementation, design_visual, review, docs). Prepare embeds
-  the resolved `coding_model_route/v1` in the unit handoff, and dispatch
+  the resolved `coding_model_route/v2` in the unit handoff, and dispatch
   turns it into argv fragments (`codex --model … --config
-  model_reasoning_effort=…`; `claude --model … --effort …`). No route means
-  the argv stays byte-identical to the base template and the executor CLI
-  default model applies. Model availability and entitlement are provider
+  model_reasoning_effort=…`; `claude --model … --effort …`). Resolution is a
+  four-stage pure pipeline — requested model > role chain head > chain gap
+  (explicit choice) > executor default — and every route records its
+  `provenance` plus a per-stage `attempted[]` trail. Roles resolve against
+  ordered per-profile chains (`ROLE_MODEL_CHAINS`); entries after the
+  selected head are prepared next-candidate advice — omh never retries or
+  switches models itself. A requested reasoning effort that a catalog-known
+  model does not support steps down an ordered effort ladder with a typed
+  `effort_change` record; for models the catalog has not met the request
+  passes through untouched (the catalog is a default candidate list, not an
+  allowlist, and it never adjudicates a model it does not know). No route
+  means the argv stays byte-identical to the base template and the executor
+  CLI default model applies. Model availability and entitlement are provider
   truth; a routed model that the CLI rejects surfaces as a normal observed
-  exit failure. `omh coding model-route` previews routes standalone.
+  exit failure. `omh coding model-route` previews a single route;
+  `omh coding model-route --explain` renders the full profile × role
+  resolution matrix with chains and provenance. Contracts frozen before the
+  v2 bump may embed `coding_model_route/v1` routes — they are read verbatim
+  (the brief annotates them `[schema v1]`), never rewritten.
 - **Telemetry.** Each dispatched unit records `started_at`, `finished_at`,
   and `duration_seconds`, and the full dispatch summary persists to
   `~/.omh/coding/fanout/<id>/dispatch_summary.json` (latest wins,
@@ -119,7 +133,7 @@ omh coding fanout brief [<fanout-id>] [--json]
 omh coding fanout dispatch <fanout-id> --goal-file goal.txt \
   [--repo-root .] [--base-ref HEAD] [--concurrency 2] [--timeout 1800] \
   [--unit <id> ...] [--dry-run]
-omh coding model-route --executor <profile> [--role <role>] [--model <id>] [--effort <level>] [--json]
+omh coding model-route [--executor <profile>] [--role <role>] [--model <id>] [--effort <level>] [--explain] [--json]
 ```
 
 `--units` and `--goal-file` accept `-` for stdin. `--dry-run` resolves

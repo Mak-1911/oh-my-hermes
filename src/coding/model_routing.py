@@ -1,8 +1,37 @@
+"""Deterministic model routing for prepared coding handoffs.
+
+`resolve_model_route` is a pure function: same inputs, byte-identical payload,
+no I/O, no clock, no environment reads. It prepares metadata only — omh never
+invokes a model, never retries, and never switches models at runtime.
+
+Reading provenance back from a persisted route MUST go through
+`route_provenance` — it is the sole sanctioned accessor. Frozen fanout
+contracts may carry `coding_model_route/v1` payloads whose `source` vocabulary
+predates chains; that recorded value is returned verbatim, never translated
+into v2 vocabulary, because restating a frozen record would make it say
+something that never happened.
+
+Effort precedence: requested effort > chain-entry effort > none.
+`effort_change.requested` always holds the USER's request and the field is
+absent when no effort was requested; chain-supplied efforts never appear in
+`effort_change`.
+
+Throughout this module, "profile" means a key of `EXECUTOR_MODEL_OPTIONS`.
+Profiles without a catalog entry (hermes, generic, the runtime profiles) are
+never matrix cells and never require chains; the executor CLI default applies.
+"""
+
 from __future__ import annotations
 
 from typing import Final, Mapping
 
-CODING_MODEL_ROUTE_SCHEMA_VERSION: Final[str] = "coding_model_route/v1"
+CODING_MODEL_ROUTE_SCHEMA_VERSION: Final[str] = "coding_model_route/v2"
+# The frozen v1 identifier: referenced only for reading persisted payloads.
+CODING_MODEL_ROUTE_V1_SCHEMA_VERSION: Final[str] = "coding_model_route/v1"
+CODING_MODEL_ROUTE_SUPPORTED_SCHEMA_VERSIONS: Final[tuple[str, ...]] = (
+    CODING_MODEL_ROUTE_SCHEMA_VERSION,
+    CODING_MODEL_ROUTE_V1_SCHEMA_VERSION,
+)
 
 # Roles are the subagent shapes a fanout/handoff unit can declare. They name the
 # kind of work, never a vendor, so per-role defaults stay executor-neutral.
@@ -21,7 +50,18 @@ MODEL_ROUTE_STATUSES: Final[tuple[str, ...]] = (
     "no_model_catalog",
 )
 
-MODEL_ROUTE_SOURCES: Final[tuple[str, ...]] = (
+MODEL_ROUTE_PROVENANCES: Final[tuple[str, ...]] = (
+    "request_named_model",
+    "role_chain_head",
+    "role_unchained",
+    "executor_default",
+    "no_catalog",
+)
+
+# The frozen v1 vocabulary. Not aspirational documentation: `route_provenance`
+# validates persisted v1 payloads against it, and the v1 fixture test consumes
+# it. A v1 `source` outside this tuple is malformed and reads as "unknown".
+_V1_MODEL_ROUTE_SOURCES: Final[tuple[str, ...]] = (
     "request_named_model",
     "role_catalog_default",
     "role_catalog_candidates",
@@ -29,10 +69,19 @@ MODEL_ROUTE_SOURCES: Final[tuple[str, ...]] = (
     "no_catalog",
 )
 
+EFFORT_CHANGE_KINDS: Final[tuple[str, ...]] = (
+    "unchanged",
+    "ladder_downgrade",
+    "catalog_no_authority_passthrough",
+    "unknown_vocabulary_passthrough",
+    "rejected_unsafe_shape",
+)
+
 CODING_MODEL_ROUTE_CLAIM_BOUNDARY: Final[str] = (
     "A model route is prepared metadata for a coding handoff or dispatch argv. Model availability, "
     "entitlement, pricing, and quota are provider truth omh does not observe, and a routed model is "
-    "not execution, verification, review, CI, or merge evidence."
+    "not execution, verification, review, CI, or merge evidence. Entries after the selected one are "
+    "prepared next-candidate advice; omh never retries or switches models itself."
 )
 
 # Built-in default candidates per dispatchable/prompt-handoff executor profile.
@@ -55,9 +104,6 @@ EXECUTOR_MODEL_OPTIONS: Final[dict[str, tuple[dict[str, object], ...]]] = {
             "model_id": "gpt-5",
             "label": "General frontier model",
             "tier": "standard",
-            # `review` appears on both codex options on purpose: a review unit
-            # can be run frontier or standard, so the role resolves to an
-            # explicit choice rather than a silent default.
             "recommended_roles": ("implementation", "docs", "review"),
             "reasoning_efforts": ("low", "medium", "high", "xhigh"),
         },
@@ -87,6 +133,57 @@ EXECUTOR_MODEL_OPTIONS: Final[dict[str, tuple[dict[str, object], ...]]] = {
     ),
 }
 
+# Ordered per-role chains: head is the deterministic selection, later entries
+# are prepared next-candidate advice. An entry's reasoning_effort applies only
+# when the user requested none (requested > chain-entry > none). Every profile
+# in EXECUTOR_MODEL_OPTIONS carries a chain for every role and every chain
+# model_id exists in that profile's catalog — both directions are policy-gated.
+ROLE_MODEL_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = {
+    "codex": {
+        "brain": (
+            {"model_id": "gpt-5-codex", "reasoning_effort": "high"},
+            {"model_id": "gpt-5", "reasoning_effort": "high"},
+        ),
+        "implementation": (
+            {"model_id": "gpt-5", "reasoning_effort": ""},
+            {"model_id": "gpt-5-codex", "reasoning_effort": ""},
+        ),
+        "design_visual": (
+            {"model_id": "gpt-5-codex", "reasoning_effort": ""},
+            {"model_id": "gpt-5", "reasoning_effort": ""},
+        ),
+        "review": (
+            {"model_id": "gpt-5-codex", "reasoning_effort": ""},
+            {"model_id": "gpt-5", "reasoning_effort": ""},
+        ),
+        "docs": (
+            {"model_id": "gpt-5", "reasoning_effort": ""},
+        ),
+    },
+    "claude-code": {
+        "brain": (
+            {"model_id": "opus", "reasoning_effort": "high"},
+            {"model_id": "sonnet", "reasoning_effort": "high"},
+        ),
+        "implementation": (
+            {"model_id": "sonnet", "reasoning_effort": ""},
+            {"model_id": "opus", "reasoning_effort": ""},
+        ),
+        "design_visual": (
+            {"model_id": "opus", "reasoning_effort": ""},
+            {"model_id": "sonnet", "reasoning_effort": ""},
+        ),
+        "review": (
+            {"model_id": "opus", "reasoning_effort": ""},
+            {"model_id": "sonnet", "reasoning_effort": ""},
+        ),
+        "docs": (
+            {"model_id": "haiku", "reasoning_effort": ""},
+            {"model_id": "sonnet", "reasoning_effort": ""},
+        ),
+    },
+}
+
 # Model-family prefixes mirror the dynamic-workflow target classifier so both
 # surfaces name families the same way; bare Claude tier aliases fold into the
 # claude family because the claude CLI resolves them to concrete claude models.
@@ -105,12 +202,6 @@ _MODEL_FAMILY_PREFIXES: Final[tuple[tuple[str, str], ...]] = (
     ("codestral-", "codestral"),
 )
 _CLAUDE_TIER_ALIASES: Final[frozenset[str]] = frozenset({"opus", "sonnet", "haiku"})
-
-# Role-based reasoning-effort default: deep planning/architecture units get a
-# high-effort default when the profile supports efforts and no effort was
-# requested; every other role leaves the executor CLI default in place.
-_HIGH_EFFORT_ROLES: Final[frozenset[str]] = frozenset({"brain"})
-_HIGH_EFFORT_DEFAULT: Final[str] = "high"
 
 
 def model_family(model_id: str) -> str:
@@ -131,13 +222,17 @@ def resolve_model_route(
     requested_model: str = "",
     requested_effort: str = "",
     role: str = "",
+    chains: Mapping[str, Mapping[str, tuple[Mapping[str, str], ...]]] | None = None,
 ) -> dict[str, object]:
     """Return the deterministic prepared model route for one executor profile.
 
-    Precedence: an explicitly requested model always wins (passthrough, never
-    rejected); otherwise a role with exactly one catalog candidate routes to
-    it; several candidates become an explicit choice; no data leaves the
-    executor CLI default in place as a named outcome rather than a guess.
+    Four stages, each recorded in `attempted[]`: an explicitly requested model
+    always wins (passthrough, never rejected); otherwise a declared role routes
+    to its chain head; a role whose chain is missing is an explicit choice;
+    no data leaves the executor CLI default in place as a named outcome.
+
+    `chains` is injectable for tests only; production callers always use
+    `ROLE_MODEL_CHAINS`.
     """
     profile = str(executor_profile or "").strip().casefold()
     raw_role = str(role or "").strip()
@@ -154,14 +249,47 @@ def resolve_model_route(
     effort = str(requested_effort or "").strip().casefold()
     options = EXECUTOR_MODEL_OPTIONS.get(profile, ())
     candidates = [dict(option) for option in options]
+    chain_table = ROLE_MODEL_CHAINS if chains is None else chains
+    role_chain = tuple(chain_table.get(profile, {}).get(normalized_role, ())) if normalized_role else ()
+    attempted: list[dict[str, str]] = []
 
-    if not options and not model:
+    if model:
+        attempted.append(
+            {"stage": "requested_model", "outcome": "selected", "reason": f"request names `{model}`"}
+        )
+        selected_effort, effort_change = _selected_effort(profile, effort, "", model)
+        return _route_payload(
+            profile,
+            status="routed",
+            provenance="request_named_model",
+            role=normalized_role,
+            selected_model=model,
+            selected_reasoning_effort=selected_effort,
+            effort_change=effort_change,
+            chain=_chain_payload(profile, role_chain, selected_model=""),
+            attempted=attempted,
+            candidates=candidates,
+            reasons=role_reasons + [f"The request names `{model}` directly, so the catalog is advisory only."],
+        )
+    attempted.append({"stage": "requested_model", "outcome": "skipped", "reason": "no model requested"})
+
+    if not options:
+        attempted.append(
+            {"stage": "role_chain", "outcome": "skipped", "reason": "profile has no model catalog"}
+        )
+        attempted.append(
+            {"stage": "executor_default", "outcome": "selected", "reason": "no catalog; executor CLI default applies"}
+        )
+        selected_effort, effort_change = _selected_effort(profile, effort, "", "")
         return _route_payload(
             profile,
             status="no_model_catalog",
-            source="no_catalog",
+            provenance="no_catalog",
             role=normalized_role,
-            selected_reasoning_effort=_selected_effort(profile, effort, normalized_role, ""),
+            selected_reasoning_effort=selected_effort,
+            effort_change=effort_change,
+            chain=[],
+            attempted=attempted,
             candidates=[],
             reasons=role_reasons
             + [
@@ -169,66 +297,76 @@ def resolve_model_route(
             ],
         )
 
-    if model:
-        return _route_payload(
-            profile,
-            status="routed",
-            source="request_named_model",
-            role=normalized_role,
-            selected_model=model,
-            selected_reasoning_effort=_selected_effort(profile, effort, normalized_role, model),
-            candidates=candidates,
-            reasons=role_reasons + [f"The request names `{model}` directly, so the catalog is advisory only."],
-        )
-
     if normalized_role:
-        matched = [option for option in candidates if normalized_role in tuple(option.get("recommended_roles", ()))]
-        if len(matched) == 1:
-            selected = str(matched[0]["model_id"])
+        if role_chain:
+            head = role_chain[0]
+            selected = str(head.get("model_id", ""))
+            attempted.append(
+                {"stage": "role_chain", "outcome": "selected", "reason": f"chain head `{selected}` for role `{normalized_role}`"}
+            )
+            selected_effort, effort_change = _selected_effort(
+                profile, effort, str(head.get("reasoning_effort", "") or ""), selected
+            )
             return _route_payload(
                 profile,
                 status="routed",
-                source="role_catalog_default",
+                provenance="role_chain_head",
                 role=normalized_role,
                 selected_model=selected,
-                selected_reasoning_effort=_selected_effort(profile, effort, normalized_role, selected),
+                selected_reasoning_effort=selected_effort,
+                effort_change=effort_change,
+                chain=_chain_payload(profile, role_chain, selected_model=selected),
+                attempted=attempted,
                 candidates=candidates,
                 reasons=role_reasons
                 + [
-                    f"Role `{normalized_role}` has exactly one built-in candidate for `{profile}`.",
+                    f"Role `{normalized_role}` routes to its ordered chain head for `{profile}`.",
                 ],
             )
-        if matched:
-            reason = (
-                f"Role `{normalized_role}` matches {len(matched)} candidates for `{profile}`; "
-                "the caller picks one or names a model."
-            )
-        else:
-            reason = (
-                f"Role `{normalized_role}` matches no built-in candidate for `{profile}`; "
-                f"pick one of the {len(candidates)} catalog options or name a model."
-            )
+        # Unreachable-by-construction under the bidirectional parity gate
+        # (every catalog profile carries a chain for every role); kept as a
+        # structural net so a future catalog edit fails loudly instead of
+        # guessing. Tested via a constructed chain-gap dict.
+        attempted.append(
+            {"stage": "role_chain", "outcome": "unavailable", "reason": f"no chain declared for role `{normalized_role}`"}
+        )
+        selected_effort, effort_change = _selected_effort(profile, effort, "", "")
         return _route_payload(
             profile,
             status="choice_required",
-            source="role_catalog_candidates",
+            provenance="role_unchained",
             role=normalized_role,
-            selected_reasoning_effort=_selected_effort(profile, effort, normalized_role, ""),
-            candidates=matched or candidates,
-            reasons=role_reasons + [reason],
+            selected_reasoning_effort=selected_effort,
+            effort_change=effort_change,
+            chain=[],
+            attempted=attempted,
+            candidates=candidates,
+            reasons=role_reasons
+            + [
+                f"Role `{normalized_role}` has no declared chain for `{profile}`; "
+                f"pick one of the {len(candidates)} catalog options or name a model.",
+            ],
         )
+    attempted.append({"stage": "role_chain", "outcome": "skipped", "reason": "no role declared"})
 
+    attempted.append(
+        {"stage": "executor_default", "outcome": "selected", "reason": "no model or role; executor CLI default applies"}
+    )
     unrouted_reason = (
         "No model or role was requested, so the executor CLI default model applies."
         if not raw_role
         else "No usable model or role remained, so the executor CLI default model applies."
     )
+    selected_effort, effort_change = _selected_effort(profile, effort, "", "")
     return _route_payload(
         profile,
         status="model_unrouted",
-        source="executor_default",
+        provenance="executor_default",
         role=normalized_role,
-        selected_reasoning_effort=_selected_effort(profile, effort, normalized_role, ""),
+        selected_reasoning_effort=selected_effort,
+        effort_change=effort_change,
+        chain=[],
+        attempted=attempted,
         candidates=candidates,
         reasons=role_reasons + [unrouted_reason],
     )
@@ -249,24 +387,60 @@ def model_route_for_unit(unit: Mapping[str, object], executor_target: str) -> di
     )
 
 
+def route_provenance(route: Mapping[str, object] | object) -> tuple[str, str]:
+    """Return (value, vocabulary) for a route of any schema version.
+
+    The sole sanctioned accessor for reading provenance back from a route —
+    including v1 payloads embedded in frozen fanout contracts. A v1 `source`
+    is returned verbatim (never translated into v2 chain vocabulary: the
+    record must keep saying exactly what was written). vocabulary is one of
+    "v1" | "v2" | "unknown"; anything malformed reads ("unknown", "unknown").
+    """
+    if not isinstance(route, Mapping):
+        return ("unknown", "unknown")
+    version = str(route.get("schema_version", "") or "")
+    if version == CODING_MODEL_ROUTE_SCHEMA_VERSION:
+        value = str(route.get("provenance", "") or "")
+        if value in MODEL_ROUTE_PROVENANCES:
+            return (value, "v2")
+        return ("unknown", "unknown")
+    if version == CODING_MODEL_ROUTE_V1_SCHEMA_VERSION:
+        value = str(route.get("source", "") or "")
+        if value in _V1_MODEL_ROUTE_SOURCES:
+            return (value, "v1")
+        return ("unknown", "unknown")
+    return ("unknown", "unknown")
+
+
 def _normalized_role(role: str) -> str:
     normalized = str(role or "").strip().casefold().replace("-", "_")
     return normalized if normalized in MODEL_ROLES else ""
 
 
-def _supported_efforts(profile: str, model_id: str) -> tuple[str, ...]:
+def _supported_efforts(profile: str, model_id: str) -> tuple[tuple[str, ...], str]:
+    """Return (efforts, authority) with authority "exact_model" | "profile_union".
+
+    Only an exact catalog match grants the catalog authority over a model's
+    effort vocabulary. The union fallback exists so a requested effort is never
+    silently dropped for a model the catalog has not met — the catalog
+    disclaims authority there, so its answer is advisory, never adjudicating.
+    A profile absent from the catalog returns ((), "profile_union").
+    """
     for option in EXECUTOR_MODEL_OPTIONS.get(profile, ()):
         if str(option.get("model_id", "")).casefold() == str(model_id or "").casefold():
-            return tuple(str(value) for value in option.get("reasoning_efforts", ()))
-    # Unknown/passthrough models keep the profile-level union so a requested
-    # effort is never silently dropped for a model the catalog has not met.
+            return tuple(str(value) for value in option.get("reasoning_efforts", ())), "exact_model"
     union: list[str] = []
     for option in EXECUTOR_MODEL_OPTIONS.get(profile, ()):
         for value in option.get("reasoning_efforts", ()):
             if str(value) not in union:
                 union.append(str(value))
-    return tuple(union)
+    return tuple(union), "profile_union"
 
+
+# Ordered strongest-first; a downgrade walks DOWN from the requested rung to
+# the first supported one. Ladder order is the authority, not adjacency in any
+# particular model's supported list.
+_EFFORT_LADDER: Final[tuple[str, ...]] = ("max", "xhigh", "high", "medium", "low")
 
 # Efforts are a closed vocabulary shape, unlike model ids: an effort value is
 # embedded into a codex `--config key=value` composite, so free text here would
@@ -275,41 +449,111 @@ def _supported_efforts(profile: str, model_id: str) -> tuple[str, ...]:
 _EFFORT_SHAPE_CHARSET: Final[frozenset[str]] = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")
 
 
-def _selected_effort(profile: str, requested_effort: str, role: str, model_id: str) -> str:
+def _selected_effort(
+    profile: str,
+    requested_effort: str,
+    chain_effort: str,
+    model_id: str,
+) -> tuple[str, dict[str, str] | None]:
+    """Resolve the effort and its typed change record.
+
+    Precedence: requested > chain-entry > none. The change record exists only
+    when the user requested an effort; chain-supplied efforts never appear in
+    it. The ladder downgrades only under exact-model catalog authority — the
+    catalog never adjudicates a model it has not met.
+    """
     if requested_effort:
-        supported = _supported_efforts(profile, model_id)
+        supported, authority = _supported_efforts(profile, model_id)
         if requested_effort in supported:
-            return requested_effort
+            return requested_effort, _effort_change(requested_effort, requested_effort, "unchanged", "supported as requested")
+        if requested_effort in _EFFORT_LADDER and authority == "exact_model":
+            for rung in _EFFORT_LADDER[_EFFORT_LADDER.index(requested_effort) :]:
+                if rung in supported:
+                    return rung, _effort_change(
+                        requested_effort,
+                        rung,
+                        "ladder_downgrade",
+                        f"`{requested_effort}` is not supported by `{model_id}`; stepped down to `{rung}`",
+                    )
+            return "", _effort_change(
+                requested_effort, "", "ladder_downgrade", f"no supported rung at or below `{requested_effort}`"
+            )
+        if requested_effort in _EFFORT_LADDER:
+            return requested_effort, _effort_change(
+                requested_effort,
+                requested_effort,
+                "catalog_no_authority_passthrough",
+                "the catalog has no exact entry for this model, so it does not adjudicate the effort",
+            )
         if set(requested_effort) <= _EFFORT_SHAPE_CHARSET:
             # Unknown-but-effort-shaped values still pass through so a newer
             # CLI vocabulary is not blocked by a stale catalog.
-            return requested_effort
-        return ""
-    if role in _HIGH_EFFORT_ROLES and _HIGH_EFFORT_DEFAULT in _supported_efforts(profile, model_id):
-        return _HIGH_EFFORT_DEFAULT
-    return ""
+            return requested_effort, _effort_change(
+                requested_effort, requested_effort, "unknown_vocabulary_passthrough", "effort-shaped but off-vocabulary"
+            )
+        return "", _effort_change(
+            requested_effort, "", "rejected_unsafe_shape", "not an effort-shaped value; CLI default applies"
+        )
+    if chain_effort:
+        return chain_effort, None
+    return "", None
+
+
+def _effort_change(requested: str, selected: str, kind: str, reason: str) -> dict[str, str]:
+    return {"requested": requested, "selected": selected, "kind": kind, "reason": reason}
+
+
+def _chain_payload(
+    profile: str,
+    role_chain: tuple[Mapping[str, str], ...],
+    *,
+    selected_model: str,
+) -> list[dict[str, object]]:
+    by_model: dict[str, dict[str, object]] = {
+        str(option.get("model_id", "")): option for option in EXECUTOR_MODEL_OPTIONS.get(profile, ())
+    }
+    payload: list[dict[str, object]] = []
+    for position, entry in enumerate(role_chain):
+        model_id = str(entry.get("model_id", ""))
+        option = by_model.get(model_id, {})
+        payload.append(
+            {
+                "position": position,
+                "model_id": model_id,
+                "reasoning_effort": str(entry.get("reasoning_effort", "") or ""),
+                "tier": str(option.get("tier", "")),
+                "label": str(option.get("label", "")),
+                "selected": bool(selected_model) and model_id == selected_model and position == 0,
+            }
+        )
+    return payload
 
 
 def _route_payload(
     profile: str,
     *,
     status: str,
-    source: str,
+    provenance: str,
     role: str,
+    chain: list[dict[str, object]],
+    attempted: list[dict[str, str]],
     candidates: list[dict[str, object]],
     reasons: list[str],
     selected_model: str = "",
     selected_reasoning_effort: str = "",
+    effort_change: dict[str, str] | None = None,
 ) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "schema_version": CODING_MODEL_ROUTE_SCHEMA_VERSION,
         "executor_profile": profile,
         "status": status,
-        "source": source,
+        "provenance": provenance,
         "role": role,
         "selected_model": selected_model,
         "selected_reasoning_effort": selected_reasoning_effort,
         "model_family": model_family(selected_model),
+        "chain": chain,
+        "attempted": list(attempted),
         "candidates": [
             {
                 "model_id": str(option.get("model_id", "")),
@@ -324,3 +568,6 @@ def _route_payload(
         "reasons": list(reasons),
         "claim_boundary": CODING_MODEL_ROUTE_CLAIM_BOUNDARY,
     }
+    if effort_change is not None:
+        payload["effort_change"] = effort_change
+    return payload

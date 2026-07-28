@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -15,10 +16,15 @@ from omh.coding.fanout import build_fanout_contract  # noqa: E402
 from omh.coding.fanout_dispatch import build_dispatch_argv  # noqa: E402
 from omh.coding.model_routing import (  # noqa: E402
     CODING_MODEL_ROUTE_SCHEMA_VERSION,
+    EXECUTOR_MODEL_OPTIONS,
     MODEL_ROLES,
+    MODEL_ROUTE_PROVENANCES,
+    MODEL_ROUTE_STATUSES,
+    ROLE_MODEL_CHAINS,
     model_family,
     model_route_for_unit,
     resolve_model_route,
+    route_provenance,
 )
 
 
@@ -27,7 +33,7 @@ class ModelRouteResolverTests(unittest.TestCase):
         route = resolve_model_route("codex", requested_model="gpt-6-terra", requested_effort="xhigh", role="brain")
         self.assertEqual(route["schema_version"], CODING_MODEL_ROUTE_SCHEMA_VERSION)
         self.assertEqual(route["status"], "routed")
-        self.assertEqual(route["source"], "request_named_model")
+        self.assertEqual(route["provenance"], "request_named_model")
         self.assertEqual(route["selected_model"], "gpt-6-terra")
         self.assertEqual(route["selected_reasoning_effort"], "xhigh")
         self.assertEqual(route["model_family"], "gpt")
@@ -41,20 +47,52 @@ class ModelRouteResolverTests(unittest.TestCase):
         self.assertEqual(model_family("opus"), "claude")
         self.assertEqual(model_family("claude-opus-5"), "claude")
 
-    def test_role_with_single_candidate_routes_deterministically(self) -> None:
-        route = resolve_model_route("claude-code", role="implementation")
-        self.assertEqual(route["status"], "routed")
-        self.assertEqual(route["source"], "role_catalog_default")
-        self.assertEqual(route["selected_model"], "sonnet")
+    def test_every_role_routes_to_its_chain_head_on_both_profiles(self) -> None:
+        for profile, chains in ROLE_MODEL_CHAINS.items():
+            for role in MODEL_ROLES:
+                with self.subTest(profile=profile, role=role):
+                    route = resolve_model_route(profile, role=role)
+                    self.assertEqual(route["status"], "routed")
+                    self.assertEqual(route["provenance"], "role_chain_head")
+                    self.assertEqual(route["selected_model"], chains[role][0]["model_id"])
 
-    def test_review_role_on_codex_requires_an_explicit_choice(self) -> None:
-        # `review` is recommended on both codex options by design, so the role
-        # resolves to a choice instead of a silent default.
+    def test_review_role_on_codex_routes_to_chain_head_with_named_alternative(self) -> None:
+        # THE behavior change of this PR: review-on-codex previously resolved
+        # choice_required with no selected model; it now routes to the chain
+        # head and carries the standard-tier alternative in chain[].
         route = resolve_model_route("codex", role="review")
-        self.assertEqual(route["status"], "choice_required")
-        self.assertEqual(route["source"], "role_catalog_candidates")
-        self.assertEqual(len(route["candidates"]), 2)
+        self.assertEqual(route["status"], "routed")
+        self.assertEqual(route["provenance"], "role_chain_head")
+        self.assertEqual(route["selected_model"], "gpt-5-codex")
+        chain_models = [entry["model_id"] for entry in route["chain"]]
+        self.assertEqual(chain_models, ["gpt-5-codex", "gpt-5"])
+        selected_flags = [entry["selected"] for entry in route["chain"]]
+        self.assertEqual(selected_flags, [True, False])
+
+    def test_brain_role_gets_high_effort_from_chain_entry(self) -> None:
+        # brain's high default moved from _HIGH_EFFORT_ROLES into chain data;
+        # behaviour is preserved and effort_change stays absent because the
+        # user requested nothing (chain efforts never appear in effort_change).
+        route = resolve_model_route("codex", role="brain")
+        self.assertEqual(route["selected_reasoning_effort"], "high")
+        self.assertNotIn("effort_change", route)
+
+    def test_requested_effort_outranks_chain_entry_effort(self) -> None:
+        route = resolve_model_route("codex", role="brain", requested_effort="medium")
+        self.assertEqual(route["selected_reasoning_effort"], "medium")
+        self.assertEqual(route["effort_change"]["requested"], "medium")
+        self.assertEqual(route["effort_change"]["kind"], "unchanged")
+
+    def test_no_request_is_an_explicit_executor_default_outcome(self) -> None:
+        route = resolve_model_route("codex")
+        self.assertEqual(route["status"], "model_unrouted")
+        self.assertEqual(route["provenance"], "executor_default")
         self.assertEqual(route["selected_model"], "")
+
+    def test_profile_without_catalog_is_named(self) -> None:
+        route = resolve_model_route("hermes")
+        self.assertEqual(route["status"], "no_model_catalog")
+        self.assertEqual(route["provenance"], "no_catalog")
 
     def test_unknown_role_is_named_in_reasons_not_erased(self) -> None:
         route = resolve_model_route("codex", role="tester")
@@ -62,35 +100,249 @@ class ModelRouteResolverTests(unittest.TestCase):
         self.assertTrue(any("tester" in reason for reason in route["reasons"]))
         self.assertFalse(any("No model or role was requested" in reason for reason in route["reasons"]))
 
-    def test_effort_survives_profiles_without_catalog(self) -> None:
-        route = resolve_model_route("gemini-runtime", requested_effort="high")
-        self.assertEqual(route["status"], "no_model_catalog")
-        self.assertEqual(route["selected_reasoning_effort"], "high")
+    def test_attempted_is_nonempty_and_staged_for_every_outcome(self) -> None:
+        cases = (
+            resolve_model_route("codex", requested_model="gpt-5"),
+            resolve_model_route("codex", role="brain"),
+            resolve_model_route("codex"),
+            resolve_model_route("hermes"),
+            resolve_model_route("codex", role="review", chains={"codex": {}}),
+        )
+        for route in cases:
+            with self.subTest(provenance=route["provenance"]):
+                attempted = route["attempted"]
+                self.assertTrue(attempted)
+                for record in attempted:
+                    self.assertIn("stage", record)
+                    self.assertIn("outcome", record)
+                    self.assertIn("reason", record)
+                expected_last = "unavailable" if route["status"] == "choice_required" else "selected"
+                self.assertEqual(attempted[-1]["outcome"], expected_last)
+
+    def test_chain_gap_is_an_explicit_choice_structural_net(self) -> None:
+        # role_unchained/choice_required are unreachable from the shipped
+        # catalog under the bidirectional parity gate; the branch is exercised
+        # with a constructed chain-gap dict, never production data.
+        route = resolve_model_route("codex", role="review", chains={"codex": {}})
+        self.assertEqual(route["status"], "choice_required")
+        self.assertEqual(route["provenance"], "role_unchained")
+        self.assertEqual(route["selected_model"], "")
+        self.assertTrue(any("no declared chain" in reason for reason in route["reasons"]))
+
+    def test_claim_boundary_disclaims_provider_truth_and_retries(self) -> None:
+        route = resolve_model_route("codex", requested_model="gpt-5")
+        self.assertIn("provider truth", route["claim_boundary"])
+        self.assertIn("never retries or switches", route["claim_boundary"])
+
+    def test_model_roles_vocabulary_is_stable(self) -> None:
+        self.assertEqual(MODEL_ROLES, ("brain", "implementation", "design_visual", "review", "docs"))
+
+
+class RouteVocabularyPolicyTests(unittest.TestCase):
+    """Every resolver-emitted enum value stays inside the declared vocabulary."""
+
+    def _all_routes(self) -> list[dict[str, object]]:
+        routes = []
+        for profile in (*EXECUTOR_MODEL_OPTIONS, "hermes", "generic"):
+            routes.append(resolve_model_route(profile))
+            routes.append(resolve_model_route(profile, requested_model="custom-model-1"))
+            for role in (*MODEL_ROLES, "tester"):
+                routes.append(resolve_model_route(profile, role=role))
+        routes.append(resolve_model_route("codex", role="review", chains={"codex": {}}))
+        return routes
+
+    def test_emitted_statuses_and_provenances_are_declared(self) -> None:
+        for route in self._all_routes():
+            with self.subTest(profile=route["executor_profile"], provenance=route["provenance"]):
+                self.assertIn(route["status"], MODEL_ROUTE_STATUSES)
+                self.assertIn(route["provenance"], MODEL_ROUTE_PROVENANCES)
+
+    def test_bidirectional_chain_catalog_parity(self) -> None:
+        # chains ⊆ catalog AND every catalog profile has a chain for every
+        # role — both directions fail loudly so neither table drifts ahead.
+        self.assertEqual(set(ROLE_MODEL_CHAINS), set(EXECUTOR_MODEL_OPTIONS))
+        for profile, chains in ROLE_MODEL_CHAINS.items():
+            catalog_models = {str(option["model_id"]) for option in EXECUTOR_MODEL_OPTIONS[profile]}
+            self.assertEqual(set(chains), set(MODEL_ROLES), profile)
+            for role, entries in chains.items():
+                self.assertTrue(entries, (profile, role))
+                for entry in entries:
+                    self.assertIn(entry["model_id"], catalog_models, (profile, role))
+
+
+class EffortLadderTests(unittest.TestCase):
+    # The four-quadrant grid: (ladder-vocab?, exact-model authority?).
+    def test_quadrant_ladder_vocab_exact_model_downgrades(self) -> None:
+        # THE second behavior change of this PR (the live-bug fix): `max` on a
+        # codex catalog model previously passed through unsupported; it now
+        # steps down the ladder to the strongest supported rung.
+        route = resolve_model_route("codex", requested_model="gpt-5-codex", requested_effort="max")
+        self.assertEqual(route["selected_reasoning_effort"], "xhigh")
+        change = route["effort_change"]
+        self.assertEqual(change["kind"], "ladder_downgrade")
+        self.assertEqual(change["requested"], "max")
+        self.assertEqual(change["selected"], "xhigh")
+        self.assertIn("max", change["reason"])
+        self.assertIn("xhigh", change["reason"])
+
+    def test_quadrant_ladder_vocab_unknown_model_passes_through(self) -> None:
+        # Never-edit guard (b): the catalog disclaims authority over models it
+        # has not met, so an in-vocabulary effort on an unknown model is NOT
+        # downgraded. If this test needs editing to make another pass, the
+        # ladder has widened its claim — change the ladder instead.
+        route = resolve_model_route("codex", requested_model="gpt-6-terra", requested_effort="max")
+        self.assertEqual(route["selected_reasoning_effort"], "max")
+        self.assertEqual(route["effort_change"]["kind"], "catalog_no_authority_passthrough")
+
+    def test_quadrant_off_vocab_exact_model_passes_through(self) -> None:
+        # Never-edit guard (a): effort-shaped off-vocabulary values pass
+        # through byte-identically so a newer CLI vocabulary is never blocked
+        # by a stale catalog. Same never-edit rule as guard (b).
+        route = resolve_model_route("codex", requested_model="gpt-5-codex", requested_effort="turbo-9")
+        self.assertEqual(route["selected_reasoning_effort"], "turbo-9")
+        self.assertEqual(route["effort_change"]["kind"], "unknown_vocabulary_passthrough")
+
+    def test_quadrant_off_vocab_unknown_model_passes_through(self) -> None:
+        route = resolve_model_route("codex", requested_model="gpt-6-terra", requested_effort="turbo-9")
+        self.assertEqual(route["selected_reasoning_effort"], "turbo-9")
+        self.assertEqual(route["effort_change"]["kind"], "unknown_vocabulary_passthrough")
+
+    def test_absent_model_keeps_requested_ladder_effort(self) -> None:
+        route = resolve_model_route("codex", requested_effort="max")
+        self.assertEqual(route["status"], "model_unrouted")
+        self.assertEqual(route["selected_reasoning_effort"], "max")
+        self.assertEqual(route["effort_change"]["kind"], "catalog_no_authority_passthrough")
+
+    def test_max_on_claude_catalog_model_is_unchanged(self) -> None:
+        route = resolve_model_route("claude-code", requested_model="opus", requested_effort="max")
+        self.assertEqual(route["selected_reasoning_effort"], "max")
+        self.assertEqual(route["effort_change"]["kind"], "unchanged")
+
+    def test_noncontiguous_supported_set_steps_to_next_lower_supported_rung(self) -> None:
+        """Ladder order is the authority, not adjacency in the supported list.
+
+        The catalog patched here is SYNTHETIC — it describes no real executor;
+        it exists only to produce a supported set with a hole in it.
+        """
+        from unittest import mock
+
+        synthetic = {
+            "codex": (
+                {
+                    "model_id": "synthetic-model",
+                    "label": "synthetic",
+                    "tier": "frontier",
+                    "recommended_roles": ("brain",),
+                    "reasoning_efforts": ("low", "xhigh"),
+                },
+            ),
+        }
+        with mock.patch.dict(EXECUTOR_MODEL_OPTIONS, synthetic, clear=True):
+            route = resolve_model_route("codex", requested_model="synthetic-model", requested_effort="max")
+            self.assertEqual(route["selected_reasoning_effort"], "xhigh")
+            route = resolve_model_route("codex", requested_model="synthetic-model", requested_effort="high")
+            # high and medium are unsupported; low is the next supported rung
+            # DOWN the ladder from high.
+            self.assertEqual(route["selected_reasoning_effort"], "low")
+
+    def test_ladder_with_no_supported_rung_terminates_empty(self) -> None:
+        from unittest import mock
+
+        synthetic = {
+            "codex": (
+                {
+                    "model_id": "synthetic-model",
+                    "label": "synthetic",
+                    "tier": "frontier",
+                    "recommended_roles": ("brain",),
+                    "reasoning_efforts": (),
+                },
+            ),
+        }
+        with mock.patch.dict(EXECUTOR_MODEL_OPTIONS, synthetic, clear=True):
+            route = resolve_model_route("codex", requested_model="synthetic-model", requested_effort="max")
+            self.assertEqual(route["selected_reasoning_effort"], "")
+            self.assertEqual(route["effort_change"]["kind"], "ladder_downgrade")
 
     def test_unsafe_effort_shape_falls_back_to_cli_default(self) -> None:
         route = resolve_model_route("codex", requested_model="gpt-5", requested_effort='high\nsandbox_mode = "danger"')
         self.assertEqual(route["selected_reasoning_effort"], "")
+        self.assertEqual(route["effort_change"]["kind"], "rejected_unsafe_shape")
 
-    def test_brain_role_gets_high_effort_default(self) -> None:
-        route = resolve_model_route("codex", role="brain")
-        self.assertEqual(route["selected_reasoning_effort"], "high")
-
-    def test_no_request_is_an_explicit_executor_default_outcome(self) -> None:
-        route = resolve_model_route("codex")
-        self.assertEqual(route["status"], "model_unrouted")
-        self.assertEqual(route["source"], "executor_default")
-        self.assertEqual(route["selected_model"], "")
-
-    def test_profile_without_catalog_is_named(self) -> None:
-        route = resolve_model_route("hermes")
+    def test_effort_survives_profiles_without_catalog(self) -> None:
+        route = resolve_model_route("gemini-runtime", requested_effort="high")
         self.assertEqual(route["status"], "no_model_catalog")
+        self.assertEqual(route["selected_reasoning_effort"], "high")
+        self.assertEqual(route["effort_change"]["kind"], "catalog_no_authority_passthrough")
 
-    def test_claim_boundary_disclaims_provider_truth(self) -> None:
-        route = resolve_model_route("codex", requested_model="gpt-5")
-        self.assertIn("provider truth", route["claim_boundary"])
+    def test_effort_change_absent_when_no_effort_requested(self) -> None:
+        for route in (
+            resolve_model_route("codex", role="implementation"),
+            resolve_model_route("codex", requested_model="gpt-5"),
+            resolve_model_route("hermes"),
+        ):
+            self.assertNotIn("effort_change", route)
 
-    def test_model_roles_vocabulary_is_stable(self) -> None:
-        self.assertEqual(MODEL_ROLES, ("brain", "implementation", "design_visual", "review", "docs"))
+
+class RouteProvenanceCompatTests(unittest.TestCase):
+    def test_v2_route_reads_its_provenance(self) -> None:
+        route = resolve_model_route("codex", role="brain")
+        self.assertEqual(route_provenance(route), ("role_chain_head", "v2"))
+
+    def test_v1_route_reads_source_verbatim_never_translated(self) -> None:
+        # A frozen contract's record must keep saying exactly what was
+        # written: a chainless resolver never produced chain vocabulary.
+        v1_route = {
+            "schema_version": "coding_model_route/v1",
+            "source": "role_catalog_default",
+            "selected_model": "gpt-5",
+        }
+        self.assertEqual(route_provenance(v1_route), ("role_catalog_default", "v1"))
+
+    def test_v1_route_missing_or_offvocab_source_is_unknown(self) -> None:
+        self.assertEqual(
+            route_provenance({"schema_version": "coding_model_route/v1"}), ("unknown", "unknown")
+        )
+        self.assertEqual(
+            route_provenance({"schema_version": "coding_model_route/v1", "source": "made-up"}),
+            ("unknown", "unknown"),
+        )
+
+    def test_unknown_version_and_malformed_payloads_are_unknown(self) -> None:
+        self.assertEqual(route_provenance({"schema_version": "coding_model_route/v9"}), ("unknown", "unknown"))
+        self.assertEqual(route_provenance({}), ("unknown", "unknown"))
+        self.assertEqual(route_provenance(None), ("unknown", "unknown"))
+        self.assertEqual(
+            route_provenance({"schema_version": "coding_model_route/v2"}), ("unknown", "unknown")
+        )
+
+
+class ProvenanceSoleAccessorPolicyTests(unittest.TestCase):
+    """`route_provenance` is the only sanctioned reader of route provenance.
+
+    Source-derived gate: no dict-access read of the `provenance` key may
+    appear outside src/coding/model_routing.py. The scope (src/coding/ and
+    src/commands/) is a deliberate floor tied to today's layout — routing
+    code landing in a new directory must widen it. Attribute-style
+    `provenance` usages elsewhere (src/commands/ops.py research provenance,
+    src/quality/ evidence records) are an unrelated vocabulary and are not
+    matched by the dict-access anchors.
+    """
+
+    _ACCESS_RE = re.compile(r"""(?:\[\s*["']provenance["']\s*\]|\.get\(\s*["']provenance["'])""")
+
+    def test_provenance_key_reads_stay_in_model_routing(self) -> None:
+        repo_src = Path(__file__).resolve().parent.parent / "src"
+        offenders: list[str] = []
+        for directory in ("coding", "commands"):
+            for path in sorted((repo_src / directory).rglob("*.py")):
+                if path.name == "model_routing.py" and directory == "coding":
+                    continue
+                text = path.read_text(encoding="utf-8")
+                for match in self._ACCESS_RE.finditer(text):
+                    line = text.count("\n", 0, match.start()) + 1
+                    offenders.append(f"{path.relative_to(repo_src)}:{line}")
+        self.assertEqual(offenders, [], "read provenance via route_provenance() instead")
 
 
 class DispatchArgvTests(unittest.TestCase):
@@ -126,6 +378,35 @@ class DispatchArgvTests(unittest.TestCase):
     def test_unknown_owner_has_no_argv(self) -> None:
         self.assertIsNone(build_dispatch_argv("hermes", "do the work"))
 
+    def test_argv_unchanged_for_identical_route_dict(self) -> None:
+        # 5a: the argv builder never learns about chains, provenance, or the
+        # ladder — an identical route dict yields an identical argv.
+        route = {"selected_model": "gpt-5", "selected_reasoning_effort": "high"}
+        self.assertEqual(
+            build_dispatch_argv("codex", "p", route),
+            ["codex", "exec", "--model", "gpt-5", "--config", "model_reasoning_effort=high", "p"],
+        )
+
+    def test_behavior_change_review_on_codex_now_emits_model(self) -> None:
+        # 5b(i) before/after: the old resolver returned choice_required with
+        # no selected_model for review-on-codex, so dispatch emitted the bare
+        # template argv; the chain head now emits --model gpt-5-codex.
+        old_shape_route = {"selected_model": "", "selected_reasoning_effort": ""}
+        self.assertEqual(build_dispatch_argv("codex", "p", old_shape_route), ["codex", "exec", "p"])
+        new_route = resolve_model_route("codex", role="review")
+        self.assertEqual(
+            build_dispatch_argv("codex", "p", new_route),
+            ["codex", "exec", "--model", "gpt-5-codex", "p"],
+        )
+
+    def test_behavior_change_effort_max_on_codex_catalog_model(self) -> None:
+        # 5b(ii) before/after: `max` previously reached the CLI unsupported;
+        # the ladder now emits the downgraded rung in the argv.
+        old_shape_route = {"selected_model": "gpt-5-codex", "selected_reasoning_effort": "max"}
+        self.assertIn("model_reasoning_effort=max", build_dispatch_argv("codex", "p", old_shape_route))
+        new_route = resolve_model_route("codex", requested_model="gpt-5-codex", requested_effort="max")
+        self.assertIn("model_reasoning_effort=xhigh", build_dispatch_argv("codex", "p", new_route))
+
 
 class UnitModelRouteTests(unittest.TestCase):
     def test_unit_without_model_fields_stays_unrouted(self) -> None:
@@ -142,24 +423,74 @@ class UnitModelRouteTests(unittest.TestCase):
         )
         units = {unit["unit_id"]: unit for unit in contract["units"]}
         brain_route = units["brain"]["handoff"]["model_route"]
+        self.assertEqual(brain_route["schema_version"], CODING_MODEL_ROUTE_SCHEMA_VERSION)
         self.assertEqual(brain_route["selected_reasoning_effort"], "high")
+        self.assertEqual(brain_route["provenance"], "role_chain_head")
         ui_route = units["ui"]["handoff"]["model_route"]
         self.assertEqual(ui_route["selected_model"], "opus")
         self.assertNotIn("model_route", units["plain"]["handoff"])
 
 
 class ModelRouteCliTests(unittest.TestCase):
+    def _base(self, tmp: str) -> list[str]:
+        root = Path(tmp)
+        return ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+
     def test_cli_resolves_route_json(self) -> None:
         with TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
             status, stdout, stderr = run_cli(
-                base + ["coding", "model-route", "--executor", "codex", "--role", "brain"]
+                self._base(tmp) + ["coding", "model-route", "--executor", "codex", "--role", "brain"]
             )
             self.assertEqual(status, 0, stderr)
             route = json.loads(stdout)
             self.assertEqual(route["schema_version"], CODING_MODEL_ROUTE_SCHEMA_VERSION)
             self.assertEqual(route["selected_reasoning_effort"], "high")
+            self.assertEqual(route["provenance"], "role_chain_head")
+
+    def test_cli_plain_text_is_default_and_names_provenance(self) -> None:
+        with TemporaryDirectory() as tmp:
+            status, stdout, stderr = run_cli(
+                self._base(tmp) + ["coding", "model-route", "--executor", "codex", "--role", "brain"],
+                output_json=False,
+            )
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("role_chain_head", stdout)
+            self.assertIn("chain:", stdout)
+            self.assertNotIn('{"', stdout)
+
+    def test_explain_matrix_covers_every_profile_role_cell(self) -> None:
+        with TemporaryDirectory() as tmp:
+            status, stdout, stderr = run_cli(self._base(tmp) + ["coding", "model-route", "--explain"])
+            self.assertEqual(status, 0, stderr)
+            matrix = json.loads(stdout)
+            self.assertEqual(matrix["schema_version"], "coding_model_route_matrix/v1")
+            cells = matrix["cells"]
+            self.assertEqual(len(cells), len(EXECUTOR_MODEL_OPTIONS) * len(MODEL_ROLES))
+            for cell in cells:
+                direct = resolve_model_route(cell["executor_profile"], role=cell["role"])
+                self.assertEqual(cell["selected_model"], direct["selected_model"], cell)
+                self.assertEqual(cell["provenance"], direct["provenance"], cell)
+                self.assertTrue(cell["chain"], cell)
+            self.assertIn("hermes", matrix["catalogless_profiles"])
+
+    def test_explain_narrows_with_executor_and_renders_full_chains_in_text(self) -> None:
+        with TemporaryDirectory() as tmp:
+            status, stdout, stderr = run_cli(
+                self._base(tmp) + ["coding", "model-route", "--explain", "--executor", "codex"],
+                output_json=False,
+            )
+            self.assertEqual(status, 0, stderr)
+            lines = [line for line in stdout.splitlines() if line.startswith("- ")]
+            self.assertEqual(len(lines), len(MODEL_ROLES))
+            self.assertIn("gpt-5-codex*", stdout)
+            self.assertIn("gpt-5", stdout)
+            self.assertNotIn("claude-code", stdout)
+
+    def test_model_route_without_executor_or_explain_errors(self) -> None:
+        with TemporaryDirectory() as tmp:
+            status, _stdout, stderr = run_cli(self._base(tmp) + ["coding", "model-route"])
+            self.assertNotEqual(status, 0)
+            self.assertIn("--executor", stderr)
 
 
 if __name__ == "__main__":
