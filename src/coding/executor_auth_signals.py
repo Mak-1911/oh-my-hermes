@@ -25,8 +25,12 @@ AUTH_MARKER_STATES: Final[tuple[str, ...]] = ("present", "absent", "unknown")
 _CLAUDE_CONFIG_RELATIVE: Final[str] = ".claude.json"
 _CLAUDE_LOGIN_KEY: Final[str] = "oauthAccount"
 _CODEX_AUTH_RELATIVE: Final[str] = ".codex/auth.json"
+# senpi hosts the omo runtime locally; its credential store is a JSON object
+# keyed by provider name. Presence of at least one key is the marker — key
+# names and values are never read into state.
+_SENPI_AUTH_RELATIVE: Final[str] = ".senpi/agent/auth.json"
 
-AUTH_SIGNAL_PROFILES: Final[tuple[str, ...]] = ("codex", "claude-code")
+AUTH_SIGNAL_PROFILES: Final[tuple[str, ...]] = ("codex", "claude-code", "omo-runtime")
 
 
 def executor_auth_signals(home: Path | None = None) -> dict[str, object]:
@@ -38,6 +42,7 @@ def executor_auth_signals(home: Path | None = None) -> dict[str, object]:
         "profiles": {
             "codex": _marker_payload(_codex_marker(base), marker_kind="local_auth_file"),
             "claude-code": _marker_payload(_claude_marker(base), marker_kind="local_config_login_key"),
+            "omo-runtime": _marker_payload(_senpi_marker(base), marker_kind="local_auth_file"),
         },
         "claim_boundary": EXECUTOR_AUTH_SIGNALS_CLAIM_BOUNDARY,
     }
@@ -61,6 +66,8 @@ def auth_signal_for_profile(profile: str, home: Path | None = None) -> dict[str,
     base = home if home is not None else Path.home()
     if normalized == "codex":
         entry = _marker_payload(_codex_marker(base), marker_kind="local_auth_file")
+    elif normalized == "omo-runtime":
+        entry = _marker_payload(_senpi_marker(base), marker_kind="local_auth_file")
     else:
         entry = _marker_payload(_claude_marker(base), marker_kind="local_config_login_key")
     entry["claim_boundary"] = EXECUTOR_AUTH_SIGNALS_CLAIM_BOUNDARY
@@ -116,6 +123,19 @@ def _claude_marker(home: Path) -> str:
     if not isinstance(parsed, dict):
         return "unknown"
     return "present" if _CLAUDE_LOGIN_KEY in parsed else "absent"
+
+
+def _senpi_marker(home: Path) -> str:
+    auth_path = home / _SENPI_AUTH_RELATIVE
+    try:
+        if not auth_path.is_file():
+            return "absent"
+        parsed = json.loads(auth_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return "unknown"
+    if not isinstance(parsed, dict):
+        return "unknown"
+    return "present" if parsed else "absent"
 
 
 def _codex_marker(home: Path) -> str:

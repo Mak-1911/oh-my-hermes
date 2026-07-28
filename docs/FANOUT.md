@@ -42,10 +42,12 @@ goal to Hermes in chat; these commands are the backend surface.
 
 - **Spawnability is data.** `DISPATCH_COMMAND_TEMPLATES` in
   `src/coding/fanout_dispatch.py` maps profiles with a local headless CLI to
-  fixed argv templates. Profiles without a template (hermes, omx/omo/omc
-  runtimes, generic, unassigned) are reported
-  `unsupported_for_local_dispatch` with the unit handoff as a prepared-prompt
-  fallback — no profile is privileged.
+  fixed argv templates — currently codex (`codex exec`), claude-code
+  (`claude -p`), and omo-runtime (`senpi --print`, since omo ships as an
+  extension of the senpi host CLI; readiness probes `senpi` accordingly).
+  Profiles without a template (hermes, omx/omc runtimes, generic,
+  unassigned) are reported `unsupported_for_local_dispatch` with the unit
+  handoff as a prepared-prompt fallback — no profile is privileged.
 - **Bridge dispatch is a separate axis from chat prompt-handoff.** Chat
   surfaces keep their prompt-only semantics for prompt-only profiles; the
   bridge is an operator-invoked command on a different surface.
@@ -75,9 +77,17 @@ goal to Hermes in chat; these commands are the backend surface.
   alone let the agent create files but blocked the requested `git commit`,
   so the template additionally grants `--allowedTools
   "Bash(git add:*),Bash(git commit:*)"` — exactly those two git verbs,
-  nothing broader. Template drift in either CLI surfaces as a clean
-  readiness or exit-code failure recorded as observed evidence, and the fix
-  is a one-line data edit in `DISPATCH_COMMAND_TEMPLATES`.
+  nothing broader. The senpi template was validated in a live bridge
+  dispatch (2026-07): a routed unit spawned non-interactively via
+  `--print --no-session`, the `workspace` permission preset allowed file
+  creation plus the exact `git add`/`git commit` the unit prompt asks for
+  (the unit completed with a real commit inside its isolated worktree, no
+  interactive prompt), and a missing provider key and an inactive plan each
+  surfaced as a clean exit-1 failure with bounded output (feeding the usual
+  limit-signal path). Template drift
+  in any CLI surfaces as a clean readiness or exit-code failure recorded as
+  observed evidence, and the fix is a one-line data edit in
+  `DISPATCH_COMMAND_TEMPLATES`.
 - **Model routing.** A unit may declare `model`, `reasoning_effort`, and/or
   `role` (brain, implementation, design_visual, review, docs). Prepare embeds
   the resolved `coding_model_route/v2` in the unit handoff, and dispatch

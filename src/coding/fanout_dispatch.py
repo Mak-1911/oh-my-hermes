@@ -64,6 +64,21 @@ DISPATCH_COMMAND_TEMPLATES: dict[str, tuple[str, ...]] = {
         "--allowedTools",
         "Bash(git add:*),Bash(git commit:*)",
     ),
+    # omo runs as an extension of the senpi host CLI. Validated live
+    # (2026-07): `--print --no-session` completes non-interactively with a
+    # clean exit code on failure (missing API key, plan 402), and the
+    # `workspace` permission preset allowed file creation plus the exact
+    # `git add`/`git commit` the unit prompt asks for — no interactive
+    # prompt, no broader grant. `--no-session` keeps the dispatch ephemeral
+    # so no session state accumulates outside the worktree.
+    "omo-runtime": (
+        "senpi",
+        "--print",
+        "--no-session",
+        "--permission-preset",
+        "workspace",
+        "{prompt}",
+    ),
 }
 
 # Model routing is prepared metadata on the unit handoff; these fragments turn
@@ -73,14 +88,22 @@ DISPATCH_COMMAND_TEMPLATES: dict[str, tuple[str, ...]] = {
 DISPATCH_MODEL_OPTION_TEMPLATES: dict[str, tuple[str, ...]] = {
     "codex": ("--model", "{model}"),
     "claude-code": ("--model", "{model}"),
+    # senpi takes `provider/model` ids — exactly the form inventory-derived
+    # routes carry.
+    "omo-runtime": ("--model", "{model}"),
 }
 DISPATCH_REASONING_OPTION_TEMPLATES: dict[str, tuple[str, ...]] = {
     # `-c` values parse as TOML with a raw-string fallback, so a bare effort
     # level is accepted verbatim (verified against `codex exec --help`).
     "codex": ("--config", "model_reasoning_effort={effort}"),
     "claude-code": ("--effort", "{effort}"),
+    # senpi's thinking levels (off|minimal|low|medium|high|xhigh|max) are a
+    # superset of the effort ladder, so routed efforts map verbatim.
+    "omo-runtime": ("--thinking", "{effort}"),
 }
-_DISPATCH_OPTION_INSERT_INDEX: dict[str, int | None] = {"codex": 2, "claude-code": None}
+# senpi treats trailing tokens as message positionals, so options insert
+# before the prompt like codex; claude accepts them anywhere and appends.
+_DISPATCH_OPTION_INSERT_INDEX: dict[str, int | None] = {"codex": 2, "claude-code": None, "omo-runtime": 5}
 
 
 def build_dispatch_argv(
