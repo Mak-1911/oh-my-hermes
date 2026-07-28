@@ -147,6 +147,20 @@ class ExecutorChoiceContextTests(unittest.TestCase):
                 self.assertIn("last_limit_signal", entry)
             self.assertIn("never removes a candidate", context["claim_boundary"])
 
+    def test_choice_context_carries_model_inventory_hint(self) -> None:
+        """Hermes answers the choose-executor question from what the user
+        actually has: the compact inventory hint rides the context, and the
+        full report stays behind the named command. Structure-only assertions
+        — hint content varies with the local machine by design."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+            hint = executor_choice_context(paths)["model_inventory_hint"]
+        self.assertEqual(hint["full_report_command"], "omh coding model-inventory")
+        self.assertIsInstance(hint["families_present"], list)
+        self.assertIsInstance(hint["model_count"], int)
+        self.assertIn("reporting-only", hint["claim_boundary"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5829,7 +5829,7 @@ Route implementation requests through scoped context, edit discipline, tests, re
   - `run_started`
   - `coding_delegation_recorded`
   - `verification_recorded`
-- Delegation expectation: Record prepared coding delegation with omh coding delegate; record observed execution only when Hermes exposes a separate coding, review, or verification lane.
+- Delegation expectation: Consult omh coding model-inventory before proposing which executor or model owns the work, and propose only from what the user actually has locally. Record prepared coding delegation with omh coding delegate; record observed execution only when Hermes exposes a separate coding, review, or verification lane.
 - Privacy default: `metadata_only`
 - Overclaim guards:
   - A prepared coding_delegation.json is not implementation evidence.

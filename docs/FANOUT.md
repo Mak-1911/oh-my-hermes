@@ -116,7 +116,10 @@ goal to Hermes in chat; these commands are the backend surface.
   defaults, not observed capability, no routing effect. The inventory never
   enters a model route, a frozen contract, or persisted state — it is
   read-time advisory context for the operator or wrapper proposing a split,
-  and routing consumption is a recorded follow-up.
+  and routing consumption is a recorded follow-up. A compact hint (families
+  present, model count, the full-report command) rides the choose-executor
+  context automatically, so Hermes proposes owners from what the user
+  actually has instead of asking blind.
 - **Unit prompt protocol.** Every dispatched unit prompt carries a fixed
   verification discipline (`src/coding/unit_prompt_protocol.py`): the
   subagent first echoes the goal, its deliverable, and the numbered

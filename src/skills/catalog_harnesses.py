@@ -71,7 +71,7 @@ _HARNESSES = [
         ("run the smallest relevant tests", "inspect generated skill output when routing changed"),
         "If the request is underspecified, ask one concise clarification question before editing.",
         ("run_started", "coding_delegation_recorded", "verification_recorded"),
-        "Record prepared coding delegation with omh coding delegate; record observed execution only when Hermes exposes a separate coding, review, or verification lane.",
+        "Consult omh coding model-inventory before proposing which executor or model owns the work, and propose only from what the user actually has locally. Record prepared coding delegation with omh coding delegate; record observed execution only when Hermes exposes a separate coding, review, or verification lane.",
         "metadata_only",
         quality_tier="handoff-gated",
         quality_bar=(
