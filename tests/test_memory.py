@@ -247,6 +247,37 @@ class MemoryContractTests(unittest.TestCase):
 
             self.assertEqual(sorted(p.name for p in records_dir.glob("*.json")), names_before)
             self.assertEqual({p.name: p.lstat().st_mtime_ns for p in records_dir.glob("*.json")}, mtimes_before)
+    def test_over_budget_cut_names_a_same_topic_sibling(self) -> None:
+        """A cut record sharing a tag with a kept record gets a sibling hint,
+        so a same-topic disagreement cannot vanish silently; unrelated cuts
+        carry no hint (issue #740)."""
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            for idx in range(3):
+                capture_project_memory_candidate(
+                    paths,
+                    f"Deploy policy variant {idx} for release tests",
+                    record_type="procedure",
+                    tags=["release", "tests"],
+                )
+            capture_project_memory_candidate(
+                paths,
+                "Unrelated onboarding note for docs",
+                record_type="procedure",
+                tags=["onboarding"],
+            )
+            pack = build_project_memory_recall_pack(paths, "release tests deploy policy", limit=2)
+            self.assertTrue(pack["truncated"])
+            kept_ids = {str(item["record_id"]) for item in pack["included_records"]}
+            cut = [item for item in pack["excluded_records"] if item["reason"] == "over_budget"]
+            self.assertTrue(cut)
+            tagged_cut = [item for item in cut if "sibling_included" in item]
+            self.assertTrue(tagged_cut)
+            for item in tagged_cut:
+                self.assertIn(item["sibling_included"], kept_ids)
+            self.assertEqual(validate_project_memory_recall_pack(pack), [])
+
     def test_project_memory_recall_pack_budget_marks_truncation(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")

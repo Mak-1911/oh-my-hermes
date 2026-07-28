@@ -133,7 +133,7 @@ _PROJECT_MEMORY_RECALL_ITEM_KEYS = {
     "staleness",
     "score",
 }
-_PROJECT_MEMORY_EXCLUDED_KEYS = {"record_id", "reason", "staleness"}
+_PROJECT_MEMORY_EXCLUDED_KEYS = {"record_id", "reason", "staleness", "sibling_included"}
 _PROJECT_MEMORY_TASK_REF_KEYS = {"sha256", "length", "query_supplied"}
 _HANDOFF_CONTEXT_PACK_KEYS = {
     "schema_version",
@@ -467,13 +467,22 @@ def build_project_memory_recall_pack(
             over_chars = max_chars is not None and kept_chars + summary_chars > max_chars
             budget_exhausted = over_records or over_chars
         if budget_exhausted:
-            excluded.append(
-                {
-                    "record_id": str(item.get("record_id", "")),
-                    "reason": "over_budget",
-                    "staleness": item.get("staleness", {"state": "not_checked"}),
-                }
-            )
+            entry = {
+                "record_id": str(item.get("record_id", "")),
+                "reason": "over_budget",
+                "staleness": item.get("staleness", {"state": "not_checked"}),
+            }
+            # A cut record that shares a tag with a KEPT record may be the
+            # other side of a same-topic disagreement; without this hint the
+            # surviving record silently "wins" until curation runs. The hint
+            # names the sibling only -- it never re-adds the record past the
+            # budget and never guesses which side is right.
+            cut_tags = {str(tag) for tag in item.get("tags", []) or []}
+            for kept_item in kept:
+                if cut_tags & {str(tag) for tag in kept_item.get("tags", []) or []}:
+                    entry["sibling_included"] = str(kept_item.get("record_id", ""))
+                    break
+            excluded.append(entry)
             continue
         kept.append(item)
         kept_chars += summary_chars
