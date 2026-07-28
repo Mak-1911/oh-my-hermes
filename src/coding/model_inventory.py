@@ -97,9 +97,12 @@ OMO_CATEGORY_ROLE_SOURCES: Final[dict[str, tuple[str, ...]]] = {
     "design_visual": ("visual-engineering", "artistry"),
     "review": ("unspecified-high", "deep"),
     "docs": ("writing", "quick"),
-    # Read-only investigation lanes default to the cheap sweep; deep
-    # investigations escalate explicitly on the unit.
-    "research": ("quick", "unspecified-low"),
+    # Read-only investigation lanes: standard depth is the default; the
+    # shallow/deep entries resolve only when the unit DECLARES that depth
+    # (autorouting survey consensus: depth is a dial, never inferred).
+    "research": ("unspecified-low", "quick"),
+    "research:shallow": ("quick",),
+    "research:deep": ("deep", "ultrabrain"),
 }
 
 _OMO_AGENT_CONFIG_RELATIVE: Final[str] = ".config/opencode/oh-my-openagent.json"

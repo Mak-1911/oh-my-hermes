@@ -29,16 +29,59 @@ from omh.coding.model_routing import (  # noqa: E402
 
 
 class ResearchRoleTests(unittest.TestCase):
-    def test_research_defaults_to_the_cheap_sweep(self) -> None:
-        """Read-only investigation lanes route to the fast tier by default;
-        depth is the caller's explicit dial, never an inferred one."""
+    def test_research_defaults_to_standard_depth(self) -> None:
+        """Autorouting survey consensus: standard is the default; shallow is
+        the declared saving, deep the declared escalation — never inferred."""
         codex = resolve_model_route("codex", role="research")
         self.assertEqual(codex["selected_model"], "gpt-5")
-        self.assertEqual(codex["selected_reasoning_effort"], "low")
+        self.assertEqual(codex["selected_reasoning_effort"], "medium")
         self.assertEqual(codex["provenance"], "role_chain_head")
+        self.assertNotIn("depth", codex)
         claude = resolve_model_route("claude-code", role="research")
-        self.assertEqual(claude["selected_model"], "haiku")
+        self.assertEqual(claude["selected_model"], "sonnet")
         self.assertEqual(claude["selected_reasoning_effort"], "")
+
+    def test_declared_depth_swaps_the_chain(self) -> None:
+        shallow = resolve_model_route("claude-code", role="research", requested_depth="shallow")
+        self.assertEqual(shallow["selected_model"], "haiku")
+        self.assertEqual(shallow["depth"], "shallow")
+        deep = resolve_model_route("claude-code", role="research", requested_depth="deep")
+        self.assertEqual(deep["selected_model"], "opus")
+        self.assertEqual(deep["selected_reasoning_effort"], "high")
+        deep_codex = resolve_model_route("codex", role="research", requested_depth="deep")
+        self.assertEqual(deep_codex["selected_model"], "gpt-5-codex")
+        self.assertEqual(deep_codex["selected_reasoning_effort"], "xhigh")
+        outcomes = {entry["stage"]: entry["outcome"] for entry in deep["attempted"]}
+        self.assertEqual(outcomes["research_depth"], "applied")
+
+    def test_standard_and_unknown_depths_keep_the_role_chain(self) -> None:
+        standard = resolve_model_route("codex", role="research", requested_depth="standard")
+        self.assertEqual(standard["selected_model"], "gpt-5")
+        self.assertEqual(standard["depth"], "standard")
+        unknown = resolve_model_route("codex", role="research", requested_depth="bottomless")
+        self.assertEqual(unknown["selected_model"], "gpt-5")
+        outcomes = {entry["stage"]: entry["outcome"] for entry in unknown["attempted"]}
+        self.assertEqual(outcomes["research_depth"], "unknown_depth")
+
+    def test_depth_on_non_research_role_is_recorded_and_skipped(self) -> None:
+        baseline = resolve_model_route("codex", role="brain")
+        route = resolve_model_route("codex", role="brain", requested_depth="deep")
+        self.assertEqual(route["selected_model"], baseline["selected_model"])
+        self.assertEqual(route["chain"], baseline["chain"])
+        self.assertEqual(route["depth"], "deep")
+        outcomes = {entry["stage"]: entry["outcome"] for entry in route["attempted"]}
+        self.assertEqual(outcomes["research_depth"], "skipped")
+
+    def test_depth_chain_models_stay_inside_the_catalog(self) -> None:
+        from omh.coding.model_routing import RESEARCH_DEPTH_CHAINS, RESEARCH_DEPTHS
+
+        self.assertEqual(RESEARCH_DEPTHS, ("shallow", "standard", "deep"))
+        for profile, depths in RESEARCH_DEPTH_CHAINS.items():
+            catalog_ids = {str(o["model_id"]) for o in EXECUTOR_MODEL_OPTIONS[profile]}
+            self.assertEqual(set(depths), {"shallow", "deep"}, profile)
+            for depth, chain in depths.items():
+                for entry in chain:
+                    self.assertIn(entry["model_id"], catalog_ids, f"{profile}:{depth}")
 
     def test_deep_research_escalates_only_explicitly(self) -> None:
         route = resolve_model_route(
