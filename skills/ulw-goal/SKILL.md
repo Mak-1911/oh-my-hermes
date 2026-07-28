@@ -1,6 +1,6 @@
 ---
 name: ulw-goal
-description: [omh] Hermes Ultragoal workflow: file-backed durable goal ledgers. Use when the user says: ultragoal, durable goal, multi-goal, goal ledger, long running goal, 완료조건까지 계속, keep working until acceptance criteria pass, 장기 목표.
+description: [omh] Ultragoal - durable multi-session goal tracking: a checkpointed ledger survives context loss and resumes exactly where work stopped, with a final completion gate. Use when the user says: ultragoal, ulg, durable goal, multi-goal, goal ledger, long running goal, 완료조건까지 계속, keep working until acceptance criteria pass.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, execution]
@@ -70,7 +70,7 @@ Bad example:
 
 Use when work needs durable goal artifacts, checkpointed progress, and final quality gates.
 
-    Strong routing signals: `ultragoal`, `$ultragoal`, `durable goal`, `multi-goal`, `goal ledger`, `long running goal`, `완료조건까지 계속`, `keep working until acceptance criteria pass`, `장기 목표`, `오래 실행`, `완료 조건까지 계속`
+    Strong routing signals: `ultragoal`, `$ultragoal`, `ulg`, `$ulg`, `durable goal`, `multi-goal`, `goal ledger`, `long running goal`, `완료조건까지 계속`, `keep working until acceptance criteria pass`, `장기 목표`, `오래 실행`, `완료 조건까지 계속`
 
 ## Catalog Metadata
 

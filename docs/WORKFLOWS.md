@@ -150,7 +150,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### ralph
 
-[omh] Hermes Ralph workflow: persistent execution with verification and review.
+[omh] Ralph - one owner drives a concrete task to done: implement, verify, review, repeat until the gate passes; prefer over one-shot delegation when the task needs a verification loop.
 
 - Category: `execution`
 - Phase: `completion`
@@ -206,7 +206,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### ultragoal
 
-[omh] Hermes Ultragoal workflow: file-backed durable goal ledgers.
+[omh] Ultragoal - durable multi-session goal tracking: a checkpointed ledger survives context loss and resumes exactly where work stopped, with a final completion gate.
 
 - Category: `execution`
 - Phase: `durable-goals`
@@ -224,7 +224,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The request is a single-turn answer, quick diagnosis, or small edit that does not need a durable ledger.
   - Acceptance criteria, current checkpoint, and final gate expectations are too vague to make a goal inspectable.
   - The user expects hidden Hermes code execution rather than explicit executor handoff and observed verification evidence.
-- Strong routing signals: `ultragoal`, `$ultragoal`, `durable goal`, `multi-goal`, `goal ledger`, `long running goal`, `완료조건까지 계속`, `keep working until acceptance criteria pass`, `장기 목표`, `오래 실행`, `완료 조건까지 계속`
+- Strong routing signals: `ultragoal`, `$ultragoal`, `ulg`, `$ulg`, `durable goal`, `multi-goal`, `goal ledger`, `long running goal`, `완료조건까지 계속`, `keep working until acceptance criteria pass`, `장기 목표`, `오래 실행`, `완료 조건까지 계속`
 - Good example:
   - Prompt: $ultragoal turn OMH skill quality into a durable goal with rubrics, generated skill sync, tests, and a PR gate.
   - Expected behavior: Create or update a goal ledger, split the story into verifiable checkpoints, and close only after generated docs, skills, and tests match.
@@ -366,7 +366,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### ultraprocess
 
-[omh] Ultra Process - Research - Ralplan - Ultragoal - Code Review - Sync Circle: one PR-ready delivery cycle.
+[omh] Ultraprocess - one full task-to-PR cycle: codebase research, reviewed plan, coding handoff to the selected executor, code review, docs sync, and PR, tracked end to end.
 
 - Category: `process`
 - Phase: `single-cycle-plan-to-pr`
@@ -385,7 +385,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The task is still ambiguous enough that a deep interview is required before planning.
   - No repo, product, or delivery surface is available to support a plan-to-PR cycle.
   - The goal is removing existing slop or duplication with identical observable behavior rather than delivering new or changed behavior; use `ai-slop-cleaner`.
-- Strong routing signals: `ultraprocess`, `$ultraprocess`, `./ultraprocess`, `/ultraprocess`, `single-cycle delivery`, `one-cycle delivery`, `end-to-end process`, `delivery process`, `research plan implement review docs pr`, `plan implement review docs pr`, `ralplan ultragoal code-review`, `codebase source research planning implementation review docs sync pr`, `docs sync`, `pr-ready`, `prepare a pr`, `sync docs and prepare a pr`, `code-review sync docs and prepare a pr`, `delegate to codex`, `send to codex`, `codex implement`, `codex progress tracking`, `codex session tracking`, `make a pr`, `open a pr`, `끝까지 해줘`, `PR까지`, `계획 구현 리뷰 문서 PR`, `기획 구현 리뷰 문서 PR`, `코드베이스 조사 웹리서치 계획 구현 리뷰 문서 최신화 PR`, `codex로 구현`, `코덱스로 구현`, `codex에게 맡기`, `codex로 맡기`, `코덱스에게 맡기`, `코딩 에이전트에게 맡기`, `구현하게 맡기고 진행상태 추적`, `진행상태 추적`, `진행 상태 추적`, `문서 최신화 PR`, `test driven development`, `write tests first`, `tests first`, `tdd implementation`, `테스트부터 작성`, `테스트 먼저 작성`, `테스트 우선 구현`, `TDD로 구현`
+- Strong routing signals: `ultraprocess`, `$ultraprocess`, `ulp`, `$ulp`, `./ultraprocess`, `/ultraprocess`, `single-cycle delivery`, `one-cycle delivery`, `end-to-end process`, `delivery process`, `research plan implement review docs pr`, `plan implement review docs pr`, `ralplan ultragoal code-review`, `codebase source research planning implementation review docs sync pr`, `docs sync`, `pr-ready`, `prepare a pr`, `sync docs and prepare a pr`, `code-review sync docs and prepare a pr`, `delegate to codex`, `send to codex`, `codex implement`, `codex progress tracking`, `codex session tracking`, `make a pr`, `open a pr`, `끝까지 해줘`, `PR까지`, `계획 구현 리뷰 문서 PR`, `기획 구현 리뷰 문서 PR`, `코드베이스 조사 웹리서치 계획 구현 리뷰 문서 최신화 PR`, `codex로 구현`, `코덱스로 구현`, `codex에게 맡기`, `codex로 맡기`, `코덱스에게 맡기`, `코딩 에이전트에게 맡기`, `구현하게 맡기고 진행상태 추적`, `진행상태 추적`, `진행 상태 추적`, `문서 최신화 PR`, `test driven development`, `write tests first`, `tests first`, `tdd implementation`, `테스트부터 작성`, `테스트 먼저 작성`, `테스트 우선 구현`, `TDD로 구현`
 - Good example:
   - Prompt: $ultraprocess research this setup bug, plan the fix, implement, review, sync docs, and prepare a PR.
   - Expected behavior: Run exactly one delivery cycle and report which stages are observed, prepared, or blocked.
@@ -491,7 +491,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### team
 
-[omh] Hermes Team workflow: coordinated parallel or sequential work lanes.
+[omh] Team - run N coordinated workers on one shared task list with explicit lane ownership and merged verification; choose over raw subagents when lanes must not collide.
 
 - Category: `execution`
 - Phase: `coordination`
@@ -547,7 +547,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### ultrawork
 
-[omh] Hermes Ultrawork compatibility workflow: bounded parallel delivery guidance.
+[omh] Ultrawork - split an accepted plan into disjoint parallel lanes with per-lane acceptance criteria, verification commands, and owners; prevents two lanes editing the same file.
 
 - Category: `execution`
 - Phase: `parallel-delivery`
@@ -606,7 +606,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### web-research
 
-[omh] Hermes Web Research workflow: source-backed current information gathering.
+[omh] Web research with citation discipline on top of native search - every claim carries a live URL, sources are diversity-checked, and anything not fetched is marked not observed instead of guessed.
 
 - Category: `research`
 - Phase: `current-evidence`
@@ -739,7 +739,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### research-brief
 
-[omh] Hermes Research Brief workflow: source-backed business research without pretending evidence was fetched.
+[omh] Business research brief - turns a market, competitor, pricing, or customer question into a structured brief with an explicit evidence-vs-inference split; for raw link gathering use ulw-research.
 
 - Category: `research`
 - Phase: `business-brief`
@@ -3673,7 +3673,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### morning-brief
 
-[omh] Hermes Morning Brief setup workflow: diagnose mail and calendar MCP connection, guide read/draft-only access, and apply changes only after diff approval.
+[omh] Morning brief SETUP (one-time) - connects mail and calendar MCP with read-and-draft-only scope and diff approval; produces the configuration, not the daily brief itself.
 
 - Category: `hermes-setup`
 - Phase: `setup`
@@ -3900,7 +3900,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### memory-new
 
-[omh] Hermes new-memory capture workflow: add reviewed project, product, or durable context candidates through capture, review, and approve actions.
+[omh] Save a new durable project or product fact - captures a candidate, shows it for review, and writes only on approval; for auditing memories that already exist use omh-memory-sync.
 
 - Category: `memory`
 - Phase: `candidate-capture`
@@ -3959,7 +3959,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### memory-sync
 
-[omh] Hermes existing-memory curation workflow: review stale, conflicting, duplicate, overgeneralized, or risky USER.md, MEMORY.md, and skill memories through approve/reject/update actions.
+[omh] Audit what Hermes already remembers - walks USER.md, MEMORY.md, and skill memories claim by claim, flags stale, conflicting, duplicate, or overgeneralized entries, and rewrites only after an approved diff.
 
 - Category: `memory`
 - Phase: `curation-review`

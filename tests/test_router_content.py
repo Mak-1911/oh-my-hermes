@@ -2338,7 +2338,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertEqual(definitions["ultraprocess"].hermes_role, "handoff-guide")
         self.assertEqual(
             definitions["ultraprocess"].description,
-            "[omh] Ultra Process - Research - Ralplan - Ultragoal - Code Review - Sync Circle: one PR-ready delivery cycle.",
+            "[omh] Ultraprocess - one full task-to-PR cycle: codebase research, reviewed plan, coding handoff to the selected executor, code review, docs sync, and PR, tracked end to end.",
         )
         self.assertEqual(definitions["ultrawork"].hermes_role, "handoff-guide")
         self.assertEqual(definitions["ai-slop-cleaner"].hermes_role, "handoff-guide")

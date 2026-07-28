@@ -116,7 +116,7 @@ _FEATURE_SURFACE_SKILLS = (
     ),
     _feature_surface_skill(
         "memory-new",
-        "Hermes new-memory capture workflow: add reviewed project, product, or durable context candidates through capture, review, and approve actions.",
+        "Save a new durable project or product fact - captures a candidate, shows it for review, and writes only on approval; for auditing memories that already exist use omh-memory-sync.",
         (
             "memory-new",
             "new memory",
@@ -163,7 +163,7 @@ _FEATURE_SURFACE_SKILLS = (
     ),
     _feature_surface_skill(
         "memory-sync",
-        "Hermes existing-memory curation workflow: review stale, conflicting, duplicate, overgeneralized, or risky USER.md, MEMORY.md, and skill memories through approve/reject/update actions.",
+        "Audit what Hermes already remembers - walks USER.md, MEMORY.md, and skill memories claim by claim, flags stale, conflicting, duplicate, or overgeneralized entries, and rewrites only after an approved diff.",
         (
             "memory-sync",
             "memory curation",
