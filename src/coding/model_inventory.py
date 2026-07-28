@@ -71,8 +71,10 @@ MODEL_DOMAIN_AFFINITIES: Final[dict[str, tuple[str, ...]]] = {
 
 MODEL_DOMAIN_AFFINITY_CLAIM_BOUNDARY: Final[str] = (
     "Domain affinity notes are static editorial defaults, not observed, benchmarked, or measured "
-    "capability — OMH never evaluates a model. They carry no routing effect and never remove or "
-    "rank an option; the user's explicit choice always wins."
+    "capability — OMH never evaluates a model. When a unit explicitly declares a domain, they may "
+    "advisorily reorder a locally-derived chain with the reorder recorded in the route's attempted "
+    "trail; they are never a veto, never remove an option, and the user's explicit model choice "
+    "always wins."
 )
 
 # The executor profile a locally-derived catalog belongs to: omo ships as an
@@ -333,6 +335,10 @@ def inventory_model_catalog(inventory: Mapping[str, object]) -> dict[str, object
         "catalog_kind": "local_inventory",
         "options": options,
         "chains": chains,
+        # The affinity vocabulary rides the catalog payload so the resolver
+        # consumes it as data — routing never imports this module, and the
+        # reorder scope stays exactly the locally-derived chains.
+        "domain_affinities": {domain: affine for domain, affine in sorted(MODEL_DOMAIN_AFFINITIES.items())},
         "fingerprint": {
             "digest": digest,
             "sources": source_statuses,

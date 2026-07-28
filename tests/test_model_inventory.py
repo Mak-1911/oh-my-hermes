@@ -171,12 +171,14 @@ class ModelInventoryTests(unittest.TestCase):
         # The affinity table is an editorial default, not a capability claim:
         # its own boundary rides the payload (critic-mandated condition).
         self.assertEqual(inventory["domain_affinity_claim_boundary"], MODEL_DOMAIN_AFFINITY_CLAIM_BOUNDARY)
-        self.assertIn("no routing effect", MODEL_DOMAIN_AFFINITY_CLAIM_BOUNDARY)
+        self.assertIn("never a veto", MODEL_DOMAIN_AFFINITY_CLAIM_BOUNDARY)
+        self.assertIn("explicit model choice", MODEL_DOMAIN_AFFINITY_CLAIM_BOUNDARY)
 
-    def test_affinity_vocabulary_stays_out_of_routing_and_dispatch(self) -> None:
-        """No downstream payload builder consumes the affinity table: the
-        domain vocabulary must not appear in routing, dispatch, or contract
-        modules, so the notes stay report-only by construction."""
+    def test_affinity_vocabulary_reaches_routing_only_as_catalog_data(self) -> None:
+        """Routing consumes domain affinities exclusively via the local
+        catalog payload: the vocabulary constants and domain literals never
+        appear in routing, dispatch, or contract module SOURCE, so built-in
+        chains cannot grow a hidden affinity dependency."""
         src = Path(__file__).resolve().parent.parent / "src" / "coding"
         for module in ("model_routing.py", "fanout_dispatch.py", "fanout.py", "fanout_contracts.py"):
             source = (src / module).read_text(encoding="utf-8")
@@ -210,6 +212,9 @@ class InventoryModelCatalogTests(unittest.TestCase):
         self.assertEqual(catalog["schema_version"], LOCAL_MODEL_CATALOG_SCHEMA_VERSION)
         self.assertEqual(catalog["executor_profile"], MODEL_INVENTORY_CATALOG_PROFILE)
         self.assertEqual(catalog["catalog_kind"], "local_inventory")
+        # The affinity vocabulary rides the catalog so routing consumes it as
+        # data, never as an import.
+        self.assertEqual(catalog["domain_affinities"], MODEL_DOMAIN_AFFINITIES)
 
     def test_chains_derive_from_category_role_sources_in_config_order(self) -> None:
         catalog = self._catalog()
@@ -289,6 +294,7 @@ class ModelInventoryCliTests(unittest.TestCase):
                     "owner": "omo-runtime",
                     "file_scope": ["src/ui/"],
                     "role": "design_visual",
+                    "domain": "multimodal_vision",
                 },
                 {
                     "unit_id": "aux",
@@ -312,6 +318,9 @@ class ModelInventoryCliTests(unittest.TestCase):
         self.assertEqual(route["catalog_kind"], "local_inventory")
         self.assertEqual(route["selected_model"], "opencode/gemini-3.1-pro")
         self.assertTrue(route["catalog_fingerprint"]["digest"])
+        # The declared domain rides the frozen route with its attempted trail.
+        self.assertEqual(route["domain"], "multimodal_vision")
+        self.assertIn("domain_affinity", [entry["stage"] for entry in route["attempted"]])
         # Built-in-catalog owners stay on built-in resolution, untouched.
         self.assertNotIn("model_route", by_id["aux"]["handoff"])
 

@@ -182,6 +182,7 @@ def _normalized_unit(unit: Mapping[str, object], index: int) -> dict[str, object
         "model": str(unit.get("model", "") or "").strip(),
         "reasoning_effort": str(unit.get("reasoning_effort", "") or "").strip(),
         "role": str(unit.get("role", "") or "").strip(),
+        "domain": str(unit.get("domain", "") or "").strip(),
     }
 
 

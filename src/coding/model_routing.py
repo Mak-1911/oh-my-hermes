@@ -234,6 +234,7 @@ def resolve_model_route(
     requested_model: str = "",
     requested_effort: str = "",
     role: str = "",
+    requested_domain: str = "",
     chains: Mapping[str, Mapping[str, tuple[Mapping[str, str], ...]]] | None = None,
     local_catalog: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
@@ -257,6 +258,13 @@ def resolve_model_route(
     `catalog_fingerprint` on any route means "no local basis was consulted",
     never "unknown basis" — v1 routes and built-in-catalog routes correctly
     carry none.
+
+    `requested_domain` is explicit unit data (never inferred from text). When
+    a locally-derived chain resolves and the catalog's affinity vocabulary
+    knows the domain, chain entries from affine families are stably reordered
+    to the front — an advisory reorder recorded in `attempted[]`, never a
+    veto: every entry stays in the chain and a requested model still wins.
+    Outside a local catalog the domain is recorded and explicitly skipped.
     """
     profile = str(executor_profile or "").strip().casefold()
     raw_role = str(role or "").strip()
@@ -302,6 +310,14 @@ def resolve_model_route(
         chain_table = ROLE_MODEL_CHAINS if chains is None else chains
         role_chain = tuple(chain_table.get(profile, {}).get(normalized_role, ())) if normalized_role else ()
     attempted: list[dict[str, str]] = []
+    domain = str(requested_domain or "").strip().casefold().replace("-", "_")
+    if domain:
+        role_chain = _domain_ordered_chain(
+            domain,
+            role_chain,
+            local_catalog if catalog_kind == "local_inventory" else None,
+            attempted,
+        )
 
     if model:
         attempted.append(
@@ -320,6 +336,7 @@ def resolve_model_route(
             effort_change=effort_change,
             catalog_kind=catalog_kind,
             catalog_fingerprint=catalog_fingerprint,
+            domain=domain,
             chain=_chain_payload(options, role_chain, selected_model=""),
             attempted=attempted,
             candidates=candidates,
@@ -346,6 +363,7 @@ def resolve_model_route(
             effort_change=effort_change,
             catalog_kind=catalog_kind,
             catalog_fingerprint=catalog_fingerprint,
+            domain=domain,
             chain=[],
             attempted=attempted,
             candidates=[],
@@ -376,6 +394,7 @@ def resolve_model_route(
                 effort_change=effort_change,
                 catalog_kind=catalog_kind,
                 catalog_fingerprint=catalog_fingerprint,
+                domain=domain,
                 chain=_chain_payload(options, role_chain, selected_model=selected),
                 attempted=attempted,
                 candidates=candidates,
@@ -403,6 +422,7 @@ def resolve_model_route(
             effort_change=effort_change,
             catalog_kind=catalog_kind,
             catalog_fingerprint=catalog_fingerprint,
+            domain=domain,
             chain=[],
             attempted=attempted,
             candidates=candidates,
@@ -434,6 +454,7 @@ def resolve_model_route(
         effort_change=effort_change,
         catalog_kind=catalog_kind,
         catalog_fingerprint=catalog_fingerprint,
+        domain=domain,
         chain=[],
         attempted=attempted,
         candidates=candidates,
@@ -455,12 +476,15 @@ def model_route_for_unit(
     effort = str(unit.get("reasoning_effort", "") or "").strip()
     role = str(unit.get("role", "") or "").strip()
     if not model and not effort and not role:
+        # A declared domain alone never triggers routing: it advises chain
+        # order, it does not request a model.
         return None
     return resolve_model_route(
         executor_target,
         requested_model=model,
         requested_effort=effort,
         role=role,
+        requested_domain=str(unit.get("domain", "") or "").strip(),
         local_catalog=local_catalog,
     )
 
@@ -493,6 +517,78 @@ def route_provenance(route: Mapping[str, object] | object) -> tuple[str, str]:
 def _normalized_role(role: str) -> str:
     normalized = str(role or "").strip().casefold().replace("-", "_")
     return normalized if normalized in MODEL_ROLES else ""
+
+
+def _domain_ordered_chain(
+    domain: str,
+    role_chain: tuple[Mapping[str, str], ...],
+    local_catalog: Mapping[str, object] | None,
+    attempted: list[dict[str, str]],
+) -> tuple[Mapping[str, str], ...]:
+    """Stably move affine-family chain entries to the front for a declared domain.
+
+    Advisory only: every entry stays in the chain, the reorder (or the reason
+    none happened) is recorded in `attempted[]`, and outside a locally-derived
+    catalog the domain is explicitly skipped — built-in chains stay curated.
+    """
+    if local_catalog is None:
+        attempted.append(
+            {
+                "stage": "domain_affinity",
+                "outcome": "skipped",
+                "reason": f"domain `{domain}` recorded; affinity reordering applies to locally-derived chains only",
+            }
+        )
+        return role_chain
+    affinities = local_catalog.get("domain_affinities", {})
+    affine = (
+        tuple(str(family) for family in affinities.get(domain, ()))
+        if isinstance(affinities, Mapping)
+        else ()
+    )
+    if not affine:
+        attempted.append(
+            {
+                "stage": "domain_affinity",
+                "outcome": "unknown_domain",
+                "reason": f"domain `{domain}` is not in the catalog's affinity vocabulary; chain order unchanged",
+            }
+        )
+        return role_chain
+    if not role_chain:
+        attempted.append(
+            {"stage": "domain_affinity", "outcome": "skipped", "reason": "no chain to reorder"}
+        )
+        return role_chain
+    front = tuple(entry for entry in role_chain if model_family(str(entry.get("model_id", ""))) in affine)
+    rest = tuple(entry for entry in role_chain if model_family(str(entry.get("model_id", ""))) not in affine)
+    if not front:
+        attempted.append(
+            {
+                "stage": "domain_affinity",
+                "outcome": "no_affine_candidate",
+                "reason": f"no chain entry belongs to an affine family ({', '.join(affine)}) for domain `{domain}`",
+            }
+        )
+        return role_chain
+    reordered = front + rest
+    if reordered == role_chain:
+        attempted.append(
+            {
+                "stage": "domain_affinity",
+                "outcome": "already_ordered",
+                "reason": f"affine families ({', '.join(affine)}) already lead the chain for domain `{domain}`",
+            }
+        )
+        return role_chain
+    attempted.append(
+        {
+            "stage": "domain_affinity",
+            "outcome": "reordered",
+            "reason": f"affine families ({', '.join(affine)}) moved ahead for domain `{domain}`; no entry removed",
+        }
+    )
+    return reordered
 
 
 def _local_catalog_applies(profile: str, local_catalog: Mapping[str, object] | None) -> bool:
@@ -638,6 +734,7 @@ def _route_payload(
     effort_change: dict[str, str] | None = None,
     catalog_kind: str = MODEL_CATALOG_KIND,
     catalog_fingerprint: dict[str, object] | None = None,
+    domain: str = "",
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "schema_version": CODING_MODEL_ROUTE_SCHEMA_VERSION,
@@ -664,6 +761,10 @@ def _route_payload(
         "reasons": list(reasons),
         "claim_boundary": CODING_MODEL_ROUTE_CLAIM_BOUNDARY,
     }
+    if domain:
+        # Present only when the unit declared a domain: existing payloads
+        # stay byte-identical.
+        payload["domain"] = domain
     if catalog_fingerprint is not None:
         payload["catalog_fingerprint"] = catalog_fingerprint
     if effort_change is not None:

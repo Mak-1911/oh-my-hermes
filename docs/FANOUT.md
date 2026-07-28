@@ -136,7 +136,15 @@ goal to Hermes in chat; these commands are the backend surface.
   frozen contract stays the instruction; provider truth adjudicates), it
   only makes prepare-vs-dispatch skew visible. `omh coding model-route
   --from-inventory` previews these routes; fanout prepare consults the
-  derived catalog automatically.
+  derived catalog automatically. A unit may additionally declare an explicit
+  work `domain` (closed vocabulary riding the catalog payload — for example
+  `x_platform_data`, whose affine family is grok): affine-family entries are
+  stably moved to the front of the locally-derived chain, the reorder (or
+  the reason none happened) is recorded in the route's `attempted[]` trail,
+  and the declared domain rides the frozen route. Never a veto: every entry
+  stays in the chain, built-in chains are never reordered (a domain there is
+  recorded and explicitly skipped), a requested model still wins, and no
+  text matching ever infers a domain.
 - **Unit prompt protocol.** Every dispatched unit prompt carries a fixed
   verification discipline (`src/coding/unit_prompt_protocol.py`): the
   subagent first echoes the goal, its deliverable, and the numbered
@@ -186,7 +194,7 @@ omh coding fanout brief [<fanout-id>] [--json]
 omh coding fanout dispatch <fanout-id> --goal-file goal.txt \
   [--repo-root .] [--base-ref HEAD] [--concurrency 2] [--timeout 1800] \
   [--unit <id> ...] [--dry-run]
-omh coding model-route [--executor <profile>] [--role <role>] [--model <id>] [--effort <level>] [--explain] [--from-inventory] [--json]
+omh coding model-route [--executor <profile>] [--role <role>] [--model <id>] [--effort <level>] [--domain <name>] [--explain] [--from-inventory] [--json]
 omh coding model-inventory [--json]
 ```
 
