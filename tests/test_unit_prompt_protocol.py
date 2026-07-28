@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from _local_package import load_local_package
@@ -9,15 +10,18 @@ load_local_package()
 from omh.coding.fanout import build_fanout_contract  # noqa: E402
 from omh.coding.fanout_dispatch import build_unit_prompt  # noqa: E402
 from omh.coding.model_routing import EXECUTOR_MODEL_OPTIONS, MODEL_ROLES  # noqa: E402
+from _cli_harness import run_cli  # noqa: E402
 from omh.coding.unit_prompt_protocol import (  # noqa: E402
     GOAL_ECHO_PROTOCOL,
     HIGH_EFFORT_CALIBRATIONS,
     HIGH_EFFORT_TIER,
+    MAIN_AGENT_COMPOSITION_CALIBRATIONS,
     REVIEW_ROLE_PROTOCOL,
     UNIT_PROMPT_MAX_BYTES,
     VERIFICATION_STOP_PROTOCOL,
     calibration_for_route,
     completion_criteria_for_unit,
+    composition_calibration_for_model,
     unit_protocol_lines,
 )
 
@@ -141,6 +145,56 @@ class CalibrationSelectionTests(unittest.TestCase):
         self.assertIn("generic", HIGH_EFFORT_CALIBRATIONS)
         for family, block in HIGH_EFFORT_CALIBRATIONS.items():
             self.assertTrue(block.startswith("High-effort calibration:"), family)
+
+
+class CompositionCalibrationTests(unittest.TestCase):
+    def test_composer_families_mirror_subagent_families(self) -> None:
+        """No family gets subagent discipline without composer discipline:
+        the two calibration tables share one key set, generic included."""
+        self.assertEqual(
+            set(MAIN_AGENT_COMPOSITION_CALIBRATIONS), set(HIGH_EFFORT_CALIBRATIONS)
+        )
+        for family, block in MAIN_AGENT_COMPOSITION_CALIBRATIONS.items():
+            self.assertTrue(block.startswith("Composition calibration:"), family)
+
+    def test_selection_follows_the_composers_own_model(self) -> None:
+        # The user's own examples: fable5 -> claude family, sol -> gpt,
+        # gemini -> gemini, kimi -> kimi; provider prefixes welcome.
+        cases = {
+            "claude-fable-5": "claude",
+            "gpt-5.6-sol": "gpt",
+            "gemini-3.1-pro": "gemini",
+            "kimi-k3": "kimi",
+            "opencode/glm-5": "glm",
+            "grok-code-fast-1": "grok",
+        }
+        for model_id, family in cases.items():
+            self.assertEqual(
+                composition_calibration_for_model(model_id),
+                MAIN_AGENT_COMPOSITION_CALIBRATIONS[family],
+                model_id,
+            )
+        self.assertEqual(
+            composition_calibration_for_model("mystery-model-9"),
+            MAIN_AGENT_COMPOSITION_CALIBRATIONS["generic"],
+        )
+        self.assertEqual(
+            composition_calibration_for_model(""),
+            MAIN_AGENT_COMPOSITION_CALIBRATIONS["generic"],
+        )
+
+    def test_cli_guide_plain_default_and_json(self) -> None:
+        status, stdout, _stderr = run_cli(
+            ["coding", "composition-guide", "--model", "claude-fable-5"], output_json=False
+        )
+        self.assertEqual(status, 0)
+        self.assertIn("claude family", stdout)
+        self.assertIn("Composition calibration:", stdout)
+        status, stdout, _stderr = run_cli(["coding", "composition-guide", "--json"])
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["schema_version"], "composition_guide/v1")
+        self.assertEqual(set(payload["calibrations"]), set(MAIN_AGENT_COMPOSITION_CALIBRATIONS))
 
 
 class PromptBudgetPolicyTests(unittest.TestCase):
