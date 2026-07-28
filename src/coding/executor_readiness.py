@@ -348,9 +348,13 @@ def executor_choice_context(paths: OmhPaths) -> dict[str, object]:
     """Return per-candidate readiness/auth context for the choose-executor question.
 
     Reads cached readiness state and cheap local markers only — no subprocess
-    runs — so wrapper cards can embed it as deterministic data.
+    runs — so wrapper cards can embed it as deterministic data. The model
+    inventory hint rides along so Hermes answers the choice from what the user
+    actually has instead of asking blind; the full report stays behind
+    `omh coding model-inventory`.
     """
     from .executor_auth_signals import auth_signal_for_profile, last_limit_signal_for_profile
+    from .model_inventory import local_model_inventory
 
     state, _ = _read_state(paths)
     candidates: list[dict[str, object]] = []
@@ -369,9 +373,16 @@ def executor_choice_context(paths: OmhPaths) -> dict[str, object]:
     # signal, then cached-ready, with the fixed profile order as tiebreak so
     # equal candidates stay deterministic.
     candidates.sort(key=_choice_context_rank)
+    inventory = local_model_inventory()
     return {
         "candidates": candidates,
         "ranked_by": ("login_marker", "fresh_limit_signal_absent", "readiness_status"),
+        "model_inventory_hint": {
+            "families_present": inventory.get("families_present", []),
+            "model_count": len(inventory.get("available_models", [])),
+            "full_report_command": "omh coding model-inventory",
+            "claim_boundary": str(inventory.get("claim_boundary", "")),
+        },
         "claim_boundary": EXECUTOR_CHOICE_CONTEXT_CLAIM_BOUNDARY,
     }
 
