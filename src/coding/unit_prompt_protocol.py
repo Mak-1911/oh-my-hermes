@@ -73,6 +73,31 @@ HIGH_EFFORT_CALIBRATIONS: Final[dict[str, str]] = {
         "the checklist mid-run. Deliberate deeply only where correctness is genuinely at risk; for "
         "mechanical steps, act directly and let the single verification pass prove them."
     ),
+    "gemini": (
+        "High-effort calibration: a claim without the tool output that proves it is not evidence — "
+        "run the actual check and report from its output, never from memory. Done-sounding language "
+        "before the single mandatory verification pass is a failure, not optimism, and creative "
+        "expansion outside the declared boundary is a defect here, not an improvement."
+    ),
+    "grok": (
+        "High-effort calibration: speed is your default; the numbered criteria are the brake. A fast "
+        "first answer never skips the single mandatory verification pass, and a quicker path never "
+        "trades away the declared boundary. When search surfaces many candidates, pick by the stated "
+        "criteria once and act instead of re-querying for reassurance."
+    ),
+    "kimi": (
+        "High-effort calibration: reserve the decompose-compare-verify loop for the genuinely hard "
+        "parts; mechanical steps are low-entropy — execute them directly without enumerating "
+        "alternatives. Decide each approach once and reopen it only when new output contradicts it. "
+        "If you catch yourself listing options for a step no criterion distinguishes, stop analyzing "
+        "and act."
+    ),
+    "glm": (
+        "High-effort calibration: follow the numbered criteria literally — 'every' means every, and "
+        "the checklist never grows mid-run. Sufficient context beats complete context: once you can "
+        "act correctly, act. Keep the change goal-shaped — smallest correct diff, no speculative "
+        "fallbacks, no unrequested refactors — and let the single verification pass prove it."
+    ),
     "generic": (
         "High-effort calibration: reserve extended reasoning for genuine ambiguity with materially "
         "different outcomes. Decide once, act, verify once against the criteria, and stop — speed is "

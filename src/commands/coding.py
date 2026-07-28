@@ -698,6 +698,54 @@ def cmd_coding_model_route(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_coding_model_inventory(args: argparse.Namespace) -> int:
+    from ..coding.model_inventory import local_model_inventory
+
+    inventory = local_model_inventory()
+    if _wants_json(args):
+        _print_json(inventory)
+        return 0
+    sources = inventory.get("sources", {})
+    cli_presence = sources.get("cli_presence", {}) if isinstance(sources, dict) else {}
+    commands = cli_presence.get("commands", {}) if isinstance(cli_presence, dict) else {}
+    on_path = sorted(command for command, found in commands.items() if found)
+    lines = [
+        "Local model inventory (read-time observation):",
+        f"Agent CLIs on PATH: {', '.join(on_path) or 'none'}",
+    ]
+    models = inventory.get("available_models", [])
+    if models:
+        lines.append("Locally-configured models:")
+        for entry in models:
+            variants = ", ".join(str(variant) for variant in entry.get("variants", []))
+            lines.append(
+                f"- {entry.get('provider')}/{entry.get('model_id')} [{entry.get('family') or 'unknown'}]"
+                + (f" variants: {variants}" if variants else "")
+            )
+    else:
+        lines.append("Locally-configured models: none observed")
+    families = inventory.get("families_present", [])
+    if families:
+        lines.append("Families present: " + ", ".join(str(family) for family in families))
+    for note in inventory.get("domain_affinity_notes", []):
+        present = ", ".join(str(family) for family in note.get("locally_present", []))
+        affine = ", ".join(str(family) for family in note.get("affine_families", []))
+        lines.append(f"note: {note.get('domain')} work favors {affine} (locally present: {present or 'none'})")
+    if inventory.get("domain_affinity_notes"):
+        lines.append(str(inventory.get("domain_affinity_claim_boundary", "")))
+    for name in ("omo_agent_config", "opencode_config_providers", "opencode_auth_providers"):
+        source = sources.get(name, {}) if isinstance(sources, dict) else {}
+        if not isinstance(source, dict):
+            continue
+        detail = f"source {name}: {source.get('status', 'unknown')}"
+        if source.get("rejected"):
+            detail += f" ({source['rejected']} entries rejected by the metadata shape gate)"
+        lines.append(detail)
+    lines.append(str(inventory.get("claim_boundary", "")))
+    print("\n".join(lines))
+    return 0
+
+
 def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
     from ..coding.fanout import build_fanout_contract, is_degenerate_single_unit, single_unit_redirect
     from ..coding.fanout_artifacts import write_fanout_contract
@@ -1219,6 +1267,13 @@ def _add_coding_commands(sub) -> None:
     )
     model_route.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
     model_route.set_defaults(func=cmd_coding_model_route)
+
+    model_inventory = coding_sub.add_parser(
+        "model-inventory",
+        help="Report which coding models are locally activated (metadata-only, reporting-only).",
+    )
+    model_inventory.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
+    model_inventory.set_defaults(func=cmd_coding_model_inventory)
 
     delegate = coding_sub.add_parser("delegate")
     delegate.add_argument("message", nargs="*", help="Coding task description to prepare for executor delegation.")

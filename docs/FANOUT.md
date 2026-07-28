@@ -101,6 +101,22 @@ goal to Hermes in chat; these commands are the backend surface.
   resolution matrix with chains and provenance. Contracts frozen before the
   v2 bump may embed `coding_model_route/v1` routes — they are read verbatim
   (the brief annotates them `[schema v1]`), never rewritten.
+- **Model inventory (reporting-only).** `omh coding model-inventory` reports
+  which coding models the user has locally activated before any split or
+  delegation is proposed: agent CLIs on PATH (codex, claude, opencode,
+  gemini, grok, qwen), models named by the oh-my-openagent config
+  (`~/.config/opencode/oh-my-openagent.json` — model/variant/fallback ids
+  only), opencode provider-config and auth provider key NAMES
+  (presence-only, values never read), and the existing executor login
+  markers. Every identifier passes the opaque-metadata shape gate; rejects
+  are counted, never echoed, and unreadable sources report a status without
+  a path. The payload aggregates models with their `model_family()` and
+  ships static domain-affinity notes (for example X-platform data work
+  favors the grok family) under their own claim boundary: editorial
+  defaults, not observed capability, no routing effect. The inventory never
+  enters a model route, a frozen contract, or persisted state — it is
+  read-time advisory context for the operator or wrapper proposing a split,
+  and routing consumption is a recorded follow-up.
 - **Unit prompt protocol.** Every dispatched unit prompt carries a fixed
   verification discipline (`src/coding/unit_prompt_protocol.py`): the
   subagent first echoes the goal, its deliverable, and the numbered
@@ -151,6 +167,7 @@ omh coding fanout dispatch <fanout-id> --goal-file goal.txt \
   [--repo-root .] [--base-ref HEAD] [--concurrency 2] [--timeout 1800] \
   [--unit <id> ...] [--dry-run]
 omh coding model-route [--executor <profile>] [--role <role>] [--model <id>] [--effort <level>] [--explain] [--json]
+omh coding model-inventory [--json]
 ```
 
 `--units` and `--goal-file` accept `-` for stdin. `--dry-run` resolves
