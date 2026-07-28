@@ -75,9 +75,11 @@ _LOCAL_CATALOG = {
         "brain": (
             {"model_id": "opencode/kimi-k3", "reasoning_effort": "high"},
             {"model_id": "opencode/gemini-3.1-pro", "reasoning_effort": ""},
+            {"model_id": "opencode/grok-code-fast", "reasoning_effort": ""},
         ),
     },
     "fingerprint": {"digest": "cafe1234beef5678", "sources": {"omo_agent_config": "present"}, "observed_at": "t"},
+    "domain_affinities": {"x_platform_data": ("grok",), "multimodal_vision": ("gemini", "gpt", "claude")},
 }
 
 
@@ -91,7 +93,7 @@ class LocalCatalogRouteTests(unittest.TestCase):
         self.assertEqual(route["model_family"], "kimi")
         self.assertEqual(route["catalog_kind"], "local_inventory")
         self.assertEqual(route["catalog_fingerprint"]["digest"], "cafe1234beef5678")
-        self.assertEqual(len(route["chain"]), 2)
+        self.assertEqual(len(route["chain"]), 3)
 
     def test_local_catalog_never_applies_to_built_in_profiles(self) -> None:
         """Built-in catalogs always win: a local catalog naming codex (or
@@ -134,6 +136,58 @@ class LocalCatalogRouteTests(unittest.TestCase):
         self.assertEqual(route["status"], "choice_required")
         self.assertEqual(route["provenance"], "role_unchained")
         self.assertEqual(route["catalog_kind"], "local_inventory")
+
+    def test_declared_domain_reorders_local_chain_without_removal(self) -> None:
+        """The user's example made concrete: X-platform data work declared on
+        the unit moves the grok-family entry to the chain head — a stable
+        reorder recorded in attempted[], with every entry kept."""
+        route = resolve_model_route(
+            "omo-runtime", role="brain", requested_domain="x_platform_data", local_catalog=_LOCAL_CATALOG
+        )
+        self.assertEqual(route["selected_model"], "opencode/grok-code-fast")
+        self.assertEqual(route["domain"], "x_platform_data")
+        self.assertEqual(
+            [entry["model_id"] for entry in route["chain"]],
+            ["opencode/grok-code-fast", "opencode/kimi-k3", "opencode/gemini-3.1-pro"],
+        )
+        outcomes = {entry["stage"]: entry["outcome"] for entry in route["attempted"]}
+        self.assertEqual(outcomes["domain_affinity"], "reordered")
+
+    def test_unknown_domain_is_recorded_and_ignored(self) -> None:
+        route = resolve_model_route(
+            "omo-runtime", role="brain", requested_domain="nonsense", local_catalog=_LOCAL_CATALOG
+        )
+        self.assertEqual(route["selected_model"], "opencode/kimi-k3")
+        self.assertEqual(route["domain"], "nonsense")
+        outcomes = {entry["stage"]: entry["outcome"] for entry in route["attempted"]}
+        self.assertEqual(outcomes["domain_affinity"], "unknown_domain")
+
+    def test_no_domain_means_no_domain_key(self) -> None:
+        route = resolve_model_route("omo-runtime", role="brain", local_catalog=_LOCAL_CATALOG)
+        self.assertNotIn("domain", route)
+        self.assertNotIn("domain_affinity", [entry["stage"] for entry in route["attempted"]])
+
+    def test_domain_on_built_in_profile_is_recorded_and_skipped(self) -> None:
+        """Built-in chains stay curated: a declared domain on codex changes
+        no selection, only records itself and the explicit skip."""
+        baseline = resolve_model_route("codex", role="brain")
+        route = resolve_model_route("codex", role="brain", requested_domain="x_platform_data")
+        self.assertEqual(route["selected_model"], baseline["selected_model"])
+        self.assertEqual(route["chain"], baseline["chain"])
+        self.assertEqual(route["domain"], "x_platform_data")
+        outcomes = {entry["stage"]: entry["outcome"] for entry in route["attempted"]}
+        self.assertEqual(outcomes["domain_affinity"], "skipped")
+
+    def test_requested_model_wins_over_domain(self) -> None:
+        route = resolve_model_route(
+            "omo-runtime",
+            role="brain",
+            requested_model="opencode/glm-5",
+            requested_domain="x_platform_data",
+            local_catalog=_LOCAL_CATALOG,
+        )
+        self.assertEqual(route["provenance"], "request_named_model")
+        self.assertEqual(route["selected_model"], "opencode/glm-5")
 
     def test_empty_or_corrupt_local_catalog_claims_no_basis(self) -> None:
         """A frozen record must never name a basis that adjudicated nothing:
