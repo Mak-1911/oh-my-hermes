@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,6 +19,7 @@ from omh.memory import (
     approve_project_memory_candidate,
     build_handoff_context_pack,
     build_memory_inspection,
+    apply_memory_retirement,
     build_memory_retirement,
     build_memory_review_card,
     build_project_memory_recall_pack,
@@ -28,6 +30,7 @@ from omh.memory import (
     read_handoff_context_pack_file,
     reject_project_memory_candidate,
 )
+from omh.memory import file_lock
 from omh.paths import resolve_paths
 from omh.profiles.setup import write_setup_profile
 from omh.targets import record_target_observation
@@ -570,6 +573,175 @@ class MemoryContractTests(unittest.TestCase):
                 read_handoff_context_pack_file(pack_path)
             with self.assertRaises(ValueError):
                 build_coding_delegation_payload("risky refactor", source="discord", executor_target="codex", context_pack=malformed)
+
+
+class RetirementApplyTests(unittest.TestCase):
+    def _seed(self, tmp: str, *, ttl_days: int = 5) -> tuple:
+        paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+        write_setup_profile(paths, memory_mode="auto-safe")
+        capture_project_memory_candidate(
+            paths, "Retire apply fixture keeps release tests honest", record_type="procedure", tags=["release"], ttl_days=ttl_days
+        )
+        record = _read_only_record(paths)
+        expires = datetime.fromisoformat(str(record["ttl"]["expires_at"]).replace("Z", "+00:00"))
+        return paths, record, expires
+
+    @staticmethod
+    def _journal_lines(paths) -> list[dict]:
+        journal = paths.memory_dir / "archive" / "retirements.jsonl"
+        if not journal.exists():
+            return []
+        return [json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    def test_apply_moves_journals_and_updates_candidate_and_index(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, record, expires = self._seed(tmp)
+            rid = record["record_id"]
+            probe_now = expires + timedelta(days=1)
+            payload = apply_memory_retirement(paths, now=probe_now)
+            self.assertTrue(payload["applied"])
+            records_dir = paths.memory_dir / "records"
+            self.assertEqual(list(records_dir.glob("*.json")), [])
+            compact = probe_now.replace(microsecond=0).isoformat().replace("+00:00", "Z").replace("-", "").replace(":", "")
+            dest = paths.memory_dir / "archive" / f"{rid}.{compact}.json"
+            self.assertTrue(dest.is_file())
+            self.assertEqual(dest.stat().st_mode & 0o777, 0o600)
+            lines = self._journal_lines(paths)
+            self.assertEqual(len(lines), 1)
+            self.assertEqual(
+                sorted(lines[0]),
+                ["claim_boundary", "expires_at", "record_id", "redaction_policy", "retired_at", "schema_version"],
+            )
+            self.assertEqual(lines[0]["schema_version"], "omh_memory_retirement_journal/v1")
+            self.assertEqual(lines[0]["record_id"], rid)
+            index = json.loads((paths.memory_dir / "index.json").read_text(encoding="utf-8"))
+            self.assertNotIn(f"records/{rid}.json", index["record_files"])
+            candidates = [json.loads(p.read_text(encoding="utf-8")) for p in (paths.memory_dir / "candidates").glob("*.json")]
+            self.assertEqual([c["status"] for c in candidates], ["retired"])
+
+    def test_apply_double_retire_never_overwrites(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, record, expires = self._seed(tmp)
+            first_now = expires + timedelta(days=1)
+            apply_memory_retirement(paths, now=first_now)
+            candidate_id = json.loads(next(iter((paths.memory_dir / "candidates").glob("*.json"))).read_text(encoding="utf-8"))["candidate_id"]
+            approve_project_memory_candidate(paths, candidate_id, approved_by="user")
+            second_now = first_now + timedelta(hours=1)
+            apply_memory_retirement(paths, now=second_now)
+            archives = sorted(p.name for p in (paths.memory_dir / "archive").glob("*.json"))
+            self.assertEqual(len(archives), 2)
+            self.assertEqual(len(self._journal_lines(paths)), 2)
+
+    def test_apply_reconciles_crash_artifacts_and_is_idempotent(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, record, expires = self._seed(tmp)
+            rid = record["record_id"]
+            probe_now = expires + timedelta(days=1)
+            retired_at = probe_now.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            compact = retired_at.replace("-", "").replace(":", "")
+            archive_dir = paths.memory_dir / "archive"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            # simulate a crash immediately after os.replace: archive file exists, no journal, candidate approved
+            os.replace(paths.memory_dir / "records" / f"{rid}.json", archive_dir / f"{rid}.{compact}.json")
+            payload = apply_memory_retirement(paths, now=probe_now)
+            reconciled = payload["reconciled"]
+            self.assertEqual(len(reconciled), 1)
+            lines = self._journal_lines(paths)
+            self.assertEqual(len(lines), 1)
+            self.assertEqual(lines[0]["retired_at"], retired_at)
+            candidates = [json.loads(p.read_text(encoding="utf-8")) for p in (paths.memory_dir / "candidates").glob("*.json")]
+            self.assertEqual([c["status"] for c in candidates], ["retired"])
+            # partial crash: journal present but candidate flipped back (approved) - repair candidate only
+            candidate_path = next(iter((paths.memory_dir / "candidates").glob("*.json")))
+            partial = json.loads(candidate_path.read_text(encoding="utf-8"))
+            partial["status"] = "approved"
+            candidate_path.write_text(json.dumps(partial), encoding="utf-8")
+            payload2 = apply_memory_retirement(paths, now=probe_now)
+            self.assertEqual(len(payload2["reconciled"]), 1)
+            self.assertEqual(len(self._journal_lines(paths)), 1)
+            # idempotency: nothing left to repair
+            payload3 = apply_memory_retirement(paths, now=probe_now)
+            self.assertEqual(payload3["reconciled"], [])
+            self.assertEqual(len(self._journal_lines(paths)), 1)
+
+    def test_apply_blocks_until_store_lock_released(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, record, expires = self._seed(tmp)
+            probe_now = expires + timedelta(days=1)
+            order: list[str] = []
+            lock_held = threading.Event()
+            release = threading.Event()
+
+            def holder() -> None:
+                with file_lock(paths.memory_index_path, private=True):
+                    lock_held.set()
+                    release.wait(timeout=10)
+                    order.append("released")
+
+            def applier() -> None:
+                apply_memory_retirement(paths, now=probe_now)
+                order.append("applied")
+
+            holder_thread = threading.Thread(target=holder)
+            applier_thread = threading.Thread(target=applier)
+            holder_thread.start()
+            self.assertTrue(lock_held.wait(timeout=10))
+            applier_thread.start()
+            release.set()
+            holder_thread.join(timeout=10)
+            applier_thread.join(timeout=10)
+            self.assertEqual(order, ["released", "applied"])
+
+    def test_window_days_threads_through_apply(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, record, expires = self._seed(tmp, ttl_days=20)
+            probe_now = expires - timedelta(days=10)  # not expired; expiring only inside a 30-day window
+            payload = apply_memory_retirement(paths, now=probe_now, window_days=30)
+            self.assertEqual(payload["window_days"], 30)
+            self.assertEqual(payload["counts"]["expiring_soon"], 1)
+            self.assertEqual(payload["counts"]["expired"], 0)
+            self.assertEqual(len(list((paths.memory_dir / "records").glob("*.json"))), 1)
+            self.assertEqual(self._journal_lines(paths), [])
+
+    def test_apply_clears_expiring_only_brief_but_keeps_mixed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, record, expires = self._seed(tmp)
+            probe_now = expires + timedelta(days=1)
+            brief_path = paths.omh_home / "memory" / "consolidation.json"
+            brief_path.parent.mkdir(parents=True, exist_ok=True)
+            brief_path.write_text(
+                json.dumps({"schema_version": "omh_memory_consolidation_handoff/v1", "due": True, "reasons": ["expiring_records:1"]}),
+                encoding="utf-8",
+            )
+            apply_memory_retirement(paths, now=probe_now)
+            cleared = json.loads(brief_path.read_text(encoding="utf-8"))
+            self.assertFalse(cleared["due"])
+            self.assertTrue(cleared.get("superseded_at"))
+
+            brief_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "omh_memory_consolidation_handoff/v1",
+                        "due": True,
+                        "reasons": ["expiring_records:1", "context_compaction_observed"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            apply_memory_retirement(paths, now=probe_now)
+            mixed = json.loads(brief_path.read_text(encoding="utf-8"))
+            self.assertTrue(mixed["due"])
+
+    def test_status_counts_expired_records(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, record, expires = self._seed(tmp)
+            record_path = paths.memory_dir / "records" / f"{record['record_id']}.json"
+            mutated = json.loads(record_path.read_text(encoding="utf-8"))
+            mutated["ttl"]["expires_at"] = "2020-01-01T00:00:00Z"
+            record_path.write_text(json.dumps(mutated), encoding="utf-8")
+            status = build_project_memory_status(paths)
+            self.assertEqual(status["counts"]["expired_records"], 1)
+
 
 
 def _wrapper_snapshot(items: list[dict[str, object]]) -> dict[str, object]:

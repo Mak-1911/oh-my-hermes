@@ -65,6 +65,14 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     rejected_recall.add_argument("--limit", type=int, default=6)
     rejected_recall.set_defaults(func=memory.cmd_memory_rejected_recall)
 
+    retire = memory_sub.add_parser(
+        "retire",
+        help="Report expired OMH project-memory records; --apply moves them into the local archive.",
+    )
+    retire.add_argument("--apply", action="store_true", help="Move expired records into .omh/memory/archive/ (default is report-only).")
+    retire.add_argument("--window-days", type=int, default=7, help="How many days ahead counts as expiring soon.")
+    retire.set_defaults(func=memory.cmd_memory_retire)
+
     inspect = memory_sub.add_parser("inspect")
     inspect.add_argument("--fixture", default=None, help="Optional memory_snapshot/v1 JSON fixture supplied by a wrapper for deterministic inspection.")
     inspect.add_argument("--scope-kind", choices=("project", "target", "thread", "run"), default=None, help="Only inspect snapshots from this scope kind.")
