@@ -419,6 +419,24 @@ def _dispatch_unit(
     routed_model = str(model_route.get("selected_model", "") or "") if model_route else ""
     routed_effort = str(model_route.get("selected_reasoning_effort", "") or "") if model_route else ""
     fingerprint_note = catalog_fingerprint_note(model_route, current_catalog_digest)
+    if model_route is not None and str(model_route.get("status", "")) == "choice_required":
+        # A frozen choice_required route means the contract explicitly says
+        # "a human or wrapper must pick the model". Spawning anyway would
+        # silently substitute the executor CLI default for a choice the
+        # contract reserved — fail closed and name the unresolved choice
+        # instead. Recovery: re-prepare the unit with an explicit `model`
+        # (or a role that resolves), then re-run dispatch for this unit.
+        return {
+            "unit_id": unit_id,
+            "run_ref": run_ref,
+            "owner": owner,
+            "status": "model_choice_required",
+            "merge_ready": False,
+            "reason": (
+                "the frozen route requires an explicit model choice; re-prepare the unit with a "
+                "declared model or resolvable role, then re-dispatch"
+            ),
+        }
     if DISPATCH_COMMAND_TEMPLATES.get(owner) is None:
         return {
             "unit_id": unit_id,
