@@ -12,6 +12,7 @@ from ..system.metadata_safety import redact_metadata_text
 from ..system.paths import OmhPaths
 from .executor_readiness import probe_executor_readiness
 from .fanout_contracts import FANOUT_CLAIM_BOUNDARY
+from .unit_prompt_protocol import unit_protocol_lines
 
 FANOUT_DISPATCH_SCHEMA_VERSION = "fanout_dispatch_summary/v1"
 DISPATCH_CLAIM_BOUNDARY = (
@@ -116,7 +117,6 @@ def build_unit_prompt(unit: Mapping[str, Any], goal_text: str) -> str:
     boundary = unit.get("boundary", {}) if isinstance(unit.get("boundary"), Mapping) else {}
     file_scope = ", ".join(str(path) for path in boundary.get("file_scope", []))
     do_not_touch = ", ".join(str(path) for path in boundary.get("do_not_touch", []))
-    checks = "; ".join(str(check) for check in unit.get("integration_checks", []))
     lines = [
         f"Work unit: {unit.get('title', unit.get('unit_id'))}",
         f"Overall goal: {goal_text.strip()}",
@@ -125,8 +125,10 @@ def build_unit_prompt(unit: Mapping[str, Any], goal_text: str) -> str:
     if do_not_touch:
         lines.append(f"Do not touch: {do_not_touch} (owned by sibling units).")
     lines.append(f"Work on branch {unit.get('branch_suggestion', '')} in the current worktree.")
-    if checks:
-        lines.append(f"Before finishing: {checks}.")
+    # Goal echo-back, pre-declared completion criteria (absorbing the unit's
+    # integration checks), bounded verification discipline, and — on
+    # high-effort routes — the per-family over-verification calibration.
+    lines.extend(unit_protocol_lines(unit))
     lines.append("Commit your work; do not merge or push other branches.")
     return "\n".join(lines)
 

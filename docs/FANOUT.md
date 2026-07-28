@@ -101,6 +101,23 @@ goal to Hermes in chat; these commands are the backend surface.
   resolution matrix with chains and provenance. Contracts frozen before the
   v2 bump may embed `coding_model_route/v1` routes — they are read verbatim
   (the brief annotates them `[schema v1]`), never rewritten.
+- **Unit prompt protocol.** Every dispatched unit prompt carries a fixed
+  verification discipline (`src/coding/unit_prompt_protocol.py`): the
+  subagent first echoes the goal, its deliverable, and the numbered
+  completion criteria back before any tool use (and stops to report a
+  conflict instead of guessing); "done" is pre-declared as numbered
+  criteria derived from the frozen contract (boundary confinement, the
+  unit's integration checks, committed work); and verification is
+  mandatory-but-bounded — exactly one full pass is the floor, a finding
+  blocks only when it violates a stated criterion, passing criteria are
+  never re-verified, and a still-failing criterion is reported after two
+  fix-and-verify cycles instead of looping. Review-role units add
+  criterion-bound review with a two-round re-review cap. High-effort
+  routes (high/xhigh/max) append a per-family calibration block countering
+  over-verification inertia; unknown families get the generic block so no
+  vendor carries richer guidance than another. Prompts are subprocess
+  argv, so the assembled worst case is policy-gated under
+  `UNIT_PROMPT_MAX_BYTES` in tests rather than trimmed at runtime.
 - **Telemetry.** Each dispatched unit records `started_at`, `finished_at`,
   and `duration_seconds`, and the full dispatch summary persists to
   `~/.omh/coding/fanout/<id>/dispatch_summary.json` (latest wins,
