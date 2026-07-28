@@ -30,6 +30,38 @@ Records include TTL and staleness metadata. `episode` records default to a
 short TTL. Other records default to staleness review metadata so recall can
 skip stale context unless an operator explicitly includes it.
 
+### TTL Expiry And Retirement
+
+A record whose `ttl.expires_at` has passed is excluded from recall
+immediately, and it can be retired from the live store. One shared classifier
+decides every TTL verdict (recall exclusion, status counts, dreaming, and
+retirement), using `<=` at the exact boundary and reading timezone-naive
+timestamps as UTC. A missing or empty TTL means the record never expires; an
+unreadable TTL value is surfaced per file and never treated as expired.
+
+Retirement is operator-facing (agents and maintainers; normal users just ask
+Hermes to clean up old project memory):
+
+```sh
+omh memory retire                 # report only: expired, expiring-soon, skipped
+omh memory retire --apply         # move expired records to .omh/memory/archive/
+omh memory retire --window-days 14
+```
+
+The report is the default; nothing moves without `--apply`, and nothing is
+ever deleted -- expired records move to `.omh/memory/archive/` with a
+timestamped filename and one `omh_memory_retirement_journal/v1` line per move
+in `archive/retirements.jsonl`. Interrupted applies heal on the next run, and
+`omh memory status` counts `expired_records`.
+
+Dreaming watches the same clock: records within the expiry window raise an
+`expiring_records:N` consolidation reason, and the brief carries an
+`expired` / `expiring_soon` breakdown so chat and doctor can recommend
+`omh memory retire` exactly when expired records exist. One blind spot is
+deliberate: `N` is a count, so if one record leaves the window while another
+enters it the reason string does not change and no new notification fires;
+the brief's breakdown is refreshed in place instead.
+
 ## Policy
 
 `omh setup` records a `project_memory_policy/v1` object in
