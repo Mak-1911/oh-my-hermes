@@ -1497,7 +1497,7 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "img-summary",
-        "Hermes img-summary workflow: turn meetings, reports, PRs, issues, research, and releases into domain-aware image prompt cards.",
+        "Image prompt cards - turn meetings, reports, PRs, issues, research, and releases into domain-aware image prompt cards.",
         (
             "img-summary",
             "img summary",

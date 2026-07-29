@@ -1,22 +1,22 @@
 ---
-name: omh-voice-operator
-description: [omh] Hermes voice operator workflow: turn short voice or mobile commands into clarify, plan, status, handoff, or confirmation actions. Use when the user says: voice-operator, voice operator, voice-first, voice command, mobile command, short command, dictated command, dictated request.
+name: omh-terminal
+description: [omh] Terminal commands - scope shell, CLI, package-manager, and test runs with cwd, environment, safety, and result-evidence gates. Use when the user says: command-operator, command operator, terminal command, terminal task, shell command, shell task, cli command, command execution.
 metadata:
   hermes:
-    tags: [workflow, oh-my-hermes, accessibility]
-    category: accessibility
-    phase: voice-routing
+    tags: [workflow, oh-my-hermes, command]
+    category: command
+    phase: command-task
     role: guide
     quality_tier: workflow-surface-gated
 ---
 
-# Voice Operator
+# Command Operator
 
-This is a Hermes-native `voice-operator` workflow skill.
+This is a Hermes-native `command-operator` workflow skill.
 
 ## Why This Exists
 
-`voice-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+`command-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
 
 ## Do Not Use When
 
@@ -28,26 +28,27 @@ This is a Hermes-native `voice-operator` workflow skill.
 
 Good example:
 
-- Prompt: voice-operator 'release before lunch, check risky parts' from mobile.
-- Expected behavior: Produce `prepare_voice_operator_card` with required context, wrapper actions, and not-evidence boundaries.
+- Prompt: command-operator run npm test in the project terminal and summarize the output.
+- Expected behavior: Produce `prepare_command_operator_card` with required context, wrapper actions, and not-evidence boundaries.
 - Why: The prompt names a real workflow surface that Hermes can orchestrate without hiding execution.
 
 Bad example:
 
-- Prompt: voice-operator assume the user approved a destructive action from a vague voice note.
+- Prompt: command-operator run rm -rf without cwd, confirmation, or observation gates.
 - Expected behavior: Report the missing observed evidence or authority instead of claiming the external step happened.
 - Why: Prepared OMH guidance is not platform, runtime, connector, file, memory, or delivery evidence.
 
 ## Completion Checklist
 
-- The short-input or voice-like request is clarified enough to avoid accidental action.
-- The next action is readable, reversible when possible, and confirmation-gated when risky.
-- Delivery, notification, or platform behavior is not claimed without wrapper evidence.
+- Command text, working directory, environment assumptions, timeout, safety level, and stop condition are explicit.
+- Destructive, credential, network, filesystem mutation, install, deploy, and production commands are gated or marked missing.
+- Exit codes, stdout/stderr, test results, package-manager effects, and filesystem mutations are reported only from observed command evidence.
 
 ## Recovery Notes
 
-- If transcript confidence or intent is weak, ask one short clarification before action.
-- If platform delivery is unavailable, keep the response in chat and mark delivery not_observed.
+- If command text or working directory is missing, ask for the smallest missing scope needed before preparing the command task.
+- If the command is destructive, credentialed, networked, install/deploy-oriented, or production-affecting, require an explicit confirmation gate.
+- If the user supplied failed command output and asks for root cause, route to build-failure-triage or agent-debug instead of preparing a fresh command.
 
 ## OMH Context Rail
 
@@ -63,14 +64,14 @@ Bad example:
 
 ## Use When
 
-Use when Hermes receives terse voice/mobile-style requests and should produce concise clarification, plan, or status UX.
+Use when Hermes should prepare or supervise terminal/CLI command execution without claiming the command ran or succeeded.
 
-    Strong routing signals: `voice-operator`, `voice operator`, `voice-first`, `voice command`, `mobile command`, `short command`, `dictated command`, `dictated request`, `spoken request`, `speech command`, `accessibility`, `hands free`, `hands-free`, `phone command`, `phone request`, `push command`, `음성`, `음성으로`, `음성 명령`, `모바일 명령`, `모바일 음성`, `핸드폰`, `폰으로`, `말로`, `말로 한 요청`, `접근성`, `짧은 명령`, `짧게 말한 요청`
+    Strong routing signals: `command-operator`, `command operator`, `terminal command`, `terminal task`, `shell command`, `shell task`, `cli command`, `command execution`, `run command`, `run this command`, `execute command`, `execute this command`, `run npm test`, `run tests`, `npm test`, `pnpm test`, `bun test`, `uv run`, `python -m unittest`, `pytest`, `make test`, `cargo test`, `go test`, `summarize command output`, `터미널 명령`, `터미널에서`, `셸 명령`, `쉘 명령`, `명령 실행`, `명령어 실행`, `실행 준비`, `npm test 실행`, `테스트 실행`, `결과 요약`
 
 ## Catalog Metadata
 
-Category: `accessibility`
-Phase: `voice-routing`
+Category: `command`
+Phase: `command-task`
 Hermes role: `guide`
 Quality tier: `workflow-surface-gated`
 
@@ -93,25 +94,31 @@ Required inputs:
 
 Expected outputs:
 
-- voice-operator/v1 card or guidance
+- command_task_card/v1
+- command_scope/v1
+- command_safety_gate/v1
+- command_result_manifest/v1 when observed
 - next action
 - prepared-vs-observed boundary
 
 Artifact expectations:
 
-- voice-operator/v1 metadata-only runtime or wrapper card when recorded
+- command_task_card/v1 metadata-only wrapper card when prepared
+- command_scope/v1 with command text, working directory, environment assumptions, timeout, and stop condition
+- command_safety_gate/v1 separating read-only, write/mutation, network, credential, and destructive-risk commands
+- command_result_manifest/v1 only when exit code, stdout/stderr, logs, or terminal transcript are observed
 
 Safety rules:
 
-- A voice operator card is not speech recognition, mobile notification delivery, platform action, or accepted execution evidence.
+- A command operator card is not terminal launch, shell execution, package-manager action, test run, stdout/stderr capture, exit-code success, filesystem mutation, network access, or destructive command evidence unless observed command-result evidence records it.
 - Do not claim connector, gateway, runtime, file generation, memory mutation, or host automation evidence from prepared guidance.
 
 ## Runtime Evidence
 
-Preferred harness for this skill: `voice-operator`.
+Preferred harness for this skill: `command-operator`.
 
 ```sh
-omh runtime record --skill voice-operator --harness voice-operator --status started
+omh runtime record --skill command-operator --harness command-operator --status started
 ```
 
 Record observed delegation results; otherwise return `not_available` or `not_observed`.

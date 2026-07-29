@@ -181,13 +181,13 @@ For an image request, Hermes can then say:
 
 ```text
 Hermes Agent  BOT
-[omh] omh-img-summary looks relevant.
+[omh] omh-image-cards looks relevant.
 
 This sounds like a visual summary request, so I will prepare the OMH
-omh-img-summary prompt card first. Image generation, visual QA, and delivery are
+omh-image-cards prompt card first. Image generation, visual QA, and delivery are
 not evidence yet until your connected image tool or wrapper records them.
 
-[ Open omh-img-summary ] [ Choose image tool ] [ Record visual evidence ]
+[ Open omh-image-cards ] [ Choose image tool ] [ Record visual evidence ]
 ```
 
 For a web visual QA request that should later show screenshot attachments in a
@@ -467,14 +467,14 @@ rendering and translation quality still require separate evidence.
 
 ```text
 Hermes Agent  BOT
-[omh] omh-img-summary looks relevant.
+[omh] omh-image-cards looks relevant.
 
-I can open `omh-img-summary` first because this request matches the materials and
+I can open `omh-image-cards` first because this request matches the materials and
 visuals lane. Next action: `prepare_visual_prompt_card`. Checkpoint: Before
 generic tools, check OMH prep/status/learning; if relevant, name the workflow
 first.
 
-[ Open omh-img-summary ] [ Route for me ] [ Open omh ]
+[ Open omh-image-cards ] [ Route for me ] [ Open omh ]
 
 State
 - Hint only: no workflow has been selected or executed.
@@ -499,14 +499,14 @@ Those examples lock the wrapper behavior in `examples/wrapper-golden/route-hints
 
 ```text
 Hermes Agent  BOT
-[omh] omh-img-summary looks relevant.
+[omh] omh-image-cards looks relevant.
 
-I can open `omh-img-summary` first because this request matches the materials and
+I can open `omh-image-cards` first because this request matches the materials and
 visuals lane. Next action: `prepare_visual_prompt_card`. Checkpoint: Before
 generic tools, check OMH prep/status/learning; if relevant, name the workflow
 first.
 
-[ Open omh-img-summary ] [ Route for me ] [ Open omh ]
+[ Open omh-image-cards ] [ Route for me ] [ Open omh ]
 ```
 
 For missed OMH usage feedback, the wrapper does not need to teach the user a

@@ -345,7 +345,7 @@ _FEATURE_SURFACE_SKILLS = (
     ),
     _feature_surface_skill(
         "voice-operator",
-        "Hermes voice operator workflow: turn short voice or mobile commands into clarify, plan, status, handoff, or confirmation actions.",
+        "Terse voice and mobile-style requests - turn short spoken-style asks into clarify, plan, status, handoff, or confirmation actions.",
         (
             "voice-operator",
             "voice operator",
@@ -386,7 +386,7 @@ _FEATURE_SURFACE_SKILLS = (
     ),
     _feature_surface_skill(
         "browser-operator",
-        "Hermes browser operator workflow: scope URL opening, page interaction, login/form boundaries, observations, and destructive confirmation gates.",
+        "Browser tasks - open URLs, click, log in, fill forms, and capture page blockers, each scoped behind auth, confirmation, and observed-trace gates.",
         (
             "browser-operator",
             "browser operator",
@@ -470,7 +470,7 @@ _FEATURE_SURFACE_SKILLS = (
     ),
     _feature_surface_skill(
         "workspace-file-operator",
-        "Hermes workspace file operator workflow: scope local file/folder listing, search, organize, copy, move, rename, and delete tasks with path and destructive-action gates.",
+        "Local files and folders - list, search, organize, copy, move, rename, and delete, with path scoping and destructive-action gates.",
         (
             "workspace-file-operator",
             "workspace file operator",
@@ -550,7 +550,7 @@ _FEATURE_SURFACE_SKILLS = (
     ),
     _feature_surface_skill(
         "command-operator",
-        "Hermes command operator workflow: scope terminal, shell, CLI, package-manager, and test commands with cwd, environment, safety, and result-evidence gates.",
+        "Terminal commands - scope shell, CLI, package-manager, and test runs with cwd, environment, safety, and result-evidence gates.",
         (
             "command-operator",
             "command operator",
@@ -621,7 +621,7 @@ _FEATURE_SURFACE_SKILLS = (
     ),
     _feature_surface_skill(
         "connector-operator",
-        "Hermes connector operator workflow: scope external app actions across email, Slack, Discord, Notion, Linear, Jira, CRM, and similar providers with auth, payload, confirmation, and result-evidence gates.",
+        "External app actions - email, Slack, Discord, Notion, Linear, Jira, CRM, and similar providers, scoped with auth, payload, confirmation, and result-evidence gates.",
         (
             "connector-operator",
             "connector operator",
@@ -711,7 +711,7 @@ _FEATURE_SURFACE_SKILLS = (
     ),
     _feature_surface_skill(
         "live-info-operator",
-        "Hermes live information workflow: scope read-only weather, finance, sports, map, place, exchange-rate, and time-zone lookups with provider, freshness, units, source-quality, and result-evidence gates.",
+        "Live lookups - weather, finance, sports, maps, places, exchange rates, and time zones, read-only with provider, freshness, units, and source-quality gates.",
         (
             "live-info-operator",
             "live info operator",
@@ -1141,7 +1141,7 @@ _FEATURE_SURFACE_SKILLS = (
     ),
     _feature_surface_skill(
         "media-input-operator",
-        "Hermes media input workflow: scope audio, video, YouTube, screenshot, receipt image, OCR, meeting recording, transcript, timestamp, and clip-summary requests with source, permission, extraction, transcription, and hallucination gates.",
+        "User-sent media - audio, video, YouTube links, screenshots, receipts, OCR, meeting recordings, transcripts, timestamps, and clip summaries, gated for source, permission, and hallucination risk.",
         (
             "media-input-operator",
             "media input operator",

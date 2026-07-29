@@ -706,10 +706,34 @@ class RouterContentTests(unittest.TestCase):
 
     def test_display_name_helper_keeps_canonical_identifiers_unchanged(self) -> None:
         self.assertEqual(OMH_SKILL_NAME_PREFIX, "omh-")
-        self.assertEqual(OMH_SKILL_DISPLAY_NAME_OVERRIDES, {'deep-interview': 'ulw-interview', 'oh-my-hermes': 'omh-routing', 'ralplan': 'ulw-plan', 'strategy-brief': 'omh-decide', 'ultragoal': 'ulw-goal', 'ultraprocess': 'ulw-process', 'ultraqa': 'ulw-qa', 'ultrawork': 'ulw-work', 'web-research': 'ulw-research'})
+        self.assertEqual(
+            OMH_SKILL_DISPLAY_NAME_OVERRIDES,
+            {
+                'browser-operator': 'omh-browser',
+                'command-operator': 'omh-terminal',
+                'connector-operator': 'omh-apps',
+                'deep-interview': 'ulw-interview',
+                'img-summary': 'omh-image-cards',
+                'live-info-operator': 'omh-live-info',
+                'media-input-operator': 'omh-media-input',
+                'oh-my-hermes': 'omh-routing',
+                'ralplan': 'ulw-plan',
+                'strategy-brief': 'omh-decide',
+                'ultragoal': 'ulw-goal',
+                'ultraprocess': 'ulw-process',
+                'ultraqa': 'ulw-qa',
+                'ultrawork': 'ulw-work',
+                'voice-operator': 'omh-voice-input',
+                'web-research': 'ulw-research',
+                'workspace-file-operator': 'omh-files',
+            },
+        )
 
         self.assertEqual(omh_skill_display_name("oh-my-hermes"), "omh-routing")
         self.assertEqual(omh_skill_display_name("ultrawork"), "ulw-work")
+        self.assertEqual(omh_skill_display_name("browser-operator"), "omh-browser")
+        self.assertEqual(omh_skill_display_name("voice-operator"), "omh-voice-input")
+        self.assertEqual(omh_skill_display_name("img-summary"), "omh-image-cards")
         self.assertEqual(omh_skill_display_name("omh-ultrawork"), "omh-ultrawork")
 
         # Branch order: the override lookup must run before the idempotency guard.

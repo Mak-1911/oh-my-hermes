@@ -5635,6 +5635,14 @@ def _canonical_workflow_by_display_name() -> dict[str, str]:
         ("ulw-process", "ultraprocess"),
         ("ulw-qa", "ultraqa"),
         ("ulw-work", "ultrawork"),
+        ("omh-browser", "browser-operator"),
+        ("omh-files", "workspace-file-operator"),
+        ("omh-terminal", "command-operator"),
+        ("omh-apps", "connector-operator"),
+        ("omh-live-info", "live-info-operator"),
+        ("omh-media-input", "media-input-operator"),
+        ("omh-voice-input", "voice-operator"),
+        ("omh-image-cards", "img-summary"),
     ):
         if workflow in workflows:
             mapping[display] = workflow
