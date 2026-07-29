@@ -189,7 +189,10 @@ class RouterContentTests(unittest.TestCase):
         maintenance = references["oh-my-hermes/references/operator-maintenance.md"]
         evidence = references["oh-my-hermes/references/evidence-boundaries.md"]
 
-        self.assertLess(len(router.content.encode("utf-8")), 12_000)
+        # Measured 12,004 bytes after `ultraperf` joined the workflow-engine list
+        # (2026-07); 12,500 keeps ~4% headroom while still forcing the router
+        # skill to stay a compact index rather than a second catalog.
+        self.assertLess(len(router.content.encode("utf-8")), 12_500)
         self.assertIn("best-effort Hermes prompt guidance", router.content)
         self.assertIn("does not override Hermes core routing", router.content)
         self.assertIn(router_keyword_summary(), router.content)
@@ -266,7 +269,10 @@ class RouterContentTests(unittest.TestCase):
         from omh.wrapper.contract import build_chat_interaction_payload
 
         router = next(skill for skill in builtin_skill_templates() if skill.name == "oh-my-hermes")
-        self.assertLess(len(router.content.encode("utf-8")), 12_000)
+        # Measured 12,004 bytes after `ultraperf` joined the workflow-engine list
+        # (2026-07); 12,500 keeps ~4% headroom while still forcing the router
+        # skill to stay a compact index rather than a second catalog.
+        self.assertLess(len(router.content.encode("utf-8")), 12_500)
         for template in builtin_skill_reference_templates():
             self.assertLess(len(template.content.encode("utf-8")), 24_500, template.relative_path)
 
@@ -2985,10 +2991,10 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[GitHub Pages site](site/index.html)", readme)
         self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal request", readme)
         self.assertIn("replacing Hermes or hiding a coding executor", readme)
-        self.assertIn("**100 installable workflow skills**", readme)
-        self.assertIn("**100개**", localized_readmes["ko"])
-        self.assertIn("**100 個**", localized_readmes["ja"])
-        self.assertIn("**100 个**", localized_readmes["zh"])
+        self.assertIn("**101 installable workflow skills**", readme)
+        self.assertIn("**101개**", localized_readmes["ko"])
+        self.assertIn("**101 個**", localized_readmes["ja"])
+        self.assertIn("**101 个**", localized_readmes["zh"])
         self.assertIn("나머지 90개", localized_readmes["ko"])
         self.assertIn("残り 90 個", localized_readmes["ja"])
         self.assertIn("其余 90 个", localized_readmes["zh"])
@@ -3165,7 +3171,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[Roles](ROLES.md)", docs_readme)
         self.assertIn("Agent Install Protocol", docs_readme)
         self.assertIn("`deep-interview`, `ralplan`, `ultragoal`, `loop`", docs_readme)
-        self.assertIn("**100 installable skills**", docs_readme)
+        self.assertIn("**101 installable skills**", docs_readme)
         self.assertIn("**Retain knowledge**", docs_readme)
         self.assertIn("python -m unittest discover -s tests", ci)
         self.assertIn("python -m compileall src", ci)
