@@ -12,13 +12,13 @@ metadata:
 
 # Oh My Hermes Router
 
-Use this skill when the user mentions oh-my-hermes or a workflow keyword such as `deep-interview`, `ralplan`, `ultragoal`, `loop`, `ultraprocess`, `web-research`, `research-department`, `source-finder`, `paper-learning`, `data-analysis`, `command-operator`, `connector-operator`, `live-info-operator`, `external-connector-readiness`, `physical-device-readiness`, `content-operator`, `media-input-operator`, `feedback-triage`, `materials-package`, `img-summary`, `design-quality-gate`, `frontend`, `accessibility-audit`, `visual-qa`, `browser-operator`, `workspace-file-operator`, `automation-blueprint`, `harness-session-inventory`, `agent-debug`, `failure-signal-audit`, `instinct-ledger`, `skill-scout`, `skill-health`, `workflow-learning`, `codebase-onboarding`, `codegraph-refresh`, `context-budget-review`, `run-efficiency`, `provider-profile-posture`, `decision-recall`, `security-safety-review`, `code-review`, `build-failure-triage`, `team`, `ultrawork`, `ultraqa`, `doctor`.
+Use this skill when the user mentions oh-my-hermes or a workflow keyword such as `deep-interview`, `ralplan`, `ultragoal`, `loop`, `ultraprocess`, `web-research`, `research-department`, `source-finder`, `paper-learning`, `data-analysis`, `command-operator`, `connector-operator`, `live-info-operator`, `external-connector-readiness`, `physical-device-readiness`, `content-operator`, `media-input-operator`, `feedback-triage`, `finance-analysis`, `people-ops`, `legal-compliance-review`, `support-operations`, `curriculum-design`, `localization-review`, `sales-development`, `product-brief`, `materials-package`, `img-summary`, `design-quality-gate`, `frontend`, `accessibility-audit`, `visual-qa`, `browser-operator`, `workspace-file-operator`, `automation-blueprint`, `harness-session-inventory`, `agent-debug`, `failure-signal-audit`, `instinct-ledger`, `skill-scout`, `skill-health`, `workflow-learning`, `codebase-onboarding`, `codegraph-refresh`, `context-budget-review`, `run-efficiency`, `provider-profile-posture`, `decision-recall`, `security-safety-review`, `code-review`, `build-failure-triage`, `team`, `ultrawork`, `ultraqa`, `doctor`.
 
 ## Routing Contract
 
 This is best-effort Hermes prompt guidance. It does not override Hermes core routing and it does not claim exact runtime parity with another agent framework.
 
-Normal users should talk to Hermes Agent or invoke installed Hermes skills through Hermes' own skill surface. Do not ask chat users to run `omh` commands for ordinary workflow use. The `omh` command is bootstrap, maintenance, verification, and wrapper/backend infrastructure.
+Normal users should talk to Hermes Agent or invoke installed Hermes skills. Do not ask chat users to run `omh`; it is bootstrap and backend infrastructure.
 
 ## Why This Exists
 
@@ -57,7 +57,7 @@ Bad example:
 
 ## OMH Awareness Primer (Compact)
 
-OMH is Hermes-native workflow guidance, not a hidden executor or Hermes core patch. Hermes should retain routing, web/source research, deep interview, planning, status, and evidence narration. Coding-heavy work becomes an explicit prepared handoff to the selected executor/runtime profile and stays `prepared_not_observed` until evidence is recorded.
+OMH is Hermes-native workflow guidance, not a hidden executor or core patch. Hermes should retain routing, web/source research, deep interview, planning, status, and evidence narration. Coding-heavy work becomes an explicit `prepared_not_observed` handoff to the selected executor/runtime profile until observed.
 
 Compact lane map:
 

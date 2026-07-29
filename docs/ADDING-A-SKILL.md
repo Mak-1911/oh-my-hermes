@@ -79,3 +79,7 @@ uv run python -m omh.cli docs capability-families --check
 git diff --check
 PYTHONPATH=tests uv run python -m unittest discover -s tests
 ```
+
+## Acknowledgements
+
+Domain taxonomy adapted from revfactory/harness (https://github.com/revfactory/harness), Apache License 2.0, Copyright 2025 robin.

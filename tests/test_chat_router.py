@@ -21,6 +21,7 @@ from omh.routing.policy import (
     explicit_skill_invocation,
 )
 from omh.routing import chat as chat_router_impl
+from omh.routing.domain_signals import specialist_domain_route_signal
 from omh.routing.localization import normalized_phrase
 from omh.routing.recommend import recommend_skills
 from omh.plugin_bundle.omh.awareness import awareness_route_hint, awareness_route_hint_context
@@ -4161,6 +4162,165 @@ selected_workflow=ultraprocess
                 self.assertEqual(explanation["next_action_label"], next_action_label)
                 self.assertIn(next_action_label, explanation["recommended_reply"])
                 self.assertNotIn("start by assess loopability", explanation["recommended_reply"])
+
+
+    def test_specialist_domain_skills_route_positive_prompts_and_preserve_adversarial_guards(self) -> None:
+        cases = (
+            ("Compare Q2 actuals against budget, explain the biggest expense variances, and flag cash risks for the CFO.", "finance-analysis"),
+            ("2분기 실적을 예산과 비교해서 비용 차이와 현금 리스크를 경영진용으로 정리해줘.", "finance-analysis"),
+            ("Create an interview scorecard and debrief plan for our first senior support hire.", "people-ops"),
+            ("첫 시니어 고객지원 채용을 위한 면접 평가표와 디브리핑 절차를 만들어줘.", "people-ops"),
+            ("Review this vendor DPA for data-processing obligations, risky clauses, and questions for counsel.", "legal-compliance-review"),
+            ("이 공급업체 계약서의 개인정보 처리 의무와 위험 조항, 법무팀에 물어볼 질문을 정리해줘.", "legal-compliance-review"),
+            ("Draft a calm reply for this login-outage customer and tell me whether it needs an engineering escalation.", "support-operations"),
+            ("로그인 장애를 제보한 고객에게 보낼 답변 초안과 엔지니어링 에스컬레이션 필요 여부를 정리해줘.", "support-operations"),
+            ("Design a six-week onboarding curriculum with learning objectives and practical assessments for new support agents.", "curriculum-design"),
+            ("신규 고객지원 담당자를 위한 6주 온보딩 커리큘럼과 학습 목표, 실습 평가를 설계해줘.", "curriculum-design"),
+            ("Review our Korean checkout strings for terminology consistency, cultural fit, and context gaps before launch.", "localization-review"),
+            ("출시 전에 한국어 결제 화면 문구의 용어 일관성, 현지화 품질, 맥락 누락을 검토해줘.", "localization-review"),
+            ("Build a discovery plan and qualification questions for a mid-market prospect considering our support platform.", "sales-development"),
+            ("고객지원 플랫폼을 검토 중인 미드마켓 잠재 고객을 위한 발견 질문과 영업 자격 검증 계획을 만들어줘.", "sales-development"),
+            ("Create a PRD and prioritization options for reducing first-time user drop-off in onboarding.", "product-brief"),
+            ("온보딩 첫 이용자 이탈을 줄이기 위한 PRD와 로드맵 우선순위 옵션을 정리해줘.", "product-brief"),
+            ("What is the USD/KRW exchange rate right now?", "live-info-operator"),
+            ("Send calendar invitations to every candidate for next Tuesday.", "connector-operator"),
+            ("Audit this OAuth integration for secret and permission risks.", "security-safety-review"),
+            ("Cluster last quarter's support feedback into roadmap opportunities.", "feedback-triage"),
+            ("Explain the attached machine-learning paper for a beginner.", "paper-learning"),
+            ("Translate 'Your trial ends tomorrow' into Korean.", "oh-my-hermes"),
+            ("Write a LinkedIn launch post for our new feature.", "content-operator"),
+            ("Implement the accepted onboarding PRD and open a PR.", "ultraprocess"),
+        )
+
+        for message, expected_skill in cases:
+            with self.subTest(message=message):
+                decision = route_chat_message(message, source="discord")
+                self.assertEqual(decision["selected_skill"], expected_skill)
+                self.assertEqual(decision["action"], "fallback" if expected_skill == "oh-my-hermes" else "dispatch")
+
+    def test_specialist_domain_action_requests_keep_operator_precedence(self) -> None:
+        self.assertFalse(hasattr(specialist_domain_route_signal, "cache_info"))
+        cases = (
+            ("Update Salesforce with this discovery plan and qualification questions.", "connector-operator"),
+            ("Update the CRM with this discovery plan and qualification questions.", "connector-operator"),
+            ("Reconcile accounts after comparing actuals against budget.", "connector-operator"),
+            ("Approve payment for these actuals against budget.", "connector-operator"),
+            ("Submit this DPA data-processing filing to the regulator.", "connector-operator"),
+            ("File this DPA after reviewing its data-processing terms.", "connector-operator"),
+            ("Update our ATS with this interview scorecard and debrief.", "connector-operator"),
+            ("Book interviews using this interview scorecard and debrief.", "connector-operator"),
+            ("Sign this DPA after reviewing its data-processing terms.", "connector-operator"),
+            ("Issue a refund and email this customer after engineering escalation.", "connector-operator"),
+            ("Change ticket priority for this customer after engineering escalation.", "connector-operator"),
+            ("Enroll students in this curriculum with learning objectives.", "connector-operator"),
+            ("Publish strings after checking terminology consistency and cultural fit.", "connector-operator"),
+            ("Create a HubSpot opportunity from this discovery plan and qualification questions.", "connector-operator"),
+            ("Update Jira with this PRD and prioritization.", "connector-operator"),
+            ("Create an Aha roadmap item from this PRD and prioritization.", "connector-operator"),
+            ("Submit tax filings after finance analysis.", "connector-operator"),
+            ("Create ATS records from this recruiting plan.", "connector-operator"),
+            ("Publish this contract after contract review.", "connector-operator"),
+            ("Send a reply after ticket triage.", "connector-operator"),
+            ("Change course settings after curriculum design.", "connector-operator"),
+            ("Edit locale files after localization review.", "workspace-file-operator"),
+            ("Book a meeting based on this account plan.", "connector-operator"),
+            ("Update Linear from this product requirements document.", "connector-operator"),
+            (
+                "Open the customer portal and click refund for this customer after engineering escalation.",
+                "browser-operator",
+            ),
+            (
+                "Use these API credentials to update Salesforce with the discovery plan and qualification questions.",
+                "external-connector-readiness",
+            ),
+            (
+                "Schedule this customer update and engineering escalation email every Monday.",
+                "automation-blueprint",
+            ),
+            ("Save this PRD and prioritization decision to /tmp/product-brief.md.", "workspace-file-operator"),
+            ("Implement this accepted PRD and prioritization and open a PR.", "ultraprocess"),
+            ("Clean up Hermes memory: it contains actuals and budget notes.", "memory-sync"),
+            (
+                "Use the browser to open the customer account and prepare an engineering escalation.",
+                "browser-operator",
+            ),
+            ("Check the current exchange rate and compare actuals against budget.", "live-info-operator"),
+            ("Audit OAuth secret risk in this DPA data-processing agreement.", "security-safety-review"),
+            ("Cluster these ticket triage cases into roadmap opportunities.", "feedback-triage"),
+            ("Write a LinkedIn launch post about this account plan.", "content-operator"),
+            ("Write a one-off job ad using this interview scorecard and debrief.", "content-operator"),
+            ("Upload translations after this localization review.", "connector-operator"),
+        )
+
+        for message, expected_skill in cases:
+            with self.subTest(message=message):
+                decision = route_chat_message(message, source="discord")
+                self.assertEqual(decision["selected_skill"], expected_skill)
+                self.assertEqual(decision["action"], "dispatch")
+                self.assertEqual(awareness_route_hint(message)["primary_workflow"], expected_skill)
+
+    def test_specialist_domain_descriptive_and_negated_actions_stay_retained(self) -> None:
+        cases = (
+            ("Finance analysis for our recurring revenue business.", "finance-analysis"),
+            ("Interview scorecard for a CRM administrator.", "people-ops"),
+            ("Draft a customer support reply email after engineering escalation; do not send it.", "support-operations"),
+            ("Review this DPA filing draft for data-processing risk; do not submit it.", "legal-compliance-review"),
+            ("Analyze actuals against budget; do not approve anything.", "finance-analysis"),
+            ("Localization review of terminology consistency for our browser UI.", "localization-review"),
+            ("Create a PRD for CRM reporting and prioritization.", "product-brief"),
+            (
+                "The router wrongly selected finance analysis; learn from this missed route.",
+                "workflow-learning",
+            ),
+        )
+
+        for message, expected_skill in cases:
+            with self.subTest(message=message):
+                self.assertEqual(
+                    route_chat_message(message, source="discord")["selected_skill"],
+                    expected_skill,
+                )
+                self.assertEqual(awareness_route_hint(message)["primary_workflow"], expected_skill)
+
+    def test_specialist_domain_declared_triggers_match_chat_and_awareness(self) -> None:
+        specialist_skills = {
+            "finance-analysis",
+            "people-ops",
+            "legal-compliance-review",
+            "support-operations",
+            "curriculum-design",
+            "localization-review",
+            "sales-development",
+            "product-brief",
+        }
+
+        for definition in routable_definitions():
+            if definition.name not in specialist_skills:
+                continue
+            for trigger in definition.triggers:
+                with self.subTest(skill=definition.name, trigger=trigger):
+                    decision = route_chat_message(trigger, source="discord")
+                    self.assertEqual(decision["selected_skill"], definition.name)
+                    self.assertEqual(decision["action"], "dispatch")
+                    self.assertEqual(
+                        awareness_route_hint(trigger)["primary_workflow"],
+                        definition.name,
+                    )
+
+    def test_direct_translation_fallback_does_not_steal_workflow_requests(self) -> None:
+        cases = (
+            ("Translate 'Your trial ends tomorrow' into Korean.", "oh-my-hermes"),
+            ("Translate this accepted PRD into code and open a PR.", "ultraprocess"),
+            ("Translate this report into PDF and attach it to Slack.", "deliverable-package"),
+            ("Translate this locale file into Korean and upload it to our TMS.", "materials-package"),
+        )
+
+        for message, expected_skill in cases:
+            with self.subTest(message=message):
+                self.assertEqual(
+                    route_chat_message(message, source="discord")["selected_skill"],
+                    expected_skill,
+                )
 
 
 if __name__ == "__main__":

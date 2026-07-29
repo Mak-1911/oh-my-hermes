@@ -595,6 +595,12 @@ except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
     except ImportError:
         _assess_loopability = None
 
+from .domain_signals import (
+    specialist_domain_operator_override as _specialist_domain_operator_override,
+    specialist_domain_route_signal as _specialist_domain_route_signal,
+)
+
+
 OMH_AWARENESS_SCHEMA_VERSION = "omh_awareness/v1"
 OMH_ROUTE_HINT_SCHEMA_VERSION = "omh_route_hint/v1"
 OMH_GENERIC_TOOL_CHECKPOINT_SCHEMA_VERSION = "omh_generic_tool_checkpoint/v1"
@@ -877,6 +883,14 @@ ROUTER_KEYWORD_SKILLS = (
     "content-operator",
     "media-input-operator",
     "feedback-triage",
+    "finance-analysis",
+    "people-ops",
+    "legal-compliance-review",
+    "support-operations",
+    "curriculum-design",
+    "localization-review",
+    "sales-development",
+    "product-brief",
     "materials-package",
     "img-summary",
     "design-quality-gate",
@@ -1113,6 +1127,7 @@ _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW = {
     "performance-goal": "intent_to_plan",
     "codebase-onboarding": "intent_to_plan",
     "codegraph-refresh": "intent_to_plan",
+    "product-brief": "intent_to_plan",
     "web-research": "research_and_ops",
     "research-department": "research_and_ops",
     "source-finder": "research_and_ops",
@@ -1125,6 +1140,12 @@ _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW = {
     "meeting-brief": "research_and_ops",
     "strategy-brief": "research_and_ops",
     "operating-rhythm": "research_and_ops",
+    "finance-analysis": "research_and_ops",
+    "people-ops": "research_and_ops",
+    "legal-compliance-review": "research_and_ops",
+    "support-operations": "research_and_ops",
+    "curriculum-design": "research_and_ops",
+    "sales-development": "research_and_ops",
     "wiki": "retained_knowledge",
     "memory-new": "retained_knowledge",
     "memory-sync": "retained_knowledge",
@@ -1140,6 +1161,7 @@ _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW = {
     "visual-qa": "materials_and_visuals",
     "content-operator": "materials_and_visuals",
     "media-input-operator": "materials_and_visuals",
+    "localization-review": "materials_and_visuals",
     "achievements": "automation_and_status",
     "workspace-audit": "automation_and_status",
     "production-audit": "automation_and_status",
@@ -1249,6 +1271,14 @@ _AWARENESS_MESSAGE_MARKERS = (
     "paper-learning",
     "data-analysis",
     "csv analysis",
+    "actuals against budget",
+    "interview scorecard",
+    "vendor dpa",
+    "engineering escalation",
+    "learning objectives",
+    "terminology consistency",
+    "qualification questions",
+    "prd",
     "json analysis",
     "log analysis",
     "데이터 분석",
@@ -1503,6 +1533,102 @@ _ROUTE_HINT_RULES = (
         ),
         "tokens": ("missed",),
         "adjacent_workflows": ("doctor", "agent-ops-review"),
+    },
+    {
+        "id": "finance_analysis",
+        "workflow": "finance-analysis",
+        "lane": "research_and_ops",
+        "next_action": "prepare_finance_analysis",
+        "reason": "The user needs supplied finance or accounting context turned into a bounded variance, cash, or close-risk brief.",
+        "fallback_action": "ask_for_period_source_boundary_or_finance_decision",
+        "phrases": ("finance analysis", "budget vs actual", "month-end close", "재무 분석", "예산 대비 실적", "월마감"),
+        "tokens": (),
+        "adjacent_workflows": ("data-analysis", "strategy-brief", "live-info-operator", "connector-operator"),
+        "not_evidence_yet": ("source validation", "authoritative calculation", "ERP or ledger action", "payment or filing", "decision approval"),
+    },
+    {
+        "id": "people_ops",
+        "workflow": "people-ops",
+        "lane": "research_and_ops",
+        "next_action": "prepare_people_ops_brief",
+        "reason": "The user needs fair recruiting or people-process guidance with evidence, policy, and decision-owner gaps visible.",
+        "fallback_action": "ask_for_role_process_evidence_or_policy_constraints",
+        "phrases": ("recruiting plan", "interview scorecard", "candidate debrief", "채용 계획", "면접 평가표", "후보자 비교"),
+        "tokens": (),
+        "adjacent_workflows": ("legal-compliance-review", "content-operator", "connector-operator"),
+        "not_evidence_yet": ("candidate contact", "candidate evaluation", "hiring decision", "ATS or HRIS mutation"),
+    },
+    {
+        "id": "legal_compliance_review",
+        "workflow": "legal-compliance-review",
+        "lane": "research_and_ops",
+        "next_action": "prepare_legal_compliance_review",
+        "reason": "The user needs a scoped contract or compliance issue matrix and counsel-escalation brief before a legal decision.",
+        "fallback_action": "ask_for_jurisdiction_authority_document_version_or_review_scope",
+        "phrases": ("contract review", "regulatory analysis", "compliance review", "계약서 검토", "규제 분석", "컴플라이언스 검토"),
+        "tokens": (),
+        "adjacent_workflows": ("security-safety-review", "content-operator", "connector-operator"),
+        "not_evidence_yet": ("legal advice", "counsel sign-off", "compliance certification", "contract execution", "filing"),
+    },
+    {
+        "id": "support_operations",
+        "workflow": "support-operations",
+        "lane": "research_and_ops",
+        "next_action": "prepare_support_operations",
+        "reason": "The user needs a case-level customer reply draft, severity path, and owned escalation guidance.",
+        "fallback_action": "ask_for_case_facts_customer_impact_or_escalation_owner",
+        "phrases": ("support escalation", "customer support reply", "ticket triage", "고객 지원 에스컬레이션", "고객 답변 초안", "지원 티켓 분류"),
+        "tokens": (),
+        "adjacent_workflows": ("feedback-triage", "content-operator", "connector-operator", "reliability-review"),
+        "not_evidence_yet": ("message send", "ticket mutation", "refund", "account action", "customer outcome"),
+    },
+    {
+        "id": "curriculum_design",
+        "workflow": "curriculum-design",
+        "lane": "research_and_ops",
+        "next_action": "prepare_curriculum_design",
+        "reason": "The user needs a teachable learning sequence, assessment plan, and learner-ready instructional brief.",
+        "fallback_action": "ask_for_learners_outcomes_prerequisites_or_constraints",
+        "phrases": ("curriculum design", "learning objectives", "assessment plan", "커리큘럼 설계", "학습 목표", "평가 계획"),
+        "tokens": (),
+        "adjacent_workflows": ("paper-learning", "materials-package", "content-operator", "connector-operator"),
+        "not_evidence_yet": ("LMS creation", "enrollment", "grading", "certification", "learning outcome"),
+    },
+    {
+        "id": "localization_review",
+        "workflow": "localization-review",
+        "lane": "materials_and_visuals",
+        "next_action": "prepare_localization_review",
+        "reason": "The user needs locale-ready terminology, cultural-fit, context, and QA guidance beyond a one-off translation.",
+        "fallback_action": "ask_for_locale_audience_source_version_or_product_context",
+        "phrases": ("localization review", "translation QA", "locale glossary", "현지화 검토", "번역 QA", "용어집"),
+        "tokens": (),
+        "adjacent_workflows": ("content-operator", "visual-qa", "workspace-file-operator", "legal-compliance-review"),
+        "not_evidence_yet": ("locale file mutation", "translation upload", "publication", "rendered validation", "market approval"),
+    },
+    {
+        "id": "sales_development",
+        "workflow": "sales-development",
+        "lane": "research_and_ops",
+        "next_action": "prepare_sales_development",
+        "reason": "The user needs account-level discovery, qualification, value framing, and an owned non-executing next-step brief.",
+        "fallback_action": "ask_for_account_segment_buyer_evidence_or_sales_objective",
+        "phrases": ("sales discovery", "account plan", "outbound messaging", "영업 발굴", "고객사 계획", "아웃바운드 메시지"),
+        "tokens": (),
+        "adjacent_workflows": ("strategy-brief", "content-operator", "connector-operator", "web-research"),
+        "not_evidence_yet": ("company fact retrieval", "prospect contact", "CRM mutation", "meeting booking", "revenue progress"),
+    },
+    {
+        "id": "product_brief",
+        "workflow": "product-brief",
+        "lane": "intent_to_plan",
+        "next_action": "prepare_product_brief",
+        "reason": "The user needs product evidence shaped into a PRD, prioritization frame, and roadmap brief before delivery planning.",
+        "fallback_action": "ask_for_product_evidence_user_outcome_or_decision_owner",
+        "phrases": ("product requirements document", "PRD", "roadmap prioritization", "제품 요구사항 문서", "제품 기획서", "로드맵 우선순위"),
+        "tokens": (),
+        "adjacent_workflows": ("feedback-triage", "strategy-brief", "ralplan", "ultraprocess", "connector-operator"),
+        "not_evidence_yet": ("stakeholder acceptance", "roadmap-system mutation", "implementation", "test evidence", "delivery"),
     },
     {
         "id": "source_finder_candidates",
@@ -4724,6 +4850,59 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
             )
             if len(hints) >= hint_limit:
                 break
+        domain_signal = _specialist_domain_route_signal(message)
+        domain_operator_override = (
+            _specialist_domain_operator_override(message, domain_signal)
+            if domain_signal is not None
+            else None
+        )
+        if direct_hint and domain_operator_override is None:
+            domain_signal = None
+        if domain_signal is not None:
+            domain_workflow = (
+                domain_operator_override.skill
+                if domain_operator_override is not None
+                else domain_signal.skill
+            )
+            domain_rule = next(
+                (rule for rule in _ROUTE_HINT_RULES if rule.get("workflow") == domain_workflow),
+                None,
+            )
+            existing_index = next(
+                (
+                    index
+                    for index, hint in enumerate(hints)
+                    if isinstance(hint, dict) and hint.get("workflow") == domain_workflow
+                ),
+                None,
+            )
+            if domain_operator_override is not None and existing_index is not None:
+                hints.insert(0, hints.pop(existing_index))
+            elif domain_rule is not None and existing_index is None:
+                workflow = str(domain_rule["workflow"])
+                context_card = workflow_context_card_for_workflow(workflow)
+                hints.insert(
+                    0,
+                    {
+                        "id": str(domain_rule["id"]),
+                        "workflow": workflow,
+                        "lane": str(domain_rule["lane"]),
+                        "next_action": str(domain_rule["next_action"]),
+                        "reason": str(domain_rule["reason"]),
+                        "fallback_action": str(domain_rule["fallback_action"]),
+                        "matched_cues": list(
+                            domain_operator_override.matched_cues
+                            if domain_operator_override is not None
+                            else domain_signal.matched_cues
+                        ),
+                        "adjacent_workflows": list(domain_rule["adjacent_workflows"]),
+                        "workflow_context_card": context_card,
+                        "not_evidence_yet": _workflow_not_evidence_yet(workflow, context_card, domain_rule)
+                        if isinstance(context_card, dict)
+                        else [],
+                    },
+                )
+                del hints[hint_limit:]
     hints = [_route_hint_with_coding_route_decision(hint, routing_normalized) for hint in hints]
     hints = [_route_hint_with_action_labels(hint) for hint in hints]
     primary_workflow = str(hints[0]["workflow"]) if hints else ""
@@ -5064,6 +5243,7 @@ def awareness_primer_payload() -> dict[str, object]:
                 "loop",
                 "ralph",
                 "performance-goal",
+                "product-brief",
             ],
             "use_for": "clarify, plan, ship, or loop goals",
         },
@@ -5085,6 +5265,12 @@ def awareness_primer_payload() -> dict[str, object]:
                 "operating-rhythm",
                 "ops-review",
                 "reliability-review",
+                "finance-analysis",
+                "people-ops",
+                "legal-compliance-review",
+                "support-operations",
+                "curriculum-design",
+                "sales-development",
             ],
             "use_for": "research, signals, ops, and briefings",
         },
@@ -5109,6 +5295,7 @@ def awareness_primer_payload() -> dict[str, object]:
                 "img-summary",
                 "report-package",
                 "deliverable-package",
+                "localization-review",
             ],
             "use_for": "web, accessibility, visual QA, files, and packages",
         },
@@ -5496,6 +5683,14 @@ _DIRECT_WORKFLOW_NEXT_ACTIONS = {
     "team": "show_runtime_handoff",
     "ultrawork": "prepare_parallel_delivery",
     "ultraqa": "dispatch_to_workflow",
+    "finance-analysis": "prepare_finance_analysis",
+    "people-ops": "prepare_people_ops_brief",
+    "legal-compliance-review": "prepare_legal_compliance_review",
+    "support-operations": "prepare_support_operations",
+    "curriculum-design": "prepare_curriculum_design",
+    "localization-review": "prepare_localization_review",
+    "sales-development": "prepare_sales_development",
+    "product-brief": "prepare_product_brief",
 }
 
 

@@ -544,3 +544,29 @@ class CapabilityManifestTests(unittest.TestCase):
 
         self.assertNotIn('"runtime_topology"', exported)
         self.assertIn("no runtime_topology schema in this PR", payload["non_goals"])
+
+
+class SpecialistDomainAwarenessTests(unittest.TestCase):
+    def test_specialist_domain_skills_have_the_specified_lanes_and_context_cards(self) -> None:
+        from omh.plugin_bundle.omh.awareness import awareness_primer_payload, workflow_context_card_for_workflow
+
+        lanes = {lane["id"]: set(lane["skills"]) for lane in awareness_primer_payload()["lanes"]}
+        expected_lanes = {
+            "intent_to_plan": {"product-brief"},
+            "research_and_ops": {
+                "finance-analysis",
+                "people-ops",
+                "legal-compliance-review",
+                "support-operations",
+                "curriculum-design",
+                "sales-development",
+            },
+            "materials_and_visuals": {"localization-review"},
+        }
+
+        for lane, skills in expected_lanes.items():
+            with self.subTest(lane=lane):
+                self.assertTrue(skills.issubset(lanes[lane]))
+            for skill in skills:
+                with self.subTest(skill=skill):
+                    self.assertEqual(workflow_context_card_for_workflow(skill)["id"], lane)

@@ -5,6 +5,12 @@ from functools import lru_cache
 import re
 
 from ..skills.catalog import SkillDefinition, routable_definitions
+from .domain_signals import (
+    DomainOperatorOverride,
+    DomainRouteSignal,
+    specialist_domain_operator_override,
+    specialist_domain_route_signal,
+)
 from .intent import scrub_diagnostic_status_text
 from .localization import normalized_phrase, prepare_routing_text, routing_tokens
 from .missed_route import is_missed_route_feedback
@@ -1013,6 +1019,52 @@ _SKILL_POLICIES.update(
         ),
     }
 )
+_SKILL_POLICIES.update(
+    {
+        "finance-analysis": RecommendationPolicy(
+            next_action="prepare_finance_analysis",
+            evidence_boundary="A finance analysis is not authoritative accounting, ERP, bank, ledger, tax, payment, filing, approval, or financial decision evidence.",
+            wrapper_guidance="Prepare period and source boundaries, variance assumptions, cash or close risks, decision questions, and a route to strategy-brief, data-analysis, or human finance review.",
+        ),
+        "people-ops": RecommendationPolicy(
+            next_action="prepare_people_ops_brief",
+            evidence_boundary="A people-operations brief is not candidate contact, evaluation, hiring, rejection, ATS, HRIS, policy ruling, or employment-status evidence.",
+            wrapper_guidance="Prepare fair role criteria, a structured scorecard, evidence-based debrief template, process owners, and inclusion, privacy, policy, and evidence gaps.",
+        ),
+        "legal-compliance-review": RecommendationPolicy(
+            next_action="prepare_legal_compliance_review",
+            evidence_boundary="A legal and compliance review is not legal advice, counsel sign-off, compliance certification, contract execution, filing, regulator communication, approval, or policy mutation evidence.",
+            wrapper_guidance="Prepare jurisdiction, authority, document-version and evidence boundaries, an issue matrix, ranked escalation questions, and a counsel or human-review route.",
+        ),
+        "support-operations": RecommendationPolicy(
+            next_action="prepare_support_operations",
+            evidence_boundary="A support-operations brief is not a sent reply, ticket mutation, refund, account action, escalation completion, or customer-outcome evidence.",
+            wrapper_guidance="Prepare a customer-safe reply draft, severity and impact matrix, owned escalation path, and missing repro, account, entitlement, or approval evidence.",
+        ),
+        "curriculum-design": RecommendationPolicy(
+            next_action="prepare_curriculum_design",
+            evidence_boundary="A curriculum design is not LMS creation, learner enrollment, grading, certification, material publication, or learning-outcome evidence.",
+            wrapper_guidance="Prepare learner and prerequisite assumptions, scope and sequence, assessment evidence, accessibility and adaptation questions, and a materials or human-review route.",
+        ),
+        "localization-review": RecommendationPolicy(
+            next_action="prepare_localization_review",
+            evidence_boundary="A localization review is not locale-file mutation, translation upload, publication, rendered-build validation, market approval, or regulatory conclusion evidence.",
+            wrapper_guidance="Prepare locale and source-version context, glossary choices, a string issue matrix, review owners, acceptance criteria, and rendered-QA or legal-review gaps.",
+        ),
+        "sales-development": RecommendationPolicy(
+            next_action="prepare_sales_development",
+            evidence_boundary="A sales development brief is not observed company research, prospect contact, CRM mutation, opportunity creation, meeting booking, revenue, or progress evidence.",
+            wrapper_guidance="Prepare account and buyer hypotheses, evidence gaps, qualification questions, value and objection framing, outreach-draft outline, and an owned non-executing next-step plan.",
+        ),
+        "product-brief": RecommendationPolicy(
+            next_action="prepare_product_brief",
+            evidence_boundary="A product brief is not stakeholder acceptance, Jira, Linear, or roadmap-system mutation, implementation, test evidence, delivery, or market-commitment evidence.",
+            wrapper_guidance="Prepare the problem, user, evidence, metric, goal, non-goal, PRD, prioritization options, dependencies, acceptance shape, decision owner, and gated downstream route.",
+        ),
+    }
+)
+
+
 _CATEGORY_POLICIES = {
     "planning": RecommendationPolicy(
         next_action="present_plan",
@@ -1302,6 +1354,11 @@ def _recommend_skills_cached(query: str, apply_guardrails: bool) -> tuple[Recomm
     if explicit_skill == "skill" and _skill_scout_candidate_alias_intent_match(normalized_query):
         explicit_skill = None
     ecosystem_identity_connector_match = _ecosystem_identity_connector_explicit_match(normalized_query)
+    domain_signal = specialist_domain_route_signal(routing_text.scoring_text)
+    domain_operator_override = specialist_domain_operator_override(
+        routing_text.scoring_text,
+        domain_signal,
+    )
     scored = []
     for prepared in prepared_definitions:
         recommendation = _score_definition(
@@ -1311,6 +1368,8 @@ def _recommend_skills_cached(query: str, apply_guardrails: bool) -> tuple[Recomm
             routing_query,
             routing_text.locale_matches,
             explicit_skill=explicit_skill,
+            domain_signal=None if domain_operator_override is not None else domain_signal,
+            domain_operator_override=domain_operator_override,
         )
         if recommendation is not None:
             scored.append(recommendation)
@@ -1376,6 +1435,8 @@ def _score_definition(
     locale_matches: tuple[str, ...],
     *,
     explicit_skill: str | None,
+    domain_signal: DomainRouteSignal | None,
+    domain_operator_override: DomainOperatorOverride | None,
 ) -> Recommendation | None:
     definition = prepared.definition
     policy = prepared.policy
@@ -1480,6 +1541,13 @@ def _score_definition(
     for token in query_tokens & prepared.metadata_tokens:
         score += 1
         matched.add(f"metadata:{token}")
+
+    if domain_signal is not None and definition.name == domain_signal.skill:
+        score += 54
+        matched.update(f"domain:{cue}" for cue in domain_signal.matched_cues)
+    if domain_operator_override is not None and definition.name == domain_operator_override.skill:
+        score += 72
+        matched.update(f"domain_action:{cue}" for cue in domain_operator_override.matched_cues)
 
     if definition.name == "failure-signal-audit" and _failure_signal_audit_explicit_match(normalized_query):
         score += 34

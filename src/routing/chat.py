@@ -18,6 +18,11 @@ from .catalog_questions import (
 )
 from .action_copy import next_action_label as _route_next_action_label
 from .candidate_handoff import build_candidate_handoff
+from .domain_signals import (
+    DomainRouteSignal,
+    specialist_domain_operator_override,
+    specialist_domain_route_signal,
+)
 from .display_names import canonical_display_mentions
 from .input_language import routing_input_language
 from .intent import scrub_diagnostic_status_text
@@ -1503,6 +1508,11 @@ def _route_chat_message_cached(
     )
     if fast_explicit_skill_decision is not None:
         return fast_explicit_skill_decision.to_dict()
+    specialist_domain_signal = specialist_domain_route_signal(routing_message)
+    specialist_operator_override = specialist_domain_operator_override(
+        routing_message,
+        specialist_domain_signal,
+    )
     fast_workflow_learning_decision = _workflow_learning_feedback_fast_path_decision(
         message,
         routing_message=routing_message,
@@ -1549,7 +1559,22 @@ def _route_chat_message_cached(
         source=source,
         min_confidence=min_confidence,
     )
-    if fast_operator_surface_decision is not None:
+    if (
+        fast_operator_surface_decision is not None
+        and not (
+            specialist_domain_signal is not None
+            and (
+                (
+                    specialist_operator_override is None
+                    and fast_operator_surface_decision.selected_skill == "content-operator"
+                )
+                or (
+                    specialist_operator_override is not None
+                    and fast_operator_surface_decision.selected_skill != specialist_operator_override.skill
+                )
+            )
+        )
+    ):
         return fast_operator_surface_decision.to_dict()
     fast_feedback_triage_decision = _feedback_triage_fast_path_decision(
         message,
@@ -1557,7 +1582,16 @@ def _route_chat_message_cached(
         source=source,
         min_confidence=min_confidence,
     )
-    if fast_feedback_triage_decision is not None:
+    if (
+        fast_feedback_triage_decision is not None
+        and not (
+            specialist_domain_signal is not None
+            and (
+                specialist_operator_override is None
+                or specialist_operator_override.skill != fast_feedback_triage_decision.selected_skill
+            )
+        )
+    ):
         return fast_feedback_triage_decision.to_dict()
     fast_product_shaping_decision = _product_shaping_fast_path_decision(
         message,
@@ -1565,15 +1599,37 @@ def _route_chat_message_cached(
         source=source,
         min_confidence=min_confidence,
     )
-    if fast_product_shaping_decision is not None:
+    if (
+        fast_product_shaping_decision is not None
+        and not (
+            specialist_domain_signal is not None
+            and (
+                specialist_operator_override is None
+                or specialist_operator_override.skill != fast_product_shaping_decision.selected_skill
+            )
+        )
+    ):
         return fast_product_shaping_decision.to_dict()
+    if specialist_domain_signal is not None and specialist_operator_override is None:
+        return _specialist_domain_fast_path_decision(
+            message,
+            signal=specialist_domain_signal,
+            source=source,
+            min_confidence=min_confidence,
+        ).to_dict()
     fast_guarded_operator_decision = _guarded_operator_fast_path_decision(
         message,
         routing_message=routing_message,
         source=source,
         min_confidence=min_confidence,
     )
-    if fast_guarded_operator_decision is not None:
+    if (
+        fast_guarded_operator_decision is not None
+        and not (
+            specialist_operator_override is not None
+            and fast_guarded_operator_decision.selected_skill != specialist_operator_override.skill
+        )
+    ):
         return fast_guarded_operator_decision.to_dict()
     fast_direct_answer_decision = _direct_answer_fast_path_decision(
         message,
@@ -3290,6 +3346,8 @@ _OPERATOR_SURFACE_FAST_PATH_RULES: tuple[tuple[str, tuple[str, ...], str, str], 
             "product copy",
             "landing page copy",
             "social post draft",
+            "linkedin launch post",
+            "linkedin post",
             "email draft",
             "draft an email",
             "rewrite for executives",
@@ -4640,6 +4698,48 @@ def _feedback_triage_fast_path_decision(
     )
 
 
+def _specialist_domain_fast_path_decision(
+    message: str,
+    *,
+    signal: DomainRouteSignal,
+    source: str,
+    min_confidence: str,
+) -> ChatRouteDecision:
+    selected_skill = signal.skill
+    matched_cues = signal.matched_cues
+    selected_harness = primary_harness_for_skill(selected_skill)
+    reason = "Matched a complete specialist-domain trigger or a normalized domain cue pair."
+    score = 54
+    recommendation = recommendation_for_definition(
+        _skill_definition_by_name(selected_skill),
+        message,
+        matched=tuple(f"domain:{cue}" for cue in matched_cues),
+        score=score,
+        why=reason,
+    )
+    return ChatRouteDecision(
+        schema_version=1,
+        source=source,
+        action="dispatch",
+        selected_skill=selected_skill,
+        selected_harness=selected_harness,
+        candidate_skill=selected_skill,
+        candidate_harness=selected_harness,
+        confidence="high",
+        score=score,
+        threshold=min_confidence,
+        explicit=False,
+        ambiguous=False,
+        reason=reason,
+        clarification="",
+        routing_prompt=_routing_prompt("dispatch", selected_skill, selected_skill, reason, message),
+        task_card=None,
+        workflow_route_plan=None,
+        learning_candidate_card=None,
+        recommendations=(recommendation,),
+    )
+
+
 def _feedback_triage_fast_path_signal(text: str) -> bool:
     compact = _fast_path_compact(text)
     return any(term in text or _fast_path_compact(term) in compact for term in _FEEDBACK_TRIAGE_FAST_PATH_TERMS)
@@ -4997,6 +5097,20 @@ def _whole_trigger_phrases() -> frozenset[str]:
 
 _MENTION_PREFIX = re.compile(r"^(?:@\S+\s*)+")
 
+_DIRECT_TRANSLATION_WORKFLOW_BLOCKERS = (
+    "attach",
+    "code",
+    "file",
+    "implement",
+    "open a pr",
+    "pdf",
+    "pull request",
+    "send",
+    "slack",
+    "tms",
+    "upload",
+)
+
 
 def _direct_answer_fast_path_decision(
     message: str,
@@ -5007,6 +5121,13 @@ def _direct_answer_fast_path_decision(
 ) -> ChatRouteDecision | None:
     if _has_explicit_invocation_prefix(routing_message):
         return None
+    direct_text = _fast_path_text(routing_message)
+    if (
+        direct_text.startswith("translate ")
+        and " into " in direct_text
+        and not contains_cue_phrase(direct_text, _DIRECT_TRANSLATION_WORKFLOW_BLOCKERS)
+    ):
+        return _direct_answer_decision(message, source=source, min_confidence=min_confidence)
     if not _is_fast_plain_direct_answer_question(routing_message):
         return None
     return _direct_answer_decision(message, source=source, min_confidence=min_confidence)

@@ -3046,6 +3046,14 @@ _PRIMARY_HARNESSES = {
     "cancel": "goal-execution",
     "skill": "docs-specialist",
     "doctor": "qa-specialist",
+    "finance-analysis": "ops-review",
+    "people-ops": "ops-review",
+    "legal-compliance-review": "critic",
+    "support-operations": "ops-review",
+    "curriculum-design": "planning",
+    "localization-review": "critic",
+    "sales-development": "ops-review",
+    "product-brief": "planning",
 }
 _PRIMARY_HARNESSES.update(
     {

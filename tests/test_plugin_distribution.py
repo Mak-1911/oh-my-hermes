@@ -536,6 +536,27 @@ print(json.dumps(observed, ensure_ascii=False))
             run_id = json.loads(stdout)["runtime"]["run"]["run_id"]
 
             module = load_installed_plugin(hermes_home / "plugins" / "omh")
+            installed_awareness = __import__(
+                f"{module.__name__}.awareness",
+                fromlist=["awareness_route_hint"],
+            )
+            specialist_cases = (
+                ("Compare Q2 actuals against budget and flag cash risks.", "finance-analysis"),
+                ("Create an interview scorecard and debrief plan.", "people-ops"),
+                ("Review this vendor DPA for data-processing risks.", "legal-compliance-review"),
+                ("Draft a reply for this customer and assess engineering escalation.", "support-operations"),
+                ("Design a curriculum with learning objectives.", "curriculum-design"),
+                ("Review terminology consistency and cultural fit.", "localization-review"),
+                ("Build a discovery plan and qualification questions.", "sales-development"),
+                ("Create a PRD with prioritization options.", "product-brief"),
+            )
+            for message, expected_workflow in specialist_cases:
+                with self.subTest(installed_specialist=expected_workflow):
+                    self.assertEqual(
+                        installed_awareness.awareness_route_hint(message)["primary_workflow"],
+                        expected_workflow,
+                    )
+
             ctx = FakeHermesContext()
             module.register(ctx)
             self.assertIn("omh_capabilities", ctx.tools)

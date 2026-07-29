@@ -50,6 +50,20 @@ from omh.skills.catalog import routable_definitions
 # means an existing Korean table grew: do it only with a stated reason, and
 # never to make a routing miss go away -- the fix for that is model selection,
 # not more tokens. See `src/routing/input_language.py`.
+# The specialist-domain set is an explicit task exception to the no-growth policy:
+# every new skill carries exactly its three approved narrow Korean phrases.
+SPECIALIST_DOMAIN_HANGUL_TRIGGER_COUNTS: dict[str, int] = {
+    "finance-analysis": 3,
+    "people-ops": 3,
+    "legal-compliance-review": 3,
+    "support-operations": 3,
+    "curriculum-design": 3,
+    "localization-review": 3,
+    "sales-development": 3,
+    "product-brief": 3,
+}
+
+
 FROZEN_HANGUL_TRIGGERS_BY_SKILL: dict[str, int] = {
     "accessibility-audit": 11,
     "achievements": 5,
@@ -160,12 +174,23 @@ class RoutingLanguagePolicyTests(unittest.TestCase):
             with self.subTest(skill=skill):
                 self.assertLessEqual(observed.get(skill, 0), frozen)
 
-    def test_a_new_skill_may_carry_its_own_korean_triggers(self) -> None:
+    def test_new_specialist_domain_skills_use_the_approved_three_hangul_triggers(self) -> None:
+        observed = _hangul_triggers_by_skill()
+
+        for skill, expected in sorted(SPECIALIST_DOMAIN_HANGUL_TRIGGER_COUNTS.items()):
+            with self.subTest(skill=skill):
+                self.assertEqual(observed.get(skill), expected)
+
+    def test_other_new_skills_may_carry_their_own_korean_triggers(self) -> None:
         # The exemption is deliberate and bounded: a skill absent from the freeze
         # is new, and its Korean triggers are its own cost rather than growth of
         # an existing table. It still has to be reachable in English.
         observed = _hangul_triggers_by_skill()
-        new_skills = set(observed) - set(FROZEN_HANGUL_TRIGGERS_BY_SKILL)
+        new_skills = (
+            set(observed)
+            - set(FROZEN_HANGUL_TRIGGERS_BY_SKILL)
+            - set(SPECIALIST_DOMAIN_HANGUL_TRIGGER_COUNTS)
+        )
 
         for skill in sorted(new_skills):
             with self.subTest(skill=skill):
