@@ -2039,6 +2039,7 @@ def _router_help_recommendation(
         "phase": definition.phase,
         "hermes_role": definition.hermes_role,
         "handoff_policy": definition.handoff_policy,
+        "reasoning_demand": definition.reasoning_demand,
         "score": score,
         "confidence": "high",
         "matched": list(matched),
@@ -2129,6 +2130,7 @@ def _task_card_fast_path_recommendation(task_card: dict[str, object], query: str
         "phase": definition.phase,
         "hermes_role": definition.hermes_role,
         "handoff_policy": definition.handoff_policy,
+        "reasoning_demand": definition.reasoning_demand,
         **recommendation,
         "suggested_prompt": query,
     }
@@ -2549,6 +2551,7 @@ def _router_file_lookup_recommendation(query: str) -> dict[str, object]:
         "phase": definition.phase,
         "hermes_role": definition.hermes_role,
         "handoff_policy": definition.handoff_policy,
+        "reasoning_demand": definition.reasoning_demand,
         "score": 0,
         "confidence": "low",
         "matched": ["file_lookup_fast_path"],
@@ -5131,6 +5134,16 @@ _BOUNDED_DIRECT_TASK_TERMS = (
     "settings-only change",
     "single bounded edit",
     "single-line change",
+    "a single setting",
+    "a small typo",
+    "a typo in",
+    "fix the typo",
+    "one config option",
+    "one config value",
+    "toggle one setting",
+    "설정 하나만",
+    "오타 하나만",
+    "변수 하나만",
 )
 _BOUNDED_DIRECT_TASK_BLOCKERS = (
     "across all files",
@@ -5142,6 +5155,7 @@ _BOUNDED_DIRECT_TASK_BLOCKERS = (
     "release",
     "repo-wide",
 )
+_BOUNDED_DIRECT_TASK_MAX_WORDS = 8
 
 
 def _direct_answer_fast_path_decision(
@@ -5172,12 +5186,15 @@ def _bounded_direct_task_fast_path_decision(
     source: str,
     min_confidence: str,
 ) -> ChatRouteDecision | None:
-    if not contains_cue_phrase(routing_message, _BOUNDED_DIRECT_TASK_TERMS):
+    scoped = _bounded_direct_blocker_scope(routing_message)
+    if not contains_cue_phrase(scoped, _BOUNDED_DIRECT_TASK_TERMS):
         return None
-    if contains_cue_phrase(
-        _bounded_direct_blocker_scope(routing_message),
-        _BOUNDED_DIRECT_TASK_BLOCKERS,
-    ):
+    if contains_cue_phrase(scoped, _BOUNDED_DIRECT_TASK_BLOCKERS):
+        return None
+    if len(normalized_phrase(scoped).split()) > _BOUNDED_DIRECT_TASK_MAX_WORDS:
+        # A bounded phrase inside a longer request is not a bounded request:
+        # "change one setting, then refactor the entire auth system" must keep
+        # its named heavy workflow instead of being deflected to direct handling.
         return None
     return _direct_answer_decision(message, source=source, min_confidence=min_confidence)
 
@@ -5234,6 +5251,7 @@ def _router_direct_answer_recommendation(query: str) -> dict[str, object]:
         "phase": definition.phase,
         "hermes_role": definition.hermes_role,
         "handoff_policy": definition.handoff_policy,
+        "reasoning_demand": definition.reasoning_demand,
         "score": 0,
         "confidence": "low",
         "matched": ["direct_answer_fast_path"],
@@ -5316,6 +5334,7 @@ def _router_picker_recommendation(
         "phase": definition.phase,
         "hermes_role": definition.hermes_role,
         "handoff_policy": definition.handoff_policy,
+        "reasoning_demand": definition.reasoning_demand,
         "score": score,
         "confidence": "high",
         "matched": list(matched),
@@ -6120,7 +6139,7 @@ def _compact_recommendations(recommendations: object) -> list[dict[str, object]]
                 "score": _int_value(item.get("score", 0)),
                 "confidence": str(item.get("confidence", "low")),
                 "matched": _string_list(item.get("matched", [])),
-                "reasoning_demand": str(item.get("reasoning_demand", "standard")),
+                "reasoning_demand": _resolved_reasoning_demand(item),
                 "next_action": str(item.get("next_action", "")),
                 "evidence_boundary": str(item.get("evidence_boundary", "")),
                 "wrapper_guidance": str(item.get("wrapper_guidance", "")),
@@ -6337,6 +6356,17 @@ def _int_value(value: object, default: int = 0) -> int:
         except ValueError:
             return default
     return default
+
+
+def _resolved_reasoning_demand(item: dict[str, object]) -> str:
+    value = item.get("reasoning_demand")
+    if value in {"light", "standard", "heavy"}:
+        return str(value)
+    skill = str(item.get("skill") or "")
+    return next(
+        (definition.reasoning_demand for definition in routable_definitions() if definition.name == skill),
+        "standard",
+    )
 
 
 def _string_list(value: object) -> list[str]:

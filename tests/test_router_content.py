@@ -2445,13 +2445,19 @@ class RouterContentTests(unittest.TestCase):
 
         from omh.skills.validation import _validate_skill_definition
 
-        invalid = SkillDefinition("invalid-reasoning", "A test skill.", (), "Use when validating demand values.")
-        object.__setattr__(invalid, "reasoning_demand", "unsupported")
-        errors = _validate_skill_definition(invalid, {primary_harness_for_skill(invalid.name)})
-        self.assertTrue(any("reasoning_demand" in error for error in errors))
-        for invalid_value in (None, False, 0):
+        for invalid_value in ("unsupported", None, False, 0):
             with self.subTest(invalid_reasoning_demand=invalid_value):
-                object.__setattr__(invalid, "reasoning_demand", invalid_value)
+                invalid = SkillDefinition(
+                    "invalid-reasoning",
+                    "A test skill.",
+                    (),
+                    "Use when validating demand values.",
+                    reasoning_demand=invalid_value,
+                )
+                # Category inheritance must fill only the empty-string default;
+                # falsey non-string values must survive construction unchanged
+                # so validation can reject them instead of silently coercing.
+                self.assertEqual(invalid.reasoning_demand, invalid_value)
                 errors = _validate_skill_definition(invalid, {primary_harness_for_skill(invalid.name)})
                 self.assertTrue(any("reasoning_demand" in error for error in errors))
 

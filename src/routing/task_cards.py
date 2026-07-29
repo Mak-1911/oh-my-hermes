@@ -308,11 +308,21 @@ def classify_task(message: str) -> dict[str, object] | None:
     return None
 
 
+def _task_card_reasoning_demand(skill: str) -> str:
+    from ..skills.catalog import routable_definitions
+
+    return next(
+        (definition.reasoning_demand for definition in routable_definitions() if definition.name == skill),
+        "standard",
+    )
+
+
 def task_card_recommendation(card: dict[str, object]) -> dict[str, object]:
     task_type = str(card.get("task_type", "unknown_task"))
     selected = str(card.get("selected_workflow_rail", "oh-my-hermes"))
     return {
         "skill": selected,
+        "reasoning_demand": _task_card_reasoning_demand(selected),
         "score": int(card.get("score", 12)),
         "confidence": str(card.get("confidence", "high")),
         "matched": [f"task_card:{task_type}", str(card.get("route_level", TASK_CARD_ROUTE_LEVEL))],

@@ -66,6 +66,7 @@ from ..skills.catalog import (
     coding_intent_for_skill,
     coding_skills_for_intent,
     coding_terms_for_intent,
+    routable_definitions,
     harness_quality_contract,
     primary_harness_for_skill,
     retained_delegation_skill_names,
@@ -1592,6 +1593,17 @@ def _delegation_prompt_template(action: str, intent: str, workflow: str, harness
     ).format(intent=intent, workflow=workflow, harness=harness, message="{message}")
 
 
+def _resolved_reasoning_demand(item: dict[str, object]) -> str:
+    value = item.get("reasoning_demand")
+    if value in {"light", "standard", "heavy"}:
+        return str(value)
+    skill = str(item.get("skill") or "")
+    return next(
+        (definition.reasoning_demand for definition in routable_definitions() if definition.name == skill),
+        "standard",
+    )
+
+
 def _compact_recommendations(recommendations: object) -> list[dict[str, object]]:
     if not isinstance(recommendations, list):
         return []
@@ -1606,7 +1618,7 @@ def _compact_recommendations(recommendations: object) -> list[dict[str, object]]
                 "score": int(item.get("score", 0)),
                 "confidence": str(item.get("confidence", "low")),
                 "matched": [str(value) for value in matched] if isinstance(matched, list) else [],
-                "reasoning_demand": str(item.get("reasoning_demand", "standard")),
+                "reasoning_demand": _resolved_reasoning_demand(item),
             }
         )
     return compact
