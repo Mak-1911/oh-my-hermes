@@ -82,6 +82,7 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "prepare_paper_learning": "preparing a paper-learning explainer",
     "prepare_production_audit": "preparing a production readiness audit",
     "prepare_quality_performance_and_usability_review": "preparing a quality and usability review",
+    "prepare_ultraperf_loop": "preparing a measured performance loop",
     "prepare_reliability_review": "preparing a reliability review",
     "prepare_report_package": "preparing a report package",
     "prepare_research_department_plan": "preparing a research department plan",
