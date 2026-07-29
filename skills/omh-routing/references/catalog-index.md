@@ -94,6 +94,7 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `ulw-team`: [omh] Team - run N coordinated workers on one shared task list with explicit lane ownership and merged verification; choose over raw subagents when lanes must not collide.
 - `omh-toolbelt-readiness`: [omh] Hermes toolbelt readiness workflow: check which MCP servers, CLIs, APIs, credentials, and connectors a workflow needs before claiming it can run.
 - `ulw-goal`: [omh] Ultragoal - durable multi-session goal tracking: a checkpointed ledger survives context loss and resumes exactly where work stopped, with a final completion gate.
+- `ulw-perf`: [omh] Ultraperf - find where a system is actually slow, leaking, or expensive across runtime, memory, token cost, storage, rendering, inference, CI, and query domains, then fix one measured hot path at a time behind a regression budget.
 - `ulw-process`: [omh] Ultraprocess - one full task-to-PR cycle: codebase research, reviewed plan, coding handoff to the selected executor, code review, docs sync, and PR, tracked end to end.
 - `ulw-qa`: [omh] Hermes UltraQA workflow: adversarial QA and fix loops.
 - `ulw-work`: [omh] Ultrawork - split an accepted plan into disjoint parallel lanes with per-lane acceptance criteria, verification commands, and owners; prevents two lanes editing the same file.
