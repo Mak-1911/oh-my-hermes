@@ -22,7 +22,8 @@
    "meta-router",
    "plan",
    "ralph",
-   "performance-goal"
+   "performance-goal",
+   "product-brief"
   ],
   "route_summary": "Clarify the goal, choose the planning depth, and show the next concrete action.",
   "source_examples": [
@@ -57,7 +58,13 @@
    "best-practice-research",
    "autoresearch-goal",
    "research-brief",
-   "meeting-brief"
+   "meeting-brief",
+   "finance-analysis",
+   "people-ops",
+   "legal-compliance-review",
+   "support-operations",
+   "curriculum-design",
+   "sales-development"
   ],
   "route_summary": "Name the source/synthesis split before summarizing or planning from the material.",
   "source_examples": [
@@ -126,7 +133,8 @@
    "img-summary",
    "content-operator",
    "media-input-operator",
-   "design-orchestration"
+   "design-orchestration",
+   "localization-review"
   ],
   "route_summary": "Prepare the copy, prompt, package, or QA contract before claiming generated output.",
   "source_examples": [

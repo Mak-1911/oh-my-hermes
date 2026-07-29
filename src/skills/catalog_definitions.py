@@ -16,6 +16,7 @@ from ..paper_learning import (
     PAPER_LEARNING_NOT_OBSERVED,
     PAPER_LEARNING_SOURCE_STATES,
 )
+from ..plugin_bundle.omh.domain_signals import SPECIALIST_DOMAIN_TRIGGERS
 from ..routing.materials_cues import (
     OFFICE_FILE_MATERIAL_CATALOG_TRIGGERS,
 )
@@ -36,6 +37,14 @@ from .catalog_types import (
     _HERMES_SETUP_SKIP_SEMANTICS,
     _HERMES_SETUP_WRITE_BOUNDARY,
 )
+
+_SPECIALIST_DOMAIN_HANDOFF_BOUNDARY = (
+    "Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. "
+    "A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, "
+    "implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when "
+    "the user explicitly accepts that next step; report it only from observed evidence."
+)
+
 
 _DEFINITIONS = [
     SkillDefinition(
@@ -1222,6 +1231,390 @@ _DEFINITIONS = [
             prompt="feedback-triage implement the accepted billing fix now.",
             expected="Route to planning or coding handoff instead of re-triaging.",
             why="The decision is already accepted, so triage would add delay without improving evidence.",
+        ),
+    ),
+    SkillDefinition(
+        "finance-analysis",
+        "Turn finance and accounting inputs into a decision-ready variance, cash, and close-risk brief.",
+        SPECIALIST_DOMAIN_TRIGGERS["finance-analysis"],
+        "Use when supplied ledger, budget, forecast, revenue, expense, cash-flow, or close context needs a bounded analysis and decision brief.",
+        category="operations",
+        phase="finance-analysis",
+        hermes_role="retained-cognition",
+        delegation_boundary="retained-catalog-intent",
+        handoff_policy=(
+            _SPECIALIST_DOMAIN_HANDOFF_BOUNDARY
+            + " Calculations are only as authoritative as supplied or observed sources and methods; no ERP, bank, ledger, tax, payment, or filing action is implied."
+        ),
+        required_inputs=("period", "supplied finance source", "decision question", "calculation assumptions"),
+        expected_outputs=(
+            "period and source-boundary statement",
+            "actual-versus-plan and variance narrative with calculation/assumption gaps",
+            "cash, close, control, or decision-risk register",
+            "decision questions and next route such as strategy-brief, data-analysis, or human finance review",
+        ),
+        artifact_expectations=("prepared finance analysis brief when a wrapper captures it",),
+        safety_rules=(
+            "State source and calculation assumptions before presenting a variance.",
+            "Do not imply an ERP, bank, ledger, tax, payment, or filing action occurred.",
+        ),
+        quality_tier="evidence-gated",
+        quality_bar=(
+            "Separate supplied numbers, assumptions, and missing finance evidence.",
+            "Keep decision and escalation questions explicit.",
+        ),
+        why_this_exists="`finance-analysis` turns bounded accounting and finance context into a decision brief without presenting a prepared calculation as an authoritative financial action.",
+        do_not_use_when=(
+            "The request is for a current quote, exchange rate, crypto price, or other live market lookup; use `live-info-operator`.",
+            "The user wants generic exploration of a supplied CSV or table without accounting periods, controls, or finance decision framing; use `data-analysis`.",
+            "The user asks to post journal entries, reconcile accounts, approve payments, submit tax filings, or configure an accounting system; use `connector-operator` for an explicit observed action path.",
+            "The user needs an enterprise or product direction decision after analysis; route that decision to `strategy-brief`.",
+        ),
+        good_example=SkillExample(
+            prompt="Compare Q2 actuals against budget, explain the biggest expense variances, and flag cash risks for the CFO.",
+            expected="Prepare the period boundary, actual-versus-plan narrative, cash-risk register, and decision questions.",
+            why="The supplied finance framing needs a bounded decision brief rather than an external accounting action.",
+        ),
+        bad_example=SkillExample(
+            prompt="What is the USD/KRW exchange rate right now?",
+            expected="Route to `live-info-operator`, not `finance-analysis`.",
+            why="A live exchange rate needs observed provider data rather than a finance analysis brief.",
+        ),
+    ),
+    SkillDefinition(
+        "people-ops",
+        "Turn hiring and people context into a fair, structured recruiting or people-operations brief.",
+        SPECIALIST_DOMAIN_TRIGGERS["people-ops"],
+        "Use when a team needs a role brief, hiring plan, interview rubric, candidate-debrief structure, onboarding outline, or people-process decision support.",
+        category="operations",
+        phase="people-operations",
+        hermes_role="retained-cognition",
+        delegation_boundary="retained-catalog-intent",
+        handoff_policy=(
+            _SPECIALIST_DOMAIN_HANDOFF_BOUNDARY
+            + " Hermes can prepare fair process guidance and interview artifacts; it cannot claim a candidate was contacted, evaluated, hired, rejected, or recorded in an HR system."
+        ),
+        required_inputs=("role or people-process outcome", "available evidence", "decision owner", "policy constraints"),
+        expected_outputs=(
+            "role/outcome and must-have versus trainable-criteria brief",
+            "structured interview scorecard and evidence-based debrief template",
+            "hiring-process, interviewer, and decision-owner plan",
+            "inclusion, privacy, policy, and missing-evidence flags with a next route",
+        ),
+        artifact_expectations=("prepared people-operations brief when a wrapper captures it",),
+        safety_rules=(
+            "Keep protected characteristics and missing interview evidence out of unsupported candidate recommendations.",
+            "Do not claim HRIS, ATS, outreach, interview, or employment-status actions occurred.",
+        ),
+        quality_tier="evidence-gated",
+        quality_bar=(
+            "Distinguish role outcomes from proxy criteria and missing evidence.",
+            "Keep inclusion, privacy, policy, and decision-owner gaps visible.",
+        ),
+        why_this_exists="`people-ops` keeps recruiting and people-process guidance fair, structured, and evidence bounded before any human decision or external HR action.",
+        do_not_use_when=(
+            "The request asks for a jurisdiction-specific employment-law conclusion, policy compliance ruling, or contract interpretation; use `legal-compliance-review`.",
+            "The user only needs a one-off job-ad, rejection, or interview-email rewrite; use `content-operator`.",
+            "The user asks to create ATS records, send invitations, book interviews, change employment status, or modify HRIS settings; use `connector-operator` with explicit authorization and observed results.",
+            "The prompt asks the workflow to make an unsupported candidate decision from protected characteristics or missing interview evidence; retain the process and evidence gap instead.",
+        ),
+        good_example=SkillExample(
+            prompt="Create an interview scorecard and debrief plan for our first senior support hire.",
+            expected="Prepare role criteria, a structured scorecard, a debrief template, and decision-owner plan.",
+            why="The request needs a fair hiring-process brief, not a claim that a candidate was evaluated or hired.",
+        ),
+        bad_example=SkillExample(
+            prompt="Send calendar invitations to every candidate for next Tuesday.",
+            expected="Route to `connector-operator`, not `people-ops`.",
+            why="Sending invitations is an explicit external calendar action.",
+        ),
+    ),
+    SkillDefinition(
+        "legal-compliance-review",
+        "Surface contract and compliance risks, questions, and escalation points before a legal decision or action.",
+        SPECIALIST_DOMAIN_TRIGGERS["legal-compliance-review"],
+        "Use when supplied contract, policy, product, process, or regulatory context needs a scoped issue matrix, assumptions, and counsel/escalation brief.",
+        category="review",
+        phase="legal-compliance-review",
+        hermes_role="hybrid-review",
+        delegation_boundary="retained-catalog-intent",
+        handoff_policy=(
+            _SPECIALIST_DOMAIN_HANDOFF_BOUNDARY
+            + " The result is a prepared review and escalation aid, not legal advice, counsel sign-off, compliance certification, contract execution, filing, or regulator communication."
+        ),
+        required_inputs=("jurisdiction", "document or process version", "supplied authority", "review objective"),
+        expected_outputs=(
+            "jurisdiction, document/version, authority, and evidence-boundary statement",
+            "clause/control/requirement matrix with issue, rationale, owner, and open question",
+            "risk-ranked negotiation, remediation, or counsel-escalation brief",
+            "review checklist that distinguishes supplied evidence from legal interpretation",
+        ),
+        artifact_expectations=("prepared legal and compliance issue matrix when a wrapper captures it",),
+        safety_rules=(
+            "Distinguish supplied authority from legal interpretation and final advice.",
+            "Do not claim sign-off, certification, filing, execution, or regulator communication.",
+        ),
+        quality_tier="review-gated",
+        quality_bar=(
+            "Name jurisdiction, authority, document version, and unresolved questions.",
+            "Rank issues and preserve the counsel-escalation boundary.",
+        ),
+        why_this_exists="`legal-compliance-review` surfaces scoped legal and compliance issues before a human legal decision without pretending Hermes is counsel or an external filing surface.",
+        do_not_use_when=(
+            "The user needs a final jurisdiction-specific legal opinion, legal representation, or authoritative filing decision; prepare the issue and counsel brief instead.",
+            "The review is about code, secrets, permissions, prompt injection, dependencies, or unsafe tool behavior; use `security-safety-review`.",
+            "The request is a plain-language rewrite without a legal-risk review objective; use `content-operator`.",
+            "The user asks to sign, accept, submit, file, publish, or change a policy or contract in an external system; use `connector-operator` only after explicit authority.",
+        ),
+        good_example=SkillExample(
+            prompt="Review this vendor DPA for data-processing obligations, risky clauses, and questions for counsel.",
+            expected="Prepare an authority-bound issue matrix, ranked risks, and counsel questions.",
+            why="The request needs a prepared review and escalation aid before a legal decision.",
+        ),
+        bad_example=SkillExample(
+            prompt="Audit this OAuth integration for secret and permission risks.",
+            expected="Route to `security-safety-review`, not `legal-compliance-review`.",
+            why="The target is technical security risk rather than contract or compliance analysis.",
+        ),
+    ),
+    SkillDefinition(
+        "support-operations",
+        "Turn a support case into a clear customer reply, severity path, and owned next step.",
+        SPECIALIST_DOMAIN_TRIGGERS["support-operations"],
+        "Use when one or a bounded set of support contacts needs response drafting, urgency classification, incident/escalation routing, and follow-up ownership.",
+        category="triage",
+        phase="support-operations",
+        hermes_role="retained-cognition",
+        delegation_boundary="retained-catalog-intent",
+        handoff_policy=(
+            _SPECIALIST_DOMAIN_HANDOFF_BOUNDARY
+            + " Reply text is a draft, escalation is a recommendation, and no ticket state, message send, refund, account action, or customer outcome is claimed."
+        ),
+        required_inputs=("support case", "known facts", "customer impact", "available ownership or escalation path"),
+        expected_outputs=(
+            "customer-safe reply draft with stated facts, unknowns, and tone",
+            "issue/severity/impact/escalation matrix",
+            "internal next-step and owner handoff brief",
+            "missing repro, account, entitlement, or approval evidence list",
+        ),
+        artifact_expectations=("prepared support case brief when a wrapper captures it",),
+        safety_rules=(
+            "Keep customer-safe facts, unknowns, and escalation recommendations distinct.",
+            "Do not claim ticket mutation, message send, refund, account action, or case outcome.",
+        ),
+        quality_tier="triage-gated",
+        quality_bar=(
+            "State issue, severity, impact, evidence gaps, owner, and next route.",
+            "Draft a reply without treating it as a sent customer communication.",
+        ),
+        why_this_exists="`support-operations` turns a bounded customer case into response and escalation guidance without treating drafts or recommendations as helpdesk actions.",
+        do_not_use_when=(
+            "The request clusters a backlog of customer signals to find product patterns or roadmap candidates; use `feedback-triage`.",
+            "The user only needs a generic, non-support marketing or email rewrite with no case, severity, or escalation context; use `content-operator`.",
+            "The request asks to send a reply, change ticket priority or status, issue a refund, modify an account, or update a helpdesk; use `connector-operator` with an explicit target and observed result.",
+            "The request is an active reliability incident or postmortem rather than a support-case response; use `reliability-review`.",
+        ),
+        good_example=SkillExample(
+            prompt="Draft a calm reply for this login-outage customer and tell me whether it needs an engineering escalation.",
+            expected="Prepare a customer-safe reply, severity matrix, engineering escalation recommendation, and owner handoff.",
+            why="The request is one support case with reply and escalation decisions, not a feedback backlog or ticket mutation.",
+        ),
+        bad_example=SkillExample(
+            prompt="Cluster last quarter's support feedback into roadmap opportunities.",
+            expected="Route to `feedback-triage`, not `support-operations`.",
+            why="A historical signal backlog needs product-pattern triage rather than case-level support guidance.",
+        ),
+    ),
+    SkillDefinition(
+        "curriculum-design",
+        "Turn a learning goal into a teachable curriculum, assessment plan, and learner-ready sequence.",
+        SPECIALIST_DOMAIN_TRIGGERS["curriculum-design"],
+        "Use when an educator or enablement owner needs outcomes, scope and sequence, lesson/module design, assessment criteria, and differentiation assumptions.",
+        category="planning",
+        phase="curriculum-design",
+        hermes_role="retained-cognition",
+        delegation_boundary="retained-catalog-intent",
+        handoff_policy=(
+            _SPECIALIST_DOMAIN_HANDOFF_BOUNDARY
+            + " Hermes designs an instructional plan; it does not create an LMS course, enroll learners, grade submissions, certify learning, publish materials, or claim learning outcomes occurred."
+        ),
+        required_inputs=("learners", "learning goal", "prerequisites", "constraints"),
+        expected_outputs=(
+            "learner/audience, prerequisite, outcome, and constraint brief",
+            "scope-and-sequence with modules/lessons and activity rationale",
+            "formative/summative assessment rubric and completion evidence",
+            "accessibility, adaptation, and source/rights questions plus next route",
+        ),
+        artifact_expectations=("prepared curriculum design brief when a wrapper captures it",),
+        safety_rules=(
+            "Make learner prerequisites, accessibility, adaptation, and source-rights gaps explicit.",
+            "Do not claim LMS mutation, enrollment, grading, certification, publication, or learning outcomes.",
+        ),
+        quality_tier="planning-gated",
+        quality_bar=(
+            "Tie outcomes to scope, sequence, activities, assessments, and completion evidence.",
+            "Keep instructional design distinct from exported materials or LMS actions.",
+        ),
+        why_this_exists="`curriculum-design` makes instructional outcomes, sequence, assessment, and learner constraints reviewable before materials, LMS, or grading work.",
+        do_not_use_when=(
+            "The user wants an explanation of a supplied academic paper rather than a teachable sequence; use `paper-learning`.",
+            "The user needs a deck, workbook, PDF, or other exported learning artifact; route packaging to `materials-package` after the curriculum is accepted.",
+            "The user asks to create or publish an LMS course, enroll students, grade work, or change course settings; use `connector-operator` with explicit authorization and observed evidence.",
+            "The user needs only a short rewrite or one isolated worksheet prompt, not curriculum structure; use `content-operator`.",
+        ),
+        good_example=SkillExample(
+            prompt="Design a six-week onboarding curriculum with learning objectives and practical assessments for new support agents.",
+            expected="Prepare learner constraints, scope and sequence, learning objectives, assessments, and adaptation questions.",
+            why="The request needs a teachable sequence and assessment plan rather than an LMS course or exported material.",
+        ),
+        bad_example=SkillExample(
+            prompt="Explain the attached machine-learning paper for a beginner.",
+            expected="Route to `paper-learning`, not `curriculum-design`.",
+            why="A supplied paper explanation is not a curriculum-design request.",
+        ),
+    ),
+    SkillDefinition(
+        "localization-review",
+        "Make a product or content release locale-ready with terminology, cultural-fit, and quality-review guidance.",
+        SPECIALIST_DOMAIN_TRIGGERS["localization-review"],
+        "Use when multiple strings, a product surface, a market release, or a locale-sensitive document needs terminology, context, consistency, cultural-fit, and QA guidance beyond one-off translation.",
+        category="review",
+        phase="localization-review",
+        hermes_role="hybrid-review",
+        delegation_boundary="retained-catalog-intent",
+        handoff_policy=(
+            _SPECIALIST_DOMAIN_HANDOFF_BOUNDARY
+            + " Hermes may draft and review language guidance; it does not alter locale files, upload strings, publish translations, validate a rendered build, or claim market approval."
+        ),
+        required_inputs=("locale", "audience", "source version", "product or content context"),
+        expected_outputs=(
+            "locale/audience/context and source-version brief",
+            "approved-term glossary and transcreation/localization choices",
+            "string/content issue matrix with context, severity, and review owner",
+            "locale QA acceptance criteria and handoff/observed-evidence gaps",
+        ),
+        artifact_expectations=("prepared localization review when a wrapper captures it",),
+        safety_rules=(
+            "Separate language guidance from rendered UI evidence and market approval.",
+            "Do not claim locale-file changes, translation upload, publication, or rendered validation.",
+        ),
+        quality_tier="review-gated",
+        quality_bar=(
+            "Ground terminology and cultural-fit choices in locale, audience, context, and source version.",
+            "Make string severity, review ownership, and rendered QA gaps explicit.",
+        ),
+        why_this_exists="`localization-review` makes terminology, context, cultural fit, and locale QA reviewable without treating a drafted translation as a published or visually validated release.",
+        do_not_use_when=(
+            "The request is a short sentence or word translation or rewrite with no product or locale QA context; answer directly or use `content-operator`.",
+            "The user needs fresh rendered UI evidence, clipping checks, or a visual PASS/REVISE/BLOCK verdict; use `visual-qa`.",
+            "The user asks to edit locale files, push a translation-management-system job, publish strings, or configure localization settings; use `workspace-file-operator` or `connector-operator` with explicit target and authority.",
+            "The request asks for a regulatory or contractual conclusion about translated legal text; use `legal-compliance-review`.",
+        ),
+        good_example=SkillExample(
+            prompt="Review our Korean checkout strings for terminology consistency, cultural fit, and context gaps before launch.",
+            expected="Prepare the locale and source-version brief, glossary choices, issue matrix, and locale QA criteria.",
+            why="The product-release context needs localization review beyond a one-off translation.",
+        ),
+        bad_example=SkillExample(
+            prompt="Translate 'Your trial ends tomorrow' into Korean.",
+            expected="Answer directly or route to `content-operator`, not `localization-review`.",
+            why="A one-off sentence has no product locale QA or release-review objective.",
+        ),
+    ),
+    SkillDefinition(
+        "sales-development",
+        "Turn an account or market opportunity into a focused discovery, qualification, and next-step brief.",
+        SPECIALIST_DOMAIN_TRIGGERS["sales-development"],
+        "Use when a seller or business-development owner needs account context, buyer hypotheses, qualification questions, value narrative, partner/outreach plan, and a non-executing next-step sequence.",
+        category="strategy",
+        phase="sales-development",
+        hermes_role="retained-cognition",
+        delegation_boundary="retained-catalog-intent",
+        handoff_policy=(
+            _SPECIALIST_DOMAIN_HANDOFF_BOUNDARY
+            + " Hermes prepares research, discovery, and message guidance; it does not research unobserved facts as facts, contact prospects, create opportunities, change CRM data, book meetings, or claim revenue or progress."
+        ),
+        required_inputs=("account or segment", "available evidence", "buyer hypothesis", "sales objective"),
+        expected_outputs=(
+            "account/segment, buyer, problem, and evidence-gap brief",
+            "discovery-question and qualification framework",
+            "value narrative, objection hypotheses, and outreach-draft outline",
+            "next-step/owner plan with CRM, approval, and source gaps explicit",
+        ),
+        artifact_expectations=("prepared sales development brief when a wrapper captures it",),
+        safety_rules=(
+            "Treat unsupported company and competitor information as evidence gaps, not facts.",
+            "Do not claim prospect contact, CRM mutation, meeting booking, opportunity creation, revenue, or progress.",
+        ),
+        quality_tier="decision-gated",
+        quality_bar=(
+            "Separate account evidence, buyer hypotheses, qualification questions, and next-step ownership.",
+            "Keep outreach drafts and CRM actions explicitly non-executing.",
+        ),
+        why_this_exists="`sales-development` prepares account-level discovery and qualification guidance without turning research hypotheses or draft outreach into sales execution claims.",
+        do_not_use_when=(
+            "The user needs a company-level positioning, market-entry, or strategic-options decision rather than account-level discovery; use `strategy-brief`.",
+            "The user only wants a polished social post, newsletter, or one-off outbound-copy rewrite; use `content-operator`.",
+            "The user asks to send outreach, update Salesforce or HubSpot, create an opportunity, or book a meeting; use `connector-operator` with explicit recipient, object, and authority.",
+            "The request asks for current competitor or company evidence but supplies no source material; begin with `web-research` before presenting claims as observed.",
+        ),
+        good_example=SkillExample(
+            prompt="Build a discovery plan and qualification questions for a mid-market prospect considering our support platform.",
+            expected="Prepare account evidence gaps, discovery and qualification questions, value hypotheses, and an owned next-step plan.",
+            why="The request is account-level sales discovery, not outreach execution or company strategy.",
+        ),
+        bad_example=SkillExample(
+            prompt="Write a LinkedIn launch post for our new feature.",
+            expected="Route to `content-operator`, not `sales-development`.",
+            why="A one-off social post has no account qualification or discovery objective.",
+        ),
+    ),
+    SkillDefinition(
+        "product-brief",
+        "Turn product evidence into a decision-ready PRD, prioritization frame, and roadmap brief.",
+        SPECIALIST_DOMAIN_TRIGGERS["product-brief"],
+        "Use when a product owner needs a problem frame, user/outcome definition, PRD, prioritization/roadmap options, dependencies, acceptance shape, and decision record before delivery planning.",
+        category="planning",
+        phase="product-brief",
+        hermes_role="retained-cognition",
+        delegation_boundary="retained-catalog-intent",
+        handoff_policy=(
+            _SPECIALIST_DOMAIN_HANDOFF_BOUNDARY
+            + " A PRD or roadmap is prepared planning, not stakeholder acceptance, Jira or Linear mutation, implementation, test evidence, delivery, or a market commitment."
+        ),
+        required_inputs=("product evidence", "problem and user", "goal and non-goals", "decision owner"),
+        expected_outputs=(
+            "problem, user, evidence, metric, goal, and non-goal brief",
+            "PRD with requirements, open questions, risks, dependencies, and acceptance shape",
+            "prioritization/roadmap options with tradeoffs and decision owner",
+            "explicit downstream route to ralplan, strategy-brief, or ultraprocess only when its prerequisite is satisfied",
+        ),
+        artifact_expectations=("prepared product brief or PRD when a wrapper captures it",),
+        safety_rules=(
+            "Separate product evidence, assumptions, prioritization options, and stakeholder acceptance.",
+            "Do not claim roadmap-system mutation, implementation, test evidence, delivery, or market commitment.",
+        ),
+        quality_tier="planning-gated",
+        quality_bar=(
+            "Name problem, user, metric, goals, non-goals, requirements, dependencies, risks, and acceptance shape.",
+            "Preserve decision owner and downstream prerequisite boundaries.",
+        ),
+        why_this_exists="`product-brief` turns product evidence into a reviewable PRD and prioritization frame before delivery planning without treating a draft as an accepted roadmap commitment.",
+        do_not_use_when=(
+            "The input is unprocessed feedback, bug reports, or feature asks that first need clustering and evidence boundaries; use `feedback-triage`.",
+            "The user needs a company or product strategy decision across high-level options rather than a requirements or roadmap artifact; use `strategy-brief`.",
+            "The request is an accepted, code-ready change with repository constraints and verification needs; use `ralplan` or `ultraprocess` rather than recreating a PRD.",
+            "The user asks to create or update Jira, Linear, Aha!, or a roadmap system directly; use `connector-operator` with explicit target, approval, and observed evidence.",
+        ),
+        good_example=SkillExample(
+            prompt="Create a PRD and prioritization options for reducing first-time user drop-off in onboarding.",
+            expected="Prepare the product problem, user and metric brief, PRD, roadmap options, tradeoffs, and downstream prerequisites.",
+            why="The request needs a decision-ready requirements and prioritization artifact before delivery planning.",
+        ),
+        bad_example=SkillExample(
+            prompt="Implement the accepted onboarding PRD and open a PR.",
+            expected="Route to `ultraprocess` or `ralplan`, not `product-brief`.",
+            why="Accepted implementation work should move into planning or delivery rather than recreate a PRD.",
         ),
     ),
     SkillDefinition(

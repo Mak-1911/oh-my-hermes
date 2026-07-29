@@ -182,6 +182,14 @@ VISIBLE_ACTIONS = (
     "record_content_qa",
     "record_layout_qa",
     "record_surface_quality_matrix",
+    "prepare_finance_analysis",
+    "prepare_people_ops_brief",
+    "prepare_legal_compliance_review",
+    "prepare_support_operations",
+    "prepare_curriculum_design",
+    "prepare_localization_review",
+    "prepare_sales_development",
+    "prepare_product_brief",
     "prepare_frontend_handoff",
     "show_frontend_handoff",
     "record_browser_capture",
@@ -875,6 +883,14 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "prepare_material_package": ("prepare_material_package", "Prepare package"),
     "prepare_design_quality_gate": ("prepare_design_quality_gate", "Prepare design gate"),
     "prepare_design_orchestration": ("prepare_design_orchestration", "Prepare design direction"),
+    "prepare_finance_analysis": ("prepare_finance_analysis", "Prepare finance analysis"),
+    "prepare_people_ops_brief": ("prepare_people_ops_brief", "Prepare people ops"),
+    "prepare_legal_compliance_review": ("prepare_legal_compliance_review", "Prepare legal review"),
+    "prepare_support_operations": ("prepare_support_operations", "Prepare support guidance"),
+    "prepare_curriculum_design": ("prepare_curriculum_design", "Prepare curriculum"),
+    "prepare_localization_review": ("prepare_localization_review", "Prepare localization review"),
+    "prepare_sales_development": ("prepare_sales_development", "Prepare sales brief"),
+    "prepare_product_brief": ("prepare_product_brief", "Prepare product brief"),
     "prepare_frontend_handoff": ("prepare_frontend_handoff", "Prepare frontend"),
     "prepare_accessibility_audit": ("prepare_accessibility_audit", "Audit accessibility"),
     "prepare_visual_qa": ("prepare_visual_qa", "Prepare visual QA"),
@@ -1049,6 +1065,42 @@ _OPERATING_BRIEF_CHAT_CARDS: dict[str, dict[str, object]] = {
         ],
     },
 }
+
+_OPERATING_BRIEF_CHAT_CARDS.update(
+    {
+        "product-brief": {
+            "kind": "product_brief",
+            "headline": "I can turn this product evidence into a decision-ready PRD and roadmap brief.",
+            "body": (
+                "I will prepare the problem, user, evidence, metric, goal, non-goal, requirements, prioritization options, "
+                "dependencies, risks, acceptance shape, and decision owner. A draft PRD is not stakeholder acceptance, "
+                "roadmap-system mutation, implementation, test evidence, delivery, or a market commitment."
+            ),
+            "phase": "product_brief_prepared",
+            "next_action": "prepare_product_brief",
+            "artifact_schema": "product_brief_card/v1",
+            "actions": [
+                {"id": "prepare_product_brief", "label": "Prepare product brief", "style": "primary"},
+                {"id": "prepare_strategy_brief", "label": "Prepare strategy", "style": "secondary"},
+                {"id": "show_status", "label": "Show status", "style": "secondary"},
+            ],
+            "recommended_flow": [
+                "frame_problem_user_and_evidence",
+                "write_requirements_risks_dependencies_and_acceptance_shape",
+                "compare_prioritization_options_and_tradeoffs",
+                "name_decision_owner_and_gated_downstream_route",
+            ],
+            "evidence_not_observed": [
+                "stakeholder acceptance",
+                "Jira, Linear, or roadmap-system mutation",
+                "implementation",
+                "test evidence",
+                "delivery",
+                "market commitment",
+            ],
+        },
+    }
+)
 
 _OPERATING_BRIEF_WORKFLOW_BY_NEXT_ACTION = {
     str(config["next_action"]): workflow for workflow, config in _OPERATING_BRIEF_CHAT_CARDS.items()
@@ -1362,6 +1414,71 @@ _REVIEW_QUALITY_CHAT_CARDS: dict[str, dict[str, object]] = {
         ],
     },
 }
+
+_REVIEW_QUALITY_CHAT_CARDS.update(
+    {
+        "legal-compliance-review": {
+            "kind": "legal_compliance_review",
+            "headline": "I can prepare a scoped legal and compliance issue review before a decision or action.",
+            "body": (
+                "I will prepare jurisdiction, document/version, authority, and evidence boundaries; a clause, control, or requirement "
+                "matrix; ranked risks; and counsel-escalation questions. This is not legal advice, counsel sign-off, compliance certification, "
+                "contract execution, filing, or regulator communication."
+            ),
+            "phase": "legal_compliance_review_prepared",
+            "next_action": "prepare_legal_compliance_review",
+            "artifact_schema": "legal_compliance_review_card/v1",
+            "actions": [
+                {"id": "prepare_legal_compliance_review", "label": "Prepare legal review", "style": "primary"},
+                {"id": "prepare_review_or_followup_handoff", "label": "Prepare follow-up review", "style": "secondary"},
+                {"id": "show_status", "label": "Show status", "style": "secondary"},
+            ],
+            "recommended_flow": [
+                "state_jurisdiction_authority_document_and_evidence_boundary",
+                "build_clause_control_or_requirement_matrix",
+                "rank_risks_and_counsel_questions",
+                "separate_prepared_review_from_legal_decision_or_action",
+            ],
+            "evidence_not_observed": [
+                "legal advice",
+                "counsel sign-off",
+                "compliance certification",
+                "contract execution",
+                "filing",
+                "regulator communication",
+            ],
+        },
+        "localization-review": {
+            "kind": "localization_review",
+            "headline": "I can prepare locale-ready terminology, cultural-fit, and quality-review guidance.",
+            "body": (
+                "I will prepare locale and source-version context, terminology choices, a string issue matrix, review ownership, and locale QA "
+                "criteria. This is not a locale-file change, translation upload, publication, rendered-build validation, or market approval."
+            ),
+            "phase": "localization_review_prepared",
+            "next_action": "prepare_localization_review",
+            "artifact_schema": "localization_review_card/v1",
+            "actions": [
+                {"id": "prepare_localization_review", "label": "Prepare localization review", "style": "primary"},
+                {"id": "prepare_visual_qa", "label": "Prepare visual QA", "style": "secondary"},
+                {"id": "show_status", "label": "Show status", "style": "secondary"},
+            ],
+            "recommended_flow": [
+                "scope_locale_audience_context_and_source_version",
+                "prepare_glossary_and_localization_choices",
+                "rank_string_issues_and_review_owner",
+                "name_locale_qa_and_rendered_evidence_gaps",
+            ],
+            "evidence_not_observed": [
+                "locale-file change",
+                "translation upload",
+                "publication",
+                "rendered-build validation",
+                "market approval",
+            ],
+        },
+    }
+)
 
 _DELIVERY_RUNTIME_CHAT_CARDS: dict[str, dict[str, object]] = {
     "idea-to-deploy": {
@@ -2911,6 +3028,107 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS.update(
         },
     }
 )
+
+_WORKFLOW_OPERATIONS_CHAT_CARDS.update(
+    {
+        "finance-analysis": {
+            "kind": "finance_analysis",
+            "headline": "I can prepare a decision-ready finance variance, cash, and close-risk brief.",
+            "body": (
+                "I will prepare the period and source boundary, actual-versus-plan narrative, calculation assumptions, cash or close risks, "
+                "decision questions, and next review route. This is not authoritative accounting, an ERP or ledger action, payment, tax, filing, or approval evidence."
+            ),
+            "phase": "finance_analysis_prepared",
+            "next_action": "prepare_finance_analysis",
+            "artifact_schema": "finance_analysis_card/v1",
+            "claim_boundary_suffix": "It is not authoritative calculation, ERP, bank, ledger, tax, payment, filing, approval, or decision evidence.",
+            "actions": [
+                {"id": "prepare_finance_analysis", "label": "Prepare finance analysis", "style": "primary"},
+                {"id": "prepare_strategy_brief", "label": "Prepare strategy", "style": "secondary"},
+                {"id": "show_status", "label": "Show status", "style": "secondary"},
+            ],
+            "recommended_flow": ["state_period_and_source_boundary", "analyze_variance_and_assumptions", "register_cash_close_and_control_risks", "name_decision_questions_and_next_route"],
+            "evidence_not_observed": ["source validation", "authoritative calculation", "ERP or ledger action", "payment or filing", "decision approval"],
+        },
+        "people-ops": {
+            "kind": "people_ops",
+            "headline": "I can prepare a fair recruiting or people-operations brief.",
+            "body": (
+                "I will prepare role outcomes, must-have and trainable criteria, a structured interview scorecard, an evidence-based debrief, "
+                "process owners, and inclusion, privacy, policy, and evidence gaps. This is not candidate contact, evaluation, hiring, rejection, ATS, or HRIS evidence."
+            ),
+            "phase": "people_ops_prepared",
+            "next_action": "prepare_people_ops_brief",
+            "artifact_schema": "people_ops_brief_card/v1",
+            "claim_boundary_suffix": "It is not candidate contact, evaluation, hiring, rejection, ATS, HRIS, or employment-status evidence.",
+            "actions": [
+                {"id": "prepare_people_ops_brief", "label": "Prepare people ops", "style": "primary"},
+                {"id": "prepare_legal_compliance_review", "label": "Prepare legal review", "style": "secondary"},
+                {"id": "show_status", "label": "Show status", "style": "secondary"},
+            ],
+            "recommended_flow": ["define_role_outcomes_and_criteria", "prepare_structured_scorecard_and_debrief", "name_process_and_decision_owners", "surface_inclusion_privacy_policy_and_evidence_gaps"],
+            "evidence_not_observed": ["candidate contact", "candidate evaluation", "hiring decision", "ATS mutation", "HRIS mutation"],
+        },
+        "support-operations": {
+            "kind": "support_operations",
+            "headline": "I can prepare a customer-safe reply, severity path, and owned support next step.",
+            "body": (
+                "I will prepare a reply draft with stated facts and unknowns, an issue/severity/impact matrix, escalation ownership, and missing repro, account, entitlement, or approval evidence. "
+                "This is not a sent reply, ticket change, refund, account action, or customer outcome."
+            ),
+            "phase": "support_operations_prepared",
+            "next_action": "prepare_support_operations",
+            "artifact_schema": "support_operations_card/v1",
+            "claim_boundary_suffix": "It is not a sent reply, ticket mutation, refund, account action, escalation completion, or customer outcome evidence.",
+            "actions": [
+                {"id": "prepare_support_operations", "label": "Prepare support guidance", "style": "primary"},
+                {"id": "prepare_review_or_followup_handoff", "label": "Prepare follow-up review", "style": "secondary"},
+                {"id": "show_status", "label": "Show status", "style": "secondary"},
+            ],
+            "recommended_flow": ["state_customer_safe_facts_and_unknowns", "classify_issue_severity_impact_and_escalation", "draft_reply_and_internal_owner_handoff", "list_missing_case_evidence"],
+            "evidence_not_observed": ["message send", "ticket mutation", "refund", "account action", "customer outcome"],
+        },
+        "curriculum-design": {
+            "kind": "curriculum_design",
+            "headline": "I can prepare a teachable curriculum, assessment plan, and learner-ready sequence.",
+            "body": (
+                "I will prepare learner and prerequisite assumptions, outcomes, scope and sequence, module rationale, formative and summative assessments, "
+                "accessibility, adaptation, and source-rights questions. This is not LMS creation, enrollment, grading, certification, publication, or learning-outcome evidence."
+            ),
+            "phase": "curriculum_design_prepared",
+            "next_action": "prepare_curriculum_design",
+            "artifact_schema": "curriculum_design_card/v1",
+            "claim_boundary_suffix": "It is not LMS creation, enrollment, grading, certification, material publication, or learning-outcome evidence.",
+            "actions": [
+                {"id": "prepare_curriculum_design", "label": "Prepare curriculum", "style": "primary"},
+                {"id": "prepare_material_package", "label": "Prepare materials package", "style": "secondary"},
+                {"id": "show_status", "label": "Show status", "style": "secondary"},
+            ],
+            "recommended_flow": ["scope_learners_prerequisites_outcomes_and_constraints", "build_scope_and_sequence", "prepare_assessment_rubric_and_completion_evidence", "surface_accessibility_adaptation_and_rights_gaps"],
+            "evidence_not_observed": ["LMS creation", "learner enrollment", "grading", "certification", "learning outcome"],
+        },
+        "sales-development": {
+            "kind": "sales_development",
+            "headline": "I can prepare a focused account discovery, qualification, and next-step brief.",
+            "body": (
+                "I will prepare account and buyer hypotheses, evidence gaps, discovery and qualification questions, value and objection framing, outreach-draft outline, "
+                "and an owned next-step plan. This is not current fact retrieval, prospect contact, CRM mutation, meeting booking, or revenue evidence."
+            ),
+            "phase": "sales_development_prepared",
+            "next_action": "prepare_sales_development",
+            "artifact_schema": "sales_development_card/v1",
+            "claim_boundary_suffix": "It is not observed company research, prospect contact, CRM mutation, opportunity creation, meeting booking, revenue, or progress evidence.",
+            "actions": [
+                {"id": "prepare_sales_development", "label": "Prepare sales brief", "style": "primary"},
+                {"id": "run_hermes_research", "label": "Start research", "style": "secondary"},
+                {"id": "show_status", "label": "Show status", "style": "secondary"},
+            ],
+            "recommended_flow": ["scope_account_segment_buyer_and_evidence_gaps", "prepare_discovery_and_qualification_questions", "draft_value_and_objection_hypotheses", "name_owned_non_executing_next_steps"],
+            "evidence_not_observed": ["company fact retrieval", "prospect contact", "CRM mutation", "meeting booking", "revenue progress"],
+        },
+    }
+)
+
 
 def _ack_actions_for_next_action(next_action: str) -> list[dict[str, object]]:
     actions: list[dict[str, object]] = []

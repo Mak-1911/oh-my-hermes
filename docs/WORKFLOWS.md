@@ -1094,6 +1094,454 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Route code changes only after explicit user intent or accepted planning evidence.
   - product_evidence_loop/v1 is prepared-only opaque references, not observed evidence or execution.
 
+### finance-analysis
+
+[omh] Turn finance and accounting inputs into a decision-ready variance, cash, and close-risk brief.
+
+- Category: `operations`
+- Phase: `finance-analysis`
+- Hermes role: `operator`
+- Quality tier: `evidence-gated`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. Calculations are only as authoritative as supplied or observed sources and methods; no ERP, bank, ledger, tax, payment, or filing action is implied.
+- Why this exists: `finance-analysis` turns bounded accounting and finance context into a decision brief without presenting a prepared calculation as an authoritative financial action.
+- Use when: Use when supplied ledger, budget, forecast, revenue, expense, cash-flow, or close context needs a bounded analysis and decision brief.
+- Do not use when:
+  - The request is for a current quote, exchange rate, crypto price, or other live market lookup; use `live-info-operator`.
+  - The user wants generic exploration of a supplied CSV or table without accounting periods, controls, or finance decision framing; use `data-analysis`.
+  - The user asks to post journal entries, reconcile accounts, approve payments, submit tax filings, or configure an accounting system; use `connector-operator` for an explicit observed action path.
+  - The user needs an enterprise or product direction decision after analysis; route that decision to `strategy-brief`.
+- Strong routing signals: `finance analysis`, `budget vs actual`, `month-end close`, `재무 분석`, `예산 대비 실적`, `월마감`
+- Good example:
+  - Prompt: Compare Q2 actuals against budget, explain the biggest expense variances, and flag cash risks for the CFO.
+  - Expected behavior: Prepare the period boundary, actual-versus-plan narrative, cash-risk register, and decision questions.
+  - Why: The supplied finance framing needs a bounded decision brief rather than an external accounting action.
+- Bad example:
+  - Prompt: What is the USD/KRW exchange rate right now?
+  - Expected behavior: Route to `live-info-operator`, not `finance-analysis`.
+  - Why: A live exchange rate needs observed provider data rather than a finance analysis brief.
+- Quality bar:
+  - Separate supplied numbers, assumptions, and missing finance evidence.
+  - Keep decision and escalation questions explicit.
+- Completion checklist:
+  - Confirm the workflow target, evidence boundary, and stop condition are named.
+  - Report which outputs are prepared, observed, blocked, or missing.
+  - Name the smallest next verification or handoff instead of claiming completion from narration.
+- Recovery notes:
+  - If required context is missing, ask one blocking question or route back to the narrower workflow.
+  - If runtime or wrapper evidence is unavailable, keep the status as not_observed and expose the next observable action.
+- Required inputs:
+  - period
+  - supplied finance source
+  - decision question
+  - calculation assumptions
+- Expected outputs:
+  - period and source-boundary statement
+  - actual-versus-plan and variance narrative with calculation/assumption gaps
+  - cash, close, control, or decision-risk register
+  - decision questions and next route such as strategy-brief, data-analysis, or human finance review
+- Artifact expectations:
+  - prepared finance analysis brief when a wrapper captures it
+- Safety rules:
+  - State source and calculation assumptions before presenting a variance.
+  - Do not imply an ERP, bank, ledger, tax, payment, or filing action occurred.
+
+### people-ops
+
+[omh] Turn hiring and people context into a fair, structured recruiting or people-operations brief.
+
+- Category: `operations`
+- Phase: `people-operations`
+- Hermes role: `operator`
+- Quality tier: `evidence-gated`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. Hermes can prepare fair process guidance and interview artifacts; it cannot claim a candidate was contacted, evaluated, hired, rejected, or recorded in an HR system.
+- Why this exists: `people-ops` keeps recruiting and people-process guidance fair, structured, and evidence bounded before any human decision or external HR action.
+- Use when: Use when a team needs a role brief, hiring plan, interview rubric, candidate-debrief structure, onboarding outline, or people-process decision support.
+- Do not use when:
+  - The request asks for a jurisdiction-specific employment-law conclusion, policy compliance ruling, or contract interpretation; use `legal-compliance-review`.
+  - The user only needs a one-off job-ad, rejection, or interview-email rewrite; use `content-operator`.
+  - The user asks to create ATS records, send invitations, book interviews, change employment status, or modify HRIS settings; use `connector-operator` with explicit authorization and observed results.
+  - The prompt asks the workflow to make an unsupported candidate decision from protected characteristics or missing interview evidence; retain the process and evidence gap instead.
+- Strong routing signals: `recruiting plan`, `interview scorecard`, `candidate debrief`, `채용 계획`, `면접 평가표`, `후보자 비교`
+- Good example:
+  - Prompt: Create an interview scorecard and debrief plan for our first senior support hire.
+  - Expected behavior: Prepare role criteria, a structured scorecard, a debrief template, and decision-owner plan.
+  - Why: The request needs a fair hiring-process brief, not a claim that a candidate was evaluated or hired.
+- Bad example:
+  - Prompt: Send calendar invitations to every candidate for next Tuesday.
+  - Expected behavior: Route to `connector-operator`, not `people-ops`.
+  - Why: Sending invitations is an explicit external calendar action.
+- Quality bar:
+  - Distinguish role outcomes from proxy criteria and missing evidence.
+  - Keep inclusion, privacy, policy, and decision-owner gaps visible.
+- Completion checklist:
+  - Confirm the workflow target, evidence boundary, and stop condition are named.
+  - Report which outputs are prepared, observed, blocked, or missing.
+  - Name the smallest next verification or handoff instead of claiming completion from narration.
+- Recovery notes:
+  - If required context is missing, ask one blocking question or route back to the narrower workflow.
+  - If runtime or wrapper evidence is unavailable, keep the status as not_observed and expose the next observable action.
+- Required inputs:
+  - role or people-process outcome
+  - available evidence
+  - decision owner
+  - policy constraints
+- Expected outputs:
+  - role/outcome and must-have versus trainable-criteria brief
+  - structured interview scorecard and evidence-based debrief template
+  - hiring-process, interviewer, and decision-owner plan
+  - inclusion, privacy, policy, and missing-evidence flags with a next route
+- Artifact expectations:
+  - prepared people-operations brief when a wrapper captures it
+- Safety rules:
+  - Keep protected characteristics and missing interview evidence out of unsupported candidate recommendations.
+  - Do not claim HRIS, ATS, outreach, interview, or employment-status actions occurred.
+
+### legal-compliance-review
+
+[omh] Surface contract and compliance risks, questions, and escalation points before a legal decision or action.
+
+- Category: `review`
+- Phase: `legal-compliance-review`
+- Hermes role: `reviewer`
+- Quality tier: `review-gated`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. The result is a prepared review and escalation aid, not legal advice, counsel sign-off, compliance certification, contract execution, filing, or regulator communication.
+- Why this exists: `legal-compliance-review` surfaces scoped legal and compliance issues before a human legal decision without pretending Hermes is counsel or an external filing surface.
+- Use when: Use when supplied contract, policy, product, process, or regulatory context needs a scoped issue matrix, assumptions, and counsel/escalation brief.
+- Do not use when:
+  - The user needs a final jurisdiction-specific legal opinion, legal representation, or authoritative filing decision; prepare the issue and counsel brief instead.
+  - The review is about code, secrets, permissions, prompt injection, dependencies, or unsafe tool behavior; use `security-safety-review`.
+  - The request is a plain-language rewrite without a legal-risk review objective; use `content-operator`.
+  - The user asks to sign, accept, submit, file, publish, or change a policy or contract in an external system; use `connector-operator` only after explicit authority.
+- Strong routing signals: `contract review`, `regulatory analysis`, `compliance review`, `계약서 검토`, `규제 분석`, `컴플라이언스 검토`
+- Good example:
+  - Prompt: Review this vendor DPA for data-processing obligations, risky clauses, and questions for counsel.
+  - Expected behavior: Prepare an authority-bound issue matrix, ranked risks, and counsel questions.
+  - Why: The request needs a prepared review and escalation aid before a legal decision.
+- Bad example:
+  - Prompt: Audit this OAuth integration for secret and permission risks.
+  - Expected behavior: Route to `security-safety-review`, not `legal-compliance-review`.
+  - Why: The target is technical security risk rather than contract or compliance analysis.
+- Quality bar:
+  - Name jurisdiction, authority, document version, and unresolved questions.
+  - Rank issues and preserve the counsel-escalation boundary.
+- Completion checklist:
+  - Findings or no-issue results are grounded in concrete file, artifact, command, or source evidence.
+  - Open questions, residual risk, and missing verification are named.
+  - Fixes or follow-up work are separate handoffs unless the user explicitly asked to implement them.
+- Recovery notes:
+  - If the reviewed target is missing, inspect the requested artifact or ask one target question.
+  - If independent verification is unavailable, report the gap and avoid an approval-style claim.
+- Required inputs:
+  - jurisdiction
+  - document or process version
+  - supplied authority
+  - review objective
+- Expected outputs:
+  - jurisdiction, document/version, authority, and evidence-boundary statement
+  - clause/control/requirement matrix with issue, rationale, owner, and open question
+  - risk-ranked negotiation, remediation, or counsel-escalation brief
+  - review checklist that distinguishes supplied evidence from legal interpretation
+- Artifact expectations:
+  - prepared legal and compliance issue matrix when a wrapper captures it
+- Safety rules:
+  - Distinguish supplied authority from legal interpretation and final advice.
+  - Do not claim sign-off, certification, filing, execution, or regulator communication.
+
+### support-operations
+
+[omh] Turn a support case into a clear customer reply, severity path, and owned next step.
+
+- Category: `triage`
+- Phase: `support-operations`
+- Hermes role: `operator`
+- Quality tier: `triage-gated`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. Reply text is a draft, escalation is a recommendation, and no ticket state, message send, refund, account action, or customer outcome is claimed.
+- Why this exists: `support-operations` turns a bounded customer case into response and escalation guidance without treating drafts or recommendations as helpdesk actions.
+- Use when: Use when one or a bounded set of support contacts needs response drafting, urgency classification, incident/escalation routing, and follow-up ownership.
+- Do not use when:
+  - The request clusters a backlog of customer signals to find product patterns or roadmap candidates; use `feedback-triage`.
+  - The user only needs a generic, non-support marketing or email rewrite with no case, severity, or escalation context; use `content-operator`.
+  - The request asks to send a reply, change ticket priority or status, issue a refund, modify an account, or update a helpdesk; use `connector-operator` with an explicit target and observed result.
+  - The request is an active reliability incident or postmortem rather than a support-case response; use `reliability-review`.
+- Strong routing signals: `support escalation`, `customer support reply`, `ticket triage`, `고객 지원 에스컬레이션`, `고객 답변 초안`, `지원 티켓 분류`
+- Good example:
+  - Prompt: Draft a calm reply for this login-outage customer and tell me whether it needs an engineering escalation.
+  - Expected behavior: Prepare a customer-safe reply, severity matrix, engineering escalation recommendation, and owner handoff.
+  - Why: The request is one support case with reply and escalation decisions, not a feedback backlog or ticket mutation.
+- Bad example:
+  - Prompt: Cluster last quarter's support feedback into roadmap opportunities.
+  - Expected behavior: Route to `feedback-triage`, not `support-operations`.
+  - Why: A historical signal backlog needs product-pattern triage rather than case-level support guidance.
+- Quality bar:
+  - State issue, severity, impact, evidence gaps, owner, and next route.
+  - Draft a reply without treating it as a sent customer communication.
+- Completion checklist:
+  - The source boundary, signal clusters, severity, and follow-up lane are named.
+  - Bug, feature, research, strategy, and coding handoff outcomes stay separate.
+  - The next workflow is recommended before any implementation claim.
+- Recovery notes:
+  - If feedback lacks source or severity, ask for the missing signal before coding handoff.
+  - If the item is actually a plan or research request, route to that workflow instead of triage.
+- Required inputs:
+  - support case
+  - known facts
+  - customer impact
+  - available ownership or escalation path
+- Expected outputs:
+  - customer-safe reply draft with stated facts, unknowns, and tone
+  - issue/severity/impact/escalation matrix
+  - internal next-step and owner handoff brief
+  - missing repro, account, entitlement, or approval evidence list
+- Artifact expectations:
+  - prepared support case brief when a wrapper captures it
+- Safety rules:
+  - Keep customer-safe facts, unknowns, and escalation recommendations distinct.
+  - Do not claim ticket mutation, message send, refund, account action, or case outcome.
+
+### curriculum-design
+
+[omh] Turn a learning goal into a teachable curriculum, assessment plan, and learner-ready sequence.
+
+- Category: `planning`
+- Phase: `curriculum-design`
+- Hermes role: `planner`
+- Quality tier: `planning-gated`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. Hermes designs an instructional plan; it does not create an LMS course, enroll learners, grade submissions, certify learning, publish materials, or claim learning outcomes occurred.
+- Why this exists: `curriculum-design` makes instructional outcomes, sequence, assessment, and learner constraints reviewable before materials, LMS, or grading work.
+- Use when: Use when an educator or enablement owner needs outcomes, scope and sequence, lesson/module design, assessment criteria, and differentiation assumptions.
+- Do not use when:
+  - The user wants an explanation of a supplied academic paper rather than a teachable sequence; use `paper-learning`.
+  - The user needs a deck, workbook, PDF, or other exported learning artifact; route packaging to `materials-package` after the curriculum is accepted.
+  - The user asks to create or publish an LMS course, enroll students, grade work, or change course settings; use `connector-operator` with explicit authorization and observed evidence.
+  - The user needs only a short rewrite or one isolated worksheet prompt, not curriculum structure; use `content-operator`.
+- Strong routing signals: `curriculum design`, `learning objectives`, `assessment plan`, `커리큘럼 설계`, `학습 목표`, `평가 계획`
+- Good example:
+  - Prompt: Design a six-week onboarding curriculum with learning objectives and practical assessments for new support agents.
+  - Expected behavior: Prepare learner constraints, scope and sequence, learning objectives, assessments, and adaptation questions.
+  - Why: The request needs a teachable sequence and assessment plan rather than an LMS course or exported material.
+- Bad example:
+  - Prompt: Explain the attached machine-learning paper for a beginner.
+  - Expected behavior: Route to `paper-learning`, not `curriculum-design`.
+  - Why: A supplied paper explanation is not a curriculum-design request.
+- Quality bar:
+  - Tie outcomes to scope, sequence, activities, assessments, and completion evidence.
+  - Keep instructional design distinct from exported materials or LMS actions.
+- Completion checklist:
+  - The plan names goals, non-goals, assumptions, acceptance criteria, and verification shape.
+  - Draft recommendations, accepted decisions, and executor handoffs are separate states.
+  - Rejected options or unresolved tradeoffs are recorded before handoff.
+- Recovery notes:
+  - If acceptance criteria or verification are missing, route back to clarification before handoff.
+  - If assumptions materially affect the plan, keep them visible and avoid treating the plan as accepted.
+- Required inputs:
+  - learners
+  - learning goal
+  - prerequisites
+  - constraints
+- Expected outputs:
+  - learner/audience, prerequisite, outcome, and constraint brief
+  - scope-and-sequence with modules/lessons and activity rationale
+  - formative/summative assessment rubric and completion evidence
+  - accessibility, adaptation, and source/rights questions plus next route
+- Artifact expectations:
+  - prepared curriculum design brief when a wrapper captures it
+- Safety rules:
+  - Make learner prerequisites, accessibility, adaptation, and source-rights gaps explicit.
+  - Do not claim LMS mutation, enrollment, grading, certification, publication, or learning outcomes.
+
+### localization-review
+
+[omh] Make a product or content release locale-ready with terminology, cultural-fit, and quality-review guidance.
+
+- Category: `review`
+- Phase: `localization-review`
+- Hermes role: `reviewer`
+- Quality tier: `review-gated`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. Hermes may draft and review language guidance; it does not alter locale files, upload strings, publish translations, validate a rendered build, or claim market approval.
+- Why this exists: `localization-review` makes terminology, context, cultural fit, and locale QA reviewable without treating a drafted translation as a published or visually validated release.
+- Use when: Use when multiple strings, a product surface, a market release, or a locale-sensitive document needs terminology, context, consistency, cultural-fit, and QA guidance beyond one-off translation.
+- Do not use when:
+  - The request is a short sentence or word translation or rewrite with no product or locale QA context; answer directly or use `content-operator`.
+  - The user needs fresh rendered UI evidence, clipping checks, or a visual PASS/REVISE/BLOCK verdict; use `visual-qa`.
+  - The user asks to edit locale files, push a translation-management-system job, publish strings, or configure localization settings; use `workspace-file-operator` or `connector-operator` with explicit target and authority.
+  - The request asks for a regulatory or contractual conclusion about translated legal text; use `legal-compliance-review`.
+- Strong routing signals: `localization review`, `translation QA`, `locale glossary`, `현지화 검토`, `번역 QA`, `용어집`
+- Good example:
+  - Prompt: Review our Korean checkout strings for terminology consistency, cultural fit, and context gaps before launch.
+  - Expected behavior: Prepare the locale and source-version brief, glossary choices, issue matrix, and locale QA criteria.
+  - Why: The product-release context needs localization review beyond a one-off translation.
+- Bad example:
+  - Prompt: Translate 'Your trial ends tomorrow' into Korean.
+  - Expected behavior: Answer directly or route to `content-operator`, not `localization-review`.
+  - Why: A one-off sentence has no product locale QA or release-review objective.
+- Quality bar:
+  - Ground terminology and cultural-fit choices in locale, audience, context, and source version.
+  - Make string severity, review ownership, and rendered QA gaps explicit.
+- Completion checklist:
+  - Findings or no-issue results are grounded in concrete file, artifact, command, or source evidence.
+  - Open questions, residual risk, and missing verification are named.
+  - Fixes or follow-up work are separate handoffs unless the user explicitly asked to implement them.
+- Recovery notes:
+  - If the reviewed target is missing, inspect the requested artifact or ask one target question.
+  - If independent verification is unavailable, report the gap and avoid an approval-style claim.
+- Required inputs:
+  - locale
+  - audience
+  - source version
+  - product or content context
+- Expected outputs:
+  - locale/audience/context and source-version brief
+  - approved-term glossary and transcreation/localization choices
+  - string/content issue matrix with context, severity, and review owner
+  - locale QA acceptance criteria and handoff/observed-evidence gaps
+- Artifact expectations:
+  - prepared localization review when a wrapper captures it
+- Safety rules:
+  - Separate language guidance from rendered UI evidence and market approval.
+  - Do not claim locale-file changes, translation upload, publication, or rendered validation.
+
+### sales-development
+
+[omh] Turn an account or market opportunity into a focused discovery, qualification, and next-step brief.
+
+- Category: `strategy`
+- Phase: `sales-development`
+- Hermes role: `operator`
+- Quality tier: `decision-gated`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. Hermes prepares research, discovery, and message guidance; it does not research unobserved facts as facts, contact prospects, create opportunities, change CRM data, book meetings, or claim revenue or progress.
+- Why this exists: `sales-development` prepares account-level discovery and qualification guidance without turning research hypotheses or draft outreach into sales execution claims.
+- Use when: Use when a seller or business-development owner needs account context, buyer hypotheses, qualification questions, value narrative, partner/outreach plan, and a non-executing next-step sequence.
+- Do not use when:
+  - The user needs a company-level positioning, market-entry, or strategic-options decision rather than account-level discovery; use `strategy-brief`.
+  - The user only wants a polished social post, newsletter, or one-off outbound-copy rewrite; use `content-operator`.
+  - The user asks to send outreach, update Salesforce or HubSpot, create an opportunity, or book a meeting; use `connector-operator` with explicit recipient, object, and authority.
+  - The request asks for current competitor or company evidence but supplies no source material; begin with `web-research` before presenting claims as observed.
+- Strong routing signals: `sales discovery`, `account plan`, `outbound messaging`, `영업 발굴`, `고객사 계획`, `아웃바운드 메시지`
+- Good example:
+  - Prompt: Build a discovery plan and qualification questions for a mid-market prospect considering our support platform.
+  - Expected behavior: Prepare account evidence gaps, discovery and qualification questions, value hypotheses, and an owned next-step plan.
+  - Why: The request is account-level sales discovery, not outreach execution or company strategy.
+- Bad example:
+  - Prompt: Write a LinkedIn launch post for our new feature.
+  - Expected behavior: Route to `content-operator`, not `sales-development`.
+  - Why: A one-off social post has no account qualification or discovery objective.
+- Quality bar:
+  - Separate account evidence, buyer hypotheses, qualification questions, and next-step ownership.
+  - Keep outreach drafts and CRM actions explicitly non-executing.
+- Completion checklist:
+  - The decision, options, tradeoffs, assumptions, and rejected alternatives are named.
+  - Observed signals are separated from strategic inference.
+  - Accepted decisions and implementation follow-ups are not conflated.
+- Recovery notes:
+  - If evidence is mostly assumption, label it and recommend a research or feedback-triage pass.
+  - If the decision owner is missing, keep the output as options rather than accepted strategy.
+- Required inputs:
+  - account or segment
+  - available evidence
+  - buyer hypothesis
+  - sales objective
+- Expected outputs:
+  - account/segment, buyer, problem, and evidence-gap brief
+  - discovery-question and qualification framework
+  - value narrative, objection hypotheses, and outreach-draft outline
+  - next-step/owner plan with CRM, approval, and source gaps explicit
+- Artifact expectations:
+  - prepared sales development brief when a wrapper captures it
+- Safety rules:
+  - Treat unsupported company and competitor information as evidence gaps, not facts.
+  - Do not claim prospect contact, CRM mutation, meeting booking, opportunity creation, revenue, or progress.
+
+### product-brief
+
+[omh] Turn product evidence into a decision-ready PRD, prioritization frame, and roadmap brief.
+
+- Category: `planning`
+- Phase: `product-brief`
+- Hermes role: `planner`
+- Quality tier: `planning-gated`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. A PRD or roadmap is prepared planning, not stakeholder acceptance, Jira or Linear mutation, implementation, test evidence, delivery, or a market commitment.
+- Why this exists: `product-brief` turns product evidence into a reviewable PRD and prioritization frame before delivery planning without treating a draft as an accepted roadmap commitment.
+- Use when: Use when a product owner needs a problem frame, user/outcome definition, PRD, prioritization/roadmap options, dependencies, acceptance shape, and decision record before delivery planning.
+- Do not use when:
+  - The input is unprocessed feedback, bug reports, or feature asks that first need clustering and evidence boundaries; use `feedback-triage`.
+  - The user needs a company or product strategy decision across high-level options rather than a requirements or roadmap artifact; use `strategy-brief`.
+  - The request is an accepted, code-ready change with repository constraints and verification needs; use `ralplan` or `ultraprocess` rather than recreating a PRD.
+  - The user asks to create or update Jira, Linear, Aha!, or a roadmap system directly; use `connector-operator` with explicit target, approval, and observed evidence.
+- Strong routing signals: `product requirements document`, `PRD`, `roadmap prioritization`, `제품 요구사항 문서`, `제품 기획서`, `로드맵 우선순위`
+- Good example:
+  - Prompt: Create a PRD and prioritization options for reducing first-time user drop-off in onboarding.
+  - Expected behavior: Prepare the product problem, user and metric brief, PRD, roadmap options, tradeoffs, and downstream prerequisites.
+  - Why: The request needs a decision-ready requirements and prioritization artifact before delivery planning.
+- Bad example:
+  - Prompt: Implement the accepted onboarding PRD and open a PR.
+  - Expected behavior: Route to `ultraprocess` or `ralplan`, not `product-brief`.
+  - Why: Accepted implementation work should move into planning or delivery rather than recreate a PRD.
+- Quality bar:
+  - Name problem, user, metric, goals, non-goals, requirements, dependencies, risks, and acceptance shape.
+  - Preserve decision owner and downstream prerequisite boundaries.
+- Completion checklist:
+  - The plan names goals, non-goals, assumptions, acceptance criteria, and verification shape.
+  - Draft recommendations, accepted decisions, and executor handoffs are separate states.
+  - Rejected options or unresolved tradeoffs are recorded before handoff.
+- Recovery notes:
+  - If acceptance criteria or verification are missing, route back to clarification before handoff.
+  - If assumptions materially affect the plan, keep them visible and avoid treating the plan as accepted.
+- Required inputs:
+  - product evidence
+  - problem and user
+  - goal and non-goals
+  - decision owner
+- Expected outputs:
+  - problem, user, evidence, metric, goal, and non-goal brief
+  - PRD with requirements, open questions, risks, dependencies, and acceptance shape
+  - prioritization/roadmap options with tradeoffs and decision owner
+  - explicit downstream route to ralplan, strategy-brief, or ultraprocess only when its prerequisite is satisfied
+- Artifact expectations:
+  - prepared product brief or PRD when a wrapper captures it
+- Safety rules:
+  - Separate product evidence, assumptions, prioritization options, and stakeholder acceptance.
+  - Do not claim roadmap-system mutation, implementation, test evidence, delivery, or market commitment.
+
 ### ops-review
 
 [omh] Hermes Ops Review workflow: status, risks, blockers, priorities, and follow-ups.

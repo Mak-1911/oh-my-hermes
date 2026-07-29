@@ -28,6 +28,7 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-content-operator`: [omh] Hermes content operator workflow: scope publish-ready writing, rewriting, summarization, translation, release-note, newsletter, customer-copy, social-copy, README-copy, and email-draft work with audience, tone, style, source, review, and hallucination gates.
 - `omh-context-budget-review`: [omh] Hermes Context Budget Review workflow: plan compact context, token/cost budgets, summarization checkpoints, and overflow recovery before long agent work.
 - `omh-cto-loop`: [omh] Hermes CTO Loop workflow: roadmap, PM, technical tradeoffs, risk, delivery, release, and follow-up operating cadence.
+- `omh-curriculum-design`: [omh] Turn a learning goal into a teachable curriculum, assessment plan, and learner-ready sequence.
 - `omh-data-analysis`: [omh] Hermes data analysis workflow: scope supplied data with provenance, causal-claim, and hallucination guards.
 - `omh-decision-recall`: [omh] Recall scoped reviewed rejected decisions without elevating them to approved memory.
 - `ulw-interview`: [omh] Hermes Deep Interview workflow: one-question-at-a-time clarification.
@@ -40,6 +41,7 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-external-connector-readiness`: [omh] Hermes external connector readiness workflow: decide whether a candidate plugin, connector, API, data provider, or multimodal route is safe, affordable, fresh, and observable enough to adopt, route, or trial.
 - `omh-failure-signal-audit`: [omh] Failure Signal Audit workflow: find swallowed errors, unsafe fallbacks, hidden UI/runtime failures, and missing propagation before they become false green status.
 - `omh-feedback-triage`: [omh] Hermes Feedback Triage workflow: cluster customer signals and choose the next workflow.
+- `omh-finance-analysis`: [omh] Turn finance and accounting inputs into a decision-ready variance, cash, and close-risk brief.
 - `omh-frontend`: [omh] Hermes frontend workflow: prepare design-system-driven web UI creation, redesign, polish, accessibility, performance, and visual QA handoffs.
 - `omh-gateway-intent-card`: [omh] Hermes gateway intent workflow: normalize Discord, Slack, Telegram, and other gateway sessions into origin, thread, delivery, silent, attachment, and status-update policy.
 - `omh-github-event-ops`: [omh] Hermes GitHub event operations workflow: route PR, issue, CI, and review webhook events into triage, review, or fix handoff cards.
@@ -47,7 +49,9 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-idea-to-deploy`: [omh] Hermes Idea-to-Deploy workflow: shape an app idea into decisions, delivery handoff, verification, release, and monitoring status.
 - `omh-image-cards`: [omh] Image prompt cards - turn meetings, reports, PRs, issues, research, and releases into domain-aware image prompt cards.
 - `omh-instinct-ledger`: [omh] Instinct Ledger workflow: turn repeated project or cross-project lessons into atomic, confidence-scored instinct candidates with scoped promotion and export boundaries.
+- `omh-legal-compliance-review`: [omh] Surface contract and compliance risks, questions, and escalation points before a legal decision or action.
 - `omh-live-info`: [omh] Live lookups - weather, finance, sports, maps, places, exchange rates, and time zones, read-only with provider, freshness, units, and source-quality gates.
+- `omh-localization-review`: [omh] Make a product or content release locale-ready with terminology, cultural-fit, and quality-review guidance.
 - `ulw-loop`: [omh] Hermes Loop workflow: agentic interviewer -> planner -> researcher -> builder -> reviewer cycles until a real gate.
 - `omh-materials-package`: [omh] Hermes Materials Package workflow: decks, PDFs, spreadsheets, documents, HWP, Markdown, and binary export handoffs.
 - `omh-media-input`: [omh] User-sent media - audio, video, YouTube links, screenshots, receipts, OCR, meeting recordings, transcripts, timestamps, and clip summaries, gated for source, permission, and hallucination risk.
@@ -63,9 +67,11 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-ops-review`: [omh] Hermes Ops Review workflow: status, risks, blockers, priorities, and follow-ups.
 - `omh-paper-learning`: [omh] Hermes Paper Learning workflow: explain a supplied paper or paper/PDF at a selected level while preserving full section coverage and source evidence boundaries.
 - `omh-parallel-tools`: [omh] Hermes Parallel Tools workflow: check version currency and parallel-tool capability status, then apply an update only after diff approval.
+- `omh-people-ops`: [omh] Turn hiring and people context into a fair, structured recruiting or people-operations brief.
 - `omh-performance-goal`: [omh] Hermes adaptation for measurable performance-goal execution.
 - `omh-physical-device-readiness`: [omh] Hermes readiness workflow for robots, 3D printers, IoT relays, sensors, and lab hardware before hardware trials.
 - `omh-plan`: [omh] Hermes Plan workflow: structured planning before execution.
+- `omh-product-brief`: [omh] Turn product evidence into a decision-ready PRD, prioritization frame, and roadmap brief.
 - `omh-production-audit`: [omh] Hermes Production Audit workflow: evaluate release, deploy, security, observability, rollback, docs, and support readiness without claiming production access.
 - `omh-prompt-import-readiness`: [omh] Hermes prompt import readiness workflow: decide whether external CLI-agent prompt files can be safely reviewed, normalized, and offered as Hermes slash-command candidates without mutating prompts or command registries.
 - `omh-provider-profile-posture`: [omh] Prepare provider-profile metadata without reading secrets or calling providers.
@@ -77,12 +83,14 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-research-department`: [omh] Hermes Research Department workflow pack: prepare Scout, Analyst, and Briefer research operations with source inbox and briefing status boundaries.
 - `omh-rules-distill`: [omh] Hermes Rules Distill workflow: extract repeated principles from skills, prompts, traces, reviews, and failures into reviewed rule candidates without auto-mutating guidance.
 - `omh-run-efficiency`: [omh] Report supplied local run efficiency while provider and host data stay unobserved.
+- `omh-sales-development`: [omh] Turn an account or market opportunity into a focused discovery, qualification, and next-step brief.
 - `omh-security-safety-review`: [omh] Hermes Security Safety Review workflow: review prompt, tool, secret, dependency, destructive-action, and explicit local plugin risks before agent or code execution.
 - `omh-skill`: [omh] Hermes adaptation for managing local skills.
 - `omh-skill-health`: [omh] Skill Health workflow: prepare a metadata-only OMH skill portfolio dashboard with stale surfaces, observed failure signals, pending amendments, and top actions.
 - `omh-skill-scout`: [omh] Skill Scout workflow: prepare a metadata-only search-before-creation report for local, marketplace, GitHub, and web skill candidates with risk review and adoption options.
 - `omh-source-finder`: [omh] Hermes Source Finder workflow: prepare typed source candidates and acquisition status before downstream work.
 - `omh-decide`: [omh] Decide between options: tradeoffs, a recommendation, and a decision note you can act on.
+- `omh-support-operations`: [omh] Turn a support case into a clear customer reply, severity path, and owned next step.
 - `ulw-team`: [omh] Team - run N coordinated workers on one shared task list with explicit lane ownership and merged verification; choose over raw subagents when lanes must not collide.
 - `omh-toolbelt-readiness`: [omh] Hermes toolbelt readiness workflow: check which MCP servers, CLIs, APIs, credentials, and connectors a workflow needs before claiming it can run.
 - `ulw-goal`: [omh] Ultragoal - durable multi-session goal tracking: a checkpointed ledger survives context loss and resumes exactly where work stopped, with a final completion gate.

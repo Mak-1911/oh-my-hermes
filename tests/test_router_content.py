@@ -2888,10 +2888,13 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[GitHub Pages site](site/index.html)", readme)
         self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal request", readme)
         self.assertIn("replacing Hermes or hiding a coding executor", readme)
-        self.assertIn("**92 installable workflow skills**", readme)
-        self.assertIn("**92개**", localized_readmes["ko"])
-        self.assertIn("**92 個**", localized_readmes["ja"])
-        self.assertIn("**92 个**", localized_readmes["zh"])
+        self.assertIn("**100 installable workflow skills**", readme)
+        self.assertIn("**100개**", localized_readmes["ko"])
+        self.assertIn("**100 個**", localized_readmes["ja"])
+        self.assertIn("**100 个**", localized_readmes["zh"])
+        self.assertIn("나머지 90개", localized_readmes["ko"])
+        self.assertIn("残り 90 個", localized_readmes["ja"])
+        self.assertIn("其余 90 个", localized_readmes["zh"])
         for localized_readme in localized_readmes.values():
             # A localized README stays a trimmed landing page, never a full
             # translation of every English section. The budget grew from 240
@@ -3065,7 +3068,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[Roles](ROLES.md)", docs_readme)
         self.assertIn("Agent Install Protocol", docs_readme)
         self.assertIn("`deep-interview`, `ralplan`, `ultragoal`, `loop`", docs_readme)
-        self.assertIn("**92 installable skills**", docs_readme)
+        self.assertIn("**100 installable skills**", docs_readme)
         self.assertIn("**Retain knowledge**", docs_readme)
         self.assertIn("python -m unittest discover -s tests", ci)
         self.assertIn("python -m compileall src", ci)
@@ -3649,6 +3652,48 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn('href="hermes-agent-architecture/"', site_docs)
         self.assertIn("architecture-mermaid-map", site_architecture)
         self.assertIn("Prepared state, observed result, verification, delivery", site_architecture)
+
+
+    def test_specialist_domain_catalog_contracts_are_complete_and_prepared_only(self) -> None:
+        from omh.catalogs.specialists import recommend_specialist
+
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        expected = {
+            "finance-analysis": ("operations", "operator", "Turn finance and accounting inputs into a decision-ready variance, cash, and close-risk brief.", "operations-data", "operations", "ops-review"),
+            "people-ops": ("operations", "operator", "Turn hiring and people context into a fair, structured recruiting or people-operations brief.", "operations-data", "operations", "ops-review"),
+            "legal-compliance-review": ("review", "reviewer", "Surface contract and compliance risks, questions, and escalation points before a legal decision or action.", "delivery-quality", "review", "critic"),
+            "support-operations": ("triage", "operator", "Turn a support case into a clear customer reply, severity path, and owned next step.", "operations-data", "operations", "ops-review"),
+            "curriculum-design": ("planning", "planner", "Turn a learning goal into a teachable curriculum, assessment plan, and learner-ready sequence.", "product-planning", "planning", "planning"),
+            "localization-review": ("review", "reviewer", "Make a product or content release locale-ready with terminology, cultural-fit, and quality-review guidance.", "delivery-quality", "review", "critic"),
+            "sales-development": ("strategy", "operator", "Turn an account or market opportunity into a focused discovery, qualification, and next-step brief.", "operations-data", "operations", "ops-review"),
+            "product-brief": ("planning", "planner", "Turn product evidence into a decision-ready PRD, prioritization frame, and roadmap brief.", "product-planning", "planning", "planning"),
+        }
+        shared_boundary = (
+            "Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. "
+            "A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. "
+            "Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence."
+        )
+
+        for skill, (category, role, description, specialist_id, phase, harness) in expected.items():
+            with self.subTest(skill=skill):
+                definition = definitions[skill]
+                self.assertEqual(definition.category, category)
+                self.assertEqual(definition.hermes_role, role)
+                self.assertEqual(definition.description, "[omh] " + description)
+                self.assertEqual(definition.delegation_boundary, "retained-catalog-intent")
+                self.assertEqual(primary_harness_for_skill(skill), harness)
+                self.assertIn(shared_boundary, definition.handoff_policy)
+                self.assertEqual(len(definition.triggers), 6)
+                self.assertTrue(definition.expected_outputs)
+                self.assertTrue(definition.do_not_use_when)
+                self.assertIsNotNone(definition.good_example)
+                self.assertIsNotNone(definition.bad_example)
+                recommendation = recommend_specialist(skill, task_phase=phase)
+                self.assertIsNotNone(recommendation)
+                assert recommendation is not None
+                self.assertEqual(recommendation["specialist"]["id"], specialist_id)
+                self.assertEqual(recommendation["status"], "prepared_not_observed")
+                self.assertEqual(recommendation["specialist"]["runtime_claim"], "prepared_profile_not_runtime_agent")
 
 
 if __name__ == "__main__":
