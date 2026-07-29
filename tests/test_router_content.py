@@ -788,6 +788,72 @@ class RouterContentTests(unittest.TestCase):
                 missing = {name: fragments for name, fragments in missing.items() if fragments}
                 self.assertEqual(missing, {})
 
+    def test_ultragoal_guards_settings_only_requests_from_goal_escalation(self) -> None:
+        """A settings-only request (for example a gateway channel mention policy) must not
+        escalate into a durable goal ledger or a coding-executor handoff. The guard lives in
+        catalog data so every generated ulw-goal install carries it.
+        """
+        definitions = {definition.name: definition for definition in installable_skill_definitions()}
+        ultragoal = definitions["ultragoal"]
+
+        guard_lines = [line for line in ultragoal.do_not_use_when if "settings-only" in line]
+        self.assertEqual(
+            len(guard_lines),
+            1,
+            "ultragoal.do_not_use_when must name the settings-only direct-configuration guard exactly once",
+        )
+        guard = guard_lines[0]
+        self.assertIn("configuration", guard)
+        self.assertIn(
+            "apply directly",
+            guard,
+            "guard must keep the direct-applicability qualifier so config work the session cannot apply still escalates",
+        )
+        self.assertIn(
+            "instead of opening a goal ledger",
+            guard,
+            "guard must name the no-goal-ledger outcome, not merely mention configuration",
+        )
+        self.assertIn(
+            "coding handoff",
+            guard,
+            "guard must name the no-coding-handoff outcome",
+        )
+        self.assertNotIn("codex", guard.lower(), "guard wording must stay executor-neutral")
+
+    def test_wrapper_routing_reference_carries_settings_only_delegation_floor(self) -> None:
+        """The Coding Delegation guidance needs a proportionality floor: implementation-shaped
+        never includes settings-only configuration changes a wrapper or Hermes can apply directly.
+        """
+        from omh.skills.render import _router_wrapper_routing_reference
+
+        reference = _router_wrapper_routing_reference()
+        self.assertIn("## Coding Delegation", reference)
+        self.assertIn("settings-only", reference)
+        self.assertIn("direct configuration action", reference)
+        self.assertIn(
+            "apply directly",
+            reference,
+            "floor must keep the direct-applicability qualifier",
+        )
+        self.assertIn(
+            "Do not open a durable goal ledger",
+            reference,
+            "floor must prohibit the goal-ledger escalation outcome",
+        )
+        self.assertIn(
+            "configuration cannot express",
+            reference,
+            "floor must keep the escape hatch: config-shaped requests that need code still escalate",
+        )
+        floor_index = reference.index("settings-only")
+        section_index = reference.index("## Coding Delegation")
+        self.assertGreater(
+            floor_index,
+            section_index,
+            "the settings-only floor must live inside the Coding Delegation guidance",
+        )
+
     def test_shared_common_rail_reference_carries_moved_policy(self) -> None:
         """Replacement gate for the policy issue #634 moved out of every SKILL.md body.
 

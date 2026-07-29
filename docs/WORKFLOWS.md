@@ -222,6 +222,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Use when: Use when work needs durable goal artifacts, checkpointed progress, and final quality gates.
 - Do not use when:
   - The request is a single-turn answer, quick diagnosis, or small edit that does not need a durable ledger.
+  - The request is a settings-only or single configuration change (for example a gateway channel policy, a mention rule, or one config key) that the wrapper or Hermes can apply directly; apply the configuration change, verify the new value, and report it instead of opening a goal ledger or preparing a coding handoff.
   - Acceptance criteria, current checkpoint, and final gate expectations are too vague to make a goal inspectable.
   - The user expects hidden Hermes code execution rather than explicit executor handoff and observed verification evidence.
 - Strong routing signals: `ultragoal`, `$ultragoal`, `ulg`, `$ulg`, `durable goal`, `multi-goal`, `goal ledger`, `long running goal`, `완료조건까지 계속`, `keep working until acceptance criteria pass`, `장기 목표`, `오래 실행`, `완료 조건까지 계속`
