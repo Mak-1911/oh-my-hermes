@@ -74,6 +74,7 @@ Category: `strategy`
 Phase: `sales-development`
 Hermes role: `operator`
 Quality tier: `decision-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

@@ -72,6 +72,7 @@ Category: `monitoring`
 Phase: `release-ops`
 Hermes role: `operator`
 Quality tier: `release-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

@@ -74,6 +74,7 @@ Category: `filesystem`
 Phase: `file-task`
 Hermes role: `guide`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

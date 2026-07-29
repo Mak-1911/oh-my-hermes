@@ -20,8 +20,8 @@ This is a Hermes-native `research-brief` workflow skill.
 
 ## Do Not Use When
 
-- The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-- The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+- The request is only fresh links, citations, or current facts without a business question or decision audience; use `web-research`.
+- Sources have not yet been selected and the user wants source types, candidates, or acquisition state; use `source-finder`.
 
 ## Examples
 
@@ -72,6 +72,7 @@ Category: `research`
 Phase: `business-brief`
 Hermes role: `researcher`
 Quality tier: `source-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

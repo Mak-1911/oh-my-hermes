@@ -20,8 +20,8 @@ This is a Hermes-native `team` workflow skill.
 
 ## Do Not Use When
 
-- The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-- The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+- An accepted implementation plan with disjoint files, criteria, and commands is ready for parallel delivery; use `ultrawork`.
+- The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of coordinating workers.
 
 ## Examples
 
@@ -74,6 +74,7 @@ Category: `execution`
 Phase: `coordination`
 Hermes role: `handoff-guide`
 Quality tier: `coordination-gated`
+Reasoning demand: `heavy`
 
 Quality bar:
 

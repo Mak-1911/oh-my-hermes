@@ -73,6 +73,7 @@ Category: `agent-coordination`
 Phase: `board-status`
 Hermes role: `tracker`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

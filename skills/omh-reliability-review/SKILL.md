@@ -73,6 +73,7 @@ Category: `reliability`
 Phase: `incident-and-slo-review`
 Hermes role: `operator`
 Quality tier: `reliability-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

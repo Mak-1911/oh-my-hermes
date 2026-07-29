@@ -73,6 +73,7 @@ Category: `planning`
 Phase: `codebase-onboarding`
 Hermes role: `planner`
 Quality tier: `onboarding-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

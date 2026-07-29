@@ -78,6 +78,7 @@ Category: `materials`
 Phase: `frontend-design`
 Hermes role: `operator`
 Quality tier: `frontend-design-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

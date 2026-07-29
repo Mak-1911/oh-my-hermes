@@ -57,6 +57,7 @@ class CandidateHandoffTests(unittest.TestCase):
                 self.assertTrue(candidate["why_it_matched"])
                 self.assertTrue(candidate["next_action"])
                 self.assertTrue(candidate["evidence_boundary"])
+                self.assertIn(candidate["reasoning_demand"], {"light", "standard", "heavy"})
 
     def test_the_candidate_set_is_bounded(self) -> None:
         route = route_chat_message("PR 리뷰 좀 해줘", source="generic", limit=8)
@@ -119,6 +120,7 @@ class CodingLaneTests(unittest.TestCase):
             "document-harness에서 프로젝트 링크만 주면 observer 결과를 자동 조회하게 백엔드 구현해줘"
         )
         self.assertEqual([c["skill"] for c in handoff["candidates"]], self.LANE)
+        self.assertEqual(handoff["candidates"][0]["reasoning_demand"], "heavy")
         self.assertIn("implementation_shaped_request", handoff["reasons"])
         self.assertIn("Do not route implementation work to planning-only flows", handoff["question"])
 
@@ -170,6 +172,18 @@ class WrapperPathParityTests(unittest.TestCase):
             ["ultraprocess", "team", "ultragoal", "executor-runtime-readiness"],
         )
         self.assertIn("input_language", route)
+        self.assertTrue(
+            all(
+                candidate["reasoning_demand"] in {"light", "standard", "heavy"}
+                for candidate in handoff.get("candidates", [])
+            )
+        )
+        self.assertTrue(
+            all(
+                recommendation["reasoning_demand"] in {"light", "standard", "heavy"}
+                for recommendation in route.get("recommendations", [])
+            )
+        )
 
     def test_the_real_plugin_tool_route_matches_the_direct_route(self) -> None:
         import json as jsonlib

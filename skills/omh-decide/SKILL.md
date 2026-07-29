@@ -72,6 +72,7 @@ Category: `strategy`
 Phase: `brief`
 Hermes role: `operator`
 Quality tier: `decision-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

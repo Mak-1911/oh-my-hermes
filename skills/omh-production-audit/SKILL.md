@@ -73,6 +73,7 @@ Category: `review`
 Phase: `production-readiness`
 Hermes role: `reviewer`
 Quality tier: `production-readiness-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

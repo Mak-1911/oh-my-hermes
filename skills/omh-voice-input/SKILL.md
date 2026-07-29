@@ -73,6 +73,7 @@ Category: `accessibility`
 Phase: `voice-routing`
 Hermes role: `guide`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

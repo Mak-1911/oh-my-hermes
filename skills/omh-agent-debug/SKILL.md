@@ -74,6 +74,7 @@ Category: `operations`
 Phase: `agent-debug`
 Hermes role: `operator`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

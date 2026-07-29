@@ -73,6 +73,7 @@ Category: `materials`
 Phase: `material-plan`
 Hermes role: `operator`
 Quality tier: `material-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

@@ -73,6 +73,7 @@ Category: `optimization`
 Phase: `workflow-learning`
 Hermes role: `tracker`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `heavy`
 
 Quality bar:
 

@@ -72,6 +72,7 @@ Category: `review`
 Phase: `external-advice`
 Hermes role: `reviewer`
 Quality tier: `evidence-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

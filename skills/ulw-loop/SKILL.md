@@ -21,6 +21,7 @@ This is a Hermes-native `loop` workflow skill.
 ## Do Not Use When
 
 - The user asks for one bounded delivery cycle; use `ultraprocess` or `ultragoal` instead.
+- Scope and milestones are already known and only durable checkpoint/resume tracking is needed; use `ultragoal`.
 - The user gives only a north-star outcome such as revenue, stars, or adoption and has not accepted a bounded first loop goal.
 - The goal is too vague to name an observable problem, next artifact, verification signal, or stop condition.
 - The goal depends mainly on external waiting, adoption, revenue, or community response without observable local next actions.
@@ -78,6 +79,7 @@ Category: `goal-loop`
 Phase: `continuous-goal-loop`
 Hermes role: `planner`
 Quality tier: `loop-gated`
+Reasoning demand: `heavy`
 
 Quality bar:
 

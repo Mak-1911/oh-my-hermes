@@ -72,6 +72,7 @@ Category: `operator`
 Phase: `skill-management`
 Hermes role: `tracker`
 Quality tier: `evidence-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

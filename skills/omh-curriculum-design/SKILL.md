@@ -74,6 +74,7 @@ Category: `planning`
 Phase: `curriculum-design`
 Hermes role: `planner`
 Quality tier: `planning-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

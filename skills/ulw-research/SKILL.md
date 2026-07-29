@@ -23,6 +23,9 @@ This is a Hermes-native `web-research` workflow skill.
 - The user asks for a full plan-to-PR delivery cycle; use `ultraprocess` or a planning workflow after research instead.
 - The request is purely local repo inspection with no external, current, citation, or source-comparison need.
 - The user needs coding execution, review, CI, or merge evidence rather than research synthesis.
+- The requested output is a typed candidate list or acquisition status without factual synthesis; use `source-finder`.
+- The user needs a market, customer, or pricing decision brief with evidence-versus-inference treatment; use `research-brief`.
+- Correctness is a bounded, versioned official or upstream guidance question; use `best-practice-research`.
 
 ## Examples
 
@@ -73,6 +76,7 @@ Category: `research`
 Phase: `current-evidence`
 Hermes role: `researcher`
 Quality tier: `source-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

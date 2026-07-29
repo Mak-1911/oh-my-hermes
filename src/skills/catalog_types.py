@@ -12,7 +12,7 @@ The data tables live in `catalog_definitions`, `catalog_feature_surfaces`, and
 from __future__ import annotations
 
 from dataclasses import dataclass
-
+from typing import Literal
 
 
 OMH_DESCRIPTION_PREFIX = "[omh] "
@@ -169,6 +169,45 @@ _ROLE_BY_CATEGORY = {
     "triage": "operator",
     "verification": "reviewer",
 }
+
+REASONING_DEMAND_VALUES = ("light", "standard", "heavy")
+
+# Per-skill demand stays executor-neutral. Empty catalog entries inherit their
+# category's conservative default so only genuine cross-category outliers need
+# to declare a value.
+_REASONING_DEMAND_BY_CATEGORY = {
+    "accessibility": "light",
+    "clarification": "light",
+    "executor-readiness": "light",
+    "gateway": "light",
+    "hermes-setup": "light",
+    "knowledge": "light",
+    "meeting": "light",
+    "memory": "light",
+    "monitoring": "light",
+    "operations": "light",
+    "operator": "light",
+    "router": "light",
+    "deliverables": "standard",
+    "materials": "standard",
+    "observability": "standard",
+    "planning": "standard",
+    "reporting": "standard",
+    "reliability": "standard",
+    "research": "standard",
+    "review": "standard",
+    "strategy": "standard",
+    "triage": "standard",
+    "verification": "standard",
+    "delivery": "heavy",
+    "execution": "heavy",
+    "goal-loop": "heavy",
+    "leadership": "heavy",
+    "maintenance": "heavy",
+    "optimization": "heavy",
+    "process": "heavy",
+}
+
 
 _ROLE_ALIASES = {
     "coding-handoff": "handoff-guide",
@@ -475,10 +514,19 @@ class SkillDefinition:
     # projection. Set it only when the skill's family differs from its
     # awareness-lane default; leave empty to inherit the lane default.
     capability_family: str = ""
+    # Empty means inherit the category default. The resolved value is exposed
+    # as catalog metadata for hosts to apply to their own model inventory.
+    reasoning_demand: Literal["light", "standard", "heavy", ""] = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "description", omh_description(self.description))
         object.__setattr__(self, "hermes_role", canonical_hermes_role(self.name, self.category, self.hermes_role))
+        if self.reasoning_demand == "":
+            object.__setattr__(
+                self,
+                "reasoning_demand",
+                _REASONING_DEMAND_BY_CATEGORY.get(self.category, "standard"),
+            )
         routing_hint = self.triggers[0] if self.triggers else self.name
         if not self.why_this_exists:
             object.__setattr__(

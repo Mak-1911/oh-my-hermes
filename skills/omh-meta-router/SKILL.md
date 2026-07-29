@@ -72,6 +72,7 @@ Category: `router`
 Phase: `meta-routing`
 Hermes role: `guide`
 Quality tier: `routing-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

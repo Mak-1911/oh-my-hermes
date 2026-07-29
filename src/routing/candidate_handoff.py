@@ -119,6 +119,7 @@ def _coding_lane() -> list[dict[str, object]]:
             {
                 "skill": definition.name,
                 "description": definition.description,
+                "reasoning_demand": definition.reasoning_demand,
                 "why_it_matched": (
                     "The request is implementation-shaped; this is one of the workflows that "
                     "actually delivers coding work."
@@ -140,6 +141,7 @@ def _candidate(recommendation: dict[str, object]) -> dict[str, object]:
     return {
         "skill": recommendation.get("skill"),
         "description": recommendation.get("description"),
+        "reasoning_demand": _candidate_reasoning_demand(recommendation),
         "why_it_matched": recommendation.get("why"),
         "matched": list(recommendation.get("matched", []) or []),
         "score": recommendation.get("score"),
@@ -147,6 +149,17 @@ def _candidate(recommendation: dict[str, object]) -> dict[str, object]:
         "next_action": recommendation.get("next_action"),
         "evidence_boundary": recommendation.get("evidence_boundary"),
     }
+
+
+def _candidate_reasoning_demand(recommendation: dict[str, object]) -> str:
+    value = recommendation.get("reasoning_demand")
+    if value in {"light", "standard", "heavy"}:
+        return str(value)
+    skill = str(recommendation.get("skill") or "")
+    return next(
+        (definition.reasoning_demand for definition in routable_definitions() if definition.name == skill),
+        "standard",
+    )
 
 
 def candidate_handoff_digest(candidates: list[dict[str, object]], reasons: tuple[str, ...]) -> str:

@@ -24,6 +24,8 @@ This is a Hermes-native `ultraprocess` workflow skill.
 - The task is still ambiguous enough that a deep interview is required before planning.
 - No repo, product, or delivery surface is available to support a plan-to-PR cycle.
 - The goal is removing existing slop or duplication with identical observable behavior rather than delivering new or changed behavior; use `ai-slop-cleaner`.
+- The request starts with product shaping and explicitly includes release, deploy, or monitor decisions beyond one PR; use `idea-to-deploy`.
+- The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of starting a plan-to-PR cycle.
 
 ## Examples
 
@@ -78,6 +80,7 @@ Category: `process`
 Phase: `single-cycle-plan-to-pr`
 Hermes role: `handoff-guide`
 Quality tier: `process-gated`
+Reasoning demand: `heavy`
 
 Quality bar:
 

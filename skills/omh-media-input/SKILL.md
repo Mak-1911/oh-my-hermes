@@ -74,6 +74,7 @@ Category: `media`
 Phase: `media-input-task`
 Hermes role: `guide`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

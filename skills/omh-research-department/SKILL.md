@@ -74,6 +74,7 @@ Category: `research`
 Phase: `research-department`
 Hermes role: `researcher`
 Quality tier: `research-ops-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

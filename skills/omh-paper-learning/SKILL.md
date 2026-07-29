@@ -79,6 +79,7 @@ Category: `research`
 Phase: `paper-learning`
 Hermes role: `researcher`
 Quality tier: `paper-learning-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

@@ -72,6 +72,7 @@ Category: `research`
 Phase: `durable-research`
 Hermes role: `researcher`
 Quality tier: `validator-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

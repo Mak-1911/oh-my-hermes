@@ -76,6 +76,7 @@ Category: `materials`
 Phase: `design-quality-gate`
 Hermes role: `operator`
 Quality tier: `design-pro-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

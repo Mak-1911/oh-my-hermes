@@ -73,6 +73,7 @@ Category: `knowledge`
 Phase: `rules-distillation`
 Hermes role: `memory-keeper`
 Quality tier: `rules-distillation-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

@@ -75,6 +75,7 @@ Category: `prompt`
 Phase: `prompt-import-readiness`
 Hermes role: `guide`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

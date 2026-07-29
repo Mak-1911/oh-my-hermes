@@ -22,6 +22,7 @@ from ..skills.catalog import (
     DEEP_INTERVIEW_MAX_ROUNDS,
     DEEP_INTERVIEW_SOFT_CHECK_ROUND,
     harness_quality_contract,
+    routable_definitions,
 )
 
 
@@ -839,6 +840,17 @@ def _options(kind: str) -> tuple[dict[str, object], ...]:
     )
 
 
+def _resolved_reasoning_demand(item: dict[str, object]) -> str:
+    value = item.get("reasoning_demand")
+    if value in {"light", "standard", "heavy"}:
+        return str(value)
+    skill = str(item.get("skill") or "")
+    return next(
+        (definition.reasoning_demand for definition in routable_definitions() if definition.name == skill),
+        "standard",
+    )
+
+
 def _compact_recommendations(recommendations: object) -> list[dict[str, object]]:
     if not isinstance(recommendations, list):
         return []
@@ -853,6 +865,7 @@ def _compact_recommendations(recommendations: object) -> list[dict[str, object]]
                 "score": _int_value(item.get("score", 0)),
                 "confidence": str(item.get("confidence", "low")),
                 "matched": [str(value) for value in matched] if isinstance(matched, list) else [],
+                "reasoning_demand": _resolved_reasoning_demand(item),
             }
         )
     return compact

@@ -73,6 +73,7 @@ Category: `tools`
 Phase: `readiness-check`
 Hermes role: `tracker`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

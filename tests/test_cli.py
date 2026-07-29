@@ -11388,6 +11388,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("good_example", skills["oh-my-hermes"])
         self.assertIn("bad_example", skills["oh-my-hermes"])
         self.assertIn("Use OMH request-to-handoff", skills["oh-my-hermes"]["good_example"]["prompt"])
+        self.assertEqual(skills["oh-my-hermes"]["reasoning_demand"], "light")
+        self.assertEqual(skills["ralph"]["reasoning_demand"], "heavy")
         harnesses = {harness["name"]: harness for harness in payload["harnesses"]}
         self.assertEqual(harnesses["coding-handling"]["quality_tier"], "handoff-gated")
         self.assertIn("coding_delegation_prepared", harnesses["coding-handling"]["evidence_ladder"])
@@ -11445,6 +11447,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("app-delivery-loop", harnesses)
         self.assertIn("blocking_question_asked", harnesses["deep-interview"]["evidence_ladder"])
         self.assertIn("ralplan", harnesses["planning"]["primary_skills"])
+        planning_profiles = {profile["name"]: profile for profile in harnesses["planning"]["primary_skill_profiles"]}
+        self.assertEqual(planning_profiles["ralplan"]["reasoning_demand"], "standard")
         self.assertIn("feedback-triage", harnesses["customer-insight-triage"]["primary_skills"])
         self.assertIn("operating-rhythm", harnesses["operating-rhythm"]["primary_skills"])
         self.assertIn("report-package", harnesses["report-package"]["primary_skills"])
@@ -11461,6 +11465,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(inspected["schema_version"], "harness_inspect/v1")
         self.assertEqual(inspected["harness_quality"]["schema_version"], "harness_quality/v1")
         self.assertIn("primary_sources_checked", inspected["harness_quality"]["evidence_ladder"])
+        research_profiles = {profile["name"]: profile for profile in inspected["primary_skill_profiles"]}
+        self.assertEqual(research_profiles["web-research"]["reasoning_demand"], "standard")
         self.assertTrue(inspected["validation"]["ok"])
 
         status, stdout, stderr = run_cli(["harness", "validate"])

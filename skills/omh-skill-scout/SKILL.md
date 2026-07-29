@@ -74,6 +74,7 @@ Category: `operations`
 Phase: `skill-scout`
 Hermes role: `operator`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

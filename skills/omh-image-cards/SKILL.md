@@ -73,6 +73,7 @@ Category: `materials`
 Phase: `visual-prompt-card`
 Hermes role: `operator`
 Quality tier: `visual-card-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

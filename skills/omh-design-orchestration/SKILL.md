@@ -74,6 +74,7 @@ Category: `materials`
 Phase: `design-orchestration`
 Hermes role: `operator`
 Quality tier: `design-orchestration-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

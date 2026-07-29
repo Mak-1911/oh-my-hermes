@@ -200,6 +200,10 @@ _DEFINITIONS = [
             "For coding edits, prepare and track selected runtime evidence instead of implying unobserved work happened.",
             "Report completion only from observed execution and verification evidence.",
         ),
+        do_not_use_when=(
+            "Progress must survive sessions as a ledger with multiple checkpoints and a final gate; use `ultragoal`.",
+            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of opening a finish-until-done loop.",
+        ),
     ),
     SkillDefinition(
         "ultragoal",
@@ -238,6 +242,8 @@ _DEFINITIONS = [
         why_this_exists="`ultragoal` exists for work that can outlive one chat turn: it turns ambition into durable stories, checkpoints, and completion gates so progress can resume without pretending a summary is evidence.",
         do_not_use_when=(
             "The request is a single-turn answer, quick diagnosis, or small edit that does not need a durable ledger.",
+            "One concrete, already-scoped task only needs one owner to finish and verify; use `ralph`.",
+            "The next work must be discovered or reframed repeatedly through research and feedback cycles; use `loop`.",
             "The request is a settings-only or single configuration change (for example a gateway channel policy, a mention rule, or one config key) that the wrapper or Hermes can apply directly; apply the configuration change, verify the new value, and report it instead of opening a goal ledger or preparing a coding handoff.",
             "Acceptance criteria, current checkpoint, and final gate expectations are too vague to make a goal inspectable.",
             "The user expects hidden Hermes code execution rather than explicit executor handoff and observed verification evidence.",
@@ -331,6 +337,7 @@ _DEFINITIONS = [
         why_this_exists="`loop` exists for goals whose correct implementation cannot be known upfront but can be discovered through bounded cycles of definition, action, verification, and revision without confusing planned cycles with observed progress.",
         do_not_use_when=(
             "The user asks for one bounded delivery cycle; use `ultraprocess` or `ultragoal` instead.",
+            "Scope and milestones are already known and only durable checkpoint/resume tracking is needed; use `ultragoal`.",
             "The user gives only a north-star outcome such as revenue, stars, or adoption and has not accepted a bounded first loop goal.",
             "The goal is too vague to name an observable problem, next artifact, verification signal, or stop condition.",
             "The goal depends mainly on external waiting, adoption, revenue, or community response without observable local next actions.",
@@ -445,6 +452,8 @@ _DEFINITIONS = [
             "The task is still ambiguous enough that a deep interview is required before planning.",
             "No repo, product, or delivery surface is available to support a plan-to-PR cycle.",
             "The goal is removing existing slop or duplication with identical observable behavior rather than delivering new or changed behavior; use `ai-slop-cleaner`.",
+            "The request starts with product shaping and explicitly includes release, deploy, or monitor decisions beyond one PR; use `idea-to-deploy`.",
+            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of starting a plan-to-PR cycle.",
         ),
         good_example=SkillExample(
             prompt="$ultraprocess research this setup bug, plan the fix, implement, review, sync docs, and prepare a PR.",
@@ -552,6 +561,10 @@ _DEFINITIONS = [
             "Keep Hermes as coordinator and status narrator while coding lanes become runtime handoffs with explicit ownership.",
             "Integrate lane evidence before reporting combined progress.",
         ),
+        do_not_use_when=(
+            "An accepted implementation plan with disjoint files, criteria, and commands is ready for parallel delivery; use `ultrawork`.",
+            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of coordinating workers.",
+        ),
         final_checklist=(
             "Each lane has an owner, disjoint scope, expected output, and verification target.",
             "Worker ACK, dispatch, result, integration, and verification evidence are separated when wrappers record them.",
@@ -592,6 +605,8 @@ _DEFINITIONS = [
             "The work touches the same files or invariants in ways that need one owner.",
             "The plan is not accepted, lane boundaries are unclear, or verification commands are missing.",
             "The user expects Hermes to secretly execute coding lanes instead of preparing explicit selected-runtime handoffs.",
+            "The lanes are exploratory research or QA coordination without an accepted implementation plan; use `team`.",
+            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of opening parallel delivery lanes.",
         ),
         good_example=SkillExample(
             prompt="$ultrawork split the accepted docs refresh, CLI output polish, and test updates into parallel implementation lanes.",
@@ -697,6 +712,9 @@ _DEFINITIONS = [
             "The user asks for a full plan-to-PR delivery cycle; use `ultraprocess` or a planning workflow after research instead.",
             "The request is purely local repo inspection with no external, current, citation, or source-comparison need.",
             "The user needs coding execution, review, CI, or merge evidence rather than research synthesis.",
+            "The requested output is a typed candidate list or acquisition status without factual synthesis; use `source-finder`.",
+            "The user needs a market, customer, or pricing decision brief with evidence-versus-inference treatment; use `research-brief`.",
+            "Correctness is a bounded, versioned official or upstream guidance question; use `best-practice-research`.",
         ),
         good_example=SkillExample(
             prompt="웹서치해서 최신 자료와 출처를 정리해줘.",
@@ -742,8 +760,8 @@ _DEFINITIONS = [
             "문서 스펙 찾아",
         ),
         (
-            "Use when Hermes should prepare a typed source candidate set across papers, web links, datasets, "
-            "GitHub repositories, public presentations, docs/specs, or unknown source material before choosing "
+            "Use when the requested output is a typed source candidate inventory and acquisition status across papers, web links, "
+            "datasets, GitHub repositories, public presentations, docs/specs, or unknown source material before choosing "
             "paper-learning, web-research, research-brief, research-department, materials-package, or ultraprocess."
         ),
         category="research",
@@ -788,6 +806,8 @@ _DEFINITIONS = [
             "and downstream workflow choice without pretending OMH searched, downloaded, or verified the material."
         ),
         do_not_use_when=(
+            "The requested output is factual findings, comparison, or a summary rather than a typed candidate inventory and acquisition status; use `web-research`.",
+            "The user needs a business decision brief with evidence-versus-inference treatment; use `research-brief`.",
             "The user asks for current citations, fact-finding, or source-backed synthesis; use `web-research`.",
             "The user supplies a paper/PDF/arXiv/DOI/excerpt and wants explanation; use `paper-learning`.",
             "The user asks for recurring monitoring, source inbox, or Scout/Analyst/Briefer operations; use `research-department`.",
@@ -858,6 +878,10 @@ _DEFINITIONS = [
             "Keep claims that lack corroboration in an explicit unresolved list instead of asserting or silently dropping them.",
             "Separate observed sources, source quality, source diversity, inferred trends, and unresolved uncertainty.",
             "Use the brief to feed strategy or meeting work without calling it execution evidence.",
+        ),
+        do_not_use_when=(
+            "The request is only fresh links, citations, or current facts without a business question or decision audience; use `web-research`.",
+            "Sources have not yet been selected and the user wants source types, candidates, or acquisition state; use `source-finder`.",
         ),
     ),
     SkillDefinition(
@@ -1658,6 +1682,9 @@ _DEFINITIONS = [
             "Tie every status claim to observed evidence or mark it as unknown.",
             "Separate risks, blockers, priorities, and follow-up owners.",
             "Keep code fixes as explicit follow-up handoffs, not implicit ops-review output.",
+        ),
+        do_not_use_when=(
+            "The primary output is durable cadence history, minutes, a decision log, or action history; use `operating-rhythm`.",
         ),
     ),
     SkillDefinition(
@@ -3831,6 +3858,10 @@ _DEFINITIONS = [
             "Prepare coding handoffs only after plan acceptance and selected executor/runtime choice.",
             "Mark deploy, monitoring, and rollback as unobserved until the wrapper or operator records evidence.",
         ),
+        do_not_use_when=(
+            "The task is already a concrete repo change whose stopping point is one PR-ready cycle, not product or release operations; use `ultraprocess`.",
+            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of opening a product delivery loop.",
+        ),
     ),
     SkillDefinition(
         "cto-loop",
@@ -3875,6 +3906,9 @@ _DEFINITIONS = [
             "Tie recommendations to observed signals or mark assumptions.",
             "Record accepted decisions separately from draft recommendations.",
             "Prepare executor handoffs only for accepted implementation follow-ups.",
+        ),
+        do_not_use_when=(
+            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly or use `strategy-brief` for a decision brief instead of starting a leadership operating loop.",
         ),
     ),
     SkillDefinition(
@@ -4230,6 +4264,9 @@ _DEFINITIONS = [
             "Use official or upstream sources first and name the version/environment assumptions.",
             "Map applicability to the user's local context before recommending action.",
             "Preserve residual uncertainty instead of overstating best practice.",
+        ),
+        do_not_use_when=(
+            "The work needs multi-source current evidence, a market or literature comparison, or a business brief rather than one technology's upstream guidance; use `web-research`.",
         ),
     ),
     SkillDefinition(

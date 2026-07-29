@@ -55,7 +55,10 @@ CUSTOMER_SYMPTOM_REPORT_PHRASES = (
 def contains_cue_phrase(message: str, phrases: tuple[str, ...]) -> bool:
     text = _cue_text(message)
     compact = _compact_cue_text(text)
-    return any(phrase in text or _compact_cue_text(phrase) in compact for phrase in phrases)
+    return any(
+        _cue_text(phrase) in text or _compact_cue_text(_cue_text(phrase)) in compact
+        for phrase in phrases
+    )
 
 
 @lru_cache(maxsize=4096)

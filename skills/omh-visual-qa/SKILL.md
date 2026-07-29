@@ -78,6 +78,7 @@ Category: `materials`
 Phase: `visual-qa`
 Hermes role: `operator`
 Quality tier: `visual-qa-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

@@ -53,6 +53,71 @@ merge_observed=false
 
 
 class ChatRouterTests(unittest.TestCase):
+    def test_bounded_direct_tasks_do_not_auto_escalate_to_heavy_workflows(self) -> None:
+        for message in (
+            "change one setting in config",
+            "fix one typo in README",
+            "rename one variable",
+        ):
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+                self.assertEqual(decision["selected_skill"], "oh-my-hermes")
+                self.assertEqual(decision["action"], "fallback")
+
+        for message in (
+            "$ultraprocess change one setting in config",
+            "ralph fix one typo",
+            "team rename one variable",
+            "ultrawork change one setting",
+            "cto-loop fix one typo",
+            "idea-to-deploy rename one variable",
+            "fix the typo in README",
+            "fix a small typo in the docs",
+            "$ultraprocess change a single setting in config",
+            "idea-to-deploy change one config option",
+            "설정 하나만 바꾸줘",
+            "$ultraprocess 설정 하나만 바꾸줘",
+        ):
+            with self.subTest(named_heavy=message):
+                decision = route_chat_message(message)
+                self.assertEqual(decision["selected_skill"], "oh-my-hermes")
+                self.assertEqual(decision["action"], "fallback")
+
+    def test_fast_path_recommendations_carry_catalog_reasoning_demand(self) -> None:
+        # Router fast paths must publish the catalog's demand for the selected
+        # skill instead of a hardcoded "standard" backfill.
+        direct = route_chat_message("what's 2+2?")
+        self.assertEqual(direct["recommendations"][0]["skill"], "oh-my-hermes")
+        self.assertEqual(direct["recommendations"][0]["reasoning_demand"], "light")
+
+        bounded = route_chat_message("change one setting in config")
+        self.assertEqual(bounded["recommendations"][0]["reasoning_demand"], "light")
+
+    def test_bounded_phrase_inside_larger_request_keeps_heavy_workflow(self) -> None:
+        cases = (
+            (
+                "$ultraprocess change one setting in config, then refactor the entire auth system and ship it end to end",
+                "ultraprocess",
+            ),
+            (
+                "rename one variable and then rewrite the whole scheduler until every test passes",
+                "ultraprocess",
+            ),
+            ("team fix one typo and also build the new billing subsystem from scratch", "team"),
+            ("ralph fix one typo, then keep looping until the entire suite is green", "ralph"),
+            ("change one setting in config for every service in the fleet", "ultraprocess"),
+            ("idea-to-deploy change one setting and deploy to prod", "idea-to-deploy"),
+            ("$ultraprocess fix one typo then ship everything", "ultraprocess"),
+            ("team fix one typo and rebuild everything", "team"),
+            ("idea-to-deploy change one setting and launch", "idea-to-deploy"),
+            ("$ultraprocess change one setting, own the roadmap", "ultraprocess"),
+        )
+        for message, expected_skill in cases:
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+                self.assertEqual(decision["selected_skill"], expected_skill)
+                self.assertEqual(decision["action"], "dispatch")
+
     def test_design_orchestration_routes_broad_ownership_without_stealing_specialists(self) -> None:
         cases = (
             ("디자인 맡겨줘", "design-orchestration"),

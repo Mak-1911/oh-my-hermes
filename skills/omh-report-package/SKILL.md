@@ -73,6 +73,7 @@ Category: `reporting`
 Phase: `package-outline`
 Hermes role: `operator`
 Quality tier: `report-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

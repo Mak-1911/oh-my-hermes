@@ -75,6 +75,7 @@ Category: `executor-readiness`
 Phase: `runtime-selection`
 Hermes role: `handoff-guide`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

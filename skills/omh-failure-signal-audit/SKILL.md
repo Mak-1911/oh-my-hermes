@@ -75,6 +75,7 @@ Category: `review`
 Phase: `failure-signal-audit`
 Hermes role: `reviewer`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

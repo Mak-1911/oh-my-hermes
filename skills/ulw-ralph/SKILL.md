@@ -20,8 +20,8 @@ This is a Hermes-native `ralph` workflow skill.
 
 ## Do Not Use When
 
-- The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-- The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+- Progress must survive sessions as a ledger with multiple checkpoints and a final gate; use `ultragoal`.
+- The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of opening a finish-until-done loop.
 
 ## Examples
 
@@ -74,6 +74,7 @@ Category: `execution`
 Phase: `completion`
 Hermes role: `handoff-guide`
 Quality tier: `handoff-gated`
+Reasoning demand: `heavy`
 
 Quality bar:
 

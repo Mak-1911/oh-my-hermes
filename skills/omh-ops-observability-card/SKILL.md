@@ -73,6 +73,7 @@ Category: `observability`
 Phase: `telemetry-card`
 Hermes role: `tracker`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

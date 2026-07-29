@@ -73,6 +73,7 @@ Category: `gateway`
 Phase: `intent-card`
 Hermes role: `guide`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

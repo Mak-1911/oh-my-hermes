@@ -20,8 +20,7 @@ This is a Hermes-native `cto-loop` workflow skill.
 
 ## Do Not Use When
 
-- The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-- The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+- The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly or use `strategy-brief` for a decision brief instead of starting a leadership operating loop.
 
 ## Examples
 
@@ -72,6 +71,7 @@ Category: `leadership`
 Phase: `operating-loop`
 Hermes role: `operator`
 Quality tier: `decision-gated`
+Reasoning demand: `heavy`
 
 Quality bar:
 

@@ -20,8 +20,7 @@ This is a Hermes-native `best-practice-research` workflow skill.
 
 ## Do Not Use When
 
-- The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-- The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+- The work needs multi-source current evidence, a market or literature comparison, or a business brief rather than one technology's upstream guidance; use `web-research`.
 
 ## Examples
 
@@ -72,6 +71,7 @@ Category: `research`
 Phase: `evidence`
 Hermes role: `researcher`
 Quality tier: `source-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 
