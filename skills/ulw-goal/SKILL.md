@@ -21,6 +21,7 @@ This is a Hermes-native `ultragoal` workflow skill.
 ## Do Not Use When
 
 - The request is a single-turn answer, quick diagnosis, or small edit that does not need a durable ledger.
+- The request is a settings-only or single configuration change (for example a gateway channel policy, a mention rule, or one config key) that the wrapper or Hermes can apply directly; apply the configuration change, verify the new value, and report it instead of opening a goal ledger or preparing a coding handoff.
 - Acceptance criteria, current checkpoint, and final gate expectations are too vague to make a goal inspectable.
 - The user expects hidden Hermes code execution rather than explicit executor handoff and observed verification evidence.
 

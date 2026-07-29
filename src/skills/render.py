@@ -647,6 +647,8 @@ omh coding delegate --source discord --executor codex --record "risky refactor"
 
 The payload is deterministic local adapter data: recommended workflow, harness, executor/runtime profile, acceptance criteria, verification expectations, and handoff prompt template. Hermes still narrates the user-facing state.
 
+Implementation-shaped has a floor. A settings-only or single configuration change (a gateway channel policy, a mention rule, one config key) that the wrapper or Hermes can apply directly is a direct configuration action: apply it, verify the new value, and report it. Do not open a durable goal ledger, start a goal loop, or prepare an executor handoff for it. Escalate to a coding handoff only when the request needs code edits, tests, or multi-step implementation work that configuration cannot express.
+
 Check `executor_readiness/v1` for Codex, Claude Code, Hermes, or oh-my runtime profiles before first dispatch. If readiness is `missing` or `blocked`, ask the user to choose another coding agent, configure PATH, continue in Hermes, or use prompt/runtime handoff; retry only after that state changes. A readiness probe is not dispatch, execution, verification, review, CI, or merge evidence.
 
 With `--record`, Codex-selected real executor handoffs create `.omh/runtime/runs/<run-id>/` prepared runtime runs with `observation_status: prepared_not_observed`. Executor-choice, prompt-only, runtime-handoff, clarify, and fallback responses remain wrapper/session state.
