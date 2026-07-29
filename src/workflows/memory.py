@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -1206,7 +1207,7 @@ def _memory_tokens(value: str) -> set[str]:
     which excluded every record as no_query_overlap and silently emptied
     recall packs for projects that chat in Korean, Japanese, or Chinese.
     """
-    lowered = value.lower()
+    lowered = unicodedata.normalize("NFC", value).lower()
     tokens = set(_MEMORY_ASCII_TOKEN.findall(lowered))
     for run in _MEMORY_CJK_RUN.findall(lowered):
         if len(run) >= 2:
@@ -1350,7 +1351,7 @@ def _normalize_tags(values: Any) -> list[str]:
     tags: list[str] = []
     seen: set[str] = set()
     for value in values:
-        tag = str(value).strip().lower()
+        tag = unicodedata.normalize("NFC", str(value)).strip().lower()
         if not tag or not _SAFE_TAG.match(tag):
             continue
         if tag not in seen:
@@ -1395,7 +1396,11 @@ def _read_memory_json_files(paths: OmhPaths, directory: Path) -> list[dict[str, 
         if path.is_symlink() or not path.is_file():
             continue
         _assert_under_memory_root(paths, path)
-        data = read_json_object(path)
+        # A corrupt store file must cost only itself, not the whole read: a
+        # crash mid-write or disk fault used to make every recall, review,
+        # and status call raise on the first unreadable file until someone
+        # hand-deleted it. Retirement already scans this way.
+        data, _error = read_json_object_result(path)
         if isinstance(data, dict):
             items.append(data)
     return items

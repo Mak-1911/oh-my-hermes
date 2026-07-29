@@ -1553,12 +1553,39 @@ def _compact_memory_recall_pack(value: Any) -> dict[str, Any]:
             "recall_enabled": bool(policy.get("recall_enabled", False)),
         },
         "scope": _compact_context_scope(value.get("scope", {})),
-        "included_records": [],
+        # Included records survive compaction: they are already redacted,
+        # bounded summaries (<=500 chars each, budget-capped), and the
+        # lifecycle-backed executor path re-serves the persisted record, so
+        # dropping them here made codex delegation recall-blind while
+        # prompt-only executors kept the summaries (executor parity).
+        "included_records": [
+            _compact_memory_recall_item(item)
+            for item in (value.get("included_records") if isinstance(value.get("included_records"), list) else [])
+            if isinstance(item, dict)
+        ],
         "excluded_records": [],
         "record_count": len(value.get("included_records", [])) if isinstance(value.get("included_records"), list) else 0,
         "truncated": bool(value.get("truncated", False)),
         "redaction_policy": str(value.get("redaction_policy", "")),
         "claim_boundary": str(value.get("claim_boundary", "")),
+    }
+
+
+def _compact_memory_recall_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "record_id": str(item.get("record_id", "")),
+        "record_type": str(item.get("record_type", "")),
+        "summary": str(item.get("summary", ""))[:500],
+        "scope": _compact_context_scope(item.get("scope", {})),
+        "tags": [str(tag) for tag in item.get("tags", []) if str(tag)][:12],
+        "source": str(item.get("source", "")),
+        "approved_at": str(item.get("approved_at", "")),
+        "staleness": {
+            key: str(item.get("staleness", {}).get(key, ""))
+            for key in ("state", "stale_after", "expires_at")
+            if isinstance(item.get("staleness"), dict) and key in item.get("staleness", {})
+        },
+        "score": int(item.get("score", 0) or 0),
     }
 
 
