@@ -5149,11 +5149,16 @@ _BOUNDED_DIRECT_TASK_BLOCKERS = (
     "across all files",
     "across the repository",
     "deploy",
+    "everything",
+    "launch",
     "migration",
     "monitor",
     "multiple files",
+    "rebuild",
     "release",
     "repo-wide",
+    "roadmap",
+    "ship",
 )
 _BOUNDED_DIRECT_TASK_MAX_WORDS = 8
 

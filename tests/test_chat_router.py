@@ -75,6 +75,8 @@ class ChatRouterTests(unittest.TestCase):
             "fix a small typo in the docs",
             "$ultraprocess change a single setting in config",
             "idea-to-deploy change one config option",
+            "설정 하나만 바꾸줘",
+            "$ultraprocess 설정 하나만 바꾸줘",
         ):
             with self.subTest(named_heavy=message):
                 decision = route_chat_message(message)
@@ -105,6 +107,10 @@ class ChatRouterTests(unittest.TestCase):
             ("ralph fix one typo, then keep looping until the entire suite is green", "ralph"),
             ("change one setting in config for every service in the fleet", "ultraprocess"),
             ("idea-to-deploy change one setting and deploy to prod", "idea-to-deploy"),
+            ("$ultraprocess fix one typo then ship everything", "ultraprocess"),
+            ("team fix one typo and rebuild everything", "team"),
+            ("idea-to-deploy change one setting and launch", "idea-to-deploy"),
+            ("$ultraprocess change one setting, own the roadmap", "ultraprocess"),
         )
         for message, expected_skill in cases:
             with self.subTest(message=message):
