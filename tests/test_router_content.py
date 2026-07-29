@@ -721,6 +721,7 @@ class RouterContentTests(unittest.TestCase):
                 'ralplan': 'ulw-plan',
                 'strategy-brief': 'omh-decide',
                 'ultragoal': 'ulw-goal',
+                'ultraperf': 'ulw-perf',
                 'ultraprocess': 'ulw-process',
                 'ultraqa': 'ulw-qa',
                 'ultrawork': 'ulw-work',
@@ -3794,3 +3795,39 @@ class RouterContentTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UltraperfCatalogContractTests(unittest.TestCase):
+    """Wave-1 contract for the ultraperf performance loop skill."""
+
+    def test_ultraperf_catalog_row_contract(self) -> None:
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        self.assertIn("ultraperf", definitions)
+        row = definitions["ultraperf"]
+        self.assertEqual(row.category, "optimization")
+        self.assertEqual(row.reasoning_demand, "heavy")
+        self.assertEqual(row.quality_tier, "measurement-gated")
+        joined = " ".join(row.do_not_use_when)
+        self.assertIn("performance-goal", joined)
+        self.assertIn("code-review", joined)
+        self.assertIn("agent-evaluation", joined)
+        self.assertIn(
+            "settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path",
+            joined,
+        )
+
+    def test_ultraperf_sibling_boundaries_are_reciprocal(self) -> None:
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        self.assertTrue(
+            any("ultraperf" in entry for entry in definitions["performance-goal"].do_not_use_when),
+            "performance-goal must name ultraperf in do_not_use_when",
+        )
+        self.assertTrue(
+            any("ultraperf" in entry for entry in definitions["agent-evaluation"].do_not_use_when),
+            "agent-evaluation must name ultraperf in do_not_use_when",
+        )
+
+    def test_ultraperf_is_a_workflow_engine_with_goal_execution_harness(self) -> None:
+        from omh.skills.catalog_types import ULW_ENGINE_SKILL_NAMES
+        self.assertIn("ultraperf", ULW_ENGINE_SKILL_NAMES)
+        self.assertEqual(primary_harness_for_skill("ultraperf"), "goal-execution")

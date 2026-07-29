@@ -285,3 +285,23 @@ class DisplayNamesLeaveDegradationRenderingAloneTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UltraperfDisplayNameTests(unittest.TestCase):
+    """ultraperf renders as ulw-perf; canonical and historical labels keep routing."""
+
+    def test_ultraperf_display_name_and_historical_labels(self) -> None:
+        self.assertEqual(omh_skill_display_name("ultraperf"), "ulw-perf")
+        historical = historical_skill_display_names("ultraperf")
+        self.assertIn("omh-ultraperf", historical)
+        self.assertIn("ulw-ultraperf", historical)
+
+    def test_ultraperf_display_and_historical_labels_route_to_the_workflow(self) -> None:
+        mapping = {label: "ultraperf" for label in ("ulw-perf", "omh-ultraperf", "ulw-ultraperf")}
+        for label in mapping:
+            with self.subTest(label=label):
+                self.assertEqual(
+                    canonical_display_mentions(f"run {label} on the api", mapping),
+                    "run ultraperf on the api",
+                )
+        self.assertEqual(route_chat_message("run ulw-perf on the api and worker")["selected_skill"], "ultraperf")

@@ -3041,6 +3041,7 @@ _PRIMARY_HARNESSES = {
     "best-practice-research": "research",
     "autoresearch-goal": "research",
     "performance-goal": "goal-execution",
+    "ultraperf": "goal-execution",
     "wiki": "docs-specialist",
     "ask": "critic",
     "cancel": "goal-execution",

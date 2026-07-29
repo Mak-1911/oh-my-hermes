@@ -52,6 +52,10 @@ OMH_SKILL_DISPLAY_NAME_OVERRIDES = {
     "ultraqa": "ulw-qa",
     "ultrawork": "ulw-work",
     "web-research": "ulw-research",
+    # `ulw-performance` spells the domain out; `ulw-perf` is the label an
+    # operator actually scans for in a status line, and the engine family
+    # already abbreviates (`ulw-plan`, `ulw-qa`). Canonical name stays put.
+    "ultraperf": "ulw-perf",
     # The `-operator` suffix names the implementation pattern, not the job. A
     # reader scanning a picker wants the job: the browser one drives web pages,
     # the terminal one scopes shell commands, the apps one reaches email/Slack/
@@ -78,8 +82,9 @@ ULW_SKILL_NAME_PREFIX = "ulw-"
 # that specific job done. The two read differently in a status line, so they get
 # different labels.
 #
-# Membership is enumerated rather than derived from `category`, because these
-# seven span execution, clarification, research, planning, and verification -
+# Membership is enumerated rather than derived from `category`, because the
+# members span execution, clarification, research, planning, optimization, and
+# verification -
 # the grouping is what the skill is FOR, not where it sits in the catalog. Keep
 # it small and explicit: a domain skill that drifts in here would make the
 # distinction meaningless, which is the only thing the split is buying.
@@ -92,6 +97,7 @@ ULW_ENGINE_SKILL_NAMES = frozenset(
         "team",
         "ultragoal",
         "ultraprocess",
+        "ultraperf",
         "ultraqa",
         "ultrawork",
         "web-research",
