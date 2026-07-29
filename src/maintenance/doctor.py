@@ -13,7 +13,7 @@ from ..config_adapter import (
     plugin_is_enabled,
     read_config,
 )
-from ..hashutil import sha256_file
+from ..hashutil import sha256_file, sha256_text
 from ..local_store import can_write_dir
 from ..manifest import local_modifications, read_manifest
 from ..paths import OmhPaths
@@ -26,7 +26,8 @@ from ..plugin_observations import (
 )
 from ..plugin_pack import PLUGIN_NAME, inspect_plugin_bundle
 from ..runtime.artifacts import read_state, read_state_error
-from ..skill_pack import CORE_SKILLS
+from ..skill_pack import CORE_SKILLS, builtin_skill_templates
+from ..version import __version__
 from ..targets import read_target_registry_result, summarize_target_registry
 from ..workflow_state import list_workflow_states
 
@@ -93,6 +94,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
                 "managed files match manifest" if not modified else f"changed managed files: {', '.join(modified)}",
             )
         )
+        checks.append(_skill_freshness_check(paths, manifest))
     checks.append(Check("skills_dir", paths.skills_dir.exists(), f"{paths.skills_dir}"))
     runtime_writable = can_write_dir(paths.runtime_dir, probe_name=".doctor-write-test")
     checks.append(Check("runtime_artifacts", runtime_writable, f"{paths.runtime_dir} writable"))
@@ -554,6 +556,63 @@ def _plugin_bridge_message(plugin: dict) -> str:
             details.append(f"missing hooks={missing_hooks}")
         return "plugin register smoke is incomplete: " + "; ".join(details)
     return "managed plugin bridge is installed but did not pass local import/register smoke"
+
+
+def _skill_freshness_check(paths: OmhPaths, manifest: dict) -> Check:
+    """Detect installed skills whose content an older OMH release wrote.
+
+    `local_modifications` compares the skills directory against the manifest
+    recorded at install time, so it stays green when the omh package moves on
+    and the installed guidance quietly ages: Hermes keeps executing skill
+    text from a version the operator no longer runs. This check compares the
+    untouched installed files against what the running package would render
+    today and points a mismatch at `omh update`. Locally edited files are
+    excluded here because `local_modifications` already owns that report.
+    """
+    source = str(manifest.get("source", "builtin"))
+    if source != "builtin":
+        return Check(
+            "skill_freshness",
+            True,
+            f"skills installed from local source {source!r}; freshness vs the packaged catalog is not comparable",
+        )
+    manifest_sha_by_rel = {
+        str(record.get("path", "")): str(record.get("sha256", ""))
+        for record in manifest.get("skills", [])
+        if isinstance(record, dict)
+    }
+    stale: list[str] = []
+    for template in builtin_skill_templates():
+        rel = f"{omh_skill_display_name(template.name)}/SKILL.md"
+        if rel not in manifest_sha_by_rel:
+            continue
+        path = paths.skills_dir / rel
+        if not path.is_file():
+            continue
+        installed_sha = sha256_file(path)
+        if installed_sha == sha256_text(template.content):
+            continue
+        if installed_sha != manifest_sha_by_rel[rel]:
+            continue
+        stale.append(template.name)
+    if not stale:
+        return Check(
+            "skill_freshness",
+            True,
+            f"installed managed skills match the omh {__version__} catalog",
+        )
+    installed_version = str(manifest.get("version", "unknown"))
+    listed = ", ".join(sorted(stale)[:5]) + (", ..." if len(stale) > 5 else "")
+    return Check(
+        "skill_freshness",
+        False,
+        (
+            f"{len(stale)} managed skill(s) still carry content installed by omh {installed_version}, "
+            f"but this omh is {__version__}: {listed}"
+        ),
+        remediation="Run `omh update` to regenerate the managed skills from the current package catalog.",
+        next_action="Run `omh update`, then `omh doctor` again.",
+    )
 
 
 def _plugin_bridge_remediation(plugin: dict) -> str:

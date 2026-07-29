@@ -1393,10 +1393,10 @@ def _local_capability_report_contract(profile: str) -> dict[str, object]:
 
 def _task_prompt_shape_block() -> str:
     return (
-        "Task prompt shape:\\n"
-        "- Shape executor-facing work as: Goal / Do / Don't / Expected result / Test.\\n"
-        "- Keep dispatch prompts in English unless preserving identifiers, paths, errors, quotes, or target-language output.\\n"
-        "- If steering an active turn, send only the corrective delta instead of replaying the full prompt.\\n\\n"
+        "Task prompt shape:\n"
+        "- Shape executor-facing work as: Goal / Do / Don't / Expected result / Test.\n"
+        "- Keep dispatch prompts in English unless preserving identifiers, paths, errors, quotes, or target-language output.\n"
+        "- If steering an active turn, send only the corrective delta instead of replaying the full prompt.\n\n"
     )
 
 

@@ -315,6 +315,90 @@ class MemoryContractTests(unittest.TestCase):
             )
             self.assertEqual(validate_project_memory_recall_pack(by_chars), [])
 
+    def test_project_memory_recall_matches_cjk_queries_and_keeps_cjk_tags(self) -> None:
+        """Korean chat must be able to reach approved records.
+
+        The old ASCII-only tokenizer reduced every CJK query to zero tokens, so
+        each record was excluded as no_query_overlap and Korean-speaking
+        sessions always received an empty recall pack: long-term project memory
+        looked like it did not exist. CJK tags were also dropped at capture.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            captured = capture_project_memory_candidate(
+                paths,
+                "배포는 staging 환경을 먼저 거친다",
+                record_type="procedure",
+                tags=["배포", "release"],
+            )
+            self.assertIn("배포", captured["candidate"]["tags"])
+
+            # Particle-inflected query: "배포" must match "배포는" in the summary.
+            recall = build_project_memory_recall_pack(paths, "배포 정책 알려줘")
+            self.assertEqual(recall["record_count"], 1)
+            self.assertGreater(recall["included_records"][0]["score"], 0)
+            self.assertEqual(validate_project_memory_recall_pack(recall), [])
+
+            # Overroute guard: an unrelated Korean query still recalls nothing.
+            miss = build_project_memory_recall_pack(paths, "결제 모듈 장애")
+            self.assertEqual(miss["record_count"], 0)
+            self.assertEqual(miss["excluded_records"][0]["reason"], "no_query_overlap")
+
+    def test_project_memory_recall_treats_nfd_and_nfc_queries_alike(self) -> None:
+        """macOS pipelines hand over decomposed Hangul; ranking must not differ."""
+        import unicodedata
+
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(
+                paths, "배포는 staging 환경을 먼저 거친다", record_type="procedure", tags=["배포"]
+            )
+            nfc = build_project_memory_recall_pack(paths, "배포 정책")
+            nfd = build_project_memory_recall_pack(paths, unicodedata.normalize("NFD", "배포 정책"))
+            self.assertEqual(nfc["record_count"], 1)
+            self.assertEqual(
+                [item["score"] for item in nfc["included_records"]],
+                [item["score"] for item in nfd["included_records"]],
+            )
+            self.assertGreater(nfd["included_records"][0]["score"], 1)
+
+    def test_project_memory_recall_skips_corrupt_store_files(self) -> None:
+        """A crash-truncated record file must cost only itself, not all recall."""
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(
+                paths, "배포는 staging 환경을 먼저 거친다", record_type="procedure", tags=["배포"]
+            )
+            records_dir = paths.memory_dir / "records"
+            (records_dir / "zz-truncated.json").write_text('{"schema_version": "project_mem', encoding="utf-8")
+            (records_dir / "zz-not-json.json").write_text("{not json", encoding="utf-8")
+
+            pack = build_project_memory_recall_pack(paths, "배포 정책")
+            self.assertEqual(pack["record_count"], 1)
+            self.assertEqual(validate_project_memory_recall_pack(pack), [])
+            status = build_project_memory_status(paths)
+            self.assertEqual(status["counts"]["approved_records"], 1)
+
+    def test_project_memory_recall_query_without_indexable_tokens_falls_back(self) -> None:
+        """A query with no indexable tokens must not silently empty the pack."""
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(
+                paths,
+                "Run release tests before merge",
+                record_type="procedure",
+                tags=["release"],
+            )
+
+            pack = build_project_memory_recall_pack(paths, "\U0001f44d\U0001f64f")
+            self.assertTrue(pack["task_ref"]["query_supplied"])
+            self.assertEqual(pack["record_count"], 1)
+            self.assertEqual(validate_project_memory_recall_pack(pack), [])
+
     def test_project_memory_recall_pack_feeds_coding_handoff_when_enabled(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
@@ -340,9 +424,17 @@ class MemoryContractTests(unittest.TestCase):
             self.assertEqual(payload["executor_handoff"]["memory_recall_pack"]["record_count"], 1)
             record_handoff = lifecycle["coding_delegation"]["executor_handoff"]
             self.assertIn("memory_recall_pack", record_handoff)
-            self.assertEqual(record_handoff["memory_recall_pack"]["record_count"], 1)
-            self.assertEqual(record_handoff["memory_recall_pack"]["included_records"], [])
-            self.assertIn("not execution", record_handoff["memory_recall_pack"]["claim_boundary"])
+            persisted_pack = record_handoff["memory_recall_pack"]
+            self.assertEqual(persisted_pack["record_count"], 1)
+            # The persisted lifecycle record is what the wrapper re-serves to
+            # the executor, so the redacted summaries must survive compaction:
+            # dropping them made lifecycle-backed delegation recall-blind
+            # while prompt-only executors kept the summaries.
+            self.assertEqual(len(persisted_pack["included_records"]), 1)
+            self.assertIn("setup diagnostics", persisted_pack["included_records"][0]["summary"])
+            self.assertEqual(persisted_pack["excluded_records"], [])
+            self.assertEqual(validate_project_memory_recall_pack(persisted_pack), [])
+            self.assertIn("not execution", persisted_pack["claim_boundary"])
 
     def test_inspection_separates_sources_and_detects_stale_conflicts(self) -> None:
         with TemporaryDirectory() as tmp:

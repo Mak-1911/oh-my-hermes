@@ -733,7 +733,7 @@ def _doctor_operator_summary(checks: list[object]) -> dict[str, object]:
         "warnings": warnings,
         "groups": [
             _doctor_group("command", check_dicts, ("command_path",)),
-            _doctor_group("managed_skills", check_dicts, ("manifest", "manifest_skills_dir", "local_modifications", "skills_dir", "skill:")),
+            _doctor_group("managed_skills", check_dicts, ("manifest", "manifest_skills_dir", "local_modifications", "skill_freshness", "skills_dir", "skill:")),
             _doctor_group("runtime", check_dicts, ("runtime_artifacts", "workflow_state", "runtime_state")),
             _doctor_group("hermes_registration", check_dicts, ("hermes_config", "external_dir", "skill_shadowing", "runtime_context")),
             _doctor_group("targets", check_dicts, ("target_registry", "target_topology")),
