@@ -315,6 +315,53 @@ class MemoryContractTests(unittest.TestCase):
             )
             self.assertEqual(validate_project_memory_recall_pack(by_chars), [])
 
+    def test_project_memory_recall_matches_cjk_queries_and_keeps_cjk_tags(self) -> None:
+        """Korean chat must be able to reach approved records.
+
+        The old ASCII-only tokenizer reduced every CJK query to zero tokens, so
+        each record was excluded as no_query_overlap and Korean-speaking
+        sessions always received an empty recall pack: long-term project memory
+        looked like it did not exist. CJK tags were also dropped at capture.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            captured = capture_project_memory_candidate(
+                paths,
+                "배포는 staging 환경을 먼저 거친다",
+                record_type="procedure",
+                tags=["배포", "release"],
+            )
+            self.assertIn("배포", captured["candidate"]["tags"])
+
+            # Particle-inflected query: "배포" must match "배포는" in the summary.
+            recall = build_project_memory_recall_pack(paths, "배포 정책 알려줘")
+            self.assertEqual(recall["record_count"], 1)
+            self.assertGreater(recall["included_records"][0]["score"], 0)
+            self.assertEqual(validate_project_memory_recall_pack(recall), [])
+
+            # Overroute guard: an unrelated Korean query still recalls nothing.
+            miss = build_project_memory_recall_pack(paths, "결제 모듈 장애")
+            self.assertEqual(miss["record_count"], 0)
+            self.assertEqual(miss["excluded_records"][0]["reason"], "no_query_overlap")
+
+    def test_project_memory_recall_query_without_indexable_tokens_falls_back(self) -> None:
+        """A query with no indexable tokens must not silently empty the pack."""
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(
+                paths,
+                "Run release tests before merge",
+                record_type="procedure",
+                tags=["release"],
+            )
+
+            pack = build_project_memory_recall_pack(paths, "\U0001f44d\U0001f64f")
+            self.assertTrue(pack["task_ref"]["query_supplied"])
+            self.assertEqual(pack["record_count"], 1)
+            self.assertEqual(validate_project_memory_recall_pack(pack), [])
+
     def test_project_memory_recall_pack_feeds_coding_handoff_when_enabled(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")

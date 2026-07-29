@@ -335,6 +335,85 @@ class InstallerSkillProfileTests(unittest.TestCase):
             self.assertIn("never delete installed skills", state["non_destructive_default"])
 
 
+class SkillFreshnessCheckTests(unittest.TestCase):
+    """`skill_freshness` must catch installs an older OMH release wrote.
+
+    `local_modifications` compares installed files against the manifest
+    recorded at install time, so an operator who upgrades the omh package but
+    never reruns `omh update` keeps serving Hermes skill guidance from the old
+    release with a fully green doctor. An observed session ran a cached
+    old-version loop skill for a whole task because nothing surfaced the gap.
+    """
+
+    def _check(self, paths, name: str):
+        return next((check for check in run_doctor(paths) if check.name == name), None)
+
+    def _age_one_skill(self, paths) -> str:
+        """Rewrite one installed skill as an older release would have left it.
+
+        The file content and the manifest sha agree (so it is not a local
+        modification), but both differ from what the current package renders.
+        Returns the canonical skill name.
+        """
+        manifest = read_manifest(paths.manifest_path)
+        record = manifest["skills"][0]
+        path = paths.skills_dir / record["path"]
+        path.write_text("# Old release content\n", encoding="utf-8")
+        record["sha256"] = sha256_file(path)
+        manifest["version"] = "0.0.1"
+        write_manifest(paths.manifest_path, manifest)
+        return record["name"]
+
+    def test_fresh_install_passes_skill_freshness(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            install_skill_pack(paths)
+            check = self._check(paths, "skill_freshness")
+            self.assertIsNotNone(check)
+            self.assertTrue(check.ok, check)
+
+    def test_outdated_install_fails_skill_freshness_and_points_at_update(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            install_skill_pack(paths)
+            aged = self._age_one_skill(paths)
+
+            freshness = self._check(paths, "skill_freshness")
+            self.assertIsNotNone(freshness)
+            self.assertFalse(freshness.ok)
+            self.assertIn(aged, freshness.message)
+            self.assertIn("0.0.1", freshness.message)
+            self.assertIn("omh update", freshness.next_action)
+
+            # Ownership boundary: the aged file matches its manifest record,
+            # so it is stale, not a local modification.
+            local = self._check(paths, "local_modifications")
+            self.assertTrue(local.ok, local)
+
+    def test_locally_edited_skill_is_not_reported_stale(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            install_skill_pack(paths)
+            manifest = read_manifest(paths.manifest_path)
+            path = paths.skills_dir / manifest["skills"][0]["path"]
+            path.write_text("# Local operator edit\n", encoding="utf-8")
+
+            self.assertTrue(self._check(paths, "skill_freshness").ok)
+            self.assertFalse(self._check(paths, "local_modifications").ok)
+
+    def test_local_source_install_is_not_compared(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            install_skill_pack(paths)
+            manifest = read_manifest(paths.manifest_path)
+            manifest["source"] = str(Path(tmp) / "custom-skills")
+            write_manifest(paths.manifest_path, manifest)
+
+            check = self._check(paths, "skill_freshness")
+            self.assertTrue(check.ok)
+            self.assertIn("not comparable", check.message)
+
+
 class SkillProfileReconcileTests(unittest.TestCase):
     def _full_only_names(self) -> set[str]:
         return {template.name for template in builtin_skill_templates()} - set(CORE_PROFILE_SKILLS)

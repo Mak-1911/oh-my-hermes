@@ -85,6 +85,11 @@ MEMORY_ACTION_IDS = (
     "cancel",
 )
 _SAFE_REF = re.compile(r"^[A-Za-z0-9_.:-]{1,120}$")
+# Tags are recall-scoring keys, not filesystem refs, so they may carry CJK
+# words. Running them through the ASCII-only _SAFE_REF silently dropped every
+# Korean/Japanese/Chinese tag at capture time, which meant tag scoring could
+# never fire for records written by CJK-speaking projects.
+_SAFE_TAG = re.compile(r"^[\w.:/-]{1,120}$", re.UNICODE)
 _PROMPTISH_KEYS = {"message", "prompt", "raw", "text", "body", "content", "prompt_template"}
 _PROJECT_MEMORY_RECORD_KEYS = {
     "schema_version",
@@ -1166,6 +1171,13 @@ def _memory_recall_score(record: dict[str, Any], query: str) -> int:
     if not query.strip():
         return 1
     query_tokens = _memory_tokens(query)
+    if not query_tokens:
+        # The query carries no indexable tokens at all (emoji-only, an
+        # unsupported script, or only sub-length words). Scoring it as zero
+        # overlap used to exclude every record as no_query_overlap and hand
+        # the executor an empty pack; fall back to unqueried recall so the
+        # budget ladder still surfaces approved records.
+        return 1
     record_tokens = _memory_tokens(
         " ".join(
             [
@@ -1180,8 +1192,27 @@ def _memory_recall_score(record: dict[str, Any], query: str) -> int:
     return len(overlap) * 10 + len(tag_overlap) * 5
 
 
+_MEMORY_ASCII_TOKEN = re.compile(r"[a-z0-9_/-]{3,}")
+_MEMORY_CJK_RUN = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7a3]+")
+
+
 def _memory_tokens(value: str) -> set[str]:
-    return {token for token in re.split(r"[^a-z0-9_/-]+", value.lower()) if len(token) >= 3}
+    """Index tokens for recall scoring, covering ASCII and CJK text.
+
+    ASCII words keep the >=3 length floor. CJK runs are indexed as the whole
+    run plus its character bigrams: Korean particles glue to the noun
+    ("배포는"), so whole-word overlap alone would miss "배포" in a query.
+    The previous ASCII-only split tokenized any CJK query to the empty set,
+    which excluded every record as no_query_overlap and silently emptied
+    recall packs for projects that chat in Korean, Japanese, or Chinese.
+    """
+    lowered = value.lower()
+    tokens = set(_MEMORY_ASCII_TOKEN.findall(lowered))
+    for run in _MEMORY_CJK_RUN.findall(lowered):
+        if len(run) >= 2:
+            tokens.add(run)
+        tokens.update(run[index : index + 2] for index in range(len(run) - 1))
+    return tokens
 
 
 def _record_scope_matches(record: dict[str, Any], *, scope_kind: str | None, scope_ref: str | None) -> bool:
@@ -1320,7 +1351,7 @@ def _normalize_tags(values: Any) -> list[str]:
     seen: set[str] = set()
     for value in values:
         tag = str(value).strip().lower()
-        if not tag or not _SAFE_REF.match(tag):
+        if not tag or not _SAFE_TAG.match(tag):
             continue
         if tag not in seen:
             tags.append(tag)
