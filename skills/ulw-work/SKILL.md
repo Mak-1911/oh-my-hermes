@@ -23,6 +23,8 @@ This is a Hermes-native `ultrawork` workflow skill.
 - The work touches the same files or invariants in ways that need one owner.
 - The plan is not accepted, lane boundaries are unclear, or verification commands are missing.
 - The user expects Hermes to secretly execute coding lanes instead of preparing explicit selected-runtime handoffs.
+- The lanes are exploratory research or QA coordination without an accepted implementation plan; use `team`.
+- The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; use one direct owner instead of opening parallel delivery lanes.
 
 ## Examples
 
@@ -76,6 +78,7 @@ Category: `execution`
 Phase: `parallel-delivery`
 Hermes role: `handoff-guide`
 Quality tier: `handoff-gated`
+Reasoning demand: `heavy`
 
 Quality bar:
 

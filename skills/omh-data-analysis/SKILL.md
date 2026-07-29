@@ -75,6 +75,7 @@ Category: `analysis`
 Phase: `data-task`
 Hermes role: `guide`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

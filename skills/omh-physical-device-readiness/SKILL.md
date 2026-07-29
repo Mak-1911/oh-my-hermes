@@ -75,6 +75,7 @@ Category: `operations`
 Phase: `device-readiness`
 Hermes role: `operator`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

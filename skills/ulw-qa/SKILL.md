@@ -72,6 +72,7 @@ Category: `verification`
 Phase: `qa`
 Hermes role: `reviewer`
 Quality tier: `scenario-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

@@ -1277,6 +1277,7 @@ class Recommendation:
     phase: str
     hermes_role: str
     handoff_policy: str
+    reasoning_demand: str
     score: int
     confidence: str
     matched: tuple[str, ...]
@@ -1294,6 +1295,7 @@ class Recommendation:
             "phase": self.phase,
             "hermes_role": self.hermes_role,
             "handoff_policy": self.handoff_policy,
+            "reasoning_demand": self.reasoning_demand,
             "score": self.score,
             "confidence": self.confidence,
             "matched": list(self.matched),
@@ -1329,6 +1331,7 @@ def recommendation_for_definition(
         phase=definition.phase,
         hermes_role=definition.hermes_role,
         handoff_policy=definition.handoff_policy,
+        reasoning_demand=definition.reasoning_demand,
         score=score,
         confidence=_confidence(score),
         matched=matched_tuple,
@@ -1590,6 +1593,7 @@ def _score_definition(
         phase=definition.phase,
         hermes_role=definition.hermes_role,
         handoff_policy=definition.handoff_policy,
+        reasoning_demand=definition.reasoning_demand,
         score=score,
         confidence=_confidence(score),
         matched=matched_tuple,
@@ -1940,6 +1944,7 @@ def _fallback_recommendations(definitions: list[SkillDefinition], query: str) ->
                 phase=definition.phase,
                 hermes_role=definition.hermes_role,
                 handoff_policy=definition.handoff_policy,
+                reasoning_demand=definition.reasoning_demand,
                 score=0,
                 confidence="low",
                 matched=(),
@@ -1981,6 +1986,7 @@ def _ensure_guardrail_candidates(
                 phase=definition.phase,
                 hermes_role=definition.hermes_role,
                 handoff_policy=definition.handoff_policy,
+                reasoning_demand=definition.reasoning_demand,
                 score=0,
                 confidence="low",
                 matched=(),

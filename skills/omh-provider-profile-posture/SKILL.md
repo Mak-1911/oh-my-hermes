@@ -73,6 +73,7 @@ Category: `operations`
 Phase: `provider-profile-posture`
 Hermes role: `operator`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

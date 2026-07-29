@@ -73,6 +73,7 @@ Category: `operations`
 Phase: `rhythm-history`
 Hermes role: `operator`
 Quality tier: `operations-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

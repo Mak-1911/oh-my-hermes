@@ -73,6 +73,7 @@ Category: `operations`
 Phase: `scheduled-ops-blueprint`
 Hermes role: `operator`
 Quality tier: `ops-blueprint-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

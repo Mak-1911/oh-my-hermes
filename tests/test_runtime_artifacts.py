@@ -344,7 +344,11 @@ class RuntimeArtifactTests(unittest.TestCase):
             serialized = json.dumps(routing)
             self.assertNotIn(secret_message, serialized)
             self.assertNotIn("suggested_prompt", serialized)
-            self.assertEqual(set(routing["recommendations"][0]), {"skill", "score", "confidence", "matched"})
+            self.assertEqual(
+                set(routing["recommendations"][0]),
+                {"skill", "score", "confidence", "matched", "reasoning_demand"},
+            )
+            self.assertIn(routing["recommendations"][0]["reasoning_demand"], {"light", "standard", "heavy"})
 
     def test_write_coding_delegation_sanitizes_full_payload(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -368,7 +372,14 @@ class RuntimeArtifactTests(unittest.TestCase):
             self.assertNotIn("drop-me", serialized)
             self.assertEqual(coding_delegation["message_length"], len(secret_message))
             self.assertEqual(coding_delegation["source_metadata"], {"source_event_id": "m1"})
-            self.assertEqual(set(coding_delegation["recommendation_evidence"][0]), {"skill", "score", "confidence", "matched"})
+            self.assertEqual(
+                set(coding_delegation["recommendation_evidence"][0]),
+                {"skill", "score", "confidence", "matched", "reasoning_demand"},
+            )
+            self.assertIn(
+                coding_delegation["recommendation_evidence"][0]["reasoning_demand"],
+                {"light", "standard", "heavy"},
+            )
             self.assertEqual(coding_delegation["harness_quality"]["schema_version"], "harness_quality/v1")
             self.assertEqual(coding_delegation["harness_quality"]["harness"], "coding-handling")
             self.assertIn("coding_delegation_prepared", coding_delegation["harness_quality"]["evidence_ladder"])

@@ -76,6 +76,7 @@ Category: `operator`
 Phase: `diagnostics`
 Hermes role: `tracker`
 Quality tier: `evidence-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

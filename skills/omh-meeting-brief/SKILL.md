@@ -73,6 +73,7 @@ Category: `meeting`
 Phase: `preparation`
 Hermes role: `operator`
 Quality tier: `facilitation-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

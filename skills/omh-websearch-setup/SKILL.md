@@ -73,6 +73,7 @@ Category: `hermes-setup`
 Phase: `setup`
 Hermes role: `guide`
 Quality tier: `hermes-setup-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

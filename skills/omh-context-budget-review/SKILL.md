@@ -73,6 +73,7 @@ Category: `observability`
 Phase: `context-budget-review`
 Hermes role: `tracker`
 Quality tier: `context-budget-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

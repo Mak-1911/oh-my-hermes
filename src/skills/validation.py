@@ -6,6 +6,7 @@ from typing import Any
 from ..harness_quality import HARNESS_QUALITY_KEYS, HARNESS_QUALITY_SCHEMA_VERSION
 from .catalog import (
     HarnessDefinition,
+    REASONING_DEMAND_VALUES,
     SkillDefinition,
     builtin_definitions,
     builtin_harnesses,
@@ -50,6 +51,7 @@ def validate_catalog_contract() -> dict[str, object]:
 def harness_summary_payload() -> dict[str, object]:
     definitions = builtin_definitions()
     skills_by_harness = _skills_by_harness(definitions)
+    skill_profiles_by_harness = _skill_profiles_by_harness(definitions)
     return {
         "schema_version": "harness_list/v1",
         "validation": validate_catalog_contract(),
@@ -61,6 +63,7 @@ def harness_summary_payload() -> dict[str, object]:
                 "evidence_ladder": list(harness.evidence_ladder),
                 "wrapper_actions": list(harness.wrapper_actions),
                 "primary_skills": skills_by_harness.get(harness.name, []),
+                "primary_skill_profiles": skill_profiles_by_harness.get(harness.name, []),
             }
             for harness in builtin_harnesses()
         ],
@@ -70,6 +73,7 @@ def harness_summary_payload() -> dict[str, object]:
 def harness_inspection_payload(name: str) -> dict[str, object]:
     definitions = builtin_definitions()
     skills_by_harness = _skills_by_harness(definitions)
+    skill_profiles_by_harness = _skill_profiles_by_harness(definitions)
     for harness in builtin_harnesses():
         if harness.name != name:
             continue
@@ -84,6 +88,7 @@ def harness_inspection_payload(name: str) -> dict[str, object]:
             "harness": _dataclass_payload(harness),
             "harness_quality": quality,
             "primary_skills": skills_by_harness.get(name, []),
+            "primary_skill_profiles": skill_profiles_by_harness.get(name, []),
             "validation": {
                 "ok": not validation_errors,
                 "errors": validation_errors,
@@ -99,6 +104,10 @@ def _validate_skill_definition(definition: SkillDefinition, harness_names: set[s
     _require_text(definition.description, f"{label} description", errors)
     _require_text(definition.use_when, f"{label} use_when", errors)
     _require_text(definition.why_this_exists, f"{label} why_this_exists", errors)
+    if definition.reasoning_demand not in REASONING_DEMAND_VALUES:
+        errors.append(
+            f"{label} reasoning_demand must be one of {list(REASONING_DEMAND_VALUES)}"
+        )
     for field in ("triggers", "required_inputs", "expected_outputs", "artifact_expectations", "safety_rules", "quality_bar"):
         _require_text_sequence(getattr(definition, field), f"{label} {field}", errors)
     _require_text_sequence(definition.do_not_use_when, f"{label} do_not_use_when", errors)
@@ -211,6 +220,21 @@ def _skills_by_harness(definitions: list[SkillDefinition]) -> dict[str, list[str
     for definition in definitions:
         grouped.setdefault(primary_harness_for_skill(definition.name), []).append(definition.name)
     return {key: sorted(value) for key, value in grouped.items()}
+
+
+def _skill_profiles_by_harness(definitions: list[SkillDefinition]) -> dict[str, list[dict[str, str]]]:
+    grouped: dict[str, list[dict[str, str]]] = {}
+    for definition in definitions:
+        grouped.setdefault(primary_harness_for_skill(definition.name), []).append(
+            {
+                "name": definition.name,
+                "reasoning_demand": definition.reasoning_demand,
+            }
+        )
+    return {
+        harness: sorted(profiles, key=lambda profile: profile["name"])
+        for harness, profiles in grouped.items()
+    }
 
 
 def _dataclass_payload(value: SkillDefinition | HarnessDefinition) -> dict[str, object]:

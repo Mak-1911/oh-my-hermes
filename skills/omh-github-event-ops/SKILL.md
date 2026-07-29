@@ -73,6 +73,7 @@ Category: `github-ops`
 Phase: `event-routing`
 Hermes role: `operator`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

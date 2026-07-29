@@ -75,6 +75,7 @@ Category: `content`
 Phase: `content-task`
 Hermes role: `guide`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

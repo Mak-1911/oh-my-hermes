@@ -73,6 +73,7 @@ Category: `review`
 Phase: `security-safety-review`
 Hermes role: `reviewer`
 Quality tier: `security-safety-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

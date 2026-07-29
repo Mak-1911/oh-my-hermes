@@ -73,6 +73,7 @@ Category: `operator`
 Phase: `manager-review`
 Hermes role: `tracker`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

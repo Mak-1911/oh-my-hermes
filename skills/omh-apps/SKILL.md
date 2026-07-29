@@ -74,6 +74,7 @@ Category: `connector`
 Phase: `connector-task`
 Hermes role: `guide`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

@@ -73,6 +73,7 @@ Category: `deliverables`
 Phase: `package-status`
 Hermes role: `operator`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

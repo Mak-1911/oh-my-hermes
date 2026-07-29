@@ -73,6 +73,7 @@ Category: `verification`
 Phase: `verification-gate`
 Hermes role: `reviewer`
 Quality tier: `verification-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

@@ -73,6 +73,7 @@ Category: `operations`
 Phase: `agent-evaluation`
 Hermes role: `operator`
 Quality tier: `agent-eval-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

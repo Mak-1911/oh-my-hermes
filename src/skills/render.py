@@ -374,6 +374,7 @@ def _skill_metadata_block(definition: SkillDefinition) -> str:
 Phase: `{definition.phase}`
 Hermes role: `{definition.hermes_role}`
 Quality tier: `{definition.quality_tier}`
+Reasoning demand: `{definition.reasoning_demand}`
 
 Quality bar:
 
@@ -1373,6 +1374,7 @@ def _workflow_reference_markdown_cached() -> str:
                 f"- Phase: `{definition.phase}`",
                 f"- Hermes role: `{definition.hermes_role}`",
                 f"- Quality tier: `{definition.quality_tier}`",
+                f"- Reasoning demand: `{definition.reasoning_demand}`",
                 f"- Exposure: `{exposure.exposure}`",
                 f"- Install visibility: `{str(exposure.install_visibility).lower()}`",
                 f"- Docs visibility: `{exposure.docs_visibility}`",
@@ -1541,6 +1543,7 @@ def _skill_payload(definition: SkillDefinition) -> dict[str, object]:
         "good_example": _example_payload(definition.good_example),
         "bad_example": _example_payload(definition.bad_example),
         "quality_tier": definition.quality_tier,
+        "reasoning_demand": definition.reasoning_demand,
         "quality_bar": list(definition.quality_bar),
         "final_checklist": list(definition.final_checklist),
         "recovery_notes": list(definition.recovery_notes),

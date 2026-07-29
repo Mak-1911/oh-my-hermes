@@ -73,6 +73,7 @@ Category: `operations`
 Phase: `workspace-audit`
 Hermes role: `operator`
 Quality tier: `workspace-audit-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

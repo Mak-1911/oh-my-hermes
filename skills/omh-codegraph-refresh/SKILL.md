@@ -75,6 +75,7 @@ Category: `planning`
 Phase: `codegraph-refresh`
 Hermes role: `planner`
 Quality tier: `codegraph-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

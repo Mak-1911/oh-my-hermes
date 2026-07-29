@@ -72,6 +72,7 @@ Category: `planning`
 Phase: `plan`
 Hermes role: `planner`
 Quality tier: `acceptance-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

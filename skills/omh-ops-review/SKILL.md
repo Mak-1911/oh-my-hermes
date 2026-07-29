@@ -20,8 +20,7 @@ This is a Hermes-native `ops-review` workflow skill.
 
 ## Do Not Use When
 
-- The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-- The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+- The primary output is durable cadence history, minutes, a decision log, or action history; use `operating-rhythm`.
 
 ## Examples
 
@@ -72,6 +71,7 @@ Category: `operations`
 Phase: `status-review`
 Hermes role: `operator`
 Quality tier: `status-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

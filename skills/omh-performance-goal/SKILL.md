@@ -72,6 +72,7 @@ Category: `optimization`
 Phase: `measurement`
 Hermes role: `tracker`
 Quality tier: `measurement-gated`
+Reasoning demand: `heavy`
 
 Quality bar:
 

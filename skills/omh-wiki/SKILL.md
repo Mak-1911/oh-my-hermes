@@ -88,6 +88,7 @@ Category: `knowledge`
 Phase: `design-and-capture`
 Hermes role: `memory-keeper`
 Quality tier: `knowledge-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

@@ -74,6 +74,7 @@ Category: `optimization`
 Phase: `instinct-ledger`
 Hermes role: `tracker`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `heavy`
 
 Quality bar:
 

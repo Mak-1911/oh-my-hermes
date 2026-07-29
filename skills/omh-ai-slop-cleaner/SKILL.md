@@ -75,6 +75,7 @@ Category: `maintenance`
 Phase: `cleanup`
 Hermes role: `handoff-guide`
 Quality tier: `regression-gated`
+Reasoning demand: `heavy`
 
 Quality bar:
 

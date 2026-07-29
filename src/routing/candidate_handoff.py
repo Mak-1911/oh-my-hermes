@@ -119,6 +119,7 @@ def _coding_lane() -> list[dict[str, object]]:
             {
                 "skill": definition.name,
                 "description": definition.description,
+                "reasoning_demand": definition.reasoning_demand,
                 "why_it_matched": (
                     "The request is implementation-shaped; this is one of the workflows that "
                     "actually delivers coding work."
@@ -140,6 +141,7 @@ def _candidate(recommendation: dict[str, object]) -> dict[str, object]:
     return {
         "skill": recommendation.get("skill"),
         "description": recommendation.get("description"),
+        "reasoning_demand": recommendation.get("reasoning_demand"),
         "why_it_matched": recommendation.get("why"),
         "matched": list(recommendation.get("matched", []) or []),
         "score": recommendation.get("score"),

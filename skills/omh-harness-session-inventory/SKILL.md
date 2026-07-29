@@ -73,6 +73,7 @@ Category: `observability`
 Phase: `harness-session-inventory`
 Hermes role: `tracker`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

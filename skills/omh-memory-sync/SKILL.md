@@ -89,6 +89,7 @@ Category: `memory`
 Phase: `curation-review`
 Hermes role: `memory-keeper`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

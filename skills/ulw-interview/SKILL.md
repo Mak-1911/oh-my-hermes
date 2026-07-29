@@ -128,6 +128,7 @@ Category: `clarification`
 Phase: `discovery`
 Hermes role: `planner`
 Quality tier: `clarity-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

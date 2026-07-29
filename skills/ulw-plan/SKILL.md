@@ -77,6 +77,7 @@ Category: `planning`
 Phase: `reviewed-plan`
 Hermes role: `planner`
 Quality tier: `reviewed-plan-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

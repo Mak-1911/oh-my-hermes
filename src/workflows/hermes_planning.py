@@ -853,6 +853,7 @@ def _compact_recommendations(recommendations: object) -> list[dict[str, object]]
                 "score": _int_value(item.get("score", 0)),
                 "confidence": str(item.get("confidence", "low")),
                 "matched": [str(value) for value in matched] if isinstance(matched, list) else [],
+                "reasoning_demand": str(item.get("reasoning_demand", "standard")),
             }
         )
     return compact

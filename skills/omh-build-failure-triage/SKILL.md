@@ -77,6 +77,7 @@ Category: `verification`
 Phase: `build-failure-triage`
 Hermes role: `reviewer`
 Quality tier: `build-failure-triage-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

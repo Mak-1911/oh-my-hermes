@@ -75,6 +75,7 @@ Category: `review`
 Phase: `critique`
 Hermes role: `reviewer`
 Quality tier: `finding-evidence-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

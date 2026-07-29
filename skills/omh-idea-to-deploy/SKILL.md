@@ -20,8 +20,8 @@ This is a Hermes-native `idea-to-deploy` workflow skill.
 
 ## Do Not Use When
 
-- The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-- The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+- The task is already a concrete repo change whose stopping point is one PR-ready cycle, not product or release operations; use `ultraprocess`.
+- The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly instead of opening a product delivery loop.
 
 ## Examples
 
@@ -72,6 +72,7 @@ Category: `delivery`
 Phase: `app-delivery-loop`
 Hermes role: `operator`
 Quality tier: `delivery-gated`
+Reasoning demand: `heavy`
 
 Quality bar:
 

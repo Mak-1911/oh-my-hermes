@@ -38,6 +38,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `routing`
 - Hermes role: `guide`
 - Quality tier: `routing-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -99,6 +100,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `meta-routing`
 - Hermes role: `guide`
 - Quality tier: `routing-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -156,6 +158,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `completion`
 - Hermes role: `handoff-guide`
 - Quality tier: `handoff-gated`
+- Reasoning demand: `heavy`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -165,8 +168,8 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `ralph` exists to keep `execution` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use after scope is concrete and the user wants one owner to continue through implementation and verification.
 - Do not use when:
-  - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-  - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+  - Progress must survive sessions as a ledger with multiple checkpoints and a final gate; use `ultragoal`.
+  - The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly instead of opening a finish-until-done loop.
 - Strong routing signals: `ralph`, `$ralph`, `finish until done`, `persistent execution`, `self-referential loop`
 - Good example:
   - Prompt: ralph: finish the invoice export recovery until the smoke test passes or a blocker is recorded.
@@ -212,6 +215,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `durable-goals`
 - Hermes role: `handoff-guide`
 - Quality tier: `checkpoint-gated`
+- Reasoning demand: `heavy`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -222,6 +226,8 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Use when: Use when work needs durable goal artifacts, checkpointed progress, and final quality gates.
 - Do not use when:
   - The request is a single-turn answer, quick diagnosis, or small edit that does not need a durable ledger.
+  - One concrete, already-scoped task only needs one owner to finish and verify; use `ralph`.
+  - The next work must be discovered or reframed repeatedly through research and feedback cycles; use `loop`.
   - The request is a settings-only or single configuration change (for example a gateway channel policy, a mention rule, or one config key) that the wrapper or Hermes can apply directly; apply the configuration change, verify the new value, and report it instead of opening a goal ledger or preparing a coding handoff.
   - Acceptance criteria, current checkpoint, and final gate expectations are too vague to make a goal inspectable.
   - The user expects hidden Hermes code execution rather than explicit executor handoff and observed verification evidence.
@@ -277,6 +283,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `continuous-goal-loop`
 - Hermes role: `planner`
 - Quality tier: `loop-gated`
+- Reasoning demand: `heavy`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -287,6 +294,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Use when: Use when the user starts a high-level goal or invokes loop. Direct loop invocation means start/continue through interviewer, planner, researcher, builder, reviewer, and loop-controller lanes until a real gate stops it.
 - Do not use when:
   - The user asks for one bounded delivery cycle; use `ultraprocess` or `ultragoal` instead.
+  - Scope and milestones are already known and only durable checkpoint/resume tracking is needed; use `ultragoal`.
   - The user gives only a north-star outcome such as revenue, stars, or adoption and has not accepted a bounded first loop goal.
   - The goal is too vague to name an observable problem, next artifact, verification signal, or stop condition.
   - The goal depends mainly on external waiting, adoption, revenue, or community response without observable local next actions.
@@ -373,6 +381,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `single-cycle-plan-to-pr`
 - Hermes role: `handoff-guide`
 - Quality tier: `process-gated`
+- Reasoning demand: `heavy`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -386,6 +395,8 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The task is still ambiguous enough that a deep interview is required before planning.
   - No repo, product, or delivery surface is available to support a plan-to-PR cycle.
   - The goal is removing existing slop or duplication with identical observable behavior rather than delivering new or changed behavior; use `ai-slop-cleaner`.
+  - The request starts with product shaping and explicitly includes release, deploy, or monitor decisions beyond one PR; use `idea-to-deploy`.
+  - The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly instead of starting a plan-to-PR cycle.
 - Strong routing signals: `ultraprocess`, `$ultraprocess`, `ulp`, `$ulp`, `./ultraprocess`, `/ultraprocess`, `single-cycle delivery`, `one-cycle delivery`, `end-to-end process`, `delivery process`, `research plan implement review docs pr`, `plan implement review docs pr`, `ralplan ultragoal code-review`, `codebase source research planning implementation review docs sync pr`, `docs sync`, `pr-ready`, `prepare a pr`, `sync docs and prepare a pr`, `code-review sync docs and prepare a pr`, `delegate to codex`, `send to codex`, `codex implement`, `codex progress tracking`, `codex session tracking`, `make a pr`, `open a pr`, `끝까지 해줘`, `PR까지`, `계획 구현 리뷰 문서 PR`, `기획 구현 리뷰 문서 PR`, `코드베이스 조사 웹리서치 계획 구현 리뷰 문서 최신화 PR`, `codex로 구현`, `코덱스로 구현`, `codex에게 맡기`, `codex로 맡기`, `코덱스에게 맡기`, `코딩 에이전트에게 맡기`, `구현하게 맡기고 진행상태 추적`, `진행상태 추적`, `진행 상태 추적`, `문서 최신화 PR`, `test driven development`, `write tests first`, `tests first`, `tdd implementation`, `테스트부터 작성`, `테스트 먼저 작성`, `테스트 우선 구현`, `TDD로 구현`
 - Good example:
   - Prompt: $ultraprocess research this setup bug, plan the fix, implement, review, sync docs, and prepare a PR.
@@ -443,6 +454,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `discovery`
 - Hermes role: `planner`
 - Quality tier: `clarity-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -498,6 +510,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `coordination`
 - Hermes role: `handoff-guide`
 - Quality tier: `coordination-gated`
+- Reasoning demand: `heavy`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -507,8 +520,8 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `team` exists to keep `execution` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use when multiple independent lanes materially improve throughput or verification.
 - Do not use when:
-  - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-  - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+  - An accepted implementation plan with disjoint files, criteria, and commands is ready for parallel delivery; use `ultrawork`.
+  - The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; use one direct owner instead of coordinating workers.
 - Strong routing signals: `team`, `$team`, `swarm`, `parallel agents`, `coordinated workers`
 - Good example:
   - Prompt: team: coordinate parallel agents for frontend polish, copy polish, and QA with worker ACKs.
@@ -554,6 +567,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `parallel-delivery`
 - Hermes role: `handoff-guide`
 - Quality tier: `handoff-gated`
+- Reasoning demand: `heavy`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -566,6 +580,8 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The work touches the same files or invariants in ways that need one owner.
   - The plan is not accepted, lane boundaries are unclear, or verification commands are missing.
   - The user expects Hermes to secretly execute coding lanes instead of preparing explicit selected-runtime handoffs.
+  - The lanes are exploratory research or QA coordination without an accepted implementation plan; use `team`.
+  - The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; use one direct owner instead of opening parallel delivery lanes.
 - Strong routing signals: `ultrawork`, `$ultrawork`, `ulw`, `$ulw`, `parallel work`, `parallel implementation`, `high throughput`
 - Good example:
   - Prompt: $ultrawork split the accepted docs refresh, CLI output polish, and test updates into parallel implementation lanes.
@@ -613,6 +629,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `current-evidence`
 - Hermes role: `researcher`
 - Quality tier: `source-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -625,6 +642,9 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The user asks for a full plan-to-PR delivery cycle; use `ultraprocess` or a planning workflow after research instead.
   - The request is purely local repo inspection with no external, current, citation, or source-comparison need.
   - The user needs coding execution, review, CI, or merge evidence rather than research synthesis.
+  - The requested output is a typed candidate list or acquisition status without factual synthesis; use `source-finder`.
+  - The user needs a market, customer, or pricing decision brief with evidence-versus-inference treatment; use `research-brief`.
+  - Correctness is a bounded, versioned official or upstream guidance question; use `best-practice-research`.
 - Strong routing signals: `web-research`, `web research`, `web search`, `search the web`, `internet search`, `fresh sources`, `current sources`, `current web evidence`, `source-backed research`, `source search`, `find sources`, `find citations`, `citation check`, `evidence scan`, `source diversity`, `retrieval gap`, `look up`, `look up sources`, `latest sources`, `research plan`, `웹서치`, `웹 서치`, `웹 검색`, `인터넷 검색`, `검색해줘`, `검색해서`, `최신 자료`, `최신 출처`, `자료 찾아`, `조사`, `근거`, `출처`, `고객 피드백`, `literature review`, `research literature`, `review recent papers`, `문헌 검토`, `논문들 검토`
 - Good example:
   - Prompt: 웹서치해서 최신 자료와 출처를 정리해줘.
@@ -679,6 +699,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `source-acquisition`
 - Hermes role: `researcher`
 - Quality tier: `source-acquisition-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -686,8 +707,10 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Preferred usage: Use as an installed Hermes workflow skill when the user asks to find or classify source candidates before learning, research, materials, or coding work.
 - Handoff policy: Keep source acquisition planning in Hermes. Do not claim search, download, clone, extraction, license check, verification, or downstream processing unless a wrapper or user records observed evidence.
 - Why this exists: `source-finder` exists so Hermes can turn vague source discovery requests into typed candidates, acquisition status, and downstream workflow choice without pretending OMH searched, downloaded, or verified the material.
-- Use when: Use when Hermes should prepare a typed source candidate set across papers, web links, datasets, GitHub repositories, public presentations, docs/specs, or unknown source material before choosing paper-learning, web-research, research-brief, research-department, materials-package, or ultraprocess.
+- Use when: Use when the requested output is a typed source candidate inventory and acquisition status across papers, web links, datasets, GitHub repositories, public presentations, docs/specs, or unknown source material before choosing paper-learning, web-research, research-brief, research-department, materials-package, or ultraprocess.
 - Do not use when:
+  - The requested output is factual findings, comparison, or a summary rather than a typed candidate inventory and acquisition status; use `web-research`.
+  - The user needs a business decision brief with evidence-versus-inference treatment; use `research-brief`.
   - The user asks for current citations, fact-finding, or source-backed synthesis; use `web-research`.
   - The user supplies a paper/PDF/arXiv/DOI/excerpt and wants explanation; use `paper-learning`.
   - The user asks for recurring monitoring, source inbox, or Scout/Analyst/Briefer operations; use `research-department`.
@@ -746,6 +769,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `business-brief`
 - Hermes role: `researcher`
 - Quality tier: `source-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -755,8 +779,8 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `research-brief` exists to keep `research` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use when Hermes should scope a business question, gather or summarize source-backed evidence, and preserve evidence/inference boundaries before strategy or handoff.
 - Do not use when:
-  - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-  - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+  - The request is only fresh links, citations, or current facts without a business question or decision audience; use `web-research`.
+  - Sources have not yet been selected and the user wants source types, candidates, or acquisition state; use `source-finder`.
 - Strong routing signals: `research-brief`, `business-research`, `business research`, `research brief`, `source-backed business research`, `customer feedback trends`, `feedback trends`, `market evidence`, `data search`, `source scan`, `자료 조사`, `데이터 서치`, `근거 조사`, `피드백 추세`, `고객 피드백 추세`
 - Good example:
   - Prompt: research-brief: compare three onboarding analytics vendors using customer notes and confidence gaps.
@@ -802,6 +826,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `research-department`
 - Hermes role: `researcher`
 - Quality tier: `research-ops-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -863,6 +888,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `paper-learning`
 - Hermes role: `researcher`
 - Quality tier: `paper-learning-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -932,6 +958,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `brief`
 - Hermes role: `operator`
 - Quality tier: `decision-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -988,6 +1015,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `preparation`
 - Hermes role: `operator`
 - Quality tier: `facilitation-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1045,6 +1073,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `feedback`
 - Hermes role: `operator`
 - Quality tier: `triage-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1550,6 +1579,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `status-review`
 - Hermes role: `operator`
 - Quality tier: `status-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1559,8 +1589,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `ops-review` exists to keep `operations` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use when Hermes should summarize observed status, risks, blockers, priorities, and follow-up actions for recurring operating work.
 - Do not use when:
-  - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-  - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+  - The primary output is durable cadence history, minutes, a decision log, or action history; use `operating-rhythm`.
 - Strong routing signals: `ops-review`, `ops review`, `weekly ops review`, `status review`, `operating review`, `release risks`, `risks and blockers`, `priorities`, `weekly status`, `운영 리뷰`, `주간 운영`, `상태 리뷰`, `리스크`, `블로커`, `우선순위`, `릴리즈 리스크`
 - Good example:
   - Prompt: ops-review: summarize this week’s support queue, release blockers, owner status, and next operating risks.
@@ -1607,6 +1636,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `rhythm-history`
 - Hermes role: `operator`
 - Quality tier: `operations-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1664,6 +1694,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `package-outline`
 - Hermes role: `operator`
 - Quality tier: `report-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1721,6 +1752,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `material-plan`
 - Hermes role: `operator`
 - Quality tier: `material-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1779,6 +1811,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `visual-prompt-card`
 - Hermes role: `operator`
 - Quality tier: `visual-card-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1866,6 +1899,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `design-orchestration`
 - Hermes role: `operator`
 - Quality tier: `design-orchestration-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1929,6 +1963,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `design-quality-gate`
 - Hermes role: `operator`
 - Quality tier: `design-pro-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2006,6 +2041,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `frontend-design`
 - Hermes role: `operator`
 - Quality tier: `frontend-design-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2096,6 +2132,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `accessibility-audit`
 - Hermes role: `reviewer`
 - Quality tier: `accessibility-audit-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2177,6 +2214,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `visual-qa`
 - Hermes role: `operator`
 - Quality tier: `visual-qa-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2287,6 +2325,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `build-failure-triage`
 - Hermes role: `reviewer`
 - Quality tier: `build-failure-triage-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2363,6 +2402,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `workspace-audit`
 - Hermes role: `operator`
 - Quality tier: `workspace-audit-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2427,6 +2467,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `production-readiness`
 - Hermes role: `reviewer`
 - Quality tier: `production-readiness-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2489,6 +2530,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `verification-gate`
 - Hermes role: `reviewer`
 - Quality tier: `verification-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2551,6 +2593,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `agent-evaluation`
 - Hermes role: `operator`
 - Quality tier: `agent-eval-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2614,6 +2657,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `rules-distillation`
 - Hermes role: `memory-keeper`
 - Quality tier: `rules-distillation-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2676,6 +2720,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `codebase-onboarding`
 - Hermes role: `planner`
 - Quality tier: `onboarding-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2741,6 +2786,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `codegraph-refresh`
 - Hermes role: `planner`
 - Quality tier: `codegraph-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2807,6 +2853,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `context-budget-review`
 - Hermes role: `tracker`
 - Quality tier: `context-budget-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2871,6 +2918,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `security-safety-review`
 - Hermes role: `reviewer`
 - Quality tier: `security-safety-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2939,6 +2987,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `scheduled-ops-blueprint`
 - Hermes role: `operator`
 - Quality tier: `ops-blueprint-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -2996,6 +3045,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `incident-and-slo-review`
 - Hermes role: `operator`
 - Quality tier: `reliability-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3052,6 +3102,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `app-delivery-loop`
 - Hermes role: `operator`
 - Quality tier: `delivery-gated`
+- Reasoning demand: `heavy`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3061,8 +3112,8 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `idea-to-deploy` exists to keep `delivery` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use when Hermes should carry a product or app idea through shaping, decision gates, plan acceptance, executor handoff, verification, release readiness, deploy, and monitoring boundaries.
 - Do not use when:
-  - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-  - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+  - The task is already a concrete repo change whose stopping point is one PR-ready cycle, not product or release operations; use `ultraprocess`.
+  - The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly instead of opening a product delivery loop.
 - Strong routing signals: `idea-to-deploy`, `idea to deploy`, `from idea to deploy`, `plan to deploy`, `idea to launch`, `ship this idea`, `ship this feature`, `launch this feature`, `product delivery loop`, `app delivery loop`, `complete product loop`, `end-to-end app operation`, `완제품 루프`, `아이디어부터 배포`, `기획부터 배포`, `출시까지`, `앱 운영 루프`, `서비스로 만들어서 배포`, `아이디어를 서비스로`, `배포까지 가보자`, `ship this idea to production`
 - Good example:
   - Prompt: idea-to-deploy: turn this onboarding idea into a scoped plan, implementation handoff, QA gate, and release path.
@@ -3109,6 +3160,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `operating-loop`
 - Hermes role: `operator`
 - Quality tier: `decision-gated`
+- Reasoning demand: `heavy`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3118,8 +3170,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `cto-loop` exists to keep `leadership` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use when Hermes should run a leadership-style operating loop that turns signals into roadmap decisions, technical tradeoffs, delivery risk, release readiness, and explicit follow-up handoffs.
 - Do not use when:
-  - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-  - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+  - The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly or use `strategy-brief` for a decision brief instead of starting a leadership operating loop.
 - Strong routing signals: `cto-loop`, `cto loop`, `cto`, `cto pm`, `pm dev qa security ops`, `roadmap technical tradeoffs`, `technical tradeoff`, `delivery risk`, `release readiness`, `technical leadership loop`, `leadership operating loop`, `engineering leadership`, `CTO 구조`, `PM 구조`, `로드맵`, `아키텍처 트레이드오프`, `기술 리더십`, `출시 준비`
 - Good example:
   - Prompt: cto-loop: run the PM, dev, QA, security, and ops loop for this risky billing launch.
@@ -3167,6 +3218,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `release-ops`
 - Hermes role: `operator`
 - Quality tier: `release-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3225,6 +3277,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `qa`
 - Hermes role: `reviewer`
 - Quality tier: `scenario-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3280,6 +3333,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `plan`
 - Hermes role: `planner`
 - Quality tier: `acceptance-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3334,6 +3388,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `reviewed-plan`
 - Hermes role: `planner`
 - Quality tier: `reviewed-plan-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3404,6 +3459,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `critique`
 - Hermes role: `reviewer`
 - Quality tier: `finding-evidence-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3462,6 +3518,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `cleanup`
 - Hermes role: `handoff-guide`
 - Quality tier: `regression-gated`
+- Reasoning demand: `heavy`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3519,6 +3576,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `evidence`
 - Hermes role: `researcher`
 - Quality tier: `source-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3528,8 +3586,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `best-practice-research` exists to keep `research` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use when correctness depends on current official or upstream guidance.
 - Do not use when:
-  - The request is casual chat, a status-only acknowledgement, or another workflow has stronger routing evidence.
-  - The user needs implementation, review, CI, merge, or external publishing evidence that has not been delegated or observed.
+  - The work needs multi-source current evidence, a market or literature comparison, or a business brief rather than one technology's upstream guidance; use `web-research`.
 - Strong routing signals: `best-practice-research`, `best practice`, `official docs`, `upstream guidance`, `what do the docs say`, `check the docs`
 - Good example:
   - Prompt: best-practice-research: check official docs and upstream examples before we choose the plugin packaging pattern.
@@ -3572,6 +3629,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `durable-research`
 - Hermes role: `researcher`
 - Quality tier: `validator-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3626,6 +3684,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `measurement`
 - Hermes role: `tracker`
 - Quality tier: `measurement-gated`
+- Reasoning demand: `heavy`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3680,6 +3739,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `design-and-capture`
 - Hermes role: `memory-keeper`
 - Quality tier: `knowledge-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3748,6 +3808,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `external-advice`
 - Hermes role: `reviewer`
 - Quality tier: `evidence-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3801,6 +3862,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `state-cleanup`
 - Hermes role: `tracker`
 - Quality tier: `evidence-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3851,6 +3913,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `skill-management`
 - Hermes role: `tracker`
 - Quality tier: `evidence-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3901,6 +3964,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `diagnostics`
 - Hermes role: `tracker`
 - Quality tier: `evidence-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3957,6 +4021,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `setup`
 - Hermes role: `guide`
 - Quality tier: `hermes-setup-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4015,6 +4080,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `setup`
 - Hermes role: `guide`
 - Quality tier: `hermes-setup-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4071,6 +4137,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `setup`
 - Hermes role: `guide`
 - Quality tier: `hermes-setup-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4128,6 +4195,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `setup`
 - Hermes role: `guide`
 - Quality tier: `hermes-setup-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4185,6 +4253,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `quality-evidence-loop`
 - Hermes role: `reviewer`
 - Quality tier: `evidence-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_reference`
 - Install visibility: `false`
 - Docs visibility: `operator_reference`
@@ -4245,6 +4314,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `event-routing`
 - Hermes role: `operator`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4300,6 +4370,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `board-status`
 - Hermes role: `tracker`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4355,6 +4426,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `candidate-capture`
 - Hermes role: `memory-keeper`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4414,6 +4486,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `curation-review`
 - Hermes role: `memory-keeper`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4472,6 +4545,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `intent-card`
 - Hermes role: `guide`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4527,6 +4601,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `runtime-selection`
 - Hermes role: `handoff-guide`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4584,6 +4659,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `package-status`
 - Hermes role: `operator`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4639,6 +4715,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `voice-routing`
 - Hermes role: `guide`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4694,6 +4771,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `browser-task`
 - Hermes role: `guide`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4757,6 +4835,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `file-task`
 - Hermes role: `guide`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4819,6 +4898,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `command-task`
 - Hermes role: `guide`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4881,6 +4961,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `connector-task`
 - Hermes role: `guide`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -4945,6 +5026,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `live-info-task`
 - Hermes role: `guide`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5007,6 +5089,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `connector-readiness`
 - Hermes role: `guide`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5075,6 +5158,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `prompt-import-readiness`
 - Hermes role: `guide`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5146,6 +5230,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `device-readiness`
 - Hermes role: `operator`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5217,6 +5302,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `content-task`
 - Hermes role: `guide`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5282,6 +5368,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `media-input-task`
 - Hermes role: `guide`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5346,6 +5433,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `data-task`
 - Hermes role: `guide`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5413,6 +5501,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `readiness-check`
 - Hermes role: `tracker`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5468,6 +5557,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `harness-session-inventory`
 - Hermes role: `tracker`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5530,6 +5620,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `telemetry-card`
 - Hermes role: `tracker`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5592,6 +5683,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `telemetry-card`
 - Hermes role: `tracker`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5648,6 +5740,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `manager-review`
 - Hermes role: `tracker`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5703,6 +5796,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `agent-debug`
 - Hermes role: `operator`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5762,6 +5856,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `failure-signal-audit`
 - Hermes role: `reviewer`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5827,6 +5922,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `instinct-ledger`
 - Hermes role: `tracker`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `heavy`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5888,6 +5984,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `skill-scout`
 - Hermes role: `operator`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -5950,6 +6047,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `skill-health`
 - Hermes role: `operator`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -6008,6 +6106,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `workflow-learning`
 - Hermes role: `tracker`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `heavy`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -6063,6 +6162,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `decision-recall`
 - Hermes role: `memory-keeper`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -6118,6 +6218,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `run-efficiency`
 - Hermes role: `tracker`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `standard`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -6173,6 +6274,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `provider-profile-posture`
 - Hermes role: `operator`
 - Quality tier: `workflow-surface-gated`
+- Reasoning demand: `light`
 - Exposure: `workflow_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`

@@ -77,6 +77,7 @@ Category: `accessibility`
 Phase: `accessibility-audit`
 Hermes role: `reviewer`
 Quality tier: `accessibility-audit-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

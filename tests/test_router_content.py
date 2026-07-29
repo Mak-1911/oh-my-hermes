@@ -39,6 +39,7 @@ from omh.runtime.records import validate_harness_quality
 from omh.skills.catalog import (
     OMH_SKILL_DISPLAY_NAME_OVERRIDES,
     OMH_SKILL_NAME_PREFIX,
+    REASONING_DEMAND_VALUES,
     SkillDefinition,
     _HERMES_SETUP_FIVE_STEP_BAR,
     catalog_intent_delegation_skill_names,
@@ -2372,6 +2373,86 @@ class RouterContentTests(unittest.TestCase):
             self.assertTrue(definition.handoff_policy, definition.name)
         for template in builtin_skill_templates():
             self.assertIn("description: [omh] ", template.content.split("---", 2)[1], template.name)
+
+    def test_g003_sibling_boundaries_are_reciprocal_and_outcome_shaped(self) -> None:
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        expected_outcomes = {
+            "web-research": (
+                "typed candidate list or acquisition status",
+                "market, customer, or pricing decision brief",
+                "bounded, versioned official or upstream guidance",
+            ),
+            "source-finder": (
+                "factual findings, comparison, or a summary",
+                "business decision brief",
+            ),
+            "research-brief": (
+                "fresh links, citations, or current facts",
+                "source types, candidates, or acquisition state",
+            ),
+            "best-practice-research": ("multi-source current evidence",),
+            "ralph": ("survive sessions as a ledger",),
+            "ultragoal": (
+                "already-scoped task only needs one owner",
+                "discovered or reframed repeatedly",
+            ),
+            "loop": ("Scope and milestones are already known",),
+            "team": ("accepted implementation plan with disjoint files",),
+            "ultrawork": ("exploratory research or QA coordination",),
+            "ultraprocess": ("product shaping and explicitly includes release, deploy, or monitor",),
+            "idea-to-deploy": ("concrete repo change whose stopping point is one PR-ready cycle",),
+            "ops-review": ("durable cadence history, minutes, a decision log, or action history",),
+            "operating-rhythm": ("weekly status/risk summary",),
+        }
+
+        for name, outcomes in expected_outcomes.items():
+            boundary = " ".join(definitions[name].do_not_use_when)
+            with self.subTest(skill=name):
+                for outcome in outcomes:
+                    self.assertIn(outcome, boundary)
+
+    def test_g003_heavy_workflows_have_one_proportionality_guard_each(self) -> None:
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        for name in ("ralph", "ultraprocess", "team", "ultrawork", "cto-loop", "idea-to-deploy"):
+            with self.subTest(skill=name):
+                guards = [line for line in definitions[name].do_not_use_when if "settings-only" in line]
+                self.assertEqual(len(guards), 1)
+                self.assertIn("one bounded edit", guards[0])
+                self.assertIn("direct answer/diagnosis", guards[0])
+                self.assertNotIn("codex", guards[0].lower())
+
+    def test_reasoning_demand_inherits_by_category_and_surfaces_in_catalog_outputs(self) -> None:
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        self.assertEqual(definitions["oh-my-hermes"].reasoning_demand, "light")
+        self.assertEqual(definitions["web-research"].reasoning_demand, "standard")
+        self.assertEqual(definitions["ralph"].reasoning_demand, "heavy")
+        self.assertTrue(all(definition.reasoning_demand in REASONING_DEMAND_VALUES for definition in definitions.values()))
+
+        inherited = SkillDefinition("inherited-reasoning", "A test skill.", (), "Use when testing inheritance.", category="research")
+        explicit = SkillDefinition(
+            "explicit-reasoning",
+            "A test skill.",
+            (),
+            "Use when testing an override.",
+            category="research",
+            reasoning_demand="heavy",
+        )
+        self.assertEqual(inherited.reasoning_demand, "standard")
+        self.assertEqual(explicit.reasoning_demand, "heavy")
+
+        from omh.skills.validation import _validate_skill_definition
+
+        invalid = SkillDefinition("invalid-reasoning", "A test skill.", (), "Use when validating demand values.")
+        object.__setattr__(invalid, "reasoning_demand", "unsupported")
+        errors = _validate_skill_definition(invalid, {primary_harness_for_skill(invalid.name)})
+        self.assertTrue(any("reasoning_demand" in error for error in errors))
+
+        templates = {template.name: template for template in builtin_skill_templates()}
+        self.assertIn("Reasoning demand: `heavy`", templates["ralph"].content)
+        payload = workflow_reference_payload()
+        skills = {skill["name"]: skill for skill in payload["skills"]}
+        self.assertEqual(skills["ralph"]["reasoning_demand"], "heavy")
+        self.assertEqual(skills["web-research"]["reasoning_demand"], "standard")
 
     def test_default_examples_are_concrete_and_trigger_safe(self) -> None:
         definition = SkillDefinition(

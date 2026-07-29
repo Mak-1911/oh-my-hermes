@@ -73,6 +73,7 @@ Category: `memory`
 Phase: `decision-recall`
 Hermes role: `memory-keeper`
 Quality tier: `workflow-surface-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

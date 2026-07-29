@@ -40,6 +40,7 @@ from ..coding.product_family_templates import validate_product_family_template
 from ..coding.product_quality_harnesses import validate_product_quality_harness
 from ..coding.project_governance import validate_project_governance_blocked, validate_project_governance_profile
 from ..routing.route_plan import compact_workflow_route_plan
+from ..skills.catalog_types import REASONING_DEMAND_VALUES
 
 
 SCHEMA_VERSION = 1
@@ -91,7 +92,7 @@ RUNTIME_OBSERVATION_RECORD_KEYS = (
 )
 ROUTE_ACTIONS = ("dispatch", "clarify", "fallback")
 ROUTE_CONFIDENCES = ("low", "medium", "high")
-ROUTING_RECOMMENDATION_KEYS = ("skill", "score", "confidence", "matched")
+ROUTING_RECOMMENDATION_KEYS = ("skill", "score", "confidence", "matched", "reasoning_demand")
 CODING_DELEGATION_SCHEMA_VERSION = "coding_delegation/v1"
 CODING_DELEGATION_RECORD_TYPE = "coding_delegation"
 CODING_DELEGATION_ACTIONS = ("delegate", "clarify", "fallback")
@@ -121,7 +122,7 @@ CODING_SOURCE_METADATA_KEYS = (
     "plan_task_length",
     *TARGET_SOURCE_METADATA_KEYS,
 )
-CODING_RECOMMENDATION_KEYS = ("skill", "score", "confidence", "matched")
+CODING_RECOMMENDATION_KEYS = ("skill", "score", "confidence", "matched", "reasoning_demand")
 CODING_EXECUTOR_SELECTION_KEYS = ("status", "choice_required", "options")
 CODING_EXECUTOR_SELECTION_STATUSES = (
     "retained_hermes",
@@ -837,6 +838,7 @@ def _compact_routing_recommendations(recommendations: Any) -> list[dict[str, Any
                 "score": int(item.get("score", 0)),
                 "confidence": str(item.get("confidence", "low")),
                 "matched": [str(value) for value in matched] if isinstance(matched, list) else [],
+                "reasoning_demand": str(item.get("reasoning_demand", "standard")),
             }
         )
     return compact
@@ -856,6 +858,7 @@ def _compact_coding_recommendations(recommendations: Any) -> list[dict[str, Any]
                 "score": int(item.get("score", 0)),
                 "confidence": str(item.get("confidence", "low")),
                 "matched": [str(value) for value in matched] if isinstance(matched, list) else [],
+                "reasoning_demand": str(item.get("reasoning_demand", "standard")),
             }
         )
     return compact
@@ -1897,6 +1900,11 @@ def validate_routing_record(routing: dict[str, Any]) -> list[str]:
         _require(isinstance(recommendation.get("score"), int), errors, f"routing recommendations[{index}].score must be an integer")
         _require(isinstance(recommendation.get("confidence"), str), errors, f"routing recommendations[{index}].confidence must be a string")
         _require(isinstance(recommendation.get("matched"), list), errors, f"routing recommendations[{index}].matched must be a list")
+        _require(
+            recommendation.get("reasoning_demand") in REASONING_DEMAND_VALUES,
+            errors,
+            f"routing recommendations[{index}].reasoning_demand is invalid: {recommendation.get('reasoning_demand')!r}",
+        )
     return errors
 
 
@@ -1965,6 +1973,11 @@ def validate_coding_delegation_record(delegation: dict[str, Any]) -> list[str]:
         _require(isinstance(recommendation.get("score"), int), errors, f"coding_delegation recommendation_evidence[{index}].score must be an integer")
         _require(isinstance(recommendation.get("confidence"), str), errors, f"coding_delegation recommendation_evidence[{index}].confidence must be a string")
         _require(isinstance(recommendation.get("matched"), list), errors, f"coding_delegation recommendation_evidence[{index}].matched must be a list")
+        _require(
+            recommendation.get("reasoning_demand") in REASONING_DEMAND_VALUES,
+            errors,
+            f"coding_delegation recommendation_evidence[{index}].reasoning_demand is invalid: {recommendation.get('reasoning_demand')!r}",
+        )
     for key in ("acceptance_criteria", "verification"):
         _require(isinstance(delegation.get(key), list), errors, f"coding_delegation {key} must be a list")
         if not isinstance(delegation.get(key), list):
