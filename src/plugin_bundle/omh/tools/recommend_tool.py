@@ -152,6 +152,7 @@ def _recommendation_from_hint(hint: dict[str, Any], route_hint: dict[str, Any]) 
         "score": 8 if matched else 4,
         "confidence": "medium" if matched else "low",
         "matched": matched,
+        "reasoning_demand": _fallback_reasoning_demand(workflow, str(hint.get("lane") or "")),
         "why": str(hint.get("reason") or "Matched OMH awareness route hint metadata."),
         "next_action": str(hint.get("next_action") or "show_workflow_guidance"),
         "evidence_boundary": str(route_hint.get("claim_boundary") or _claim_boundary()),
@@ -171,6 +172,7 @@ def _static_fallback_recommendation(item: dict[str, Any]) -> dict[str, Any]:
         "score": 0,
         "confidence": "low",
         "matched": [],
+        "reasoning_demand": _fallback_reasoning_demand(skill, str(item.get("category") or "")),
         "why": "No strong plugin route hint matched; start with general OMH routing guidance.",
         "evidence_boundary": _claim_boundary(),
         "suggested_prompt": f"Use {skill} for: <current user request>",
@@ -187,6 +189,14 @@ def _role_for_lane(lane: str) -> str:
         "automation_and_status": "tracker",
         "coding_handoff": "handoff-guide",
     }.get(lane, "guide")
+
+
+def _fallback_reasoning_demand(workflow: str, lane: str) -> str:
+    if workflow in {"ralph", "ultraprocess", "team", "ultrawork", "cto-loop", "idea-to-deploy", "ultragoal"}:
+        return "heavy"
+    if workflow == "oh-my-hermes" or lane in {"automation_and_status", "retained_knowledge"}:
+        return "light"
+    return "standard"
 
 
 def _bounded_limit(value: object, *, default: int) -> int:

@@ -202,7 +202,7 @@ _DEFINITIONS = [
         ),
         do_not_use_when=(
             "Progress must survive sessions as a ledger with multiple checkpoints and a final gate; use `ultragoal`.",
-            "The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly instead of opening a finish-until-done loop.",
+            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of opening a finish-until-done loop.",
         ),
     ),
     SkillDefinition(
@@ -453,7 +453,7 @@ _DEFINITIONS = [
             "No repo, product, or delivery surface is available to support a plan-to-PR cycle.",
             "The goal is removing existing slop or duplication with identical observable behavior rather than delivering new or changed behavior; use `ai-slop-cleaner`.",
             "The request starts with product shaping and explicitly includes release, deploy, or monitor decisions beyond one PR; use `idea-to-deploy`.",
-            "The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly instead of starting a plan-to-PR cycle.",
+            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of starting a plan-to-PR cycle.",
         ),
         good_example=SkillExample(
             prompt="$ultraprocess research this setup bug, plan the fix, implement, review, sync docs, and prepare a PR.",
@@ -563,7 +563,7 @@ _DEFINITIONS = [
         ),
         do_not_use_when=(
             "An accepted implementation plan with disjoint files, criteria, and commands is ready for parallel delivery; use `ultrawork`.",
-            "The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; use one direct owner instead of coordinating workers.",
+            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of coordinating workers.",
         ),
         final_checklist=(
             "Each lane has an owner, disjoint scope, expected output, and verification target.",
@@ -606,7 +606,7 @@ _DEFINITIONS = [
             "The plan is not accepted, lane boundaries are unclear, or verification commands are missing.",
             "The user expects Hermes to secretly execute coding lanes instead of preparing explicit selected-runtime handoffs.",
             "The lanes are exploratory research or QA coordination without an accepted implementation plan; use `team`.",
-            "The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; use one direct owner instead of opening parallel delivery lanes.",
+            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of opening parallel delivery lanes.",
         ),
         good_example=SkillExample(
             prompt="$ultrawork split the accepted docs refresh, CLI output polish, and test updates into parallel implementation lanes.",
@@ -3860,7 +3860,7 @@ _DEFINITIONS = [
         ),
         do_not_use_when=(
             "The task is already a concrete repo change whose stopping point is one PR-ready cycle, not product or release operations; use `ultraprocess`.",
-            "The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly instead of opening a product delivery loop.",
+            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of opening a product delivery loop.",
         ),
     ),
     SkillDefinition(
@@ -3908,7 +3908,7 @@ _DEFINITIONS = [
             "Prepare executor handoffs only for accepted implementation follow-ups.",
         ),
         do_not_use_when=(
-            "The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly or use `strategy-brief` for a decision brief instead of starting a leadership operating loop.",
+            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly or use `strategy-brief` for a decision brief instead of starting a leadership operating loop.",
         ),
     ),
     SkillDefinition(

@@ -835,6 +835,8 @@ Record only what is observed. If Hermes or a chosen oh-my runtime does not expos
 def router_skill() -> SkillTemplate:
     body = f"""# Oh My Hermes Router
 
+Reasoning demand: `{_definitions_by_name()["oh-my-hermes"].reasoning_demand}`
+
 Use this skill when the user mentions oh-my-hermes or a workflow keyword such as {router_keyword_summary()}.
 
 ## Routing Contract

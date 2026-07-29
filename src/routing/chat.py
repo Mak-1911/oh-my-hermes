@@ -1500,6 +1500,14 @@ def _route_chat_message_cached(
             )
             if fast_operator_decision is not None:
                 return fast_operator_decision.to_dict()
+    bounded_direct_decision = _bounded_direct_task_fast_path_decision(
+        message,
+        routing_message=routing_message,
+        source=source,
+        min_confidence=min_confidence,
+    )
+    if bounded_direct_decision is not None:
+        return bounded_direct_decision.to_dict()
     fast_explicit_skill_decision = _explicit_skill_fast_path_decision(
         message,
         routing_message=routing_message,
@@ -5110,6 +5118,30 @@ _DIRECT_TRANSLATION_WORKFLOW_BLOCKERS = (
     "tms",
     "upload",
 )
+_BOUNDED_DIRECT_TASK_TERMS = (
+    "change a setting",
+    "change one setting",
+    "fix a typo",
+    "fix one typo",
+    "one bounded edit",
+    "one-line change",
+    "rename a variable",
+    "rename one variable",
+    "settings only change",
+    "settings-only change",
+    "single bounded edit",
+    "single-line change",
+)
+_BOUNDED_DIRECT_TASK_BLOCKERS = (
+    "across all files",
+    "across the repository",
+    "deploy",
+    "migration",
+    "monitor",
+    "multiple files",
+    "release",
+    "repo-wide",
+)
 
 
 def _direct_answer_fast_path_decision(
@@ -5131,6 +5163,35 @@ def _direct_answer_fast_path_decision(
     if not _is_fast_plain_direct_answer_question(routing_message):
         return None
     return _direct_answer_decision(message, source=source, min_confidence=min_confidence)
+
+
+def _bounded_direct_task_fast_path_decision(
+    message: str,
+    *,
+    routing_message: str,
+    source: str,
+    min_confidence: str,
+) -> ChatRouteDecision | None:
+    if not contains_cue_phrase(routing_message, _BOUNDED_DIRECT_TASK_TERMS):
+        return None
+    if contains_cue_phrase(
+        _bounded_direct_blocker_scope(routing_message),
+        _BOUNDED_DIRECT_TASK_BLOCKERS,
+    ):
+        return None
+    return _direct_answer_decision(message, source=source, min_confidence=min_confidence)
+
+
+def _bounded_direct_blocker_scope(routing_message: str) -> str:
+    """Blocker matching must ignore an explicitly invoked workflow name.
+
+    Workflow names such as `idea-to-deploy` contain blocker tokens
+    (`deploy`); the guard should judge the requested task, not the name."""
+    invoked = explicit_skill_invocation(routing_message, routable_definitions())
+    if not invoked:
+        return routing_message
+    scoped = normalized_phrase(routing_message).replace(normalized_phrase(invoked), " ")
+    return scoped
 
 
 def _direct_answer_decision(

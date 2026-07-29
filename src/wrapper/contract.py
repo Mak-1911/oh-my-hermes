@@ -6670,6 +6670,7 @@ def _catalog_question_route_payload(route_payload: dict[str, object]) -> dict[st
                     "evidence_boundary": "Skill picker routing is not plan acceptance, dispatch, execution, review, CI, or verification evidence.",
                     "matched": ["catalog_question"],
                     "next_action": "choose_skill",
+                    "reasoning_demand": _reasoning_demand_for_skill(_ROUTER_SKILL),
                     "score": max(10, _intish(updated.get("score", 0))),
                     "skill": _ROUTER_SKILL,
                     "wrapper_guidance": "Render the OMH workflow picker in chat; do not ask the user to approve `omh list` for catalog discovery.",
@@ -6704,6 +6705,7 @@ def _omh_status_route_payload(route_payload: dict[str, object]) -> dict[str, obj
                     "evidence_boundary": "Status and roadmap output is local probe evidence only; it is not host plugin load, executor work, review, CI, or merge evidence.",
                     "matched": ["omh_status_question"],
                     "next_action": "show_status",
+                    "reasoning_demand": _reasoning_demand_for_skill(_ROUTER_SKILL),
                     "score": max(10, _intish(updated.get("score", 0))),
                     "skill": _ROUTER_SKILL,
                     "wrapper_guidance": "Render the OMH status and capability roadmap in chat; do not ask for shell approval just to answer status.",
@@ -6738,6 +6740,7 @@ def _omh_quickstart_route_payload(route_payload: dict[str, object]) -> dict[str,
                     "evidence_boundary": "Quickstart output is local setup and wrapper guidance only; it is not host plugin load, executor work, review, CI, or merge evidence.",
                     "matched": ["omh_quickstart_question"],
                     "next_action": "show_quickstart",
+                    "reasoning_demand": _reasoning_demand_for_skill(_ROUTER_SKILL),
                     "score": max(10, _intish(updated.get("score", 0))),
                     "skill": _ROUTER_SKILL,
                     "wrapper_guidance": "Render the OMH quickstart card in chat; do not ask for shell approval just to answer first-use setup guidance.",
@@ -6772,6 +6775,7 @@ def _omh_intro_route_payload(route_payload: dict[str, object]) -> dict[str, obje
                     "evidence_boundary": "Context brief output is routing/help context only; it is not workflow execution, delivery, verification, review, CI, or merge evidence.",
                     "matched": ["omh_intro_question"],
                     "next_action": "show_context_brief",
+                    "reasoning_demand": _reasoning_demand_for_skill(_ROUTER_SKILL),
                     "score": max(10, _intish(updated.get("score", 0))),
                     "skill": _ROUTER_SKILL,
                     "wrapper_guidance": "Render the OMH context brief first, then offer the workflow picker or quickstart card.",
@@ -7030,6 +7034,18 @@ def display_workflow_name(name: str) -> str:
 @lru_cache(maxsize=1)
 def _installable_skill_names() -> frozenset[str]:
     return frozenset(definition.name for definition in installable_skill_definitions())
+
+
+@lru_cache(maxsize=None)
+def _reasoning_demand_for_skill(skill: str) -> str:
+    return next(
+        (
+            definition.reasoning_demand
+            for definition in installable_skill_definitions()
+            if definition.name == skill
+        ),
+        "standard",
+    )
 
 
 def _skill_picker_body(*, catalog_question: bool, copy_locale: str = "en") -> str:

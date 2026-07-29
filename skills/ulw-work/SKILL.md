@@ -24,7 +24,7 @@ This is a Hermes-native `ultrawork` workflow skill.
 - The plan is not accepted, lane boundaries are unclear, or verification commands are missing.
 - The user expects Hermes to secretly execute coding lanes instead of preparing explicit selected-runtime handoffs.
 - The lanes are exploratory research or QA coordination without an accepted implementation plan; use `team`.
-- The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; use one direct owner instead of opening parallel delivery lanes.
+- The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of opening parallel delivery lanes.
 
 ## Examples
 

@@ -247,6 +247,7 @@ def _public_recommendation(item: dict[str, object]) -> dict[str, object]:
         "evidence_boundary": item.get("evidence_boundary", ""),
         "wrapper_guidance": item.get("wrapper_guidance", ""),
         "matched": item.get("matched", []),
+        "reasoning_demand": item.get("reasoning_demand", "standard"),
     }
 
 

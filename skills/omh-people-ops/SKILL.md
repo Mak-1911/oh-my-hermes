@@ -74,6 +74,7 @@ Category: `operations`
 Phase: `people-operations`
 Hermes role: `operator`
 Quality tier: `evidence-gated`
+Reasoning demand: `light`
 
 Quality bar:
 

@@ -169,7 +169,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Use when: Use after scope is concrete and the user wants one owner to continue through implementation and verification.
 - Do not use when:
   - Progress must survive sessions as a ledger with multiple checkpoints and a final gate; use `ultragoal`.
-  - The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly instead of opening a finish-until-done loop.
+  - The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of opening a finish-until-done loop.
 - Strong routing signals: `ralph`, `$ralph`, `finish until done`, `persistent execution`, `self-referential loop`
 - Good example:
   - Prompt: ralph: finish the invoice export recovery until the smoke test passes or a blocker is recorded.
@@ -396,7 +396,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - No repo, product, or delivery surface is available to support a plan-to-PR cycle.
   - The goal is removing existing slop or duplication with identical observable behavior rather than delivering new or changed behavior; use `ai-slop-cleaner`.
   - The request starts with product shaping and explicitly includes release, deploy, or monitor decisions beyond one PR; use `idea-to-deploy`.
-  - The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly instead of starting a plan-to-PR cycle.
+  - The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of starting a plan-to-PR cycle.
 - Strong routing signals: `ultraprocess`, `$ultraprocess`, `ulp`, `$ulp`, `./ultraprocess`, `/ultraprocess`, `single-cycle delivery`, `one-cycle delivery`, `end-to-end process`, `delivery process`, `research plan implement review docs pr`, `plan implement review docs pr`, `ralplan ultragoal code-review`, `codebase source research planning implementation review docs sync pr`, `docs sync`, `pr-ready`, `prepare a pr`, `sync docs and prepare a pr`, `code-review sync docs and prepare a pr`, `delegate to codex`, `send to codex`, `codex implement`, `codex progress tracking`, `codex session tracking`, `make a pr`, `open a pr`, `끝까지 해줘`, `PR까지`, `계획 구현 리뷰 문서 PR`, `기획 구현 리뷰 문서 PR`, `코드베이스 조사 웹리서치 계획 구현 리뷰 문서 최신화 PR`, `codex로 구현`, `코덱스로 구현`, `codex에게 맡기`, `codex로 맡기`, `코덱스에게 맡기`, `코딩 에이전트에게 맡기`, `구현하게 맡기고 진행상태 추적`, `진행상태 추적`, `진행 상태 추적`, `문서 최신화 PR`, `test driven development`, `write tests first`, `tests first`, `tdd implementation`, `테스트부터 작성`, `테스트 먼저 작성`, `테스트 우선 구현`, `TDD로 구현`
 - Good example:
   - Prompt: $ultraprocess research this setup bug, plan the fix, implement, review, sync docs, and prepare a PR.
@@ -521,7 +521,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Use when: Use when multiple independent lanes materially improve throughput or verification.
 - Do not use when:
   - An accepted implementation plan with disjoint files, criteria, and commands is ready for parallel delivery; use `ultrawork`.
-  - The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; use one direct owner instead of coordinating workers.
+  - The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of coordinating workers.
 - Strong routing signals: `team`, `$team`, `swarm`, `parallel agents`, `coordinated workers`
 - Good example:
   - Prompt: team: coordinate parallel agents for frontend polish, copy polish, and QA with worker ACKs.
@@ -581,7 +581,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The plan is not accepted, lane boundaries are unclear, or verification commands are missing.
   - The user expects Hermes to secretly execute coding lanes instead of preparing explicit selected-runtime handoffs.
   - The lanes are exploratory research or QA coordination without an accepted implementation plan; use `team`.
-  - The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; use one direct owner instead of opening parallel delivery lanes.
+  - The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of opening parallel delivery lanes.
 - Strong routing signals: `ultrawork`, `$ultrawork`, `ulw`, `$ulw`, `parallel work`, `parallel implementation`, `high throughput`
 - Good example:
   - Prompt: $ultrawork split the accepted docs refresh, CLI output polish, and test updates into parallel implementation lanes.
@@ -1131,6 +1131,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `finance-analysis`
 - Hermes role: `operator`
 - Quality tier: `evidence-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1187,6 +1188,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `people-operations`
 - Hermes role: `operator`
 - Quality tier: `evidence-gated`
+- Reasoning demand: `light`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1243,6 +1245,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `legal-compliance-review`
 - Hermes role: `reviewer`
 - Quality tier: `review-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1299,6 +1302,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `support-operations`
 - Hermes role: `operator`
 - Quality tier: `triage-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1355,6 +1359,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `curriculum-design`
 - Hermes role: `planner`
 - Quality tier: `planning-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1411,6 +1416,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `localization-review`
 - Hermes role: `reviewer`
 - Quality tier: `review-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1467,6 +1473,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `sales-development`
 - Hermes role: `operator`
 - Quality tier: `decision-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -1523,6 +1530,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Phase: `product-brief`
 - Hermes role: `planner`
 - Quality tier: `planning-gated`
+- Reasoning demand: `standard`
 - Exposure: `direct_skill`
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
@@ -3113,7 +3121,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Use when: Use when Hermes should carry a product or app idea through shaping, decision gates, plan acceptance, executor handoff, verification, release readiness, deploy, and monitoring boundaries.
 - Do not use when:
   - The task is already a concrete repo change whose stopping point is one PR-ready cycle, not product or release operations; use `ultraprocess`.
-  - The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly instead of opening a product delivery loop.
+  - The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of opening a product delivery loop.
 - Strong routing signals: `idea-to-deploy`, `idea to deploy`, `from idea to deploy`, `plan to deploy`, `idea to launch`, `ship this idea`, `ship this feature`, `launch this feature`, `product delivery loop`, `app delivery loop`, `complete product loop`, `end-to-end app operation`, `완제품 루프`, `아이디어부터 배포`, `기획부터 배포`, `출시까지`, `앱 운영 루프`, `서비스로 만들어서 배포`, `아이디어를 서비스로`, `배포까지 가보자`, `ship this idea to production`
 - Good example:
   - Prompt: idea-to-deploy: turn this onboarding idea into a scoped plan, implementation handoff, QA gate, and release path.
@@ -3170,7 +3178,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `cto-loop` exists to keep `leadership` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use when Hermes should run a leadership-style operating loop that turns signals into roadmap decisions, technical tradeoffs, delivery risk, release readiness, and explicit follow-up handoffs.
 - Do not use when:
-  - The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly or use `strategy-brief` for a decision brief instead of starting a leadership operating loop.
+  - The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly or use `strategy-brief` for a decision brief instead of starting a leadership operating loop.
 - Strong routing signals: `cto-loop`, `cto loop`, `cto`, `cto pm`, `pm dev qa security ops`, `roadmap technical tradeoffs`, `technical tradeoff`, `delivery risk`, `release readiness`, `technical leadership loop`, `leadership operating loop`, `engineering leadership`, `CTO 구조`, `PM 구조`, `로드맵`, `아키텍처 트레이드오프`, `기술 리더십`, `출시 준비`
 - Good example:
   - Prompt: cto-loop: run the PM, dev, QA, security, and ops loop for this risky billing launch.

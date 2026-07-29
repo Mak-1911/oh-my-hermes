@@ -2418,6 +2418,9 @@ class RouterContentTests(unittest.TestCase):
                 guards = [line for line in definitions[name].do_not_use_when if "settings-only" in line]
                 self.assertEqual(len(guards), 1)
                 self.assertIn("one bounded edit", guards[0])
+                self.assertIn("explicitly low-risk", guards[0])
+                self.assertIn("direct owner", guards[0])
+                self.assertIn("verification path", guards[0])
                 self.assertIn("direct answer/diagnosis", guards[0])
                 self.assertNotIn("codex", guards[0].lower())
 
@@ -2446,8 +2449,14 @@ class RouterContentTests(unittest.TestCase):
         object.__setattr__(invalid, "reasoning_demand", "unsupported")
         errors = _validate_skill_definition(invalid, {primary_harness_for_skill(invalid.name)})
         self.assertTrue(any("reasoning_demand" in error for error in errors))
+        for invalid_value in (None, False, 0):
+            with self.subTest(invalid_reasoning_demand=invalid_value):
+                object.__setattr__(invalid, "reasoning_demand", invalid_value)
+                errors = _validate_skill_definition(invalid, {primary_harness_for_skill(invalid.name)})
+                self.assertTrue(any("reasoning_demand" in error for error in errors))
 
         templates = {template.name: template for template in builtin_skill_templates()}
+        self.assertIn("Reasoning demand: `light`", templates["oh-my-hermes"].content)
         self.assertIn("Reasoning demand: `heavy`", templates["ralph"].content)
         payload = workflow_reference_payload()
         skills = {skill["name"]: skill for skill in payload["skills"]}

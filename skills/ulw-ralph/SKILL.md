@@ -21,7 +21,7 @@ This is a Hermes-native `ralph` workflow skill.
 ## Do Not Use When
 
 - Progress must survive sessions as a ledger with multiple checkpoints and a final gate; use `ultragoal`.
-- The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; handle it directly instead of opening a finish-until-done loop.
+- The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of opening a finish-until-done loop.
 
 ## Examples
 

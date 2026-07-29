@@ -74,6 +74,7 @@ Category: `review`
 Phase: `localization-review`
 Hermes role: `reviewer`
 Quality tier: `review-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

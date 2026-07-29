@@ -74,6 +74,7 @@ Category: `triage`
 Phase: `support-operations`
 Hermes role: `operator`
 Quality tier: `triage-gated`
+Reasoning demand: `standard`
 
 Quality bar:
 

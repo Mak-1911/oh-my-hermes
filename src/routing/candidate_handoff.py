@@ -141,7 +141,7 @@ def _candidate(recommendation: dict[str, object]) -> dict[str, object]:
     return {
         "skill": recommendation.get("skill"),
         "description": recommendation.get("description"),
-        "reasoning_demand": recommendation.get("reasoning_demand"),
+        "reasoning_demand": _candidate_reasoning_demand(recommendation),
         "why_it_matched": recommendation.get("why"),
         "matched": list(recommendation.get("matched", []) or []),
         "score": recommendation.get("score"),
@@ -149,6 +149,17 @@ def _candidate(recommendation: dict[str, object]) -> dict[str, object]:
         "next_action": recommendation.get("next_action"),
         "evidence_boundary": recommendation.get("evidence_boundary"),
     }
+
+
+def _candidate_reasoning_demand(recommendation: dict[str, object]) -> str:
+    value = recommendation.get("reasoning_demand")
+    if value in {"light", "standard", "heavy"}:
+        return str(value)
+    skill = str(recommendation.get("skill") or "")
+    return next(
+        (definition.reasoning_demand for definition in routable_definitions() if definition.name == skill),
+        "standard",
+    )
 
 
 def candidate_handoff_digest(candidates: list[dict[str, object]], reasons: tuple[str, ...]) -> str:

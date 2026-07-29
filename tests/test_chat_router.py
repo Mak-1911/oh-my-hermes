@@ -53,6 +53,30 @@ merge_observed=false
 
 
 class ChatRouterTests(unittest.TestCase):
+    def test_bounded_direct_tasks_do_not_auto_escalate_to_heavy_workflows(self) -> None:
+        for message in (
+            "change one setting in config",
+            "fix one typo in README",
+            "rename one variable",
+        ):
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+                self.assertEqual(decision["selected_skill"], "oh-my-hermes")
+                self.assertEqual(decision["action"], "fallback")
+
+        for message in (
+            "$ultraprocess change one setting in config",
+            "ralph fix one typo",
+            "team rename one variable",
+            "ultrawork change one setting",
+            "cto-loop fix one typo",
+            "idea-to-deploy rename one variable",
+        ):
+            with self.subTest(named_heavy=message):
+                decision = route_chat_message(message)
+                self.assertEqual(decision["selected_skill"], "oh-my-hermes")
+                self.assertEqual(decision["action"], "fallback")
+
     def test_design_orchestration_routes_broad_ownership_without_stealing_specialists(self) -> None:
         cases = (
             ("디자인 맡겨줘", "design-orchestration"),

@@ -521,7 +521,7 @@ class SkillDefinition:
     def __post_init__(self) -> None:
         object.__setattr__(self, "description", omh_description(self.description))
         object.__setattr__(self, "hermes_role", canonical_hermes_role(self.name, self.category, self.hermes_role))
-        if not self.reasoning_demand:
+        if self.reasoning_demand == "":
             object.__setattr__(
                 self,
                 "reasoning_demand",

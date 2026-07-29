@@ -21,7 +21,7 @@ This is a Hermes-native `team` workflow skill.
 ## Do Not Use When
 
 - An accepted implementation plan with disjoint files, criteria, and commands is ready for parallel delivery; use `ultrawork`.
-- The request is a settings-only change, one bounded edit, or a direct answer/diagnosis; use one direct owner instead of coordinating workers.
+- The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of coordinating workers.
 
 ## Examples
 

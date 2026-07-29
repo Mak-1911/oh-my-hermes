@@ -1901,7 +1901,7 @@ def validate_routing_record(routing: dict[str, Any]) -> list[str]:
         _require(isinstance(recommendation.get("confidence"), str), errors, f"routing recommendations[{index}].confidence must be a string")
         _require(isinstance(recommendation.get("matched"), list), errors, f"routing recommendations[{index}].matched must be a list")
         _require(
-            recommendation.get("reasoning_demand") in REASONING_DEMAND_VALUES,
+            recommendation.get("reasoning_demand", "standard") in REASONING_DEMAND_VALUES,
             errors,
             f"routing recommendations[{index}].reasoning_demand is invalid: {recommendation.get('reasoning_demand')!r}",
         )
@@ -1974,7 +1974,7 @@ def validate_coding_delegation_record(delegation: dict[str, Any]) -> list[str]:
         _require(isinstance(recommendation.get("confidence"), str), errors, f"coding_delegation recommendation_evidence[{index}].confidence must be a string")
         _require(isinstance(recommendation.get("matched"), list), errors, f"coding_delegation recommendation_evidence[{index}].matched must be a list")
         _require(
-            recommendation.get("reasoning_demand") in REASONING_DEMAND_VALUES,
+            recommendation.get("reasoning_demand", "standard") in REASONING_DEMAND_VALUES,
             errors,
             f"coding_delegation recommendation_evidence[{index}].reasoning_demand is invalid: {recommendation.get('reasoning_demand')!r}",
         )
