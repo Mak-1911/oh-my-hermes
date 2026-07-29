@@ -1,6 +1,6 @@
 ---
-name: omh-workspace-file-operator
-description: [omh] Hermes workspace file operator workflow: scope local file/folder listing, search, organize, copy, move, rename, and delete tasks with path and destructive-action gates. Use when the user says: workspace-file-operator, workspace file operator, file operator, file operation, file operations, filesystem task, filesystem operation, file system task.
+name: omh-files
+description: [omh] Local files and folders - list, search, organize, copy, move, rename, and delete, with path scoping and destructive-action gates. Use when the user says: workspace-file-operator, workspace file operator, file operator, file operation, file operations, filesystem task, filesystem operation, file system task.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, filesystem]

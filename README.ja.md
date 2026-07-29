@@ -155,7 +155,7 @@ OMH は **92 個**のインストール可能な workflow skill を、理解し�
 | ⚡ **レバレッジを効かせた実行** | `ulw-work` · `ulw-goal` · `ulw-team` · `ulw-loop` | 高速な並列作業から持続的な複数ステップの実行までスケールしながら、所有権・チェックポイント・検証を常に可視化します。 |
 | 🔬 **調査と学習** | `ulw-research` · `omh-best-practice-research` · `omh-research-brief` | 鮮度・情報源の質・未解決の不確実性の境界を示しながら、根拠に基づく証拠を収集・統合します。 |
 | 🛠️ **安全なコーディングと出荷** | `ulw-process` · `omh-code-review` · `ulw-qa` | executor に依存しないコーディング作業を準備し、review・QA・CI・merge に関する主張は観測された証拠にのみ基づかせます。 |
-| 🎨 **洗練された成果物の制作** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-img-summary` | コンテンツ・完成度・アクセシビリティ・レンダリング品質ゲートを軸に、Web サイト、ビジュアル、レポート、スライド、ドキュメント、PDF、ポスター、パッケージを制作します。 |
+| 🎨 **洗練された成果物の制作** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-image-cards` | コンテンツ・完成度・アクセシビリティ・レンダリング品質ゲートを軸に、Web サイト、ビジュアル、レポート、スライド、ドキュメント、PDF、ポスター、パッケージを制作します。 |
 | 🧠 **記憶と運用** | `omh-memory-new` · `omh-memory-sync` · `omh-ops-observability-card` · `omh-doctor` | プロジェクト記憶をレビュー優先で保ち、運用の準備状況を可視化し、provider やシステム状態を作り話にせず次の修復アクションを示します。 |
 | 🔌 **境界を隠さない接続** | `omh-toolbelt-readiness` · `omh-external-connector-readiness` · `omh-agent-board` | 作業がそれに依存する前に、必要なツール・connector・agent 面が実際に使えるかを確認し、host のロード・ツール利用・外部 provider アクセスを個別に観測可能な状態に保ちます。 |
 

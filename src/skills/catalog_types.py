@@ -52,6 +52,22 @@ OMH_SKILL_DISPLAY_NAME_OVERRIDES = {
     "ultraqa": "ulw-qa",
     "ultrawork": "ulw-work",
     "web-research": "ulw-research",
+    # The `-operator` suffix names the implementation pattern, not the job. A
+    # reader scanning a picker wants the job: the browser one drives web pages,
+    # the terminal one scopes shell commands, the apps one reaches email/Slack/
+    # Notion-style providers. Two labels also correct outright misreads:
+    # `voice-operator` shapes terse voice/mobile-style REQUESTS (it does not
+    # speak), and `img-summary` GENERATES image prompt cards (it does not
+    # summarize images). Canonical names stay put everywhere, and the old
+    # `omh-<canonical>` labels keep routing as historical aliases.
+    "browser-operator": "omh-browser",
+    "workspace-file-operator": "omh-files",
+    "command-operator": "omh-terminal",
+    "connector-operator": "omh-apps",
+    "live-info-operator": "omh-live-info",
+    "media-input-operator": "omh-media-input",
+    "voice-operator": "omh-voice-input",
+    "img-summary": "omh-image-cards",
 }
 
 ULW_SKILL_NAME_PREFIX = "ulw-"

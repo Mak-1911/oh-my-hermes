@@ -1,22 +1,22 @@
 ---
-name: omh-command-operator
-description: [omh] Hermes command operator workflow: scope terminal, shell, CLI, package-manager, and test commands with cwd, environment, safety, and result-evidence gates. Use when the user says: command-operator, command operator, terminal command, terminal task, shell command, shell task, cli command, command execution.
+name: omh-live-info
+description: [omh] Live lookups - weather, finance, sports, maps, places, exchange rates, and time zones, read-only with provider, freshness, units, and source-quality gates. Use when the user says: live-info-operator, live info operator, live information, real time information, real-time information, weather today, current weather, weather forecast.
 metadata:
   hermes:
-    tags: [workflow, oh-my-hermes, command]
-    category: command
-    phase: command-task
+    tags: [workflow, oh-my-hermes, live-info]
+    category: live-info
+    phase: live-info-task
     role: guide
     quality_tier: workflow-surface-gated
 ---
 
-# Command Operator
+# Live Info Operator
 
-This is a Hermes-native `command-operator` workflow skill.
+This is a Hermes-native `live-info-operator` workflow skill.
 
 ## Why This Exists
 
-`command-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
+`live-info-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
 
 ## Do Not Use When
 
@@ -28,27 +28,27 @@ This is a Hermes-native `command-operator` workflow skill.
 
 Good example:
 
-- Prompt: command-operator run npm test in the project terminal and summarize the output.
-- Expected behavior: Produce `prepare_command_operator_card` with required context, wrapper actions, and not-evidence boundaries.
+- Prompt: live-info-operator check today's Seoul weather with freshness, units, and provider boundaries before answering.
+- Expected behavior: Produce `prepare_live_info_operator_card` with required context, wrapper actions, and not-evidence boundaries.
 - Why: The prompt names a real workflow surface that Hermes can orchestrate without hiding execution.
 
 Bad example:
 
-- Prompt: command-operator run rm -rf without cwd, confirmation, or observation gates.
+- Prompt: live-info-operator invent the latest stock price without provider evidence or timestamp.
 - Expected behavior: Report the missing observed evidence or authority instead of claiming the external step happened.
 - Why: Prepared OMH guidance is not platform, runtime, connector, file, memory, or delivery evidence.
 
 ## Completion Checklist
 
-- Command text, working directory, environment assumptions, timeout, safety level, and stop condition are explicit.
-- Destructive, credential, network, filesystem mutation, install, deploy, and production commands are gated or marked missing.
-- Exit codes, stdout/stderr, test results, package-manager effects, and filesystem mutations are reported only from observed command evidence.
+- Domain, location or symbol, time window, provider preference, freshness, units, and stop condition are explicit.
+- Provider setup, API access, source quality, stale data, and missing location/symbol decisions are gated or marked missing.
+- Weather, price, score, exchange-rate, time-zone, map, place, and traffic facts are reported only from observed provider evidence.
 
 ## Recovery Notes
 
-- If command text or working directory is missing, ask for the smallest missing scope needed before preparing the command task.
-- If the command is destructive, credentialed, networked, install/deploy-oriented, or production-affecting, require an explicit confirmation gate.
-- If the user supplied failed command output and asks for root cause, route to build-failure-triage or agent-debug instead of preparing a fresh command.
+- If the provider, plugin, API key, or connector is missing, route to toolbelt-readiness before preparing result claims.
+- If the request asks for citations, best practices, docs, or broad current-source synthesis, route to web-research instead.
+- If the request would create, update, invite, send, or mutate external provider state, route to connector-operator instead.
 
 ## OMH Context Rail
 
@@ -64,14 +64,14 @@ Bad example:
 
 ## Use When
 
-Use when Hermes should prepare or supervise terminal/CLI command execution without claiming the command ran or succeeded.
+Use when Hermes should prepare or supervise read-only live information lookups without claiming provider availability, API access, freshness, retrieval, or result correctness.
 
-    Strong routing signals: `command-operator`, `command operator`, `terminal command`, `terminal task`, `shell command`, `shell task`, `cli command`, `command execution`, `run command`, `run this command`, `execute command`, `execute this command`, `run npm test`, `run tests`, `npm test`, `pnpm test`, `bun test`, `uv run`, `python -m unittest`, `pytest`, `make test`, `cargo test`, `go test`, `summarize command output`, `터미널 명령`, `터미널에서`, `셸 명령`, `쉘 명령`, `명령 실행`, `명령어 실행`, `실행 준비`, `npm test 실행`, `테스트 실행`, `결과 요약`
+    Strong routing signals: `live-info-operator`, `live info operator`, `live information`, `real time information`, `real-time information`, `weather today`, `current weather`, `weather forecast`, `stock price`, `crypto price`, `btc price`, `exchange rate`, `sports score`, `game score`, `time zone`, `timezone`, `time in`, `map directions`, `directions to`, `near me`, `nearby restaurants`, `traffic now`, `오늘 날씨`, `현재 날씨`, `날씨 예보`, `주가`, `코인 가격`, `환율`, `스포츠 점수`, `경기 결과`, `시간대`, `현재 시간`, `지도`, `길찾기`, `주변 식당`
 
 ## Catalog Metadata
 
-Category: `command`
-Phase: `command-task`
+Category: `live-info`
+Phase: `live-info-task`
 Hermes role: `guide`
 Quality tier: `workflow-surface-gated`
 
@@ -94,31 +94,31 @@ Required inputs:
 
 Expected outputs:
 
-- command_task_card/v1
-- command_scope/v1
-- command_safety_gate/v1
-- command_result_manifest/v1 when observed
+- live_info_task_card/v1
+- live_info_scope/v1
+- freshness_boundary/v1
+- live_info_result_manifest/v1 when observed
 - next action
 - prepared-vs-observed boundary
 
 Artifact expectations:
 
-- command_task_card/v1 metadata-only wrapper card when prepared
-- command_scope/v1 with command text, working directory, environment assumptions, timeout, and stop condition
-- command_safety_gate/v1 separating read-only, write/mutation, network, credential, and destructive-risk commands
-- command_result_manifest/v1 only when exit code, stdout/stderr, logs, or terminal transcript are observed
+- live_info_task_card/v1 metadata-only wrapper card when prepared
+- live_info_scope/v1 with domain, location or symbol, time window, provider preference, units, and stop condition
+- freshness_boundary/v1 separating requested recency, provider timestamp, source quality, and stale-result handling
+- live_info_result_manifest/v1 only when provider response, timestamp, quote/source id, or rendered result is observed
 
 Safety rules:
 
-- A command operator card is not terminal launch, shell execution, package-manager action, test run, stdout/stderr capture, exit-code success, filesystem mutation, network access, or destructive command evidence unless observed command-result evidence records it.
+- A live information card is not provider availability, API access, live data retrieval, weather, market price, sports score, exchange-rate, time-zone, map, or place-result evidence unless observed live-info result evidence records it.
 - Do not claim connector, gateway, runtime, file generation, memory mutation, or host automation evidence from prepared guidance.
 
 ## Runtime Evidence
 
-Preferred harness for this skill: `command-operator`.
+Preferred harness for this skill: `live-info-operator`.
 
 ```sh
-omh runtime record --skill command-operator --harness command-operator --status started
+omh runtime record --skill live-info-operator --harness live-info-operator --status started
 ```
 
 Record observed delegation results; otherwise return `not_available` or `not_observed`.

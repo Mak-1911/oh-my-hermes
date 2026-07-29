@@ -1325,7 +1325,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### img-summary
 
-[omh] Hermes img-summary workflow: turn meetings, reports, PRs, issues, research, and releases into domain-aware image prompt cards.
+[omh] Image prompt cards - turn meetings, reports, PRs, issues, research, and releases into domain-aware image prompt cards.
 
 - Category: `materials`
 - Phase: `visual-prompt-card`
@@ -4185,7 +4185,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### voice-operator
 
-[omh] Hermes voice operator workflow: turn short voice or mobile commands into clarify, plan, status, handoff, or confirmation actions.
+[omh] Terse voice and mobile-style requests - turn short spoken-style asks into clarify, plan, status, handoff, or confirmation actions.
 
 - Category: `accessibility`
 - Phase: `voice-routing`
@@ -4240,7 +4240,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### browser-operator
 
-[omh] Hermes browser operator workflow: scope URL opening, page interaction, login/form boundaries, observations, and destructive confirmation gates.
+[omh] Browser tasks - open URLs, click, log in, fill forms, and capture page blockers, each scoped behind auth, confirmation, and observed-trace gates.
 
 - Category: `browser`
 - Phase: `browser-task`
@@ -4303,7 +4303,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### workspace-file-operator
 
-[omh] Hermes workspace file operator workflow: scope local file/folder listing, search, organize, copy, move, rename, and delete tasks with path and destructive-action gates.
+[omh] Local files and folders - list, search, organize, copy, move, rename, and delete, with path scoping and destructive-action gates.
 
 - Category: `filesystem`
 - Phase: `file-task`
@@ -4365,7 +4365,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### command-operator
 
-[omh] Hermes command operator workflow: scope terminal, shell, CLI, package-manager, and test commands with cwd, environment, safety, and result-evidence gates.
+[omh] Terminal commands - scope shell, CLI, package-manager, and test runs with cwd, environment, safety, and result-evidence gates.
 
 - Category: `command`
 - Phase: `command-task`
@@ -4427,7 +4427,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### connector-operator
 
-[omh] Hermes connector operator workflow: scope external app actions across email, Slack, Discord, Notion, Linear, Jira, CRM, and similar providers with auth, payload, confirmation, and result-evidence gates.
+[omh] External app actions - email, Slack, Discord, Notion, Linear, Jira, CRM, and similar providers, scoped with auth, payload, confirmation, and result-evidence gates.
 
 - Category: `connector`
 - Phase: `connector-task`
@@ -4491,7 +4491,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### live-info-operator
 
-[omh] Hermes live information workflow: scope read-only weather, finance, sports, map, place, exchange-rate, and time-zone lookups with provider, freshness, units, source-quality, and result-evidence gates.
+[omh] Live lookups - weather, finance, sports, maps, places, exchange rates, and time zones, read-only with provider, freshness, units, and source-quality gates.
 
 - Category: `live-info`
 - Phase: `live-info-task`
@@ -4828,7 +4828,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### media-input-operator
 
-[omh] Hermes media input workflow: scope audio, video, YouTube, screenshot, receipt image, OCR, meeting recording, transcript, timestamp, and clip-summary requests with source, permission, extraction, transcription, and hallucination gates.
+[omh] User-sent media - audio, video, YouTube links, screenshots, receipts, OCR, meeting recordings, transcripts, timestamps, and clip summaries, gated for source, permission, and hallucination risk.
 
 - Category: `media`
 - Phase: `media-input-task`

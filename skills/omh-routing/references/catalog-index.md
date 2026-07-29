@@ -17,14 +17,14 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-automation-blueprint`: [omh] Hermes Scheduled Ops Blueprint workflow: design recurring Hermes operations with schedule, delivery, silence policy, context chain, and prepared-vs-observed status.
 - `omh-autoresearch-goal`: [omh] Hermes adaptation for durable research-goal execution.
 - `omh-best-practice-research`: [omh] Hermes adaptation for bounded official/upstream best-practice research.
-- `omh-browser-operator`: [omh] Hermes browser operator workflow: scope URL opening, page interaction, login/form boundaries, observations, and destructive confirmation gates.
+- `omh-browser`: [omh] Browser tasks - open URLs, click, log in, fill forms, and capture page blockers, each scoped behind auth, confirmation, and observed-trace gates.
 - `omh-build-failure-triage`: [omh] Hermes Build Failure Triage workflow: classify build, typecheck, lint, test, CI, and DCO failures into minimal safe fix handoffs.
 - `omh-cancel`: [omh] Hermes adaptation for ending active workflow state cleanly.
 - `omh-code-review`: [omh] Hermes Code Review workflow: bug-first review with evidence.
 - `omh-codebase-onboarding`: [omh] Hermes Codebase Onboarding workflow: create a repo map, reading path, glossary, risk map, and first-task runway for unfamiliar codebases.
 - `omh-codegraph-refresh`: [omh] Hermes Codegraph Refresh workflow: refresh local code intelligence, summarize repo structure, and prepare task-scoped codegraph handoff context without overclaiming execution.
-- `omh-command-operator`: [omh] Hermes command operator workflow: scope terminal, shell, CLI, package-manager, and test commands with cwd, environment, safety, and result-evidence gates.
-- `omh-connector-operator`: [omh] Hermes connector operator workflow: scope external app actions across email, Slack, Discord, Notion, Linear, Jira, CRM, and similar providers with auth, payload, confirmation, and result-evidence gates.
+- `omh-terminal`: [omh] Terminal commands - scope shell, CLI, package-manager, and test runs with cwd, environment, safety, and result-evidence gates.
+- `omh-apps`: [omh] External app actions - email, Slack, Discord, Notion, Linear, Jira, CRM, and similar providers, scoped with auth, payload, confirmation, and result-evidence gates.
 - `omh-content-operator`: [omh] Hermes content operator workflow: scope publish-ready writing, rewriting, summarization, translation, release-note, newsletter, customer-copy, social-copy, README-copy, and email-draft work with audience, tone, style, source, review, and hallucination gates.
 - `omh-context-budget-review`: [omh] Hermes Context Budget Review workflow: plan compact context, token/cost budgets, summarization checkpoints, and overflow recovery before long agent work.
 - `omh-cto-loop`: [omh] Hermes CTO Loop workflow: roadmap, PM, technical tradeoffs, risk, delivery, release, and follow-up operating cadence.
@@ -45,12 +45,12 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-github-event-ops`: [omh] Hermes GitHub event operations workflow: route PR, issue, CI, and review webhook events into triage, review, or fix handoff cards.
 - `omh-harness-session-inventory`: [omh] Hermes harness session inventory workflow: normalize Codex, Claude Code, Hermes, OpenCode, Cursor, MCP host, worktree, and wrapper session metadata into one drift-aware inventory.
 - `omh-idea-to-deploy`: [omh] Hermes Idea-to-Deploy workflow: shape an app idea into decisions, delivery handoff, verification, release, and monitoring status.
-- `omh-img-summary`: [omh] Hermes img-summary workflow: turn meetings, reports, PRs, issues, research, and releases into domain-aware image prompt cards.
+- `omh-image-cards`: [omh] Image prompt cards - turn meetings, reports, PRs, issues, research, and releases into domain-aware image prompt cards.
 - `omh-instinct-ledger`: [omh] Instinct Ledger workflow: turn repeated project or cross-project lessons into atomic, confidence-scored instinct candidates with scoped promotion and export boundaries.
-- `omh-live-info-operator`: [omh] Hermes live information workflow: scope read-only weather, finance, sports, map, place, exchange-rate, and time-zone lookups with provider, freshness, units, source-quality, and result-evidence gates.
+- `omh-live-info`: [omh] Live lookups - weather, finance, sports, maps, places, exchange rates, and time zones, read-only with provider, freshness, units, and source-quality gates.
 - `ulw-loop`: [omh] Hermes Loop workflow: agentic interviewer -> planner -> researcher -> builder -> reviewer cycles until a real gate.
 - `omh-materials-package`: [omh] Hermes Materials Package workflow: decks, PDFs, spreadsheets, documents, HWP, Markdown, and binary export handoffs.
-- `omh-media-input-operator`: [omh] Hermes media input workflow: scope audio, video, YouTube, screenshot, receipt image, OCR, meeting recording, transcript, timestamp, and clip-summary requests with source, permission, extraction, transcription, and hallucination gates.
+- `omh-media-input`: [omh] User-sent media - audio, video, YouTube links, screenshots, receipts, OCR, meeting recordings, transcripts, timestamps, and clip summaries, gated for source, permission, and hallucination risk.
 - `omh-meeting-brief`: [omh] Hermes Meeting Brief workflow: agenda, prompts, decisions, and record template.
 - `omh-memory-new`: [omh] Save a new durable project or product fact - captures a candidate, shows it for review, and writes only on approval; for auditing memories that already exist use omh-memory-sync.
 - `omh-memory-sync`: [omh] Audit what Hermes already remembers - walks USER.md, MEMORY.md, and skill memories claim by claim, flags stale, conflicting, duplicate, or overgeneralized entries, and rewrites only after an approved diff.
@@ -91,10 +91,10 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `ulw-work`: [omh] Ultrawork - split an accepted plan into disjoint parallel lanes with per-lane acceptance criteria, verification commands, and owners; prevents two lanes editing the same file.
 - `omh-verification-gate`: [omh] Hermes Verification Gate workflow: define and record build, lint, typecheck, test, security, docs, generated-output, and CI evidence before completion or merge.
 - `omh-visual-qa`: [omh] Hermes visual-qa workflow: prepare observed-only rendered QA gates for web, frontend, image, document, and TUI surfaces.
-- `omh-voice-operator`: [omh] Hermes voice operator workflow: turn short voice or mobile commands into clarify, plan, status, handoff, or confirmation actions.
+- `omh-voice-input`: [omh] Terse voice and mobile-style requests - turn short spoken-style asks into clarify, plan, status, handoff, or confirmation actions.
 - `ulw-research`: [omh] Web research with citation discipline on top of native search - every claim carries a live URL, sources are diversity-checked, and anything not fetched is marked not observed instead of guessed.
 - `omh-websearch-setup`: [omh] Hermes Web Search Setup workflow: diagnose scraper and auxiliary extract-model configuration, guide account setup, and apply each change as its own diff approval.
 - `omh-wiki`: [omh] Hermes adaptation for wiki construction blueprints and retained knowledge capture with destination-aware external knowledge connection guidance.
 - `omh-workflow-learning`: [omh] Hermes workflow learning workflow: classify and review self-improvement store routes as an auxiliary review lane before durable writes, then record workflow attempts as metadata-only traces, evals, review queues, patch proposals, regression cases, audits, indexes, and exports.
 - `omh-workspace-audit`: [omh] Hermes Workspace Audit workflow: map repository, skill, prompt, plugin, MCP, hook, config, and runtime surfaces before strengthening or operating OMH.
-- `omh-workspace-file-operator`: [omh] Hermes workspace file operator workflow: scope local file/folder listing, search, organize, copy, move, rename, and delete tasks with path and destructive-action gates.
+- `omh-files`: [omh] Local files and folders - list, search, organize, copy, move, rename, and delete, with path scoping and destructive-action gates.
