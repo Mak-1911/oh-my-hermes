@@ -7657,6 +7657,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("proceed as plain Codex", handoff["prompt_template"])
         self.assertIn("Do not claim OMH observed local capability availability", handoff["prompt_template"])
         self.assertIn("Goal / Do / Don't / Expected result / Test", handoff["prompt_template"])
+        # The task-prompt-shape block once carried literal backslash-n escapes
+        # instead of newlines, so every prepared executor prompt rendered that
+        # section as one garbled line.
+        self.assertIn("Task prompt shape:\n- Shape executor-facing work", handoff["prompt_template"])
+        self.assertNotIn("\\n", handoff["prompt_template"])
         self.assertIn("local_capabilities_used", handoff["prompt_template"])
         capability_report = handoff["local_capability_report_contract"]
         self.assertEqual(capability_report["schema_version"], "executor_local_capability_report_contract/v1")
