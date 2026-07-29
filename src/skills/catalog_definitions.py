@@ -4340,6 +4340,7 @@ _DEFINITIONS = [
         category="optimization",
         phase="measured-optimization-loop",
         hermes_role="hybrid-measurement",
+        delegation_boundary="retained-catalog-intent",
         handoff_policy=(
             "Hermes owns the audit, baseline, hypothesis, budget, and status; every optimization code edit becomes a "
             "selected executor/runtime handoff and returns as observed re-measurement."

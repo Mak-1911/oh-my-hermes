@@ -58,6 +58,13 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         "file_or_text",
     ),
     RoutingPrecisionCase(
+        "bounded-slow-query-stays-direct",
+        "One identified slow-query fix stays direct instead of opening a performance loop",
+        "fix one slow query in the report page",
+        "answer_directly",
+        "direct_answer",
+    ),
+    RoutingPrecisionCase(
         "general-python-help",
         "Plain Python concept stays direct",
         "what Python list comprehension means?",
@@ -1676,6 +1683,15 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "product-brief",
         "prepare_product_brief",
         "product_brief",
+    ),
+    RoutingInterventionCase(
+        "korean-slowdown-discovery-reaches-ultraperf",
+        "A Korean post-deploy slowdown discovery request opens the ultraperf loop",
+        "\ubc30\ud3ec \ud6c4 \ub290\ub824\uc9c4 \uc6d0\uc778 \ucc3e\uc544\uc918",
+        "dispatch",
+        "ultraperf",
+        "prepare_ultraperf_loop",
+        "ultraperf_loop",
     ),
     RoutingInterventionCase(
         "strategy-request-reaches-strategy-brief",

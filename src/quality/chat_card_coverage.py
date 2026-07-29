@@ -585,6 +585,14 @@ CHAT_CARD_COVERAGE_CASES: tuple[ChatCardCoverageCase, ...] = (
         "prepare_product_brief",
     ),
     ChatCardCoverageCase(
+        "ultraperf",
+        "Ultraperf performance loop",
+        "checkout is slow - run a performance audit and find the bottleneck",
+        "ultraperf",
+        "ultraperf_loop",
+        "prepare_ultraperf_loop",
+    ),
+    ChatCardCoverageCase(
         "workspace-file-operator",
         "Workspace File Operator",
         "workspace-file-operator",
