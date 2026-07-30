@@ -20,6 +20,7 @@ from omh.capabilities.families import CONCEPTUAL_WORKFLOW_SURFACES, capability_f
 from omh.config_adapter import ensure_external_dir, external_dirs
 from omh.maintenance.doctor import _skill_shadowing_check
 from omh.paths import resolve_paths
+from omh.plugin_bundle.omh.memory_governance import canonical_payload_digest
 from omh.routing.intent import classify_omh_quality_intent
 from omh.skill_pack import CORE_PROFILE_SKILLS, builtin_skill_reference_templates, builtin_skill_templates
 from omh.skills.catalog import builtin_harnesses, installable_skill_names
@@ -3545,10 +3546,48 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(status, 0)
             dry_run = json.loads(stdout)
             self.assertEqual(dry_run["schema_version"], "memory_update_batch/v1")
+            self.assertEqual(dry_run["status"], "review_required")
             self.assertFalse(dry_run["applied"])
             self.assertFalse((omh_home / "memory").exists())
 
-            self.assertEqual(run_cli(["--omh-home", str(omh_home), "memory", "apply", "--batch", str(batch_path)])[0], 0)
+            status, stdout, stderr = run_cli(["--omh-home", str(omh_home), "memory", "apply", "--batch", str(batch_path)])
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            compatibility = json.loads(stdout)
+            self.assertEqual(compatibility["status"], "review_required")
+            self.assertFalse(compatibility["applied"])
+            self.assertIn("review-required and do not write", compatibility["claim_boundary"])
+            self.assertFalse((omh_home / "memory").exists())
+
+            status, stdout, stderr = run_cli(["--omh-home", str(omh_home), "memory", "batch-stage", "--batch", str(batch_path)])
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            staged = json.loads(stdout)
+            self.assertEqual(staged["status"], "pending_review")
+
+            decisions_path = root / "memory-batch-decisions.json"
+            decisions_path.write_text(
+                json.dumps({staged["items"][0]["item_id"]: "remember"}),
+                encoding="utf-8",
+            )
+            status, stdout, stderr = run_cli(
+                ["--omh-home", str(omh_home), "memory", "batch-review", staged["batch_id"], "--decisions", str(decisions_path)]
+            )
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            self.assertEqual(json.loads(stdout)["status"], "reviewed")
+
+            status, stdout, stderr = run_cli(["--omh-home", str(omh_home), "memory", "batch-apply", staged["batch_id"]])
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            self.assertEqual(json.loads(stdout)["reason_code"], "apply_required")
+
+            status, stdout, stderr = run_cli(["--omh-home", str(omh_home), "memory", "batch-apply", staged["batch_id"], "--apply"])
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            applied = json.loads(stdout)
+            self.assertTrue(applied["applied"])
+            self.assertIn("receipt", applied)
 
             status, stdout, stderr = run_cli(["--omh-home", str(omh_home), "memory", "pack", "--executor", "codex"])
 
@@ -3582,6 +3621,58 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(status, 0)
             delegation = json.loads(stdout)
             self.assertEqual(delegation["executor_handoff"]["context_pack"]["schema_version"], "handoff_context_pack/v1")
+
+    def test_memory_cli_mixed_batch_review_fails_closed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            batch_path = root / "mixed-batch.json"
+            batch_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "memory_update_batch/v1",
+                        "updates": [
+                            {
+                                "op": "update",
+                                "item_id": "remembered",
+                                "scope": {"kind": "project", "ref": "default"},
+                                "key": "remembered",
+                                "value": "safe remembered value",
+                                "summary": "Remember this value",
+                            },
+                            {
+                                "op": "update",
+                                "item_id": "deferred",
+                                "scope": {"kind": "project", "ref": "default"},
+                                "key": "deferred",
+                                "value": "safe deferred value",
+                                "summary": "Defer this value",
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            base = ["--omh-home", str(omh_home), "memory"]
+
+            status, stdout, stderr = run_cli(base + ["batch-stage", "--batch", str(batch_path)])
+            self.assertEqual((status, stderr), (0, ""))
+            staged = json.loads(stdout)
+            decisions = {
+                staged["items"][0]["item_id"]: "remember",
+                staged["items"][1]["item_id"]: "defer",
+            }
+            decisions_path = root / "mixed-decisions.json"
+            decisions_path.write_text(json.dumps(decisions), encoding="utf-8")
+            status, stdout, stderr = run_cli(base + ["batch-review", staged["batch_id"], "--decisions", str(decisions_path)])
+            self.assertEqual((status, stderr), (0, ""))
+
+            status, stdout, stderr = run_cli(base + ["batch-apply", staged["batch_id"], "--apply"])
+            self.assertEqual((status, stderr), (0, ""))
+            result = json.loads(stdout)
+            self.assertEqual(result["status"], "review_required")
+            self.assertFalse(result["applied"])
+            self.assertFalse((omh_home / "memory" / "scopes").exists())
 
     def test_project_memory_cli_captures_reviews_approves_recalls_and_rejects(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -3622,8 +3713,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(stderr, "")
             self.assertEqual(status, 0)
             approved = json.loads(stdout)
-            self.assertEqual(approved["decision"], "approved")
-            self.assertEqual(approved["record"]["schema_version"], "project_memory_record/v1")
+            self.assertEqual(approved["decision"], "approved_manual")
+            self.assertEqual(approved["record"]["schema_version"], "project_memory_record/v2")
 
             status, stdout, stderr = run_cli(base + ["memory", "recall", "--executor", "codex", "workflow", "docs"])
             self.assertEqual(stderr, "")
@@ -3655,6 +3746,200 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             memory_status = json.loads(stdout)
             self.assertEqual(memory_status["schema_version"], "project_memory_status/v1")
             self.assertEqual(memory_status["counts"]["approved_records"], 1)
+
+    def test_memory_cli_inventory_reactivation_and_lifecycle_reports_are_receipt_bound(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            base = ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home)]
+
+            status, stdout, stderr = run_cli(base + ["memory", "inventory"])
+            self.assertEqual((status, stderr), (0, ""))
+            inventory = json.loads(stdout)
+            self.assertEqual(inventory["schema_version"], "memory_migration_inventory/v1")
+            self.assertTrue(inventory["dry_run"])
+
+            status, stdout, stderr = run_cli(base + ["memory", "inventory", "--write-ledger"])
+            self.assertEqual((status, stderr), (0, ""))
+            ledger = json.loads(stdout)
+            self.assertEqual(ledger["schema_version"], "memory_migration_ledger_write/v1")
+            self.assertEqual(ledger["state"], "completed")
+            self.assertIn("receipt", ledger)
+
+            legacy = {
+                "schema_version": "project_memory_record/v1",
+                "record_id": "legacy-record",
+                "revision": 1,
+                "record_type": "fact",
+                "summary": "Legacy release procedure",
+                "scope": {"kind": "project", "ref": "default"},
+                "ttl": {"ttl_days": None, "expires_at": ""},
+            }
+            records_dir = omh_home / "memory" / "records"
+            reviews_dir = omh_home / "memory" / "reviews"
+            records_dir.mkdir(parents=True, exist_ok=True)
+            reviews_dir.mkdir(parents=True, exist_ok=True)
+            (records_dir / "legacy-record.json").write_text(json.dumps(legacy), encoding="utf-8")
+            review_id = "review-legacy-record"
+            review = {
+                "schema_version": "project_memory_review_record/v2",
+                "review_id": review_id,
+                "artifact_identity": {
+                    "schema_version": "project_memory_record/v1",
+                    "id": "legacy-record",
+                    "id_key": "record_id",
+                    "revision": 1,
+                    "scope": {"kind": "project", "ref": "default"},
+                },
+                "decision": "approved_manual",
+                "reviewer_claim": "operator",
+                "payload_digest": canonical_payload_digest(legacy),
+                "policy_version": "governance/v2",
+                "reviewed_at": "2026-07-30T12:00:00Z",
+            }
+            (reviews_dir / f"{review_id}.json").write_text(json.dumps(review), encoding="utf-8")
+
+            status, stdout, stderr = run_cli(
+                base + ["memory", "reactivate", "legacy-record", "--revision", "1", "--review-id", review_id]
+            )
+            self.assertEqual((status, stderr), (0, ""))
+            reactivation_report = json.loads(stdout)
+            self.assertFalse(reactivation_report["applied"])
+            self.assertEqual(reactivation_report["reason_code"], "apply_required")
+
+            status, stdout, stderr = run_cli(
+                base + ["memory", "reactivate", "legacy-record", "--revision", "1", "--review-id", review_id, "--apply"]
+            )
+            self.assertEqual((status, stderr), (0, ""))
+            reactivated = json.loads(stdout)
+            self.assertTrue(reactivated["applied"])
+            self.assertEqual(reactivated["reason_code"], "reactivated")
+            self.assertIn("receipt", reactivated)
+
+            def write_record(record_id: str, retention: dict[str, object], *, directory: str = "records") -> None:
+                path = omh_home / "memory" / directory / f"{record_id}.json"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": "project_memory_record/v2",
+                            "record_id": record_id,
+                            "revision": 1,
+                            "record_type": "fact",
+                            "summary": "Lifecycle fixture summary",
+                            "scope": {"kind": "project", "ref": "default"},
+                            "source_class": "omh_local",
+                            "admission": {"state": "approved_manual"},
+                            "retention": retention,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            write_record("restore-record", {"class": "standard", "expires_at": "2020-01-01T00:00:00Z"}, directory="archive")
+            status, stdout, stderr = run_cli(base + ["memory", "restore", "restore-record", "--revision", "1"])
+            self.assertEqual((status, stderr), (0, ""))
+            self.assertTrue(json.loads(stdout)["eligible"])
+            operation_path = omh_home / "memory" / "operations" / "memory-restore-restore-record-r1.json"
+            operation_path.parent.mkdir(parents=True, exist_ok=True)
+            for state in ("failed", "interrupted"):
+                operation_path.write_text(json.dumps({"state": state}), encoding="utf-8")
+                status, stdout, stderr = run_cli(base + ["memory", "restore", "restore-record", "--revision", "1", "--apply"])
+                self.assertEqual((status, stderr), (0, ""))
+                restored = json.loads(stdout)
+                self.assertFalse(restored["applied"])
+                self.assertEqual(restored["reason_code"], f"operation_{state}")
+                self.assertNotIn("receipt", restored)
+
+            write_record("tombstoned-restore", {"class": "standard", "expires_at": "2020-01-01T00:00:00Z"}, directory="archive")
+            tombstones = omh_home / "memory" / "tombstones"
+            tombstones.mkdir(parents=True, exist_ok=True)
+            (tombstones / "hard-deleted-tombstoned-restore-r1.json").write_text("{}", encoding="utf-8")
+            status, stdout, stderr = run_cli(base + ["memory", "restore", "tombstoned-restore", "--revision", "1"])
+            self.assertEqual((status, stderr), (0, ""))
+            self.assertEqual(json.loads(stdout)["reason_code"], "tombstoned_identity")
+
+            write_record("prune-record", {"class": "volatile", "expires_at": "2020-01-01T00:00:00Z"})
+            status, stdout, stderr = run_cli(base + ["memory", "prune", "prune-record", "--revision", "1"])
+            self.assertEqual((status, stderr), (0, ""))
+            prune_report = json.loads(stdout)
+            self.assertTrue(prune_report["eligible"])
+            self.assertTrue(prune_report["manifest"])
+            self.assertFalse(prune_report["applied"])
+            status, stdout, stderr = run_cli(base + ["memory", "prune", "prune-record", "--revision", "1", "--apply"])
+            self.assertEqual((status, stderr), (0, ""))
+            self.assertEqual(json.loads(stdout)["reason_code"], "hard_delete_confirmation_required")
+            status, stdout, stderr = run_cli(
+                base + ["memory", "prune", "prune-record", "--revision", "1", "--apply", "--confirm-hard-delete-local"]
+            )
+            self.assertEqual((status, stderr), (0, ""))
+            pruned = json.loads(stdout)
+            self.assertTrue(pruned["applied"])
+            self.assertEqual(pruned["reason_code"], "pruned")
+            self.assertIn("receipt", pruned)
+            self.assertFalse((omh_home / "memory" / "records" / "prune-record.json").exists())
+            self.assertTrue((omh_home / "memory" / "tombstones" / "hard-deleted-prune-record-r1.json").exists())
+
+            write_record("correct-record", {"class": "standard"})
+            status, stdout, stderr = run_cli(
+                base + ["memory", "correct", "correct-record", "--revision", "1", "Corrected lifecycle summary"]
+            )
+            self.assertEqual((status, stderr), (0, ""))
+            self.assertTrue(json.loads(stdout)["eligible"])
+            status, stdout, stderr = run_cli(
+                base + ["memory", "correct", "correct-record", "--revision", "1", "--apply", "Corrected lifecycle summary"]
+            )
+            self.assertEqual((status, stderr), (0, ""))
+            corrected = json.loads(stdout)
+            self.assertTrue(corrected["applied"])
+            self.assertEqual(corrected["reason_code"], "corrected")
+            self.assertIn("receipt", corrected)
+            self.assertFalse((omh_home / "memory" / "records" / "correct-record.json").exists())
+            self.assertTrue((omh_home / "memory" / "history" / "correct-record.r1.json").exists())
+            self.assertEqual(len(list((omh_home / "memory" / "candidates").glob("cand-correct-*.json"))), 1)
+
+    def test_memory_evaluate_parser_routes_and_propagates_seed_and_repetitions(self) -> None:
+        """Lightweight parser-level invocation test for memory evaluate routing and propagation."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            output_path = root / "result.json"
+
+            status, stdout, stderr = run_cli(
+                [
+                    "--omh-home",
+                    str(omh_home),
+                    "--hermes-home",
+                    str(hermes_home),
+                    "memory",
+                    "evaluate",
+                    "--profile",
+                    "small",
+                    "--repetitions",
+                    "2",
+                    "--seed",
+                    "1",
+                    "--output",
+                    str(output_path),
+                ]
+            )
+
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["schema_version"], "omh_memory_evaluation/v1")
+            self.assertEqual(payload["profile"], "small")
+            self.assertEqual(payload["seed"], 1)
+            self.assertEqual(len(payload["repetitions"]), 2)
+            self.assertEqual(len(payload["raw_elapsed_ns"]), 2)
+            self.assertEqual(len(payload["baseline"]["raw_elapsed_ns"]), 2)
+            self.assertTrue(payload["logical_result"]["correctness_gates"]["exact_persisted_bytes"])
+            self.assertTrue(payload["logical_result"]["correctness_gates"]["passed"])
+            stored_result = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(stored_result["seed"], 1)
+            self.assertEqual(stored_result["repetitions"][0]["elapsed_ns"], payload["raw_elapsed_ns"][0])
 
     def test_ops_cli_writes_lists_shows_validates_and_exports_artifacts(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -37,12 +37,14 @@ from omh.plugin_bundle.omh import register
 from omh.plugin_bundle.omh.memory_blocks import (
     DEFAULT_BLOCK_LIMIT_CHARS,
     MemoryBlockError,
+    approve_memory_block,
     build_memory_block,
     delete_memory_block,
     read_memory_block,
     read_memory_blocks,
     render_block_index,
     render_memory_blocks,
+    select_memory_blocks,
     write_memory_block,
 )
 from omh.plugin_bundle.omh.memory_dreaming import (
@@ -125,11 +127,15 @@ class BlockStoreTests(unittest.TestCase):
 
 class RenderTests(unittest.TestCase):
     def test_a_render_shows_the_model_how_full_each_block_is(self) -> None:
-        block = build_memory_block("facts", "abc", description="What we know.", limit=100)
-        rendered = render_memory_blocks([block])
-        self.assertIn("<memory_blocks>", rendered)
-        self.assertIn("chars_current=3 chars_limit=100", rendered)
-        self.assertIn("<value>abc</value>", rendered)
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            block = approve_memory_block(build_memory_block("facts", "abc", description="What we know.", limit=100))
+            write_memory_block(home, block)
+            selection = select_memory_blocks((block,), omh_home=home)
+            rendered = render_memory_blocks([block], evaluations=selection.evaluations)
+            self.assertIn("<memory_blocks>", rendered)
+            self.assertIn("chars_current=3 chars_limit=100", rendered)
+            self.assertIn("<value>abc</value>", rendered)
 
     def test_an_empty_store_renders_nothing_at_all(self) -> None:
         self.assertEqual(render_memory_blocks([]), "")
@@ -137,18 +143,29 @@ class RenderTests(unittest.TestCase):
 
     def test_the_budget_drops_whole_blocks_and_says_which(self) -> None:
         # A clipped block would read as something the store actually holds.
-        blocks = [build_memory_block(f"b{index}", "x" * 200) for index in range(5)]
-        rendered = render_memory_blocks(blocks, budget_chars=400)
-        self.assertIn("render_budget_exhausted", rendered)
-        self.assertIn("b4", rendered)
-        self.assertNotIn("<b4>", rendered)
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            blocks = [approve_memory_block(build_memory_block(f"b{index}", "x" * 200)) for index in range(5)]
+            for block in blocks:
+                write_memory_block(home, block)
+            selection = select_memory_blocks(blocks, omh_home=home)
+            rendered = render_memory_blocks(blocks, budget_chars=400, evaluations=selection.evaluations)
+            self.assertIn("render_budget_exhausted", rendered)
+            self.assertNotIn("b4", rendered)
+            self.assertNotIn("<b4>", rendered)
 
     def test_the_index_lists_reference_blocks_without_their_values(self) -> None:
-        block = build_memory_block("runbook", "SECRET-VALUE", description="How to deploy.", tier="reference")
-        index = render_block_index([block])
-        self.assertIn('label="runbook"', index)
-        self.assertIn("How to deploy.", index)
-        self.assertNotIn("SECRET-VALUE", index)
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            block = approve_memory_block(
+                build_memory_block("runbook", "SECRET-VALUE", description="How to deploy.", tier="reference")
+            )
+            write_memory_block(home, block)
+            selection = select_memory_blocks((block,), omh_home=home)
+            index = render_block_index([block], evaluations=selection.evaluations)
+            self.assertIn('label="runbook"', index)
+            self.assertIn("How to deploy.", index)
+            self.assertNotIn("SECRET-VALUE", index)
 
 
 class DreamingScheduleTests(unittest.TestCase):
@@ -391,13 +408,13 @@ class ProviderLifecycleTests(unittest.TestCase):
     def test_prefetch_serves_a_pack_rendered_off_the_hot_path(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            write_memory_block(root / ".omh", build_memory_block("facts", "OMH wraps Hermes."))
+            write_memory_block(root / ".omh", approve_memory_block(build_memory_block("facts", "OMH wraps Hermes.")))
             provider = self._provider(root)
             self.assertIn("OMH wraps Hermes.", provider.prefetch("anything"))
 
             # A block written mid-session is not served until the next turn is
             # queued, which is where the base class puts the work.
-            write_memory_block(root / ".omh", build_memory_block("later", "added mid-session"))
+            write_memory_block(root / ".omh", approve_memory_block(build_memory_block("later", "added mid-session")))
             self.assertNotIn("added mid-session", provider.prefetch(""))
             provider.queue_prefetch("")
             self.assertIn("added mid-session", provider.prefetch(""))
@@ -407,7 +424,7 @@ class ProviderLifecycleTests(unittest.TestCase):
             root = Path(tmp)
             write_memory_block(
                 root / ".omh",
-                build_memory_block("runbook", "SECRET-VALUE", description="How to deploy.", tier="reference"),
+                approve_memory_block(build_memory_block("runbook", "SECRET-VALUE", description="How to deploy.", tier="reference")),
             )
             pack = self._provider(root).prefetch("")
             self.assertIn("runbook", pack)
@@ -442,7 +459,7 @@ class ProviderLifecycleTests(unittest.TestCase):
     def test_compaction_hands_back_system_blocks_and_consolidates_at_once(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            write_memory_block(root / ".omh", build_memory_block("facts", "must survive compaction"))
+            write_memory_block(root / ".omh", approve_memory_block(build_memory_block("facts", "must survive compaction")))
             provider = self._provider(root)
             preserved = provider.on_pre_compress([{"role": "user", "content": "hi"}])
 
@@ -492,7 +509,7 @@ class ProviderLifecycleTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             provider = self._provider(root)
-            with patch("omh.plugin_bundle.omh.memory_provider._append_line", side_effect=OSError("read-only")):
+            with patch("omh.plugin_bundle.omh.memory_provider._append_bounded_json_line", side_effect=OSError("read-only")):
                 provider.on_memory_write("add", "memory", "text")  # must not raise
 
 
@@ -657,7 +674,7 @@ class MemoryToolActionTests(unittest.TestCase):
     def test_blocks_lists_labels_and_read_returns_the_value(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            write_memory_block(root / ".omh", build_memory_block("runbook", "deploy steps", tier="reference"))
+            write_memory_block(root / ".omh", approve_memory_block(build_memory_block("runbook", "deploy steps", tier="reference")))
 
             listing = self._call(root, action="blocks")
             self.assertEqual(listing["block_count"], 1)
@@ -1684,3 +1701,293 @@ class ReasonAwareOperatorSurfaceTests(unittest.TestCase):
             self._write_brief(root, record_expiry=None)
             legacy_check = _memory_consolidation_check(paths)
             self.assertNotIn("retire", legacy_check.message)
+
+
+class BundleReplayAdmissionTests(unittest.TestCase):
+    """Regression coverage for the final bundle replay boundaries."""
+
+    def _approved_block(self, value: str, **kwargs):
+        from omh.plugin_bundle.omh.memory_blocks import approve_memory_block
+
+        return approve_memory_block(build_memory_block("reviewed", value, **kwargs))
+
+    def test_unreviewed_default_system_block_is_staged_and_never_prefetched(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            value = "UNREVIEWED_SYSTEM_VALUE"
+            path = write_memory_block(root / ".omh", build_memory_block("pending", value))
+            provider = OmhMemoryProvider(root / ".omh")
+            provider.initialize("session", hermes_home=root / ".hermes", agent_context="primary")
+
+            self.assertIn("block_candidates", str(path))
+            pack = provider.prefetch("")
+            self.assertNotIn(value, pack)
+            self.assertIn("review_required", pack)
+            provider.queue_prefetch("")
+            self.assertNotIn(value, provider.prefetch(""))
+            self.assertIn("review_required", provider.on_pre_compress([]))
+
+    def test_unreviewed_reference_block_never_returns_a_tool_value(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            value = "UNREVIEWED_REFERENCE_VALUE"
+            write_memory_block(
+                root / ".omh",
+                build_memory_block("pending-ref", value, description="UNREVIEWED_REFERENCE_DESCRIPTION", tier="reference"),
+            )
+
+            listing = self._call_tool(root, action="blocks")
+            self.assertEqual(listing["blocks"][0]["admission_status"], "pending_review")
+            self.assertEqual(listing["blocks"][0]["replay"]["reason_code"], "review_required")
+            payload = self._call_tool(root, action="read", label="pending-ref")
+            self.assertTrue(payload["found"])
+            self.assertFalse(payload["replay"]["eligible"])
+            self.assertEqual(payload["replay"]["reason_code"], "review_required")
+            self.assertNotIn(value, json.dumps(payload))
+            self.assertNotIn("value", payload)
+            pack = OmhMemoryProvider(root / ".omh").render_pack()
+            self.assertNotIn(value, pack)
+            self.assertNotIn("UNREVIEWED_REFERENCE_DESCRIPTION", pack)
+            self.assertIn("review_required", pack)
+
+    def test_missing_review_evidence_is_omitted_before_rendering(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            block = self._approved_block("MISSING_REVIEW_VALUE")
+            write_memory_block(root / ".omh", block)
+            review_path = root / ".omh" / "memory" / "block_reviews" / f"{block.admission['review_id']}.json"
+            self.assertTrue(review_path.is_file())
+            review_path.unlink()
+            self.assertFalse(review_path.exists())
+
+            pack = OmhMemoryProvider(root / ".omh").render_pack()
+            self.assertNotIn("MISSING_REVIEW_VALUE", pack)
+            self.assertIn("review_not_found", pack)
+
+    def test_dreaming_only_prepares_stale_and_expired_volatile_reminders(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from omh.plugin_bundle.omh.memory_governance import build_retention
+
+        now = datetime.now(timezone.utc)
+        stale = approve_memory_block(
+            build_memory_block("stale", "STALE_PRIVATE", revalidation={"deadline": "2000-01-01T00:00:00Z"})
+        )
+        expired = approve_memory_block(
+            build_memory_block(
+                "expired",
+                "EXPIRED_PRIVATE",
+                retention=build_retention("volatile", record_type="fact", admitted_at=now - timedelta(days=7)),
+            )
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            write_memory_block(root / ".omh", stale)
+            write_memory_block(root / ".omh", expired)
+            handoff = OmhMemoryProvider(root / ".omh").consolidation_due()
+            self.assertIn("stale_review_required:1", handoff["reasons"])
+            self.assertIn("expired_volatile_records:1", handoff["reasons"])
+            self.assertIn("not evidence", handoff["claim_boundary"])
+            self.assertNotIn("STALE_PRIVATE", json.dumps(handoff))
+            self.assertNotIn("EXPIRED_PRIVATE", json.dumps(handoff))
+
+    def test_manual_dreaming_reports_each_standing_replay_reminder_without_regular_triggers(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from omh.plugin_bundle.omh.memory_governance import build_retention
+
+        now = datetime(2026, 7, 30, 12, tzinfo=timezone.utc)
+        cases = (
+            (
+                "stale-only",
+                "stale_review_required:1",
+                approve_memory_block(
+                    build_memory_block("stale-only", "STALE_ONLY_PRIVATE", revalidation={"deadline": "2026-07-30T11:59:59Z"})
+                ),
+            ),
+            (
+                "expired-volatile-only",
+                "expired_volatile_records:1",
+                approve_memory_block(
+                    build_memory_block(
+                        "expired-only",
+                        "EXPIRED_ONLY_PRIVATE",
+                        retention=build_retention("volatile", record_type="fact", admitted_at=now - timedelta(days=7)),
+                    )
+                ),
+            ),
+        )
+        for name, expected_reason, block in cases:
+            with self.subTest(name=name), TemporaryDirectory() as tmp:
+                root = Path(tmp).resolve()
+                state = empty_dreaming_state()
+                state["last_reasons"] = [expected_reason]
+                write_dreaming_state(root / ".omh", state)
+                path = write_memory_block(root / ".omh", block)
+                before = path.read_bytes()
+
+                handoff = OmhMemoryProvider(root / ".omh").consolidation_due(now=now)
+
+                self.assertEqual(handoff["reasons"], [expected_reason])
+                self.assertEqual(path.read_bytes(), before)
+                self.assertNotIn("PRIVATE", json.dumps(handoff))
+
+    def test_provider_applies_the_exact_volatile_boundary(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from omh.plugin_bundle.omh.memory_governance import build_retention
+
+        now = datetime(2026, 7, 30, 12, tzinfo=timezone.utc)
+        block = self._approved_block(
+            "APPROVED_VOLATILE_VALUE",
+            retention=build_retention("volatile", record_type="fact", admitted_at=now),
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            write_memory_block(root / ".omh", block)
+            provider = OmhMemoryProvider(root / ".omh")
+
+            before = provider.render_pack(now=now + timedelta(days=7, microseconds=-1))
+            at_boundary = provider.render_pack(now=now + timedelta(days=7))
+            provider.queue_prefetch(now=now + timedelta(days=7))
+            pre_compress = provider.on_pre_compress([], now=now + timedelta(days=7))
+            self.assertIn("APPROVED_VOLATILE_VALUE", before)
+            self.assertNotIn("APPROVED_VOLATILE_VALUE", at_boundary)
+            self.assertIn("expired_volatile", at_boundary)
+            self.assertNotIn("APPROVED_VOLATILE_VALUE", provider.prefetch(""))
+            self.assertIn("expired_volatile", pre_compress)
+            self.assertNotIn("APPROVED_VOLATILE_VALUE", pre_compress)
+
+    def test_replay_reason_codes_are_distinct_and_metadata_only(self) -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from omh.plugin_bundle.omh.memory_governance import build_retention
+
+        now = datetime(2026, 7, 30, 12, tzinfo=timezone.utc)
+        cases = {
+            "stale": {"revalidation": {"deadline": "2026-07-30T11:59:59Z"}, "reason": "stale_review_required"},
+            "expired": {
+                "retention": build_retention("volatile", record_type="fact", admitted_at=now - timedelta(days=7)),
+                "reason": "expired_volatile",
+            },
+            "tampered": {"tampered": True, "reason": "payload_digest_mismatch"},
+            "superseded": {"superseded_by": {"revision": 2}, "reason": "superseded"},
+            "tombstoned": {"tombstoned": True, "reason": "tombstoned"},
+        }
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            for name, case in cases.items():
+                with self.subTest(case=name):
+                    options = {key: value for key, value in case.items() if key not in {"reason", "tampered", "tombstoned"}}
+                    block = self._approved_block(f"PRIVATE_{name}", **options)
+                    write_memory_block(home, block)
+                    review_path = home / "memory" / "block_reviews" / f"{block.admission['review_id']}.json"
+                    self.assertTrue(review_path.is_file())
+                    if case.get("tampered"):
+                        block = block.with_value(f"PRIVATE_{name}_CHANGED")
+                    selection = select_memory_blocks(
+                        (block,),
+                        now=now,
+                        omh_home=home,
+                        tombstoned=bool(case.get("tombstoned")),
+                    )
+                    evaluation = selection.evaluations[block.block_id]
+                    self.assertFalse(evaluation["eligible"])
+                    self.assertEqual(evaluation["reason_code"], case["reason"])
+                    self.assertNotIn(f"PRIVATE_{name}", json.dumps(selection.omissions))
+
+    def test_provider_journals_stay_bounded_and_do_not_hash_content(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            provider = OmhMemoryProvider(root / ".omh")
+            provider.initialize("session", hermes_home=root / ".hermes", agent_context="primary")
+            for index in range(80):
+                provider.on_memory_write(
+                    "add",
+                    "memory",
+                    f"private {index}",
+                    {
+                        "record_identity": {
+                            "schema_version": "project_memory_record/v2",
+                            "id": "safe",
+                            "id_key": "record_id",
+                            "revision": 1,
+                            "scope": {"kind": "project", "ref": "default"},
+                        }
+                    },
+                )
+                provider._write_handoff({"schema_version": "test/v1", "due": True, "sequence": index})
+
+            journals = {}
+            for name in ("write_journal.jsonl", "consolidation.jsonl"):
+                lines = (root / ".omh" / "memory" / name).read_text(encoding="utf-8").splitlines()
+                self.assertLessEqual(len(lines), 32)
+                self.assertNotIn("private", "\n".join(lines))
+                self.assertNotIn("sha256", "\n".join(lines))
+                journals[name] = [json.loads(line) for line in lines]
+            self.assertEqual(journals["write_journal.jsonl"][-1]["record_identity"]["id"], "safe")
+            self.assertEqual(journals["consolidation.jsonl"][-1]["sequence"], 79)
+
+    def test_legacy_v1_blocks_do_not_crash_consolidation_due_on_repeated_reads(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            omh_home = root / ".omh"
+            fixtures = (
+                (
+                    "system",
+                    "legacy-system-fact",
+                    "Legacy system block",
+                    "LEGACY_SYSTEM_VALUE",
+                    1024,
+                ),
+                (
+                    "reference",
+                    "legacy-ref-index",
+                    "Legacy reference block",
+                    "LEGACY_REFERENCE_VALUE",
+                    2048,
+                ),
+            )
+            for tier, label, description, value, limit in fixtures:
+                path = omh_home / "memory" / "blocks" / tier / f"{label}.json"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": "omh_memory_block/v1",
+                            "label": label,
+                            "description": description,
+                            "value": value,
+                            "limit": limit,
+                            "tier": tier,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    encoding="utf-8",
+                )
+
+            provider = OmhMemoryProvider(omh_home)
+            provider.initialize("session_001", hermes_home=root / ".hermes", agent_context="primary")
+            with patch(
+                "omh.plugin_bundle.omh.memory_provider.read_memory_blocks",
+                wraps=read_memory_blocks,
+            ) as read_blocks:
+                handoffs = tuple(provider.consolidation_due(trigger="manual") for _ in range(3))
+            self.assertEqual(read_blocks.call_count, 3)
+            for handoff in handoffs:
+                self.assertIsInstance(handoff, dict)
+                self.assertIn("reasons", handoff)
+                self.assertIn("blocks", handoff)
+                self.assertNotIn("LEGACY_SYSTEM_VALUE", json.dumps(handoff))
+                self.assertNotIn("LEGACY_REFERENCE_VALUE", json.dumps(handoff))
+
+            pack = provider.render_pack()
+            self.assertIn("review_required_legacy", pack)
+            self.assertNotIn("LEGACY_SYSTEM_VALUE", pack)
+            self.assertNotIn("LEGACY_REFERENCE_VALUE", pack)
+
+    @staticmethod
+    def _call_tool(root: Path, **args: object) -> dict:
+        with patch.dict(os.environ, {"OMH_HOME": str(root / ".omh"), "HERMES_HOME": str(root / ".hermes")}):
+            return json.loads(omh_memory_handler(args))

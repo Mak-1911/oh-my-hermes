@@ -164,6 +164,26 @@ class OmhPaths:
         return self.memory_dir / "index.json"
 
     @property
+    def memory_operations_dir(self) -> Path:
+        return self.memory_dir / "operations"
+
+    @property
+    def memory_tombstones_dir(self) -> Path:
+        return self.memory_dir / "tombstones"
+
+    @property
+    def memory_migrations_dir(self) -> Path:
+        return self.memory_dir / "migrations"
+
+    @property
+    def memory_history_dir(self) -> Path:
+        return self.memory_dir / "history"
+
+    @property
+    def memory_archive_dir(self) -> Path:
+        return self.memory_dir / "archive"
+
+    @property
     def goals_dir(self) -> Path:
         return self.omh_home / "goals"
 

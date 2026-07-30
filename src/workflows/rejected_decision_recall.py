@@ -2,20 +2,31 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 import re
 
-from ..local_store import read_json_object
-from ..system.metadata_safety import is_sensitive_metadata_text, redact_metadata_text
 from ..paths import OmhPaths
+from ..plugin_bundle.omh.memory_governance import (
+    PROJECT_MEMORY_RECORD_SCHEMA_VERSION,
+    canonical_payload_digest,
+    evaluate_memory_replay,
+    stable_artifact_identity,
+)
+from ..system.metadata_safety import is_sensitive_metadata_text
+from .rejected_decision_evidence import (
+    ALLOWED_SCOPE_KINDS,
+    SAFE_REF,
+    RejectedDecisionEvidence,
+    metadata_text,
+    normalized_tags,
+    read_rejected_decision_evidence,
+)
 
 
 REJECTED_DECISION_RECALL_SCHEMA_VERSION = "rejected_decision_recall/v1"
 REJECTED_DECISION_RECALL_CLAIM_BOUNDARY = (
-    "Rejected-decision context is reviewed OMH-local context, not approved memory, Hermes memory, or execution evidence."
+    "This is a reviewed-decision surface only: bounded negative evidence, separate from "
+    "approved-memory recall, never an approved fact or instruction, and never auto-attached to a coding prompt."
 )
-_ALLOWED_SCOPE_KINDS = frozenset({"project", "target", "thread", "run"})
-_SAFE_REF = re.compile(r"^[A-Za-z0-9_.:-]{1,120}$")
 _TOKEN_RE = re.compile(r"[a-z0-9_/-]+")
 
 
@@ -29,181 +40,118 @@ class RejectedDecisionRecallRequest:
     limit: int = 6
 
 
-@dataclass(frozen=True)
-class _RejectedCandidate:
-    candidate_id: str
-    record_type: str
-    summary: str
-    rejection_reason: str
-    scope_kind: str
-    scope_ref: str
-    tags: tuple[str, ...]
-    reviewed_at: str
-    stale: bool
-    expired: bool
-
-
-@dataclass(frozen=True)
-class _RejectedDecisionMatch:
-    candidate_id: str
-    record_type: str
-    summary: str
-    rejection_reason: str
-    scope_kind: str
-    scope_ref: str
-    tags: tuple[str, ...]
-    reviewed_at: str
-    stale: bool
-    match_score: int
-
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "candidate_id": self.candidate_id,
-            "record_type": self.record_type,
-            "summary": self.summary,
-            "rejection_reason": self.rejection_reason,
-            "scope": {"kind": self.scope_kind, "ref": self.scope_ref},
-            "tags": list(self.tags),
-            "reviewed_at": self.reviewed_at,
-            "stale": self.stale,
-            "match_score": self.match_score,
-        }
-
-
-def build_rejected_decision_recall(paths: OmhPaths, request: RejectedDecisionRecallRequest) -> dict[str, object]:
+def build_rejected_decision_recall(
+    paths: OmhPaths,
+    request: RejectedDecisionRecallRequest,
+    *,
+    now: datetime | None = None,
+) -> dict[str, object]:
     scope_kind, scope_ref = _validated_scope(request)
-    requested_tags = _normalized_tags(request.tags)
-    limit = _validated_limit(request.limit)
-    query = str(request.query or "").strip()
-    query_tokens = _tokens(query)
-    matches: list[_RejectedDecisionMatch] = []
-    for candidate in _read_rejected_candidates(paths):
-        if (candidate.scope_kind, candidate.scope_ref) != (scope_kind, scope_ref):
+    requested_tags, limit = normalized_tags(request.tags), _validated_limit(request.limit)
+    query, current_time = metadata_text(request.query, limit=240), _as_utc(now)
+    matches: list[tuple[RejectedDecisionEvidence, dict[str, object], int]] = []
+    excluded: list[dict[str, object]] = []
+    for decision, review_id in read_rejected_decision_evidence(paths):
+        if (decision.scope_kind, decision.scope_ref) != (scope_kind, scope_ref):
             continue
-        if candidate.expired or (candidate.stale and not request.include_stale):
+        evaluation = _evaluate(decision, review_id, current_time, scope_kind, scope_ref)
+        if not bool(evaluation["eligible"]):
+            excluded.append(_item(decision, evaluation))
             continue
-        if not set(requested_tags).issubset(candidate.tags):
+        if not set(requested_tags).issubset(decision.tags):
             continue
-        match_score = _match_score(candidate, query_tokens)
-        if query_tokens and match_score == 0:
+        score = _match_score(decision, _tokens(query))
+        if _tokens(query) and score == 0:
             continue
-        matches.append(
-            _RejectedDecisionMatch(
-                candidate.candidate_id,
-                candidate.record_type,
-                candidate.summary,
-                candidate.rejection_reason,
-                candidate.scope_kind,
-                candidate.scope_ref,
-                candidate.tags,
-                candidate.reviewed_at,
-                candidate.stale,
-                match_score,
-            )
-        )
-    matches.sort(key=lambda match: match.candidate_id)
-    matches.sort(key=lambda match: match.reviewed_at, reverse=True)
-    matches.sort(key=lambda match: match.match_score, reverse=True)
+        matches.append((decision, {**evaluation, "reason_code": "eligible_legacy_read_only" if decision.legacy else "eligible"}, score))
+    matches.sort(key=lambda value: value[0].candidate_id)
+    matches.sort(key=lambda value: value[0].reviewed_at, reverse=True)
+    matches.sort(key=lambda value: value[2], reverse=True)
+    excluded.sort(key=lambda value: (str(value["candidate_id"]), int(value["decision_revision"])))
     return {
         "schema_version": REJECTED_DECISION_RECALL_SCHEMA_VERSION,
-        "query": redact_metadata_text(query, limit=240),
+        "query": query,
         "scope": {"kind": scope_kind, "ref": scope_ref},
         "requested_tags": list(requested_tags),
         "include_stale": request.include_stale,
         "limit": limit,
-        "matches": [match.to_dict() for match in matches[:limit]],
+        "matches": [_item(decision, evaluation, score) for decision, evaluation, score in matches[:limit]],
+        "excluded_matches": excluded[:limit],
+        "excluded_truncated": len(excluded) > limit,
         "claim_boundary": REJECTED_DECISION_RECALL_CLAIM_BOUNDARY,
     }
 
 
-def _read_rejected_candidates(paths: OmhPaths) -> tuple[_RejectedCandidate, ...]:
-    candidates_dir = _managed_candidates_dir(paths)
-    if not candidates_dir.exists():
-        return ()
-    candidates: list[_RejectedCandidate] = []
-    for path in sorted(candidates_dir.glob("*.json")):
-        if path.is_symlink() or not path.is_file() or path.resolve().parent != candidates_dir.resolve():
-            continue
-        candidate = _parse_rejected_candidate(read_json_object(path))
-        if candidate is not None:
-            candidates.append(candidate)
-    return tuple(candidates)
-
-
-def _managed_candidates_dir(paths: OmhPaths) -> Path:
-    memory_root = paths.memory_dir
-    if memory_root.is_symlink():
-        raise ValueError("rejected-decision memory storage must not be a symlink")
-    resolved_memory_root = memory_root.resolve(strict=False)
-    if not resolved_memory_root.is_relative_to(paths.omh_home.resolve(strict=False)):
-        raise ValueError("rejected-decision memory storage must resolve under OMH home")
-    candidates_dir = memory_root / "candidates"
-    if candidates_dir.is_symlink():
-        raise ValueError("rejected-decision candidate storage must not be a symlink")
-    if candidates_dir.resolve(strict=False).parent != resolved_memory_root:
-        raise ValueError("rejected-decision candidate storage must resolve under OMH memory")
-    return candidates_dir
-
-
-def _parse_rejected_candidate(raw: object) -> _RejectedCandidate | None:
-    if not isinstance(raw, dict) or raw.get("status") != "rejected":
-        return None
-    candidate_id = _safe_metadata_ref(raw.get("candidate_id"))
-    record_type = _safe_metadata_ref(raw.get("record_type"))
-    summary = _safe_string(raw.get("summary"))
-    reviewed_at = _safe_string(raw.get("reviewed_at"))
-    scope = raw.get("scope")
-    if not candidate_id or not record_type or not summary or _timestamp(reviewed_at) is None or not isinstance(scope, dict):
-        return None
-    scope_kind = _safe_string(scope.get("kind"))
-    scope_ref = _safe_metadata_ref(scope.get("ref"))
-    if scope_kind not in _ALLOWED_SCOPE_KINDS or not scope_ref:
-        return None
-    stale, expired = _staleness(raw)
-    return _RejectedCandidate(
-        candidate_id,
-        record_type,
-        redact_metadata_text(summary, limit=500),
-        redact_metadata_text(_safe_string(raw.get("rejection_reason")), limit=300),
-        scope_kind,
-        scope_ref,
-        _normalized_tags(raw.get("tags")),
-        reviewed_at,
-        stale,
-        expired,
+def _evaluate(
+    decision: RejectedDecisionEvidence,
+    review_id: str,
+    now: datetime,
+    scope_kind: str,
+    scope_ref: str,
+) -> dict[str, object]:
+    # The shared evaluator accepts replay artifacts, not review records. This
+    # private adapter evaluates immutable decision evidence without promoting
+    # the rejected subject to approved memory or returning the adapter itself.
+    artifact: dict[str, object] = {
+        "schema_version": PROJECT_MEMORY_RECORD_SCHEMA_VERSION,
+        "record_id": review_id,
+        "revision": decision.decision_revision,
+        "record_type": decision.record_type,
+        "summary": decision.summary,
+        "value": decision.rejection_reason,
+        "scope": {"kind": decision.scope_kind, "ref": decision.scope_ref},
+        "source_class": decision.source_class,
+        "retention": decision.retention,
+    }
+    if decision.revalidation is not None:
+        artifact["revalidation"] = decision.revalidation
+    if decision.superseded_by is not None:
+        artifact["superseded_by"] = decision.superseded_by
+    payload_digest, identity = canonical_payload_digest(artifact), stable_artifact_identity(artifact)
+    artifact["admission"] = {"state": "approved_manual", "review_id": review_id, "payload_digest": payload_digest}
+    return evaluate_memory_replay(
+        artifact,
+        now=now,
+        requested_scope={"kind": scope_kind, "ref": scope_ref},
+        review_resolver={review_id: {"artifact_identity": identity, "payload_digest": payload_digest}},
     )
 
 
-def _staleness(raw: dict[object, object]) -> tuple[bool, bool]:
-    now = datetime.now(timezone.utc)
-    ttl = raw.get("ttl")
-    expires_at = _timestamp(ttl.get("expires_at")) if isinstance(ttl, dict) else None
-    if expires_at is not None and expires_at <= now:
-        return False, True
-    staleness = raw.get("staleness")
-    stale_after = _timestamp(staleness.get("stale_after")) if isinstance(staleness, dict) else None
-    return stale_after is not None and stale_after <= now, False
+def _item(
+    decision: RejectedDecisionEvidence,
+    evaluation: dict[str, object],
+    score: int | None = None,
+) -> dict[str, object]:
+    item: dict[str, object] = {
+        "candidate_id": decision.candidate_id,
+        "decision_revision": decision.decision_revision,
+        "record_type": decision.record_type,
+        "scope": {"kind": decision.scope_kind, "ref": decision.scope_ref},
+        "reviewed_at": decision.reviewed_at,
+        "admission_mode": "legacy_rejected_snapshot" if decision.legacy else "rejected_review",
+        "source_class": decision.source_class,
+        "retention_class": decision.retention["class"],
+        "evaluation_timestamp": evaluation["evaluated_at"],
+        "eligibility_reason": evaluation["reason_code"],
+        "legacy": decision.legacy,
+        "authoritative": not decision.legacy,
+        "approved_memory": False,
+        "surface_kind": "reviewed_negative_decision",
+        "renderable_as_instruction": False,
+    }
+    if score is not None:
+        item.update({"summary": decision.summary, "rejection_reason": decision.rejection_reason, "tags": list(decision.tags), "match_score": score})
+    return item
 
 
-def _timestamp(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
-    except ValueError:
-        return None
-
-
-def _match_score(candidate: _RejectedCandidate, query_tokens: frozenset[str]) -> int:
-    searchable_tokens = _tokens(f"{candidate.summary} {candidate.record_type}")
-    tag_tokens = frozenset(tag for tag in candidate.tags)
-    return len(query_tokens & searchable_tokens) + len(query_tokens & tag_tokens)
+def _match_score(decision: RejectedDecisionEvidence, query_tokens: frozenset[str]) -> int:
+    return len(query_tokens & _tokens(f"{decision.summary} {decision.record_type}")) + len(query_tokens & set(decision.tags))
 
 
 def _validated_scope(request: RejectedDecisionRecallRequest) -> tuple[str, str]:
-    if request.scope_kind not in _ALLOWED_SCOPE_KINDS:
+    if request.scope_kind not in ALLOWED_SCOPE_KINDS:
         raise ValueError(f"unsupported rejected-decision scope kind: {request.scope_kind}")
-    if not _SAFE_REF.fullmatch(request.scope_ref) or is_sensitive_metadata_text(request.scope_ref):
+    if not SAFE_REF.fullmatch(request.scope_ref) or is_sensitive_metadata_text(request.scope_ref):
         raise ValueError(f"unsafe rejected-decision scope ref: {request.scope_ref!r}")
     return request.scope_kind, request.scope_ref
 
@@ -214,25 +162,10 @@ def _validated_limit(limit: int) -> int:
     return limit
 
 
-def _normalized_tags(values: object) -> tuple[str, ...]:
-    if not isinstance(values, (tuple, list)):
-        return ()
-    tags: list[str] = []
-    for value in values:
-        tag = str(value).strip().lower()
-        if tag and _SAFE_REF.fullmatch(tag) and not is_sensitive_metadata_text(tag) and tag not in tags:
-            tags.append(tag)
-    return tuple(tags[:12])
-
-
 def _tokens(value: str) -> frozenset[str]:
     return frozenset(_TOKEN_RE.findall(value.lower()))
 
 
-def _safe_string(value: object) -> str:
-    return value.strip() if isinstance(value, str) else ""
-
-
-def _safe_metadata_ref(value: object) -> str:
-    text = _safe_string(value)
-    return text if _SAFE_REF.fullmatch(text) and not is_sensitive_metadata_text(text) else ""
+def _as_utc(value: datetime | None) -> datetime:
+    now = value if value is not None else datetime.now(timezone.utc)
+    return now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc)

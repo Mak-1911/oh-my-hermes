@@ -357,6 +357,29 @@ class WrapperSessionTests(unittest.TestCase):
             self.assertIn("dispatch", briefing["pending_gaps"])
             self.assertIn("prompt-only handoff", json.dumps(briefing["user_facing_lines"]))
 
+    def test_prompt_briefing_keeps_bounded_replay_evidence_prepared_only(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(
+                paths,
+                "Run regression tests before risky refactors",
+                record_type="procedure",
+                tags=["risky", "refactor"],
+            )
+            message = "risky refactor"
+            started = create_or_resume_wrapper_session(paths, message, source="discord")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            select_wrapper_session_executor(paths, session_id, "claude-code")
+
+            prepared = prepare_wrapper_session_handoff(paths, session_id, message)
+            replay_evidence = prepared["status"]["coding_briefing"]["work_summary"]["handoff_contract"]["memory_recall_pack"]["replay_evidence"]
+
+            self.assertTrue(replay_evidence["prepared_not_observed"])
+            self.assertEqual(replay_evidence["included"][0]["reason_code"], "eligible")
+            self.assertIn("not evidence an executor or model used memory", replay_evidence["claim_boundary"])
+
     def test_revision_and_cancel_do_not_create_run_evidence(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")

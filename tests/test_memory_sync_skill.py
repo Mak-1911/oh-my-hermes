@@ -89,13 +89,17 @@ class MemorySyncSkillTests(unittest.TestCase):
         memory_sync = _template_content("memory-sync")
 
         self.assertIn("memory_new_candidate/v1", memory_new)
-        self.assertIn("capture -> review -> approve", memory_new)
-        self.assertIn("OMH project memory", memory_new)
-        self.assertIn("Hermes native memory", memory_new)
-        self.assertIn("does not mutate Hermes internal memory", memory_new)
+        self.assertIn("Ask these five questions", memory_new)
+        self.assertIn("**Remember**", memory_new)
+        self.assertIn("**Refuse**", memory_new)
+        self.assertIn("**Defer**", memory_new)
+        self.assertIn("not_omh_reviewed", memory_new)
+        self.assertIn("model request", memory_new)
         self.assertIn("memory_curation_review/v1", memory_sync)
-        self.assertIn("existing USER.md and MEMORY.md", memory_sync)
-        self.assertIn("stale, conflicting, duplicate, or overgeneralized", memory_sync)
+        self.assertIn("English-Canonical Interview Protocol", memory_sync)
+        self.assertIn("Claim extraction (추출)", memory_sync)
+        self.assertIn("never invokes, applies, or observes a `MEMORY.md`/`USER.md` write", memory_sync)
+        self.assertIn("not_omh_reviewed", memory_sync)
         self.assertNotIn("memory_new_candidate/v1", memory_sync)
 
     def test_memory_new_routes_capture_while_memory_sync_routes_existing_memory_review(self) -> None:
@@ -114,6 +118,7 @@ class MemorySyncSkillTests(unittest.TestCase):
         # what to do with it, so pairing it with curation intent must stay curation --
         # the direction that silently overrouted to capture before the phrase split.
         review_queries = (
+            "review my MEMORY.md",
             "MEMORY.md",
             "USER.md",
             "기억 정리",
@@ -132,6 +137,10 @@ class MemorySyncSkillTests(unittest.TestCase):
                 self.assertEqual(result["skill"], "memory-new")
                 self.assertEqual(result["next_action"], "prepare_memory_new")
 
+        refusal = recommend_module.recommend_skills("do not save this token", limit=1)[0]
+        self.assertEqual(refusal["skill"], "memory-new")
+        self.assertIn("refuse secrets", refusal["wrapper_guidance"])
+
         for query in review_queries:
             with self.subTest(query=query):
                 result = recommend_module.recommend_skills(query, limit=1)[0]
@@ -143,14 +152,20 @@ class MemorySyncSkillTests(unittest.TestCase):
         self.assertFalse(Path("skills/memory-curation-review").exists())
         self.assertNotIn("prepare_memory_curation_review", VISIBLE_ACTIONS)
 
-    def test_memory_sync_skill_golden_strings(self) -> None:
+    def test_memory_sync_skill_uses_english_protocol_and_preserves_korean_help(self) -> None:
         content = _template_content("memory-sync")
         for anchor in (
-            "원문 그대로 인용",
-            "출처를 추정하거나 지어내지",
-            "승인 전에는 어떤 파일도",
-            "2,200자",
-            "1,375자",
+            "English-Canonical Interview Protocol",
+            "Claim extraction (추출)",
+            "Provenance (출처)",
+            "Target (대상)",
+            "Review (검토)",
+            "Diff (차이)",
+            "2,200 characters",
+            "1,375 characters",
+            "never invokes, applies, or observes a `MEMORY.md`/`USER.md` write",
+            "stale_review_required",
+            "expired_volatile_records",
         ):
             self.assertIn(anchor, content, anchor)
 

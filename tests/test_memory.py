@@ -14,7 +14,10 @@ from _local_package import load_local_package
 load_local_package()
 from omh.coding_delegation import build_coding_delegation_payload
 from omh.coding_lifecycle import start_codex_delegation_lifecycle
+from omh.plugin_bundle.omh import memory_governance
+from omh.workflows import memory as memory_workflow
 from omh.memory import (
+    apply_approved_memory_update_batch,
     apply_memory_update_batch,
     approve_project_memory_candidate,
     build_handoff_context_pack,
@@ -29,6 +32,8 @@ from omh.memory import (
     memory_recall_pack_for_handoff,
     read_handoff_context_pack_file,
     reject_project_memory_candidate,
+    review_memory_update_batch,
+    stage_memory_update_batch,
     validate_project_memory_recall_pack,
 )
 from omh.memory import file_lock
@@ -42,6 +47,18 @@ def _read_only_record(paths):
     files = sorted(records_dir.glob("*.json"))
     assert len(files) == 1, files
     return json.loads(files[0].read_text(encoding="utf-8"))
+
+
+def _write_v2_record_with_matching_review(paths, record_path, record) -> None:
+    admission = record.get("admission")
+    if isinstance(admission, dict):
+        digest = memory_governance.canonical_payload_digest(record)
+        admission["payload_digest"] = digest
+        review = paths.memory_dir / "reviews" / f"{admission['review_id']}.json"
+        review_payload = json.loads(review.read_text(encoding="utf-8"))
+        review_payload["payload_digest"] = digest
+        review.write_text(json.dumps(review_payload), encoding="utf-8")
+    record_path.write_text(json.dumps(record), encoding="utf-8")
 
 
 class MemoryContractTests(unittest.TestCase):
@@ -71,8 +88,8 @@ class MemoryContractTests(unittest.TestCase):
 
             approved = approve_project_memory_candidate(paths, candidate_id, approved_by="user")
             record = approved["record"]
-            self.assertEqual(record["schema_version"], "project_memory_record/v1")
-            self.assertEqual(record["review_status"], "approved")
+            self.assertEqual(record["schema_version"], "project_memory_record/v2")
+            self.assertEqual(record["admission"]["state"], "approved_manual")
             self.assertTrue((paths.memory_dir / "records" / f"{record['record_id']}.json").exists())
 
             recall = build_project_memory_recall_pack(paths, "release tests", executor_target="codex")
@@ -108,8 +125,8 @@ class MemoryContractTests(unittest.TestCase):
             self.assertNotIn("password=secret", json.dumps(rejected))
 
             needs_review = capture_project_memory_candidate(paths, "PR #123 fixed this temporarily", record_type="lesson")
-            self.assertEqual(needs_review["candidate"]["safety"]["status"], "needs_review")
-            self.assertIn("short_lived_pr_reference", needs_review["candidate"]["safety"]["review_reasons"])
+            self.assertEqual(needs_review["candidate"]["safety"]["status"], "safe")
+            self.assertEqual(needs_review["candidate"]["safety"]["review_reasons"], [])
 
     def test_project_memory_auto_safe_policy_auto_approves_safe_candidates(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -119,7 +136,7 @@ class MemoryContractTests(unittest.TestCase):
             captured = capture_project_memory_candidate(paths, "Prefer docs workflow checks for generated workflow docs", record_type="procedure")
 
             self.assertTrue(captured["auto_approved"])
-            self.assertEqual(captured["record"]["schema_version"], "project_memory_record/v1")
+            self.assertEqual(captured["record"]["schema_version"], "project_memory_record/v2")
             self.assertEqual(build_project_memory_status(paths)["counts"]["approved_records"], 1)
 
     def test_staleness_uses_injected_now_and_utc_naive_rule(self) -> None:
@@ -141,11 +158,11 @@ class MemoryContractTests(unittest.TestCase):
 
             boundary = build_project_memory_recall_pack(paths, "release tests", now=expires_at)
             self.assertEqual(boundary["record_count"], 0)
-            self.assertEqual(boundary["excluded_records"][0]["reason"], "expired")
+            self.assertEqual(boundary["excluded_records"][0]["reason"], "expired_standard")
 
             after = build_project_memory_recall_pack(paths, "release tests", now=expires_at + timedelta(days=30))
             self.assertEqual(after["record_count"], 0)
-            self.assertEqual(after["excluded_records"][0]["reason"], "expired")
+            self.assertEqual(after["excluded_records"][0]["reason"], "expired_standard")
 
     def test_recall_reads_naive_expiry_as_utc_under_any_host_timezone(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -162,7 +179,8 @@ class MemoryContractTests(unittest.TestCase):
             record_path = paths.memory_dir / "records" / f"{record['record_id']}.json"
             mutated = json.loads(record_path.read_text(encoding="utf-8"))
             mutated["ttl"]["expires_at"] = "2026-07-28T12:00:00"  # naive, by definition UTC
-            record_path.write_text(json.dumps(mutated), encoding="utf-8")
+            mutated["retention"]["expires_at"] = "2026-07-28T12:00:00"
+            _write_v2_record_with_matching_review(paths, record_path, mutated)
 
             probe_now = datetime(2026, 7, 28, 12, 0, 0, tzinfo=timezone.utc)
             original = os.environ.get("TZ")
@@ -174,7 +192,7 @@ class MemoryContractTests(unittest.TestCase):
                     pack = build_project_memory_recall_pack(paths, "release tests", now=probe_now)
                     results.append((pack["record_count"], pack["excluded_records"][0]["reason"]))
                 self.assertEqual(results[0], results[1])
-                self.assertEqual(results[0], (0, "expired"))
+                self.assertEqual(results[0], (0, "expired_standard"))
             finally:
                 if original is None:
                     os.environ.pop("TZ", None)
@@ -534,10 +552,10 @@ class MemoryContractTests(unittest.TestCase):
             self.assertIn("apply_memory_updates", action_ids)
             self.assertIn("Memory review is not runtime execution evidence", card["claim_boundary"])
 
-    def test_apply_batch_is_dry_run_idempotent_and_path_safe(self) -> None:
+    def test_direct_batch_apply_requires_review_and_staging_enforces_safety(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
-            batch = {
+            approved_by = {
                 "schema_version": "memory_update_batch/v1",
                 "approved_by": "user",
                 "source_surface": "discord",
@@ -548,25 +566,16 @@ class MemoryContractTests(unittest.TestCase):
                         "scope": {"kind": "project", "ref": "default"},
                         "value": "claude-code",
                         "summary": "Prefer Claude Code prompt-only handoffs",
-                        "reason": "User changed default coding preference",
                     }
                 ],
             }
+            without_approval = {key: value for key, value in approved_by.items() if key != "approved_by"}
 
-            dry_run = apply_memory_update_batch(paths, batch, dry_run=True)
-
-            self.assertFalse(dry_run["applied"])
-            self.assertFalse((paths.omh_home / "memory").exists())
-
-            applied = apply_memory_update_batch(paths, batch)
-            second = apply_memory_update_batch(paths, batch)
-
-            self.assertTrue(applied["applied"])
-            self.assertEqual(second["updates"][0]["status"], "noop")
-            memory_file = paths.omh_home / "memory" / "scopes" / "project.json"
-            self.assertTrue(memory_file.exists())
-            stored = json.loads(memory_file.read_text(encoding="utf-8"))
-            self.assertEqual(stored["items"]["executor-pref"]["value"], "claude-code")
+            for batch in (approved_by, without_approval):
+                result = apply_memory_update_batch(paths, batch)
+                self.assertEqual(result["status"], "review_required")
+                self.assertFalse(result["applied"])
+                self.assertFalse(paths.memory_dir.exists())
 
             secret_batch = {
                 "schema_version": "memory_update_batch/v1",
@@ -581,13 +590,11 @@ class MemoryContractTests(unittest.TestCase):
                     }
                 ],
             }
-            apply_memory_update_batch(paths, secret_batch)
-            stored_after_secret = memory_file.read_text(encoding="utf-8")
-            self.assertNotIn("raw-secret-token-123", stored_after_secret)
-            private_note = json.loads(stored_after_secret)["items"]["private-note"]
-            self.assertNotIn("value", private_note)
+            with self.assertRaisesRegex(ValueError, "unsafe"):
+                stage_memory_update_batch(paths, secret_batch)
+            self.assertFalse(paths.memory_dir.exists())
 
-            unsafe = {
+            unsafe_scope = {
                 "schema_version": "memory_update_batch/v1",
                 "updates": [
                     {
@@ -598,8 +605,9 @@ class MemoryContractTests(unittest.TestCase):
                     }
                 ],
             }
-            with self.assertRaises(ValueError):
-                apply_memory_update_batch(paths, unsafe)
+            with self.assertRaisesRegex(ValueError, "scope"):
+                stage_memory_update_batch(paths, unsafe_scope)
+            self.assertFalse(paths.memory_dir.exists())
 
     def test_memory_inspection_ignores_symlink_scope_escapes(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -628,23 +636,26 @@ class MemoryContractTests(unittest.TestCase):
     def test_memory_inspection_summary_and_pack_limits_bound_output(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
-            apply_memory_update_batch(
-                paths,
-                {
-                    "schema_version": "memory_update_batch/v1",
-                    "updates": [
-                        {
-                            "op": "update",
-                            "item_id": f"context-{index}",
-                            "scope": {"kind": "project", "ref": "default"},
-                            "key": f"context_{index}",
-                            "value": f"value-{index}",
-                            "summary": f"Context item {index}",
-                        }
-                        for index in range(4)
-                    ],
-                },
-            )
+            batch = {
+                "schema_version": "memory_update_batch/v1",
+                "updates": [
+                    {
+                        "op": "update",
+                        "item_id": f"context-{index}",
+                        "scope": {"kind": "project", "ref": "default"},
+                        "key": f"context_{index}",
+                        "value": f"value-{index}",
+                        "summary": f"Context item {index}",
+                    }
+                    for index in range(4)
+                ],
+            }
+            staged = stage_memory_update_batch(paths, batch)
+            decisions = {item["item_id"]: "remember" for item in staged["items"]}
+            review_memory_update_batch(paths, staged["batch_id"], decisions, reviewer_label="operator")
+            applied = apply_approved_memory_update_batch(paths, staged["batch_id"])
+            self.assertTrue(applied["applied"])
+            self.assertIn("receipt", applied)
 
             inspection = build_memory_inspection(paths, summary=True, review_item_limit=2)
             pack = build_handoff_context_pack(paths, context_limit=2)
@@ -659,23 +670,28 @@ class MemoryContractTests(unittest.TestCase):
     def test_handoff_context_pack_attaches_only_when_conflict_free(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
-            apply_memory_update_batch(
+            batch = {
+                "schema_version": "memory_update_batch/v1",
+                "updates": [
+                    {
+                        "op": "update",
+                        "item_id": "repo-verification",
+                        "scope": {"kind": "project", "ref": "default"},
+                        "key": "verification_command",
+                        "value": "uv run python -m unittest discover -s tests -v",
+                        "summary": "Run the unittest suite",
+                        "reason": "Project verification default",
+                    }
+                ],
+            }
+            staged = stage_memory_update_batch(paths, batch)
+            review_memory_update_batch(
                 paths,
-                {
-                    "schema_version": "memory_update_batch/v1",
-                    "updates": [
-                        {
-                            "op": "update",
-                            "item_id": "repo-verification",
-                            "scope": {"kind": "project", "ref": "default"},
-                            "key": "verification_command",
-                            "value": "uv run python -m unittest discover -s tests -v",
-                            "summary": "Run the unittest suite",
-                            "reason": "Project verification default",
-                        }
-                    ],
-                },
+                staged["batch_id"],
+                {staged["items"][0]["item_id"]: "remember"},
+                reviewer_label="operator",
             )
+            self.assertTrue(apply_approved_memory_update_batch(paths, staged["batch_id"])["applied"])
 
             pack = build_handoff_context_pack(paths, executor_target="codex")
             payload = build_coding_delegation_payload(
@@ -733,6 +749,207 @@ class MemoryContractTests(unittest.TestCase):
                 read_handoff_context_pack_file(pack_path)
             with self.assertRaises(ValueError):
                 build_coding_delegation_payload("risky refactor", source="discord", executor_target="codex", context_pack=malformed)
+
+    def test_volatile_seven_day_boundary_is_consistent_across_recall_snapshots_and_handoff(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(
+                paths,
+                "Volatile release note for this week",
+                record_type="fact",
+                tags=["release"],
+                retention_class="volatile",
+            )
+            record = _read_only_record(paths)
+            record_path = paths.memory_dir / "records" / f"{record['record_id']}.json"
+            stored = json.loads(record_path.read_text(encoding="utf-8"))
+            admitted_at = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)
+            retention = memory_governance.build_retention("volatile", record_type="fact", admitted_at=admitted_at)
+            stored["retention"] = retention
+            stored["ttl"] = {"ttl_days": retention["ttl_days"], "expires_at": retention["expires_at"]}
+            _write_v2_record_with_matching_review(paths, record_path, stored)
+            expires_at = datetime.fromisoformat(str(retention["expires_at"]).replace("Z", "+00:00"))
+
+            before = build_project_memory_recall_pack(paths, "release", now=expires_at - timedelta(microseconds=1))
+            before_snapshot = memory_workflow._memory_snapshots(paths, now=expires_at - timedelta(microseconds=1))
+            at_boundary = build_project_memory_recall_pack(paths, "release", now=expires_at)
+            boundary_snapshot = memory_workflow._memory_snapshots(paths, now=expires_at)
+            handoff = build_handoff_context_pack(paths, now=expires_at)
+
+            self.assertEqual(before["record_count"], 1)
+            self.assertTrue(
+                next(item for snapshot in before_snapshot for item in snapshot["items"] if item["item_id"] == record["record_id"])["replay_evaluation"]["eligible"]
+            )
+            reason = next(item["reason"] for item in at_boundary["excluded_records"] if item["record_id"] == record["record_id"])
+            self.assertEqual(reason, "expired_volatile")
+            self.assertEqual(
+                next(item for snapshot in boundary_snapshot for item in snapshot["items"] if item["item_id"] == record["record_id"])["replay_evaluation"]["reason_code"],
+                reason,
+            )
+            self.assertNotIn(record["record_id"], {item["item_id"] for item in handoff["included_context"]})
+            self.assertEqual(next(item["reason"] for item in handoff["excluded_context"] if item["item_id"] == record["record_id"]), reason)
+
+    def test_tampered_summary_is_rejected_at_every_replay_boundary(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(paths, "Run release checks", record_type="procedure", tags=["release"])
+            record = _read_only_record(paths)
+            record_path = paths.memory_dir / "records" / f"{record['record_id']}.json"
+            tampered = json.loads(record_path.read_text(encoding="utf-8"))
+            tampered["summary"] = "Run a different release process"
+            record_path.write_text(json.dumps(tampered), encoding="utf-8")
+
+            recall = build_project_memory_recall_pack(paths, "release")
+            snapshots = memory_workflow._memory_snapshots(paths)
+            handoff = build_handoff_context_pack(paths)
+
+            self.assertEqual(next(item["reason"] for item in recall["excluded_records"] if item["record_id"] == record["record_id"]), "payload_digest_mismatch")
+            self.assertEqual(
+                next(item for snapshot in snapshots for item in snapshot["items"] if item["item_id"] == record["record_id"])["replay_evaluation"]["reason_code"],
+                "payload_digest_mismatch",
+            )
+            self.assertEqual(next(item["reason"] for item in handoff["excluded_context"] if item["item_id"] == record["record_id"]), "payload_digest_mismatch")
+
+    def test_stale_record_requires_a_bounded_exact_revision_override(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(paths, "Release policy remains current", record_type="procedure", tags=["release"])
+            record = _read_only_record(paths)
+            record_path = paths.memory_dir / "records" / f"{record['record_id']}.json"
+            stored = json.loads(record_path.read_text(encoding="utf-8"))
+            deadline = "2026-07-30T11:59:00Z"
+            stored["revalidation"] = {"deadline": deadline}
+            _write_v2_record_with_matching_review(paths, record_path, stored)
+            now = datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)
+            identity = memory_governance.stable_artifact_identity(stored)
+            override = {
+                "artifact_identity": identity,
+                "run_id": "run-1",
+                "revalidation_deadline": deadline,
+                "confirmed_at": "2026-07-30T12:00:00Z",
+                "expires_at": "2026-07-30T13:00:00Z",
+                "reviewer_claim": "operator",
+            }
+
+            stale = build_project_memory_recall_pack(paths, "release", now=now, run_id="run-1")
+            wrong_revision = build_project_memory_recall_pack(
+                paths,
+                "release",
+                now=now,
+                run_id="run-1",
+                stale_override={**override, "artifact_identity": {**identity, "revision": 2}},
+            )
+            allowed = build_project_memory_recall_pack(paths, "release", now=now, run_id="run-1", stale_override=override)
+
+            self.assertEqual(stale["excluded_records"][0]["reason"], "stale_review_required")
+            self.assertEqual(wrong_revision["excluded_records"][0]["reason"], "stale_override_invalid")
+            self.assertEqual(allowed["record_count"], 1)
+            self.assertEqual(allowed["included_records"][0]["eligibility_reason"], "eligible")
+
+    def test_budget_and_admission_exclusions_have_distinct_reason_codes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            for index in range(3):
+                capture_project_memory_candidate(
+                    paths,
+                    f"Release policy {index}",
+                    record_type="procedure",
+                    tags=["release"],
+                )
+            records = sorted((paths.memory_dir / "records").glob("*.json"))
+            expired = json.loads(records[0].read_text(encoding="utf-8"))
+            expired["retention"]["expires_at"] = "2020-01-01T00:00:00Z"
+            expired["ttl"] = {"ttl_days": 1, "expires_at": "2020-01-01T00:00:00Z"}
+            _write_v2_record_with_matching_review(paths, records[0], expired)
+
+            pack = build_project_memory_recall_pack(paths, "release", limit=1, now=datetime(2026, 7, 30, tzinfo=timezone.utc))
+            reasons = {item["reason"] for item in pack["excluded_records"]}
+
+            self.assertIn("expired_standard", reasons)
+            self.assertIn("over_budget", reasons)
+
+    def test_expired_record_is_never_packable_through_memory_snapshots(self) -> None:
+        """Regression: the old snapshot path bypassed recall's TTL exclusion."""
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(
+                paths,
+                "Release checks must run before deployment",
+                record_type="procedure",
+                tags=["release"],
+                ttl_days=1,
+            )
+            record = _read_only_record(paths)
+            record_path = paths.memory_dir / "records" / f"{record['record_id']}.json"
+            expired_at = datetime(2026, 7, 30, 12, 0, tzinfo=timezone.utc)
+            stored = json.loads(record_path.read_text(encoding="utf-8"))
+            stored["ttl"] = {"ttl_days": 1, "expires_at": expired_at.isoformat().replace("+00:00", "Z")}
+            if isinstance(stored.get("retention"), dict):
+                stored["retention"]["expires_at"] = stored["ttl"]["expires_at"]
+                digest = memory_governance.canonical_payload_digest(stored)
+                stored["admission"]["payload_digest"] = digest
+                review_path = paths.memory_dir / "reviews" / f"{stored['admission']['review_id']}.json"
+                review = json.loads(review_path.read_text(encoding="utf-8"))
+                review["payload_digest"] = digest
+                review_path.write_text(json.dumps(review), encoding="utf-8")
+            record_path.write_text(json.dumps(stored), encoding="utf-8")
+
+            recall = build_project_memory_recall_pack(paths, "release", now=expired_at)
+            snapshots = memory_workflow._memory_snapshots(paths, now=expired_at)
+            handoff = build_handoff_context_pack(paths, now=expired_at)
+
+            reason = next(item["reason"] for item in recall["excluded_records"] if item["record_id"] == record["record_id"])
+            snapshot_item = next(
+                item
+                for snapshot in snapshots
+                for item in snapshot["items"]
+                if item["item_id"] == record["record_id"]
+            )
+            self.assertEqual(snapshot_item["replay_evaluation"]["reason_code"], reason)
+            self.assertNotIn(record["record_id"], {item["item_id"] for item in handoff["included_context"]})
+            self.assertEqual(
+                next(item["reason"] for item in handoff["excluded_context"] if item["item_id"] == record["record_id"]),
+                reason,
+            )
+
+    def test_pending_staged_scope_candidate_is_review_visible_but_not_handoff_context(self) -> None:
+        """Staging keeps pending scope data out of prompt-input files until exact review/apply."""
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            staged = stage_memory_update_batch(
+                paths,
+                {
+                    "schema_version": "memory_update_batch/v1",
+                    "updates": [
+                        {
+                            "op": "update",
+                            "item_id": "unreviewed-scope-item",
+                            "scope": {"kind": "project", "ref": "default"},
+                            "key": "release_command",
+                            "value": "uv run python -m unittest",
+                            "summary": "Run unit tests before release",
+                        }
+                    ],
+                },
+            )
+
+            pending_path = paths.memory_dir / "candidates" / f"{staged['batch_id']}.json"
+            pending = json.loads(pending_path.read_text(encoding="utf-8"))
+            apply_result = apply_approved_memory_update_batch(paths, staged["batch_id"])
+            handoff = build_handoff_context_pack(paths)
+
+            self.assertEqual(staged["status"], "pending_review")
+            self.assertEqual(pending["status"], "pending_review")
+            self.assertEqual(pending["items"][0]["artifact"]["admission"]["state"], "pending_review")
+            self.assertEqual(apply_result["status"], "review_required")
+            self.assertFalse(apply_result["applied"])
+            self.assertFalse((paths.memory_dir / "scopes").exists())
+            self.assertNotIn(staged["items"][0]["item_id"], {item["item_id"] for item in handoff["included_context"]})
 
 
 class RetirementApplyTests(unittest.TestCase):
@@ -898,7 +1115,8 @@ class RetirementApplyTests(unittest.TestCase):
             record_path = paths.memory_dir / "records" / f"{record['record_id']}.json"
             mutated = json.loads(record_path.read_text(encoding="utf-8"))
             mutated["ttl"]["expires_at"] = "2020-01-01T00:00:00Z"
-            record_path.write_text(json.dumps(mutated), encoding="utf-8")
+            mutated["retention"]["expires_at"] = "2020-01-01T00:00:00Z"
+            _write_v2_record_with_matching_review(paths, record_path, mutated)
             status = build_project_memory_status(paths)
             self.assertEqual(status["counts"]["expired_records"], 1)
 

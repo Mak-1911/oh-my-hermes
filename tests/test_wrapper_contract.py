@@ -1642,8 +1642,8 @@ class WrapperContractTests(unittest.TestCase):
                 "Hermes가 기억하고 있는 프로젝트 맥락이 오래된 것 같아 정리해줘",
                 "memory-sync",
                 "memory_curation",
-                "I can review memory and context before anything is changed.",
-                "approved memory write",
+                "I can prepare Hermes memory diffs without invoking a native write.",
+                "prepared guidance only and never invokes, applies, or observes a MEMORY.md/USER.md write",
                 "prepare_memory_sync",
             ),
             (
@@ -1798,6 +1798,7 @@ class WrapperContractTests(unittest.TestCase):
                     self.assertTrue(actions["run_hermes_research"]["enabled"])
                 if workflow == "memory-sync":
                     self.assertTrue(actions["show_memory_status"]["enabled"])
+                    self.assertIn("never invokes, applies, or observes a native MEMORY.md/USER.md write", response["claim_boundary"])
                 if workflow in {"gateway-intent-card", "toolbelt-readiness", "automation-blueprint"}:
                     self.assertIn("prepare_toolbelt_readiness", actions)
 
@@ -2867,7 +2868,7 @@ class WrapperContractTests(unittest.TestCase):
                 "does OMH support memory cleanup?",
                 "memory-sync",
                 "prepare_memory_sync",
-                "approve/reject/update",
+                "prepare a native write diff",
                 "memory_curation",
             ),
             (

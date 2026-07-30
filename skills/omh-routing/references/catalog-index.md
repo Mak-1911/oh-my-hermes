@@ -56,8 +56,8 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-materials-package`: [omh] Hermes Materials Package workflow: decks, PDFs, spreadsheets, documents, HWP, Markdown, and binary export handoffs.
 - `omh-media-input`: [omh] User-sent media - audio, video, YouTube links, screenshots, receipts, OCR, meeting recordings, transcripts, timestamps, and clip summaries, gated for source, permission, and hallucination risk.
 - `omh-meeting-brief`: [omh] Hermes Meeting Brief workflow: agenda, prompts, decisions, and record template.
-- `omh-memory-new`: [omh] Save a new durable project or product fact - captures a candidate, shows it for review, and writes only on approval; for auditing existing memories use omh-memory-sync, and for retrieving a past decision use decision-recall.
-- `omh-memory-sync`: [omh] Audit what Hermes already remembers - reviews USER.md, MEMORY.md, and skill memories claim by claim and rewrites only after an approved diff; for a new fact use memory-new, and for retrieving a past decision use decision-recall.
+- `omh-memory-new`: [omh] Capture one bounded durable project or product memory candidate through explicit remember, refuse, or defer review; for existing Hermes memory use omh-memory-sync, and for a past decision use decision-recall.
+- `omh-memory-sync`: [omh] English-canonical Hermes memory-review guidance: inspect USER.md and MEMORY.md claims and prepare a native write diff without invoking, applying, or observing a native write; for a new fact use memory-new, and for a past decision use decision-recall.
 - `omh-meta-router`: [omh] Meta-routing guidance for a leading /omh command: reason over the imperative task, consult the live workflow catalog, and select or chain the right workflow(s).
 - `omh-model-setup`: [omh] Hermes Model Setup workflow: diagnose role-slot model configuration, guide provider connection, and apply changes only after diff approval.
 - `omh-morning-brief`: [omh] Morning brief SETUP (one-time) - connects mail and calendar MCP with read-and-draft-only scope and diff approval; produces the configuration, not the daily brief itself.

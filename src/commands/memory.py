@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..install.config_adapter import (
@@ -13,6 +14,7 @@ from ..install.config_adapter import (
     write_config,
 )
 from ..installer import OmhError
+from ..plugin_bundle.omh.memory_governance import SOURCE_CLASSES
 from ..plugin_bundle.omh.memory_blocks import (
     MemoryBlockError,
     blocks_dir,
@@ -26,6 +28,7 @@ from ..plugin_bundle.omh.memory_provider import OmhMemoryProvider
 from ..plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
 from ..memory import (
     RejectedDecisionRecallRequest,
+    apply_approved_memory_update_batch,
     apply_memory_retirement,
     apply_memory_update_batch,
     approve_project_memory_candidate,
@@ -38,7 +41,25 @@ from ..memory import (
     capture_project_memory_candidate,
     read_memory_snapshot_file,
     reject_project_memory_candidate,
+    review_memory_update_batch,
+    stage_memory_update_batch,
     build_rejected_decision_recall,
+)
+from ..system.local_store import read_json_object_result
+from ..workflows.memory_evaluation import run_memory_evaluation
+from ..workflows.memory_lifecycle import (
+    apply_memory_correction,
+    apply_memory_prune,
+    apply_memory_restore,
+    build_memory_correction,
+    build_memory_prune,
+    build_memory_restore,
+)
+from ..workflows.memory_lifecycle_executor import execute_memory_lifecycle
+from ..workflows.memory_migration import (
+    build_memory_migration_inventory,
+    reactivate_memory_artifact,
+    write_memory_migration_ledger,
 )
 from .common import _paths, _print_json
 
@@ -58,6 +79,7 @@ def cmd_memory_capture(args: argparse.Namespace) -> int:
         content = sys.stdin.read() if args.stdin else str(args.content or "")
         if not summary:
             raise ValueError("memory capture requires a summary")
+        _validate_capture_governance_args(args)
         payload = capture_project_memory_candidate(
             _paths(args),
             summary,
@@ -70,6 +92,7 @@ def cmd_memory_capture(args: argparse.Namespace) -> int:
             tags=args.tag or [],
             ttl_days=args.ttl_days,
             stale_after_days=args.stale_after_days,
+            retention_class=args.retention_class,
         )
     except (OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
@@ -207,7 +230,160 @@ def cmd_memory_apply(args: argparse.Namespace) -> int:
         result = apply_memory_update_batch(_paths(args), batch, dry_run=args.dry_run)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
-    _print_json(result)
+    _print_json(
+        _control_payload(
+            result,
+            reason_code="review_required",
+            next_action="Stage the batch with `memory batch-stage --batch <path>`, then review every exact item before apply.",
+            claim_boundary="Direct batch compatibility is review-required and does not claim prompt use or a completed scope mutation without an operation receipt.",
+        )
+    )
+    return 0
+
+
+def cmd_memory_inventory(args: argparse.Namespace) -> int:
+    try:
+        paths = _paths(args)
+        inventory = build_memory_migration_inventory(paths)
+        payload = write_memory_migration_ledger(paths, inventory) if args.write_ledger else inventory
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(
+        _control_payload(
+            payload,
+            reason_code="inventory_ledger_written" if args.write_ledger else "inventory_dry_run",
+            next_action="Review each review-required artifact before reactivation; inventory does not grant replay eligibility.",
+            claim_boundary="Inventory is metadata-only and report-first; it does not approve, reactivate, quarantine, or claim memory use.",
+        )
+    )
+    return 0
+
+
+def cmd_memory_reactivate(args: argparse.Namespace) -> int:
+    try:
+        paths = _paths(args)
+        if not _has_exact_review_linkage(paths, args.artifact_id, args.revision, args.review_id):
+            payload: dict[str, object] = {
+                "schema_version": "memory_reactivation/v1",
+                "applied": False,
+                "reason_code": "matching_immutable_review_required",
+                "artifact_identity": {},
+            }
+        else:
+            payload = reactivate_memory_artifact(paths, args.artifact_id, review_id=args.review_id, apply=args.apply)
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    if bool(payload.get("applied")) and not isinstance(payload.get("receipt"), dict):
+        payload = {**payload, "applied": False, "reason_code": "operation_receipt_missing"}
+    _print_json(
+        _control_payload(
+            payload,
+            next_action=(
+                "Apply the exact reviewed artifact with `--apply`."
+                if payload.get("reason_code") == "apply_required"
+                else "Inspect the returned operation receipt; only the exact reviewed artifact was eligible for reactivation."
+            ),
+            claim_boundary="Reactivation is exact-artifact review control only; no replay, prompt use, provider, or executor use is claimed.",
+        )
+    )
+    return 0
+
+
+def cmd_memory_batch_stage(args: argparse.Namespace) -> int:
+    try:
+        payload = stage_memory_update_batch(_paths(args), _read_required_json(args.batch))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(
+        _control_payload(
+            payload,
+            reason_code="pending_review",
+            next_action="Record one exact remember, refuse, or defer decision for every staged item.",
+            claim_boundary="Staged batch candidates are review-only and never prompt eligible; no completed scope mutation is claimed without a receipt.",
+        )
+    )
+    return 0
+
+
+def cmd_memory_batch_review(args: argparse.Namespace) -> int:
+    try:
+        payload = review_memory_update_batch(
+            _paths(args),
+            args.batch_id,
+            _read_required_json(args.decisions),
+            reviewer_label=args.reviewer_label,
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(
+        _control_payload(
+            payload,
+            reason_code="reviewed",
+            next_action="Run `memory batch-apply <batch-id> --apply` only when every exact decision is remember.",
+            claim_boundary="Review output is immutable decision metadata; it does not claim a completed scope mutation, prompt use, or executor use without an operation receipt.",
+        )
+    )
+    return 0
+
+
+def cmd_memory_batch_apply(args: argparse.Namespace) -> int:
+    if not args.apply:
+        _print_json(
+            _control_payload(
+                {
+                    "schema_version": "memory_update_batch_receipt/v1",
+                    "status": "review_required",
+                    "reason_code": "apply_required",
+                    "applied": False,
+                    "batch_id": args.batch_id,
+                },
+                next_action="Inspect exact immutable review decisions, then rerun with `--apply`.",
+                claim_boundary="No scope mutation is claimed without an explicit apply and returned operation receipt.",
+            )
+        )
+        return 0
+    try:
+        payload = apply_approved_memory_update_batch(_paths(args), args.batch_id)
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    if bool(payload.get("applied")) and not isinstance(payload.get("receipt"), dict):
+        payload = {**payload, "applied": False, "status": "failed", "reason_code": "operation_receipt_missing"}
+    _print_json(
+        _control_payload(
+            payload,
+            next_action="Inspect the returned operation receipt; refused, deferred, missing, or tampered reviews remain fail-closed.",
+            claim_boundary="Batch apply reports only its returned operation receipt; it is not evidence of prompt, provider, or executor use.",
+        )
+    )
+    return 0
+
+
+def cmd_memory_restore(args: argparse.Namespace) -> int:
+    return _cmd_memory_lifecycle(args, "restore")
+
+
+def cmd_memory_prune(args: argparse.Namespace) -> int:
+    return _cmd_memory_lifecycle(args, "prune")
+
+
+def cmd_memory_correct(args: argparse.Namespace) -> int:
+    return _cmd_memory_lifecycle(args, "correct")
+
+
+def cmd_memory_evaluate(args: argparse.Namespace) -> int:
+    try:
+        payload = run_memory_evaluation(
+            args.profile,
+            repetitions=_optional_positive_int(args.repetitions, "--repetitions") or 3,
+            seed=args.seed,
+        )
+        if args.output:
+            output = Path(args.output).expanduser()
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(payload)
     return 0
 
 
@@ -323,6 +499,137 @@ def cmd_memory_provider(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_memory_lifecycle(args: argparse.Namespace, operation: str) -> int:
+    try:
+        paths = _paths(args)
+        revision = _required_positive_int(args.revision, "--revision")
+        now = datetime.now(timezone.utc)
+        if operation == "restore":
+            plan = build_memory_restore(paths, args.record_id, revision, now=now)
+        elif operation == "prune":
+            plan = build_memory_prune(paths, args.record_id, revision, now=now)
+        else:
+            summary = " ".join(args.summary).strip()
+            if not summary:
+                raise ValueError("memory correct requires a summary")
+            plan = build_memory_correction(paths, args.record_id, revision, summary, now=now)
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+
+    payload = dict(plan.report)
+    if args.apply and not payload.get("eligible"):
+        pass
+    elif args.apply and operation == "prune" and not args.confirm_hard_delete_local:
+        payload = {
+            **payload,
+            "reason_code": "hard_delete_confirmation_required",
+            "next_action": "Apply only with --confirm-hard-delete-local; the receipt is not deletion or erasure proof.",
+        }
+    elif args.apply:
+        state = _existing_memory_operation_state(paths, plan.operation_id)
+        if state in {"failed", "interrupted", "corrupt"}:
+            payload = _lifecycle_operation_state_payload(plan, state)
+        else:
+            try:
+                result = _apply_memory_lifecycle_plan(paths, plan, operation)
+            except ValueError as exc:
+                state = _existing_memory_operation_state(paths, plan.operation_id)
+                if state in {"failed", "interrupted", "corrupt"}:
+                    payload = _lifecycle_operation_state_payload(plan, state)
+                else:
+                    raise OmhError(str(exc)) from exc
+            else:
+                if not bool(result.get("applied")) or not isinstance(result.get("receipt"), dict):
+                    raise OmhError("operation_receipt_missing")
+                payload = {
+                    **result,
+                    "reason_code": {"restore": "restored", "prune": "pruned", "correct": "corrected"}[operation],
+                }
+    _print_json(
+        _control_payload(
+            payload,
+            claim_boundary="Lifecycle reports are OMH-local target-set plans only; no mutation is claimed without a returned lifecycle operation receipt.",
+        )
+    )
+    return 0
+
+
+def _apply_memory_lifecycle_plan(paths, plan, operation: str) -> dict[str, object]:
+    if operation == "restore":
+        return apply_memory_restore(paths, plan, transaction_executor=execute_memory_lifecycle)
+    if operation == "prune":
+        return apply_memory_prune(paths, plan, transaction_executor=execute_memory_lifecycle, confirm_hard_delete_local=True)
+    return apply_memory_correction(paths, plan, transaction_executor=execute_memory_lifecycle)
+
+
+def _lifecycle_operation_state_payload(plan, state: str) -> dict[str, object]:
+    return {
+        **plan.report,
+        "reason_code": f"operation_{state}",
+        "operation_id": plan.operation_id,
+        "operation_state": state,
+        "next_action": plan.report["next_action"],
+        "claim_boundary": "No lifecycle mutation is claimed because the existing store operation is not completed and returned no lifecycle receipt.",
+    }
+
+
+def _existing_memory_operation_state(paths, operation_id: str) -> str:
+    record_path = paths.memory_operations_dir / f"{operation_id}.json"
+    if record_path.is_symlink():
+        return "corrupt"
+    record, error = read_json_object_result(record_path)
+    state = str(record.get("state", "")) if record is not None and error is None else ""
+    return state if state in {"failed", "interrupted", "completed", "corrupt"} else ""
+
+
+def _has_exact_review_linkage(paths, artifact_id: str, revision: int, review_id: str) -> bool:
+    if _required_positive_int(revision, "--revision") < 1 or not review_id or Path(review_id).name != review_id:
+        return False
+    for directory in (paths.memory_dir / "reviews", paths.memory_dir / "block_reviews"):
+        path = directory / f"{review_id}.json"
+        if path.is_symlink():
+            continue
+        review, error = read_json_object_result(path)
+        identity = review.get("artifact_identity") if review is not None and error is None else None
+        if (
+            isinstance(identity, dict)
+            and review.get("review_id") == review_id
+            and identity.get("id") == artifact_id
+            and identity.get("revision") == revision
+        ):
+            return True
+    return False
+
+
+def _validate_capture_governance_args(args: argparse.Namespace) -> None:
+    if args.source_class not in SOURCE_CLASSES:
+        raise ValueError("unsupported memory source class")
+    if args.source_class != "omh_local":
+        raise ValueError("memory capture accepts only omh_local source class; external context is not OMH-reviewed")
+    _optional_positive_int(args.ttl_days, "--ttl-days")
+    _optional_positive_int(args.stale_after_days, "--stale-after-days")
+    if args.retention_class == "volatile" and args.stale_after_days is not None:
+        raise ValueError("volatile memory cannot set --stale-after-days")
+    if args.retention_class == "durable" and args.ttl_days is not None:
+        raise ValueError("durable memory cannot set --ttl-days")
+
+
+def _control_payload(
+    payload: dict[str, object],
+    *,
+    reason_code: str | None = None,
+    next_action: str | None = None,
+    claim_boundary: str,
+) -> dict[str, object]:
+    result = dict(payload)
+    if reason_code is not None:
+        result.setdefault("reason_code", reason_code)
+    if next_action is not None:
+        result.setdefault("next_action", next_action)
+    result.setdefault("claim_boundary", claim_boundary)
+    return result
+
+
 def _read_optional_json(path: str | None) -> dict[str, object] | None:
     if not path:
         return None
@@ -343,6 +650,13 @@ def _optional_positive_int(value: int | None, flag: str) -> int | None:
     if value < 1:
         raise ValueError(f"{flag} must be at least 1")
     return value
+
+
+def _required_positive_int(value: int | None, flag: str) -> int:
+    result = _optional_positive_int(value, flag)
+    if result is None:
+        raise ValueError(f"{flag} is required")
+    return result
 
 
 def _add_memory_commands(sub) -> None:

@@ -16,7 +16,9 @@ from omh.coding_lifecycle import (
     report_codex_delegation_lifecycle,
     start_codex_delegation_lifecycle,
 )
+from omh.memory import capture_project_memory_candidate
 from omh.paths import resolve_paths
+from omh.profiles.setup import write_setup_profile
 
 
 class CodingLifecycleTests(unittest.TestCase):
@@ -62,6 +64,32 @@ class CodingLifecycleTests(unittest.TestCase):
             self.assertEqual(verified_policy["state_guidance"]["next_action"], "report_completion_with_evidence")
             self.assertIn("full_tests_passed", verified_policy["state_guidance"]["reportable_events"])
             self.assertIn("workflow_completed", verified_policy["state_guidance"]["reportable_events"])
+
+    def test_persisted_handoff_keeps_replay_evidence_without_runtime_use_claim(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(
+                paths,
+                "Run diagnostics before changing installation health checks",
+                record_type="procedure",
+                tags=["diagnose", "installation"],
+            )
+
+            lifecycle = start_codex_delegation_lifecycle(paths, "diagnose installation health")
+            pack = lifecycle["coding_delegation"]["executor_handoff"]["memory_recall_pack"]
+            item = pack["included_records"][0]
+            evaluation = item["replay_evaluation"]
+
+            self.assertEqual(evaluation["schema_version"], "omh_memory_replay_evaluation/v1")
+            self.assertTrue(evaluation["eligible"])
+            self.assertEqual(evaluation["reason_code"], "eligible")
+            self.assertEqual(item["revision"], 1)
+            self.assertEqual(item["admission_mode"], "approved_auto_safe")
+            self.assertEqual(item["source_class"], "omh_local")
+            self.assertEqual(item["retention_class"], "standard")
+            self.assertNotIn("observed", evaluation)
+            self.assertIn("not execution", pack["claim_boundary"])
 
     def test_start_codex_lifecycle_creates_prepared_handoff_without_raw_message(self) -> None:
         with TemporaryDirectory() as tmp:

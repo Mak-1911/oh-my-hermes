@@ -565,6 +565,15 @@ def _attach_memory_recall_pack(handoff: object, memory_recall_pack: dict[str, ob
     errors = validate_project_memory_recall_pack(memory_recall_pack, label="memory_recall_pack")
     if errors:
         raise ValueError("; ".join(errors))
+    replayable = all(
+        isinstance(item.get("replay_evaluation"), dict)
+        and item["replay_evaluation"].get("eligible") is True
+        and item["replay_evaluation"].get("reason_code") == "eligible"
+        for item in memory_recall_pack["included_records"]
+        if isinstance(item, dict)
+    )
+    if not replayable:
+        raise ValueError("memory_recall_pack contains legacy or ineligible records and cannot be attached")
     handoff["memory_recall_pack"] = memory_recall_pack
 
 

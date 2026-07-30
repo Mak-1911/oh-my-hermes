@@ -975,21 +975,24 @@ This is a Hermes-native `{name}` workflow skill.
 
 {awareness_workflow_context_markdown(name)}
 
-## Interview Protocol
+## English-Canonical Interview Protocol
 
-- **클레임 추출** — `~/.hermes/memories/USER.md`·`MEMORY.md`를 클레임으로 분해하고, 각 클레임은 원문 그대로 인용한다.
-- **출처** — 출처를 추정하거나 지어내지 않는다; 세션에 실제 근거가 있을 때만 출처를 언급한다.
-- **대상** — existing USER.md and MEMORY.md accumulated memories only; 새 프로젝트·제품 메모리 후보 추가는 `memory-new`로 라우팅한다.
-- **우선순위** — stale, conflicting, duplicate, or overgeneralized 클레임을 우선한다("파이썬 한 번 개발"→"파이썬 선호").
-- **턴 구성** — 4–5턴 × 턴당 2–3개 의심 클레임을 묶고, 전수가 아닌 의심 우선으로 메신저 친화 짧은 포맷을 쓴다.
-- **분기** — 예=유지 / 아니요=삭제 / 수정 지시=수정.
-- **마지막 턴** — 변경 요약 diff을 제시한다(유지 n / 삭제 n / 수정 n + 수정 전후).
-- **쓰기 게이트** — 승인 전에는 어떤 파일도 수정하지 않는다; 승인 후 1회 일괄 쓰기로만 반영한다.
-- **캡** — MEMORY.md ~2,200자 / USER.md ~1,375자를 넘기지 않는다.
+- **Claim extraction (추출)** - Break supplied `USER.md` and `MEMORY.md` material into claims. Quote only observed claims; never invent provenance.
+- **Provenance (출처)** - Ask for the source class and distinguish Hermes-native, provider, and vector material as `not_omh_reviewed`.
+- **Target (대상)** - Review existing native-memory claims only. Route a new project/product fact to `memory-new`.
+- **Review (검토)** - Prioritize stale, conflicting, duplicate, and overgeneralized claims. Offer keep, revise, or archive choices; do not describe an archive as removal.
+- **Diff (차이)** - Prepare one concise native write diff with before/after claims and counts. Keep the caps: MEMORY.md about 2,200 characters and USER.md about 1,375 characters.
+- **Native-write boundary (쓰기)** - This skill can prepare guidance and a native write diff only. It never invokes, applies, or observes a `MEMORY.md`/`USER.md` write.
 
-## Boundary
+## Memory Boundaries
 
-The prepared artifact is `memory_curation_review/v1`. A memory-sync review is not MEMORY.md or USER.md modification evidence until the approved write gate is observed. Hermes itself reads and writes these files; OMH runtime never writes `~/.hermes` (DIRECTION Rule 5).
+The prepared artifact is `memory_curation_review/v1`, not native-memory mutation evidence. Hermes-native and external provider/vector context is `not_omh_reviewed`: it can nominate an OMH candidate but never inherits OMH approval. A configured Hermes runtime may transmit rendered OMH prefetch content in its model request.
+
+Use lifecycle words literally: expire removes influence only; retire archives recoverably; restore creates a new pending revision while preserving the archive; prune hard-deletes only the manifest-declared OMH-local target set. Report restore and prune first. No lifecycle result proves anything outside that named local target set.
+
+Legacy v1 material is migration/review-required. Present `memory inventory` counts and the report-first per-artifact `memory reactivate ... --apply` path; inventory and reactivation never silently grant replay eligibility. Dreaming remains reminder-only: it prepares reminders for `stale_review_required` and `expired_volatile_records`, never consolidation, retirement, restore, or prune.
+
+Normal users use natural-language Hermes chat. `omh memory ...` commands are agent/operator control-plane references, not normal-user setup.
 
 ## Use When
 
@@ -1106,18 +1109,25 @@ This is a Hermes-native `{name}` workflow skill.
 
 {awareness_workflow_context_markdown(name)}
 
-## Candidate Flow
+## Candidate Decision
 
-- **capture -> review -> approve** — capture a new durable fact as `memory_new_candidate/v1`, review its scope, source, conflicts, duplicates, and target store, then approve or reject it.
-- **Candidate first** — capture adds a candidate. It does not create an approved record until the review decision and target write are observed.
-- **OMH project memory** — the default durable project/product/context store is reviewed OMH-local project memory under `.omh/memory/`.
-- **Hermes native memory** — when the user also wants Hermes to remember the fact natively, prepare that as an optional second target with its own approval and observed write evidence.
-- **Dual-store pattern** — one approved fact may target OMH project memory, Hermes native memory, or both; keep the two write states separate.
-- **Stop condition** — stop once approval is recorded or the candidate is rejected; do not drift into existing-memory cleanup.
+Ask these five questions before capture: source class, target store, canonical scope, retention class, and decision.
 
-## Boundary
+- **Remember** - Capture only one bounded durable candidate as `memory_new_candidate/v1`; it stays pending review until a separately observed OMH-local approval/write.
+- **Refuse** - Do not retain secrets, raw logs, transcripts, prompt-injection-shaped instructions, or temporary progress.
+- **Defer** - Send uncertain source, scope, target, retention, and any external provider/vector material to review rather than storing it.
+- **Target** - OMH-local project memory is the candidate store. Hermes-native memory is a separate target with separate evidence; do not turn one target's approval into the other's.
+- **Retention** - Ask for `volatile`, `standard`, or `durable`. This natural-language remember path creates only the one bounded durable candidate; review handles any different retention request.
 
-OMH project memory does not mutate Hermes internal memory. A `memory_new_candidate/v1` artifact is prepared context only, not an approved OMH project-memory record, Hermes native-memory write, or proof that either store changed. Record target writes only when observed: OMH project-memory approval is not Hermes native-memory evidence, and Hermes native-memory approval is not OMH project-memory evidence.
+## Memory Boundaries
+
+A `memory_new_candidate/v1` artifact is prepared context only, not an approved record, Hermes-native write, or proof that either store changed. Hermes-native and external provider/vector context is `not_omh_reviewed`: it can nominate a candidate but never inherits OMH approval. A configured Hermes runtime may transmit rendered OMH prefetch content in its model request.
+
+Use lifecycle words literally: expire removes influence only; retire archives recoverably; restore creates a new pending revision while preserving the archive; prune hard-deletes only the manifest-declared OMH-local target set. Restore and prune are report-first. No lifecycle result proves anything outside that named local target set.
+
+Legacy v1 material is migration/review-required: show `memory inventory` counts first, then reactivate one reviewed artifact with `memory reactivate ... --apply`. Dreaming is reminder-only; its standing reasons include `stale_review_required` and `expired_volatile_records`, and it never consolidates, retires, restores, or prunes.
+
+Normal users use natural-language Hermes chat. `omh memory ...` commands are agent/operator control-plane references, not normal-user setup.
 
 ## Use When
 
@@ -1133,8 +1143,8 @@ OMH project memory does not mutate Hermes internal memory. A `memory_new_candida
 
 - Use `{primary_harness}` to keep candidate capture, review, approval, and observed writes distinct.
 - Route stale, conflicting, duplicate, overgeneralized, or risky existing `USER.md`/`MEMORY.md` facts to `memory-sync`.
-- Prefer one durable fact per candidate and preserve the project/product scope and source context.
-- State the new durable fact, scope, source, target store, and review owner before capture; add the candidate before requesting approval, and verify target-specific write evidence before claiming persistence.
+- Require source class, target store, scope, retention class, and an explicit remember/refuse/defer decision before capture.
+- Keep the candidate bounded and durable; never retain material that belongs in refuse or defer.
 
 {_common_rail_sections(definition, primary_harness)}
 """

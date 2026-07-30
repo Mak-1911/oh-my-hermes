@@ -105,7 +105,7 @@ When Hermes exposes installed skill descriptions to the model, use this registry
 - `morning-brief`: `morning-brief`, `morning brief`, `connect my email for a morning brief`, `set up morning brief`, `configure morning brief`, `connect mail for morning brief`, `connect calendar for morning brief`, `set up my morning brief`, `모닝 브리핑 설정해줘`
 - `github-event-ops`: `github-event-ops`, `github event ops`, `github ops`, `github triage`, `github pr`, `github review`, `github action`, `github actions`, `pr opened`
 - `agent-board`: `agent-board`, `agent board`, `kanban`, `multi-agent`, `multi agent`, `multi agent board`, `multiple hermes agents`, `multiple hermes profiles`, `hermes profiles`
-- `memory-new`: `memory-new`, `new memory`, `project memory`, `product memory`, `remember this project`, `remember this product`, `memory capture`, `capture memory`, `save project memory`
+- `memory-new`: `memory-new`, `new memory`, `project memory`, `product memory`, `remember this project`, `remember this product`, `do not save`, `do not save this token`, `memory capture`
 - `memory-sync`: `memory-sync`, `memory curation`, `memory review`, `memory inspect`, `memory check`, `memory update`, `context cleanup`, `curate memory`, `stale memory`
 - `gateway-intent-card`: `gateway-intent-card`, `gateway intent`, `discord thread`, `slack thread`, `telegram delivery`, `discord delivery policy`, `slack delivery policy`, `telegram delivery policy`, `discord status update`
 - `executor-runtime-readiness`: `executor-runtime-readiness`, `executor readiness`, `runtime readiness`, `codex readiness`, `claude code readiness`, `hermes coding readiness`, `executor tools`, `missing tools`, `missing runtime tools`
