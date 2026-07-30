@@ -37,7 +37,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 When Hermes exposes installed skill descriptions to the model, use this registry as the routing map:
 
 - `meta-router`: `/omh`, `./omh`
-- `ralph`: `ralph`, `$ralph`, `finish until done`, `persistent execution`, `self-referential loop`
+- `ralph`: `ralph`, `$ralph`, `ulr`, `$ulr`, `finish until done`, `persistent execution`, `self-referential loop`
 - `ultragoal`: `ultragoal`, `$ultragoal`, `ulg`, `$ulg`, `durable goal`, `multi-goal`, `goal ledger`, `long running goal`, `완료조건까지 계속`
 - `loop`: `loop`, `./loop`, `$loop`, `goal loop`, `long horizon goal`, `never stop`, `research plan ultragoal feedback`, `token exhaustion resume`, `permission profile`
 - `ultraprocess`: `ultraprocess`, `$ultraprocess`, `ulp`, `$ulp`, `./ultraprocess`, `/ultraprocess`, `single-cycle delivery`, `one-cycle delivery`, `end-to-end process`

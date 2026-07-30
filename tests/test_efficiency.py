@@ -194,7 +194,7 @@ class EfficiencyContractTests(unittest.TestCase):
         report = skill_context_cost_markdown()
         self.assertIn("## core profile", report)
         self.assertIn("## full profile", report)
-        self.assertIn("Hermes Compatibility Contract", report)
+        self.assertIn("Workflow Lane", report)
 
     def test_skill_triggers_and_evidence_boundaries_survive_common_rail_move(self) -> None:
         """Differential gate for issue #634 on the three surfaces it must not change.
@@ -277,13 +277,19 @@ class EfficiencyContractTests(unittest.TestCase):
         self.assertIn("Common cues before generic tools", awareness_primer_markdown())
         self.assertIn("check OMH prep/status/learning", awareness_primer_markdown())
         self.assertIn("Generic tool map", awareness_primer_markdown())
-        self.assertEqual(combined.count("## OMH Context Rail"), len(workflow_skill_names))
+        self.assertEqual(combined.count("## Workflow Lane"), len(workflow_skill_names))
         self.assertEqual(combined.count("## OMH Awareness Primer"), 1)
+        common_rail = next(
+            template.content
+            for template in builtin_skill_reference_templates()
+            if template.relative_path == "references/skill-common-rail.md"
+        )
+        self.assertIn("## OMH Context Rail", common_rail)
+        self.assertIn("Generic-tool checkpoint: image->img-summary", common_rail)
         for name in workflow_skill_names:
-            self.assertIn(
-                "Generic-tool checkpoint: image->img-summary",
-                awareness_workflow_context_markdown(name),
-            )
+            context = awareness_workflow_context_markdown(name)
+            self.assertIn("Shared product, routing, compatibility, and evidence rules", context)
+            self.assertNotIn("Generic-tool checkpoint: image->img-summary", context)
 
     def test_omh_awareness_lanes_cover_installable_skills(self) -> None:
         payload = awareness_primer_payload()
@@ -887,6 +893,16 @@ class EfficiencyContractTests(unittest.TestCase):
             "cases": [],
             "claim_boundary": "common request boundary",
         }
+        native_competition_payload = {
+            "schema_version": "omh_native_skill_competition/v1",
+            "all_passing": True,
+            "passed_count": 1,
+            "case_count": 1,
+            "failed_count": 0,
+            "failures": [],
+            "results": [],
+            "claim_boundary": "native competition boundary",
+        }
 
         with (
             patch.object(
@@ -916,6 +932,11 @@ class EfficiencyContractTests(unittest.TestCase):
             ),
             patch.object(
                 hermes_ux_quality_module,
+                "build_native_skill_competition_report",
+                side_effect=AssertionError("precomputed native competition payload should be reused"),
+            ),
+            patch.object(
+                hermes_ux_quality_module,
                 "build_localized_chat_copy_demo",
                 side_effect=AssertionError("precomputed localized payload should be reused"),
             ),
@@ -937,13 +958,14 @@ class EfficiencyContractTests(unittest.TestCase):
                 route_hint_alignment=route_hint_payload,
                 context_brief_coverage=context_payload,
                 routing_precision=precision_payload,
+                native_competition=native_competition_payload,
                 localized_chat_copy=localized_payload,
                 router_fast_path=router_fast_path_payload,
                 common_request_coverage=common_request_payload,
             )
 
         self.assertEqual(payload["status"], "passed")
-        self.assertEqual(payload["summary"]["passing_gate_count"], 8)
+        self.assertEqual(payload["summary"]["passing_gate_count"], 9)
         self.assertEqual(payload["summary"]["localized_chat_copy_passing_count"], 1)
         self.assertEqual(payload["summary"]["router_fast_path_passing_count"], 1)
         self.assertEqual(payload["summary"]["common_request_passing_count"], 1)

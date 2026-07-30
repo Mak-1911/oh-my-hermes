@@ -15,8 +15,8 @@ class HermesUxQualityTests(unittest.TestCase):
         self.assertEqual(payload["source"], "discord")
         self.assertEqual(payload["status"], "passed")
         self.assertEqual(payload["score"], 100)
-        self.assertEqual(payload["summary"]["gate_count"], 8)
-        self.assertEqual(payload["summary"]["passing_gate_count"], 8)
+        self.assertEqual(payload["summary"]["gate_count"], 9)
+        self.assertEqual(payload["summary"]["passing_gate_count"], 9)
         self.assertEqual(payload["summary"]["grounded_score_scenarios"], 50)
         self.assertEqual(payload["summary"]["grounded_score_average"], 10.0)
         self.assertEqual(payload["summary"]["chat_card_cases"], 72)
@@ -35,6 +35,8 @@ class HermesUxQualityTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["routing_precision_intervention_cases"], 138)
         self.assertEqual(payload["summary"]["routing_precision_intervention_passing_count"], 138)
         self.assertEqual(payload["summary"]["routing_precision_missed_intervention_count"], 0)
+        self.assertEqual(payload["summary"]["native_competition_cases"], 8)
+        self.assertEqual(payload["summary"]["native_competition_passing_count"], 8)
         self.assertEqual(payload["summary"]["localized_chat_copy_cases"], 8)
         self.assertEqual(payload["summary"]["localized_chat_copy_passing_count"], 8)
         self.assertEqual(payload["summary"]["localized_chat_copy_locale_count"], 6)
@@ -57,6 +59,7 @@ class HermesUxQualityTests(unittest.TestCase):
                 "route_hint_alignment",
                 "context_brief_coverage",
                 "routing_precision",
+                "native_competition",
                 "localized_chat_copy",
                 "router_fast_path",
                 "common_request_coverage",
@@ -66,10 +69,29 @@ class HermesUxQualityTests(unittest.TestCase):
         self.assertIn("before generic tools", gates["route_hint_alignment"]["user_value"])
         self.assertIn("raw prompt leakage", gates["context_brief_coverage"]["user_value"])
         self.assertIn("Ordinary questions", gates["routing_precision"]["user_value"])
+        self.assertIn("native tools", gates["native_competition"]["user_value"])
         self.assertIn("non-English", gates["localized_chat_copy"]["user_value"])
         self.assertIn("fast-path", gates["router_fast_path"]["user_value"])
         self.assertIn("broad curated set", gates["common_request_coverage"]["user_value"])
         self.assertIn("does not prove live Hermes chat rendering", payload["claim_boundary"])
+
+    def test_malformed_native_competition_payload_fails_closed(self) -> None:
+        payload = build_hermes_ux_quality_demo(
+            source="discord",
+            native_competition={
+                "schema_version": "wrong",
+                "case_count": 8,
+                "passed_count": 8,
+                "failed_count": 0,
+                "all_passing": True,
+                "failures": "not-a-list",
+            },
+        )
+        gate = next(item for item in payload["gates"] if item["id"] == "native_competition")
+
+        self.assertEqual(payload["status"], "needs_attention")
+        self.assertEqual(gate["status"], "failed")
+        self.assertTrue(gate["errors"])
 
     def test_hermes_ux_quality_cli_outputs_summary_and_json(self) -> None:
         status, stdout, stderr = run_cli(["demo", "hermes-ux-quality", "--summary"], output_json=False)
@@ -78,7 +100,7 @@ class HermesUxQualityTests(unittest.TestCase):
         self.assertEqual(stderr, "")
         self.assertIn("OMH Hermes UX quality", stdout)
         self.assertIn("Status: passed (100/100)", stdout)
-        self.assertIn("Gates: 8/8", stdout)
+        self.assertIn("Gates: 9/9", stdout)
         self.assertIn("generic ack 0", stdout)
         self.assertIn("route mismatches 0", stdout)
         self.assertIn("precision overroutes 0", stdout)

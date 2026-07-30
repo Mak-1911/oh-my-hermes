@@ -3213,6 +3213,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                     "route_hint_alignment",
                     "context_brief_coverage",
                     "routing_precision",
+                    "native_competition",
                     "localized_chat_copy",
                     "router_fast_path",
                     "common_request_coverage",
@@ -3248,7 +3249,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("coverage 100.0%", gates["common_request_coverage"]["summary"])
             self.assertIn("popular plugin families 10/10 (100.0%)", gates["common_request_coverage"]["summary"])
             self.assertEqual(gates["hermes_ux_quality"]["status"], "passed")
-            self.assertIn("8/8 UX gates passing", gates["hermes_ux_quality"]["summary"])
+            self.assertIn("9/9 UX gates passing", gates["hermes_ux_quality"]["summary"])
             self.assertIn("fast paths 11/11", gates["hermes_ux_quality"]["summary"])
             self.assertIn("common requests 91/91", gates["hermes_ux_quality"]["summary"])
             self.assertEqual(gates["parity_contracts"]["status"], "passed")
@@ -3298,7 +3299,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 "(100.0%; target 95.0%; generic ack 0; popular plugin families 10/10 at 100.0%)",
                 stdout,
             )
-            self.assertIn("Hermes UX quality: 100/100 (8/8 gates)", stdout)
+            self.assertIn("Hermes UX quality: 100/100 (9/9 gates)", stdout)
             self.assertIn("Local artifact store: not_written", stdout)
             self.assertFalse((omh_home / "runtime" / "release-evidence" / "index.json").exists())
 
@@ -3343,8 +3344,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(payload["summary"]["popular_plugin_family_total"], 10)
             self.assertEqual(payload["summary"]["popular_plugin_weighted_coverage_percent"], 100.0)
             self.assertEqual(payload["summary"]["hermes_ux_quality_score"], 100)
-            self.assertEqual(payload["summary"]["hermes_ux_quality_passing_gates"], 8)
-            self.assertEqual(payload["summary"]["hermes_ux_quality_total_gates"], 8)
+            self.assertEqual(payload["summary"]["hermes_ux_quality_passing_gates"], 9)
+            self.assertEqual(payload["summary"]["hermes_ux_quality_total_gates"], 9)
             self.assertIn("local_artifact_store: not_written", payload["warnings"])
             self.assertTrue(Path(payload["artifact_path"]).exists())
             self.assertTrue((omh_home / "runtime" / "release-evidence" / "index.json").exists())

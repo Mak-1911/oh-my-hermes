@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import stat
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -9,6 +11,8 @@ from unittest.mock import patch
 from _local_package import load_local_package
 
 load_local_package()
+from omh.maintenance.doctor import _awareness_delivery_check
+from omh.paths import resolve_paths
 from omh.plugin_bundle.omh.awareness_delivery import (
     AWARENESS_DELIVERY_SCHEMA_VERSION,
     awareness_delivery_path,
@@ -60,6 +64,7 @@ class AwarenessDeliveryLedgerTests(unittest.TestCase):
             self.assertEqual(record["suppressed_count"], 1)
             self.assertEqual(record["delivery_count"], 0)
             self.assertEqual(record["last_delivered_at"], "")
+            self.assertEqual(record["first_attempted_at"], "2026-07-26T04:27:20Z")
 
     def test_route_hints_are_counted_only_when_present(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -121,12 +126,89 @@ class AwarenessDeliveryLedgerTests(unittest.TestCase):
                 set(stored),
                 {
                     "schema_version", "delivery_count", "route_hint_count", "suppressed_count",
-                    "first_delivered_at", "last_delivered_at", "last_context_chars",
+                    "first_attempted_at", "first_delivered_at", "last_delivered_at", "last_context_chars",
                 },
             )
             self.assertNotIn("2768 chars of prompt", written)
             for key in ("context", "user_message", "prompt", "route_hint"):
                 self.assertNotIn(key, stored, f"{key} would put model-facing text in a ledger")
+
+    def test_zero_delivery_warns_only_after_seven_days(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            record_awareness_delivery(
+                delivered=False,
+                route_hint=False,
+                context_chars=0,
+                observed_at="2026-07-01T00:00:00Z",
+                omh_home=str(paths.omh_home),
+            )
+
+            fresh = _awareness_delivery_check(
+                paths,
+                now=datetime(2026, 7, 7, 23, 59, 59, tzinfo=UTC),
+            )
+            aged = _awareness_delivery_check(
+                paths,
+                now=datetime(2026, 7, 8, 0, 0, 0, tzinfo=UTC),
+            )
+
+            self.assertTrue(fresh.ok)
+            self.assertEqual(fresh.severity, "ok")
+            self.assertFalse(aged.ok)
+            self.assertEqual(aged.severity, "warning")
+            self.assertIn("restart hermes", aged.next_action.casefold())
+            self.assertIn("hook payload", aged.message)
+            self.assertNotIn("reached a model", aged.message)
+
+    def test_a_delivery_or_legacy_record_never_false_ages(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            record_awareness_delivery(
+                delivered=True,
+                route_hint=True,
+                context_chars=12,
+                observed_at="2026-07-01T00:00:00Z",
+                omh_home=str(paths.omh_home),
+            )
+            delivered = _awareness_delivery_check(
+                paths,
+                now=datetime(2026, 8, 1, tzinfo=UTC),
+            )
+            self.assertTrue(delivered.ok)
+            self.assertIn("hook payload", delivered.message)
+            self.assertNotIn("reached a model", delivered.message)
+
+            awareness_delivery_path(str(paths.omh_home)).write_text(
+                json.dumps(
+                    {
+                        "schema_version": AWARENESS_DELIVERY_SCHEMA_VERSION,
+                        "delivery_count": 0,
+                        "route_hint_count": 0,
+                        "suppressed_count": 5,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            legacy = _awareness_delivery_check(
+                paths,
+                now=datetime(2026, 8, 1, tzinfo=UTC),
+            )
+            self.assertTrue(legacy.ok)
+            self.assertEqual(legacy.severity, "ok")
+
+    def test_ledger_file_and_directory_are_private(self) -> None:
+        with TemporaryDirectory() as tmp:
+            record_awareness_delivery(
+                delivered=False,
+                route_hint=False,
+                context_chars=0,
+                observed_at="2026-07-01T00:00:00Z",
+                omh_home=tmp,
+            )
+            path = awareness_delivery_path(tmp)
+            self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
     def test_a_corrupt_ledger_reads_as_unreadable_rather_than_zero(self) -> None:
         """Zero deliveries and an unparseable file mean different things."""

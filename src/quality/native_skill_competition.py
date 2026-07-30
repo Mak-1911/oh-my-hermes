@@ -1,0 +1,222 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import re
+from typing import Literal, Mapping
+
+from ..skills.catalog import builtin_definitions, omh_skill_display_name
+from ..skills.render import frontmatter_description
+
+
+_TOKEN_RE = re.compile(r"[0-9a-z]+")
+_STOP_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "for",
+        "in",
+        "of",
+        "on",
+        "the",
+        "to",
+        "with",
+    }
+)
+
+
+@dataclass(frozen=True)
+class NativeCompetitionCase:
+    case_id: str
+    query: str
+    omh_skill: str
+    native_name: str
+    native_description: str
+    expected_winner: Literal["native", "omh"]
+
+
+NATIVE_COMPETITION_CASES = (
+    NativeCompetitionCase(
+        "browser-native-default",
+        "open this url in the browser click login and fill the form",
+        "browser-operator",
+        "browser",
+        "Open a URL in the browser, click a login button, fill a form, and read page content.",
+        "native",
+    ),
+    NativeCompetitionCase(
+        "browser-policy-overlay",
+        "browser login requires auth confirmation and an observed trace before the action",
+        "browser-operator",
+        "browser",
+        "Open a URL in the browser, click a login button, fill a form, and read page content.",
+        "omh",
+    ),
+    NativeCompetitionCase(
+        "files-native-default",
+        "list files in this folder search by name and rename one file",
+        "workspace-file-operator",
+        "files",
+        "List files and folders, search by name, read files, copy files, move files, and rename files.",
+        "native",
+    ),
+    NativeCompetitionCase(
+        "files-policy-overlay",
+        "delete a file only after path scoping destructive action confirmation and evidence",
+        "workspace-file-operator",
+        "files",
+        "List files and folders, search by name, read files, copy files, move files, and rename files.",
+        "omh",
+    ),
+    NativeCompetitionCase(
+        "shell-native-default",
+        "run the pytest command in the shell and show its output",
+        "command-operator",
+        "shell",
+        "Run shell commands, CLI tools, package managers, and tests, then return command output.",
+        "native",
+    ),
+    NativeCompetitionCase(
+        "shell-policy-overlay",
+        "run a production migration command with cwd environment safety and result evidence gates",
+        "command-operator",
+        "shell",
+        "Run shell commands, CLI tools, package managers, and tests, then return command output.",
+        "omh",
+    ),
+    NativeCompetitionCase(
+        "live-info-native-default",
+        "show the weather today in seoul",
+        "live-info-operator",
+        "weather",
+        "Look up live weather today, forecasts, prices, sports scores, maps, and local time.",
+        "native",
+    ),
+    NativeCompetitionCase(
+        "live-info-policy-overlay",
+        "exchange rate lookup requires provider freshness units and source quality evidence",
+        "live-info-operator",
+        "weather",
+        "Look up live weather today, forecasts, prices, sports scores, maps, and local time.",
+        "omh",
+    ),
+)
+
+
+def _tokens(text: str) -> frozenset[str]:
+    return frozenset(token for token in _TOKEN_RE.findall(text.casefold()) if token not in _STOP_WORDS)
+
+
+def _lexical_score(query: str, name: str, description: str) -> tuple[int, tuple[str, ...]]:
+    query_tokens = _tokens(query)
+    name_overlap = query_tokens & _tokens(name)
+    description_overlap = query_tokens & _tokens(description)
+    matched = tuple(sorted(name_overlap | description_overlap))
+    return (2 * len(name_overlap)) + len(description_overlap), matched
+
+
+def build_native_skill_competition_report() -> dict[str, object]:
+    definitions = {definition.name: definition for definition in builtin_definitions()}
+    results: list[dict[str, object]] = []
+    failures: list[str] = []
+    for case in NATIVE_COMPETITION_CASES:
+        definition = definitions[case.omh_skill]
+        omh_score, omh_matches = _lexical_score(
+            case.query,
+            omh_skill_display_name(definition.name),
+            frontmatter_description(definition),
+        )
+        native_score, native_matches = _lexical_score(
+            case.query,
+            case.native_name,
+            case.native_description,
+        )
+        if omh_score == native_score:
+            actual_winner = "tie"
+            winner_score = omh_score
+            loser_score = native_score
+        elif omh_score > native_score:
+            actual_winner = "omh"
+            winner_score = omh_score
+            loser_score = native_score
+        else:
+            actual_winner = "native"
+            winner_score = native_score
+            loser_score = omh_score
+        passed = actual_winner == case.expected_winner
+        if not passed:
+            failures.append(case.case_id)
+        results.append(
+            {
+                "case_id": case.case_id,
+                "omh_skill": case.omh_skill,
+                "native_name": case.native_name,
+                "expected_winner": case.expected_winner,
+                "actual_winner": actual_winner,
+                "winner_score": winner_score,
+                "loser_score": loser_score,
+                "omh_score": omh_score,
+                "native_score": native_score,
+                "omh_matches": list(omh_matches),
+                "native_matches": list(native_matches),
+                "passed": passed,
+                "picker_surface": "generated_frontmatter_name_description",
+            }
+        )
+    return {
+        "schema_version": "omh_native_skill_competition/v1",
+        "case_count": len(results),
+        "passed_count": len(results) - len(failures),
+        "failed_count": len(failures),
+        "failures": failures,
+        "all_passing": not failures,
+        "results": results,
+        "claim_boundary": (
+            "Deterministic lexical comparison of checked-in representative native descriptions against "
+            "generated OMH frontmatter name+description only; not live Hermes picker, runtime, or market evidence."
+        ),
+    }
+
+
+def native_skill_competition_errors(payload: Mapping[str, object]) -> list[str]:
+    errors: list[str] = []
+    if payload.get("schema_version") != "omh_native_skill_competition/v1":
+        errors.append("native competition schema_version is invalid")
+    counts: dict[str, int] = {}
+    for key in ("case_count", "passed_count", "failed_count"):
+        value = payload.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            errors.append(f"native competition {key} is invalid")
+        else:
+            counts[key] = value
+    failures = payload.get("failures")
+    if not isinstance(failures, list) or not all(isinstance(item, str) and item for item in failures):
+        errors.append("native competition failures must be a list of case ids")
+        failure_count = -1
+    else:
+        failure_count = len(failures)
+    if not isinstance(payload.get("results"), list):
+        errors.append("native competition results must be a list")
+    all_passing = payload.get("all_passing")
+    if not isinstance(all_passing, bool):
+        errors.append("native competition all_passing must be boolean")
+    if len(counts) == 3:
+        if counts["passed_count"] + counts["failed_count"] != counts["case_count"]:
+            errors.append("native competition counts are inconsistent")
+        if failure_count >= 0 and counts["failed_count"] != failure_count:
+            errors.append("native competition failure count is inconsistent")
+        expected_all_passing = counts["failed_count"] == 0 and counts["passed_count"] == counts["case_count"]
+        if isinstance(all_passing, bool) and all_passing != expected_all_passing:
+            errors.append("native competition all_passing is inconsistent")
+    return errors
+
+
+def format_native_skill_competition_summary(payload: dict[str, object]) -> str:
+    return "\n".join(
+        (
+            "Native skill competition",
+            f"- cases: {payload['passed_count']}/{payload['case_count']} passing",
+            f"- failures: {', '.join(payload['failures']) if payload['failures'] else 'none'}",
+            f"- boundary: {payload['claim_boundary']}",
+        )
+    )

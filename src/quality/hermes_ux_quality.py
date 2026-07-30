@@ -8,6 +8,7 @@ from .common_request_coverage import build_common_request_coverage_demo, common_
 from .context_brief_coverage import build_context_brief_coverage_demo
 from .grounded_score import build_grounded_score_demo
 from .localized_chat_copy import build_localized_chat_copy_demo, localized_chat_copy_errors
+from .native_skill_competition import build_native_skill_competition_report, native_skill_competition_errors
 from .route_hint_alignment import build_route_hint_alignment_demo
 from .router_fast_path import build_router_fast_path_demo, router_fast_path_errors
 from .routing_precision import build_routing_precision_demo, routing_precision_errors
@@ -24,6 +25,7 @@ def build_hermes_ux_quality_demo(
     route_hint_alignment: Mapping[str, object] | None = None,
     context_brief_coverage: Mapping[str, object] | None = None,
     routing_precision: Mapping[str, object] | None = None,
+    native_competition: Mapping[str, object] | None = None,
     localized_chat_copy: Mapping[str, object] | None = None,
     router_fast_path: Mapping[str, object] | None = None,
     common_request_coverage: Mapping[str, object] | None = None,
@@ -55,6 +57,11 @@ def build_hermes_ux_quality_demo(
         if routing_precision is not None
         else build_routing_precision_demo(source=source)
     )
+    native = (
+        dict(native_competition)
+        if native_competition is not None
+        else build_native_skill_competition_report()
+    )
     localized_copy = (
         dict(localized_chat_copy)
         if localized_chat_copy is not None
@@ -70,6 +77,7 @@ def build_hermes_ux_quality_demo(
         if common_request_coverage is not None
         else build_common_request_coverage_demo(source=source)
     )
+    native_errors = native_skill_competition_errors(native)
 
     gates = [
         _gate(
@@ -121,6 +129,19 @@ def build_hermes_ux_quality_demo(
             command="omh demo routing-precision --json",
             errors=routing_precision_errors(precision),
             claim_boundary=str(precision.get("claim_boundary", "")),
+        ),
+        _gate(
+            gate_id="native_competition",
+            title="Native skill competition",
+            status="passed" if not native_errors else "failed",
+            summary=f"{native.get('passed_count', 0)}/{native.get('case_count', 0)} frontmatter comparisons passing.",
+            user_value=(
+                "Ordinary native-tool requests prefer native tools, while OMH policy overlays win only when "
+                "the user asks for their confirmation, safety, freshness, or evidence boundary."
+            ),
+            command="omh demo native-competition --json",
+            errors=native_errors,
+            claim_boundary=str(native.get("claim_boundary", "")),
         ),
         _gate(
             gate_id="localized_chat_copy",
@@ -192,6 +213,8 @@ def build_hermes_ux_quality_demo(
             "routing_precision_intervention_cases": precision_summary.get("intervention_case_count", 0),
             "routing_precision_intervention_passing_count": precision_summary.get("intervention_passing_count", 0),
             "routing_precision_missed_intervention_count": precision_summary.get("missed_intervention_count", 0),
+            "native_competition_cases": native.get("case_count", 0),
+            "native_competition_passing_count": native.get("passed_count", 0),
             "localized_chat_copy_cases": localized_summary.get("case_count", 0),
             "localized_chat_copy_passing_count": localized_summary.get("passing_count", 0),
             "localized_chat_copy_locale_count": localized_summary.get("locale_count", 0),
@@ -210,6 +233,7 @@ def build_hermes_ux_quality_demo(
             "Plugin/context awareness agrees with the router before generic tools are used.",
             "Catalog questions open an OMH picker without asking the user to approve shell commands.",
             "Plain help and file lookup questions stay out of OMH workflow routing when OMH is not needed.",
+            "Native tools win ordinary tool requests while OMH overlays win only for explicit policy gates.",
             "Common non-English operator prompts get local card framing without external translation.",
             "Frequent picker, status, direct-answer, file lookup, and workflow requests stay on deterministic fast paths.",
             "Real OMH-shaped requests still route to the expected workflow, picker, or context brief.",
@@ -219,7 +243,7 @@ def build_hermes_ux_quality_demo(
         "claim_boundary": (
             "Hermes UX quality proves deterministic local routing, card, hint, context, precision, "
             "localized-copy, fast-path, and common-request breadth contracts only. "
-            "It does not prove live Hermes chat rendering, platform delivery, plugin load, generic tool invocation, "
+            "It does not prove live Hermes chat rendering or picker ranking, platform delivery, plugin load, generic tool invocation, "
             "source retrieval, image generation, executor dispatch, implementation, verification, review, CI, merge, "
             "or delivery."
         ),

@@ -523,6 +523,9 @@ class SkillDefinition:
     # Empty means inherit the category default. The resolved value is exposed
     # as catalog metadata for hosts to apply to their own model inventory.
     reasoning_demand: Literal["light", "standard", "heavy", ""] = ""
+    # Short routing-equivalent names surfaced through the frontmatter
+    # description because the host picker reads only `name` + `description`.
+    aliases: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "description", omh_description(self.description))

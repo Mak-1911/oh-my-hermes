@@ -39,6 +39,10 @@ from ..quality.context_brief_coverage import build_context_brief_coverage_demo
 from ..quality.grounded_score import build_grounded_score_demo
 from ..quality.hermes_ux_quality import build_hermes_ux_quality_demo, hermes_ux_quality_errors
 from ..quality.localized_chat_copy import build_localized_chat_copy_demo, localized_chat_copy_errors
+from ..quality.native_skill_competition import (
+    build_native_skill_competition_report,
+    native_skill_competition_errors,
+)
 from ..quality.route_hint_alignment import build_route_hint_alignment_demo
 from ..quality.router_fast_path import build_router_fast_path_demo, router_fast_path_errors
 from ..quality.routing_precision import build_routing_precision_demo, routing_precision_errors
@@ -79,7 +83,11 @@ REPRESENTATIVE_CONTEXT_RAIL_SKILLS = (
     "materials-package",
 )
 ROUTER_CONTENT_MARKERS = ("OMH Awareness Primer", "img-summary", "Normal users should talk to Hermes Agent")
-WORKFLOW_CONTEXT_MARKERS = ("OMH Context Rail", "not a standalone executor", "Prepared OMH routing")
+WORKFLOW_CONTEXT_MARKERS = (
+    "Workflow Lane",
+    "Shared product, routing, compatibility, and evidence rules",
+    "Prepared OMH routing",
+)
 ROLE_CONTEXT_MARKERS = ("OMH Role Context", "OMH workflow-layer responsibility context", "prepared guidance only")
 CONCEPTUAL_AWARENESS_SURFACES = ("request-to-handoff", "executor selection", "coding runtime handoff")
 AWARENESS_PRIMER_CONTEXT_CHAR_LIMIT = 900
@@ -171,6 +179,7 @@ class ReleaseQualityEvidence:
     route_hints: dict[str, object]
     context_briefs: dict[str, object]
     routing_precision: dict[str, object]
+    native_competition: dict[str, object]
     localized_chat_copy: dict[str, object]
     router_fast_path: dict[str, object]
     common_request_coverage: dict[str, object]
@@ -329,6 +338,16 @@ def release_readiness_checklist(
             "Routing precision proves deterministic local over-intervention and missed-intervention guards only; it does not prove live Hermes chat rendering, platform delivery, source retrieval, file inspection, executor work, review, CI, merge, or plugin-load evidence.",
         ),
         ReleaseChecklistItem(
+            "native_competition",
+            "Check native-skill competition boundaries",
+            "uv run python -m omh.cli demo native-competition --json",
+            "contract-quality",
+            True,
+            False,
+            "Native competition reports all generated-frontmatter pairwise cases passing with no ties.",
+            "Native competition is a deterministic local lexical heuristic; it does not prove live Hermes picker ranking or installed native inventory.",
+        ),
+        ReleaseChecklistItem(
             "localized_chat_copy",
             "Check localized chat-card framing",
             "uv run python -m omh.cli demo localized-chat-copy --json",
@@ -365,8 +384,8 @@ def release_readiness_checklist(
             "contract-quality",
             True,
             False,
-            "Hermes UX quality reports routing score, dedicated chat-card coverage, route-hint alignment, context-brief coverage, routing precision, localized chat copy, router fast-path quality, and common request coverage as passing in one user-facing rollup.",
-            "Hermes UX quality proves deterministic local routing, card, hint, context, precision, localized-copy, fast-path, and common-request contracts only; it does not prove live Hermes chat rendering, platform delivery, plugin load, generic tool invocation, executor work, review, CI, merge, or delivery.",
+            "Hermes UX quality reports routing score, dedicated chat-card coverage, route-hint alignment, context-brief coverage, routing precision, native-skill competition, localized chat copy, router fast-path quality, and common request coverage as passing in one user-facing rollup.",
+            "Hermes UX quality proves deterministic local routing, card, hint, context, precision, native-competition, localized-copy, fast-path, and common-request contracts only; it does not prove live Hermes chat rendering, picker ranking, platform delivery, plugin load, generic tool invocation, executor work, review, CI, merge, or delivery.",
         ),
         ReleaseChecklistItem(
             "product_readiness",
@@ -375,7 +394,7 @@ def release_readiness_checklist(
             "contract-quality",
             True,
             False,
-            "Product readiness reports skill-content, G1-G10 use-case, grounded score, wrapper chat card coverage, route hint alignment, context brief coverage, routing precision, localized chat copy, router fast-path quality, common request coverage, Hermes UX quality, parity, and release checklist gates as passing.",
+            "Product readiness reports skill-content, G1-G10 use-case, grounded score, wrapper chat card coverage, route hint alignment, context brief coverage, routing precision, native-skill competition, localized chat copy, router fast-path quality, common request coverage, Hermes UX quality, parity, and release checklist gates as passing.",
             "Product readiness proves deterministic local package and product contracts only; it does not prove live Hermes chat behavior, connector work, executor work, review, CI, merge, delivery, or billing evidence.",
         ),
         ReleaseChecklistItem(
@@ -385,7 +404,7 @@ def release_readiness_checklist(
             "evidence-packaging",
             True,
             False,
-            "A local `omh_release_evidence_bundle/v1` artifact is written with checklist, product readiness, skill content, use-case readiness, grounded score, chat card coverage, route hint alignment, context brief coverage, routing precision, localized chat copy, router fast-path quality, common request coverage, Hermes UX quality, and parity snapshots.",
+            "A local `omh_release_evidence_bundle/v1` artifact is written with checklist, product readiness, skill content, use-case readiness, grounded score, chat card coverage, route hint alignment, context brief coverage, routing precision, native-skill competition, localized chat copy, router fast-path quality, common request coverage, Hermes UX quality, and parity snapshots.",
             "The evidence bundle packages local deterministic evidence only; it is not live Hermes runtime use, connector execution, executor dispatch, review, CI, merge, delivery, or release publication evidence.",
         ),
         ReleaseChecklistItem(
@@ -608,6 +627,7 @@ def _build_release_quality_evidence(*, release_version: str, omh_command: str) -
     )
     context_briefs = build_context_brief_coverage_demo()
     routing_precision = build_routing_precision_demo()
+    native_competition = build_native_skill_competition_report()
     localized_chat_copy = build_localized_chat_copy_demo()
     router_fast_path = build_router_fast_path_demo()
     common_request_coverage = build_common_request_coverage_demo()
@@ -617,6 +637,7 @@ def _build_release_quality_evidence(*, release_version: str, omh_command: str) -
         route_hint_alignment=route_hints,
         context_brief_coverage=context_briefs,
         routing_precision=routing_precision,
+        native_competition=native_competition,
         localized_chat_copy=localized_chat_copy,
         router_fast_path=router_fast_path,
         common_request_coverage=common_request_coverage,
@@ -630,6 +651,7 @@ def _build_release_quality_evidence(*, release_version: str, omh_command: str) -
         route_hints=route_hints,
         context_briefs=context_briefs,
         routing_precision=routing_precision,
+        native_competition=native_competition,
         localized_chat_copy=localized_chat_copy,
         router_fast_path=router_fast_path,
         common_request_coverage=common_request_coverage,
@@ -653,6 +675,7 @@ def _product_readiness_report_from_evidence(
     route_hints = evidence.route_hints
     context_briefs = evidence.context_briefs
     routing_precision = evidence.routing_precision
+    native_competition = evidence.native_competition
     localized_chat_copy = evidence.localized_chat_copy
     router_fast_path = evidence.router_fast_path
     common_request_coverage = evidence.common_request_coverage
@@ -680,6 +703,7 @@ def _product_readiness_report_from_evidence(
         "route_hint_alignment",
         "context_brief_coverage",
         "routing_precision",
+        "native_competition",
         "localized_chat_copy",
         "router_fast_path",
         "common_request_coverage",
@@ -712,6 +736,7 @@ def _product_readiness_report_from_evidence(
         routing_precision.get("summary", {}) if isinstance(routing_precision.get("summary"), Mapping) else {}
     )
     routing_precision_gate_errors = routing_precision_errors(routing_precision)
+    native_competition_gate_errors = native_skill_competition_errors(native_competition)
     localized_chat_copy_summary = (
         localized_chat_copy.get("summary", {}) if isinstance(localized_chat_copy.get("summary"), Mapping) else {}
     )
@@ -834,6 +859,20 @@ def _product_readiness_report_from_evidence(
             routing_precision_gate_errors,
             [],
             str(routing_precision.get("claim_boundary", "")),
+        ),
+        _product_readiness_gate(
+            "native_competition",
+            "Native skill competition",
+            "passed" if not native_competition_gate_errors else "failed",
+            True,
+            (
+                f"{native_competition.get('passed_count', 0)}/{native_competition.get('case_count', 0)} "
+                "generated-frontmatter comparisons passing"
+            ),
+            "omh demo native-competition --json",
+            native_competition_gate_errors,
+            [],
+            str(native_competition.get("claim_boundary", "")),
         ),
         _product_readiness_gate(
             "localized_chat_copy",
@@ -1798,6 +1837,7 @@ def release_evidence_bundle(
     route_hints = quality_evidence.route_hints
     context_briefs = quality_evidence.context_briefs
     routing_precision = quality_evidence.routing_precision
+    native_competition = quality_evidence.native_competition
     localized_chat_copy = quality_evidence.localized_chat_copy
     router_fast_path = quality_evidence.router_fast_path
     common_request_coverage = quality_evidence.common_request_coverage
@@ -1814,6 +1854,7 @@ def release_evidence_bundle(
         "route_hint_alignment": "passed" if _route_hint_alignment_ready(route_hints) else "failed",
         "context_brief_coverage": "passed" if _context_brief_coverage_ready(context_briefs) else "failed",
         "routing_precision": "passed" if not routing_precision_errors(routing_precision) else "failed",
+        "native_competition": "passed" if not native_skill_competition_errors(native_competition) else "failed",
         "localized_chat_copy": "passed" if not localized_chat_copy_errors(localized_chat_copy) else "failed",
         "router_fast_path": "passed" if not router_fast_path_errors(router_fast_path) else "failed",
         "common_request_coverage": "passed" if not common_request_coverage_errors(common_request_coverage) else "failed",
@@ -1893,6 +1934,8 @@ def release_evidence_bundle(
             "routing_precision_intervention_passing": routing_precision_summary.get("intervention_passing_count"),
             "routing_precision_intervention_total": routing_precision_summary.get("intervention_case_count"),
             "routing_precision_missed_intervention_count": routing_precision_summary.get("missed_intervention_count"),
+            "native_competition_passing_cases": native_competition.get("passed_count"),
+            "native_competition_total_cases": native_competition.get("case_count"),
             "localized_chat_copy_passing": localized_chat_copy_summary.get("passing_count"),
             "localized_chat_copy_total": localized_chat_copy_summary.get("case_count"),
             "localized_chat_copy_locale_count": localized_chat_copy_summary.get("locale_count"),
@@ -1930,6 +1973,7 @@ def release_evidence_bundle(
             "route_hint_alignment": route_hints,
             "context_brief_coverage": context_briefs,
             "routing_precision": routing_precision,
+            "native_competition": native_competition,
             "localized_chat_copy": localized_chat_copy,
             "router_fast_path": router_fast_path,
             "common_request_coverage": common_request_coverage,
@@ -1947,6 +1991,7 @@ def release_evidence_bundle(
             "route_hint_alignment_ready",
             "context_brief_coverage_ready",
             "routing_precision_ready",
+            "native_competition_ready",
             "localized_chat_copy_ready",
             "router_fast_path_ready",
             "common_request_coverage_ready",

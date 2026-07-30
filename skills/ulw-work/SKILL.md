@@ -1,6 +1,6 @@
 ---
 name: ulw-work
-description: [omh] Ultrawork - split an accepted plan into disjoint parallel lanes with per-lane acceptance criteria, verification commands, and owners; prevents two lanes editing the same file. Use when the user says: ultrawork, ulw, parallel work, parallel implementation, high throughput.
+description: [omh] Ultrawork - split an accepted plan into disjoint parallel lanes with per-lane acceptance criteria, verification commands, and owners; prevents two lanes editing the same file. Aliases: ulw. Use when the user says: ultrawork, parallel work, parallel implementation, high throughput.
 metadata:
   hermes:
     tags: [workflow, oh-my-hermes, execution]
@@ -54,17 +54,11 @@ Bad example:
 - If a worker does not ACK or return a result, keep that lane blocked/not_observed and expose the retry or reassignment action.
 - If a worktree or shared-file conflict appears, pause parallel delivery and re-plan ownership before more edits.
 
-## OMH Context Rail
+## Workflow Lane
 
-- This skill is part of OMH's Hermes workflow layer, not a standalone executor.
-- Product context: OMH is a Hermes-native workflow pack: choose skills, shape work, prepare artifacts, show status, and hand off with evidence boundaries.
 - Current lane: **Coding handoff** (`idea-to-deploy`, `cto-loop`, `deploy-and-monitor`, `code-review`, `build-failure-triage`, `verification-gate`, `security-safety-review`, `ultrawork`, `+7 more`) - coding owners, handoffs, review, CI, and merge evidence.
 - If intent belongs to another lane, hand back to `oh-my-hermes` or name the adjacent workflow.
-- Cross-skill context: every OMH skill: match lane; generic tool can render or execute.
-- Generic-tool checkpoint: image->img-summary; frontend->frontend/a11y/visual-qa; paper->paper-learning; content->content-operator; media->media-input-operator; file->materials-package; search->web-research; live->live-info-operator; audit->workspace/production/security; failures->build-failure; verify->verification-gate; code->codegraph/onboarding/ultraprocess.
-- Coverage: Every generated workflow skill carries this rail.
-- Normal users talk to Hermes; OMH CLI is infra.
-- Boundary: Prepared OMH routing/cards/handoffs/artifacts are not observed execution, image generation, delivery, review, CI, merge-readiness, or merge evidence.
+- Shared product, routing, compatibility, and evidence rules: `omh-routing/references/skill-common-rail.md`.
 
 ## Use When
 
@@ -128,11 +122,9 @@ omh runtime record --skill ultrawork --harness goal-execution --status started
 ```
 
 Record observed delegation results; otherwise return `not_available` or `not_observed`.
-
-## Hermes Compatibility Contract
-
-- Preserve workflow intent and stop conditions; verify before claiming completion.
-- Use Hermes-native tools, file operations, and subagent/delegation features when available; do not require unavailable runtime tools, role prompts, or overlays. If a capability is unavailable: native subagents -> Hermes delegation when available, otherwise sequential lanes.
-- Respect `omh_target_topology/v1`: bind state to the current target/thread, use single-target behavior when `active_agent_count` is one, and name a one-to-many or many-to-one change before treating it as persistent.
+Prepared OMH routing is not execution, review, CI, merge-readiness, or merge evidence.
 - When wrapper metadata includes `memory_review_card/v1` or `handoff_context_pack/v1`, treat it as reviewed OMH-local or wrapper-supplied context only. Use conflict-free context summaries to shape plans and handoffs, but do not claim Hermes internal memory was read or changed.
-- Shared rail: `omh-routing/references/skill-common-rail.md` has harness discipline, runtime translations, the delegation command, and execution checklist. Load it when applicable; otherwise name an unavailable capability.
+
+Use Hermes-native subagent/delegation features when available: native subagents -> Hermes delegation when available, otherwise sequential lanes.
+
+Shared product, compatibility, topology, memory, harness, and execution rules: `omh-routing/references/skill-common-rail.md`. Load it when applicable; otherwise name an unavailable capability.
