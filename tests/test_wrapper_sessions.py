@@ -14,6 +14,7 @@ load_local_package()
 from omh.coding_lifecycle import record_codex_dispatch, record_codex_result, record_codex_verification, start_codex_delegation_lifecycle
 from omh.codex_progress import summarize_codex_jsonl_text
 from omh.paths import resolve_paths
+from omh.memory import capture_project_memory_candidate
 from omh.profiles.setup import write_setup_profile
 from omh.runtime_artifacts import (
     create_run,
@@ -396,6 +397,112 @@ class WrapperSessionTests(unittest.TestCase):
             self.assertTrue(validate_runtime(paths)["ok"])
             session_path = paths.runtime_wrapper_sessions_dir / session_id / "session.json"
             self.assertNotIn(message, session_path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _session_events(paths, session_id: str) -> list[dict]:
+        events_path = paths.runtime_wrapper_sessions_dir / session_id / "events.jsonl"
+        if not events_path.exists():
+            return []
+        return [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    def _prompt_only_prepared_session(self, paths, message: str) -> str:
+        started = create_or_resume_wrapper_session(paths, message, source="discord")
+        session_id = str(started["session"]["session_id"])
+        record_plan_decision(paths, session_id, "accept")
+        select_wrapper_session_executor(paths, session_id, "claude-code")
+        prepare_wrapper_session_handoff(paths, session_id, message)
+        return session_id
+
+    def test_same_message_retry_and_empty_message_reserve_without_new_events(self) -> None:
+        """Characterization: retries and shows stay idempotent re-serves."""
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            message = "risky refactor of the observer summary"
+            session_id = self._prompt_only_prepared_session(paths, message)
+            events_before = len(self._session_events(paths, session_id))
+
+            retried = prepare_wrapper_session_handoff(paths, session_id, message)
+            shown = prepare_wrapper_session_handoff(paths, session_id, "")
+
+            self.assertEqual(retried["session"]["status"], "prompt_handoff_prepared")
+            self.assertEqual(shown["session"]["status"], "prompt_handoff_prepared")
+            self.assertEqual(
+                shown["handoff"]["prompt_handoff"]["schema_version"], "coding_prompt_handoff/v1"
+            )
+            self.assertEqual(len(self._session_events(paths, session_id)), events_before)
+
+    def test_follow_up_message_reprepares_prompt_only_handoff(self) -> None:
+        """Issue #754: a new message on a prepared session must not be dropped."""
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(
+                paths, "Regression tests run before merge", record_type="procedure", tags=["tests"]
+            )
+            first_message = "risky refactor of the observer summary"
+            session_id = self._prompt_only_prepared_session(paths, first_message)
+
+            follow_up = "follow-up: add regression tests too"
+            prepared = prepare_wrapper_session_handoff(paths, session_id, follow_up)
+
+            self.assertEqual(prepared["session"]["status"], "prompt_handoff_prepared")
+            follow_up_sha = hashlib.sha256(follow_up.encode("utf-8")).hexdigest()
+            pack = prepared["handoff"]["prompt_handoff"]["memory_recall_pack"]
+            self.assertEqual(pack["task_ref"]["sha256"], follow_up_sha)
+            prepared_events = [
+                event for event in self._session_events(paths, session_id) if event.get("event") == "prompt_handoff_prepared"
+            ]
+            self.assertEqual(len(prepared_events), 2)
+            self.assertEqual(prepared_events[-1]["data"]["message_sha256"], follow_up_sha)
+
+    def test_follow_up_message_links_new_codex_run_and_keeps_previous_run(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            first_message = "risky refactor of the observer summary"
+            started = create_or_resume_wrapper_session(paths, first_message, source="discord")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            select_wrapper_session_executor(paths, session_id, "codex")
+            first = prepare_wrapper_session_handoff(paths, session_id, first_message)
+            first_run_id = str(first["session"]["current_run_id"])
+            self.assertTrue(first_run_id)
+
+            follow_up = "follow-up: add regression tests too"
+            second = prepare_wrapper_session_handoff(paths, session_id, follow_up)
+
+            second_run_id = str(second["session"]["current_run_id"])
+            self.assertTrue(second_run_id)
+            self.assertNotEqual(second_run_id, first_run_id)
+            follow_up_sha = hashlib.sha256(follow_up.encode("utf-8")).hexdigest()
+            new_coding = json.loads(
+                (paths.runtime_runs_dir / second_run_id / "coding_delegation.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(new_coding["message_sha256"], follow_up_sha)
+            self.assertTrue((paths.runtime_runs_dir / first_run_id / "coding_delegation.json").exists())
+
+            retried = prepare_wrapper_session_handoff(paths, session_id, follow_up)
+            self.assertEqual(str(retried["session"]["current_run_id"]), second_run_id)
+
+    def test_follow_up_message_reprepares_runtime_handoff(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            first_message = "risky refactor of the observer summary"
+            started = create_or_resume_wrapper_session(paths, first_message, source="discord")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            select_wrapper_session_executor(paths, session_id, "omx-runtime")
+            prepare_wrapper_session_handoff(paths, session_id, first_message)
+
+            follow_up = "follow-up: add regression tests too"
+            prepared = prepare_wrapper_session_handoff(paths, session_id, follow_up)
+
+            self.assertEqual(prepared["session"]["status"], "runtime_handoff_prepared")
+            follow_up_sha = hashlib.sha256(follow_up.encode("utf-8")).hexdigest()
+            prepared_events = [
+                event for event in self._session_events(paths, session_id) if event.get("event") == "runtime_handoff_prepared"
+            ]
+            self.assertEqual(len(prepared_events), 2)
+            self.assertEqual(prepared_events[-1]["data"]["message_sha256"], follow_up_sha)
 
     def test_write_wrapper_session_preserves_legacy_prompt_handoff_without_local_capability_strategy(self) -> None:
         with TemporaryDirectory() as tmp:
