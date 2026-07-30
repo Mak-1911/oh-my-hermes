@@ -19,6 +19,10 @@ from ..quality.localized_chat_copy import (
     build_localized_chat_copy_demo,
     format_localized_chat_copy_summary,
 )
+from ..quality.native_skill_competition import (
+    build_native_skill_competition_report,
+    format_native_skill_competition_summary,
+)
 from ..quality.route_hint_alignment import build_route_hint_alignment_demo, format_route_hint_alignment_summary
 from ..quality.router_fast_path import build_router_fast_path_demo, format_router_fast_path_summary
 from ..quality.routing_accuracy import build_routing_accuracy_demo, format_routing_accuracy_summary
@@ -35,6 +39,7 @@ DEMO_EPILOG = """Demo lanes:
   route-hint-alignment    Checks plugin/router route hints agree before Hermes speaks.
   context-brief-coverage  Checks compact OMH context briefs keep the right workflow visible.
   routing-precision       Guards against over-routing simple requests and missing OMH interventions.
+  native-competition      Checks OMH frontmatter against representative native-skill descriptions.
   routing-accuracy        Measures whether routing is right per language, not merely unchanged.
   router-fast-path        Checks common chat turns stay on deterministic fast-path routes.
   common-request-coverage Checks ordinary Hermes-agent request breadth against a 95% target.
@@ -126,6 +131,15 @@ def cmd_demo_routing_precision(args: argparse.Namespace) -> int:
         raise OmhError(str(exc)) from exc
     if args.summary:
         print(format_routing_precision_summary(payload))
+    else:
+        _print_json(payload)
+    return 0
+
+
+def cmd_demo_native_competition(args: argparse.Namespace) -> int:
+    payload = build_native_skill_competition_report()
+    if args.summary:
+        print(format_native_skill_competition_summary(payload))
     else:
         _print_json(payload)
     return 0
@@ -278,6 +292,19 @@ def _add_demo_commands(sub) -> None:
     precision_output.add_argument("--json", action="store_true", help="Print the full machine-readable JSON payload. This is the default.")
     precision_output.add_argument("--summary", action="store_true", help="Print a compact human-readable routing precision summary.")
     routing_precision.set_defaults(func=cmd_demo_routing_precision)
+
+    native_competition = demo_sub.add_parser(
+        "native-competition",
+        help="Compare generated OMH frontmatter with representative native-skill descriptions.",
+        description=(
+            "Run a deterministic lexical gate over generated frontmatter name+description pairs. "
+            "This is local contract evidence, not a live Hermes picker result."
+        ),
+    )
+    native_output = native_competition.add_mutually_exclusive_group()
+    native_output.add_argument("--json", action="store_true", help="Print the full machine-readable JSON payload. This is the default.")
+    native_output.add_argument("--summary", action="store_true", help="Print a compact human-readable native competition summary.")
+    native_competition.set_defaults(func=cmd_demo_native_competition)
 
     routing_accuracy = demo_sub.add_parser(
         "routing-accuracy",

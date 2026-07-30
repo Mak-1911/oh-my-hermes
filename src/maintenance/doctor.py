@@ -2,6 +2,7 @@ from __future__ import annotations
 from ..skills.catalog import omh_skill_display_name
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .advisory import AdvisoryReport, run_config_advisories
@@ -37,7 +38,9 @@ WARNING_NEXT_ACTION_PRIORITY = {
     # the check list without replacing the beginner next action.
     "command_path": 100,
     "target_topology": 80,
+    "awareness_delivery": 70,
 }
+AWARENESS_ZERO_DELIVERY_WARNING_DAYS = 7
 DEFAULT_DOCTOR_NEXT_ACTION = "Open Hermes Agent and try: Use OMH request-to-handoff for: I want to safely add a feature to this repo."
 
 
@@ -448,34 +451,64 @@ def recommended_next_action(checks: list[Check]) -> str:
     return DEFAULT_DOCTOR_NEXT_ACTION
 
 
-def _awareness_delivery_check(paths: OmhPaths) -> Check:
-    """Has OMH's primer and route hint actually reached the model?
+def _awareness_delivery_check(paths: OmhPaths, *, now: datetime | None = None) -> Check:
+    """Has OMH's primer and route hint hook returned content for model input?
 
     Reported, never blocking. A fresh install has legitimately delivered
     nothing, and Hermes may not have been restarted since the bundle changed, so
     a zero here is ambiguous in a way `plugin_enabled_in_hermes` is not. What it
-    buys is a way to tell "the bridge is on but silent" from "the bridge is
-    working", which previously nothing could distinguish.
+    buys is a way to tell "the hook is on but returning nothing" from "the hook
+    returned an injection payload". It does not prove host or model consumption.
     """
     from ..plugin_bundle.omh.awareness_delivery import read_awareness_delivery
 
     record = read_awareness_delivery(str(paths.omh_home))
     if record.get("unreadable"):
+        action = "Delete the ledger and run one Hermes turn to repopulate it."
         return Check(
             "awareness_delivery",
             True,
             "awareness delivery ledger is unreadable",
             severity="warning",
             observed=False,
-            next_action="Delete the ledger and run one Hermes turn to repopulate it.",
+            remediation=action,
+            next_action=action,
         )
     delivered = int(record.get("delivery_count", 0) or 0)
     if not delivered:
+        first_attempted_at = str(record.get("first_attempted_at") or "")
+        try:
+            first_attempted = datetime.fromisoformat(first_attempted_at.replace("Z", "+00:00"))
+            if first_attempted.tzinfo is None:
+                first_attempted = None
+        except ValueError:
+            first_attempted = None
+        current_time = now or datetime.now(UTC)
+        if first_attempted is not None and current_time - first_attempted.astimezone(UTC) >= timedelta(
+            days=AWARENESS_ZERO_DELIVERY_WARNING_DAYS
+        ):
+            action = (
+                "Restart Hermes, run one Hermes turn, then rerun `omh doctor`; "
+                "if delivery remains zero, inspect the OMH plugin hook logs."
+            )
+            return Check(
+                "awareness_delivery",
+                False,
+                (
+                    "no OMH awareness hook payload returned for model input for at least "
+                    f"{AWARENESS_ZERO_DELIVERY_WARNING_DAYS} days; "
+                    f"first observed hook attempt: {first_attempted_at}"
+                ),
+                severity="warning",
+                observed=False,
+                remediation=action,
+                next_action=action,
+            )
         return Check(
             "awareness_delivery",
             True,
             (
-                "no OMH awareness delivered to a model yet; run one Hermes turn, "
+                "no OMH awareness hook payload returned for model input yet; run one Hermes turn, "
                 "restarting Hermes first if the bundle changed"
             ),
             severity="ok",
@@ -485,7 +518,7 @@ def _awareness_delivery_check(paths: OmhPaths) -> Check:
         "awareness_delivery",
         True,
         (
-            f"{delivered} awareness injection(s) observed, "
+            f"{delivered} awareness hook payload(s) returned, "
             f"{int(record.get('route_hint_count', 0) or 0)} with a route hint; "
             f"last at {record.get('last_delivered_at', 'unknown')}"
         ),

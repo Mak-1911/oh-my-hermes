@@ -201,6 +201,21 @@ local routing-boundary evidence only: it does not prove live Hermes chat
 rendering, source retrieval, file inspection, executor dispatch, review, CI,
 merge, or plugin loading.
 
+The native competition gate checks the generated picker surface against
+representative native browser, file, shell, and live-information descriptions:
+
+```sh
+omh demo native-competition --json
+```
+
+It should report all ordinary-action cases preferring the representative native
+skill and all confirmation, safety, freshness, or evidence-boundary cases
+preferring the OMH policy overlay. The comparison uses only generated
+frontmatter `name` + `description`, matching the measured picker-visible
+surface. It is a deterministic lexical regression heuristic, not proof of a
+live Hermes picker decision, installed native-skill inventory, or market
+competitiveness.
+
 The localized chat-copy gate checks common non-English operator prompts:
 
 ```sh
@@ -249,8 +264,8 @@ connector work, executor work, review, CI, merge, delivery, or market-share
 evidence.
 
 The Hermes UX quality rollup checks the chat-first user experience across the
-routing, card, hint, context, precision, localized-copy, fast-path, and common
-request coverage rails:
+routing, card, hint, context, precision, native-competition, localized-copy,
+fast-path, and common-request coverage rails:
 
 ```sh
 omh demo hermes-ux-quality --json
@@ -275,8 +290,8 @@ omh release product-readiness --version 1.0.3 --json
 
 It checks the generated skill content, G1-G10 readiness, grounded routing score,
 wrapper chat-card coverage, route-hint alignment, context-brief coverage,
-routing precision, router fast-path quality, common request coverage, Hermes UX
-quality, parity matrix, and release checklist shape in one operator-readable
+routing precision, native competition, router fast-path quality, common request
+coverage, Hermes UX quality, parity matrix, and release checklist shape in one operator-readable
 card. It is useful for release notes and maintainer handoff, but it is still
 local deterministic evidence only: it does not run the checklist, mutate Hermes,
 dispatch executors, review code, pass CI, merge, deliver messages, or spend
@@ -291,8 +306,8 @@ omh release evidence-bundle --version 1.0.3 --write --json
 The bundle writes `omh_release_evidence_bundle/v1` under
 `.omh/runtime/release-evidence/` with the checklist, product readiness,
 skill-content smoke, use-case readiness, grounded score, chat-card coverage,
-route-hint alignment, context-brief coverage, routing precision, Hermes UX
-quality, and parity snapshots. It is useful for release PRs and notes, but it is
+route-hint alignment, context-brief coverage, routing precision, native
+competition, Hermes UX quality, and parity snapshots. It is useful for release PRs and notes, but it is
 still local deterministic evidence only; live Hermes smoke, CI, review, merge,
 delivery, and GitHub release publication must be observed separately.
 

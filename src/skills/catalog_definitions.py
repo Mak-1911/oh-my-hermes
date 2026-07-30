@@ -185,8 +185,9 @@ _DEFINITIONS = [
     SkillDefinition(
         "ralph",
         "Ralph - one owner drives a concrete task to done: implement, verify, review, repeat until the gate passes; prefer over one-shot delegation when the task needs a verification loop.",
-        ("ralph", "$ralph", "finish until done", "persistent execution", "self-referential loop"),
+        ("ralph", "$ralph", "ulr", "$ulr", "finish until done", "persistent execution", "self-referential loop"),
         "Use after scope is concrete and the user wants one owner to continue through implementation and verification.",
+        aliases=("ulr",),
         category="execution",
         phase="completion",
         hermes_role="runtime-handoff-guidance",
@@ -224,6 +225,7 @@ _DEFINITIONS = [
             "완료 조건까지 계속",
         ),
         "Use when work needs durable goal artifacts, checkpointed progress, and final quality gates.",
+        aliases=("ulg",),
         category="execution",
         phase="durable-goals",
         hermes_role="runtime-handoff-guidance",
@@ -421,6 +423,7 @@ _DEFINITIONS = [
             "TDD로 구현",
         ),
         "Use when the user asks Hermes to take a concrete task through one full delivery cycle: research/codebase context, reviewed plan, selected implementation handoff, code review, docs sync when needed, and PR preparation.",
+        aliases=("ulp",),
         category="process",
         phase="single-cycle-plan-to-pr",
         capability_family="delegate_coding_and_ship",
@@ -582,6 +585,7 @@ _DEFINITIONS = [
         "Ultrawork - split an accepted plan into disjoint parallel lanes with per-lane acceptance criteria, verification commands, and owners; prevents two lanes editing the same file.",
         ("ultrawork", "$ultrawork", "ulw", "$ulw", "parallel work", "parallel implementation", "high throughput"),
         "Use when an accepted implementation plan can be split into independent, reviewable work lanes.",
+        aliases=("ulw",),
         category="execution",
         phase="parallel-delivery",
         hermes_role="runtime-handoff-guidance",
@@ -633,7 +637,7 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "web-research",
-        "Web research with citation discipline on top of native search - every claim carries a live URL, sources are diversity-checked, and anything not fetched is marked not observed instead of guessed.",
+        "Web research with citation discipline on top of native search - every claim carries a live URL and unfetched claims stay not observed; for a decision-ready brief use research-brief, and for ongoing Scout/Analyst/Briefer coordination use research-department.",
         (
             "web-research",
             "web research",
@@ -729,7 +733,7 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "source-finder",
-        "Hermes Source Finder workflow: prepare typed source candidates and acquisition status before downstream work.",
+        "Source candidate inventory - prepare typed source candidates and acquisition status before downstream work; use ulw-research to fetch and cite them, or research-brief to turn them into a decision-ready brief.",
         (
             "source-finder",
             "source finder",
@@ -839,7 +843,7 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "research-brief",
-        "Business research brief - turns a market, competitor, pricing, or customer question into a structured brief with an explicit evidence-vs-inference split; for raw link gathering use ulw-research.",
+        "Business research brief - turns a market, competitor, pricing, or customer question into a structured evidence-vs-inference brief; for raw link gathering use ulw-research, and for ongoing multi-role research use research-department.",
         (
             "research-brief",
             "business-research",
@@ -886,7 +890,7 @@ _DEFINITIONS = [
     ),
     SkillDefinition(
         "research-department",
-        "Hermes Research Department workflow pack: prepare Scout, Analyst, and Briefer research operations with source inbox and briefing status boundaries.",
+        "Research operations department - coordinate Scout, Analyst, and Briefer work with source-inbox and status boundaries; for one decision brief use research-brief, and for typed candidates before research starts use source-finder.",
         (
             "research-department",
             "research department",

@@ -24,6 +24,7 @@ from .catalog import (
 )
 from ..catalogs.awesome_hermes_agent import awesome_hermes_catalog
 from ..plugin_bundle.omh.awareness import (
+    awareness_shared_context_markdown,
     awareness_workflow_context_markdown,
     router_keyword_summary,
 )
@@ -157,21 +158,13 @@ def _needs_explicit_memory_context(definition: SkillDefinition) -> bool:
     return memory_context_policy_for_skill(definition.name) == "explicit"
 
 
-def _target_topology_skill_contract_bullet() -> str:
-    return (
-        f"- Respect `{TARGET_TOPOLOGY_SCHEMA}`: bind state to the current target/thread, use single-target "
-        "behavior when `active_agent_count` is one, and name a one-to-many or many-to-one change before "
-        "treating it as persistent."
-    )
-
-
 def _common_rail_sections(definition: SkillDefinition, primary_harness: str) -> str:
     """Render the compact per-skill tail that replaced the repeated common rail.
 
     What stays inline is the self-containment floor a standalone Hermes tap needs: this
     skill's harness and record command, the observed-vs-unavailable delegation result rule,
-    the Hermes-native tool contract with its native-subagent fallback, target topology, the
-    skill's memory-context policy, and the pointer to `references/skill-common-rail.md`.
+    the Hermes-native tool contract with its native-subagent fallback, the compatibility
+    floor, delegation fallback and the pointer to `references/skill-common-rail.md`.
     `tests/test_router_content.py::test_all_tap_skills_include_subagent_fallback_contract`
     is the gate on that floor. Everything else moved to the shared rail verbatim.
     """
@@ -184,14 +177,13 @@ omh runtime record --skill {definition.name} --harness {primary_harness} --statu
 ```
 
 Record observed delegation results; otherwise return `not_available` or `not_observed`.
-
-## Hermes Compatibility Contract
-
-- Preserve workflow intent and stop conditions; verify before claiming completion.
-- Use Hermes-native tools, file operations, and subagent/delegation features when available; do not require unavailable runtime tools, role prompts, or overlays. If a capability is unavailable: native subagents -> Hermes delegation when available, otherwise sequential lanes.
-{_target_topology_skill_contract_bullet()}
+Prepared OMH routing is not execution, review, CI, merge-readiness, or merge evidence.
 {_memory_context_skill_contract_bullets(definition)}
-- Shared rail: `{SHARED_RAIL_REFERENCE_PATH}` has harness discipline, runtime translations, the delegation command, and execution checklist. Load it when applicable; otherwise name an unavailable capability."""
+Preserve workflow intent and stop conditions; verify before claiming completion.
+
+Use Hermes-native subagent/delegation features when available: native subagents -> Hermes delegation when available, otherwise sequential lanes.
+
+Shared product, compatibility, topology, memory, harness, and execution rules: `{SHARED_RAIL_REFERENCE_PATH}`. Load it when applicable; otherwise name an unavailable capability."""
 
 
 @lru_cache(maxsize=1)
@@ -217,14 +209,31 @@ def _frontmatter_trigger_tail(definition: SkillDefinition | None) -> str:
     # tokens would also collide with the substring-trap detectors.
     if definition.name == "oh-my-hermes":
         return ""
-    safe = [
+    safe_aliases = [
+        alias
+        for alias in definition.aliases
+        if _FRONTMATTER_SAFE_TRIGGER.fullmatch(alias)
+    ]
+    if len(safe_aliases) != len(definition.aliases):
+        invalid = sorted(set(definition.aliases) - set(safe_aliases))
+        raise ValueError(f"unsafe picker aliases for {definition.name}: {', '.join(invalid)}")
+    safe_alias_keys = {alias.casefold() for alias in safe_aliases}
+    safe_triggers = [
         trigger
         for trigger in definition.triggers
-        if _FRONTMATTER_SAFE_TRIGGER.fullmatch(trigger)
+        if _FRONTMATTER_SAFE_TRIGGER.fullmatch(trigger) and trigger.casefold() not in safe_alias_keys
     ]
-    if not safe:
-        return ""
-    return " Use when the user says: " + ", ".join(safe[:_FRONTMATTER_TRIGGER_LIMIT]) + "."
+    alias_tail = " Aliases: " + ", ".join(safe_aliases) + "." if safe_aliases else ""
+    trigger_tail = (
+        " Use when the user says: " + ", ".join(safe_triggers[:_FRONTMATTER_TRIGGER_LIMIT]) + "."
+        if safe_triggers
+        else ""
+    )
+    return alias_tail + trigger_tail
+
+
+def frontmatter_description(definition: SkillDefinition) -> str:
+    return omh_description(definition.description) + _frontmatter_trigger_tail(definition)
 
 
 def _frontmatter(name: str, description: str) -> str:
@@ -235,7 +244,7 @@ def _frontmatter(name: str, description: str) -> str:
     definition = _definitions_by_name().get(name)
     category = definition.category if definition else "workflow"
     phase = definition.phase if definition else "general"
-    description = omh_description(description) + _frontmatter_trigger_tail(definition)
+    description = frontmatter_description(definition) if definition else omh_description(description)
     display_name = omh_skill_display_name(name)
     return (
         f"---\nname: {display_name}\ndescription: {description}\nmetadata:\n"
@@ -479,6 +488,13 @@ own evidence boundary, and a pointer to this file.
 
 Load this reference when harness selection, a missing Hermes runtime capability,
 multi-agent target topology, or the generic execution checklist is in play.
+
+{awareness_shared_context_markdown()}
+
+## Hermes Compatibility Contract
+
+- Preserve workflow intent and stop conditions; verify before claiming completion.
+- Use Hermes-native tools, file operations, and subagent/delegation features when available; do not require unavailable runtime tools, role prompts, or overlays.
 
 ## Harness Discipline
 

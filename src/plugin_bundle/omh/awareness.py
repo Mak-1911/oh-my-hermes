@@ -5615,6 +5615,23 @@ def awareness_primer_markdown() -> str:
     )
 
 
+def awareness_shared_context_markdown() -> str:
+    payload = awareness_primer_payload()
+    return "\n".join(
+        [
+            "## OMH Context Rail",
+            "",
+            "- OMH is a Hermes workflow layer, not a standalone executor.",
+            f"- Product context: {payload['product_context']}",
+            f"- Cross-skill context: {payload['all_skill_context_rule']}",
+            f"- Generic-tool checkpoint: {_compact_generic_tool_checkpoint_line()}.",
+            f"- Coverage: {payload['skill_coverage']}",
+            f"- {payload['chat_rule']}",
+            f"- Boundary: {payload['evidence_boundary']}",
+        ]
+    )
+
+
 def awareness_workflow_context_markdown(skill_name: str) -> str:
     payload = awareness_primer_payload()
     lane = _lane_for_skill(skill_name, payload["lanes"])
@@ -5628,17 +5645,12 @@ def awareness_workflow_context_markdown(skill_name: str) -> str:
         lane_line = f"Current lane: **{lane['label']}** (`{skills}`) - {lane['use_for']}."
     return "\n".join(
         [
-            "## OMH Context Rail",
+            "## Workflow Lane",
             "",
-            "- This skill is part of OMH's Hermes workflow layer, not a standalone executor.",
-            f"- Product context: {payload['product_context']}",
             f"- {lane_line}",
             "- If intent belongs to another lane, hand back to `oh-my-hermes` or name the adjacent workflow.",
-            f"- Cross-skill context: {payload['all_skill_context_rule']}",
-            f"- Generic-tool checkpoint: {_compact_generic_tool_checkpoint_line()}.",
-            f"- Coverage: {payload['skill_coverage']}",
-            f"- {payload['chat_rule']}",
-            f"- Boundary: {payload['evidence_boundary']}",
+            "- Shared product, routing, compatibility, and evidence rules: "
+            "`omh-routing/references/skill-common-rail.md`.",
         ]
     )
 

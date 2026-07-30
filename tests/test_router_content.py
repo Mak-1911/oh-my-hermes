@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import inspect
 import json
 import re
@@ -49,7 +50,7 @@ from omh.skills.catalog import (
     primary_harness_for_skill,
     retained_delegation_skill_names,
 )
-from omh.skills.render import workflow_reference_markdown, workflow_reference_payload
+from omh.skills.render import frontmatter_description, workflow_reference_markdown, workflow_reference_payload
 from omh.snippet import WORKSPACE_SNIPPET
 from omh.use_cases import USE_CASES, list_use_cases
 
@@ -711,6 +712,65 @@ class RouterContentTests(unittest.TestCase):
             self.assertIn(f"\n    role: {definition.hermes_role}\n", content)
             self.assertIn(f"\n    quality_tier: {definition.quality_tier}\n", content)
 
+    def test_engine_aliases_are_structured_and_picker_visible(self) -> None:
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        templates = {template.name: template.content for template in builtin_skill_templates()}
+        expected = {
+            "ultrawork": ("ulw",),
+            "ultraprocess": ("ulp",),
+            "ultragoal": ("ulg",),
+            "ralph": ("ulr",),
+        }
+
+        for name, aliases in expected.items():
+            with self.subTest(name=name):
+                definition = definitions[name]
+                self.assertEqual(definition.aliases, aliases)
+                self.assertTrue(set(aliases).issubset(definition.triggers))
+                frontmatter = templates[name].split("---", 2)[1]
+                self.assertIn(f"Aliases: {', '.join(aliases)}.", frontmatter)
+
+    def test_unsafe_picker_aliases_fail_loudly(self) -> None:
+        definition = next(item for item in builtin_definitions() if item.name == "ultrawork")
+        malformed = replace(definition, aliases=("ulw", "$unsafe"))
+
+        with self.assertRaisesRegex(ValueError, r"unsafe picker aliases.*\$unsafe"):
+            frontmatter_description(malformed)
+
+    def test_picker_sibling_families_name_their_decision_boundaries(self) -> None:
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        expected_fragments = {
+            "memory-new": ("omh-memory-sync", "decision-recall"),
+            "memory-sync": ("memory-new", "decision-recall"),
+            "web-research": ("native search", "research-brief", "research-department"),
+            "research-brief": ("ulw-research", "research-department"),
+            "research-department": ("research-brief", "source-finder"),
+            "source-finder": ("ulw-research", "research-brief"),
+            "executor-runtime-readiness": ("external-connector-readiness", "toolbelt-readiness"),
+            "external-connector-readiness": ("executor-runtime-readiness", "toolbelt-readiness"),
+            "prompt-import-readiness": ("external-connector-readiness", "toolbelt-readiness"),
+            "physical-device-readiness": ("external-connector-readiness", "toolbelt-readiness"),
+            "toolbelt-readiness": ("external-connector-readiness", "executor-runtime-readiness"),
+        }
+
+        for name, fragments in expected_fragments.items():
+            description = definitions[name].description.casefold()
+            for fragment in fragments:
+                with self.subTest(name=name, fragment=fragment):
+                    self.assertIn(fragment.casefold(), description)
+
+        native_overlays = {
+            "browser-operator": "native browser",
+            "workspace-file-operator": "native file",
+            "command-operator": "native shell",
+            "live-info-operator": "native live",
+        }
+        for name, native_surface in native_overlays.items():
+            with self.subTest(name=name):
+                description = definitions[name].description.casefold()
+                self.assertIn("policy overlay", description)
+                self.assertIn(native_surface, description)
+
     def test_display_name_helper_keeps_canonical_identifiers_unchanged(self) -> None:
         self.assertEqual(OMH_SKILL_NAME_PREFIX, "omh-")
         self.assertEqual(
@@ -819,6 +879,9 @@ class RouterContentTests(unittest.TestCase):
                 }
                 missing = {name: fragments for name, fragments in missing.items() if fragments}
                 self.assertEqual(missing, {})
+        for name, content in sorted(templates.items()):
+            if name != "oh-my-hermes":
+                self.assertIn("Preserve workflow intent and stop conditions", content, name)
 
     def test_ultragoal_guards_settings_only_requests_from_goal_escalation(self) -> None:
         """A settings-only request (for example a gateway channel mention policy) must not
@@ -2621,6 +2684,11 @@ class RouterContentTests(unittest.TestCase):
 
     def test_workflow_skills_refer_to_harness_discipline(self) -> None:
         skills = {skill.name: skill for skill in builtin_skill_templates()}
+        common_rail = next(
+            template.content
+            for template in builtin_skill_reference_templates()
+            if template.relative_path == "references/skill-common-rail.md"
+        )
 
         # Harness discipline moved to the shared rail reference (issue #634); each skill
         # keeps the pointer instead of its own verbatim copy. The rail's own content is
@@ -2632,22 +2700,23 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("Hermes role: `handoff-guide`", skills["ultragoal"].content)
         self.assertIn("Handoff policy:", skills["ultragoal"].content)
         self.assertIn("Runtime Evidence", skills["ultragoal"].content)
-        self.assertIn("OMH Context Rail", skills["ultragoal"].content)
-        self.assertIn("part of OMH's Hermes workflow layer", skills["ultragoal"].content)
-        self.assertIn("Hermes-native workflow pack", skills["ultragoal"].content)
+        self.assertIn("Workflow Lane", skills["ultragoal"].content)
         self.assertIn("Completion Checklist", skills["ultragoal"].content)
         self.assertIn("Recovery Notes", skills["ultragoal"].content)
         self.assertIn("Current lane: **Intent -> plan**", skills["ultragoal"].content)
         self.assertIn("hand back to `oh-my-hermes`", skills["ultragoal"].content)
-        self.assertIn("Cross-skill context", skills["ultragoal"].content)
-        self.assertIn("Every generated workflow skill", skills["ultragoal"].content)
         self.assertIn("Prepared OMH routing", skills["ultragoal"].content)
+        self.assertIn("OMH Context Rail", common_rail)
+        self.assertIn("not a standalone executor", common_rail)
+        self.assertIn("Hermes-native workflow pack", common_rail)
+        self.assertIn("Cross-skill context", common_rail)
+        self.assertIn("Every generated OMH workflow skill", common_rail)
+        self.assertIn("omh_target_topology/v1", common_rail)
+        self.assertIn("active_agent_count", common_rail)
         self.assertIn("Long-running or background executor milestones report observed handles", skills["ultragoal"].content)
         self.assertIn("hermes_coding_harness/v1", skills["ultragoal"].content)
         self.assertIn("builder, verifier, reviewer, docs, and PR lanes", skills["ultragoal"].content)
         self.assertIn("PR head SHA", skills["ultragoal"].content)
-        self.assertIn("omh_target_topology/v1", skills["ultragoal"].content)
-        self.assertIn("active_agent_count", skills["ultragoal"].content)
         self.assertIn("omh runtime record --skill ultragoal --harness goal-execution --status started", skills["ultragoal"].content)
         self.assertIn("goal_completion_gate/v1", skills["ultragoal"].content)
         self.assertIn("inspect .omh/goals", skills["ultragoal"].content)
@@ -2693,11 +2762,9 @@ class RouterContentTests(unittest.TestCase):
             if name == "oh-my-hermes":
                 continue
             with self.subTest(skill=name):
-                self.assertIn("OMH Context Rail", skill.content)
-                self.assertIn("not a standalone executor", skill.content)
-                self.assertIn("Product context:", skill.content)
-                self.assertIn("Cross-skill context:", skill.content)
-                self.assertIn("Coverage:", skill.content)
+                self.assertIn("Workflow Lane", skill.content)
+                self.assertIn("Shared product, routing, compatibility, and evidence rules", skill.content)
+                self.assertIn("Prepared OMH routing", skill.content)
                 self.assertIn("Completion Checklist", skill.content)
                 self.assertIn("Recovery Notes", skill.content)
 

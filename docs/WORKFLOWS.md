@@ -170,7 +170,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Do not use when:
   - Progress must survive sessions as a ledger with multiple checkpoints and a final gate; use `ultragoal`.
   - The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of opening a finish-until-done loop.
-- Strong routing signals: `ralph`, `$ralph`, `finish until done`, `persistent execution`, `self-referential loop`
+- Strong routing signals: `ralph`, `$ralph`, `ulr`, `$ulr`, `finish until done`, `persistent execution`, `self-referential loop`
 - Good example:
   - Prompt: ralph: finish the invoice export recovery until the smoke test passes or a blocker is recorded.
   - Expected behavior: Keep one completion owner, track evidence after every recovery step, and stop only on pass, block, or explicit cancel.
@@ -623,7 +623,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### web-research
 
-[omh] Web research with citation discipline on top of native search - every claim carries a live URL, sources are diversity-checked, and anything not fetched is marked not observed instead of guessed.
+[omh] Web research with citation discipline on top of native search - every claim carries a live URL and unfetched claims stay not observed; for a decision-ready brief use research-brief, and for ongoing Scout/Analyst/Briefer coordination use research-department.
 
 - Category: `research`
 - Phase: `current-evidence`
@@ -693,7 +693,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### source-finder
 
-[omh] Hermes Source Finder workflow: prepare typed source candidates and acquisition status before downstream work.
+[omh] Source candidate inventory - prepare typed source candidates and acquisition status before downstream work; use ulw-research to fetch and cite them, or research-brief to turn them into a decision-ready brief.
 
 - Category: `research`
 - Phase: `source-acquisition`
@@ -763,7 +763,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### research-brief
 
-[omh] Business research brief - turns a market, competitor, pricing, or customer question into a structured brief with an explicit evidence-vs-inference split; for raw link gathering use ulw-research.
+[omh] Business research brief - turns a market, competitor, pricing, or customer question into a structured evidence-vs-inference brief; for raw link gathering use ulw-research, and for ongoing multi-role research use research-department.
 
 - Category: `research`
 - Phase: `business-brief`
@@ -820,7 +820,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### research-department
 
-[omh] Hermes Research Department workflow pack: prepare Scout, Analyst, and Briefer research operations with source inbox and briefing status boundaries.
+[omh] Research operations department - coordinate Scout, Analyst, and Briefer work with source-inbox and status boundaries; for one decision brief use research-brief, and for typed candidates before research starts use source-finder.
 
 - Category: `research`
 - Phase: `research-department`
@@ -4495,7 +4495,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### memory-new
 
-[omh] Save a new durable project or product fact - captures a candidate, shows it for review, and writes only on approval; for auditing memories that already exist use omh-memory-sync.
+[omh] Save a new durable project or product fact - captures a candidate, shows it for review, and writes only on approval; for auditing existing memories use omh-memory-sync, and for retrieving a past decision use decision-recall.
 
 - Category: `memory`
 - Phase: `candidate-capture`
@@ -4555,7 +4555,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### memory-sync
 
-[omh] Audit what Hermes already remembers - walks USER.md, MEMORY.md, and skill memories claim by claim, flags stale, conflicting, duplicate, or overgeneralized entries, and rewrites only after an approved diff.
+[omh] Audit what Hermes already remembers - reviews USER.md, MEMORY.md, and skill memories claim by claim and rewrites only after an approved diff; for a new fact use memory-new, and for retrieving a past decision use decision-recall.
 
 - Category: `memory`
 - Phase: `curation-review`
@@ -4670,7 +4670,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### executor-runtime-readiness
 
-[omh] Hermes executor runtime readiness workflow: compare Codex, Claude Code, Hermes coding, and oh-my runtimes by available tools, missing tools, and handoff mode.
+[omh] Executor runtime readiness - compare Codex, Claude Code, Hermes coding, and oh-my runtimes by tools and handoff mode; use external-connector-readiness for a named plugin or API, and toolbelt-readiness for the whole capability inventory.
 
 - Category: `executor-readiness`
 - Phase: `runtime-selection`
@@ -4840,7 +4840,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### browser-operator
 
-[omh] Browser tasks - open URLs, click, log in, fill forms, and capture page blockers, each scoped behind auth, confirmation, and observed-trace gates.
+[omh] Policy overlay for browser tasks - add auth, confirmation, and observed-trace gates after preferring the native browser for ordinary URL, click, login, and form actions.
 
 - Category: `browser`
 - Phase: `browser-task`
@@ -4904,7 +4904,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### workspace-file-operator
 
-[omh] Local files and folders - list, search, organize, copy, move, rename, and delete, with path scoping and destructive-action gates.
+[omh] Policy overlay for local file tasks - add path scoping and destructive-action gates after preferring native file tools for ordinary list, search, organize, copy, move, and rename actions.
 
 - Category: `filesystem`
 - Phase: `file-task`
@@ -4967,7 +4967,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### command-operator
 
-[omh] Terminal commands - scope shell, CLI, package-manager, and test runs with cwd, environment, safety, and result-evidence gates.
+[omh] Policy overlay for terminal commands - add cwd, environment, safety, and result-evidence gates after preferring native shell tools for ordinary CLI, package-manager, and test runs.
 
 - Category: `command`
 - Phase: `command-task`
@@ -5095,7 +5095,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### live-info-operator
 
-[omh] Live lookups - weather, finance, sports, maps, places, exchange rates, and time zones, read-only with provider, freshness, units, and source-quality gates.
+[omh] Policy overlay for live lookups - add provider, freshness, units, and source-quality gates after preferring native live-data tools for ordinary weather, finance, sports, maps, and time-zone requests.
 
 - Category: `live-info`
 - Phase: `live-info-task`
@@ -5158,7 +5158,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### external-connector-readiness
 
-[omh] Hermes external connector readiness workflow: decide whether a candidate plugin, connector, API, data provider, or multimodal route is safe, affordable, fresh, and observable enough to adopt, route, or trial.
+[omh] External connector readiness - assess whether a named plugin, connector, API, data provider, or multimodal route is safe, affordable, fresh, and observable; use executor-runtime-readiness for coding-owner choice and toolbelt-readiness for missing capability inventory.
 
 - Category: `connector`
 - Phase: `connector-readiness`
@@ -5227,7 +5227,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### prompt-import-readiness
 
-[omh] Hermes prompt import readiness workflow: decide whether external CLI-agent prompt files can be safely reviewed, normalized, and offered as Hermes slash-command candidates without mutating prompts or command registries.
+[omh] Prompt import readiness - review and normalize external CLI-agent prompt files before offering slash-command candidates; use external-connector-readiness for plugin or API adoption and toolbelt-readiness for missing runtime capabilities.
 
 - Category: `prompt`
 - Phase: `prompt-import-readiness`
@@ -5299,7 +5299,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### physical-device-readiness
 
-[omh] Hermes readiness workflow for robots, 3D printers, IoT relays, sensors, and lab hardware before hardware trials.
+[omh] Physical device readiness - gate robots, 3D printers, IoT relays, sensors, and lab hardware before trials; use external-connector-readiness for provider or connector adoption and toolbelt-readiness for missing control tools.
 
 - Category: `operations`
 - Phase: `device-readiness`
@@ -5570,7 +5570,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### toolbelt-readiness
 
-[omh] Hermes toolbelt readiness workflow: check which MCP servers, CLIs, APIs, credentials, and connectors a workflow needs before claiming it can run.
+[omh] Toolbelt readiness - inventory which MCP servers, CLIs, APIs, credentials, and connectors a workflow needs; use external-connector-readiness to assess one named integration and executor-runtime-readiness to choose the coding owner.
 
 - Category: `tools`
 - Phase: `readiness-check`

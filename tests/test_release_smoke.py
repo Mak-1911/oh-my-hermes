@@ -129,7 +129,10 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertIn("does not prove live Hermes chat rendering", items["common_request_coverage"]["proof_boundary"])
         self.assertEqual(items["hermes_ux_quality"]["command"], "uv run python -m omh.cli demo hermes-ux-quality --json")
         self.assertIn("routing score", items["hermes_ux_quality"]["evidence_required"])
-        self.assertIn("deterministic local routing, card, hint, context, precision, localized-copy, fast-path, and common-request contracts", items["hermes_ux_quality"]["proof_boundary"])
+        self.assertIn(
+            "deterministic local routing, card, hint, context, precision, native-competition, localized-copy, fast-path, and common-request contracts",
+            items["hermes_ux_quality"]["proof_boundary"],
+        )
         self.assertIn("does not prove live Hermes chat rendering", items["hermes_ux_quality"]["proof_boundary"])
         self.assertEqual(items["product_readiness"]["command"], "/tmp/omh release product-readiness --version 1.0.0 --json")
         self.assertIn("skill-content", items["product_readiness"]["evidence_required"])
@@ -301,6 +304,7 @@ class ReleaseSmokeTests(unittest.TestCase):
                     "route_hint_alignment",
                     "context_brief_coverage",
                     "routing_precision",
+                    "native_competition",
                     "localized_chat_copy",
                     "router_fast_path",
                     "common_request_coverage",
@@ -361,7 +365,7 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertEqual(gates["common_request_coverage"]["command"], "omh demo common-request-coverage --json")
             self.assertIn("deterministic local routing breadth", gates["common_request_coverage"]["proof_boundary"])
             self.assertEqual(gates["hermes_ux_quality"]["status"], "passed")
-            self.assertIn("8/8 UX gates passing", gates["hermes_ux_quality"]["summary"])
+            self.assertIn("9/9 UX gates passing", gates["hermes_ux_quality"]["summary"])
             self.assertIn("fast paths 11/11", gates["hermes_ux_quality"]["summary"])
             self.assertIn("common requests 91/91", gates["hermes_ux_quality"]["summary"])
             self.assertIn("routing avg 10.0", gates["hermes_ux_quality"]["summary"])
@@ -379,6 +383,28 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertIn("deterministic local OMH package", payload["boundary"])
             self.assertIn("Attach observed evidence", " ".join(payload["next_actions"]))
             self.assertIn("evidence-bundle", " ".join(payload["next_actions"]))
+
+    def test_product_readiness_fails_closed_on_malformed_native_evidence(self) -> None:
+        malformed = {
+            "schema_version": "wrong",
+            "case_count": 8,
+            "passed_count": 8,
+            "failed_count": 0,
+            "all_passing": True,
+            "failures": "not-a-list",
+        }
+        with TemporaryDirectory() as tmp, patch.object(
+            release_module,
+            "build_native_skill_competition_report",
+            return_value=malformed,
+        ):
+            paths = OmhPaths(omh_home=Path(tmp) / ".omh", hermes_home=Path(tmp) / ".hermes")
+            payload = product_readiness_report(version="1.0.1", paths=paths)
+        gate = next(item for item in payload["gates"] if item["id"] == "native_competition")
+
+        self.assertEqual(payload["status"], "needs_attention")
+        self.assertEqual(gate["status"], "failed")
+        self.assertTrue(gate["errors"])
 
     def test_release_evidence_bundle_packages_and_writes_local_evidence(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -414,6 +440,8 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertEqual(payload["summary"]["routing_precision_intervention_passing"], 138)
             self.assertEqual(payload["summary"]["routing_precision_intervention_total"], 138)
             self.assertEqual(payload["summary"]["routing_precision_missed_intervention_count"], 0)
+            self.assertEqual(payload["summary"]["native_competition_passing_cases"], 8)
+            self.assertEqual(payload["summary"]["native_competition_total_cases"], 8)
             self.assertEqual(payload["summary"]["localized_chat_copy_passing"], 8)
             self.assertEqual(payload["summary"]["localized_chat_copy_total"], 8)
             self.assertEqual(payload["summary"]["localized_chat_copy_locale_count"], 6)
@@ -429,8 +457,8 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertEqual(payload["summary"]["popular_plugin_family_total"], 10)
             self.assertEqual(payload["summary"]["popular_plugin_weighted_coverage_percent"], 100.0)
             self.assertEqual(payload["summary"]["hermes_ux_quality_score"], 100)
-            self.assertEqual(payload["summary"]["hermes_ux_quality_passing_gates"], 8)
-            self.assertEqual(payload["summary"]["hermes_ux_quality_total_gates"], 8)
+            self.assertEqual(payload["summary"]["hermes_ux_quality_passing_gates"], 9)
+            self.assertEqual(payload["summary"]["hermes_ux_quality_total_gates"], 9)
             self.assertEqual(payload["evidence"]["product_readiness"]["schema_version"], "omh_product_readiness/v1")
             self.assertEqual(payload["evidence"]["release_checklist"]["schema_version"], "release_readiness_checklist/v1")
             self.assertEqual(payload["evidence"]["grounded_score"]["schema_version"], "grounded_score_evaluation/v1")
@@ -438,6 +466,10 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertEqual(payload["evidence"]["route_hint_alignment"]["schema_version"], "route_hint_alignment/v1")
             self.assertEqual(payload["evidence"]["context_brief_coverage"]["schema_version"], "context_brief_coverage/v1")
             self.assertEqual(payload["evidence"]["routing_precision"]["schema_version"], "routing_precision/v1")
+            self.assertEqual(
+                payload["evidence"]["native_competition"]["schema_version"],
+                "omh_native_skill_competition/v1",
+            )
             self.assertEqual(payload["evidence"]["localized_chat_copy"]["schema_version"], "localized_chat_copy/v1")
             self.assertEqual(payload["evidence"]["router_fast_path"]["schema_version"], "router_fast_path/v1")
             self.assertEqual(payload["evidence"]["common_request_coverage"]["schema_version"], "common_request_coverage/v1")
@@ -447,6 +479,7 @@ class ReleaseSmokeTests(unittest.TestCase):
             self.assertIn("route_hint_alignment_ready", payload["claims"])
             self.assertIn("context_brief_coverage_ready", payload["claims"])
             self.assertIn("routing_precision_ready", payload["claims"])
+            self.assertIn("native_competition_ready", payload["claims"])
             self.assertIn("localized_chat_copy_ready", payload["claims"])
             self.assertIn("router_fast_path_ready", payload["claims"])
             self.assertIn("common_request_coverage_ready", payload["claims"])
@@ -475,6 +508,7 @@ class ReleaseSmokeTests(unittest.TestCase):
             "build_route_hint_alignment_demo",
             "build_context_brief_coverage_demo",
             "build_routing_precision_demo",
+            "build_native_skill_competition_report",
             "build_localized_chat_copy_demo",
             "build_router_fast_path_demo",
             "build_common_request_coverage_demo",

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from _local_package import load_local_package
 
@@ -9,6 +12,7 @@ load_local_package()
 
 from omh.capabilities.hooks import hook_manifest
 from omh.plugin_bundle.omh.awareness import awareness_route_hint
+from omh.plugin_bundle.omh.awareness_delivery import read_awareness_delivery
 from omh.plugin_bundle.omh.hooks.llm_hooks import pre_llm_call
 from omh.plugin_bundle.omh.hooks.tool_hooks import pre_tool_call
 
@@ -83,6 +87,32 @@ class HookManifestTests(unittest.TestCase):
         self.assertIn("native_command_rendered", events)
         self.assertIn("render_kind", events["native_command_rendered"]["payload_fields"])
         self.assertIn("not proof", hooks["pre_llm_call"]["claim_boundary"])
+
+    def test_pre_llm_call_records_delivery_in_explicit_omh_home(self) -> None:
+        with TemporaryDirectory() as explicit_home, TemporaryDirectory() as env_home:
+            with patch.dict(os.environ, {"OMH_HOME": env_home}):
+                result = pre_llm_call(
+                    user_message="prepare a safe feature plan",
+                    is_first_turn=True,
+                    omh_home=explicit_home,
+                )
+
+            self.assertIsNotNone(result)
+            self.assertEqual(read_awareness_delivery(explicit_home)["delivery_count"], 1)
+            self.assertEqual(read_awareness_delivery(env_home)["delivery_count"], 0)
+
+    def test_pre_llm_call_records_suppression_in_explicit_omh_home(self) -> None:
+        with TemporaryDirectory() as explicit_home, TemporaryDirectory() as env_home:
+            with patch.dict(os.environ, {"OMH_HOME": env_home}):
+                result = pre_llm_call(
+                    user_message="",
+                    is_first_turn=False,
+                    omh_home=explicit_home,
+                )
+
+            self.assertIsNone(result)
+            self.assertEqual(read_awareness_delivery(explicit_home)["suppressed_count"], 1)
+            self.assertEqual(read_awareness_delivery(env_home)["suppressed_count"], 0)
 
     def test_awareness_route_hint_is_metadata_only_and_message_specific(self) -> None:
         message = "make an image explaining the cron feature with secret-token-123"

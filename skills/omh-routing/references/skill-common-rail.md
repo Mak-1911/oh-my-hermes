@@ -8,6 +8,21 @@ own evidence boundary, and a pointer to this file.
 Load this reference when harness selection, a missing Hermes runtime capability,
 multi-agent target topology, or the generic execution checklist is in play.
 
+## OMH Context Rail
+
+- OMH is a Hermes workflow layer, not a standalone executor.
+- Product context: OMH is a Hermes-native workflow pack: choose skills, shape work, prepare artifacts, show status, and hand off with evidence boundaries.
+- Cross-skill context: every OMH skill: match lane; generic tool can render or execute.
+- Generic-tool checkpoint: image->img-summary; frontend->frontend/a11y/visual-qa; paper->paper-learning; content->content-operator; media->media-input-operator; file->materials-package; search->web-research; live->live-info-operator; audit->workspace/production/security; failures->build-failure; verify->verification-gate; code->codegraph/onboarding/ultraprocess.
+- Coverage: Every generated workflow skill carries this rail.
+- Normal users talk to Hermes; OMH CLI is infra.
+- Boundary: Prepared OMH routing/cards/handoffs/artifacts are not observed execution, image generation, delivery, review, CI, merge-readiness, or merge evidence.
+
+## Hermes Compatibility Contract
+
+- Preserve workflow intent and stop conditions; verify before claiming completion.
+- Use Hermes-native tools, file operations, and subagent/delegation features when available; do not require unavailable runtime tools, role prompts, or overlays.
+
 ## Harness Discipline
 
 - Start from the representative harness registry in `oh-my-hermes` when the workflow needs coding, research, planning, goal execution, architecture, critique, QA, or documentation lanes.

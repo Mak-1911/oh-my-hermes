@@ -33,7 +33,7 @@ def _token_metadata_from_kwargs(kwargs: dict) -> dict[str, object]:
     return {key: kwargs[key] for key in keys if kwargs.get(key) is not None}
 
 
-def _record_delivery(*, delivered: bool, route_hint: bool, context_chars: int) -> None:
+def _record_delivery(*, delivered: bool, route_hint: bool, context_chars: int, omh_home: str | None) -> None:
     """Note that this hook ran. Never let bookkeeping break the hook itself."""
     try:
         record_awareness_delivery(
@@ -41,6 +41,7 @@ def _record_delivery(*, delivered: bool, route_hint: bool, context_chars: int) -
             route_hint=route_hint,
             context_chars=context_chars,
             observed_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            omh_home=omh_home or "",
         )
     except (OSError, ValueError, TypeError):
         return
@@ -113,6 +114,7 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
                 f"Unknown role '{marker}'. Available roles: {', '.join(role_payload['available_roles']) or '(none)'}."
             )
 
+    omh_home: str | None = None
     try:
         omh_home = str(kwargs.get("omh_home", "") or "") or None
         hermes_home = str(kwargs.get("hermes_home", "") or "") or None
@@ -139,7 +141,7 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         and not status.get("runtime_state_present")
         and not status.get("runs")
     ):
-        _record_delivery(delivered=False, route_hint=False, context_chars=0)
+        _record_delivery(delivered=False, route_hint=False, context_chars=0, omh_home=omh_home)
         return None
 
     if status.get("runtime_state_present") or status.get("runs"):
@@ -182,5 +184,6 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         delivered=True,
         route_hint=bool(route_hint_context),
         context_chars=len(payload["context"]),
+        omh_home=omh_home,
     )
     return payload
