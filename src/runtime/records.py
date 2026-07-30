@@ -1590,6 +1590,17 @@ def _compact_memory_recall_item(item: dict[str, Any]) -> dict[str, Any]:
             if isinstance(item.get("staleness"), dict) and key in item.get("staleness", {})
         },
         "score": int(item.get("score", 0) or 0),
+        # Ranking and provenance survive compaction for the same executor-
+        # parity reason as included_records above: both are bounded scalar
+        # metadata, and dropping them would leave the run-backed codex path
+        # unable to explain pack order or ask for lineage while prompt-only
+        # executors keep both.
+        "ranking": {
+            key: int(item.get("ranking", {}).get(key, 0) or 0)
+            for key in ("rrf_score_micro", "relevance_rank", "recency_rank", "usage_rank", "times_recalled")
+            if isinstance(item.get("ranking"), dict)
+        },
+        "derived_from": [str(ref) for ref in (item.get("derived_from") if isinstance(item.get("derived_from"), list) else []) if str(ref)][:8],
         **_compact_memory_replay_fields(item),
     }
 

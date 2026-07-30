@@ -11,9 +11,15 @@ from unittest.mock import patch
 from _local_package import load_local_package
 
 load_local_package()
+from omh.local_store import FileLockTimeout
 from omh.plugin_bundle.omh import memory_governance
 from omh.workflows import memory as memory_workflow
-from omh.workflows.memory_lifecycle import apply_memory_correction, build_memory_correction
+from omh.workflows.memory_lifecycle import (
+    apply_memory_correction,
+    apply_memory_reapproval,
+    build_memory_correction,
+    build_memory_reapproval,
+)
 from omh.workflows.memory_lifecycle_executor import execute_memory_lifecycle
 from omh.memory import (
     apply_memory_retirement,
@@ -273,6 +279,36 @@ class DerivedFromLineageTests(unittest.TestCase):
 
             candidate = json.loads((paths.memory_dir / "candidates" / "cand-correct-lineage.json").read_text(encoding="utf-8"))
             self.assertEqual(candidate["replacement"]["derived_from"], [base["record_id"]])
+
+            reapproval = build_memory_reapproval(
+                paths, "cand-correct-lineage", reviewer_claim="operator", now=datetime.now(timezone.utc)
+            )
+            apply_memory_reapproval(paths, reapproval, transaction_executor=execute_memory_lifecycle)
+            live = json.loads((paths.memory_dir / "records" / f"{child['record_id']}.json").read_text(encoding="utf-8"))
+            self.assertEqual(live["revision"], 2)
+            self.assertEqual(live["derived_from"], [base["record_id"]], "the reapproved live record must keep provenance")
+
+    def test_attached_usage_swallows_store_failures(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            _approve_capture(paths, "Fact whose delivery bookkeeping fails")
+            pack = memory_recall_pack_for_handoff(paths, "")
+            self.assertIsNotNone(pack)
+
+            for failure in (FileLockTimeout("lock held"), OSError(30, "read-only file system")):
+                with patch.object(memory_workflow, "record_recall_usage", side_effect=failure):
+                    result = record_attached_recall_usage(paths, {"prompt_handoff": {"memory_recall_pack": pack}})
+                self.assertEqual(result["recorded"], 0, failure)
+            self.assertEqual(read_recall_usage(paths), {})
+
+    def test_capture_distinguishes_unreadable_from_missing_derived_from(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            _approve_capture(paths, "Seed record so the store exists")
+            (paths.memory_dir / "records" / "mem_00000000000000cc.json").write_text("{broken", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "unreadable"):
+                capture_project_memory_candidate(paths, "Derived", derived_from=["mem_00000000000000cc"])
 
     def test_recall_items_expose_derived_from_and_stay_schema_valid(self) -> None:
         with TemporaryDirectory() as tmp:

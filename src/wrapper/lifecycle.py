@@ -63,10 +63,10 @@ def start_codex_delegation_lifecycle(
         force_coding_handoff=force_coding_handoff,
         capability_snapshot_directory=paths.omh_home / "coding" / "executor-capability-snapshots",
     )
-    record_attached_recall_usage(paths, payload)
     delegation = payload.get("delegation")
     if not isinstance(delegation, dict):
         raise CodingLifecycleError("coding lifecycle payload is missing delegation")
+    record_attached_recall_usage(paths, payload)
     run = create_prepared_coding_delegation_run(
         paths,
         {

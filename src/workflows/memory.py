@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from ..local_store import (
-    FileLockTimeout,
     atomic_write_json,
     ensure_dir,
     ensure_file,
@@ -650,8 +649,9 @@ def record_attached_recall_usage(paths: OmhPaths, payload: dict[str, object]) ->
     end without a handoff -- so usage counts only records inside a
     ``memory_recall_pack`` that survived attachment. Callers invoke this after
     ``build_coding_delegation_payload`` returns; when no handoff carries a
-    pack it is a no-op. A lock timeout drops the count instead of raising:
-    usage is a ranking hint and must never cost the handoff itself.
+    pack it is a no-op. Any store I/O failure -- lock timeout, read-only
+    home, full disk -- drops the count instead of raising: usage is a
+    ranking hint and must never cost the handoff itself.
     """
     record_ids: list[str] = []
     for handoff_key in ("executor_handoff", "runtime_handoff", "prompt_handoff"):
@@ -668,7 +668,10 @@ def record_attached_recall_usage(paths: OmhPaths, payload: dict[str, object]) ->
         return {"schema_version": MEMORY_RECALL_USAGE_SCHEMA_VERSION, "recorded": 0, "records": {}}
     try:
         return record_recall_usage(paths, record_ids)
-    except FileLockTimeout:
+    except OSError:
+        # FileLockTimeout is one leaf of the OSError family; ensure_dir and
+        # atomic_write_json raise siblings (EROFS, ENOSPC) that must not
+        # surface on a chat route that was pure-read before this counter.
         return {"schema_version": MEMORY_RECALL_USAGE_SCHEMA_VERSION, "recorded": 0, "records": {}}
 
 
@@ -710,7 +713,11 @@ def record_recall_usage(paths: OmhPaths, record_ids: list[str], *, now: str | No
         return {"schema_version": MEMORY_RECALL_USAGE_SCHEMA_VERSION, "recorded": 0, "records": {}}
     recorded_at = now or utc_now()
     ensure_dir(paths.memory_dir)
-    with file_lock(paths.memory_index_path, private=True):
+    # Usage has its own file and its own lock: taking the shared memory-index
+    # lock here would let an operator's approve/retire stall every
+    # delegate-mode chat response for the full 10s default. The short timeout
+    # is safe because the caller treats a timeout as a dropped count.
+    with file_lock(_memory_usage_path(paths), timeout_seconds=1.0, private=True):
         usage = read_recall_usage(paths)
         for record_id in delivered:
             entry = usage.get(record_id, {"times_recalled": 0, "last_recalled_at": ""})
@@ -720,7 +727,10 @@ def record_recall_usage(paths: OmhPaths, record_ids: list[str], *, now: str | No
         if len(usage) > _RECALL_USAGE_MAX_ENTRIES:
             # Trim never evicts a just-delivered id: utc_now() is second-
             # granular, so "newest first" can degenerate to record-id order
-            # and would otherwise drop the very entry this call added.
+            # and would otherwise drop the very entry this call added. This
+            # makes the cap soft -- a delivery larger than the cap keeps all
+            # its own entries -- which is fine while recall limits stay far
+            # below _RECALL_USAGE_MAX_ENTRIES.
             delivered_set = set(delivered)
             trimmable = [item for item in usage.items() if item[0] not in delivered_set]
             trimmable.sort(key=lambda item: (str(item[1].get("last_recalled_at", "")), item[0]), reverse=True)

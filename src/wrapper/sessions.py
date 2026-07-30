@@ -403,10 +403,10 @@ def _prepare_prompt_only_session_handoff(
         ),
         capability_snapshot_directory=paths.omh_home / "coding" / "executor-capability-snapshots",
     )
-    record_attached_recall_usage(paths, payload)
     prompt_handoff = payload.get("prompt_handoff")
     if not isinstance(prompt_handoff, dict):
         raise WrapperSessionError("selected executor produced no prompt handoff")
+    record_attached_recall_usage(paths, payload)
     session_id = str(session["session_id"])
     session = {
         **session,
@@ -486,10 +486,10 @@ def _prepare_runtime_session_handoff(
         ),
         capability_snapshot_directory=paths.omh_home / "coding" / "executor-capability-snapshots",
     )
-    record_attached_recall_usage(paths, payload)
     runtime_handoff = payload.get("runtime_handoff")
     if not isinstance(runtime_handoff, dict):
         raise WrapperSessionError("selected runtime produced no runtime handoff")
+    record_attached_recall_usage(paths, payload)
     session_id = str(session["session_id"])
     session = {
         **session,
