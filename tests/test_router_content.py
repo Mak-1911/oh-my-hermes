@@ -581,6 +581,16 @@ class RouterContentTests(unittest.TestCase):
             recommend_module._SKILL_POLICIES["memory-sync"].next_action,
             "prepare_memory_sync",
         )
+        self.assertIn(
+            "remember one bounded durable candidate",
+            recommend_module._SKILL_POLICIES["memory-new"].wrapper_guidance,
+        )
+        self.assertIn("not_omh_reviewed", recommend_module._SKILL_POLICIES["memory-new"].evidence_boundary)
+        self.assertIn(
+            "never invokes, applies, or observes",
+            recommend_module._SKILL_POLICIES["memory-sync"].evidence_boundary,
+        )
+        self.assertIn("Korean routes", recommend_module._SKILL_POLICIES["memory-sync"].wrapper_guidance)
         self.assertEqual(recommend_module._SKILL_POLICIES["gateway-intent-card"].next_action, "prepare_gateway_intent_card")
         self.assertEqual(
             recommend_module._SKILL_POLICIES["executor-runtime-readiness"].next_action,
@@ -3092,7 +3102,11 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("People normally talk to Hermes and use only two OMH maintenance commands", docs_readme)
         self.assertIn("## Command Audience", installation)
         self.assertIn("The human-default commands are `omh setup`, `omh update`, and `omh doctor`", installation)
-        self.assertIn("## Agent / Wrapper CLI Flow", memory)
+        self.assertIn("## V2 Model", memory)
+        self.assertIn("## Admission: Remember, Refuse, or Defer", memory)
+        self.assertIn("## Legacy Migration and Reactivation", memory)
+        self.assertIn("## Batch Context Updates", memory)
+        self.assertIn("Agent/operator only", memory)
         self.assertIn("prepared_not_observed", readme)
         self.assertIn("assets/hermes-agent-hero.png", readme)
         self.assertIn("assets/friren-agent-omh-callout.png", readme)

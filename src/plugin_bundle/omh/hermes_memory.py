@@ -32,7 +32,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -280,21 +280,18 @@ def nearest_entry(text: str, entries: tuple[str, ...] | list[str]) -> tuple[int,
 
 
 HERMES_MEMORY_BRIDGE_SCHEMA_VERSION = "hermes_memory_bridge/v1"
-PROJECT_MEMORY_RECORD_SCHEMA_VERSION = "project_memory_record/v1"
+PROJECT_MEMORY_RECORD_SCHEMA_VERSION = "project_memory_record/v2"
 
 
 def read_approved_records(omh_home: str | Path) -> list[dict[str, Any]]:
-    """Approved OMH project-memory records, read with stdlib only.
+    """Replay-eligible v2 records, never legacy display-only records."""
+    from .memory_governance import evaluate_memory_replay
 
-    The bundle has to reach these itself. The `omh` package is not importable
-    from the Hermes process -- it lives in its own environment -- so a tool that
-    delegated the read would answer "package absent" on the one host that
-    matters, which is exactly what shipped before this was vendored.
-    """
-    directory = Path(omh_home).expanduser() / "memory" / "records"
+    home = Path(omh_home).expanduser() / "memory"
+    reviews = _read_reviews(home / "reviews")
     records: list[dict[str, Any]] = []
     try:
-        candidates = sorted(directory.glob("*.json"))
+        candidates = sorted((home / "records").glob("*.json"))
     except OSError:
         return records
     for path in candidates:
@@ -302,16 +299,34 @@ def read_approved_records(omh_home: str | Path) -> list[dict[str, Any]]:
             if path.is_symlink() or not path.is_file():
                 continue
             data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except (OSError, UnicodeDecodeError, ValueError):
             continue
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or data.get("schema_version") != PROJECT_MEMORY_RECORD_SCHEMA_VERSION:
             continue
-        if data.get("schema_version") != PROJECT_MEMORY_RECORD_SCHEMA_VERSION:
-            continue
-        if data.get("review_status") != "approved":
-            continue
-        records.append(data)
+        replay = evaluate_memory_replay(data, review_resolver=reviews or None)
+        admission = data.get("admission") if isinstance(data.get("admission"), dict) else {}
+        review_id = admission.get("review_id") if isinstance(admission, dict) else None
+        if replay.get("eligible") and isinstance(review_id, str) and review_id in reviews:
+            records.append(data)
     return records
+
+
+def _read_reviews(directory: Path) -> dict[str, dict[str, object]]:
+    reviews: dict[str, dict[str, object]] = {}
+    try:
+        candidates = sorted(directory.glob("*.json"))
+    except OSError:
+        return reviews
+    for path in candidates:
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            review = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue
+        if isinstance(review, dict) and isinstance(review.get("review_id"), str):
+            reviews[review["review_id"]] = review
+    return reviews
 
 
 # "Expiring soon" reaches this many days ahead. No upstream default exists for
@@ -349,6 +364,7 @@ def classify_record_expiry(
 ) -> str:
     """One record's TTL state: fresh, expiring, expired, no_ttl, or malformed.
 
+    N5 integration: Delegates to memory_governance for expiry authority.
     The single source of truth for what "expired" means. Recall exclusion and
     retirement both route through this so they can never disagree; ``expired``
     uses the same ``<=`` recall has always used. ``no_ttl`` (absent or empty
@@ -356,15 +372,8 @@ def classify_record_expiry(
     value that claims to be a deadline but cannot be read -- never treated as
     expired, because a move on a misread is a move that cannot be defended.
     """
-    ttl = record.get("ttl") if isinstance(record.get("ttl"), dict) else {}
-    expires_at, problem = _parse_expires_at(ttl.get("expires_at"))
-    if expires_at is None:
-        return problem
-    if expires_at <= now:
-        return "expired"
-    if expires_at <= now + timedelta(days=max(window_days, 0)):
-        return "expiring"
-    return "fresh"
+    from .memory_governance import classify_record_expiry_v1_compat
+    return classify_record_expiry_v1_compat(record, now=now, window_days=window_days)
 
 
 def count_record_expiry(
@@ -381,13 +390,39 @@ def count_record_expiry(
     with its reason.
     """
     counts = {"expired": 0, "expiring_soon": 0}
-    for record in read_approved_records(omh_home):
+    # Legacy expiry totals are metadata-only reminder evidence; they never make
+    # a v1 summary eligible for bridge, provider, or tool replay.
+    records = [*read_approved_records(omh_home), *_legacy_expiry_records(omh_home)]
+    for record in records:
         state = classify_record_expiry(record, now=now, window_days=window_days)
         if state == "expired":
             counts["expired"] += 1
         elif state == "expiring":
             counts["expiring_soon"] += 1
     return counts
+
+
+def _legacy_expiry_records(omh_home: str | Path) -> list[dict[str, Any]]:
+    directory = Path(omh_home).expanduser() / "memory" / "records"
+    records: list[dict[str, Any]] = []
+    try:
+        candidates = sorted(directory.glob("*.json"))
+    except OSError:
+        return records
+    for path in candidates:
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue
+        if (
+            isinstance(record, dict)
+            and record.get("schema_version") == "project_memory_record/v1"
+            and record.get("review_status") == "approved"
+        ):
+            records.append(record)
+    return records
 
 
 def build_hermes_memory_bridge(omh_home: str | Path, hermes_home: str | Path) -> dict[str, object]:
@@ -431,6 +466,10 @@ def build_hermes_memory_bridge(omh_home: str | Path, hermes_home: str | Path) ->
         "already_in_hermes": already_present,
         "promotable": promotable,
         "hermes_entries_without_omh_record": _unsourced_entry_rows(entries, matched_entries),
+        "external_context": {
+            "provider": {"source_class": "provider", "admission_status": "not_omh_reviewed"},
+            "vector": {"source_class": "vector", "admission_status": "not_omh_reviewed"},
+        },
         "duplicate_similarity_threshold": DUPLICATE_SIMILARITY_THRESHOLD,
         "redaction_policy": "metadata_only",
         "next_action": (
@@ -439,7 +478,8 @@ def build_hermes_memory_bridge(omh_home: str | Path, hermes_home: str | Path) ->
         ),
         "claim_boundary": (
             "OMH reads Hermes memory and cannot change it. This comparison is prepared review context only; "
-            "it is not a Hermes memory write, execution, review, CI, or merge evidence."
+            "it is not a Hermes memory write, execution, review, CI, or merge evidence. A configured Hermes "
+            "runtime may transmit rendered OMH prefetch content to its model request."
         ),
     }
 
@@ -451,6 +491,8 @@ def _unsourced_entry_rows(entries: tuple[str, ...], matched: set[int]) -> list[d
             "entry_index": index,
             "chars": len(entry),
             "sha256": hashlib.sha256(entry.encode("utf-8")).hexdigest(),
+            "source_class": "hermes_native",
+            "admission_status": "not_omh_reviewed",
         }
         for index, entry in enumerate(entries)
         if index not in matched

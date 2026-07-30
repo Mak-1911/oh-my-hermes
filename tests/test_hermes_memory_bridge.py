@@ -385,3 +385,20 @@ class MemoryToolTests(unittest.TestCase):
         self.assertEqual(payload["reason"], "RuntimeError")
         self.assertIn("not evidence", payload["claim_boundary"])
         self.assertNotIn("boom", json.dumps(payload))
+
+
+class ExternalContextLabelTests(unittest.TestCase):
+    def test_native_entries_are_not_omh_approved_and_disclose_prefetch_egress(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_memory(root / ".hermes", "native private memory")
+
+            from omh.plugin_bundle.omh.hermes_memory import build_hermes_memory_bridge
+
+            bridge = build_hermes_memory_bridge(root / ".omh", root / ".hermes")
+            native = bridge["hermes_entries_without_omh_record"][0]
+            self.assertEqual(native["source_class"], "hermes_native")
+            self.assertEqual(native["admission_status"], "not_omh_reviewed")
+            self.assertEqual(bridge["external_context"]["provider"]["admission_status"], "not_omh_reviewed")
+            self.assertEqual(bridge["external_context"]["vector"]["admission_status"], "not_omh_reviewed")
+            self.assertIn("may transmit rendered OMH prefetch", bridge["claim_boundary"])

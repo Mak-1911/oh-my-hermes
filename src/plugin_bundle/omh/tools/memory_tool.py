@@ -32,7 +32,7 @@ import os
 from ..degradation import safe_error_type as _safe_error_type
 from ..hermes_memory import build_hermes_memory_bridge
 from ..host_observation import OBSERVATION_SCHEMA, attach_public_observation, observe_plugin_tool_call
-from ..memory_blocks import read_memory_block, read_memory_blocks
+from ..memory_blocks import read_memory_block, read_memory_blocks, select_memory_blocks
 from ..memory_dreaming import read_dreaming_state
 from ..memory_provider import OmhMemoryProvider
 
@@ -43,11 +43,11 @@ OMH_MEMORY_SCHEMA = {
     "description": (
         "Read OMH's durable memory and how it relates to Hermes' own. Actions: 'status' "
         "compares Hermes' built-in memory (MEMORY.md, USER.md) against OMH's approved records "
-        "and reports what fits under Hermes' character cap; 'blocks' lists OMH memory blocks by "
-        "label without their values; 'read' returns one block's value by label; 'consolidation' "
-        "reports whether memory consolidation is due and why. OMH block values are returned in "
-        "full; Hermes memory entries are never returned, only counted and hashed. OMH cannot "
-        "change Hermes memory."
+        "and reports what fits under Hermes' character cap; 'blocks' is a review-readable status "
+        "listing with admission and replay state; 'read' returns a value only for replay-eligible "
+        "OMH-reviewed blocks; 'consolidation' reports whether a reminder is due and why. Hermes "
+        "native, provider, and vector context is not_omh_reviewed and never grants OMH admission. "
+        "Hermes memory entries are never returned, only counted and hashed. OMH cannot change Hermes memory."
     ),
     "parameters": {
         "type": "object",
@@ -55,7 +55,7 @@ OMH_MEMORY_SCHEMA = {
             "action": {
                 "type": "string",
                 "enum": list(MEMORY_ACTIONS),
-                "description": "Which view to return. Defaults to 'status'.",
+                "description": "Which review/read view to return. Defaults to 'status'. Blocks are review-readable; only replay-eligible reviewed blocks are value-readable.",
             },
             "label": {
                 "type": "string",
@@ -109,17 +109,21 @@ def _memory_bridge() -> tuple[dict[str, object], str]:
 
 
 def _blocks() -> dict[str, object]:
-    """Every block by label, without values -- the listing the tier split needs."""
-    blocks = read_memory_blocks(_home("OMH_HOME", "~/.omh"))
+    """Review-readable block status, never values or ineligible descriptions."""
+    home = _home("OMH_HOME", "~/.omh")
+    blocks = read_memory_blocks(home)
+    selection = select_memory_blocks(blocks, omh_home=home)
+    rows = []
+    for block in blocks:
+        row = block.to_summary()
+        row["replay"] = _public_replay(selection.evaluations[block.block_id])
+        rows.append(row)
     return {
-        "schema_version": "omh_memory_block_listing/v1",
-        "blocks": [block.to_summary() for block in blocks],
-        "block_count": len(blocks),
-        "next_action": "Call this tool again with action='read' and a label to read one block.",
-        "claim_boundary": (
-            "Block metadata is prepared OMH context. It is not evidence that Hermes read a "
-            "block, or that any memory was written or changed."
-        ),
+        "schema_version": "omh_memory_block_listing/v2",
+        "blocks": rows,
+        "block_count": len(rows),
+        "next_action": "Use action='read' only for a replay-eligible block label.",
+        "claim_boundary": "Listings are review-readable metadata, not evidence Hermes read, wrote, or used memory.",
     }
 
 
@@ -136,23 +140,45 @@ def _read_block(label: str) -> dict[str, object]:
             "reason": "label_required",
             "next_action": "Call action='blocks' to list available labels.",
         }
-    for block in read_memory_blocks(_home("OMH_HOME", "~/.omh")):
-        if block.label == label:
+    home = _home("OMH_HOME", "~/.omh")
+    blocks = read_memory_blocks(home)
+    selection = select_memory_blocks(blocks, omh_home=home)
+    for block in blocks:
+        if block.label != label:
+            continue
+        replay = _public_replay(selection.evaluations[block.block_id])
+        if not replay["eligible"]:
             return {
-                "schema_version": "omh_memory_block_read/v1",
+                "schema_version": "omh_memory_block_read/v2",
                 "found": True,
-                "block": block.to_dict(),
-                "claim_boundary": (
-                    "A block value is prepared OMH context, not execution, review, CI, merge, "
-                    "or Hermes internal-memory evidence."
-                ),
+                "block_id": block.block_id,
+                "revision": block.revision,
+                "replay": replay,
+                "next_action": "Review or reactivate this block; ineligible blocks never return values.",
             }
+        return {
+            "schema_version": "omh_memory_block_read/v2",
+            "found": True,
+            "block": block.to_dict(),
+            "replay": replay,
+            "claim_boundary": "A replay-eligible value is prepared OMH context, not observed Hermes use or mutation.",
+        }
     return {
         "schema_version": "omh_memory_block_read/v1",
         "found": False,
         "reason": "unknown_label",
         "label": label,
         "next_action": "Call action='blocks' to list available labels.",
+    }
+
+
+def _public_replay(evaluation: dict[str, object]) -> dict[str, object]:
+    return {
+        "eligible": bool(evaluation.get("eligible")),
+        "reason_code": str(evaluation.get("reason_code", "ineligible")),
+        "admission_state": evaluation.get("admission_state"),
+        "source_class": evaluation.get("source_class"),
+        "retention_class": evaluation.get("retention_class"),
     }
 
 

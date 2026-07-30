@@ -5,6 +5,7 @@ import unittest
 
 from _cli_harness import run_cli
 from omh.quality.routing_precision import build_routing_precision_demo, routing_precision_errors
+from omh.routing import recommend as recommend_module
 
 
 class RoutingPrecisionTests(unittest.TestCase):
@@ -351,6 +352,15 @@ class RoutingPrecisionTests(unittest.TestCase):
         for case in interventions.values():
             self.assertTrue(case["passed"])
             self.assertNotEqual(case["observed"]["response_kind"], "ack")
+
+    def test_memory_refusal_and_korean_curation_routes_stay_precise(self) -> None:
+        refusal = recommend_module.recommend_skills("do not save this token", limit=1)[0]
+        curation = recommend_module.recommend_skills("기억 정리", limit=1)[0]
+
+        self.assertEqual(refusal["skill"], "memory-new")
+        self.assertIn("refuse secrets", refusal["wrapper_guidance"])
+        self.assertEqual(curation["skill"], "memory-sync")
+        self.assertIn("Korean routes", curation["wrapper_guidance"])
 
     def test_routing_precision_cli_outputs_summary_and_json(self) -> None:
         status, stdout, stderr = run_cli(["demo", "routing-precision", "--summary"], output_json=False)

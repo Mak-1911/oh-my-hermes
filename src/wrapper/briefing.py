@@ -504,6 +504,7 @@ def _memory_recall_pack_summary(memory_recall_pack: dict[str, Any]) -> dict[str,
             "session_id": str(memory_recall_pack.get("session_id", "")),
             "record_count": int(memory_recall_pack.get("record_count", 0) or 0),
             "excluded_count": int(memory_recall_pack.get("excluded_count", 0) or 0),
+            "replay_evidence": _memory_replay_evidence(memory_recall_pack),
             "redaction_policy": str(memory_recall_pack.get("redaction_policy", "")),
             "claim_boundary": str(memory_recall_pack.get("claim_boundary", "")),
         }
@@ -513,8 +514,35 @@ def _memory_recall_pack_summary(memory_recall_pack: dict[str, Any]) -> dict[str,
         "session_id": str(memory_recall_pack.get("session_id", "")),
         "record_count": len(_list_value(memory_recall_pack.get("included_records"))),
         "excluded_count": len(_list_value(memory_recall_pack.get("excluded_records"))),
+        "replay_evidence": _memory_replay_evidence(memory_recall_pack),
         "redaction_policy": str(memory_recall_pack.get("redaction_policy", "")),
         "claim_boundary": str(memory_recall_pack.get("claim_boundary", "")),
+    }
+
+
+def _memory_replay_evidence(memory_recall_pack: dict[str, Any]) -> dict[str, Any]:
+    included = _list_value(memory_recall_pack.get("included_records"))
+    excluded = _list_value(memory_recall_pack.get("excluded_records"))
+    return {
+        "prepared_not_observed": True,
+        "included": [_memory_replay_item(item) for item in included[:6] if isinstance(item, dict)],
+        "excluded": [_memory_replay_item(item) for item in excluded[:6] if isinstance(item, dict)],
+        "claim_boundary": "Replay evaluation is prepared admission evidence, not evidence an executor or model used memory.",
+    }
+
+
+def _memory_replay_item(item: dict[str, Any]) -> dict[str, Any]:
+    evaluation = _object(item.get("replay_evaluation"))
+    return {
+        "record_id": str(item.get("record_id", "")),
+        "revision": int(item.get("revision", evaluation.get("revision", 0)) or 0),
+        "admission_mode": str(item.get("admission_mode", evaluation.get("admission_mode", ""))),
+        "source_class": str(item.get("source_class", evaluation.get("source_class", ""))),
+        "retention_class": str(item.get("retention_class", evaluation.get("retention_class", ""))),
+        "evaluated_at": str(item.get("evaluated_at", evaluation.get("evaluated_at", ""))),
+        "reason_code": str(item.get("eligibility_reason", item.get("reason", evaluation.get("reason_code", "")))),
+        "eligible": bool(evaluation.get("eligible", False)),
+        "revalidation_evidence": _object(item.get("revalidation_evidence") or evaluation.get("revalidation_evidence")),
     }
 
 

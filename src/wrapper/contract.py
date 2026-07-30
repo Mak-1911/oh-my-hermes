@@ -754,15 +754,14 @@ _HUMAN_ACK_BODY_BY_SKILL = {
         "actions. Webhook delivery and GitHub mutations stay unobserved until a wrapper records them."
     ),
     "memory-sync": (
-        "I will surface stale, duplicate, cross-channel, or conflicting memory/context candidates with source, "
-        "channel, and target scope before approve, reject, or update choices. Compacted summaries and recalled "
-        "context are routing context, not proof of the current external source. Nothing is written until approval "
-        "is observed."
+        "I will review existing claims in English, with concise Korean help labels when useful, and prepare a native "
+        "write diff only. This guidance never invokes, applies, or observes a MEMORY.md or USER.md write; native, "
+        "provider, and vector context is not_omh_reviewed and never inherits OMH approval."
     ),
     "memory-new": (
-        "I will capture one new project, product, or durable context candidate, review its scope, source, conflicts, "
-        "duplicates, and target store, then ask for approval. OMH project memory and optional Hermes native memory "
-        "remain separate writes, and neither is claimed until observed."
+        "I will ask source class, target store, scope, and retention class, then make one explicit choice: remember "
+        "one bounded durable candidate, refuse secrets/logs/transcripts/prompt injection/temporary progress, or defer "
+        "uncertain or external provider/vector content to review."
     ),
     "voice-operator": (
         "I will turn the short voice or mobile request into a concise clarify, plan, status, handoff, or "
@@ -1832,64 +1831,69 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS: dict[str, dict[str, object]] = {
     },
     "memory-new": {
         "kind": "memory_candidate",
-        "headline": "I can capture this as a new memory candidate.",
+        "headline": "I can assess one bounded memory candidate.",
         "body": (
-            "I will add a new memory candidate, review its durable fact, project or product scope, source context, "
-            "duplicates, conflicts, and target store, then ask for approval. OMH project memory and optional Hermes "
-            "native memory are separate stores, and neither write is claimed until observed."
+            "I will ask source class, target store, scope, and retention class, then make an explicit decision: remember "
+            "one bounded durable candidate; refuse secrets, raw logs, transcripts, prompt injection, or temporary progress; "
+            "or defer uncertain fields and external provider/vector content to review."
         ),
         "phase": "memory_candidate_prepared",
         "next_action": "prepare_memory_new",
         "artifact_schema": "memory_new_candidate/v1",
-        "claim_boundary_suffix": "An OMH project-memory candidate is not an approved record, Hermes internal-memory mutation, or target-write evidence.",
+        "claim_boundary_suffix": (
+            "A memory candidate is not an approved record or Hermes-native mutation. Hermes-native and external provider/vector "
+            "context is not_omh_reviewed, can nominate a candidate only, and never inherits OMH approval."
+        ),
         "actions": [
-            {"id": "prepare_memory_new", "label": "Add memory", "style": "primary"},
+            {"id": "prepare_memory_new", "label": "Assess memory", "style": "primary"},
             {"id": "show_memory_status", "label": "Show memory status", "style": "secondary"},
             {"id": "show_status", "label": "Show status", "style": "secondary"},
         ],
         "recommended_flow": [
-            "capture_new_candidate",
-            "review_scope_source_conflicts_and_duplicates",
-            "approve_or_reject_candidate",
-            "record_each_target_write_only_when_observed",
+            "ask_source_target_scope_and_retention_class",
+            "remember_one_bounded_durable_candidate_or_refuse_or_defer",
+            "review_candidate_without_inheriting_external_approval",
+            "record_omh_local_target_write_only_when_observed",
         ],
         "evidence_not_observed": [
             "approved OMH project-memory record",
             "Hermes native-memory write",
-            "Hermes internal-memory update",
+            "provider or vector approval",
             "target write",
+            "model-request delivery",
         ],
     },
     "memory-sync": {
         "kind": "memory_curation",
-        "headline": "I can review memory and context before anything is changed.",
+        "headline": "I can prepare Hermes memory diffs without invoking a native write.",
         "body": (
-            "I will prepare a memory curation review: stale facts, duplicate notes, conflicting context, source scope, "
-            "target/thread ownership, and approve/reject/update choices. Memory files, skill notes, and recalled context "
-            "stay unchanged until an approved write is observed."
+            "I will review existing claims in English, with concise Korean help labels and preserved Korean routing. I can prepare "
+            "a native write diff, but this guidance never invokes, applies, or observes a MEMORY.md or USER.md write."
         ),
         "phase": "memory_curation_prepared",
         "next_action": "prepare_memory_sync",
         "artifact_schema": "memory_curation_card/v1",
-        "claim_boundary_suffix": "It is not Hermes internal memory, MEMORY.md, USER.md, skill-file modification, approved memory write, or external source freshness evidence.",
+        "claim_boundary_suffix": (
+            "It is prepared guidance only and never invokes, applies, or observes a MEMORY.md/USER.md write. It is not Hermes internal memory, MEMORY.md, USER.md, skill-file modification, or external source freshness evidence. Hermes-native and external provider/vector context is not_omh_reviewed and never inherits OMH approval."
+        ),
         "actions": [
             {"id": "prepare_memory_sync", "label": "Review memory", "style": "primary"},
             {"id": "show_memory_status", "label": "Show memory status", "style": "secondary"},
             {"id": "show_status", "label": "Show status", "style": "secondary"},
         ],
         "recommended_flow": [
-            "list_context_candidates",
-            "classify_stale_duplicate_conflicting_items",
-            "ask_for_approve_reject_update",
-            "record_write_only_after_observed_approval",
+            "extract_and_classify_existing_claims",
+            "distinguish_omh_reviewed_vs_not_omh_reviewed_context",
+            "prepare_native_write_diff_only",
+            "present_keep_revise_archive_choices",
         ],
         "evidence_not_observed": [
-            "approved memory write",
-            "MEMORY.md modification",
-            "USER.md modification",
+            "prepared guidance only and never invokes, applies, or observes a MEMORY.md/USER.md write",
+            "native MEMORY.md write",
+            "native USER.md write",
+            "native write invocation or application",
             "skill-file modification",
             "external source freshness",
-            "Hermes internal memory update",
         ],
     },
     "skill-health": {

@@ -27,6 +27,18 @@ except ImportError:  # pragma: no cover
 from ..plugin_bundle.omh.hermes_memory import build_hermes_memory_bridge as _bundle_memory_bridge
 from ..plugin_bundle.omh.hermes_memory import classify_record_expiry as _classify_record_expiry
 from ..plugin_bundle.omh.memory_dreaming import consolidation_path as _consolidation_path
+from ..plugin_bundle.omh.memory_governance import (
+    ADMISSION_STATES,
+    MEMORY_GOVERNANCE_POLICY_VERSION,
+    MEMORY_SCOPE_SCHEMA_VERSION as _V2_MEMORY_SCOPE_SCHEMA_VERSION,
+    PROJECT_MEMORY_RECORD_SCHEMA_VERSION as _V2_PROJECT_MEMORY_RECORD_SCHEMA_VERSION,
+    PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION as _V2_PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION,
+    build_retention,
+    canonical_payload_digest,
+    classify_memory_admission,
+    evaluate_memory_replay,
+    stable_artifact_identity,
+)
 from ..paths import OmhPaths
 from ..profiles.setup import read_setup_profile
 from ..targets import summarize_target_registry
@@ -37,16 +49,19 @@ MEMORY_INSPECTION_SCHEMA_VERSION = "memory_inspection/v1"
 MEMORY_REVIEW_CARD_SCHEMA_VERSION = "memory_review_card/v1"
 HANDOFF_CONTEXT_PACK_SCHEMA_VERSION = "handoff_context_pack/v1"
 MEMORY_UPDATE_BATCH_SCHEMA_VERSION = "memory_update_batch/v1"
-MEMORY_SCOPE_SCHEMA_VERSION = "omh_memory_scope/v1"
+MEMORY_SCOPE_SCHEMA_VERSION = _V2_MEMORY_SCOPE_SCHEMA_VERSION
+LEGACY_MEMORY_SCOPE_SCHEMA_VERSION = "omh_memory_scope/v1"
 MEMORY_INDEX_SCHEMA_VERSION = "omh_memory_index/v1"
 PROJECT_MEMORY_POLICY_SCHEMA_VERSION = "project_memory_policy/v1"
 PROJECT_MEMORY_STATUS_SCHEMA_VERSION = "project_memory_status/v1"
 PROJECT_MEMORY_CAPTURE_SCHEMA_VERSION = "project_memory_capture/v1"
 PROJECT_MEMORY_CANDIDATE_SCHEMA_VERSION = "project_memory_candidate/v1"
-PROJECT_MEMORY_RECORD_SCHEMA_VERSION = "project_memory_record/v1"
+PROJECT_MEMORY_RECORD_SCHEMA_VERSION = _V2_PROJECT_MEMORY_RECORD_SCHEMA_VERSION
+LEGACY_PROJECT_MEMORY_RECORD_SCHEMA_VERSION = "project_memory_record/v1"
 PROJECT_MEMORY_REVIEW_CARD_SCHEMA_VERSION = "project_memory_review_card/v1"
 PROJECT_MEMORY_REVIEW_QUEUE_SCHEMA_VERSION = "project_memory_review_queue/v1"
-PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION = "project_memory_review_record/v1"
+PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION = _V2_PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION
+LEGACY_PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION = "project_memory_review_record/v1"
 PROJECT_MEMORY_RECALL_PACK_SCHEMA_VERSION = "project_memory_recall_pack/v1"
 HERMES_MEMORY_BRIDGE_SCHEMA_VERSION = "hermes_memory_bridge/v1"
 
@@ -96,14 +111,17 @@ _PROJECT_MEMORY_RECORD_KEYS = {
     "schema_version",
     "record_id",
     "candidate_id",
-    "review_status",
+    "revision",
     "record_type",
     "summary",
     "scope",
     "tags",
     "source",
+    "source_class",
     "source_ref",
-    "approved_by",
+    "admission",
+    "retention",
+    "revalidation",
     "approved_at",
     "created_at",
     "updated_at",
@@ -138,8 +156,29 @@ _PROJECT_MEMORY_RECALL_ITEM_KEYS = {
     "approved_at",
     "staleness",
     "score",
+    "revision",
+    "admission_mode",
+    "source_class",
+    "retention_class",
+    "evaluated_at",
+    "eligibility_reason",
+    "revalidation_evidence",
+    "replay_evaluation",
 }
-_PROJECT_MEMORY_EXCLUDED_KEYS = {"record_id", "reason", "staleness", "sibling_included"}
+_PROJECT_MEMORY_EXCLUDED_KEYS = {
+    "record_id",
+    "reason",
+    "staleness",
+    "sibling_included",
+    "revision",
+    "admission_mode",
+    "source_class",
+    "retention_class",
+    "evaluated_at",
+    "eligibility_reason",
+    "revalidation_evidence",
+    "replay_evaluation",
+}
 _PROJECT_MEMORY_TASK_REF_KEYS = {"sha256", "length", "query_supplied"}
 _HANDOFF_CONTEXT_PACK_KEYS = {
     "schema_version",
@@ -156,8 +195,8 @@ _HANDOFF_CONTEXT_PACK_KEYS = {
 }
 _HANDOFF_CONTEXT_SCOPE_KEYS = {"kind", "ref"}
 _HANDOFF_CONTEXT_SOURCE_REF_KEYS = {"source", "truth_level", "precedence", "item_count"}
-_HANDOFF_CONTEXT_INCLUDED_KEYS = {"item_id", "key", "summary", "source", "truth_level", "scope", "artifact_ref"}
-_HANDOFF_CONTEXT_EXCLUDED_KEYS = {"item_id", "source", "reason"}
+_HANDOFF_CONTEXT_INCLUDED_KEYS = {"item_id", "key", "summary", "source", "truth_level", "scope", "artifact_ref", "replay_evaluation"}
+_HANDOFF_CONTEXT_EXCLUDED_KEYS = {"item_id", "source", "reason", "replay_evaluation"}
 _HANDOFF_CONTEXT_CONFLICT_KEYS = {
     "item_id",
     "key",
@@ -216,7 +255,8 @@ def build_project_memory_status(paths: OmhPaths) -> dict[str, object]:
     records = _read_project_memory_records(paths)
     reviews = _read_project_memory_reviews(paths)
     now = datetime.now(timezone.utc)
-    expired_records = sum(1 for record in records if _classify_record_expiry(record, now=now) == "expired")
+    evaluations = [_evaluate_memory_artifact(record, paths=paths, now=now, review_resolver=_project_memory_review_resolver(paths)) for record in records]
+    expired_records = sum(1 for evaluation in evaluations if str(evaluation["reason_code"]).startswith("expired_"))
     candidate_status_counts: dict[str, int] = {}
     for candidate in candidates:
         status = str(candidate.get("status", "unknown"))
@@ -236,8 +276,11 @@ def build_project_memory_status(paths: OmhPaths) -> dict[str, object]:
         "counts": {
             "candidates": len(candidates),
             "pending_review": sum(1 for candidate in candidates if str(candidate.get("status", "")) in {"pending_review", "blocked_review_required"}),
-            "approved_records": len(records),
+            "approved_records": sum(1 for record in records if record.get("schema_version") == PROJECT_MEMORY_RECORD_SCHEMA_VERSION),
             "expired_records": expired_records,
+            "eligible_records": sum(1 for evaluation in evaluations if evaluation["eligible"]),
+            "ineligible_records": sum(1 for evaluation in evaluations if not evaluation["eligible"]),
+            "review_required_legacy": sum(1 for evaluation in evaluations if evaluation["reason_code"] == "review_required_legacy"),
             "review_records": len(reviews),
             "candidate_statuses": candidate_status_counts,
         },
@@ -260,6 +303,7 @@ def capture_project_memory_candidate(
     tags: list[str] | tuple[str, ...] | None = None,
     ttl_days: int | None = None,
     stale_after_days: int | None = None,
+    retention_class: str = "standard",
 ) -> dict[str, object]:
     policy = read_project_memory_policy(paths)
     if not bool(policy.get("capture_enabled", True)):
@@ -282,6 +326,7 @@ def capture_project_memory_candidate(
         tags=tags or [],
         ttl_days=ttl_days,
         stale_after_days=stale_after_days,
+        retention_class=retention_class,
     )
     _write_project_memory_candidate(paths, candidate)
     auto_approved = False
@@ -361,20 +406,36 @@ def approve_project_memory_candidate(paths: OmhPaths, candidate_id: str, *, appr
     safety = candidate.get("safety", {}) if isinstance(candidate.get("safety"), dict) else {}
     if safety.get("status") == "blocked":
         raise ValueError("blocked memory candidates must be rejected or recaptured without protected raw content")
-    now = utc_now()
-    record = _record_from_candidate(candidate, approved_by=approved_by, approved_at=now)
+    approved_at = utc_now()
+    review_id = f"review_{candidate_id}"
+    admission_state = "approved_auto_safe" if approved_by == "auto-safe" else "approved_manual"
+    record = _record_from_candidate(
+        candidate,
+        approved_by=approved_by,
+        approved_at=approved_at,
+        review_id=review_id,
+        admission_state=admission_state,
+    )
+    review = _project_memory_review_record(record, review_id=review_id, reviewer=approved_by, decision=admission_state)
     # The whole mutate sequence holds the store lock so a concurrent retirement
     # cannot observe a half-written approval. Candidate writes go through the
     # unlocked helper: the public wrapper acquires this same non-reentrant lock.
     with file_lock(paths.memory_index_path, private=True):
         _write_project_memory_record(paths, record)
-        candidate = {**candidate, "status": "approved", "reviewed_at": now, "reviewed_by": approved_by, "record_id": record["record_id"]}
+        candidate = {
+            **candidate,
+            "status": "approved",
+            "reviewed_at": approved_at,
+            "reviewed_by": approved_by,
+            "record_id": record["record_id"],
+            "review_id": review_id,
+        }
         _write_project_memory_candidate_unlocked(paths, candidate)
-        review = _write_project_memory_review_decision(paths, candidate, decision="approved", reviewer=approved_by, reason="")
+        _write_project_memory_review_decision(paths, review)
         _write_memory_index_unlocked(paths)
     return {
         "schema_version": PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION,
-        "decision": "approved",
+        "decision": admission_state,
         "candidate": candidate,
         "record": record,
         "review": review,
@@ -396,7 +457,19 @@ def reject_project_memory_candidate(
     candidate = {**candidate, "status": "rejected", "reviewed_at": now, "reviewed_by": rejected_by, "rejection_reason": _redact(str(reason or ""))[:300]}
     with file_lock(paths.memory_index_path, private=True):
         _write_project_memory_candidate_unlocked(paths, candidate)
-        review = _write_project_memory_review_decision(paths, candidate, decision="rejected", reviewer=rejected_by, reason=reason)
+        review = _write_project_memory_review_decision(
+            paths,
+            {
+                "schema_version": PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION,
+                "review_id": f"review_{candidate_id}",
+                "candidate_id": candidate_id,
+                "decision": "rejected",
+                "reviewer_claim": rejected_by,
+                "reason": _redact(str(reason or ""))[:300],
+                "reviewed_at": now,
+                "claim_boundary": "Project memory review decisions are prepared governance only, never executor-use evidence.",
+            },
+        )
         _write_memory_index_unlocked(paths)
     return {
         "schema_version": PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION,
@@ -422,6 +495,8 @@ def build_project_memory_recall_pack(
     max_chars: int | None = None,
     include_stale: bool = False,
     now: datetime | None = None,
+    stale_override: dict[str, object] | None = None,
+    run_id: str | None = None,
 ) -> dict[str, object]:
     policy = read_project_memory_policy(paths)
     task_ref = {
@@ -440,23 +515,31 @@ def build_project_memory_recall_pack(
             reason="project_memory_disabled",
         )
     records = _read_project_memory_records(paths)
+    requested_scope = _scope(scope_kind, scope_ref) if scope_kind and scope_ref else None
+    review_resolver = _project_memory_review_resolver(paths)
     included: list[dict[str, object]] = []
     excluded: list[dict[str, object]] = []
     for record in records:
         if not _record_scope_matches(record, scope_kind=scope_kind, scope_ref=scope_ref):
             continue
+        evaluation = _evaluate_memory_artifact(
+            record,
+            paths=paths,
+            now=now,
+            requested_scope=requested_scope,
+            review_resolver=review_resolver,
+            stale_override=stale_override,
+            run_id=run_id,
+        )
         staleness = _record_staleness(record, now=now)
-        if staleness["state"] == "expired":
-            excluded.append({"record_id": str(record.get("record_id", "")), "reason": "expired", "staleness": staleness})
-            continue
-        if staleness["state"] == "stale" and not include_stale:
-            excluded.append({"record_id": str(record.get("record_id", "")), "reason": "stale", "staleness": staleness})
+        if not bool(evaluation["eligible"]):
+            excluded.append(_recall_exclusion(record, evaluation, staleness=staleness))
             continue
         score = _memory_recall_score(record, query)
         if query and score <= 0:
-            excluded.append({"record_id": str(record.get("record_id", "")), "reason": "no_query_overlap", "staleness": staleness})
+            excluded.append(_recall_exclusion(record, evaluation, staleness=staleness, reason="no_query_overlap"))
             continue
-        included.append(_recall_item(record, score=score, staleness=staleness))
+        included.append(_recall_item(record, score=score, staleness=staleness, evaluation=evaluation))
     included.sort(key=lambda item: (-int(item.get("score", 0)), str(item.get("record_id", ""))))
     # Budget cut follows the priority ladder above: once either budget is
     # crossed, everything after that point is cut, so a lower-priority record
@@ -477,6 +560,7 @@ def build_project_memory_recall_pack(
                 "record_id": str(item.get("record_id", "")),
                 "reason": "over_budget",
                 "staleness": item.get("staleness", {"state": "not_checked"}),
+                **_recall_evidence_fields(item.get("replay_evaluation")),
             }
             # A cut record that shares a tag with a KEPT record may be the
             # other side of a same-topic disagreement; without this hint the
@@ -742,7 +826,17 @@ def build_memory_retirement(
         if data is None:
             skipped.append({"path_name": path.name, "reason": "corrupt_json"})
             continue
-        if data.get("schema_version") != PROJECT_MEMORY_RECORD_SCHEMA_VERSION or data.get("review_status") != "approved":
+        is_v2_approved = (
+            data.get("schema_version") == PROJECT_MEMORY_RECORD_SCHEMA_VERSION
+            and isinstance(data.get("admission"), dict)
+            and data["admission"].get("state") in {"approved_manual", "approved_auto_safe"}
+            and data.get("review_status", "approved") == "approved"
+        )
+        is_v1_approved = (
+            data.get("schema_version") == LEGACY_PROJECT_MEMORY_RECORD_SCHEMA_VERSION
+            and data.get("review_status") == "approved"
+        )
+        if not (is_v2_approved or is_v1_approved):
             skipped.append({"path_name": path.name, "reason": "not_canonical"})
             continue
         record_id = str(data.get("record_id", ""))
@@ -845,91 +939,96 @@ def build_handoff_context_pack(
     scope_ref: str | None = None,
     session_limit: int | None = None,
     context_limit: int = 12,
+    now: datetime | None = None,
+    stale_override: dict[str, object] | None = None,
+    run_id: str | None = None,
 ) -> dict[str, object]:
     if inspection is None:
-        snapshots = _local_snapshots(paths, scope_kind=scope_kind, scope_ref=scope_ref, session_limit=session_limit)
-        conflicts = _detect_conflicts(snapshots)
-        inspection = {"snapshots": snapshots, "conflicts": conflicts}
+        snapshots = _local_snapshots(paths, scope_kind=scope_kind, scope_ref=scope_ref, session_limit=session_limit, now=now)
+        inspection = {"snapshots": snapshots, "conflicts": _detect_conflicts(snapshots)}
     conflicts = [conflict for conflict in inspection.get("conflicts", []) if isinstance(conflict, dict)]
     blocking_conflicts = [conflict for conflict in conflicts if conflict.get("severity") == "blocker"]
+    conflict_ids = {str(conflict.get("item_id", "")) for conflict in blocking_conflicts}
+    review_resolver = _project_memory_review_resolver(paths)
     included: list[dict[str, object]] = []
     excluded: list[dict[str, object]] = []
     for snapshot in inspection.get("snapshots", []):
         if not isinstance(snapshot, dict):
             continue
+        source = str(snapshot.get("source", ""))
         for item in snapshot.get("items", []) if isinstance(snapshot.get("items"), list) else []:
             if not isinstance(item, dict):
                 continue
-            if _item_conflicts(item, blocking_conflicts):
-                excluded.append(
-                    {
-                        "item_id": str(item.get("item_id", "")),
-                        "source": str(snapshot.get("source", "")),
-                        "reason": "blocked_by_unresolved_conflict",
-                    }
+            item_id = str(item.get("item_id", ""))
+            if source == "omh_memory":
+                artifact = _memory_artifact_for_snapshot_item(paths, item)
+                if _item_conflicts(item, blocking_conflicts):
+                    artifact = {**artifact, "conflict_ids": [item_id]}
+                evaluation = _evaluate_memory_artifact(
+                    artifact,
+                    paths=paths,
+                    now=now,
+                    review_resolver=review_resolver,
+                    conflict_ids=conflict_ids,
+                    stale_override=stale_override,
+                    run_id=run_id,
                 )
+                if not evaluation["eligible"]:
+                    excluded.append(
+                        {
+                            "item_id": item_id,
+                            "source": source,
+                            "reason": str(evaluation["reason_code"]),
+                            "replay_evaluation": evaluation,
+                        }
+                    )
+                    continue
+            elif _item_conflicts(item, blocking_conflicts):
+                excluded.append({"item_id": item_id, "source": source, "reason": "blocked_by_unresolved_conflict"})
                 continue
+            else:
+                evaluation = {}
             if _is_packable(item, snapshot):
-                included.append(
-                    {
-                        "item_id": str(item.get("item_id", "")),
-                        "key": str(item.get("key", "")),
-                        "summary": str(item.get("summary", "")),
-                        "source": str(snapshot.get("source", "")),
-                        "truth_level": str(snapshot.get("truth_level", "")),
-                        "scope": item.get("scope", snapshot.get("scope", _scope("project", "default"))),
-                    }
-                )
+                context_item: dict[str, object] = {
+                    "item_id": item_id,
+                    "key": str(item.get("key", "")),
+                    "summary": str(item.get("summary", "")),
+                    "source": source,
+                    "truth_level": str(snapshot.get("truth_level", "")),
+                    "scope": item.get("scope", snapshot.get("scope", _scope("project", "default"))),
+                }
+                if evaluation:
+                    context_item["replay_evaluation"] = evaluation
+                included.append(context_item)
+            else:
+                excluded.append({"item_id": item_id, "source": source, "reason": "not_packable"})
+    kept = included[: max(context_limit, 0)]
+    for item in included[len(kept) :]:
+        excluded.append(
+            {
+                "item_id": str(item.get("item_id", "")),
+                "source": str(item.get("source", "")),
+                "reason": "over_budget",
+                **({"replay_evaluation": item["replay_evaluation"]} if "replay_evaluation" in item else {}),
+            }
+        )
     return {
         "schema_version": HANDOFF_CONTEXT_PACK_SCHEMA_VERSION,
         "executor_target": executor_target,
         "session_id": session_id,
         "scope": _scope("project", "default"),
         "source_refs": _source_refs(inspection),
-        "included_context": included[:context_limit],
+        "included_context": kept,
         "excluded_context": excluded,
         "blocked_by_conflicts": blocking_conflicts,
         "redaction_policy": "metadata_only",
-        "claim_boundary": "Context packs contain approved summaries only; they are not raw memory dumps or execution evidence.",
+        "claim_boundary": "Context packs contain evaluator-approved summaries only; they are prepared context, not observed executor or model use.",
     }
 
 
 def apply_memory_update_batch(paths: OmhPaths, batch: dict[str, Any], *, dry_run: bool = False) -> dict[str, object]:
-    if batch.get("schema_version") != MEMORY_UPDATE_BATCH_SCHEMA_VERSION:
-        raise ValueError("unsupported memory update batch schema")
-    updates = batch.get("updates")
-    if not isinstance(updates, list):
-        raise ValueError("memory update batch requires updates list")
-    result_updates: list[dict[str, object]] = []
-    written_paths: list[str] = []
-    not_applied: list[dict[str, object]] = []
-    touched: dict[Path, dict[str, Any]] = {}
-    base = _memory_root(paths)
-    for update in updates:
-        try:
-            result = _prepare_update(paths, update, touched)
-            result_updates.append(result)
-        except OSError as exc:
-            item_id = str(update.get("item_id", "")) if isinstance(update, dict) else ""
-            not_applied.append({"item_id": item_id, "reason": str(exc)})
-    if not dry_run and not not_applied:
-        ensure_dir(base, private=True)
-        for path, data in touched.items():
-            _assert_under_memory_root(paths, path)
-            atomic_write_json(path, data, private=True)
-            written_paths.append(str(path))
-        _write_memory_index(paths)
-    return {
-        "schema_version": MEMORY_UPDATE_BATCH_SCHEMA_VERSION,
-        "approved_by": str(batch.get("approved_by", "")),
-        "source_surface": str(batch.get("source_surface", "")),
-        "dry_run": dry_run,
-        "applied": bool(updates) and not dry_run and not not_applied,
-        "updates": result_updates,
-        "written_paths": written_paths,
-        "not_applied": not_applied,
-        "claim_boundary": "Approved updates write OMH-local memory only; Hermes internal memory is not mutated.",
-    }
+    """Compatibility entry point: legacy direct batches never mutate memory."""
+    return legacy_batch_review_required(paths, batch, dry_run=dry_run)
 
 
 def read_memory_snapshot_file(path: str | Path) -> dict[str, Any]:
@@ -1035,6 +1134,7 @@ def _build_project_memory_candidate(
     tags: list[str] | tuple[str, ...],
     ttl_days: int | None,
     stale_after_days: int | None,
+    retention_class: str,
 ) -> dict[str, object]:
     normalized_type = _normalize_record_type(record_type)
     scope = _scope_for_project_memory(scope_kind, scope_ref)
@@ -1044,15 +1144,7 @@ def _build_project_memory_candidate(
     now = utc_now()
     ttl = _ttl_metadata(ttl_days, record_type=normalized_type, created_at=now)
     staleness = _staleness_metadata(stale_after_days, record_type=normalized_type, created_at=now)
-    candidate_basis = {
-        "record_type": normalized_type,
-        "summary": summary.strip(),
-        "scope": scope,
-        "source": source,
-        "source_ref": source_ref,
-        "tags": normalized_tags,
-    }
-    candidate_id = "cand_" + hashlib.sha256(_jsonish(candidate_basis).encode("utf-8")).hexdigest()[:16]
+    candidate_id = "cand_" + os.urandom(8).hex()
     status = "blocked_review_required" if safety["status"] == "blocked" else "pending_review"
     return {
         "schema_version": PROJECT_MEMORY_CANDIDATE_SCHEMA_VERSION,
@@ -1067,6 +1159,7 @@ def _build_project_memory_candidate(
         "created_at": now,
         "ttl": ttl,
         "staleness": staleness,
+        "retention_class": str(retention_class),
         "content_ref": {
             "sha256": hashlib.sha256(content_text.encode("utf-8")).hexdigest() if content_text else "",
             "length": len(content_text),
@@ -1078,53 +1171,115 @@ def _build_project_memory_candidate(
     }
 
 
-def _record_from_candidate(candidate: dict[str, Any], *, approved_by: str, approved_at: str) -> dict[str, object]:
-    record_id = "mem_" + hashlib.sha256(str(candidate.get("candidate_id", "")).encode("utf-8")).hexdigest()[:16]
-    return {
+def _record_from_candidate(
+    candidate: dict[str, Any],
+    *,
+    approved_by: str,
+    approved_at: str,
+    review_id: str,
+    admission_state: str,
+) -> dict[str, object]:
+    if admission_state not in ADMISSION_STATES:
+        raise ValueError(f"unsupported memory admission state: {admission_state}")
+    approved_at_value = _parse_utc(approved_at)
+    if approved_at_value is None:
+        raise ValueError("approved_at must be an ISO timestamp")
+    record_type = _normalize_record_type(str(candidate.get("record_type", "fact")))
+    retention = build_retention(
+        str(candidate.get("retention_class", "standard")),
+        record_type=record_type,
+        admitted_at=approved_at_value,
+        ttl_days=_candidate_ttl_days(candidate),
+    )
+    record_id = "mem_" + os.urandom(8).hex()
+    scope = _normalize_scope(candidate.get("scope", _scope("project", "default")))
+    revalidation = _candidate_revalidation(candidate)
+    record: dict[str, object] = {
         "schema_version": PROJECT_MEMORY_RECORD_SCHEMA_VERSION,
         "record_id": record_id,
         "candidate_id": str(candidate.get("candidate_id", "")),
-        "review_status": "approved",
-        "record_type": _normalize_record_type(str(candidate.get("record_type", "fact"))),
+        "revision": 1,
+        "record_type": record_type,
         "summary": _redact(str(candidate.get("summary", "")))[:500],
-        "scope": _normalize_scope(candidate.get("scope", _scope("project", "default"))),
+        "scope": scope,
         "tags": _normalize_tags(candidate.get("tags", [])),
         "source": str(candidate.get("source", "cli")),
+        "source_class": "omh_local",
         "source_ref": _redact(str(candidate.get("source_ref", "")))[:160],
-        "approved_by": str(approved_by or "operator"),
+        "admission": {
+            "state": admission_state,
+            "review_id": review_id,
+            "reviewer_claim": str(approved_by or "operator"),
+            "admitted_at": approved_at,
+            "policy_version": MEMORY_GOVERNANCE_POLICY_VERSION,
+        },
+        "retention": retention,
+        "revalidation": revalidation,
         "approved_at": approved_at,
         "created_at": str(candidate.get("created_at", approved_at)),
         "updated_at": approved_at,
-        "ttl": candidate.get("ttl", {}),
-        "staleness": candidate.get("staleness", {}),
+        "ttl": _ttl_projection(retention),
+        "staleness": _staleness_projection(revalidation),
         "safety": candidate.get("safety", {}),
         "redaction_policy": "metadata_only",
         "claim_boundary": "Reviewed OMH project memory is prepared context only; it is not execution, review, CI, merge, or Hermes internal-memory evidence.",
     }
+    admission = record["admission"]
+    if isinstance(admission, dict):
+        admission["payload_digest"] = canonical_payload_digest(record)
+    return record
 
 
-def _write_project_memory_review_decision(
-    paths: OmhPaths,
-    candidate: dict[str, Any],
+def _project_memory_review_record(
+    record: dict[str, object],
     *,
-    decision: str,
+    review_id: str,
     reviewer: str,
-    reason: str,
+    decision: str,
 ) -> dict[str, object]:
-    reviewed_at = str(candidate.get("reviewed_at") or utc_now())
-    review = {
+    return {
         "schema_version": PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION,
-        "candidate_id": str(candidate.get("candidate_id", "")),
-        "record_id": str(candidate.get("record_id", "")),
+        "review_id": review_id,
+        "artifact_identity": stable_artifact_identity(record),
         "decision": decision,
-        "reviewer": str(reviewer or "operator"),
-        "reason": _redact(str(reason or ""))[:300],
-        "reviewed_at": reviewed_at,
-        "claim_boundary": "Project memory review decisions are local prepared-context governance only; they are not execution/review/CI/merge evidence.",
+        "reviewer_claim": str(reviewer or "operator"),
+        "payload_digest": canonical_payload_digest(record),
+        "policy_version": MEMORY_GOVERNANCE_POLICY_VERSION,
+        "reviewed_at": str(record.get("approved_at", "")),
+        "claim_boundary": "Project memory review decisions are prepared governance only, never executor-use evidence.",
     }
-    path = _memory_review_path(paths, str(candidate.get("candidate_id", "")))
-    atomic_write_json(path, review, private=True)
+
+
+def _write_project_memory_review_decision(paths: OmhPaths, review: dict[str, object]) -> dict[str, object]:
+    review_id = str(review.get("review_id", ""))
+    if not _SAFE_REF.match(review_id):
+        raise ValueError(f"unsafe memory review id: {review_id!r}")
+    atomic_write_json(_memory_review_path(paths, review_id), review, private=True)
     return review
+
+
+def _candidate_ttl_days(candidate: dict[str, Any]) -> int | None:
+    ttl = candidate.get("ttl")
+    ttl_days = ttl.get("ttl_days") if isinstance(ttl, dict) else None
+    return ttl_days if isinstance(ttl_days, int) and not isinstance(ttl_days, bool) else None
+
+
+def _candidate_revalidation(candidate: dict[str, Any]) -> dict[str, object]:
+    staleness = candidate.get("staleness")
+    deadline = staleness.get("stale_after") if isinstance(staleness, dict) else ""
+    return {"deadline": str(deadline)} if deadline else {}
+
+
+def _ttl_projection(retention: dict[str, object]) -> dict[str, object]:
+    return {
+        "ttl_days": retention.get("ttl_days"),
+        "expires_at": str(retention.get("expires_at", "")),
+    }
+
+
+def _staleness_projection(revalidation: dict[str, object]) -> dict[str, object]:
+    deadline = str(revalidation.get("deadline", ""))
+    return {"stale_after": deadline, "stale_after_days": None}
 
 
 def _empty_recall_pack(
@@ -1154,7 +1309,14 @@ def _empty_recall_pack(
     }
 
 
-def _recall_item(record: dict[str, Any], *, score: int, staleness: dict[str, object]) -> dict[str, object]:
+def _recall_item(
+    record: dict[str, Any],
+    *,
+    score: int,
+    staleness: dict[str, object],
+    evaluation: dict[str, object],
+) -> dict[str, object]:
+    evidence = _replay_evaluation(record, evaluation)
     return {
         "record_id": str(record.get("record_id", "")),
         "record_type": str(record.get("record_type", "")),
@@ -1165,7 +1327,139 @@ def _recall_item(record: dict[str, Any], *, score: int, staleness: dict[str, obj
         "approved_at": str(record.get("approved_at", "")),
         "staleness": staleness,
         "score": int(score),
+        **_recall_evidence_fields(evidence),
     }
+
+
+def _recall_exclusion(
+    record: dict[str, Any],
+    evaluation: dict[str, object],
+    *,
+    staleness: dict[str, object],
+    reason: str | None = None,
+) -> dict[str, object]:
+    evidence = _replay_evaluation(record, evaluation)
+    return {
+        "record_id": str(record.get("record_id", "")),
+        "reason": reason or str(evidence["reason_code"]),
+        "staleness": staleness,
+        **_recall_evidence_fields(evidence),
+    }
+
+
+def _recall_evidence_fields(value: Any) -> dict[str, object]:
+    evidence = value if isinstance(value, dict) else {}
+    return {
+        "revision": int(evidence.get("revision", 0) or 0),
+        "admission_mode": str(evidence.get("admission_mode") or ""),
+        "source_class": str(evidence.get("source_class") or ""),
+        "retention_class": str(evidence.get("retention_class") or ""),
+        "evaluated_at": str(evidence.get("evaluated_at") or ""),
+        "eligibility_reason": str(evidence.get("reason_code") or ""),
+        "revalidation_evidence": evidence.get("revalidation_evidence", {}),
+        "replay_evaluation": evidence,
+    }
+
+
+def _project_memory_review_resolver(paths: OmhPaths) -> dict[str, dict[str, object]]:
+    return {
+        str(review.get("review_id", "")): review
+        for review in _read_project_memory_reviews(paths)
+        if str(review.get("review_id", ""))
+    }
+
+
+def _evaluate_memory_artifact(
+    artifact: dict[str, Any],
+    *,
+    paths: OmhPaths | None = None,
+    now: datetime | None = None,
+    requested_scope: dict[str, object] | None = None,
+    review_resolver: dict[str, dict[str, object]] | None = None,
+    conflict_ids: set[str] | None = None,
+    stale_override: dict[str, object] | None = None,
+    run_id: str | None = None,
+) -> dict[str, object]:
+    evaluator_artifact = _normalize_evaluator_timestamps(artifact)
+    if evaluator_artifact.get("schema_version") == LEGACY_MEMORY_SCOPE_SCHEMA_VERSION:
+        # Governance has one legacy reason code for v1 project records. Map
+        # the preserved v1 scope schema into that read-only compatibility
+        # classification rather than coercing it into an invalid v2 artifact.
+        evaluator_artifact = {**evaluator_artifact, "schema_version": LEGACY_PROJECT_MEMORY_RECORD_SCHEMA_VERSION}
+    result = evaluate_memory_replay(
+        evaluator_artifact,
+        now=now,
+        requested_scope=requested_scope,
+        review_resolver=review_resolver,
+        conflict_ids=conflict_ids,
+        stale_override=stale_override,
+        run_id=run_id,
+    )
+    admission = artifact.get("admission")
+    review_id = admission.get("review_id") if isinstance(admission, dict) else ""
+    if (
+        result.get("eligible") is True
+        and artifact.get("schema_version") in {PROJECT_MEMORY_RECORD_SCHEMA_VERSION, MEMORY_SCOPE_SCHEMA_VERSION}
+        and (not isinstance(review_id, str) or not review_id or not review_resolver or review_id not in review_resolver)
+    ):
+        # The core boundary supplies a resolver, so an approval without its
+        # immutable review record cannot become eligible through an omitted id.
+        result = {**result, "eligible": False, "reason_code": "review_not_found"}
+    operation_id = artifact.get("operation_id")
+    if result.get("eligible") is True and paths and isinstance(operation_id, str) and operation_id:
+        operation, error = read_json_object_result(paths.memory_operations_dir / f"{operation_id}.json")
+        if error or not isinstance(operation, dict) or operation.get("state") != "completed":
+            result = {**result, "eligible": False, "reason_code": "operation_incomplete"}
+    return _replay_evaluation(artifact, result)
+
+
+def _normalize_evaluator_timestamps(artifact: dict[str, Any]) -> dict[str, Any]:
+    """Present legacy-naive ISO deadlines to the shared evaluator as UTC."""
+    normalized = dict(artifact)
+    for field, timestamp_key in (("retention", "expires_at"), ("revalidation", "deadline")):
+        metadata = artifact.get(field)
+        if not isinstance(metadata, dict) or not metadata.get(timestamp_key):
+            continue
+        parsed = _parse_utc_naive_as_utc(str(metadata[timestamp_key]))
+        if parsed is None:
+            continue
+        normalized[field] = {**metadata, timestamp_key: parsed.isoformat().replace("+00:00", "Z")}
+    return normalized
+
+
+def _parse_utc_naive_as_utc(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _replay_evaluation(artifact: dict[str, Any], result: dict[str, object]) -> dict[str, object]:
+    try:
+        identity = stable_artifact_identity(artifact)
+    except ValueError:
+        identity = {}
+    revalidation = artifact.get("revalidation")
+    return {
+        "schema_version": "omh_memory_replay_evaluation/v1",
+        "artifact_identity": identity,
+        "revision": int(artifact.get("revision", 0) or 0),
+        "admission_mode": str(result.get("admission_mode") or ""),
+        "source_class": str(artifact.get("source_class", "")),
+        "retention_class": str(result.get("retention_class") or _retention_class(artifact)),
+        "evaluated_at": str(result.get("evaluated_at", "")),
+        "eligible": bool(result.get("eligible", False)),
+        "reason_code": str(result.get("reason_code", "unknown")),
+        "revalidation_evidence": {"deadline": str(revalidation.get("deadline", ""))} if isinstance(revalidation, dict) else {},
+    }
+
+
+def _retention_class(artifact: dict[str, Any]) -> str:
+    retention = artifact.get("retention")
+    return str(retention.get("class", "")) if isinstance(retention, dict) else ""
 
 
 def _memory_recall_score(record: dict[str, Any], query: str) -> int:
@@ -1241,39 +1535,14 @@ def _record_staleness(record: dict[str, Any], *, now: datetime | None = None) ->
 
 
 def _project_memory_safety(summary: str, content: str, *, tags: list[str]) -> dict[str, object]:
-    text = "\n".join([summary, content, " ".join(tags)])
-    reasons: list[str] = []
-    blocked = False
-    if _looks_sensitive(text):
-        blocked = True
-        reasons.append("sensitive_credential_like_text")
-    if _looks_like_raw_log(text):
-        blocked = True
-        reasons.append("raw_log_or_traceback")
-    if _looks_like_full_transcript(text):
-        blocked = True
-        reasons.append("full_transcript_like_text")
-    if re.search(r"\b(?:PR|pull request)\s*#?\d+\b", text, flags=re.IGNORECASE):
-        reasons.append("short_lived_pr_reference")
-    if re.search(r"\b[0-9a-f]{7,40}\b", text, flags=re.IGNORECASE):
-        reasons.append("short_lived_commit_reference")
-    if re.search(r"\b(?:temporary|for this session|wip|in progress|pending ci|currently running|today|tomorrow|yesterday)\b", text, flags=re.IGNORECASE):
-        reasons.append("temporary_task_progress")
-    if len(content) > 2400:
-        reasons.append("long_content_requires_review")
-    status = "blocked" if blocked else "needs_review" if reasons else "safe"
+    classification = classify_memory_admission("\n".join([summary, content, " ".join(tags)]))
+    status = str(classification.get("status", "blocked"))
     return {
-        "schema_version": "project_memory_safety/v1",
+        "schema_version": "project_memory_safety/v2",
         "status": status,
         "safe_to_auto_approve": status == "safe",
-        "review_reasons": reasons,
-        "protected_inputs": [
-            "credentials",
-            "raw_logs",
-            "full_transcripts",
-            "short_lived_pr_or_commit_ids",
-            "temporary_task_progress",
-        ],
+        "review_reasons": [] if status == "safe" else [status],
+        "protected_inputs": ["credentials", "raw_logs", "full_transcripts", "temporary_task_progress"],
     }
 
 
@@ -1377,9 +1646,14 @@ def _read_project_memory_candidates(paths: OmhPaths) -> list[dict[str, Any]]:
 
 
 def _read_project_memory_records(paths: OmhPaths) -> list[dict[str, Any]]:
-    records = []
+    records: list[dict[str, Any]] = []
     for record in _read_memory_json_files(paths, _memory_records_dir(paths)):
-        if record.get("schema_version") == PROJECT_MEMORY_RECORD_SCHEMA_VERSION and record.get("review_status") == "approved":
+        schema_version = record.get("schema_version")
+        if schema_version == PROJECT_MEMORY_RECORD_SCHEMA_VERSION:
+            records.append(record)
+        elif schema_version == LEGACY_PROJECT_MEMORY_RECORD_SCHEMA_VERSION and record.get("review_status") == "approved":
+            # Legacy records stay review/status visible, but the evaluator will
+            # fail them closed as review_required_legacy before any replay.
             records.append(record)
     return records
 
@@ -1431,8 +1705,13 @@ def validate_project_memory_record(value: Any, *, label: str = "project_memory_r
     _validate_allowed_keys(value, _PROJECT_MEMORY_RECORD_KEYS, errors, label)
     if value.get("schema_version") != PROJECT_MEMORY_RECORD_SCHEMA_VERSION:
         errors.append(f"{label}.schema_version must be {PROJECT_MEMORY_RECORD_SCHEMA_VERSION}")
-    if value.get("review_status") != "approved":
-        errors.append(f"{label}.review_status must be approved")
+    if not isinstance(value.get("revision"), int) or int(value.get("revision", 0)) <= 0:
+        errors.append(f"{label}.revision must be a positive integer")
+    admission = value.get("admission")
+    if not isinstance(admission, dict) or admission.get("state") not in {"approved_manual", "approved_auto_safe"}:
+        errors.append(f"{label}.admission must carry an approved v2 decision")
+    if not isinstance(value.get("retention"), dict):
+        errors.append(f"{label}.retention must be an object")
     _validate_context_scope(value.get("scope"), errors, f"{label}.scope")
     if value.get("redaction_policy") != "metadata_only":
         errors.append(f"{label}.redaction_policy must be metadata_only")
@@ -1469,10 +1748,10 @@ def _memory_record_path(paths: OmhPaths, record_id: str) -> Path:
     return path
 
 
-def _memory_review_path(paths: OmhPaths, candidate_id: str) -> Path:
-    if not _SAFE_REF.match(candidate_id):
-        raise ValueError(f"unsafe memory candidate id: {candidate_id!r}")
-    path = _memory_reviews_dir(paths) / f"{candidate_id}.json"
+def _memory_review_path(paths: OmhPaths, review_id: str) -> Path:
+    if not _SAFE_REF.match(review_id):
+        raise ValueError(f"unsafe memory review id: {review_id!r}")
+    path = _memory_reviews_dir(paths) / f"{review_id}.json"
     _assert_under_memory_root(paths, path)
     return path
 
@@ -1488,6 +1767,40 @@ def _validate_context_map(value: Any, allowed: set[str], errors: list[str], labe
         errors.append(f"{label}.{key} must be scalar metadata")
 
 
+def _validate_replay_evaluation(value: dict[str, Any], errors: list[str], label: str) -> None:
+    allowed = {
+        "schema_version",
+        "artifact_identity",
+        "revision",
+        "admission_mode",
+        "source_class",
+        "retention_class",
+        "evaluated_at",
+        "eligible",
+        "reason_code",
+        "revalidation_evidence",
+    }
+    _validate_allowed_keys(value, allowed, errors, label)
+    if value.get("schema_version") != "omh_memory_replay_evaluation/v1":
+        errors.append(f"{label}.schema_version must be omh_memory_replay_evaluation/v1")
+    for key in ("revision",):
+        if not isinstance(value.get(key), int):
+            errors.append(f"{label}.{key} must be an integer")
+    for key in ("admission_mode", "source_class", "retention_class", "evaluated_at", "reason_code"):
+        if not isinstance(value.get(key), str):
+            errors.append(f"{label}.{key} must be a string")
+    if not isinstance(value.get("eligible"), bool):
+        errors.append(f"{label}.eligible must be a boolean")
+    if not isinstance(value.get("artifact_identity"), dict):
+        errors.append(f"{label}.artifact_identity must be an object")
+    if not isinstance(value.get("revalidation_evidence"), dict):
+        errors.append(f"{label}.revalidation_evidence must be an object")
+    forbidden = {"summary", "value", "label", "content", "text", "prompt", "body"}
+    found = forbidden & set(value)
+    if found:
+        errors.append(f"{label} contains content fields: {sorted(found)}")
+
+
 def _jsonish(value: Any) -> str:
     import json
 
@@ -1500,6 +1813,7 @@ def _local_snapshots(
     scope_kind: str | None = None,
     scope_ref: str | None = None,
     session_limit: int | None = None,
+    now: datetime | None = None,
 ) -> list[dict[str, object]]:
     snapshots: list[dict[str, object]] = []
     setup = read_setup_profile(paths)
@@ -1513,7 +1827,7 @@ def _local_snapshots(
         snapshots.append(_runtime_state_snapshot(runtime_state))
     elif runtime_error:
         snapshots.append(_snapshot("runtime_state", _scope("project", "default"), [{"item_id": "runtime-state-error", "key": "runtime_state", "summary": runtime_error}]))
-    memory_snapshots = _memory_snapshots(paths)
+    memory_snapshots = _memory_snapshots(paths, now=now)
     snapshots.extend(memory_snapshots)
     snapshots.extend(_wrapper_session_snapshots(paths, limit=session_limit))
     snapshots.append(_catalog_hint_snapshot())
@@ -1579,8 +1893,15 @@ def _runtime_state_snapshot(state: dict[str, Any]) -> dict[str, object]:
     return _snapshot("runtime_state", _scope("project", "default"), items)
 
 
-def _memory_snapshots(paths: OmhPaths) -> list[dict[str, object]]:
+def _memory_snapshots(paths: OmhPaths, *, now: datetime | None = None) -> list[dict[str, object]]:
+    """Return review-visible OMH items with evaluator evidence before packing.
+
+    Ineligible artifacts deliberately remain inspectable here, but no value or
+    summary can reach ``build_handoff_context_pack`` without a second final
+    evaluator decision.
+    """
     snapshots: list[dict[str, object]] = []
+    review_resolver = _project_memory_review_resolver(paths)
     reviewed_items: list[dict[str, object]] = []
     for record in _read_project_memory_records(paths):
         reviewed_items.append(
@@ -1589,6 +1910,7 @@ def _memory_snapshots(paths: OmhPaths) -> list[dict[str, object]]:
                 "key": str(record.get("record_type", "memory")),
                 "summary": _safe_summary(record),
                 "scope": record.get("scope", _scope("project", "default")),
+                "replay_evaluation": _evaluate_memory_artifact(record, paths=paths, now=now, review_resolver=review_resolver),
             }
         )
     if reviewed_items:
@@ -1597,9 +1919,10 @@ def _memory_snapshots(paths: OmhPaths) -> list[dict[str, object]]:
         data = read_json_object(path)
         if not isinstance(data, dict):
             continue
-        items = []
+        items: list[dict[str, object]] = []
         for item_id, item in (data.get("items", {}) if isinstance(data.get("items"), dict) else {}).items():
             if isinstance(item, dict):
+                artifact = _scope_item_artifact(data, item, item_id)
                 items.append(
                     {
                         "item_id": str(item_id),
@@ -1607,10 +1930,41 @@ def _memory_snapshots(paths: OmhPaths) -> list[dict[str, object]]:
                         "value": str(item.get("value", "")),
                         "summary": _safe_summary(item),
                         "scope": data.get("scope", _scope("project", "default")),
+                        "replay_evaluation": _evaluate_memory_artifact(artifact, paths=paths, now=now, review_resolver=review_resolver),
                     }
                 )
-        snapshots.append(_snapshot("omh_memory", data.get("scope", _scope("project", "default")), items))
+        if items:
+            snapshots.append(_snapshot("omh_memory", data.get("scope", _scope("project", "default")), items))
     return snapshots
+
+
+def _scope_item_artifact(data: dict[str, Any], item: dict[str, Any], item_id: Any) -> dict[str, Any]:
+    """Preserve legacy scope artifacts so the shared evaluator can classify them."""
+    schema_version = item.get("schema_version", data.get("schema_version", LEGACY_MEMORY_SCOPE_SCHEMA_VERSION))
+    artifact = {
+        **item,
+        "schema_version": schema_version,
+        "item_id": str(item_id),
+        "scope": _normalize_scope(data.get("scope", _scope("project", "default"))),
+        "source_class": str(item.get("source_class", "omh_local")),
+    }
+    if schema_version == MEMORY_SCOPE_SCHEMA_VERSION:
+        artifact["revision"] = int(item.get("revision", 1) or 1)
+    return artifact
+
+
+def _memory_artifact_for_snapshot_item(paths: OmhPaths, item: dict[str, Any]) -> dict[str, Any]:
+    item_id = str(item.get("item_id", ""))
+    for record in _read_project_memory_records(paths):
+        if str(record.get("record_id", "")) == item_id:
+            return record
+    for path in _memory_scope_paths(paths):
+        data = read_json_object(path)
+        items = data.get("items") if isinstance(data, dict) else None
+        scope_item = items.get(item_id) if isinstance(items, dict) else None
+        if isinstance(data, dict) and isinstance(scope_item, dict):
+            return _scope_item_artifact(data, scope_item, item_id)
+    return {"schema_version": "unknown", "record_id": item_id}
 
 
 def _wrapper_session_snapshots(paths: OmhPaths, *, limit: int | None = None) -> list[dict[str, object]]:
@@ -1738,6 +2092,9 @@ def _sanitize_item(item: dict[str, Any], *, default_scope: dict[str, str]) -> di
     value = item.get("value")
     if _safe_to_expose_value(key, value, item):
         sanitized["value"] = str(value)
+    replay_evaluation = item.get("replay_evaluation")
+    if isinstance(replay_evaluation, dict):
+        sanitized["replay_evaluation"] = replay_evaluation
     return sanitized
 
 
@@ -1819,6 +2176,10 @@ def _validate_context_list(
                     errors.append(f"{nested_label} must contain string tags")
             elif key == "staleness" and isinstance(nested, dict):
                 _validate_context_map(nested, set(nested), errors, nested_label)
+            elif key == "replay_evaluation" and isinstance(nested, dict):
+                _validate_replay_evaluation(nested, errors, nested_label)
+            elif key == "revalidation_evidence" and isinstance(nested, dict):
+                _validate_context_map(nested, {"deadline"}, errors, nested_label)
             elif isinstance(nested, (str, int, bool)) or nested is None:
                 continue
             else:
@@ -2207,4 +2568,10 @@ def _stable_ref(value: Any) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+from .memory_batches import (  # noqa: E402,F401
+    apply_approved_memory_update_batch,
+    legacy_batch_review_required,
+    review_memory_update_batch,
+    stage_memory_update_batch,
+)
 from .rejected_decision_recall import RejectedDecisionRecallRequest, build_rejected_decision_recall  # noqa: E402,F401

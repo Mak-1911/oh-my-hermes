@@ -3,11 +3,12 @@ from __future__ import annotations
 import argparse
 
 from ..plugin_bundle.omh.memory_blocks import DEFAULT_BLOCK_LIMIT_CHARS
+from ..plugin_bundle.omh.memory_governance import SOURCE_CLASSES
 from . import memory
 
 
 def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    command = sub.add_parser("memory", help="Capture, review, recall, inspect, or pack OMH project memory/context artifacts.")
+    command = sub.add_parser("memory", help="Agent/operator-only OMH memory review, migration, lifecycle, and prepared-context controls.")
     memory_sub = command.add_subparsers(dest="memory_command", required=True)
 
     status = memory_sub.add_parser("status", help="Show OMH project-memory policy, store paths, and review counts.")
@@ -25,6 +26,8 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     capture.add_argument("--tag", action="append", default=[])
     capture.add_argument("--ttl-days", type=int, default=None)
     capture.add_argument("--stale-after-days", type=int, default=None)
+    capture.add_argument("--retention-class", choices=("volatile", "standard", "durable"), default="standard", help="Retention class for the review candidate.")
+    capture.add_argument("--source-class", choices=tuple(sorted(SOURCE_CLASSES)), default="omh_local", help="Source class; direct capture accepts OMH-local candidates only.")
     capture.set_defaults(func=memory.cmd_memory_capture)
 
     review = memory_sub.add_parser("review", help="Return review cards for pending OMH project-memory candidates.")
@@ -99,10 +102,63 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     pack.add_argument("--context-limit", type=int, default=12, help="Maximum context items to include in the handoff pack.")
     pack.set_defaults(func=memory.cmd_memory_pack)
 
-    apply = memory_sub.add_parser("apply")
+    apply = memory_sub.add_parser("apply", help="Compatibility report for direct batches; it never writes scope memory.")
     apply.add_argument("--batch", required=True, help="Path to memory_update_batch/v1 JSON, or '-' to read from stdin.")
-    apply.add_argument("--dry-run", action="store_true", help="Validate and preview the batch without writing .omh/memory.")
+    apply.add_argument("--dry-run", action="store_true", help="Retained compatibility marker; direct batches are always review-required and write-free.")
     apply.set_defaults(func=memory.cmd_memory_apply)
+
+    inventory = memory_sub.add_parser("inventory", help="Emit a dry-run v1/v2 memory ledger; write it only with --write-ledger.")
+    inventory.add_argument("--write-ledger", action="store_true", help="Persist the bounded metadata-only inventory ledger through the operation store.")
+    inventory.set_defaults(func=memory.cmd_memory_inventory)
+
+    reactivate = memory_sub.add_parser("reactivate", help="Reactivate exactly one legacy artifact only after matching immutable review.")
+    reactivate.add_argument("artifact_id")
+    reactivate.add_argument("--revision", required=True, type=int, help="Exact legacy artifact revision.")
+    reactivate.add_argument("--review-id", required=True, help="Matching immutable legacy-review record id.")
+    reactivate.add_argument("--apply", action="store_true", help="Perform the exact reviewed reactivation (default is report-only).")
+    reactivate.set_defaults(func=memory.cmd_memory_reactivate)
+
+    batch_stage = memory_sub.add_parser("batch-stage", help="Stage a scope-update batch for immutable review; never makes it prompt eligible.")
+    batch_stage.add_argument("--batch", required=True, help="Path to memory_update_batch/v1 JSON, or '-' to read from stdin.")
+    batch_stage.set_defaults(func=memory.cmd_memory_batch_stage)
+
+    batch_review = memory_sub.add_parser("batch-review", help="Record one immutable remember/refuse/defer decision per staged item.")
+    batch_review.add_argument("batch_id")
+    batch_review.add_argument("--decisions", required=True, help="Path to an object mapping exact staged item ids to remember, refuse, or defer.")
+    batch_review.add_argument("--reviewer-label", default="operator", help="Reviewer claim label; it is not an authenticated identity.")
+    batch_review.set_defaults(func=memory.cmd_memory_batch_review)
+
+    batch_apply = memory_sub.add_parser("batch-apply", help="Apply a fully remembered staged batch only with --apply.")
+    batch_apply.add_argument("batch_id")
+    batch_apply.add_argument("--apply", action="store_true", help="Perform the staged batch apply (default is report-only).")
+    batch_apply.set_defaults(func=memory.cmd_memory_batch_apply)
+
+    restore = memory_sub.add_parser("restore", help="Report one archived revision; --apply requires the lifecycle transaction executor.")
+    restore.add_argument("record_id")
+    restore.add_argument("--revision", required=True, type=int)
+    restore.add_argument("--apply", action="store_true", help="Request restore of the exact archive revision (default is report-only).")
+    restore.set_defaults(func=memory.cmd_memory_restore)
+
+    prune = memory_sub.add_parser("prune", help="Report hard-delete-local targets for one expired approved volatile revision.")
+    prune.add_argument("record_id")
+    prune.add_argument("--revision", required=True, type=int)
+    prune.add_argument("--apply", action="store_true", help="Request hard-delete-local apply (default is report-only).")
+    prune.add_argument("--confirm-hard-delete-local", action="store_true", help="Required alongside --apply; does not claim external deletion or erasure.")
+    prune.set_defaults(func=memory.cmd_memory_prune)
+
+    correct = memory_sub.add_parser("correct", help="Prepare a superseding pending correction; --apply requires the lifecycle transaction executor.")
+    correct.add_argument("record_id")
+    correct.add_argument("summary", nargs="+", help="Bounded replacement summary for review.")
+    correct.add_argument("--revision", required=True, type=int)
+    correct.add_argument("--apply", action="store_true", help="Request correction apply (default is report-only).")
+    correct.set_defaults(func=memory.cmd_memory_correct)
+
+    evaluate = memory_sub.add_parser("evaluate", help="Run deterministic, host-normalized OMH memory evaluation evidence.")
+    evaluate.add_argument("--profile", choices=("small", "medium", "stress"), default="small", help="OMH-owned deterministic corpus profile.")
+    evaluate.add_argument("--repetitions", type=int, default=3, help="Target and same-host baseline samples to preserve.")
+    evaluate.add_argument("--seed", type=int, default=None, help="Override the profile's declared deterministic seed.")
+    evaluate.add_argument("--output", default=None, help="Write the exact JSON evidence object to this path.")
+    evaluate.set_defaults(func=memory.cmd_memory_evaluate)
 
     blocks = memory_sub.add_parser("blocks", help="List OMH memory blocks by label, without their values.")
     blocks.add_argument("--tier", choices=("system", "reference"), default=None, help="Limit the listing to one tier.")

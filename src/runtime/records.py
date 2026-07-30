@@ -1563,7 +1563,11 @@ def _compact_memory_recall_pack(value: Any) -> dict[str, Any]:
             for item in (value.get("included_records") if isinstance(value.get("included_records"), list) else [])
             if isinstance(item, dict)
         ],
-        "excluded_records": [],
+        "excluded_records": [
+            _compact_memory_recall_exclusion(item)
+            for item in (value.get("excluded_records") if isinstance(value.get("excluded_records"), list) else [])
+            if isinstance(item, dict)
+        ],
         "record_count": len(value.get("included_records", [])) if isinstance(value.get("included_records"), list) else 0,
         "truncated": bool(value.get("truncated", False)),
         "redaction_policy": str(value.get("redaction_policy", "")),
@@ -1586,7 +1590,54 @@ def _compact_memory_recall_item(item: dict[str, Any]) -> dict[str, Any]:
             if isinstance(item.get("staleness"), dict) and key in item.get("staleness", {})
         },
         "score": int(item.get("score", 0) or 0),
+        **_compact_memory_replay_fields(item),
     }
+
+
+def _compact_memory_recall_exclusion(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "record_id": str(item.get("record_id", "")),
+        "reason": str(item.get("reason", "")),
+        "staleness": {
+            key: str(item.get("staleness", {}).get(key, ""))
+            for key in ("state", "stale_after", "expires_at")
+            if isinstance(item.get("staleness"), dict) and key in item.get("staleness", {})
+        },
+        **_compact_memory_replay_fields(item),
+    }
+
+
+def _compact_memory_replay_fields(item: dict[str, Any]) -> dict[str, Any]:
+    evaluation = item.get("replay_evaluation") if isinstance(item.get("replay_evaluation"), dict) else {}
+    if not evaluation:
+        return {}
+    return {
+        "revision": int(item.get("revision", evaluation.get("revision", 0)) or 0),
+        "admission_mode": str(item.get("admission_mode", evaluation.get("admission_mode", ""))),
+        "source_class": str(item.get("source_class", evaluation.get("source_class", ""))),
+        "retention_class": str(item.get("retention_class", evaluation.get("retention_class", ""))),
+        "evaluated_at": str(item.get("evaluated_at", evaluation.get("evaluated_at", ""))),
+        "eligibility_reason": str(item.get("eligibility_reason", evaluation.get("reason_code", ""))),
+        "revalidation_evidence": _compact_memory_revalidation(item.get("revalidation_evidence", evaluation.get("revalidation_evidence", {}))),
+        "replay_evaluation": {
+            "schema_version": str(evaluation.get("schema_version", "")),
+            "artifact_identity": _stringify_context_dict(evaluation.get("artifact_identity", {})) if isinstance(evaluation.get("artifact_identity"), dict) else {},
+            "revision": int(evaluation.get("revision", 0) or 0),
+            "admission_mode": str(evaluation.get("admission_mode", "")),
+            "source_class": str(evaluation.get("source_class", "")),
+            "retention_class": str(evaluation.get("retention_class", "")),
+            "evaluated_at": str(evaluation.get("evaluated_at", "")),
+            "eligible": bool(evaluation.get("eligible", False)),
+            "reason_code": str(evaluation.get("reason_code", "")),
+            "revalidation_evidence": _compact_memory_revalidation(evaluation.get("revalidation_evidence", {})),
+        },
+    }
+
+
+def _compact_memory_revalidation(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {"deadline": str(value.get("deadline", ""))} if value.get("deadline") else {}
 
 
 def _compact_plan_artifact(value: Any) -> dict[str, Any]:

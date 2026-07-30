@@ -167,13 +167,21 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
         "Fixed by #637: returns the distinct `package_recommend_error` source plus a sanitized "
         "error type instead of `standalone_plugin_bundle_fallback`.",
     ),
+    ClassifiedSite(
+        "src/workflows/memory_store.py",
+        "_resume_unlocked",
+        INTENTIONAL,
+        "Two handlers in one function, classified together. Defensive recovery boundaries: catch "
+        "all unexpected failures, persist the interrupted or failed operation state and "
+        "re-raise, so callers never read a crashed resume as a completed memory operation.",
+    ),
 )
 
 # Ruff reports one hit per handler; the inventory is keyed per enclosing
-# function, and `_is_catalog_question` holds two handlers, so the two totals
-# differ by exactly one.
-EXPECTED_HANDLER_COUNT = 13
-EXPECTED_ANCHOR_COUNT = 12
+# function. `_is_catalog_question` and `_resume_unlocked` each hold two
+# handlers, so the handler count is two above the anchor count.
+EXPECTED_HANDLER_COUNT = 15
+EXPECTED_ANCHOR_COUNT = 13
 
 
 class DerivedSite(NamedTuple):

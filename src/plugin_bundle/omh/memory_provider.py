@@ -30,9 +30,9 @@ provider reads OMH's own store, renders it, and records what it saw.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -43,13 +43,16 @@ except ImportError:  # pragma: no cover - exercised by the repo's own test run
     _MemoryProviderBase = object
 
 from .hermes_memory import count_record_expiry, read_hermes_memory
+from .memory_block_replay import MemoryBlockSelection
 from .memory_blocks import (
     DEFAULT_SYSTEM_RENDER_BUDGET_CHARS,
+    MemoryBlock,
     REFERENCE_TIER,
     SYSTEM_TIER,
     read_memory_blocks,
     render_block_index,
     render_memory_blocks,
+    select_memory_blocks,
 )
 from .memory_dreaming import (
     build_consolidation_handoff,
@@ -67,6 +70,7 @@ from .memory_eviction import build_eviction_plan
 
 PROVIDER_NAME = "omh"
 WRITE_JOURNAL_SCHEMA_VERSION = "omh_memory_write_journal_entry/v1"
+JOURNAL_LIMIT = 32
 
 # Hermes states that only a primary agent should write; a cron or subagent
 # context replaying its own system prompt would otherwise move the counters that
@@ -125,9 +129,15 @@ class OmhMemoryProvider(_MemoryProviderBase):
     def prefetch(self, query: str = "", *, session_id: str = "") -> str:
         return self._pack
 
-    def queue_prefetch(self, query: str = "", *, session_id: str = "") -> None:
+    def queue_prefetch(
+        self,
+        query: str = "",
+        *,
+        session_id: str = "",
+        now: datetime | None = None,
+    ) -> None:
         """Re-render for the next turn, which is where the base class puts this work."""
-        self._pack = self.render_pack()
+        self._pack = self.render_pack(now=now)
 
     def shutdown(self) -> None:
         """Hermes is closing. Last chance to leave a brief behind."""
@@ -142,7 +152,12 @@ class OmhMemoryProvider(_MemoryProviderBase):
         self._mutate_state(record_turn)
         self._evaluate_if_due("turn")
 
-    def on_pre_compress(self, messages: list[dict[str, Any]] | None = None) -> str:
+    def on_pre_compress(
+        self,
+        messages: list[dict[str, Any]] | None = None,
+        *,
+        now: datetime | None = None,
+    ) -> str:
         """Hand the compressor what must survive it, and note that it happened.
 
         Compaction is one of the two triggers Letta uses for dreaming, and it is
@@ -158,7 +173,12 @@ class OmhMemoryProvider(_MemoryProviderBase):
         blocks = read_memory_blocks(self._omh_home, tier=SYSTEM_TIER)
         if not blocks:
             return ""
-        return render_memory_blocks(blocks, budget_chars=DEFAULT_SYSTEM_RENDER_BUDGET_CHARS)
+        selection = self._block_selection(blocks=blocks, now=now)
+        return render_memory_blocks(
+            blocks,
+            budget_chars=DEFAULT_SYSTEM_RENDER_BUDGET_CHARS,
+            evaluations=selection.evaluations,
+        )
 
     def on_memory_write(
         self,
@@ -218,27 +238,41 @@ class OmhMemoryProvider(_MemoryProviderBase):
             return None
         return self.consolidation_due(trigger=trigger, messages_at_risk=messages_at_risk)
 
-    def render_pack(self) -> str:
+    def render_pack(self, *, now: datetime | None = None) -> str:
         """System blocks in full, reference blocks by label only."""
+        blocks = read_memory_blocks(self._omh_home)
+        selection = self._block_selection(blocks=blocks, now=now)
+        system_blocks = tuple(block for block in blocks if block.tier == SYSTEM_TIER)
+        reference_blocks = tuple(block for block in blocks if block.tier == REFERENCE_TIER)
         system = render_memory_blocks(
-            read_memory_blocks(self._omh_home, tier=SYSTEM_TIER),
+            system_blocks,
             budget_chars=DEFAULT_SYSTEM_RENDER_BUDGET_CHARS,
+            evaluations=selection.evaluations,
         )
-        index = render_block_index(read_memory_blocks(self._omh_home, tier=REFERENCE_TIER))
+        index = render_block_index(reference_blocks, evaluations=selection.evaluations)
         return "\n".join(part for part in (system, index) if part)
 
-    def consolidation_due(self, *, trigger: str = "manual", messages_at_risk: int = 0) -> dict[str, object]:
+    def consolidation_due(
+        self,
+        *,
+        trigger: str = "manual",
+        messages_at_risk: int = 0,
+        now: datetime | None = None,
+    ) -> dict[str, object]:
         """Decide whether dreaming is due; write the brief when it is.
 
         Returns the handoff either way so a caller can see the reasons that were
         weighed, not only the ones that fired.
         """
         state = read_dreaming_state(self._omh_home)
-        plan, reason_kwargs, record_expiry = self._evaluation_inputs(trigger)
-        reasons = consolidation_reasons(state, **reason_kwargs)
+        moment = now or datetime.now(timezone.utc)
+        plan, reason_kwargs, record_expiry = self._evaluation_inputs(trigger, now=moment)
+        blocks = read_memory_blocks(self._omh_home)
+        selection = self._block_selection(blocks=blocks, now=moment)
+        reasons = self._with_replay_reminders(consolidation_reasons(state, **reason_kwargs), selection)
         handoff = build_consolidation_handoff(
             reasons,
-            block_summaries=[block.to_summary() for block in read_memory_blocks(self._omh_home)],
+            block_summaries=[self._block_summary(block, selection.evaluations[block.block_id]) for block in blocks],
             eviction_plan=plan,
             record_expiry=record_expiry,
             trigger=trigger,
@@ -264,7 +298,11 @@ class OmhMemoryProvider(_MemoryProviderBase):
         return handoff
 
     def _evaluation_inputs(
-        self, trigger: str, *, count_expiry: bool = True
+        self,
+        trigger: str,
+        *,
+        count_expiry: bool = True,
+        now: datetime | None = None,
     ) -> tuple[dict[str, object], dict[str, object], dict[str, int]]:
         """The eviction plan, reason kwargs, and expiry counts for one evaluation.
 
@@ -274,6 +312,7 @@ class OmhMemoryProvider(_MemoryProviderBase):
         itself can clear, so counting it there would both waste the scan and
         block `_retire_stale_brief` forever.
         """
+        moment = now or datetime.now(timezone.utc)
         reading = self._memory_reading()
         plan = (
             build_eviction_plan(reading.entries, cap=reading.cap, cap_source=reading.cap_source)
@@ -281,7 +320,7 @@ class OmhMemoryProvider(_MemoryProviderBase):
             else {}
         )
         record_expiry = (
-            count_record_expiry(self._omh_home, now=datetime.now(timezone.utc))
+            count_record_expiry(self._omh_home, now=moment)
             if count_expiry
             else {"expired": 0, "expiring_soon": 0}
         )
@@ -313,8 +352,14 @@ class OmhMemoryProvider(_MemoryProviderBase):
         while remaining true; retirement must see through that, or it would
         clear a notice whose fact had not cleared.
         """
+        state = read_dreaming_state(self._omh_home)
         _, reason_kwargs, _record_expiry = self._evaluation_inputs("memory_write", count_expiry=False)
-        return consolidation_reasons(read_dreaming_state(self._omh_home), suppress=False, **reason_kwargs)
+        blocks = read_memory_blocks(self._omh_home)
+        selection = self._block_selection(blocks=blocks)
+        return [
+            *consolidation_reasons(state, suppress=False, **reason_kwargs),
+            *self._replay_reminder_reasons(selection),
+        ]
 
     def _retire_stale_brief(self, trigger: str) -> None:
         """Mark the on-disk brief not-due once consolidation was observed.
@@ -342,6 +387,57 @@ class OmhMemoryProvider(_MemoryProviderBase):
 
     # -- Internals ----------------------------------------------------------
 
+    def _block_selection(
+        self,
+        *,
+        blocks: tuple[MemoryBlock, ...] | None = None,
+        now: datetime | None = None,
+    ) -> MemoryBlockSelection:
+        return select_memory_blocks(
+            blocks if blocks is not None else read_memory_blocks(self._omh_home),
+            now=now,
+            omh_home=self._omh_home,
+        )
+
+    @staticmethod
+    def _block_summary(block: MemoryBlock, evaluation: dict[str, object]) -> dict[str, object]:
+        return {
+            **block.to_summary(),
+            "replay": {
+                "eligible": bool(evaluation.get("eligible")),
+                "reason_code": str(evaluation.get("reason_code", "ineligible")),
+            },
+        }
+
+    @staticmethod
+    def _replay_reminder_reasons(selection: MemoryBlockSelection) -> list[str]:
+        stale = sum(
+            evaluation.get("reason_code") == "stale_review_required"
+            for evaluation in selection.evaluations.values()
+        )
+        expired_volatile = sum(
+            evaluation.get("reason_code") == "expired_volatile"
+            for evaluation in selection.evaluations.values()
+        )
+        reasons = []
+        if stale:
+            reasons.append(f"stale_review_required:{stale}")
+        if expired_volatile:
+            reasons.append(f"expired_volatile_records:{expired_volatile}")
+        return reasons
+
+    def _with_replay_reminders(
+        self,
+        reasons: list[str],
+        selection: MemoryBlockSelection,
+    ) -> list[str]:
+        # Replay exclusions are standing reminder evidence, not another
+        # consolidation trigger subject to the normal last-reasons suppression.
+        # A manual inspection must still report them when no ordinary trigger
+        # fired; the selection is read-only and evaluated at the same instant
+        # as the rest of this consolidation decision.
+        return [*reasons, *self._replay_reminder_reasons(selection)]
+
     def _memory_reading(self):
         if self._hermes_home is None:
             return None
@@ -356,17 +452,12 @@ class OmhMemoryProvider(_MemoryProviderBase):
         self._safely(lambda: write_dreaming_state(self._omh_home, mutate(state)))
 
     def _write_handoff(self, handoff: dict[str, object]) -> None:
-        """Latest brief where a reader looks; every brief where none is lost.
-
-        Consolidation can come due more than once before anyone acts on it -- a
-        turn interval, then a compaction, then a shutdown. Writing only the
-        latest would mean the compaction brief, the one whose material is
-        already gone, is the one overwritten.
-        """
+        """Write the latest handoff and retain a bounded metadata-only journal."""
         directory = self._omh_home / "memory"
         payload = json.dumps(handoff, ensure_ascii=False, sort_keys=True)
         self._safely(lambda: _write_text(directory / "consolidation.json", payload))
-        self._safely(lambda: _append_line(directory / "consolidation.jsonl", payload))
+        entry = _consolidation_journal_entry(handoff)
+        self._safely(lambda: _append_bounded_json_line(directory / "consolidation.jsonl", entry))
 
     def _append_write_journal(
         self,
@@ -375,21 +466,22 @@ class OmhMemoryProvider(_MemoryProviderBase):
         content: str,
         metadata: dict[str, Any] | None,
     ) -> None:
-        text = str(content or "")
-        entry = {
+        entry: dict[str, object] = {
             "schema_version": WRITE_JOURNAL_SCHEMA_VERSION,
             "observed_at": _utc_now(),
             "action": str(action or ""),
             "target": str(target or ""),
-            "chars": len(text),
-            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "chars": len(str(content or "")),
             "session_id": self._session_id,
             "write_origin": str((metadata or {}).get("write_origin", "") or ""),
             "execution_context": str((metadata or {}).get("execution_context", "") or ""),
             "redaction_policy": "metadata_only",
         }
+        identity = _journal_record_identity((metadata or {}).get("record_identity"))
+        if identity is not None:
+            entry["record_identity"] = identity
         path = self._omh_home / "memory" / "write_journal.jsonl"
-        self._safely(lambda: _append_line(path, json.dumps(entry, ensure_ascii=False, sort_keys=True)))
+        self._safely(lambda: _append_bounded_json_line(path, entry))
 
     @staticmethod
     def _safely(write) -> None:
@@ -410,10 +502,149 @@ def _write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _append_line(path: Path, line: str) -> None:
+def _append_bounded_json_line(path: Path, entry: dict[str, object]) -> None:
+    """Atomically retain the newest metadata-only journal entries."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(line + "\n")
+    lines = _metadata_journal_lines(path)
+    lines.append(json.dumps(entry, ensure_ascii=False, sort_keys=True))
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, text=True)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(lines[-JOURNAL_LIMIT:]) + "\n")
+        os.replace(temporary, path)
+    except OSError:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+def _metadata_journal_lines(path: Path) -> list[str]:
+    try:
+        if path.is_symlink() or not path.is_file():
+            return []
+        source = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    entries = []
+    for line in source.splitlines():
+        try:
+            data = json.loads(line)
+        except ValueError:
+            continue
+        if _metadata_only(data):
+            entries.append(json.dumps(data, ensure_ascii=False, sort_keys=True))
+    return entries[-(JOURNAL_LIMIT - 1) :]
+
+
+def _metadata_only(value: object) -> bool:
+    forbidden = ("content", "value", "summary", "description", "sha256", "hash", "prompt", "body", "raw")
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str)
+            and not any(term in key.lower() for term in forbidden)
+            and _metadata_only(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return all(_metadata_only(item) for item in value)
+    return value is None or isinstance(value, (bool, int, float, str))
+
+
+def _consolidation_journal_entry(handoff: dict[str, object]) -> dict[str, object]:
+    entry: dict[str, object] = {
+        "schema_version": str(handoff.get("schema_version", "") or ""),
+        "due": bool(handoff.get("due")),
+        "trigger": str(handoff.get("trigger", "") or ""),
+        "raised_at": str(handoff.get("raised_at", "") or ""),
+        "session_id": str(handoff.get("session_id", "") or ""),
+        "messages_at_risk": _non_negative_int(handoff.get("messages_at_risk")),
+        "reasons": [str(reason) for reason in handoff.get("reasons", []) if isinstance(reason, str)],
+        "record_expiry": _record_expiry_summary(handoff.get("record_expiry")),
+        "blocks": _block_summaries(handoff.get("blocks")),
+        "requested_of_executor": [
+            str(instruction)
+            for instruction in handoff.get("requested_of_executor", [])
+            if isinstance(instruction, str)
+        ],
+        "redaction_policy": "metadata_only",
+    }
+    sequence = handoff.get("sequence")
+    if isinstance(sequence, int) and not isinstance(sequence, bool) and sequence >= 0:
+        entry["sequence"] = sequence
+    return entry
+
+
+def _record_expiry_summary(value: object) -> dict[str, int]:
+    source = value if isinstance(value, dict) else {}
+    return {
+        "expired": _non_negative_int(source.get("expired")),
+        "expiring_soon": _non_negative_int(source.get("expiring_soon")),
+    }
+
+
+def _block_summaries(value: object) -> list[dict[str, object]]:
+    allowed = {
+        "block_id",
+        "revision",
+        "label",
+        "tier",
+        "chars",
+        "limit",
+        "headroom_chars",
+        "over_limit",
+        "source_class",
+        "admission_status",
+    }
+    rows = []
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, dict):
+            continue
+        row = {key: item[key] for key in allowed & set(item) if _metadata_only(item[key])}
+        replay = item.get("replay")
+        if isinstance(replay, dict):
+            row["replay"] = {
+                "eligible": bool(replay.get("eligible")),
+                "reason_code": str(replay.get("reason_code", "ineligible")),
+            }
+        rows.append(row)
+    return rows
+
+
+def _journal_record_identity(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict) or set(value) != {"schema_version", "id", "id_key", "revision", "scope"}:
+        return None
+    schema_version = value.get("schema_version")
+    id_key = value.get("id_key")
+    if not isinstance(schema_version, str) or not isinstance(value.get("id"), str) or not value["id"]:
+        return None
+    expected_id_keys = {
+        "project_memory_record/v2": "record_id",
+        "omh_memory_scope/v2": "item_id",
+        "omh_memory_block/v2": "block_id",
+    }
+    if expected_id_keys.get(schema_version) != id_key:
+        return None
+    revision = value.get("revision")
+    scope = value.get("scope")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision <= 0:
+        return None
+    if not isinstance(scope, dict) or set(scope) != {"kind", "ref"}:
+        return None
+    if not isinstance(scope.get("kind"), str) or not isinstance(scope.get("ref"), str) or not scope["ref"]:
+        return None
+    return {
+        "schema_version": schema_version,
+        "id": value["id"],
+        "id_key": id_key,
+        "revision": revision,
+        "scope": {"kind": scope["kind"], "ref": scope["ref"]},
+    }
+
+
+def _non_negative_int(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
 def _default_omh_home() -> Path:
