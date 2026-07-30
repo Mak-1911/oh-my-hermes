@@ -236,39 +236,55 @@ def prepare_wrapper_session_handoff(
     session = _existing_session(paths, session_id)
     if session["status"] == "cancelled":
         raise WrapperSessionError("cannot prepare a handoff for a cancelled wrapper session")
+    # A prepared session re-serves its handoff only for a retry of the SAME
+    # message (or an empty show call). A different non-empty message is a
+    # follow-up instruction; silently re-serving the old handoff dropped it
+    # with exit 0 and no event (issue #754), so it re-prepares instead.
+    follow_up_sha = hashlib.sha256(extract_message_text(event_or_message).encode("utf-8")).hexdigest()
+    follow_up_message = bool(extract_message_text(event_or_message))
+    follow_up = False
     if session.get("current_run_id"):
         if session["status"] != "handoff_prepared":
             raise WrapperSessionError("wrapper session current_run_id is only valid after handoff preparation")
         run_id = str(session["current_run_id"])
         if _run_owned_by_other_session(paths, run_id, str(session["session_id"])):
             raise WrapperSessionError("wrapper session current_run_id is already linked to another wrapper session")
-        _ensure_handoff_prepared_event(paths, session, run_id, recovered=True)
-        return {
-            "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,
-            "session": session,
-            "status": build_wrapper_session_status(paths, session_id),
-            "handoff": report_codex_delegation_lifecycle(paths, run_id),
-        }
-    if session["status"] == "prompt_handoff_prepared":
-        return {
-            "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,
-            "session": session,
-            "status": build_wrapper_session_status(paths, session_id),
-            "handoff": {"prompt_handoff": session.get("prompt_handoff", {})},
-        }
-    if session["status"] == "runtime_handoff_prepared":
-        return {
-            "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,
-            "session": session,
-            "status": build_wrapper_session_status(paths, session_id),
-            "handoff": _runtime_session_handoff_envelope(session.get("runtime_handoff", {})),
-        }
+        if not follow_up_message or _prepared_run_message_sha(paths, run_id) == follow_up_sha:
+            _ensure_handoff_prepared_event(paths, session, run_id, recovered=True)
+            return {
+                "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,
+                "session": session,
+                "status": build_wrapper_session_status(paths, session_id),
+                "handoff": report_codex_delegation_lifecycle(paths, run_id),
+            }
+        follow_up = True
+    elif session["status"] == "prompt_handoff_prepared":
+        if not follow_up_message or _latest_prepared_message_sha(_session_dir(paths, session_id), "prompt_handoff_prepared") == follow_up_sha:
+            return {
+                "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,
+                "session": session,
+                "status": build_wrapper_session_status(paths, session_id),
+                "handoff": {"prompt_handoff": session.get("prompt_handoff", {})},
+            }
+        follow_up = True
+    elif session["status"] == "runtime_handoff_prepared":
+        if not follow_up_message or _latest_prepared_message_sha(_session_dir(paths, session_id), "runtime_handoff_prepared") == follow_up_sha:
+            return {
+                "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,
+                "session": session,
+                "status": build_wrapper_session_status(paths, session_id),
+                "handoff": _runtime_session_handoff_envelope(session.get("runtime_handoff", {})),
+            }
+        follow_up = True
     if session["status"] == "executor_choice_required" and not executor_target:
         raise WrapperSessionError("wrapper session requires executor selection before preparing a handoff")
-    if executor_target:
+    if executor_target and follow_up:
+        if executor_target != str(session.get("selected_executor_profile") or ""):
+            raise WrapperSessionError("a follow-up handoff keeps the selected executor; start a new session to switch executors")
+    elif executor_target:
         select_wrapper_session_executor(paths, session_id, executor_target)
         session = _existing_session(paths, session_id)
-    if session["status"] not in {"plan_accepted", "executor_selected"}:
+    if not follow_up and session["status"] not in {"plan_accepted", "executor_selected"}:
         raise WrapperSessionError("wrapper session plan must be accepted before preparing a handoff")
     selected_executor = str(session.get("selected_executor_profile") or "codex")
     if session.get("work_owner_mode") == "runtime_handoff" and selected_executor:
@@ -281,6 +297,7 @@ def prepare_wrapper_session_handoff(
             source_metadata=source_metadata,
             executor_target=selected_executor,
             context_pack=context_pack,
+            follow_up=follow_up,
         )
     if selected_executor and selected_executor != "codex":
         return _prepare_prompt_only_session_handoff(
@@ -292,6 +309,7 @@ def prepare_wrapper_session_handoff(
             source_metadata=source_metadata,
             executor_target=selected_executor,
             context_pack=context_pack,
+            follow_up=follow_up,
         )
     message = extract_message_text(event_or_message)
     metadata = _source_metadata(event_or_message)
@@ -310,6 +328,7 @@ def prepare_wrapper_session_handoff(
             "data": {"message_sha256": message_sha256, "message_length": len(message)},
         },
     )
+    follow_up_workflow, follow_up_score = _session_route_preference(session) if follow_up else (None, None)
     lifecycle = start_codex_delegation_lifecycle(
         paths,
         message,
@@ -318,12 +337,34 @@ def prepare_wrapper_session_handoff(
         limit=limit,
         include_message=include_message,
         context_pack=context_pack,
+        preferred_workflow=follow_up_workflow,
+        preferred_workflow_score=follow_up_score,
+        force_coding_handoff=follow_up,
     )
     run_id = str(lifecycle["run"]["run_id"])
     linked = _link_prepared_handoff_run(paths, session, run_id, recovered=False)
     lifecycle["status"] = report_codex_delegation_lifecycle(paths, run_id)
     linked["handoff"] = lifecycle
     return linked
+
+
+def _session_route_preference(session: dict[str, Any]) -> tuple[str | None, int | None]:
+    """The already-routed workflow a follow-up message should inherit.
+
+    A follow-up is a delta on an accepted coding plan ("add tests too"), so
+    re-routing its text from scratch either guesses a different workflow or
+    fails to produce a handoff at all; the session's stored route is the
+    decision the user already accepted.
+    """
+    route = session.get("route", {}) if isinstance(session.get("route"), dict) else {}
+    workflow = str(route.get("selected_skill", "") or "")
+    if not workflow:
+        return None, None
+    try:
+        score = int(route.get("score", 0) or 0)
+    except (TypeError, ValueError):
+        score = 0
+    return workflow, score if score > 0 else None
 
 
 def _prepare_prompt_only_session_handoff(
@@ -336,6 +377,7 @@ def _prepare_prompt_only_session_handoff(
     source_metadata: dict[str, str] | None,
     executor_target: str,
     context_pack: dict[str, object] | None,
+    follow_up: bool = False,
 ) -> dict[str, object]:
     message = extract_message_text(event_or_message)
     metadata = _source_metadata(event_or_message)
@@ -350,6 +392,9 @@ def _prepare_prompt_only_session_handoff(
         source_metadata=metadata,
         executor_target=executor_target,
         context_pack=context_pack,
+        preferred_workflow=(_session_route_preference(session)[0] if follow_up else None),
+        preferred_workflow_score=(_session_route_preference(session)[1] if follow_up else None),
+        force_coding_handoff=follow_up,
         memory_recall_pack=memory_recall_pack_for_handoff(
             paths,
             message,
@@ -414,6 +459,7 @@ def _prepare_runtime_session_handoff(
     source_metadata: dict[str, str] | None,
     executor_target: str,
     context_pack: dict[str, object] | None,
+    follow_up: bool = False,
 ) -> dict[str, object]:
     message = extract_message_text(event_or_message)
     metadata = _source_metadata(event_or_message)
@@ -428,6 +474,9 @@ def _prepare_runtime_session_handoff(
         source_metadata=metadata,
         executor_target=executor_target,
         context_pack=context_pack,
+        preferred_workflow=(_session_route_preference(session)[0] if follow_up else None),
+        preferred_workflow_score=(_session_route_preference(session)[1] if follow_up else None),
+        force_coding_handoff=follow_up,
         memory_recall_pack=memory_recall_pack_for_handoff(
             paths,
             message,
@@ -697,6 +746,18 @@ def _find_recoverable_prepared_handoff_run(
         if not _is_matching_coding_handoff(coding, session, message_sha256, expected_metadata):
             continue
         return run_id
+    return ""
+
+
+def _prepared_run_message_sha(paths: OmhPaths, run_id: str) -> str:
+    coding = read_json_object(paths.runtime_runs_dir / run_id / "coding_delegation.json")
+    return str(coding.get("message_sha256", "")) if isinstance(coding, dict) else ""
+
+
+def _latest_prepared_message_sha(session_dir: Path, event_name: str) -> str:
+    for event in reversed(read_wrapper_session_events(session_dir)):
+        if event.get("event") == event_name and isinstance(event.get("data"), dict):
+            return str(event["data"].get("message_sha256", ""))
     return ""
 
 

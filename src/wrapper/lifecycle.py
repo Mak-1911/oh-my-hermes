@@ -43,6 +43,9 @@ def start_codex_delegation_lifecycle(
     include_message: bool = False,
     context_pack: dict[str, object] | None = None,
     memory_recall_pack: dict[str, object] | None = None,
+    preferred_workflow: str | None = None,
+    preferred_workflow_score: int | None = None,
+    force_coding_handoff: bool = False,
 ) -> dict[str, object]:
     if memory_recall_pack is None:
         memory_recall_pack = memory_recall_pack_for_handoff(paths, message, executor_target="codex")
@@ -55,6 +58,9 @@ def start_codex_delegation_lifecycle(
         executor_target="codex",
         context_pack=context_pack,
         memory_recall_pack=memory_recall_pack,
+        preferred_workflow=preferred_workflow,
+        preferred_workflow_score=preferred_workflow_score,
+        force_coding_handoff=force_coding_handoff,
         capability_snapshot_directory=paths.omh_home / "coding" / "executor-capability-snapshots",
     )
     delegation = payload.get("delegation")
