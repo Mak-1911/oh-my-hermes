@@ -1596,15 +1596,23 @@ def _compact_memory_recall_item(item: dict[str, Any]) -> dict[str, Any]:
         # metadata, and dropping them would leave the run-backed codex path
         # unable to explain pack order or ask for lineage while prompt-only
         # executors keep both.
-        "ranking": {
-            key: int(item.get("ranking", {}).get(key, 0) or 0)
-            for key in ("rrf_score_micro", "relevance_rank", "recency_rank", "usage_rank", "times_recalled")
-            if isinstance(item.get("ranking"), dict)
-        },
+        "ranking": _compact_ranking(item.get("ranking")),
         "derived_from": [str(ref) for ref in (item.get("derived_from") if isinstance(item.get("derived_from"), list) else []) if str(ref)][:8],
         "perspective": _compact_perspective(item.get("perspective")),
         **_compact_memory_replay_fields(item),
     }
+
+
+def _compact_ranking(value: Any) -> dict[str, Any]:
+    ranking = value if isinstance(value, dict) else {}
+    if not ranking:
+        return {}
+    compacted: dict[str, Any] = {
+        key: int(ranking.get(key, 0) or 0)
+        for key in ("rrf_score_micro", "decayed_score_micro", "relevance_rank", "recency_rank", "usage_rank", "times_recalled", "age_tier")
+    }
+    compacted["pinned"] = bool(ranking.get("pinned", False))
+    return compacted
 
 
 def _compact_perspective(value: Any) -> dict[str, str]:

@@ -92,6 +92,44 @@ This ranking design is a deterministic reinterpretation of the hybrid-search
 rank fusion and per-observation usage tracking popularized by memory servers
 such as Honcho; OMH keeps the bookkeeping and drops the model calls.
 
+## Recall Anchors, Age Tiers, and Duplicate Detection
+
+Three bookkeeping ideas ported from Mnemosyne, deterministically:
+
+**Pins** — mark an approved record as a recall anchor (at most 12 pins;
+a pin never overrides expiry, scope, perspective, or review eligibility):
+
+```sh
+# Agent/operator only: anchor one reviewed record in every recall pack.
+omh memory pin <record-id>
+
+# Agent/operator only: remove the anchor marker.
+omh memory unpin <record-id>
+```
+
+Pinned eligible records lead the pack and skip only the `no_query_overlap`
+cut. Pins take priority within the recall budget rather than expanding it,
+and at most `limit - 1` pinned slots (minimum one) lead a pack — further
+pins compete as normal records, so a fully-used pin budget can never blank
+query-driven recall. Pin markers live in `.omh/memory/pins.json`
+(`omh_memory_pins/v1`), outside record payloads, so digests and review
+linkage are untouched; retirement reports annotate rows with `pinned`,
+lifecycle receipts list `pin_markers` under exclusions, and each ranking
+block carries `pinned`.
+
+**Age tiers** — the ranking's `decayed_score_micro` degrades with record
+age (0-30 days full weight, 30-180 days half, older a quarter), reported as
+`age_tier`; `rrf_score_micro` stays pure rank fusion so fusion quality
+remains comparable across records. Relevance still leads the sort, so a
+stale strong keyword match beats a fresh weak one; tiers only reorder
+records of equal relevance.
+
+**Duplicate detection** — capture compares the normalized summary (NFC,
+lowercase, collapsed whitespace) against active records and stamps an exact
+match as `duplicate_of` on the candidate and its review card. Review-first:
+nothing is silently merged, the reviewer decides — but a duplicate never
+auto-approves, even under the auto-safe policy.
+
 ## Provenance and Lineage
 
 A capture may declare which approved records a new fact was derived from:

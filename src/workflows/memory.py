@@ -66,6 +66,7 @@ PROJECT_MEMORY_RECALL_PACK_SCHEMA_VERSION = "project_memory_recall_pack/v1"
 MEMORY_RECALL_USAGE_SCHEMA_VERSION = "omh_memory_recall_usage/v1"
 MEMORY_LINEAGE_SCHEMA_VERSION = "omh_memory_lineage/v1"
 MEMORY_PERSPECTIVES_SCHEMA_VERSION = "omh_memory_perspectives/v1"
+MEMORY_PINS_SCHEMA_VERSION = "omh_memory_pins/v1"
 HERMES_MEMORY_BRIDGE_SCHEMA_VERSION = "hermes_memory_bridge/v1"
 
 SOURCE_TRUTH_LEVELS = {
@@ -174,7 +175,26 @@ _PROJECT_MEMORY_RECALL_ITEM_KEYS = {
     "revalidation_evidence",
     "replay_evaluation",
 }
-_RECALL_RANKING_KEYS = {"rrf_score_micro", "relevance_rank", "recency_rank", "usage_rank", "times_recalled"}
+_RECALL_RANKING_KEYS = {
+    "rrf_score_micro",
+    "decayed_score_micro",
+    "relevance_rank",
+    "recency_rank",
+    "usage_rank",
+    "times_recalled",
+    "age_tier",
+    "pinned",
+}
+# Age tiers degrade the fused score of old records inside an equal relevance
+# rank, mnemosyne-style: 0-30 days full weight, 30-180 days half, older a
+# quarter. Relevance stays the primary key, so a stale strong match still
+# beats a fresh weak one; the tier only reorders peers.
+_AGE_TIER_BOUNDS_DAYS = (30, 180)
+_AGE_TIER_WEIGHTS = (1.0, 0.5, 0.25)
+# Pins are guaranteed-inclusion anchors, not eligibility overrides: a pinned
+# record still fails closed on expiry, scope, perspective, and review checks.
+# The cap stays small because pins occupy recall budget first.
+_MEMORY_PINS_LIMIT = 12
 # Perspective is honcho's peer paradigm reinterpreted deterministically: an
 # optional (observer, observed) pair naming whose view a record is and which
 # actor it is about. Unscoped records behave exactly as before; a scoped
@@ -362,10 +382,20 @@ def capture_project_memory_candidate(
         derived_from=_normalize_derived_from(paths, derived_from),
         perspective=_normalize_perspective(observer, observed),
     )
+    # Exact-summary duplicate detection, mnemosyne-style but review-first:
+    # the match is surfaced on the candidate for the reviewer to decide, never
+    # silently merged -- and a duplicate never auto-approves, because the
+    # auto-safe path would otherwise mint identical records unreviewed. The
+    # comparison uses the candidate's own summary, which already went through
+    # the same redaction/truncation pipeline as every stored summary; the raw
+    # input would miss any match past the redaction cap.
+    duplicate_of = _find_duplicate_record(paths, str(candidate.get("summary", "")))
+    if duplicate_of:
+        candidate["duplicate_of"] = duplicate_of
     _write_project_memory_candidate(paths, candidate)
     auto_approved = False
     record: dict[str, object] = {}
-    if bool(policy.get("auto_approve_safe")) and candidate.get("safety", {}).get("status") == "safe":
+    if bool(policy.get("auto_approve_safe")) and candidate.get("safety", {}).get("status") == "safe" and not duplicate_of:
         approved = approve_project_memory_candidate(paths, str(candidate["candidate_id"]), approved_by="auto-safe")
         record = approved.get("record", {}) if isinstance(approved.get("record"), dict) else {}
         candidate = approved.get("candidate", candidate) if isinstance(approved.get("candidate"), dict) else candidate
@@ -418,6 +448,7 @@ def build_project_memory_review_card(candidate: dict[str, Any]) -> dict[str, obj
         "summary": str(candidate.get("summary", "")),
         "scope": _normalize_scope(candidate.get("scope", _scope("project", "default"))),
         "tags": _string_list(candidate.get("tags", [])),
+        **({"duplicate_of": str(candidate["duplicate_of"])} if candidate.get("duplicate_of") else {}),
         "safety": safety,
         "recommended_action": recommended_action,
         "actions": [
@@ -557,6 +588,7 @@ def build_project_memory_recall_pack(
         )
     records = _read_project_memory_records(paths)
     requested_scope = _scope(scope_kind, scope_ref) if scope_kind and scope_ref else None
+    pins = set(read_memory_pins(paths))
     review_resolver = _project_memory_review_resolver(paths)
     included: list[dict[str, object]] = []
     excluded: list[dict[str, object]] = []
@@ -581,22 +613,39 @@ def build_project_memory_recall_pack(
             excluded.append(_recall_exclusion(record, evaluation, staleness=staleness))
             continue
         score = _memory_recall_score(record, query)
-        if query and score <= 0:
+        # A pinned anchor is always in context: it skips only the
+        # no_query_overlap cut, never an eligibility check above.
+        if query and score <= 0 and str(record.get("record_id", "")) not in pins:
             excluded.append(_recall_exclusion(record, evaluation, staleness=staleness, reason="no_query_overlap"))
             continue
         included.append(_recall_item(record, score=score, staleness=staleness, evaluation=evaluation))
-    _attach_recall_ranking(included, read_recall_usage(paths))
-    # Relevance leads the sort; the fused score orders records only within an
-    # equal relevance rank. A weaker keyword match can therefore never
-    # displace a stronger one -- including across the budget cut below --
-    # while recency and delivery usage decide ties and unqueried packs.
-    included.sort(
-        key=lambda item: (
-            int(_ranking_field(item, "relevance_rank")),
-            -int(_ranking_field(item, "rrf_score_micro")),
-            str(item.get("record_id", "")),
-        )
+    _attach_recall_ranking(
+        included,
+        read_recall_usage(paths),
+        pins=pins,
+        now=now if now is not None else datetime.now(timezone.utc),
     )
+    # Pinned anchors lead, then relevance; the decayed fused score orders
+    # records only within an equal relevance rank. A weaker keyword match
+    # can therefore never displace a stronger unpinned one -- including
+    # across the budget cut below -- while recency, delivery usage, and age
+    # tier decide ties and unqueried packs. Pins take priority within the
+    # budget but never own it outright: at most limit-1 pinned slots lead
+    # the pack (minimum one), and further pins compete as normal records,
+    # so a fully-used pin budget cannot blank query-driven recall.
+    ranked_key = lambda item: (  # noqa: E731 - shared by both sort passes below
+        int(_ranking_field(item, "relevance_rank")),
+        -int(_ranking_field(item, "decayed_score_micro")),
+        str(item.get("record_id", "")),
+    )
+    privileged_pins = {
+        str(item.get("record_id", ""))
+        for item in sorted(
+            (item for item in included if _ranking_flag(item, "pinned")),
+            key=ranked_key,
+        )[: max(max(limit, 0) - 1, 1)]
+    }
+    included.sort(key=lambda item: (0 if str(item.get("record_id", "")) in privileged_pins else 1, *ranked_key(item)))
     # Budget cut follows the priority ladder above: once either budget is
     # crossed, everything after that point is cut, so a lower-priority record
     # never displaces a higher-priority one. Cut records are recorded as
@@ -790,6 +839,11 @@ def _ranking_field(item: dict[str, object], key: str) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
+def _ranking_flag(item: dict[str, object], key: str) -> bool:
+    ranking = item.get("ranking")
+    return bool(ranking.get(key, False)) if isinstance(ranking, dict) else False
+
+
 def _competition_ranks(items: list[dict[str, object]], value_fn: Any) -> dict[str, int]:
     """1-based competition ranks, best first; equal values share a rank."""
     ordered = sorted(items, key=lambda item: str(item.get("record_id", "")))
@@ -806,16 +860,26 @@ def _competition_ranks(items: list[dict[str, object]], value_fn: Any) -> dict[st
     return ranks
 
 
-def _attach_recall_ranking(items: list[dict[str, object]], usage: dict[str, dict[str, object]]) -> None:
+def _attach_recall_ranking(
+    items: list[dict[str, object]],
+    usage: dict[str, dict[str, object]],
+    *,
+    pins: set[str] | None = None,
+    now: datetime | None = None,
+) -> None:
     """Fuse relevance, recency, and delivery usage into one recall order.
 
     Without a query every relevance score ties at 1, so recency and usage
     decide the order instead of the record-id accident the pure keyword sort
     fell back to. Recency ranks on the approved_at ISO string, which sorts
-    lexicographically; a record missing approved_at ranks oldest.
+    lexicographically; a record missing approved_at ranks oldest. The fused
+    score is then degraded by age tier so old records reorder below young
+    peers of equal relevance.
     """
     if not items:
         return
+    pins = pins or set()
+    now = now if now is not None else datetime.now(timezone.utc)
     def _times_recalled(item: dict[str, object]) -> int:
         entry = usage.get(str(item.get("record_id", "")), {})
         times = entry.get("times_recalled", 0)
@@ -831,12 +895,19 @@ def _attach_recall_ranking(items: list[dict[str, object]], usage: dict[str, dict
             + _RECALL_RRF_WEIGHTS["recency"] / (_RECALL_RRF_K + recency[record_id])
             + _RECALL_RRF_WEIGHTS["usage"] / (_RECALL_RRF_K + usage_ranks[record_id])
         )
+        tier = _age_tier(str(item.get("approved_at", "")), now=now)
         item["ranking"] = {
+            # rrf_score_micro stays pure rank fusion so two records' fusion
+            # quality stays comparable; the age decay lands in its own field
+            # and that decayed value is what the sort uses.
             "rrf_score_micro": round(fused * 1_000_000),
+            "decayed_score_micro": round(fused * _AGE_TIER_WEIGHTS[tier] * 1_000_000),
             "relevance_rank": relevance[record_id],
             "recency_rank": recency[record_id],
             "usage_rank": usage_ranks[record_id],
             "times_recalled": _times_recalled(item),
+            "age_tier": tier,
+            "pinned": record_id in pins,
         }
 
 
@@ -851,6 +922,105 @@ def _usage_bucket(times_recalled: int) -> int:
     if times_recalled >= 3:
         return 2
     if times_recalled >= 1:
+        return 1
+    return 0
+
+
+def _normalized_summary_key(summary: str) -> str:
+    return " ".join(unicodedata.normalize("NFC", str(summary or "")).lower().split())
+
+
+def _find_duplicate_record(paths: OmhPaths, summary: str, *, now: datetime | None = None) -> str:
+    """Record id of a non-expired record with the same normalized summary.
+
+    Normalization is NFC + casefold-by-lower + whitespace collapse -- exact
+    content match like mnemosyne's dedup, not similarity, so it can never
+    merge two facts that merely look alike. TTL-expired records are skipped:
+    re-capturing an expiring fact is the normal refresh path and must not be
+    denied auto-approval by its own dying predecessor.
+    """
+    key = _normalized_summary_key(summary)
+    if not key:
+        return ""
+    now = now if now is not None else datetime.now(timezone.utc)
+    for record in _read_project_memory_records(paths):
+        if _classify_record_expiry(record, now=now) == "expired":
+            continue
+        if _normalized_summary_key(str(record.get("summary", ""))) == key:
+            return str(record.get("record_id", ""))
+    return ""
+
+
+def _memory_pins_path(paths: OmhPaths) -> Path:
+    return paths.memory_dir / "pins.json"
+
+
+def read_memory_pins(paths: OmhPaths) -> list[str]:
+    """Pinned record ids; a missing or corrupt store reads as no pins.
+
+    Pins are a delivery-priority hint like usage counters, never an
+    eligibility input, so losing the sidecar must never cost a recall.
+    """
+    data, _error = read_json_object_result(_memory_pins_path(paths))
+    if not isinstance(data, dict) or data.get("schema_version") != MEMORY_PINS_SCHEMA_VERSION:
+        return []
+    record_ids = data.get("record_ids")
+    if not isinstance(record_ids, list):
+        return []
+    return sorted({str(record_id) for record_id in record_ids if _SAFE_REF.match(str(record_id))})
+
+
+def set_memory_pin(paths: OmhPaths, record_id: str, *, pinned: bool) -> dict[str, object]:
+    """Pin or unpin one record. Pinning requires the record to exist; an
+    unpin is always allowed so stale pin entries can be cleaned up."""
+    normalized = str(record_id).strip()
+    if not _SAFE_REF.match(normalized):
+        raise ValueError(f"unsafe memory record id: {record_id!r}")
+    if pinned:
+        known = {str(record.get("record_id", "")) for record in _read_project_memory_records(paths)}
+        if normalized not in known:
+            raise ValueError(f"memory record not found: {normalized}")
+    ensure_dir(paths.memory_dir)
+    with file_lock(_memory_pins_path(paths), timeout_seconds=1.0, private=True):
+        pins = set(read_memory_pins(paths))
+        if pinned:
+            pins.add(normalized)
+            if len(pins) > _MEMORY_PINS_LIMIT:
+                raise ValueError(f"at most {_MEMORY_PINS_LIMIT} records can be pinned; unpin one first")
+        else:
+            pins.discard(normalized)
+        atomic_write_json(
+            _memory_pins_path(paths),
+            {"schema_version": MEMORY_PINS_SCHEMA_VERSION, "updated_at": utc_now(), "record_ids": sorted(pins)},
+            private=True,
+        )
+    return {
+        "schema_version": MEMORY_PINS_SCHEMA_VERSION,
+        "record_id": normalized,
+        "pinned": pinned,
+        "pinned_record_ids": sorted(pins),
+        "pin_count": len(pins),
+        "redaction_policy": "metadata_only",
+        "claim_boundary": (
+            "A pin is an OMH-local delivery-priority marker only; it never overrides expiry, scope, "
+            "perspective, or review eligibility, and it is not execution or Hermes internal-memory evidence."
+        ),
+    }
+
+
+def _age_tier(approved_at: str, *, now: datetime) -> int:
+    """0 for young, 1 for aging, 2 for old; unparseable timestamps stay 0 so
+    a malformed record is never silently downweighted."""
+    # Naive timestamps read as UTC, matching the expiry classifier: the
+    # plain _parse_utc would read them as host-local and shift the tier by
+    # up to +/-14 hours at the 30/180-day boundaries.
+    approved = _parse_utc_naive_as_utc(str(approved_at or ""))
+    if approved is None:
+        return 0
+    age_days = max((now - approved).total_seconds(), 0.0) / 86400.0
+    if age_days >= _AGE_TIER_BOUNDS_DAYS[1]:
+        return 2
+    if age_days >= _AGE_TIER_BOUNDS_DAYS[0]:
         return 1
     return 0
 
@@ -1309,6 +1479,7 @@ def build_memory_retirement(
     now = now if now is not None else datetime.now(timezone.utc)
     records_dir = _memory_records_dir(paths)
     recall_usage = read_recall_usage(paths)
+    pinned_ids = set(read_memory_pins(paths))
     expired: list[dict[str, object]] = []
     expiring_soon: list[dict[str, object]] = []
     skipped: list[dict[str, object]] = []
@@ -1345,8 +1516,10 @@ def build_memory_retirement(
             "expires_at": str(ttl.get("expires_at", "") or ""),
             "path_name": path.name,
             # Delivery-usage annotation only: a never-delivered record is a
-            # cheaper retire call than one executors keep receiving.
+            # cheaper retire call than one executors keep receiving. A pin
+            # likewise annotates, never blocks: expiry still wins.
             "recall_usage": recall_usage.get(record_id, {"times_recalled": 0, "last_recalled_at": ""}),
+            "pinned": record_id in pinned_ids,
         }
         if state == "expired":
             expired.append(row)

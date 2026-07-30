@@ -88,6 +88,14 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     perspectives = memory_sub.add_parser("perspectives", help="List observer/observed perspective pairs with reviewed-record counts.")
     perspectives.set_defaults(func=memory.cmd_memory_perspectives)
 
+    pin = memory_sub.add_parser("pin", help="Mark one reviewed record as a recall anchor: first in packs, exempt from no-overlap cuts, never from eligibility.")
+    pin.add_argument("record_id")
+    pin.set_defaults(func=memory.cmd_memory_pin)
+
+    unpin = memory_sub.add_parser("unpin", help="Remove one record's recall-anchor marker.")
+    unpin.add_argument("record_id")
+    unpin.set_defaults(func=memory.cmd_memory_unpin)
+
     lineage = memory_sub.add_parser("lineage", help="Trace derived-from provenance links for one reviewed memory record.")
     lineage.add_argument("record_id")
     lineage.add_argument("--depth", type=int, default=3, help="Maximum ancestor/descendant hops to traverse (clamped to 1-10).")

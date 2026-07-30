@@ -35,6 +35,7 @@ from ..memory import (
     build_memory_lineage,
     build_memory_perspectives,
     build_memory_retirement,
+    set_memory_pin,
     build_handoff_context_pack,
     build_memory_inspection,
     build_project_memory_recall_pack,
@@ -161,6 +162,24 @@ def cmd_memory_recall(args: argparse.Namespace) -> int:
             observer=args.observer,
             observed=args.observed,
         )
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(payload)
+    return 0
+
+
+def cmd_memory_pin(args: argparse.Namespace) -> int:
+    try:
+        payload = set_memory_pin(_paths(args), args.record_id, pinned=True)
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(payload)
+    return 0
+
+
+def cmd_memory_unpin(args: argparse.Namespace) -> int:
+    try:
+        payload = set_memory_pin(_paths(args), args.record_id, pinned=False)
     except (OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     _print_json(payload)
