@@ -101,6 +101,19 @@ class HookManifestTests(unittest.TestCase):
             self.assertEqual(read_awareness_delivery(explicit_home)["delivery_count"], 1)
             self.assertEqual(read_awareness_delivery(env_home)["delivery_count"], 0)
 
+    def test_pre_llm_call_records_suppression_in_explicit_omh_home(self) -> None:
+        with TemporaryDirectory() as explicit_home, TemporaryDirectory() as env_home:
+            with patch.dict(os.environ, {"OMH_HOME": env_home}):
+                result = pre_llm_call(
+                    user_message="",
+                    is_first_turn=False,
+                    omh_home=explicit_home,
+                )
+
+            self.assertIsNone(result)
+            self.assertEqual(read_awareness_delivery(explicit_home)["suppressed_count"], 1)
+            self.assertEqual(read_awareness_delivery(env_home)["suppressed_count"], 0)
+
     def test_awareness_route_hint_is_metadata_only_and_message_specific(self) -> None:
         message = "make an image explaining the cron feature with secret-token-123"
 

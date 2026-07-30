@@ -119,6 +119,7 @@ omh runtime record --skill ops-observability-card --harness ops-observability-ca
 Record observed delegation results; otherwise return `not_available` or `not_observed`.
 Prepared OMH routing is not execution, review, CI, merge-readiness, or merge evidence.
 - Treat wrapper memory/context summaries as advisory local context, not proof of opaque Hermes memory reads or changes.
+Preserve workflow intent and stop conditions; verify before claiming completion.
 
 Use Hermes-native subagent/delegation features when available: native subagents -> Hermes delegation when available, otherwise sequential lanes.
 

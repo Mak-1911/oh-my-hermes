@@ -180,6 +180,7 @@ def build_native_skill_competition_report() -> dict[str, object]:
 
 def native_skill_competition_errors(payload: Mapping[str, object]) -> list[str]:
     errors: list[str] = []
+    expected_case_ids = {case.case_id for case in NATIVE_COMPETITION_CASES}
     if payload.get("schema_version") != "omh_native_skill_competition/v1":
         errors.append("native competition schema_version is invalid")
     counts: dict[str, int] = {}
@@ -195,12 +196,30 @@ def native_skill_competition_errors(payload: Mapping[str, object]) -> list[str]:
         failure_count = -1
     else:
         failure_count = len(failures)
-    if not isinstance(payload.get("results"), list):
+    results = payload.get("results")
+    result_rows: list[Mapping[str, object]] = []
+    if not isinstance(results, list):
         errors.append("native competition results must be a list")
+    else:
+        for row in results:
+            if not isinstance(row, Mapping):
+                errors.append("native competition result rows must be objects")
+                continue
+            case_id = row.get("case_id")
+            passed = row.get("passed")
+            if not isinstance(case_id, str) or case_id not in expected_case_ids:
+                errors.append("native competition result case_id is invalid")
+                continue
+            if not isinstance(passed, bool):
+                errors.append(f"native competition result {case_id} passed flag is invalid")
+                continue
+            result_rows.append(row)
     all_passing = payload.get("all_passing")
     if not isinstance(all_passing, bool):
         errors.append("native competition all_passing must be boolean")
     if len(counts) == 3:
+        if counts["case_count"] != len(expected_case_ids):
+            errors.append("native competition case_count does not cover the required corpus")
         if counts["passed_count"] + counts["failed_count"] != counts["case_count"]:
             errors.append("native competition counts are inconsistent")
         if failure_count >= 0 and counts["failed_count"] != failure_count:
@@ -208,6 +227,18 @@ def native_skill_competition_errors(payload: Mapping[str, object]) -> list[str]:
         expected_all_passing = counts["failed_count"] == 0 and counts["passed_count"] == counts["case_count"]
         if isinstance(all_passing, bool) and all_passing != expected_all_passing:
             errors.append("native competition all_passing is inconsistent")
+        if isinstance(results, list):
+            result_ids = [str(row["case_id"]) for row in result_rows]
+            if len(result_rows) != counts["case_count"] or set(result_ids) != expected_case_ids:
+                errors.append("native competition results do not cover the required corpus")
+            if len(result_ids) != len(set(result_ids)):
+                errors.append("native competition results contain duplicate case ids")
+            passed_ids = {str(row["case_id"]) for row in result_rows if row["passed"] is True}
+            failed_ids = {str(row["case_id"]) for row in result_rows if row["passed"] is False}
+            if len(passed_ids) != counts["passed_count"] or len(failed_ids) != counts["failed_count"]:
+                errors.append("native competition result rows disagree with aggregate counts")
+            if isinstance(failures, list) and set(failures) != failed_ids:
+                errors.append("native competition failure ids disagree with result rows")
     return errors
 
 

@@ -464,13 +464,15 @@ def _awareness_delivery_check(paths: OmhPaths, *, now: datetime | None = None) -
 
     record = read_awareness_delivery(str(paths.omh_home))
     if record.get("unreadable"):
+        action = "Delete the ledger and run one Hermes turn to repopulate it."
         return Check(
             "awareness_delivery",
             True,
             "awareness delivery ledger is unreadable",
             severity="warning",
             observed=False,
-            next_action="Delete the ledger and run one Hermes turn to repopulate it.",
+            remediation=action,
+            next_action=action,
         )
     delivered = int(record.get("delivery_count", 0) or 0)
     if not delivered:
@@ -485,20 +487,22 @@ def _awareness_delivery_check(paths: OmhPaths, *, now: datetime | None = None) -
         if first_attempted is not None and current_time - first_attempted.astimezone(UTC) >= timedelta(
             days=AWARENESS_ZERO_DELIVERY_WARNING_DAYS
         ):
+            action = (
+                "Restart Hermes, run one Hermes turn, then rerun `omh doctor`; "
+                "if delivery remains zero, inspect the OMH plugin hook logs."
+            )
             return Check(
                 "awareness_delivery",
                 False,
                 (
-                    f"no OMH awareness hook payload returned for model input in "
-                    f"{AWARENESS_ZERO_DELIVERY_WARNING_DAYS} days "
-                    f"since the first observed hook attempt at {first_attempted_at}"
+                    "no OMH awareness hook payload returned for model input for at least "
+                    f"{AWARENESS_ZERO_DELIVERY_WARNING_DAYS} days; "
+                    f"first observed hook attempt: {first_attempted_at}"
                 ),
                 severity="warning",
                 observed=False,
-                next_action=(
-                    "Restart Hermes, run one Hermes turn, then rerun `omh doctor`; "
-                    "if delivery remains zero, inspect the OMH plugin hook logs."
-                ),
+                remediation=action,
+                next_action=action,
             )
         return Check(
             "awareness_delivery",

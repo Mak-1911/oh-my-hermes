@@ -13,10 +13,10 @@ class SkillContextCostTests(unittest.TestCase):
         profile = skill_context_cost_profile("full")
         headings = {row["heading"]: row for row in profile["headings"]}
 
-        self.assertLess(headings.get("OMH Context Rail", {"duplicate_bytes": 0})["duplicate_bytes"], 20_000)
-        self.assertLess(
+        self.assertEqual(headings.get("OMH Context Rail", {"duplicate_bytes": 0})["duplicate_bytes"], 0)
+        self.assertEqual(
             headings.get("Hermes Compatibility Contract", {"duplicate_bytes": 0})["duplicate_bytes"],
-            20_000,
+            0,
         )
         self.assertLess(profile["repeated"]["bytes"], 100_000)
 

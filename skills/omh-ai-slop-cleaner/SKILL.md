@@ -120,6 +120,7 @@ omh runtime record --skill ai-slop-cleaner --harness coding-handling --status st
 Record observed delegation results; otherwise return `not_available` or `not_observed`.
 Prepared OMH routing is not execution, review, CI, merge-readiness, or merge evidence.
 - When wrapper metadata includes `memory_review_card/v1` or `handoff_context_pack/v1`, treat it as reviewed OMH-local or wrapper-supplied context only. Use conflict-free context summaries to shape plans and handoffs, but do not claim Hermes internal memory was read or changed.
+Preserve workflow intent and stop conditions; verify before claiming completion.
 
 Use Hermes-native subagent/delegation features when available: native subagents -> Hermes delegation when available, otherwise sequential lanes.
 

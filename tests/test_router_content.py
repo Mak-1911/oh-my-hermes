@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import inspect
 import json
 import re
@@ -49,7 +50,7 @@ from omh.skills.catalog import (
     primary_harness_for_skill,
     retained_delegation_skill_names,
 )
-from omh.skills.render import workflow_reference_markdown, workflow_reference_payload
+from omh.skills.render import frontmatter_description, workflow_reference_markdown, workflow_reference_payload
 from omh.snippet import WORKSPACE_SNIPPET
 from omh.use_cases import USE_CASES, list_use_cases
 
@@ -729,6 +730,13 @@ class RouterContentTests(unittest.TestCase):
                 frontmatter = templates[name].split("---", 2)[1]
                 self.assertIn(f"Aliases: {', '.join(aliases)}.", frontmatter)
 
+    def test_unsafe_picker_aliases_fail_loudly(self) -> None:
+        definition = next(item for item in builtin_definitions() if item.name == "ultrawork")
+        malformed = replace(definition, aliases=("ulw", "$unsafe"))
+
+        with self.assertRaisesRegex(ValueError, r"unsafe picker aliases.*\$unsafe"):
+            frontmatter_description(malformed)
+
     def test_picker_sibling_families_name_their_decision_boundaries(self) -> None:
         definitions = {definition.name: definition for definition in builtin_definitions()}
         expected_fragments = {
@@ -871,6 +879,9 @@ class RouterContentTests(unittest.TestCase):
                 }
                 missing = {name: fragments for name, fragments in missing.items() if fragments}
                 self.assertEqual(missing, {})
+        for name, content in sorted(templates.items()):
+            if name != "oh-my-hermes":
+                self.assertIn("Preserve workflow intent and stop conditions", content, name)
 
     def test_ultragoal_guards_settings_only_requests_from_goal_escalation(self) -> None:
         """A settings-only request (for example a gateway channel mention policy) must not

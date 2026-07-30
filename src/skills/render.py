@@ -158,21 +158,13 @@ def _needs_explicit_memory_context(definition: SkillDefinition) -> bool:
     return memory_context_policy_for_skill(definition.name) == "explicit"
 
 
-def _target_topology_skill_contract_bullet() -> str:
-    return (
-        f"- Respect `{TARGET_TOPOLOGY_SCHEMA}`: bind state to the current target/thread, use single-target "
-        "behavior when `active_agent_count` is one, and name a one-to-many or many-to-one change before "
-        "treating it as persistent."
-    )
-
-
 def _common_rail_sections(definition: SkillDefinition, primary_harness: str) -> str:
     """Render the compact per-skill tail that replaced the repeated common rail.
 
     What stays inline is the self-containment floor a standalone Hermes tap needs: this
     skill's harness and record command, the observed-vs-unavailable delegation result rule,
-    the Hermes-native tool contract with its native-subagent fallback, target topology, the
-    delegation fallback and the pointer to `references/skill-common-rail.md`.
+    the Hermes-native tool contract with its native-subagent fallback, the compatibility
+    floor, delegation fallback and the pointer to `references/skill-common-rail.md`.
     `tests/test_router_content.py::test_all_tap_skills_include_subagent_fallback_contract`
     is the gate on that floor. Everything else moved to the shared rail verbatim.
     """
@@ -187,6 +179,7 @@ omh runtime record --skill {definition.name} --harness {primary_harness} --statu
 Record observed delegation results; otherwise return `not_available` or `not_observed`.
 Prepared OMH routing is not execution, review, CI, merge-readiness, or merge evidence.
 {_memory_context_skill_contract_bullets(definition)}
+Preserve workflow intent and stop conditions; verify before claiming completion.
 
 Use Hermes-native subagent/delegation features when available: native subagents -> Hermes delegation when available, otherwise sequential lanes.
 
@@ -221,6 +214,9 @@ def _frontmatter_trigger_tail(definition: SkillDefinition | None) -> str:
         for alias in definition.aliases
         if _FRONTMATTER_SAFE_TRIGGER.fullmatch(alias)
     ]
+    if len(safe_aliases) != len(definition.aliases):
+        invalid = sorted(set(definition.aliases) - set(safe_aliases))
+        raise ValueError(f"unsafe picker aliases for {definition.name}: {', '.join(invalid)}")
     safe_alias_keys = {alias.casefold() for alias in safe_aliases}
     safe_triggers = [
         trigger

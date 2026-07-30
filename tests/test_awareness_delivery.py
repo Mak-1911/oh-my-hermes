@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import stat
+import threading
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from omh.maintenance.doctor import _awareness_delivery_check
 from omh.paths import resolve_paths
 from omh.plugin_bundle.omh.awareness_delivery import (
     AWARENESS_DELIVERY_SCHEMA_VERSION,
+    _awareness_delivery_lock,
     awareness_delivery_path,
     read_awareness_delivery,
     record_awareness_delivery,
@@ -22,7 +24,7 @@ from omh.plugin_bundle.omh.awareness_delivery import (
 
 
 class AwarenessDeliveryLedgerTests(unittest.TestCase):
-    """Whether OMH's primer and route hint actually reached the model.
+    """Whether OMH's awareness hook returned a payload for model input.
 
     Nothing recorded this. `host_observation` drops a record unless the caller
     supplies `host` and `session_id`, and Hermes passes neither to
@@ -158,6 +160,8 @@ class AwarenessDeliveryLedgerTests(unittest.TestCase):
             self.assertFalse(aged.ok)
             self.assertEqual(aged.severity, "warning")
             self.assertIn("restart hermes", aged.next_action.casefold())
+            self.assertEqual(aged.remediation, aged.next_action)
+            self.assertIn("for at least 7 days", aged.message)
             self.assertIn("hook payload", aged.message)
             self.assertNotIn("reached a model", aged.message)
 
@@ -219,6 +223,58 @@ class AwarenessDeliveryLedgerTests(unittest.TestCase):
             record = read_awareness_delivery(tmp)
             self.assertTrue(record["unreadable"])
             self.assertEqual(record["delivery_count"], 0)
+
+    def test_semantically_corrupt_ledger_is_unreadable_and_repaired(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            path = awareness_delivery_path(str(paths.omh_home))
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": AWARENESS_DELIVERY_SCHEMA_VERSION,
+                        "delivery_count": "many",
+                        "route_hint_count": 0,
+                        "suppressed_count": 0,
+                        "first_attempted_at": [],
+                        "last_context_chars": -1,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertTrue(read_awareness_delivery(str(paths.omh_home))["unreadable"])
+            self.assertEqual(_awareness_delivery_check(paths).severity, "warning")
+            repaired = record_awareness_delivery(
+                delivered=True,
+                route_hint=False,
+                context_chars=12,
+                observed_at="2026-07-01T00:00:00Z",
+                omh_home=str(paths.omh_home),
+            )
+
+            self.assertIsNotNone(repaired)
+            self.assertEqual(read_awareness_delivery(str(paths.omh_home))["delivery_count"], 1)
+
+    def test_delivery_lock_serializes_concurrent_writers(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = awareness_delivery_path(tmp)
+            contender_started = threading.Event()
+            contender_acquired = threading.Event()
+
+            def contend() -> None:
+                contender_started.set()
+                with _awareness_delivery_lock(path):
+                    contender_acquired.set()
+
+            with _awareness_delivery_lock(path):
+                thread = threading.Thread(target=contend)
+                thread.start()
+                self.assertTrue(contender_started.wait(timeout=1))
+                self.assertFalse(contender_acquired.is_set())
+            self.assertTrue(contender_acquired.wait(timeout=1))
+            thread.join(timeout=1)
+            self.assertFalse(thread.is_alive())
 
     def test_a_write_failure_never_raises(self) -> None:
         """Losing a counter is fine; breaking the hook that feeds the model is not."""

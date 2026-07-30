@@ -893,16 +893,9 @@ class EfficiencyContractTests(unittest.TestCase):
             "cases": [],
             "claim_boundary": "common request boundary",
         }
-        native_competition_payload = {
-            "schema_version": "omh_native_skill_competition/v1",
-            "all_passing": True,
-            "passed_count": 1,
-            "case_count": 1,
-            "failed_count": 0,
-            "failures": [],
-            "results": [],
-            "claim_boundary": "native competition boundary",
-        }
+        from omh.quality.native_skill_competition import build_native_skill_competition_report
+
+        native_competition_payload = build_native_skill_competition_report()
 
         with (
             patch.object(
