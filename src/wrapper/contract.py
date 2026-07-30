@@ -26,7 +26,7 @@ from ..executors import executor_label
 from ..goal_loop import build_loop_start_card
 from ..hermes_planning import build_hermes_plan_payload, is_coding_shaped_task
 from ..learning_candidate import build_learning_candidate_card
-from ..memory import memory_recall_pack_for_handoff
+from ..memory import memory_recall_pack_for_handoff, record_attached_recall_usage
 from ..operator_productivity import build_agent_operator_productivity_card
 from ..paths import OmhPaths, resolve_paths
 from ..plugin_bundle.omh.awareness import workflow_context_card_for_workflow, workflow_context_cards
@@ -3827,6 +3827,8 @@ def _build_chat_interaction_payload_uncached(
             else None,
             capability_snapshot_directory=(paths.omh_home / "coding" / "executor-capability-snapshots") if paths else None,
         )
+        if paths:
+            record_attached_recall_usage(paths, delegation)
         delegation["executor_resolution"] = executor_resolution
         coding_route_decision = _coding_route_decision_for_delegation(message, executor_resolution)
         delegation["coding_route_decision"] = coding_route_decision
@@ -3993,6 +3995,8 @@ def _attach_coding_owner_handoff(
         else None,
         capability_snapshot_directory=(paths.omh_home / "coding" / "executor-capability-snapshots") if paths else None,
     )
+    if paths:
+        record_attached_recall_usage(paths, delegation)
     delegation["executor_resolution"] = executor_resolution
     delegation["route_context"] = {
         "schema_version": "coding_route_context/v1",

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ..local_store import (
+    FileLockTimeout,
     atomic_write_json,
     ensure_dir,
     ensure_file,
@@ -63,6 +64,8 @@ PROJECT_MEMORY_REVIEW_QUEUE_SCHEMA_VERSION = "project_memory_review_queue/v1"
 PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION = _V2_PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION
 LEGACY_PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION = "project_memory_review_record/v1"
 PROJECT_MEMORY_RECALL_PACK_SCHEMA_VERSION = "project_memory_recall_pack/v1"
+MEMORY_RECALL_USAGE_SCHEMA_VERSION = "omh_memory_recall_usage/v1"
+MEMORY_LINEAGE_SCHEMA_VERSION = "omh_memory_lineage/v1"
 HERMES_MEMORY_BRIDGE_SCHEMA_VERSION = "hermes_memory_bridge/v1"
 
 SOURCE_TRUTH_LEVELS = {
@@ -128,6 +131,7 @@ _PROJECT_MEMORY_RECORD_KEYS = {
     "ttl",
     "staleness",
     "safety",
+    "derived_from",
     "redaction_policy",
     "claim_boundary",
 }
@@ -156,6 +160,8 @@ _PROJECT_MEMORY_RECALL_ITEM_KEYS = {
     "approved_at",
     "staleness",
     "score",
+    "ranking",
+    "derived_from",
     "revision",
     "admission_mode",
     "source_class",
@@ -165,6 +171,19 @@ _PROJECT_MEMORY_RECALL_ITEM_KEYS = {
     "revalidation_evidence",
     "replay_evaluation",
 }
+_RECALL_RANKING_KEYS = {"rrf_score_micro", "relevance_rank", "recency_rank", "usage_rank", "times_recalled"}
+# Reciprocal rank fusion over deterministic signals, borrowed from hybrid
+# retrieval systems: heterogeneous signals are combined by rank, not by raw
+# score, so no signal needs scale normalization. Relevance rank stays the
+# primary sort key; the fused score orders records only within an equal
+# relevance rank, and it is stored as integer micro-units to stay valid
+# scalar metadata. Usage ranks on saturating buckets so delivery counts
+# cannot compound into a permanent head start.
+_RECALL_RRF_K = 60
+_RECALL_RRF_WEIGHTS = {"relevance": 2.0, "recency": 1.0, "usage": 1.0}
+_RECALL_USAGE_MAX_ENTRIES = 500
+_DERIVED_FROM_LIMIT = 8
+_LINEAGE_MAX_DEPTH = 10
 _PROJECT_MEMORY_EXCLUDED_KEYS = {
     "record_id",
     "reason",
@@ -304,6 +323,7 @@ def capture_project_memory_candidate(
     ttl_days: int | None = None,
     stale_after_days: int | None = None,
     retention_class: str = "standard",
+    derived_from: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, object]:
     policy = read_project_memory_policy(paths)
     if not bool(policy.get("capture_enabled", True)):
@@ -327,6 +347,7 @@ def capture_project_memory_candidate(
         ttl_days=ttl_days,
         stale_after_days=stale_after_days,
         retention_class=retention_class,
+        derived_from=_normalize_derived_from(paths, derived_from),
     )
     _write_project_memory_candidate(paths, candidate)
     auto_approved = False
@@ -540,7 +561,18 @@ def build_project_memory_recall_pack(
             excluded.append(_recall_exclusion(record, evaluation, staleness=staleness, reason="no_query_overlap"))
             continue
         included.append(_recall_item(record, score=score, staleness=staleness, evaluation=evaluation))
-    included.sort(key=lambda item: (-int(item.get("score", 0)), str(item.get("record_id", ""))))
+    _attach_recall_ranking(included, read_recall_usage(paths))
+    # Relevance leads the sort; the fused score orders records only within an
+    # equal relevance rank. A weaker keyword match can therefore never
+    # displace a stronger one -- including across the budget cut below --
+    # while recency and delivery usage decide ties and unqueried packs.
+    included.sort(
+        key=lambda item: (
+            int(_ranking_field(item, "relevance_rank")),
+            -int(_ranking_field(item, "rrf_score_micro")),
+            str(item.get("record_id", "")),
+        )
+    )
     # Budget cut follows the priority ladder above: once either budget is
     # crossed, everything after that point is cut, so a lower-priority record
     # never displaces a higher-priority one. Cut records are recorded as
@@ -609,6 +641,316 @@ def memory_recall_pack_for_handoff(
     if not pack.get("enabled") or not pack.get("included_records"):
         return None
     return pack
+
+
+def record_attached_recall_usage(paths: OmhPaths, payload: dict[str, object]) -> dict[str, object]:
+    """Count delivery usage for recall packs actually attached to a handoff.
+
+    Building a pack is speculative -- the delegation payload may reject it or
+    end without a handoff -- so usage counts only records inside a
+    ``memory_recall_pack`` that survived attachment. Callers invoke this after
+    ``build_coding_delegation_payload`` returns; when no handoff carries a
+    pack it is a no-op. A lock timeout drops the count instead of raising:
+    usage is a ranking hint and must never cost the handoff itself.
+    """
+    record_ids: list[str] = []
+    for handoff_key in ("executor_handoff", "runtime_handoff", "prompt_handoff"):
+        handoff = payload.get(handoff_key)
+        if not isinstance(handoff, dict):
+            continue
+        pack = handoff.get("memory_recall_pack")
+        if not isinstance(pack, dict):
+            continue
+        for item in pack.get("included_records", []) or []:
+            if isinstance(item, dict):
+                record_ids.append(str(item.get("record_id", "")))
+    if not record_ids:
+        return {"schema_version": MEMORY_RECALL_USAGE_SCHEMA_VERSION, "recorded": 0, "records": {}}
+    try:
+        return record_recall_usage(paths, record_ids)
+    except FileLockTimeout:
+        return {"schema_version": MEMORY_RECALL_USAGE_SCHEMA_VERSION, "recorded": 0, "records": {}}
+
+
+def _memory_usage_path(paths: OmhPaths) -> Path:
+    return paths.memory_dir / "usage.json"
+
+
+def read_recall_usage(paths: OmhPaths) -> dict[str, dict[str, object]]:
+    """Per-record delivery counters; a missing or corrupt store reads as empty.
+
+    Usage is a ranking hint and a retirement-report annotation, never an
+    eligibility input, so losing it must never cost a recall.
+    """
+    data, _error = read_json_object_result(_memory_usage_path(paths))
+    if not isinstance(data, dict) or data.get("schema_version") != MEMORY_RECALL_USAGE_SCHEMA_VERSION:
+        return {}
+    entries = data.get("records")
+    if not isinstance(entries, dict):
+        return {}
+    usage: dict[str, dict[str, object]] = {}
+    for record_id, entry in entries.items():
+        if not isinstance(entry, dict) or not _SAFE_REF.match(str(record_id)):
+            continue
+        times = entry.get("times_recalled")
+        usage[str(record_id)] = {
+            "times_recalled": times if isinstance(times, int) and not isinstance(times, bool) and times > 0 else 0,
+            "last_recalled_at": str(entry.get("last_recalled_at", "")),
+        }
+    return usage
+
+
+def record_recall_usage(paths: OmhPaths, record_ids: list[str], *, now: str | None = None) -> dict[str, object]:
+    delivered: list[str] = []
+    for record_id in record_ids:
+        normalized = str(record_id)
+        if _SAFE_REF.match(normalized) and normalized not in delivered:
+            delivered.append(normalized)
+    if not delivered:
+        return {"schema_version": MEMORY_RECALL_USAGE_SCHEMA_VERSION, "recorded": 0, "records": {}}
+    recorded_at = now or utc_now()
+    ensure_dir(paths.memory_dir)
+    with file_lock(paths.memory_index_path, private=True):
+        usage = read_recall_usage(paths)
+        for record_id in delivered:
+            entry = usage.get(record_id, {"times_recalled": 0, "last_recalled_at": ""})
+            entry["times_recalled"] = int(entry.get("times_recalled", 0) or 0) + 1
+            entry["last_recalled_at"] = recorded_at
+            usage[record_id] = entry
+        if len(usage) > _RECALL_USAGE_MAX_ENTRIES:
+            # Trim never evicts a just-delivered id: utc_now() is second-
+            # granular, so "newest first" can degenerate to record-id order
+            # and would otherwise drop the very entry this call added.
+            delivered_set = set(delivered)
+            trimmable = [item for item in usage.items() if item[0] not in delivered_set]
+            trimmable.sort(key=lambda item: (str(item[1].get("last_recalled_at", "")), item[0]), reverse=True)
+            keep = max(_RECALL_USAGE_MAX_ENTRIES - len(delivered_set), 0)
+            usage = dict(sorted(trimmable[:keep] + [(record_id, usage[record_id]) for record_id in delivered]))
+        atomic_write_json(
+            _memory_usage_path(paths),
+            {"schema_version": MEMORY_RECALL_USAGE_SCHEMA_VERSION, "updated_at": recorded_at, "records": usage},
+            private=True,
+        )
+    return {
+        "schema_version": MEMORY_RECALL_USAGE_SCHEMA_VERSION,
+        "recorded": len(delivered),
+        "records": {record_id: usage[record_id] for record_id in delivered},
+    }
+
+
+def _ranking_field(item: dict[str, object], key: str) -> int:
+    ranking = item.get("ranking")
+    value = ranking.get(key, 0) if isinstance(ranking, dict) else 0
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _competition_ranks(items: list[dict[str, object]], value_fn: Any) -> dict[str, int]:
+    """1-based competition ranks, best first; equal values share a rank."""
+    ordered = sorted(items, key=lambda item: str(item.get("record_id", "")))
+    ordered.sort(key=value_fn, reverse=True)
+    ranks: dict[str, int] = {}
+    previous_value: object = object()
+    previous_rank = 1
+    for position, item in enumerate(ordered, start=1):
+        value = value_fn(item)
+        if value != previous_value:
+            previous_rank = position
+            previous_value = value
+        ranks[str(item.get("record_id", ""))] = previous_rank
+    return ranks
+
+
+def _attach_recall_ranking(items: list[dict[str, object]], usage: dict[str, dict[str, object]]) -> None:
+    """Fuse relevance, recency, and delivery usage into one recall order.
+
+    Without a query every relevance score ties at 1, so recency and usage
+    decide the order instead of the record-id accident the pure keyword sort
+    fell back to. Recency ranks on the approved_at ISO string, which sorts
+    lexicographically; a record missing approved_at ranks oldest.
+    """
+    if not items:
+        return
+    def _times_recalled(item: dict[str, object]) -> int:
+        entry = usage.get(str(item.get("record_id", "")), {})
+        times = entry.get("times_recalled", 0)
+        return times if isinstance(times, int) and not isinstance(times, bool) else 0
+
+    relevance = _competition_ranks(items, lambda item: int(item.get("score", 0) or 0))
+    recency = _competition_ranks(items, lambda item: str(item.get("approved_at", "")))
+    usage_ranks = _competition_ranks(items, lambda item: _usage_bucket(_times_recalled(item)))
+    for item in items:
+        record_id = str(item.get("record_id", ""))
+        fused = (
+            _RECALL_RRF_WEIGHTS["relevance"] / (_RECALL_RRF_K + relevance[record_id])
+            + _RECALL_RRF_WEIGHTS["recency"] / (_RECALL_RRF_K + recency[record_id])
+            + _RECALL_RRF_WEIGHTS["usage"] / (_RECALL_RRF_K + usage_ranks[record_id])
+        )
+        item["ranking"] = {
+            "rrf_score_micro": round(fused * 1_000_000),
+            "relevance_rank": relevance[record_id],
+            "recency_rank": recency[record_id],
+            "usage_rank": usage_ranks[record_id],
+            "times_recalled": _times_recalled(item),
+        }
+
+
+def _usage_bucket(times_recalled: int) -> int:
+    """Saturating ordinal for the usage signal: 0, 1-2, 3-9, 10+.
+
+    Raw counts self-reinforce -- every delivery improves the rank that earns
+    the next delivery -- so the signal saturates instead of compounding.
+    """
+    if times_recalled >= 10:
+        return 3
+    if times_recalled >= 3:
+        return 2
+    if times_recalled >= 1:
+        return 1
+    return 0
+
+
+def _normalize_derived_from(paths: OmhPaths, derived_from: list[str] | tuple[str, ...] | None) -> list[str]:
+    """Validate provenance refs at capture: bounded, safe, and resolvable.
+
+    A ref must name an existing approved record when the link is written --
+    dangling links would make every lineage report start from guesswork. A
+    referenced record that is later retired shows up as unresolved in the
+    lineage report instead; that asymmetry is deliberate.
+    """
+    refs: list[str] = []
+    for ref in derived_from or []:
+        normalized = str(ref).strip()
+        if normalized and normalized not in refs:
+            refs.append(normalized)
+    if not refs:
+        return []
+    if len(refs) > _DERIVED_FROM_LIMIT:
+        raise ValueError(f"derived-from accepts at most {_DERIVED_FROM_LIMIT} record ids")
+    known = {str(record.get("record_id", "")) for record in _read_project_memory_records(paths)}
+    for ref in refs:
+        if not _SAFE_REF.match(ref):
+            raise ValueError(f"unsafe derived-from record id: {ref!r}")
+        if ref not in known:
+            # The records reader skips unreadable files, so distinguish a
+            # crash-corrupted record from a genuinely absent one -- "not
+            # found" would send the operator hunting for a file that exists.
+            if (_memory_records_dir(paths) / f"{ref}.json").is_file():
+                raise ValueError(f"derived-from record is unreadable: {ref}")
+            raise ValueError(f"derived-from record not found: {ref}")
+    return refs
+
+
+def build_memory_lineage(paths: OmhPaths, record_id: str, *, depth: int = 3) -> dict[str, object]:
+    """Trace derived-from links up (ancestors) and down (descendants).
+
+    Report-only graph traversal over the active records directory: archived
+    or pruned records surface as unresolved refs rather than errors, cycles
+    are cut by the visited set, and depth is capped so a pathological chain
+    cannot make the report unbounded.
+    """
+    depth = max(1, min(int(depth), _LINEAGE_MAX_DEPTH))
+    records = {
+        str(record.get("record_id", "")): record
+        for record in _read_project_memory_records(paths)
+        if str(record.get("record_id", ""))
+    }
+    base = {
+        "schema_version": MEMORY_LINEAGE_SCHEMA_VERSION,
+        "record_id": str(record_id),
+        "depth": depth,
+        "redaction_policy": "metadata_only",
+        "claim_boundary": (
+            "A lineage report traces OMH-local derived-from links only; "
+            "it is prepared context, not execution, review, CI, merge, or Hermes internal-memory evidence."
+        ),
+    }
+    root = records.get(str(record_id))
+    if root is None:
+        return {
+            **base,
+            "found": False,
+            "record": {},
+            "ancestors": [],
+            "descendants": [],
+            "unresolved_refs": [],
+            "truncated": False,
+            "counts": {"ancestors": 0, "descendants": 0, "unresolved": 0},
+        }
+    children_of: dict[str, list[str]] = {}
+    for child_id in sorted(records):
+        for ref in _string_list(records[child_id].get("derived_from", [])):
+            children_of.setdefault(ref, []).append(child_id)
+    ancestors: list[dict[str, object]] = []
+    unresolved: list[dict[str, object]] = []
+    seen_unresolved: set[tuple[str, str]] = set()
+    truncated = False
+    visited = {str(record_id)}
+    frontier = [str(record_id)]
+    for hop in range(1, depth + 1):
+        next_frontier: list[str] = []
+        for node_id in frontier:
+            for ref in _string_list(records[node_id].get("derived_from", [])):
+                if ref in visited:
+                    continue
+                if ref not in records:
+                    if (ref, node_id) not in seen_unresolved:
+                        seen_unresolved.add((ref, node_id))
+                        unresolved.append({"record_id": ref, "referenced_by": node_id})
+                    continue
+                visited.add(ref)
+                ancestors.append(_lineage_card(records[ref], depth=hop))
+                next_frontier.append(ref)
+        frontier = next_frontier
+    # Any unexpanded ref past the horizon -- resolvable or dangling -- means
+    # the traversal is incomplete; a dangling parent one hop past --depth
+    # must not read as a complete report.
+    truncated = truncated or any(
+        ref not in visited
+        for node_id in frontier
+        for ref in _string_list(records[node_id].get("derived_from", []))
+    )
+    descendants: list[dict[str, object]] = []
+    visited_down = {str(record_id)}
+    frontier = [str(record_id)]
+    for hop in range(1, depth + 1):
+        next_frontier = []
+        for node_id in frontier:
+            for child_id in children_of.get(node_id, []):
+                if child_id in visited_down:
+                    continue
+                visited_down.add(child_id)
+                descendants.append(_lineage_card(records[child_id], depth=hop))
+                next_frontier.append(child_id)
+        frontier = next_frontier
+    truncated = truncated or any(
+        child_id not in visited_down
+        for node_id in frontier
+        for child_id in children_of.get(node_id, [])
+    )
+    return {
+        **base,
+        "found": True,
+        "record": _lineage_card(root, depth=0),
+        "ancestors": ancestors,
+        "descendants": descendants,
+        "unresolved_refs": unresolved,
+        "truncated": truncated,
+        "counts": {"ancestors": len(ancestors), "descendants": len(descendants), "unresolved": len(unresolved)},
+    }
+
+
+def _lineage_card(record: dict[str, Any], *, depth: int) -> dict[str, object]:
+    return {
+        "record_id": str(record.get("record_id", "")),
+        "depth": depth,
+        "record_type": str(record.get("record_type", "")),
+        "summary": _redact(str(record.get("summary", "")))[:500],
+        "scope": _normalize_scope(record.get("scope", _scope("project", "default"))),
+        "tags": _normalize_tags(record.get("tags", [])),
+        "approved_at": str(record.get("approved_at", "")),
+        "staleness": _record_staleness(record),
+        "derived_from": _string_list(record.get("derived_from", [])),
+    }
 
 
 RETIREMENT_REPORT_SCHEMA_VERSION = "omh_memory_retirement_report/v1"
@@ -814,6 +1156,7 @@ def build_memory_retirement(
     """
     now = now if now is not None else datetime.now(timezone.utc)
     records_dir = _memory_records_dir(paths)
+    recall_usage = read_recall_usage(paths)
     expired: list[dict[str, object]] = []
     expiring_soon: list[dict[str, object]] = []
     skipped: list[dict[str, object]] = []
@@ -845,7 +1188,14 @@ def build_memory_retirement(
             continue
         state = _classify_record_expiry(data, now=now, window_days=window_days)
         ttl = data.get("ttl", {}) if isinstance(data.get("ttl"), dict) else {}
-        row = {"record_id": record_id, "expires_at": str(ttl.get("expires_at", "") or ""), "path_name": path.name}
+        row = {
+            "record_id": record_id,
+            "expires_at": str(ttl.get("expires_at", "") or ""),
+            "path_name": path.name,
+            # Delivery-usage annotation only: a never-delivered record is a
+            # cheaper retire call than one executors keep receiving.
+            "recall_usage": recall_usage.get(record_id, {"times_recalled": 0, "last_recalled_at": ""}),
+        }
         if state == "expired":
             expired.append(row)
         elif state == "expiring":
@@ -1135,6 +1485,7 @@ def _build_project_memory_candidate(
     ttl_days: int | None,
     stale_after_days: int | None,
     retention_class: str,
+    derived_from: list[str] | tuple[str, ...] = (),
 ) -> dict[str, object]:
     normalized_type = _normalize_record_type(record_type)
     scope = _scope_for_project_memory(scope_kind, scope_ref)
@@ -1160,6 +1511,7 @@ def _build_project_memory_candidate(
         "ttl": ttl,
         "staleness": staleness,
         "retention_class": str(retention_class),
+        "derived_from": [str(ref) for ref in derived_from],
         "content_ref": {
             "sha256": hashlib.sha256(content_text.encode("utf-8")).hexdigest() if content_text else "",
             "length": len(content_text),
@@ -1206,6 +1558,7 @@ def _record_from_candidate(
         "source": str(candidate.get("source", "cli")),
         "source_class": "omh_local",
         "source_ref": _redact(str(candidate.get("source_ref", "")))[:160],
+        "derived_from": _string_list(candidate.get("derived_from", [])),
         "admission": {
             "state": admission_state,
             "review_id": review_id,
@@ -1327,6 +1680,7 @@ def _recall_item(
         "approved_at": str(record.get("approved_at", "")),
         "staleness": staleness,
         "score": int(score),
+        "derived_from": _string_list(record.get("derived_from", [])),
         **_recall_evidence_fields(evidence),
     }
 
@@ -2174,6 +2528,11 @@ def _validate_context_list(
             elif key == "tags" and isinstance(nested, list):
                 if any(not isinstance(tag, str) for tag in nested):
                     errors.append(f"{nested_label} must contain string tags")
+            elif key == "derived_from" and isinstance(nested, list):
+                if any(not isinstance(ref, str) for ref in nested):
+                    errors.append(f"{nested_label} must contain string record ids")
+            elif key == "ranking" and isinstance(nested, dict):
+                _validate_context_map(nested, _RECALL_RANKING_KEYS, errors, nested_label)
             elif key == "staleness" and isinstance(nested, dict):
                 _validate_context_map(nested, set(nested), errors, nested_label)
             elif key == "replay_evaluation" and isinstance(nested, dict):

@@ -27,6 +27,13 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     capture.add_argument("--ttl-days", type=int, default=None)
     capture.add_argument("--stale-after-days", type=int, default=None)
     capture.add_argument("--retention-class", choices=("volatile", "standard", "durable"), default="standard", help="Retention class for the review candidate.")
+    capture.add_argument(
+        "--derived-from",
+        action="append",
+        default=[],
+        metavar="RECORD_ID",
+        help="Existing approved record this candidate was derived from; repeatable, at most 8.",
+    )
     capture.add_argument("--source-class", choices=tuple(sorted(SOURCE_CLASSES)), default="omh_local", help="Source class; direct capture accepts OMH-local candidates only.")
     capture.set_defaults(func=memory.cmd_memory_capture)
 
@@ -73,6 +80,11 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     rejected_recall.add_argument("--include-stale", action="store_true")
     rejected_recall.add_argument("--limit", type=int, default=6)
     rejected_recall.set_defaults(func=memory.cmd_memory_rejected_recall)
+
+    lineage = memory_sub.add_parser("lineage", help="Trace derived-from provenance links for one reviewed memory record.")
+    lineage.add_argument("record_id")
+    lineage.add_argument("--depth", type=int, default=3, help="Maximum ancestor/descendant hops to traverse (clamped to 1-10).")
+    lineage.set_defaults(func=memory.cmd_memory_lineage)
 
     retire = memory_sub.add_parser(
         "retire",

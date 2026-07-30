@@ -23,7 +23,7 @@ from ..hermes_planning import (
 from ..ingress import CHAT_SOURCES, extract_message_text, extract_source_metadata
 from ..installer import OmhError
 from ..local_store import read_json_object
-from ..memory import memory_recall_pack_for_handoff, read_handoff_context_pack_file
+from ..memory import memory_recall_pack_for_handoff, read_handoff_context_pack_file, record_attached_recall_usage
 from ..coding.product_family_templates import PRODUCT_FAMILIES, product_family_template
 from ..coding.product_quality_harnesses import product_quality_harness
 from ..coding.project_governance import discover_project_governance
@@ -101,6 +101,7 @@ def cmd_coding_delegate(args: argparse.Namespace) -> int:
             governance_default=args.governance_default,
             product_family=args.product_family or None,
         )
+        record_attached_recall_usage(paths, payload)
         if plan_artifact:
             _apply_plan_handoff_source(payload)
         if payload.get("delegation_policy") or _payload_choice_required(payload):

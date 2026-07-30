@@ -20,6 +20,8 @@ class MemoryParserTests(unittest.TestCase):
             (["memory", "restore", "record-one", "--revision", "1"], "cmd_memory_restore"),
             (["memory", "prune", "record-one", "--revision", "1", "--apply", "--confirm-hard-delete-local"], "cmd_memory_prune"),
             (["memory", "correct", "record-one", "--revision", "1", "Corrected summary"], "cmd_memory_correct"),
+            (["memory", "lineage", "record-one"], "cmd_memory_lineage"),
+            (["memory", "lineage", "record-one", "--depth", "5"], "cmd_memory_lineage"),
         )
 
         for argv, handler_name in cases:
@@ -31,6 +33,16 @@ class MemoryParserTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as raised:
             build_parser().parse_args(["memory", "capture", "--source-class", "unknown", "summary"])
         self.assertEqual(raised.exception.code, 2)
+
+    def test_memory_capture_collects_repeatable_derived_from_refs(self) -> None:
+        args = build_parser().parse_args(
+            ["memory", "capture", "summary", "--derived-from", "mem_a", "--derived-from", "mem_b"]
+        )
+        self.assertEqual(args.derived_from, ["mem_a", "mem_b"])
+
+    def test_memory_lineage_defaults_to_three_hops(self) -> None:
+        args = build_parser().parse_args(["memory", "lineage", "record-one"])
+        self.assertEqual(args.depth, 3)
 
 
 if __name__ == "__main__":

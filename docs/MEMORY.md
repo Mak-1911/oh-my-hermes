@@ -63,6 +63,58 @@ Expiry removes influence only; it does not move an artifact or prove any
 absence. A stale revalidation deadline requires fresh review or a bounded,
 identity-specific confirmation.
 
+## Recall Ranking and Delivery Usage
+
+Recall packs order eligible records relevance-first: keyword relevance rank
+(term and tag overlap) is the primary sort key, and deterministic reciprocal
+rank fusion over relevance, recency (`approved_at`), and delivery usage
+orders records that share a relevance rank. A weaker keyword match can never
+displace a stronger one, including across the budget cut; without a query all
+relevance ties and recency plus usage decide the order. Each included record
+carries a `ranking` block with its per-signal ranks and an integer
+`rrf_score_micro`, so the order is always explainable from the pack itself.
+The usage signal ranks on saturating buckets (0, 1-2, 3-9, 10+ deliveries) so
+delivery counts cannot compound into a permanent head start.
+
+Delivery usage counts only recall packs that were actually attached to a
+prepared handoff payload — building a pack is speculative, so a delegation
+that ends without a handoff, or rejects the pack, counts nothing. A CLI
+`omh memory recall` is an inspection and does not count. Counters live in
+`.omh/memory/usage.json` (`omh_memory_recall_usage/v1`); a missing or corrupt
+usage store reads as empty and never blocks recall, and usage is a ranking
+hint plus a retirement-report annotation, never an eligibility input.
+Retirement reports annotate each expired or expiring row with `recall_usage`
+so an operator can see whether a record was ever delivered before archiving
+it. Lifecycle receipts list `recall_usage_counters` under their exclusions: a
+prune deletes the manifest targets, not the delivery counters.
+
+This ranking design is a deterministic reinterpretation of the hybrid-search
+rank fusion and per-observation usage tracking popularized by memory servers
+such as Honcho; OMH keeps the bookkeeping and drops the model calls.
+
+## Provenance and Lineage
+
+A capture may declare which approved records a new fact was derived from:
+
+```sh
+# Agent/operator only: capture a conclusion with explicit provenance links.
+omh memory capture "Always purge cache before deploy" --derived-from <record-id>
+
+# Agent/operator only: trace where a record came from and what built on it.
+omh memory lineage <record-id>
+omh memory lineage <record-id> --depth 5
+```
+
+`--derived-from` is repeatable (at most 8 refs) and every ref must name an
+existing approved record at capture time. The lineage report
+(`omh_memory_lineage/v1`) walks ancestors and descendants breadth-first up to
+`--depth` hops (clamped to 1-10), cuts cycles, and marks deeper unexplored
+links as `truncated`. A parent that was later retired or pruned appears under
+`unresolved_refs` rather than failing the report. Recall items expose each
+record's `derived_from` list so an executor can ask for lineage when a
+summary alone is not enough. Lineage is prepared-context traversal only; it
+never claims the derivation itself was re-verified.
+
 ## Legacy Migration and Reactivation
 
 Legacy v1 files remain readable in status and review surfaces as
