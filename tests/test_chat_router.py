@@ -4390,3 +4390,66 @@ selected_workflow=ultraprocess
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UltraperfRoutingMatrixTests(unittest.TestCase):
+    """18-trigger positive matrix + negative overroute guards for ultraperf."""
+
+    POSITIVE = (
+        "ultraperf this service, it degraded after the release",
+        "$ultraperf checkout is slow and the worker leaks memory",
+        "run ulw-perf on the api and worker",
+        "do a performance audit of the api and the worker",
+        "find the performance bottleneck in the checkout path",
+        "find the bottleneck, we do not know where the time goes",
+        "profile the hot path before we change any code",
+        "start a memory leak investigation on the ingest worker",
+        "find the token cost hotspots in this agent loop",
+        "run a storage footprint audit, the index doubled this month",
+        "the feed has rendering jank, find the cause and fix it",
+        "find the model inference hotspots in the serving path",
+        "our slow ci pipeline doubled, find where the time goes",
+        "run a query performance audit on the reporting database",
+        "\uc131\ub2a5 \ubcd1\ubaa9\uc774 \uc5b4\ub514\uc778\uc9c0 \ucc3e\uc544\uc918",
+        "\uba54\ubaa8\ub9ac \ub204\uc218 \uc6d0\uc778 \ucc3e\uc544\uc11c \uace0\uccd0\uc918",
+        "\ubc30\ud3ec \ud6c4 \ub290\ub824\uc9c4 \uc6d0\uc778 \ucc3e\uc544\uc918",
+        "\uc11c\ube44\uc2a4 \uc131\ub2a5 \uc804\ubc18 \uc810\uac80\ud574\uc918",
+    )
+
+    NEGATIVE = (
+        ("audit this workspace prompts skills plugins and hooks for stale config", "workspace-audit"),
+        ("benchmark latency for the recommender and prove the budget", "performance-goal"),
+        ("review this diff for bottleneck-prone loops", "code-review"),
+        # Pre-existing incumbents on origin/main: the guard requirement is that
+        # ultraperf must not steal these prompts, not that their historical
+        # owner changes.
+        ("check the login page visually before release", "browser-operator"),
+        ("evaluate agent performance on the benchmark suite", "performance-goal"),
+        ("the CI build is failing on main", "build-failure-triage"),
+        ("\uc131\ub2a5 \ucd5c\uc801\ud654\ud574\uc918", "performance-goal"),
+        ("\ucf54\ub4dc \ub9ac\ubdf0\ud574\uc918", "code-review"),
+    )
+
+    DIRECT = (
+        "fix one slow query in the report page",
+    )
+
+    def test_ultraperf_positive_matrix_routes_to_ultraperf(self) -> None:
+        for message in self.POSITIVE:
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+                self.assertEqual(decision["selected_skill"], "ultraperf")
+                self.assertEqual(decision["action"], "dispatch")
+
+    def test_ultraperf_negative_matrix_keeps_incumbent_workflows(self) -> None:
+        for message, expected in self.NEGATIVE:
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+                self.assertEqual(decision["selected_skill"], expected)
+
+    def test_ultraperf_bounded_direct_asks_stay_direct(self) -> None:
+        for message in self.DIRECT:
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+                self.assertNotEqual(decision["selected_skill"], "ultraperf")
+                self.assertEqual(decision["action"], "fallback")

@@ -3212,6 +3212,7 @@ _DEFINITIONS = [
             "The user needs current runtime readiness only; use `executor-runtime-readiness`.",
             "The user already selected an executor and wants implementation; use the coding handoff or delivery workflow.",
             "The user asks for workflow learning from a single failed route; use `workflow-learning`.",
+            "The ask is to find and fix runtime, memory, cost, or rendering hotspots rather than score executor or model output quality; use `ultraperf`.",
         ),
         good_example=SkillExample(
             prompt="agent-evaluation Codex와 Claude Code를 같은 버그 수정 태스크로 비교해서 어떤 런타임을 기본으로 둘지 판단해줘.",
@@ -4307,6 +4308,109 @@ _DEFINITIONS = [
             "Name the metric, baseline, budget, and benchmark command before optimizing.",
             "Treat code-level optimization as executor work when edits are required.",
             "Report deltas only from observed benchmark evidence.",
+        ),
+        do_not_use_when=(
+            "The ask is to find where performance problems are, or to fix multiple unscoped hotspots across domains; use `ultraperf`.",
+        ),
+    ),
+    SkillDefinition(
+        "ultraperf",
+        "Ultraperf - find where a system is actually slow, leaking, or expensive across runtime, memory, token cost, storage, rendering, inference, CI, and query domains, then fix one measured hot path at a time behind a regression budget.",
+        (
+            "ultraperf",
+            "$ultraperf",
+            "ulw-perf",
+            "performance audit",
+            "performance bottleneck",
+            "find the bottleneck",
+            "profile the hot path",
+            "memory leak investigation",
+            "token cost hotspot",
+            "storage footprint audit",
+            "rendering jank",
+            "model inference hotspot",
+            "slow ci pipeline",
+            "query performance audit",
+            "\uc131\ub2a5 \ubcd1\ubaa9",
+            "\uba54\ubaa8\ub9ac \ub204\uc218",
+            "\ub290\ub824\uc9c4 \uc6d0\uc778",
+            "\uc131\ub2a5 \uc804\ubc18 \uc810\uac80",
+        ),
+        "Use when performance problems are suspected but not yet localized, or when several cost hotspots across domains need a measured inspect-and-fix loop.",
+        category="optimization",
+        phase="measured-optimization-loop",
+        hermes_role="hybrid-measurement",
+        delegation_boundary="retained-catalog-intent",
+        handoff_policy=(
+            "Hermes owns the audit, baseline, hypothesis, budget, and status; every optimization code edit becomes a "
+            "selected executor/runtime handoff and returns as observed re-measurement."
+        ),
+        required_inputs=(
+            "symptom or suspected slow surface",
+            "workload or reproduction",
+            "runnable evaluator or measurement command",
+            "acceptable tolerance",
+        ),
+        expected_outputs=(
+            "baseline record",
+            "ranked hot-path hypotheses",
+            "smallest reversible fix handoff",
+            "re-measured delta",
+            "regression budget and gate",
+        ),
+        artifact_expectations=(
+            "baseline measurement record",
+            "final profile or benchmark evidence",
+            "budget delta with tolerance",
+        ),
+        safety_rules=(
+            "Do not claim a profile, benchmark, measurement, or CI budget gate ran without observed evidence.",
+            "Do not begin optimization edits before an evaluator command and its pass/fail contract exist.",
+            "Ask for the workload, environment, and acceptable tolerance before declaring a budget.",
+        ),
+        quality_tier="measurement-gated",
+        quality_bar=(
+            "Record a baseline and name the evaluator command before proposing any optimization edit.",
+            "Attack only a hot path shown by a measurement or profile; never micro-optimize unmeasured code.",
+            "Keep every fix the smallest reversible change and route code edits to the selected executor.",
+            "Re-measure after each change and report deltas only from observed evidence.",
+            "Never present a restart, cache flush, or resource bump as a leak fix; prove causation by revert-verify.",
+            "Set the regression budget as baseline x (1 + tolerance) and name the CI gate that enforces it.",
+        ),
+        why_this_exists=(
+            "`ultraperf` exists because most performance work starts unlocalized: something is slow, leaking, or "
+            "expensive and nobody knows where. It forces measurement before edits, one hypothesis at a time, "
+            "executor-owned changes, and a regression budget, so an optimization loop cannot end in unverified claims."
+        ),
+        do_not_use_when=(
+            "Metric, baseline, budget, and benchmark command are already declared for one measurable goal; use `performance-goal`.",
+            "The ask is to judge code quality, structure, or correctness rather than measured cost; use `code-review`.",
+            "The ask is to score model or agent output quality on a task suite; use `agent-evaluation`.",
+            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or one already-identified slow query or hotspot fix; handle it directly instead of opening a performance loop.",
+        ),
+        good_example=SkillExample(
+            prompt="$ultraperf checkout feels slow and the worker memory keeps climbing - find where and fix it",
+            expected=(
+                "Audit the baseline, name the evaluator command, rank hot-path hypotheses, hand the smallest "
+                "reversible fix to the selected executor, re-measure, and state the budget delta."
+            ),
+            why="The problem is real but unlocalized across more than one domain.",
+        ),
+        bad_example=SkillExample(
+            prompt="$ultraperf make the recommender p95 under 200ms; baseline 340ms, benchmark is 'make bench'",
+            expected="Route to `performance-goal`, which owns a declared metric/baseline/budget/benchmark goal.",
+            why="A single declared measurable goal does not need a discovery loop.",
+        ),
+        final_checklist=(
+            "Baseline, workload, environment, and evaluator command are recorded before any edit is proposed.",
+            "Each accepted fix names the measured hot path, the reversible change, and its owner.",
+            "Re-measured deltas cite observed evidence; unmeasured steps stay not_observed.",
+            "The regression budget and the gate that enforces it are stated with the tolerance.",
+        ),
+        recovery_notes=(
+            "If no evaluator command exists, stop the loop and produce one before touching code.",
+            "If the re-measure does not move, revert the change and re-rank hypotheses instead of stacking fixes.",
+            "If the goal turns out to be one declared metric with a budget, hand off to `performance-goal`.",
         ),
     ),
     SkillDefinition(

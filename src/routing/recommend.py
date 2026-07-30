@@ -713,6 +713,17 @@ _SKILL_POLICIES = {
             "and not-observed extraction/validation boundaries before presenting the explanation as complete."
         ),
     ),
+    "ultraperf": RecommendationPolicy(
+        next_action="prepare_ultraperf_loop",
+        evidence_boundary=(
+            "An ultraperf loop is not profiling, benchmark execution, measurement proof, code change, "
+            "regression-test completion, review, CI, or merge evidence."
+        ),
+        wrapper_guidance=(
+            "Name the baseline, evaluator command, hot-path hypothesis, reversible fix owner, re-measure step, "
+            "and budget tolerance before claiming any performance improvement."
+        ),
+    ),
     "performance-goal": RecommendationPolicy(
         next_action="prepare_quality_performance_and_usability_review",
         evidence_boundary=(

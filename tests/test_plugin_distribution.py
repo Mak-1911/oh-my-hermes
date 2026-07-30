@@ -1078,3 +1078,24 @@ class UpdateCarriesRegistrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UltraperfInstalledAwarenessTests(unittest.TestCase):
+    """The copied plugin bundle routes ultraperf discovery prompts on its own."""
+
+    def test_ultraperf_route_hint_parity_in_installed_bundle(self) -> None:
+        from omh.plugin_bundle.omh.awareness import awareness_route_hint
+
+        for message in (
+            "find the performance bottleneck in the checkout path",
+            "\uc131\ub2a5 \ubcd1\ubaa9\uc774 \uc5b4\ub514\uc778\uc9c0 \ucc3e\uc544\uc918",
+        ):
+            with self.subTest(message=message):
+                hint = awareness_route_hint(message)
+                self.assertEqual(hint["primary_workflow"], "ultraperf")
+
+    def test_ultraperf_display_pair_resolves_in_installed_bundle(self) -> None:
+        from omh.plugin_bundle.omh.awareness import awareness_route_hint
+
+        hint = awareness_route_hint("run ulw-perf on the api and worker")
+        self.assertEqual(hint["primary_workflow"], "ultraperf")

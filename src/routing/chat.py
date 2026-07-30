@@ -3005,6 +3005,23 @@ _OPERATOR_SURFACE_FAST_PATH_RULES: tuple[tuple[str, tuple[str, ...], str, str], 
         "Clear performance-improvement request; prepare the measured performance goal without scoring every workflow.",
     ),
     (
+        "ultraperf",
+        (
+            "performance bottleneck",
+            "find the bottleneck",
+            "token cost hotspot",
+            "model inference hotspot",
+            "inference hotspot",
+            "slow ci pipeline",
+            "\uc131\ub2a5 \ubcd1\ubaa9",
+        ),
+        "operator_surface_fast_path:ultraperf",
+        # Ordered AFTER the performance-goal rule: declared optimization phrases
+        # (performance optimization / improve latency / \uc131\ub2a5 \ucd5c\uc801\ud654) keep their
+        # incumbent, while discovery-shaped phrases open the ultraperf loop.
+        "Unlocalized performance problem; open the measured inspect-and-fix loop without scoring every workflow.",
+    ),
+    (
         "doctor",
         (
             "did update work",
@@ -5127,6 +5144,7 @@ _BOUNDED_DIRECT_TASK_TERMS = (
     "fix a typo",
     "fix one typo",
     "one bounded edit",
+    "one slow query",
     "one-line change",
     "rename a variable",
     "rename one variable",

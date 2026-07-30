@@ -418,6 +418,16 @@ COMMON_REQUEST_COVERAGE_CASES: tuple[CommonRequestCoverageCase, ...] = (
         "prepare_production_audit",
     ),
     CommonRequestCoverageCase(
+        "ultraperf",
+        "ops_and_quality",
+        "Performance bottleneck discovery",
+        "\uc131\ub2a5 \ubcd1\ubaa9\uc774 \uc5b4\ub514\uc778\uc9c0 \ucc3e\uc544\uc918",
+        "dispatch",
+        "ultraperf",
+        "ultraperf_loop",
+        "prepare_ultraperf_loop",
+    ),
+    CommonRequestCoverageCase(
         "ops-review",
         "ops_and_quality",
         "Operating review",
