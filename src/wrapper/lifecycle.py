@@ -13,7 +13,7 @@ from ..executor_progress import (
     refresh_binding_freshness,
 )
 from ..paths import OmhPaths
-from ..memory import memory_recall_pack_for_handoff
+from ..memory import memory_recall_pack_for_handoff, record_attached_recall_usage
 from ..runtime.artifacts import (
     append_event,
     create_prepared_coding_delegation_run,
@@ -66,6 +66,7 @@ def start_codex_delegation_lifecycle(
     delegation = payload.get("delegation")
     if not isinstance(delegation, dict):
         raise CodingLifecycleError("coding lifecycle payload is missing delegation")
+    record_attached_recall_usage(paths, payload)
     run = create_prepared_coding_delegation_run(
         paths,
         {

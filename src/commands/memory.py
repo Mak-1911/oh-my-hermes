@@ -32,6 +32,7 @@ from ..memory import (
     apply_memory_retirement,
     apply_memory_update_batch,
     approve_project_memory_candidate,
+    build_memory_lineage,
     build_memory_retirement,
     build_handoff_context_pack,
     build_memory_inspection,
@@ -93,6 +94,7 @@ def cmd_memory_capture(args: argparse.Namespace) -> int:
             ttl_days=args.ttl_days,
             stale_after_days=args.stale_after_days,
             retention_class=args.retention_class,
+            derived_from=args.derived_from or [],
         )
     except (OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
@@ -154,6 +156,15 @@ def cmd_memory_recall(args: argparse.Namespace) -> int:
             max_chars=_optional_positive_int(args.max_chars, "--max-chars"),
             include_stale=args.include_stale,
         )
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(payload)
+    return 0
+
+
+def cmd_memory_lineage(args: argparse.Namespace) -> int:
+    try:
+        payload = build_memory_lineage(_paths(args), args.record_id, depth=args.depth)
     except (OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     _print_json(payload)
