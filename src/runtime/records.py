@@ -1553,6 +1553,7 @@ def _compact_memory_recall_pack(value: Any) -> dict[str, Any]:
             "recall_enabled": bool(policy.get("recall_enabled", False)),
         },
         "scope": _compact_context_scope(value.get("scope", {})),
+        "perspective": _compact_perspective(value.get("perspective")),
         # Included records survive compaction: they are already redacted,
         # bounded summaries (<=500 chars each, budget-capped), and the
         # lifecycle-backed executor path re-serves the persisted record, so
@@ -1601,8 +1602,19 @@ def _compact_memory_recall_item(item: dict[str, Any]) -> dict[str, Any]:
             if isinstance(item.get("ranking"), dict)
         },
         "derived_from": [str(ref) for ref in (item.get("derived_from") if isinstance(item.get("derived_from"), list) else []) if str(ref)][:8],
+        "perspective": _compact_perspective(item.get("perspective")),
         **_compact_memory_replay_fields(item),
     }
+
+
+def _compact_perspective(value: Any) -> dict[str, str]:
+    """Mirror the live pack's projection: no observed actor means {} -- an
+    empty-string pair would advertise a perspective the lens ignores."""
+    perspective = value if isinstance(value, dict) else {}
+    observed = str(perspective.get("observed", ""))
+    if not observed:
+        return {}
+    return {"observer": str(perspective.get("observer", "")), "observed": observed}
 
 
 def _compact_memory_recall_exclusion(item: dict[str, Any]) -> dict[str, Any]:

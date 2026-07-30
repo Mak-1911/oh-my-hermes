@@ -115,6 +115,41 @@ record's `derived_from` list so an executor can ask for lineage when a
 summary alone is not enough. Lineage is prepared-context traversal only; it
 never claims the derivation itself was re-verified.
 
+## Perspectives (Observer / Observed)
+
+A record may optionally carry a perspective: which actor's view it is
+(`observer`, defaulting to `hermes`) and which actor it is about
+(`observed`). This is Honcho's peer paradigm reinterpreted deterministically:
+no theory-of-mind inference, just bookkeeping that keeps one actor's lessons
+out of another actor's context. An `observed` label that should reach
+handoffs must be an executor target (`codex`, `claude-code`, `generic`,
+`hermes`, `omx-runtime`, `omo-runtime`, `omc-runtime`); other labels such as
+`operator` are inspection-only lenses that no handoff ever selects.
+
+```sh
+# Agent/operator only: capture a fact about one executor.
+omh memory capture "codex needs the full test command spelled out" --observed codex
+
+# Agent/operator only: recall through a lens; unscoped records always pass.
+omh memory recall "test command" --observed codex
+
+# Agent/operator only: list observer/observed pairs with record counts.
+omh memory perspectives
+```
+
+Lens semantics: an unscoped record (no perspective) behaves exactly as
+before and passes every lens. A scoped record surfaces only through a
+matching lens; lens labels normalize like capture labels (lowercased,
+trimmed). Handoff recall packs and handoff context packs automatically use
+the selected executor target as their `observed` lens, so a record captured
+about `codex` reaches codex handoffs — and never a `claude-code` or
+`generic` handoff. While the executor target is still unresolved
+(`choose`), handoffs carry unscoped records only. A plain recall with no
+lens is an inspection surface and hides nothing. Recall packs echo the
+active lens under `perspective`, each included record carries its own
+`perspective` block, and context packs exclude mismatched records with
+reason `perspective_mismatch`.
+
 ## Legacy Migration and Reactivation
 
 Legacy v1 files remain readable in status and review surfaces as

@@ -65,6 +65,7 @@ LEGACY_PROJECT_MEMORY_REVIEW_RECORD_SCHEMA_VERSION = "project_memory_review_reco
 PROJECT_MEMORY_RECALL_PACK_SCHEMA_VERSION = "project_memory_recall_pack/v1"
 MEMORY_RECALL_USAGE_SCHEMA_VERSION = "omh_memory_recall_usage/v1"
 MEMORY_LINEAGE_SCHEMA_VERSION = "omh_memory_lineage/v1"
+MEMORY_PERSPECTIVES_SCHEMA_VERSION = "omh_memory_perspectives/v1"
 HERMES_MEMORY_BRIDGE_SCHEMA_VERSION = "hermes_memory_bridge/v1"
 
 SOURCE_TRUTH_LEVELS = {
@@ -131,6 +132,7 @@ _PROJECT_MEMORY_RECORD_KEYS = {
     "staleness",
     "safety",
     "derived_from",
+    "perspective",
     "redaction_policy",
     "claim_boundary",
 }
@@ -142,6 +144,7 @@ _PROJECT_MEMORY_RECALL_PACK_KEYS = {
     "task_ref",
     "policy",
     "scope",
+    "perspective",
     "included_records",
     "excluded_records",
     "record_count",
@@ -161,6 +164,7 @@ _PROJECT_MEMORY_RECALL_ITEM_KEYS = {
     "score",
     "ranking",
     "derived_from",
+    "perspective",
     "revision",
     "admission_mode",
     "source_class",
@@ -171,6 +175,13 @@ _PROJECT_MEMORY_RECALL_ITEM_KEYS = {
     "replay_evaluation",
 }
 _RECALL_RANKING_KEYS = {"rrf_score_micro", "relevance_rank", "recency_rank", "usage_rank", "times_recalled"}
+# Perspective is honcho's peer paradigm reinterpreted deterministically: an
+# optional (observer, observed) pair naming whose view a record is and which
+# actor it is about. Unscoped records behave exactly as before; a scoped
+# record surfaces only through a matching lens, so an executor-specific
+# lesson never leaks into another executor's handoff.
+_PERSPECTIVE_KEYS = {"observer", "observed"}
+_DEFAULT_PERSPECTIVE_OBSERVER = "hermes"
 # Reciprocal rank fusion over deterministic signals, borrowed from hybrid
 # retrieval systems: heterogeneous signals are combined by rank, not by raw
 # score, so no signal needs scale normalization. Relevance rank stays the
@@ -323,6 +334,8 @@ def capture_project_memory_candidate(
     stale_after_days: int | None = None,
     retention_class: str = "standard",
     derived_from: list[str] | tuple[str, ...] | None = None,
+    observer: str | None = None,
+    observed: str | None = None,
 ) -> dict[str, object]:
     policy = read_project_memory_policy(paths)
     if not bool(policy.get("capture_enabled", True)):
@@ -347,6 +360,7 @@ def capture_project_memory_candidate(
         stale_after_days=stale_after_days,
         retention_class=retention_class,
         derived_from=_normalize_derived_from(paths, derived_from),
+        perspective=_normalize_perspective(observer, observed),
     )
     _write_project_memory_candidate(paths, candidate)
     auto_approved = False
@@ -517,8 +531,15 @@ def build_project_memory_recall_pack(
     now: datetime | None = None,
     stale_override: dict[str, object] | None = None,
     run_id: str | None = None,
+    observer: str | None = None,
+    observed: str | None = None,
 ) -> dict[str, object]:
     policy = read_project_memory_policy(paths)
+    # Lens labels normalize exactly like capture labels: capture lowercases
+    # and strips, so a raw "--observed Codex" here would silently match
+    # nothing and read as "never captured".
+    observer = str(observer or "").strip().lower() or None
+    observed = str(observed or "").strip().lower() or None
     task_ref = {
         "sha256": hashlib.sha256(query.encode("utf-8")).hexdigest() if query else "",
         "length": len(query),
@@ -541,6 +562,10 @@ def build_project_memory_recall_pack(
     excluded: list[dict[str, object]] = []
     for record in records:
         if not _record_scope_matches(record, scope_kind=scope_kind, scope_ref=scope_ref):
+            continue
+        # Perspective mismatch skips silently, exactly like scope mismatch:
+        # the record belongs to another actor's lens, not to this pack.
+        if not _record_perspective_matches(record, observer=observer, observed=observed):
             continue
         evaluation = _evaluate_memory_artifact(
             record,
@@ -616,6 +641,7 @@ def build_project_memory_recall_pack(
         "task_ref": task_ref,
         "policy": policy,
         "scope": _scope(scope_kind or "project", scope_ref or "default"),
+        "perspective": {"observer": observer or "", "observed": observed or ""},
         "included_records": included,
         "excluded_records": excluded,
         "record_count": len(included),
@@ -636,7 +662,17 @@ def memory_recall_pack_for_handoff(
     session_id: str = "",
     limit: int = 5,
 ) -> dict[str, object] | None:
-    pack = build_project_memory_recall_pack(paths, query, executor_target=executor_target, session_id=session_id, limit=limit)
+    # The executor target is the handoff's perspective lens: unscoped records
+    # pass as always, and records observed for this executor join them --
+    # while a record about any other executor stays out of this pack.
+    pack = build_project_memory_recall_pack(
+        paths,
+        query,
+        executor_target=executor_target,
+        session_id=session_id,
+        limit=limit,
+        observed=_handoff_perspective_lens(executor_target),
+    )
     if not pack.get("enabled") or not pack.get("included_records"):
         return None
     return pack
@@ -817,6 +853,112 @@ def _usage_bucket(times_recalled: int) -> int:
     if times_recalled >= 1:
         return 1
     return 0
+
+
+def _handoff_perspective_lens(executor_target: str | None) -> str:
+    """Lens every handoff surface applies: scoped records reach only the
+    executor they are about. An unresolved target ('' or 'choose') stays a
+    lens that matches no scoped record: until an executor is actually
+    selected, a handoff carries unscoped records only, never a leak of some
+    other actor's lessons."""
+    return str(executor_target or "").strip().lower() or "choose"
+
+
+def _validate_perspective(value: Any, errors: list[str], label: str, *, require_observed: bool = False) -> None:
+    if not isinstance(value, dict):
+        errors.append(f"{label} must be an object")
+        return
+    _validate_allowed_keys(value, _PERSPECTIVE_KEYS, errors, label)
+    for key in ("observer", "observed"):
+        actor = value.get(key, "")
+        if not isinstance(actor, str) or (actor and not _SAFE_REF.match(actor)):
+            errors.append(f"{label}.{key} must be a safe actor label")
+    if require_observed and not str(value.get("observed", "") or ""):
+        errors.append(f"{label}.observed must name an actor")
+
+
+def _normalize_perspective(observer: str | None, observed: str | None) -> dict[str, str] | None:
+    """Optional (observer, observed) pair; absent means an unscoped record.
+
+    The observed actor is the interesting axis in OMH -- which executor or
+    role a fact is about -- so it is the only required half: an omitted
+    observer defaults to Hermes, the retained-cognition owner. Supplying an
+    observer without an observed actor has no lens to match against and is
+    rejected rather than guessed.
+    """
+    observer_label = str(observer or "").strip().lower()
+    observed_label = str(observed or "").strip().lower()
+    if not observer_label and not observed_label:
+        return None
+    if not observed_label:
+        raise ValueError("a memory perspective requires --observed; --observer alone names no target actor")
+    observer_label = observer_label or _DEFAULT_PERSPECTIVE_OBSERVER
+    for label in (observer_label, observed_label):
+        if not _SAFE_REF.match(label):
+            raise ValueError(f"unsafe perspective actor label: {label!r}")
+    return {"observer": observer_label, "observed": observed_label}
+
+
+def _perspective_projection(value: Any) -> dict[str, str]:
+    """Projection of a stored perspective; {} when there is nothing observed.
+
+    An empty observed actor is not a perspective -- the lens ignores it -- so
+    projecting it would advertise scoping the filter does not apply.
+    """
+    perspective = value if isinstance(value, dict) else {}
+    observed = str(perspective.get("observed", ""))
+    if not observed:
+        return {}
+    return {"observer": str(perspective.get("observer", "") or _DEFAULT_PERSPECTIVE_OBSERVER), "observed": observed}
+
+
+def _record_perspective_matches(record: dict[str, Any], *, observer: str | None, observed: str | None) -> bool:
+    """Lens semantics: unscoped records always pass; scoped need a match.
+
+    No lens (both None) also passes scoped records -- a plain recall is an
+    inspection surface and hides nothing. Filtering both ways (a lens that
+    excludes unscoped records) is deliberately not offered: unscoped is the
+    compatibility default, not a perspective of its own.
+    """
+    perspective = record.get("perspective")
+    if not isinstance(perspective, dict) or not str(perspective.get("observed", "")):
+        return True
+    if observer is None and observed is None:
+        return True
+    if observer is not None and str(perspective.get("observer", "")) != observer:
+        return False
+    if observed is not None and str(perspective.get("observed", "")) != observed:
+        return False
+    return True
+
+
+def build_memory_perspectives(paths: OmhPaths) -> dict[str, object]:
+    """Deterministic inventory of (observer, observed) pairs -- honcho's
+    collections listing reinterpreted as a report over the records store."""
+    pairs: dict[tuple[str, str], int] = {}
+    unscoped = 0
+    for record in _read_project_memory_records(paths):
+        perspective = record.get("perspective")
+        if isinstance(perspective, dict) and str(perspective.get("observed", "")):
+            key = (str(perspective.get("observer", "")), str(perspective.get("observed", "")))
+            pairs[key] = pairs.get(key, 0) + 1
+        else:
+            unscoped += 1
+    return {
+        "schema_version": MEMORY_PERSPECTIVES_SCHEMA_VERSION,
+        "pairs": [
+            {"observer": observer, "observed": observed, "record_count": count}
+            for (observer, observed), count in sorted(pairs.items())
+        ],
+        "pair_count": len(pairs),
+        "unscoped_count": unscoped,
+        "redaction_policy": "metadata_only",
+        "claim_boundary": (
+            "A perspectives report counts OMH-local reviewed records per observer/observed pair, "
+            "regardless of expiry or replay eligibility; it is prepared context, not execution, "
+            "review, CI, merge, or Hermes internal-memory evidence."
+        ),
+    }
 
 
 def _normalize_derived_from(paths: OmhPaths, derived_from: list[str] | tuple[str, ...] | None) -> list[str]:
@@ -1309,6 +1451,7 @@ def build_handoff_context_pack(
     conflicts = [conflict for conflict in inspection.get("conflicts", []) if isinstance(conflict, dict)]
     blocking_conflicts = [conflict for conflict in conflicts if conflict.get("severity") == "blocker"]
     conflict_ids = {str(conflict.get("item_id", "")) for conflict in blocking_conflicts}
+    perspective_lens = _handoff_perspective_lens(executor_target)
     review_resolver = _project_memory_review_resolver(paths)
     included: list[dict[str, object]] = []
     excluded: list[dict[str, object]] = []
@@ -1322,6 +1465,13 @@ def build_handoff_context_pack(
             item_id = str(item.get("item_id", ""))
             if source == "omh_memory":
                 artifact = _memory_artifact_for_snapshot_item(paths, item)
+                # Context packs are executor-facing exactly like recall
+                # packs, so they apply the same lens: a record about another
+                # executor is excluded here, not silently skipped, because
+                # this surface enumerates its exclusions.
+                if not _record_perspective_matches(artifact, observer=None, observed=perspective_lens):
+                    excluded.append({"item_id": item_id, "source": source, "reason": "perspective_mismatch"})
+                    continue
                 if _item_conflicts(item, blocking_conflicts):
                     artifact = {**artifact, "conflict_ids": [item_id]}
                 evaluation = _evaluate_memory_artifact(
@@ -1466,6 +1616,8 @@ def validate_project_memory_recall_pack(value: Any, *, label: str = "memory_reca
     if not isinstance(value.get("session_id"), str):
         errors.append(f"{label}.session_id must be a string")
     _validate_context_scope(value.get("scope"), errors, f"{label}.scope")
+    if "perspective" in value:
+        _validate_perspective(value.get("perspective"), errors, f"{label}.perspective")
     _validate_context_list(value.get("included_records"), _PROJECT_MEMORY_RECALL_ITEM_KEYS, errors, f"{label}.included_records", scope_key="scope")
     _validate_context_list(value.get("excluded_records"), _PROJECT_MEMORY_EXCLUDED_KEYS, errors, f"{label}.excluded_records")
     _validate_context_map(value.get("task_ref"), _PROJECT_MEMORY_TASK_REF_KEYS, errors, f"{label}.task_ref")
@@ -1496,6 +1648,7 @@ def _build_project_memory_candidate(
     stale_after_days: int | None,
     retention_class: str,
     derived_from: list[str] | tuple[str, ...] = (),
+    perspective: dict[str, str] | None = None,
 ) -> dict[str, object]:
     normalized_type = _normalize_record_type(record_type)
     scope = _scope_for_project_memory(scope_kind, scope_ref)
@@ -1522,6 +1675,7 @@ def _build_project_memory_candidate(
         "staleness": staleness,
         "retention_class": str(retention_class),
         "derived_from": [str(ref) for ref in derived_from],
+        **({"perspective": dict(perspective)} if perspective else {}),
         "content_ref": {
             "sha256": hashlib.sha256(content_text.encode("utf-8")).hexdigest() if content_text else "",
             "length": len(content_text),
@@ -1569,6 +1723,11 @@ def _record_from_candidate(
         "source_class": "omh_local",
         "source_ref": _redact(str(candidate.get("source_ref", "")))[:160],
         "derived_from": _string_list(candidate.get("derived_from", [])),
+        **(
+            {"perspective": projection}
+            if (projection := _perspective_projection(candidate.get("perspective")))
+            else {}
+        ),
         "admission": {
             "state": admission_state,
             "review_id": review_id,
@@ -1663,6 +1822,7 @@ def _empty_recall_pack(
         "task_ref": task_ref,
         "policy": policy,
         "scope": _scope(scope_kind or "project", scope_ref or "default"),
+        "perspective": {"observer": "", "observed": ""},
         "included_records": [],
         "excluded_records": [{"record_id": "", "reason": reason, "staleness": {"state": "not_checked"}}],
         "record_count": 0,
@@ -1691,6 +1851,7 @@ def _recall_item(
         "staleness": staleness,
         "score": int(score),
         "derived_from": _string_list(record.get("derived_from", [])),
+        "perspective": _perspective_projection(record.get("perspective")),
         **_recall_evidence_fields(evidence),
     }
 
@@ -2077,6 +2238,8 @@ def validate_project_memory_record(value: Any, *, label: str = "project_memory_r
     if not isinstance(value.get("retention"), dict):
         errors.append(f"{label}.retention must be an object")
     _validate_context_scope(value.get("scope"), errors, f"{label}.scope")
+    if "perspective" in value:
+        _validate_perspective(value.get("perspective"), errors, f"{label}.perspective", require_observed=True)
     if value.get("redaction_policy") != "metadata_only":
         errors.append(f"{label}.redaction_policy must be metadata_only")
     if _contains_sensitive_text(value):
@@ -2543,6 +2706,8 @@ def _validate_context_list(
                     errors.append(f"{nested_label} must contain string record ids")
             elif key == "ranking" and isinstance(nested, dict):
                 _validate_context_map(nested, _RECALL_RANKING_KEYS, errors, nested_label)
+            elif key == "perspective" and isinstance(nested, dict):
+                _validate_perspective(nested, errors, nested_label)
             elif key == "staleness" and isinstance(nested, dict):
                 _validate_context_map(nested, set(nested), errors, nested_label)
             elif key == "replay_evaluation" and isinstance(nested, dict):
