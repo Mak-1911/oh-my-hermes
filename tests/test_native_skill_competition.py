@@ -61,6 +61,10 @@ class NativeSkillCompetitionTests(unittest.TestCase):
         incoherent["results"] = []
         self.assertTrue(native_skill_competition_errors(incoherent))
 
+        fabricated = build_native_skill_competition_report()
+        fabricated["results"][0]["actual_winner"] = "omh"
+        self.assertTrue(native_skill_competition_errors(fabricated))
+
     def test_native_competition_cli_outputs_summary_and_json(self) -> None:
         status, stdout, stderr = run_cli(["demo", "native-competition", "--summary"], output_json=False)
 

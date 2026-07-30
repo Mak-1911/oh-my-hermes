@@ -180,7 +180,8 @@ def build_native_skill_competition_report() -> dict[str, object]:
 
 def native_skill_competition_errors(payload: Mapping[str, object]) -> list[str]:
     errors: list[str] = []
-    expected_case_ids = {case.case_id for case in NATIVE_COMPETITION_CASES}
+    expected_cases = {case.case_id: case for case in NATIVE_COMPETITION_CASES}
+    expected_case_ids = set(expected_cases)
     if payload.get("schema_version") != "omh_native_skill_competition/v1":
         errors.append("native competition schema_version is invalid")
     counts: dict[str, int] = {}
@@ -212,6 +213,38 @@ def native_skill_competition_errors(payload: Mapping[str, object]) -> list[str]:
                 continue
             if not isinstance(passed, bool):
                 errors.append(f"native competition result {case_id} passed flag is invalid")
+                continue
+            expected = expected_cases[case_id]
+            if (
+                row.get("omh_skill") != expected.omh_skill
+                or row.get("native_name") != expected.native_name
+                or row.get("expected_winner") != expected.expected_winner
+            ):
+                errors.append(f"native competition result {case_id} disagrees with the fixed corpus")
+                continue
+            score_values: dict[str, int] = {}
+            for key in ("winner_score", "loser_score", "omh_score", "native_score"):
+                value = row.get(key)
+                if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                    errors.append(f"native competition result {case_id} {key} is invalid")
+                    break
+                score_values[key] = value
+            if len(score_values) != 4:
+                continue
+            if score_values["omh_score"] == score_values["native_score"]:
+                derived_winner = "tie"
+            elif score_values["omh_score"] > score_values["native_score"]:
+                derived_winner = "omh"
+            else:
+                derived_winner = "native"
+            if (
+                row.get("actual_winner") != derived_winner
+                or score_values["winner_score"] != max(score_values["omh_score"], score_values["native_score"])
+                or score_values["loser_score"] != min(score_values["omh_score"], score_values["native_score"])
+                or passed != (derived_winner == expected.expected_winner)
+                or row.get("picker_surface") != "generated_frontmatter_name_description"
+            ):
+                errors.append(f"native competition result {case_id} winner evidence is inconsistent")
                 continue
             result_rows.append(row)
     all_passing = payload.get("all_passing")
