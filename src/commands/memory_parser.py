@@ -34,6 +34,8 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
         metavar="RECORD_ID",
         help="Existing approved record this candidate was derived from; repeatable, at most 8.",
     )
+    capture.add_argument("--observer", default=None, help="Optional perspective observer label; defaults to hermes when --observed is set.")
+    capture.add_argument("--observed", default=None, help="Actor this record is about (e.g. codex, claude); scoped records only surface through a matching lens.")
     capture.add_argument("--source-class", choices=tuple(sorted(SOURCE_CLASSES)), default="omh_local", help="Source class; direct capture accepts OMH-local candidates only.")
     capture.set_defaults(func=memory.cmd_memory_capture)
 
@@ -67,6 +69,8 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
         help="Optional summary-character budget; records cut by it are marked over_budget and the pack says truncated.",
     )
     recall.add_argument("--include-stale", action="store_true")
+    recall.add_argument("--observer", default=None, help="Perspective lens: only unscoped records and records with this observer pass.")
+    recall.add_argument("--observed", default=None, help="Perspective lens: only unscoped records and records about this actor pass.")
     recall.set_defaults(func=memory.cmd_memory_recall)
 
     rejected_recall = memory_sub.add_parser(
@@ -80,6 +84,9 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     rejected_recall.add_argument("--include-stale", action="store_true")
     rejected_recall.add_argument("--limit", type=int, default=6)
     rejected_recall.set_defaults(func=memory.cmd_memory_rejected_recall)
+
+    perspectives = memory_sub.add_parser("perspectives", help="List observer/observed perspective pairs with reviewed-record counts.")
+    perspectives.set_defaults(func=memory.cmd_memory_perspectives)
 
     lineage = memory_sub.add_parser("lineage", help="Trace derived-from provenance links for one reviewed memory record.")
     lineage.add_argument("record_id")

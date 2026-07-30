@@ -22,6 +22,9 @@ class MemoryParserTests(unittest.TestCase):
             (["memory", "correct", "record-one", "--revision", "1", "Corrected summary"], "cmd_memory_correct"),
             (["memory", "lineage", "record-one"], "cmd_memory_lineage"),
             (["memory", "lineage", "record-one", "--depth", "5"], "cmd_memory_lineage"),
+            (["memory", "perspectives"], "cmd_memory_perspectives"),
+            (["memory", "capture", "summary", "--observed", "codex"], "cmd_memory_capture"),
+            (["memory", "recall", "query", "--observer", "operator", "--observed", "codex"], "cmd_memory_recall"),
         )
 
         for argv, handler_name in cases:
