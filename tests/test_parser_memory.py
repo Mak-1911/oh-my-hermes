@@ -23,6 +23,8 @@ class MemoryParserTests(unittest.TestCase):
             (["memory", "lineage", "record-one"], "cmd_memory_lineage"),
             (["memory", "lineage", "record-one", "--depth", "5"], "cmd_memory_lineage"),
             (["memory", "perspectives"], "cmd_memory_perspectives"),
+            (["memory", "pin", "record-one"], "cmd_memory_pin"),
+            (["memory", "unpin", "record-one"], "cmd_memory_unpin"),
             (["memory", "capture", "summary", "--observed", "codex"], "cmd_memory_capture"),
             (["memory", "recall", "query", "--observer", "operator", "--observed", "codex"], "cmd_memory_recall"),
         )
