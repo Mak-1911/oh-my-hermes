@@ -5,6 +5,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from _local_package import load_local_package
 
@@ -14,7 +15,258 @@ from omh.hermes_planning import build_hermes_plan_payload
 from omh.ingress import extract_message_text, extract_source_metadata
 from omh.skills.catalog import omh_skill_display_name
 from omh.skills.render import workflow_reference_payload
+from omh.paths import project_identity, resolve_paths
+from omh.wrapper_contract import build_chat_interaction_payload
 from omh.wrapper.route_hints import build_chat_route_hint_payload
+
+
+DOMAIN_EXPERT_QUESTIONS = (
+    (
+        "finance-analysis",
+        "period",
+        "Which reporting period should this finance analysis cover?",
+        "이 재무 분석은 어느 기간을 대상으로 해야 하나요?",
+    ),
+    (
+        "people-ops",
+        "role or people-process outcome",
+        "What role or people-process outcome should this work achieve?",
+        "이 작업에서 어떤 역할 또는 인사 프로세스 결과를 달성해야 하나요?",
+    ),
+    (
+        "legal-compliance-review",
+        "jurisdiction",
+        "Which jurisdiction should this legal or compliance review apply to?",
+        "이 법률 또는 컴플라이언스 검토는 어느 관할권을 기준으로 해야 하나요?",
+    ),
+    (
+        "support-operations",
+        "support case",
+        "Which support case should we examine first?",
+        "어떤 지원 사례를 먼저 살펴봐야 하나요?",
+    ),
+    (
+        "curriculum-design",
+        "learners",
+        "Who are the learners this curriculum should serve?",
+        "이 커리큘럼의 대상 학습자는 누구인가요?",
+    ),
+    (
+        "localization-review",
+        "locale",
+        "Which target locale should this localization review cover?",
+        "이 현지화 검토의 대상 로캘은 무엇인가요?",
+    ),
+    (
+        "sales-development",
+        "account or segment",
+        "Which account or customer segment should this sales work focus on?",
+        "이 영업 작업은 어떤 계정 또는 고객 세그먼트에 집중해야 하나요?",
+    ),
+    (
+        "product-brief",
+        "product evidence",
+        "What product evidence should anchor this brief?",
+        "이 브리프의 근거가 될 제품 증거는 무엇인가요?",
+    ),
+)
+
+
+def _canonical_bytes(value: object) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+class DomainExpertQuestionGoldenTests(unittest.TestCase):
+    def test_all_catalog_questions_render_with_exact_target_input_and_protected_fields(self) -> None:
+        from test_domain_routing_context import _approve_profile, _binding, _repository
+
+        with TemporaryDirectory() as tmp:
+            root = _repository(Path(tmp) / "expert-question-project")
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            cases: list[tuple[str, str, str, str]] = []
+            for index, (workflow, required_input, english, korean) in enumerate(DOMAIN_EXPERT_QUESTIONS):
+                for locale, question in (("en", english), ("ko", korean)):
+                    phrase = f"expert-marker-{index}-{locale}"
+                    _approve_profile(
+                        root,
+                        domain_id=f"expert-{index}-{locale}",
+                        phrase=phrase,
+                        canonical=f"expert_{index}_{locale}",
+                        workflow_hints=[workflow],
+                    )
+                    message = (
+                        f"something {phrase} feels unresolved"
+                        if locale == "en"
+                        else f"뭔가 {phrase} 관련해서 애매해요"
+                    )
+                    cases.append((message, workflow, required_input, question))
+
+            with _binding(root) as binding:
+                for message, workflow, required_input, question in cases:
+                    with self.subTest(workflow=workflow, question=question):
+                        baseline = build_chat_interaction_payload(
+                            message,
+                            source="discord",
+                            source_metadata={},
+                            paths=paths,
+                        )
+                        applied = build_chat_interaction_payload(
+                            message,
+                            source="discord",
+                            source_metadata={},
+                            paths=paths,
+                            _host_project_binding=binding,
+                        )
+                        context = applied["domain_routing_context"]
+                        expected_body = (
+                            f"Target workflow: {workflow}\n"
+                            f"Required input: {required_input}\n\n"
+                            f"{question}"
+                        )
+
+                        self.assertEqual(context["workflow_hint"], workflow)
+                        self.assertEqual(context["required_input"], required_input)
+                        self.assertEqual(context["question"]["text"], question)
+                        self.assertEqual(applied["chat_response"]["body"], expected_body)
+                        self.assertEqual(applied["chat_response"]["body"].count("?"), 1)
+                        self.assertEqual(
+                            applied["chat_response"]["claim_boundary"],
+                            baseline["chat_response"]["claim_boundary"],
+                        )
+                        self.assertEqual(
+                            [action["id"] for action in applied["chat_response"]["actions"]],
+                            ["answer:clarify", "cancel"],
+                        )
+                        self.assertEqual(_canonical_bytes(applied["route"]), _canonical_bytes(baseline["route"]))
+                        self.assertEqual(
+                            _canonical_bytes(applied["route"].get("candidate_handoff")),
+                            _canonical_bytes(baseline["route"].get("candidate_handoff")),
+                        )
+                        self.assertEqual(
+                            _canonical_bytes(
+                                {
+                                    key: value
+                                    for key, value in applied.items()
+                                    if key not in {"domain_routing_context", "chat_response"}
+                                }
+                            ),
+                            _canonical_bytes(
+                                {
+                                    key: value
+                                    for key, value in baseline.items()
+                                    if key != "chat_response"
+                                }
+                            ),
+                        )
+                        self.assertEqual(
+                            _canonical_bytes(
+                                {
+                                    key: value
+                                    for key, value in applied["chat_response"].items()
+                                    if key != "body"
+                                }
+                            ),
+                            _canonical_bytes(
+                                {
+                                    key: value
+                                    for key, value in baseline["chat_response"].items()
+                                    if key != "body"
+                                }
+                            ),
+                        )
+
+    def test_unsupported_script_uses_the_english_question(self) -> None:
+        from test_domain_routing_context import _approve_profile, _binding, _repository
+
+        with TemporaryDirectory() as tmp:
+            root = _repository(Path(tmp) / "unsupported-script-project")
+            _approve_profile(root, domain_id="arabic", phrase="طلب غامض")
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            with _binding(root) as binding:
+                payload = build_chat_interaction_payload(
+                    "هذا طلب غامض",
+                    source="discord",
+                    source_metadata={},
+                    paths=paths,
+                    _host_project_binding=binding,
+                )
+
+        context = payload["domain_routing_context"]
+        self.assertEqual(context["question"]["locale"], "en")
+        self.assertEqual(context["required_input"], "account or segment")
+        self.assertTrue(
+            payload["chat_response"]["body"].endswith(
+                "Which account or customer segment should this sales work focus on?"
+            )
+        )
+
+    def test_non_applied_and_protected_cases_keep_the_exact_existing_body(self) -> None:
+        from omh.workflows.domain_intelligence import retire_domain_profile
+        from test_domain_routing_context import _approve_profile, _binding, _repository
+
+        cases = (
+            ("empty", [], ()),
+            ("unknown", ["not-a-workflow"], ()),
+            ("conflict", ["sales-development"], ("finance-analysis",)),
+        )
+        with TemporaryDirectory() as tmp:
+            for label, first_hints, extra_hints in cases:
+                root = _repository(Path(tmp) / f"{label}-project")
+                phrase = f"{label}-marker"
+                _approve_profile(
+                    root,
+                    domain_id=f"{label}-first",
+                    phrase=phrase,
+                    workflow_hints=first_hints,
+                )
+                for index, workflow in enumerate(extra_hints):
+                    _approve_profile(
+                        root,
+                        domain_id=f"{label}-extra-{index}",
+                        phrase=phrase,
+                        workflow_hints=[workflow],
+                    )
+                self._assert_non_applied_payload_is_unchanged(root, f"something {phrase} feels unresolved")
+
+            retired_root = _repository(Path(tmp) / "retired-project")
+            retired = _approve_profile(retired_root, domain_id="retired", phrase="retired-marker")
+            retire_domain_profile(
+                resolve_paths(retired_root / ".omh", retired_root / ".hermes"),
+                scope_kind="project",
+                scope_ref=project_identity(retired_root),
+                domain_id=str(retired["domain_id"]),
+                reason="superseded",
+            )
+            self._assert_non_applied_payload_is_unchanged(
+                retired_root,
+                "something retired-marker feels unresolved",
+            )
+
+            protected_root = _repository(Path(tmp) / "protected-project")
+            _approve_profile(protected_root, domain_id="protected", phrase="README")
+            self._assert_non_applied_payload_is_unchanged(protected_root, "README 파일 찾아줘")
+
+    def _assert_non_applied_payload_is_unchanged(self, root: Path, message: str) -> None:
+        from test_domain_routing_context import _binding
+
+        paths = resolve_paths(root / ".omh", root / ".hermes")
+        baseline = build_chat_interaction_payload(
+            message,
+            source="discord",
+            source_metadata={},
+            paths=paths,
+        )
+        with _binding(root) as binding:
+            actual = build_chat_interaction_payload(
+                message,
+                source="discord",
+                source_metadata={},
+                paths=paths,
+                _host_project_binding=binding,
+            )
+
+        self.assertNotIn("domain_routing_context", actual)
+        self.assertEqual(_canonical_bytes(actual), _canonical_bytes(baseline))
 
 
 class WrapperGoldenExampleTests(unittest.TestCase):
