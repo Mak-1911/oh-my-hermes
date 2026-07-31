@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import importlib
 import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
+
+from omh.workflows import domain_intelligence_profile_snapshot as profile_snapshot
 
 from test_domain_routing_context import (
     _approve_profile,
@@ -214,7 +215,6 @@ class DomainContextResolverTests(unittest.TestCase):
             self.assertIsNotNone(_resolver()(binding, "pipeline review", locale="en"))
 
     def test_noncooperating_snapshot_mutations_fail_closed_without_retry(self) -> None:
-        query = importlib.import_module("omh.workflows.domain_intelligence_queries")
         for dirname in ("profiles", "reviews", "history"):
             for operation in (
                 "create",
@@ -232,7 +232,7 @@ class DomainContextResolverTests(unittest.TestCase):
                     _approve_profile(root, domain_id="sales")
                     directory = _store(root) / dirname
                     original = next(directory.glob("*.json"), None)
-                    real_read = query._read_stable_json_at
+                    real_read = profile_snapshot.read_stable_json_at
                     mutated = False
 
                     def mutate_after_first_read(*args, **kwargs):
@@ -259,8 +259,8 @@ class DomainContextResolverTests(unittest.TestCase):
                         return value
 
                     with patch.object(
-                        query,
-                        "_read_stable_json_at",
+                        profile_snapshot,
+                        "read_stable_json_at",
                         side_effect=mutate_after_first_read,
                     ) as reader:
                         with _binding(root) as binding:

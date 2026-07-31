@@ -68,7 +68,7 @@ def resolve_domain_routing_context(
     locale: str,
 ) -> dict[str, object] | None:
     """Resolve one catalog-owned question from a complete reviewed store snapshot."""
-    from .domain_intelligence_queries import read_validated_domain_profiles_at
+    from .domain_intelligence_profile_snapshot import read_validated_domain_profiles_at
     from .domain_project_context import HostProjectBinding
 
     if not isinstance(binding, HostProjectBinding) or not isinstance(message, str):

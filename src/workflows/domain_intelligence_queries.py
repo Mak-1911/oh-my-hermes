@@ -10,10 +10,6 @@ from .domain_intelligence_contracts import (
     normalize_identifier,
     normalize_scope,
 )
-from .domain_intelligence_json_io import read_stable_json_at as _read_stable_json_at
-from .domain_intelligence_profile_snapshot import (
-    read_validated_domain_profiles_at as _read_validated_domain_profiles_at,
-)
 from .domain_intelligence_review_validation import validate_review_artifact_for_status
 from .domain_intelligence_store import (
     diagnostic,
@@ -29,13 +25,6 @@ from .domain_intelligence_validation import (
     validate_candidate_artifact,
     validate_profile_artifact,
 )
-
-
-def read_validated_domain_profiles_at(binding: object) -> tuple[dict[str, object], ...]:
-    return _read_validated_domain_profiles_at(
-        binding,
-        read_json_at=_read_stable_json_at,
-    )
 
 
 def build_domain_review(

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import stat
-from typing import Callable
 
 from .domain_intelligence_contracts import (
     SAFE_CANDIDATE_ID,
@@ -25,7 +24,6 @@ from .domain_intelligence_validation import validate_profile_artifact_for_resolu
 
 
 _HEALTH_DIRECTORIES = ("profiles", "reviews", "history")
-JsonReader = Callable[[int, str], dict[str, object]]
 
 
 @dataclass(frozen=True)
@@ -36,8 +34,6 @@ class _DirectorySnapshot:
 
 def read_validated_domain_profiles_at(
     binding: object,
-    *,
-    read_json_at: JsonReader = read_stable_json_at,
 ) -> tuple[dict[str, object], ...]:
     """Read one complete, stable, descriptor-bound profile health universe."""
     from .domain_project_context import HostProjectBinding
@@ -57,7 +53,7 @@ def read_validated_domain_profiles_at(
             _require_bound_directory(binding.domain_store_fd, name, descriptor)
         records = {
             name: tuple(
-                (filename, read_json_at(directories[name], filename))
+                (filename, read_stable_json_at(directories[name], filename))
                 for filename, *_rest in before[name].manifest
             )
             for name in _HEALTH_DIRECTORIES
