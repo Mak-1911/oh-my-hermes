@@ -3,12 +3,15 @@ from __future__ import annotations
 import errno
 import json
 import os
-from json import JSONDecodeError
 from pathlib import Path
 import secrets
 import stat
 
 from ..paths import OmhPaths
+from .domain_intelligence_bounded_json import (
+    decode_bounded_json_object,
+    read_limited_bytes,
+)
 
 
 _NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
@@ -82,21 +85,16 @@ def read_managed_json_at(
             raise ValueError("symlink_or_not_file")
         if file_stat.st_size > max_bytes:
             raise ValueError("artifact_too_large")
-        raw = _read_limited(descriptor, max_bytes)
+        raw = read_limited_bytes(descriptor, max_bytes)
     finally:
         os.close(descriptor)
     if len(raw) > max_bytes:
         raise ValueError("artifact_too_large")
-    try:
-        value = json.loads(raw.decode("utf-8"))
-    except RecursionError as exc:
-        raise ValueError("artifact_json_depth_exceeded") from exc
-    except (UnicodeDecodeError, JSONDecodeError) as exc:
-        raise ValueError("malformed_json") from exc
-    if not isinstance(value, dict):
-        raise ValueError("malformed_json")
-    _validate_json_bounds(value, max_depth=max_depth, max_nodes=max_nodes)
-    return value
+    return decode_bounded_json_object(
+        raw,
+        max_depth=max_depth,
+        max_nodes=max_nodes,
+    )
 
 
 def atomic_write_managed_json(
@@ -245,31 +243,3 @@ def _write_all(file_descriptor: int, payload: bytes) -> None:
         if written <= 0:
             raise OSError("domain-intelligence managed write made no progress")
         view = view[written:]
-
-
-def _read_limited(descriptor: int, max_bytes: int) -> bytes:
-    remaining = max_bytes + 1
-    chunks: list[bytes] = []
-    while remaining:
-        chunk = os.read(descriptor, remaining)
-        if not chunk:
-            break
-        chunks.append(chunk)
-        remaining -= len(chunk)
-    return b"".join(chunks)
-
-
-def _validate_json_bounds(value: object, *, max_depth: int, max_nodes: int) -> None:
-    nodes = 0
-    stack: list[tuple[object, int]] = [(value, 0)]
-    while stack:
-        current, depth = stack.pop()
-        nodes += 1
-        if nodes > max_nodes:
-            raise ValueError("artifact_json_nodes_exceeded")
-        if depth > max_depth:
-            raise ValueError("artifact_json_depth_exceeded")
-        if isinstance(current, dict):
-            stack.extend((item, depth + 1) for item in current.values())
-        elif isinstance(current, list):
-            stack.extend((item, depth + 1) for item in current)

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import errno
-import json
-from json import JSONDecodeError
 import os
 import stat
 
+from .domain_intelligence_bounded_json import (
+    decode_bounded_json_object,
+    read_limited_bytes,
+)
 from .domain_intelligence_store_security import (
     MAX_DOMAIN_ARTIFACT_BYTES,
     MAX_DOMAIN_JSON_DEPTH,
@@ -33,7 +35,7 @@ def read_stable_json_at(directory_fd: int, filename: str) -> dict[str, object]:
             raise ValueError("symlink_or_not_file")
         if before.st_size > MAX_DOMAIN_ARTIFACT_BYTES:
             raise ValueError("artifact_too_large")
-        raw = _read_limited(descriptor, MAX_DOMAIN_ARTIFACT_BYTES)
+        raw = read_limited_bytes(descriptor, MAX_DOMAIN_ARTIFACT_BYTES)
         after = os.fstat(descriptor)
         if stable_file_identity(before) != stable_file_identity(after):
             raise ValueError("artifact_changed_during_read")
@@ -41,44 +43,11 @@ def read_stable_json_at(directory_fd: int, filename: str) -> dict[str, object]:
         os.close(descriptor)
     if len(raw) > MAX_DOMAIN_ARTIFACT_BYTES:
         raise ValueError("artifact_too_large")
-    try:
-        value = json.loads(raw.decode("utf-8"))
-    except RecursionError as exc:
-        raise ValueError("artifact_json_depth_exceeded") from exc
-    except (UnicodeDecodeError, JSONDecodeError) as exc:
-        raise ValueError("malformed_json") from exc
-    if not isinstance(value, dict):
-        raise ValueError("malformed_json")
-    _validate_json_bounds(value)
-    return value
-
-
-def _read_limited(descriptor: int, maximum: int) -> bytes:
-    remaining = maximum + 1
-    chunks: list[bytes] = []
-    while remaining:
-        chunk = os.read(descriptor, remaining)
-        if not chunk:
-            break
-        chunks.append(chunk)
-        remaining -= len(chunk)
-    return b"".join(chunks)
-
-
-def _validate_json_bounds(value: object) -> None:
-    nodes = 0
-    stack = [(value, 0)]
-    while stack:
-        current, depth = stack.pop()
-        nodes += 1
-        if nodes > MAX_DOMAIN_JSON_NODES:
-            raise ValueError("artifact_json_nodes_exceeded")
-        if depth > MAX_DOMAIN_JSON_DEPTH:
-            raise ValueError("artifact_json_depth_exceeded")
-        if isinstance(current, dict):
-            stack.extend((item, depth + 1) for item in current.values())
-        elif isinstance(current, list):
-            stack.extend((item, depth + 1) for item in current)
+    return decode_bounded_json_object(
+        raw,
+        max_depth=MAX_DOMAIN_JSON_DEPTH,
+        max_nodes=MAX_DOMAIN_JSON_NODES,
+    )
 
 
 def stable_file_identity(
