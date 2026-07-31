@@ -11,6 +11,7 @@ from .domain_intelligence_store_security import (
     MAX_DOMAIN_JSON_DEPTH,
     MAX_DOMAIN_JSON_NODES,
     atomic_write_managed_json,
+    bounded_json_paths,
     domain_store_lock,
     ensure_new_artifact_capacity,
     secure_artifact_path,
@@ -46,7 +47,7 @@ def read_candidate_or_raise(paths: OmhPaths, candidate_id: str) -> dict[str, obj
         candidates_dir(paths),
         candidate_id,
         "candidate_id",
-        file_limit=MAX_DOMAIN_CANDIDATE_FILES,
+        file_limit=MAX_DOMAIN_ARTIFACT_FILES,
     )
     if error:
         raise ValueError(error)
@@ -136,7 +137,8 @@ def read_candidates(paths: OmhPaths, diagnostics: list[dict[str, str]]) -> list[
         candidates_dir(paths),
         diagnostics,
         "candidate_id",
-        file_limit=MAX_DOMAIN_CANDIDATE_FILES,
+        file_limit=MAX_DOMAIN_ARTIFACT_FILES,
+        capacity_limit=MAX_DOMAIN_CANDIDATE_FILES,
     )
 
 
@@ -152,7 +154,11 @@ def read_reviews(paths: OmhPaths, diagnostics: list[dict[str, str]]) -> list[tup
 
 def ensure_candidate_capacity(paths: OmhPaths) -> None:
     directory = candidates_dir(paths)
-    if sum(1 for _ in directory.glob("*.json")) >= MAX_DOMAIN_CANDIDATE_FILES:
+    existing, overflow = bounded_json_paths(
+        directory,
+        limit=MAX_DOMAIN_CANDIDATE_FILES - 1,
+    )
+    if overflow or len(existing) >= MAX_DOMAIN_CANDIDATE_FILES:
         raise ValueError("candidate_capacity_exceeded")
 
 

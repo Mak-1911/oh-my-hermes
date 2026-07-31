@@ -66,9 +66,13 @@ def read_identity_artifacts(
     identity_field: str,
     *,
     file_limit: int,
+    capacity_limit: int | None = None,
 ) -> list[tuple[dict[str, object], Path]]:
     paths, overflow = bounded_json_paths(directory, limit=file_limit)
     if overflow:
+        _append_diagnostic(diagnostics, directory, "artifact_file_count_exceeded")
+        return []
+    if capacity_limit is not None and len(paths) > capacity_limit:
         _append_diagnostic(diagnostics, directory, "artifact_file_count_exceeded")
     parsed: list[tuple[dict[str, object], Path, str, str]] = []
     for path in paths:
@@ -123,6 +127,7 @@ def read_history_artifacts(
     paths, overflow = bounded_json_paths(directory, limit=file_limit)
     if overflow:
         _append_diagnostic(diagnostics, directory, "artifact_file_count_exceeded")
+        return []
     parsed: list[tuple[dict[str, object], Path, tuple[str, int], str]] = []
     for path in paths:
         try:

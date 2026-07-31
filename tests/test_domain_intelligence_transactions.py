@@ -820,6 +820,57 @@ class DomainIntelligenceTransactionTests(unittest.TestCase):
                 build_domain_status(paths)["counts"]["pending_review"], 256
             )
 
+    def test_external_overflow_does_not_hide_valid_pending_candidate(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source_paths = resolve_paths(
+                root / "source" / ".omh", root / "source" / ".hermes"
+            )
+            candidate = capture_domain_candidate(
+                source_paths,
+                scope_kind="user",
+                scope_ref="overflow-visible",
+                domain_id="sales",
+                mappings=[("qbr", "qbr")],
+            )["candidate"]
+            paths = resolve_paths(root / "target" / ".omh", root / "target" / ".hermes")
+            candidate_dir = (
+                root
+                / "target"
+                / ".omh"
+                / "memory"
+                / "domain-intelligence"
+                / "candidates"
+            )
+            candidate_dir.mkdir(mode=0o700, parents=True)
+            candidate_id = str(candidate["candidate_id"])
+            for index in range(256):
+                external_id = f"dicand_{index:016x}"
+                if external_id == candidate_id:
+                    external_id = "dicand_ffffffffffffffff"
+                (candidate_dir / f"{external_id}.json").write_text(
+                    json.dumps({"candidate_id": external_id}),
+                    encoding="utf-8",
+                )
+            (candidate_dir / f"{candidate_id}.json").write_text(
+                json.dumps(candidate),
+                encoding="utf-8",
+            )
+
+            review = build_domain_review(paths, limit=256)
+            status = build_domain_status(paths)
+
+            self.assertEqual(
+                [card["candidate_id"] for card in review["cards"]],
+                [candidate_id],
+            )
+            self.assertEqual(review["counts"]["pending_review"], 1)
+            self.assertEqual(status["counts"]["pending_review"], 1)
+            self.assertIn(
+                "artifact_file_count_exceeded",
+                {item["reason"] for item in review["diagnostics"]},
+            )
+
     def test_operation_symlink_is_rejected_without_mutating_domain_artifacts(
         self,
     ) -> None:
