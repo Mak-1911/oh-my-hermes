@@ -16,6 +16,12 @@ class DomainClarificationTarget:
     question_text: str
 
 
+@dataclass(frozen=True)
+class DomainClarificationResolution:
+    reason: str
+    target: DomainClarificationTarget | None = None
+
+
 def resolve_domain_clarification_target(
     profiles: tuple[dict[str, object], ...],
     message: str,
@@ -23,6 +29,22 @@ def resolve_domain_clarification_target(
     project_root: Path,
     locale: str,
 ) -> DomainClarificationTarget | None:
+    """Compatibility projection for callers that only need the selected target."""
+    return resolve_domain_clarification_target_result(
+        profiles,
+        message,
+        project_root=project_root,
+        locale=locale,
+    ).target
+
+
+def resolve_domain_clarification_target_result(
+    profiles: tuple[dict[str, object], ...],
+    message: str,
+    *,
+    project_root: Path,
+    locale: str,
+) -> DomainClarificationResolution:
     from ..paths import project_identity
     from ..skills import catalog
 
@@ -39,52 +61,66 @@ def resolve_domain_clarification_target(
             continue
         mappings = profile.get("vocabulary_mappings")
         if not isinstance(mappings, list):
-            return None
+            return DomainClarificationResolution("profile_store_unhealthy")
         for mapping in mappings:
             if not isinstance(mapping, dict):
-                return None
+                return DomainClarificationResolution("profile_store_unhealthy")
             if _matches_normalized_message(normalized_message, mapping.get("phrase")):
                 matches.append((profile, mapping))
                 if len(matches) > MAX_DOMAIN_CONTEXT_MATCHES:
-                    return None
+                    return DomainClarificationResolution("match_overflow")
     if not matches:
-        return None
+        return DomainClarificationResolution("no_match")
 
     canonicals = {str(mapping.get("canonical")) for _profile, mapping in matches}
     if len(canonicals) != 1:
-        return None
+        return DomainClarificationResolution("canonical_conflict")
 
     routable = {
         definition.name: definition for definition in catalog.routable_definitions()
     }
+    builtin_names = {definition.name for definition in catalog.builtin_definitions()}
     selected_hints: set[str] = set()
     for profile, _mapping in matches:
         hints = profile.get("workflow_hints")
-        if not isinstance(hints, list) or not hints:
-            return None
+        if not isinstance(hints, list):
+            return DomainClarificationResolution("profile_store_unhealthy")
+        if not hints:
+            return DomainClarificationResolution("empty_workflow_hints")
         for hint in hints:
-            if not isinstance(hint, str) or hint not in routable:
-                return None
+            if not isinstance(hint, str) or hint not in builtin_names:
+                return DomainClarificationResolution("unknown_workflow_hint")
+            if hint not in routable:
+                exposure = catalog.surface_exposure_for_skill(hint)
+                reason = (
+                    "compatibility_only_workflow_hint"
+                    if exposure.compatibility_alias
+                    else "non_routable_workflow_hint"
+                )
+                return DomainClarificationResolution(reason)
             selected_hints.add(hint)
     if len(selected_hints) != 1:
-        return None
+        return DomainClarificationResolution("conflicting_workflow_hints")
 
     workflow_hint = next(iter(selected_hints))
     definition = routable[workflow_hint]
     questions = definition.expert_questions
     if not questions:
-        return None
+        return DomainClarificationResolution("missing_question_spec")
     question = questions[0]
     if question.required_input not in definition.required_inputs:
-        return None
+        return DomainClarificationResolution("missing_question_spec")
     selected_locale = (
         "ko" if isinstance(locale, str) and locale.casefold() == "ko" else "en"
     )
-    return DomainClarificationTarget(
-        workflow_hint=workflow_hint,
-        required_input=question.required_input,
-        question_locale=selected_locale,
-        question_text=question.question_for_locale(selected_locale),
+    return DomainClarificationResolution(
+        "applied",
+        DomainClarificationTarget(
+            workflow_hint=workflow_hint,
+            required_input=question.required_input,
+            question_locale=selected_locale,
+            question_text=question.question_for_locale(selected_locale),
+        ),
     )
 
 
