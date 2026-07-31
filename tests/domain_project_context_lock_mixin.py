@@ -14,7 +14,10 @@ class DomainProjectContextLockMixin:
     def test_shared_lock_is_descriptor_relative_nonblocking_and_fail_closed(
         self,
     ) -> None:
-        from test_domain_project_context import _domain_store, _repo
+        from domain_project_context_helpers import (
+            domain_store as _domain_store,
+            repo as _repo,
+        )
 
         domain_context = self._module()
         bound_store = importlib.import_module(
@@ -51,7 +54,10 @@ class DomainProjectContextLockMixin:
                     pass
 
     def test_shared_lock_times_out_without_creating_or_reopening_lock(self) -> None:
-        from test_domain_project_context import _domain_store, _repo
+        from domain_project_context_helpers import (
+            domain_store as _domain_store,
+            repo as _repo,
+        )
 
         domain_context = self._module()
         with TemporaryDirectory() as tmp:
@@ -72,7 +78,10 @@ class DomainProjectContextLockMixin:
                 os.close(contender)
 
     def test_shared_lock_honors_configured_poll_interval(self) -> None:
-        from test_domain_project_context import _domain_store, _repo
+        from domain_project_context_helpers import (
+            domain_store as _domain_store,
+            repo as _repo,
+        )
 
         domain_context = self._module()
         with TemporaryDirectory() as tmp:

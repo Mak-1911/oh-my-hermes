@@ -149,16 +149,13 @@ class DomainContextPrivacyTestCase(unittest.TestCase):
         self.private_values = _private_source_values(self.root, self.profile)
 
     def _applied_interaction(self) -> dict[str, object]:
-        with bind_cli_project(self.root) as binding:
-            if binding is None:
-                raise AssertionError("fixture failed to mint a project binding")
-            return build_chat_interaction_payload(
-                self.message,
-                source="discord",
-                source_metadata={"source_event_id": "event-001", "channel_ref": "channel-001"},
-                paths=self.paths,
-                _host_project_binding=binding,
-            )
+        return build_chat_interaction_payload(
+            self.message,
+            source="discord",
+            source_metadata={"source_event_id": "event-001", "channel_ref": "channel-001"},
+            paths=self.paths,
+            _host_project_binding_factory=self._binding_factory,
+        )
 
     def _binding_factory(self):
         binding = bind_cli_project(self.root)

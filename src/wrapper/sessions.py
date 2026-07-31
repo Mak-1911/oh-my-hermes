@@ -38,7 +38,6 @@ from .contract import (
     usage_trace_payload,
 )
 from .domain_context_attachment import (
-    HostProjectBinding,
     HostProjectBindingFactory,
     build_session_project_binding_factory,
 )
@@ -96,7 +95,6 @@ def create_or_resume_wrapper_session(
     executor_target: str = "choose",
     target_notice: dict[str, object] | None = None,
     record_provenance: dict[str, object] | None = None,
-    _host_project_binding: HostProjectBinding | None = None,
     _host_project_binding_factory: HostProjectBindingFactory | None = None,
 ) -> dict[str, object]:
     if source not in CHAT_SOURCES:
@@ -117,7 +115,6 @@ def create_or_resume_wrapper_session(
         target_notice=target_notice,
         paths=paths,
         _host_project_binding_factory=build_session_project_binding_factory(
-            _host_project_binding,
             _host_project_binding_factory,
         ),
     )

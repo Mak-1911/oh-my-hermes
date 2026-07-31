@@ -124,25 +124,25 @@ class DomainContextStoreIsolationMixin:
             shared_paths = resolve_paths(base / "shared-omh", base / "shared-hermes")
             metadata = {"source_event_id": "same-event", "channel_ref": "same-channel"}
 
-            with _block_external_connections(), bind_plugin_project(
-                {"project_root": str(first)}
-            ) as first_binding:
+            with _block_external_connections():
                 first_turn = create_or_resume_wrapper_session(
                     shared_paths,
                     _unresolved_message(phrase),
                     source="discord",
                     source_metadata=metadata,
-                    _host_project_binding=first_binding,
+                    _host_project_binding_factory=lambda: bind_plugin_project(
+                        {"project_root": str(first)}
+                    ),
                 )
-            with _block_external_connections(), bind_plugin_project(
-                {"project_root": str(second)}
-            ) as second_binding:
+            with _block_external_connections():
                 second_turn = create_or_resume_wrapper_session(
                     shared_paths,
                     _unresolved_message(phrase),
                     source="discord",
                     source_metadata=metadata,
-                    _host_project_binding=second_binding,
+                    _host_project_binding_factory=lambda: bind_plugin_project(
+                        {"project_root": str(second)}
+                    ),
                 )
 
             self.assertTrue(second_turn["resumed"])

@@ -46,7 +46,7 @@ from ..surfaces.evidence_copy import not_evidence_action_suffix, not_evidence_re
 from ..visual_summary import image_generation_setup_fallback
 from ..workflows.goal_ledger import goal_message_states_acceptance_criteria
 from ..workflows.goal_quality_coaching import is_goal_classified_message
-from ..workflows.domain_routing_context import resolve_domain_routing_context
+from ..workflows.domain_routing_context import resolve_domain_routing_context_result
 from ..workflows.web_visual_qa_projection import build_prepared_web_visual_qa_chat_state
 from .hermes_runtime import (
     hermes_coding_team_body,
@@ -54,7 +54,6 @@ from .hermes_runtime import (
     hermes_coding_team_extra_action_specs,
 )
 from .domain_context_attachment import (
-    HostProjectBinding,
     HostProjectBindingFactory,
     rendered_domain_context_fragment,
     resolve_attached_domain_context,
@@ -3192,7 +3191,6 @@ def build_chat_interaction_payload(
     target_notice: dict[str, object] | None = None,
     paths: OmhPaths | None = None,
     skill_policy: dict[str, object] | None = None,
-    _host_project_binding: HostProjectBinding | None = None,
     _host_project_binding_factory: HostProjectBindingFactory | None = None,
 ) -> dict[str, object]:
     if source not in CHAT_SOURCES:
@@ -3210,7 +3208,6 @@ def build_chat_interaction_payload(
         target_notice=target_notice,
         paths=paths,
         skill_policy=skill_policy,
-        host_project_binding=_host_project_binding,
         host_project_binding_factory=_host_project_binding_factory,
     ):
         return _copy_chat_interaction_payload(
@@ -3236,7 +3233,6 @@ def build_chat_interaction_payload(
         target_notice=target_notice,
         paths=paths,
         skill_policy=skill_policy,
-        host_project_binding=_host_project_binding,
         host_project_binding_factory=_host_project_binding_factory,
     )
     # Attached at the one point every chat surface passes through -- the plugin
@@ -3257,7 +3253,6 @@ def _can_use_chat_interaction_cache(
     target_notice: dict[str, object] | None,
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
-    host_project_binding: HostProjectBinding | None,
     host_project_binding_factory: HostProjectBindingFactory | None,
 ) -> bool:
     return (
@@ -3267,7 +3262,6 @@ def _can_use_chat_interaction_cache(
         and target_notice is None
         and paths is None
         and skill_policy is None
-        and host_project_binding is None
         and host_project_binding_factory is None
     )
 
@@ -3717,7 +3711,6 @@ def _build_chat_interaction_payload_cached(
         target_notice=None,
         paths=None,
         skill_policy=None,
-        host_project_binding=None,
         host_project_binding_factory=None,
     )
 
@@ -3735,7 +3728,6 @@ def _build_chat_interaction_payload_uncached(
     target_notice: dict[str, object] | None,
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
-    host_project_binding: HostProjectBinding | None,
     host_project_binding_factory: HostProjectBindingFactory | None,
 ) -> dict[str, object]:
     message = extract_message_text(event_or_message)
@@ -3754,9 +3746,8 @@ def _build_chat_interaction_payload_uncached(
         domain_context = resolve_attached_domain_context(
             route_payload,
             message,
-            host_project_binding=host_project_binding,
             host_project_binding_factory=host_project_binding_factory,
-            resolver=resolve_domain_routing_context,
+            resolver=resolve_domain_routing_context_result,
         )
     orchestration_guidance = build_omh_orchestration_guidance(
         route_payload,
