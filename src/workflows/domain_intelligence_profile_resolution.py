@@ -32,6 +32,7 @@ def resolve_domain_clarification_target(
         "ref_authority": "operator_or_wrapper_supplied",
         "identity_claim": "not_authenticated_identity_evidence",
     }
+    normalized_message = _normalize_match_text(message)
     matches: list[tuple[dict[str, object], dict[str, object]]] = []
     for profile in profiles:
         if profile.get("scope") != expected_scope:
@@ -42,7 +43,7 @@ def resolve_domain_clarification_target(
         for mapping in mappings:
             if not isinstance(mapping, dict):
                 return None
-            if matches_reviewed_phrase(message, mapping.get("phrase")):
+            if _matches_normalized_message(normalized_message, mapping.get("phrase")):
                 matches.append((profile, mapping))
                 if len(matches) > MAX_DOMAIN_CONTEXT_MATCHES:
                     return None
@@ -89,7 +90,10 @@ def resolve_domain_clarification_target(
 
 def matches_reviewed_phrase(message: object, phrase: object) -> bool:
     """Return whether a normalized literal phrase has a valid Unicode boundary match."""
-    normalized_message = _normalize_match_text(message)
+    return _matches_normalized_message(_normalize_match_text(message), phrase)
+
+
+def _matches_normalized_message(normalized_message: str, phrase: object) -> bool:
     normalized_phrase = _normalize_match_text(phrase)
     if not normalized_message or not normalized_phrase:
         return False
