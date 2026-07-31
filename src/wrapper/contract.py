@@ -3866,12 +3866,11 @@ def _build_chat_interaction_payload_uncached(
         return _finish_interaction(base, target_notice)
 
     if resolved_mode == "clarify" or route_payload["action"] != "dispatch":
-        applied_domain_context = (
-            domain_context.get("domain_routing_context")
-            if isinstance(domain_context, dict)
-            and isinstance(domain_context.get("domain_routing_context"), dict)
-            else None
-        )
+        applied_domain_context: dict[str, object] | None = None
+        if isinstance(domain_context, dict):
+            attached_context = domain_context.get("domain_routing_context")
+            if isinstance(attached_context, dict):
+                applied_domain_context = attached_context
         base["chat_response"] = build_chat_response_from_route(
             route_payload,
             thread_key=str(base["thread_key"]),
