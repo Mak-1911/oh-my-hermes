@@ -46,10 +46,18 @@ def expert_question_payloads(definition: SkillDefinition) -> list[dict[str, obje
 
 
 def copy_expert_question_payloads(payloads: object) -> list[dict[str, object]]:
-    return [
-        {"required_input": item["required_input"], "questions": dict(item["questions"])}
-        for item in payloads
-    ]
+    if not isinstance(payloads, list):
+        raise TypeError("expert question payloads must be a list")
+    copied: list[dict[str, object]] = []
+    for item in payloads:
+        if not isinstance(item, dict):
+            raise TypeError("expert question payload must be an object")
+        required_input = item.get("required_input")
+        questions = item.get("questions")
+        if not isinstance(required_input, str) or not isinstance(questions, dict):
+            raise TypeError("expert question payload has an invalid shape")
+        copied.append({"required_input": required_input, "questions": dict(questions)})
+    return copied
 
 
 def domain_expert_question_body(context: dict[str, object] | None) -> str | None:
@@ -67,4 +75,4 @@ def domain_expert_question_body(context: dict[str, object] | None) -> str | None
     text = question.get("text")
     if not isinstance(text, str) or not text:
         return None
-    return f"Target workflow: {workflow}\nRequired input: {required_input}\n\n{text}"
+    return text

@@ -101,87 +101,82 @@ class DomainExpertQuestionGoldenTests(unittest.TestCase):
                     )
                     cases.append((message, workflow, required_input, question))
 
-            with _binding(root) as binding:
-                for message, workflow, required_input, question in cases:
-                    with self.subTest(workflow=workflow, question=question):
-                        baseline = build_chat_interaction_payload(
-                            message,
-                            source="discord",
-                            source_metadata={},
-                            paths=paths,
-                        )
-                        applied = build_chat_interaction_payload(
-                            message,
-                            source="discord",
-                            source_metadata={},
-                            paths=paths,
-                            _host_project_binding=binding,
-                        )
-                        context = applied["domain_routing_context"]
-                        expected_body = (
-                            f"Target workflow: {workflow}\n"
-                            f"Required input: {required_input}\n\n"
-                            f"{question}"
-                        )
+            for message, workflow, required_input, question in cases:
+                with self.subTest(workflow=workflow, question=question):
+                    baseline = build_chat_interaction_payload(
+                        message,
+                        source="discord",
+                        source_metadata={},
+                        paths=paths,
+                    )
+                    applied = build_chat_interaction_payload(
+                        message,
+                        source="discord",
+                        source_metadata={},
+                        paths=paths,
+                        _host_project_binding_factory=lambda: _binding(root),
+                    )
+                    context = applied["domain_routing_context"]
+                    expected_body = question
 
-                        self.assertEqual(context["workflow_hint"], workflow)
-                        self.assertEqual(context["required_input"], required_input)
-                        self.assertEqual(context["question"]["text"], question)
-                        self.assertEqual(applied["chat_response"]["body"], expected_body)
-                        self.assertEqual(applied["chat_response"]["body"].count("?"), 1)
-                        self.assertEqual(
-                            applied["chat_response"]["claim_boundary"],
-                            baseline["chat_response"]["claim_boundary"],
-                        )
-                        self.assertEqual(
-                            [action["id"] for action in applied["chat_response"]["actions"]],
-                            ["answer:clarify", "cancel"],
-                        )
-                        self.assertEqual(_canonical_bytes(applied["route"]), _canonical_bytes(baseline["route"]))
-                        self.assertEqual(
-                            _canonical_bytes(applied["route"].get("candidate_handoff")),
-                            _canonical_bytes(baseline["route"].get("candidate_handoff")),
-                        )
-                        self.assertEqual(
-                            _canonical_bytes(
-                                {
-                                    key: value
-                                    for key, value in applied.items()
-                                    if key not in {"domain_routing_context", "chat_response"}
-                                }
-                            ),
-                            _canonical_bytes(
-                                {
-                                    key: value
-                                    for key, value in baseline.items()
-                                    if key != "chat_response"
-                                }
-                            ),
-                        )
-                        self.assertEqual(
-                            _canonical_bytes(
-                                {
-                                    key: value
-                                    for key, value in applied["chat_response"].items()
-                                    if key not in {"body", "messenger_rendering"}
-                                }
-                            ),
-                            _canonical_bytes(
-                                {
-                                    key: value
-                                    for key, value in baseline["chat_response"].items()
-                                    if key not in {"body", "messenger_rendering"}
-                                }
-                            ),
-                        )
-                        self.assertIn(
-                            question,
-                            applied["chat_response"]["messenger_rendering"]["fallback_body_text"],
-                        )
-                        self.assertEqual(
-                            applied["chat_response"]["messenger_rendering"]["fallback_body_text"].count("?"),
-                            1,
-                        )
+                    self.assertEqual(context["workflow_hint"], workflow)
+                    self.assertEqual(context["required_input"], required_input)
+                    self.assertEqual(context["question"]["text"], question)
+                    self.assertEqual(applied["chat_response"]["body"], expected_body)
+                    self.assertEqual(applied["chat_response"]["body"].count("?"), 1)
+                    self.assertEqual(
+                        applied["chat_response"]["claim_boundary"],
+                        baseline["chat_response"]["claim_boundary"],
+                    )
+                    self.assertEqual(
+                        [action["id"] for action in applied["chat_response"]["actions"]],
+                        ["answer:clarify", "cancel"],
+                    )
+                    self.assertEqual(_canonical_bytes(applied["route"]), _canonical_bytes(baseline["route"]))
+                    self.assertEqual(
+                        _canonical_bytes(applied["route"].get("candidate_handoff")),
+                        _canonical_bytes(baseline["route"].get("candidate_handoff")),
+                    )
+                    self.assertEqual(
+                        _canonical_bytes(
+                            {
+                                key: value
+                                for key, value in applied.items()
+                                if key not in {"domain_routing_context", "chat_response"}
+                            }
+                        ),
+                        _canonical_bytes(
+                            {
+                                key: value
+                                for key, value in baseline.items()
+                                if key != "chat_response"
+                            }
+                        ),
+                    )
+                    self.assertEqual(
+                        _canonical_bytes(
+                            {
+                                key: value
+                                for key, value in applied["chat_response"].items()
+                                if key not in {"body", "messenger_rendering"}
+                            }
+                        ),
+                        _canonical_bytes(
+                            {
+                                key: value
+                                for key, value in baseline["chat_response"].items()
+                                if key not in {"body", "messenger_rendering"}
+                            }
+                        ),
+                    )
+                    self.assertIn(
+                        question,
+                        applied["chat_response"]["messenger_rendering"]["fallback_body_text"],
+                    )
+                    self.assertEqual(
+                        applied["chat_response"]["messenger_rendering"]["fallback_body_text"].count("?"),
+                        1,
+                    )
 
     def test_unsupported_script_uses_the_english_question(self) -> None:
         from test_domain_routing_context import _approve_profile, _binding, _repository
@@ -190,22 +185,20 @@ class DomainExpertQuestionGoldenTests(unittest.TestCase):
             root = _repository(Path(tmp) / "unsupported-script-project")
             _approve_profile(root, domain_id="arabic", phrase="طلب غامض")
             paths = resolve_paths(root / ".omh", root / ".hermes")
-            with _binding(root) as binding:
-                payload = build_chat_interaction_payload(
-                    "هذا طلب غامض",
-                    source="discord",
-                    source_metadata={},
-                    paths=paths,
-                    _host_project_binding=binding,
-                )
+            payload = build_chat_interaction_payload(
+                "هذا طلب غامض",
+                source="discord",
+                source_metadata={},
+                paths=paths,
+                _host_project_binding_factory=lambda: _binding(root),
+            )
 
         context = payload["domain_routing_context"]
         self.assertEqual(context["question"]["locale"], "en")
         self.assertEqual(context["required_input"], "account or segment")
-        self.assertTrue(
-            payload["chat_response"]["body"].endswith(
-                "Which account or customer segment should this sales work focus on?"
-            )
+        self.assertEqual(
+            payload["chat_response"]["body"],
+            "Which account or customer segment should this sales work focus on?",
         )
 
     def test_non_applied_and_protected_cases_keep_the_exact_existing_body(self) -> None:
@@ -264,14 +257,13 @@ class DomainExpertQuestionGoldenTests(unittest.TestCase):
             source_metadata={},
             paths=paths,
         )
-        with _binding(root) as binding:
-            actual = build_chat_interaction_payload(
-                message,
-                source="discord",
-                source_metadata={},
-                paths=paths,
-                _host_project_binding=binding,
-            )
+        actual = build_chat_interaction_payload(
+            message,
+            source="discord",
+            source_metadata={},
+            paths=paths,
+            _host_project_binding_factory=lambda: _binding(root),
+        )
 
         self.assertNotIn("domain_routing_context", actual)
         self.assertEqual(_canonical_bytes(actual), _canonical_bytes(baseline))

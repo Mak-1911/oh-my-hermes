@@ -98,14 +98,13 @@ class DomainContextAttachmentTests(unittest.TestCase):
                 source_metadata={},
                 paths=paths,
             )
-            with _binding(root) as binding:
-                applied = build_chat_interaction_payload(
-                    message,
-                    source="discord",
-                    source_metadata={},
-                    paths=paths,
-                    _host_project_binding=binding,
-                )
+            applied = build_chat_interaction_payload(
+                message,
+                source="discord",
+                source_metadata={},
+                paths=paths,
+                _host_project_binding_factory=lambda: _binding(root),
+            )
 
             self.assertNotIn("domain_routing_context", baseline)
             self.assertEqual(
@@ -142,8 +141,6 @@ class DomainContextAttachmentTests(unittest.TestCase):
             )
             self.assertEqual(
                 applied["chat_response"]["body"],
-                "Target workflow: sales-development\n"
-                "Required input: account or segment\n\n"
                 "Which account or customer segment should this sales work focus on?",
             )
             # Messenger rendering is the body-derived presentation, so it must
@@ -164,25 +161,24 @@ class DomainContextAttachmentTests(unittest.TestCase):
                 (root / ".omh" / "memory" / "domain-intelligence" / "profiles").glob("*.json")
             )
             profile_path.write_bytes(b"\xff")
-            with _binding(root) as binding:
-                unhealthy = build_chat_interaction_payload(
-                    "something feels off",
+            unhealthy = build_chat_interaction_payload(
+                "something feels off",
+                source="discord",
+                source_metadata={},
+                paths=paths,
+                _host_project_binding_factory=lambda: _binding(root),
+            )
+            with mock.patch(
+                "omh.wrapper.contract.resolve_domain_routing_context"
+            ) as resolver:
+                protected = build_chat_interaction_payload(
+                    "what's 2+2?",
                     source="discord",
                     source_metadata={},
                     paths=paths,
-                    _host_project_binding=binding,
+                    _host_project_binding_factory=lambda: _binding(root),
                 )
-                with mock.patch(
-                    "omh.wrapper.contract.resolve_domain_routing_context"
-                ) as resolver:
-                    protected = build_chat_interaction_payload(
-                        "what's 2+2?",
-                        source="discord",
-                        source_metadata={},
-                        paths=paths,
-                        _host_project_binding=binding,
-                    )
-                resolver.assert_not_called()
+            resolver.assert_not_called()
 
             self.assertNotIn("domain_routing_context", unhealthy)
             self.assertNotIn("domain_routing_context", protected)
@@ -307,15 +303,14 @@ class DomainContextAttachmentTests(unittest.TestCase):
                 source_metadata={},
                 paths=paths,
             )
-            with _binding(root) as binding:
-                contextual = build_chat_interaction_payload(
-                    message,
-                    source="discord",
-                    mode="delegate",
-                    source_metadata={},
-                    paths=paths,
-                    _host_project_binding=binding,
-                )
+            contextual = build_chat_interaction_payload(
+                message,
+                source="discord",
+                mode="delegate",
+                source_metadata={},
+                paths=paths,
+                _host_project_binding_factory=lambda: _binding(root),
+            )
 
             self.assertEqual(contextual["mode"], "delegate")
             self.assertNotIn("domain_routing_context", contextual)
