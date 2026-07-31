@@ -163,16 +163,24 @@ class DomainExpertQuestionGoldenTests(unittest.TestCase):
                                 {
                                     key: value
                                     for key, value in applied["chat_response"].items()
-                                    if key != "body"
+                                    if key not in {"body", "messenger_rendering"}
                                 }
                             ),
                             _canonical_bytes(
                                 {
                                     key: value
                                     for key, value in baseline["chat_response"].items()
-                                    if key != "body"
+                                    if key not in {"body", "messenger_rendering"}
                                 }
                             ),
+                        )
+                        self.assertIn(
+                            question,
+                            applied["chat_response"]["messenger_rendering"]["fallback_body_text"],
+                        )
+                        self.assertEqual(
+                            applied["chat_response"]["messenger_rendering"]["fallback_body_text"].count("?"),
+                            1,
                         )
 
     def test_unsupported_script_uses_the_english_question(self) -> None:
@@ -202,7 +210,7 @@ class DomainExpertQuestionGoldenTests(unittest.TestCase):
 
     def test_non_applied_and_protected_cases_keep_the_exact_existing_body(self) -> None:
         from omh.workflows.domain_intelligence import retire_domain_profile
-        from test_domain_routing_context import _approve_profile, _binding, _repository
+        from test_domain_routing_context import _approve_profile, _repository
 
         cases = (
             ("empty", [], ()),

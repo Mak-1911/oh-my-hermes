@@ -3881,11 +3881,18 @@ def _build_chat_interaction_payload_uncached(
         return _finish_interaction(base, target_notice)
 
     if resolved_mode == "clarify" or route_payload["action"] != "dispatch":
+        applied_domain_context = (
+            domain_context.get("domain_routing_context")
+            if isinstance(domain_context, dict)
+            and isinstance(domain_context.get("domain_routing_context"), dict)
+            else None
+        )
         base["chat_response"] = build_chat_response_from_route(
             route_payload,
             thread_key=str(base["thread_key"]),
             message=message,
             include_message=include_message,
+            domain_routing_context=applied_domain_context,
         )
         agentic_playbook = maybe_build_agentic_playbook(message, route_payload=route_payload)
         if agentic_playbook:
@@ -4434,6 +4441,7 @@ def build_chat_response_from_route(
     thread_key: str = "",
     message: str = "",
     include_message: bool = False,
+    domain_routing_context: dict[str, object] | None = None,
 ) -> dict[str, object]:
     action = str(decision.get("action", "fallback"))
     copy_locale = detect_copy_locale(message)
@@ -5219,7 +5227,9 @@ def build_chat_response_from_route(
         )
     if action == "clarify":
         copy = chat_copy("clarify", locale=copy_locale)
-        body = copy.body if localized_copy else str(decision.get("clarification") or copy.body)
+        body = _domain_expert_question_body(domain_routing_context)
+        if body is None:
+            body = copy.body if localized_copy else str(decision.get("clarification") or copy.body)
         return _chat_response(
             kind="clarification",
             headline=copy.headline,
@@ -5276,10 +5286,11 @@ def build_chat_response_from_route(
             },
         )
     copy = chat_copy("generic_clarify", locale=copy_locale)
+    body = _domain_expert_question_body(domain_routing_context) or copy.body
     return _chat_response(
         kind="clarification",
         headline=copy.headline,
-        body=copy.body,
+        body=body,
         phase="clarifying",
         next_action="answer_clarification",
         thread_key=thread_key,
@@ -5287,6 +5298,24 @@ def build_chat_response_from_route(
         claim_boundary="No execution has started.",
         extra_state={"route_action": action, "confidence": decision.get("confidence", "low")},
     )
+
+
+def _domain_expert_question_body(context: dict[str, object] | None) -> str | None:
+    if not isinstance(context, dict):
+        return None
+    workflow = context.get("workflow_hint")
+    required_input = context.get("required_input")
+    question = context.get("question")
+    if not isinstance(workflow, str) or not workflow:
+        return None
+    if not isinstance(required_input, str) or not required_input:
+        return None
+    if not isinstance(question, dict):
+        return None
+    text = question.get("text")
+    if not isinstance(text, str) or not text:
+        return None
+    return f"Target workflow: {workflow}\nRequired input: {required_input}\n\n{text}"
 
 
 def _is_file_lookup_fallback(decision: dict[str, object]) -> bool:

@@ -80,8 +80,32 @@ class DomainContextAttachmentTests(unittest.TestCase):
                 _canonical_bytes(baseline["route"].get("candidate_handoff")),
             )
             self.assertEqual(
-                _canonical_bytes(applied["chat_response"]),
-                _canonical_bytes(baseline["chat_response"]),
+                _canonical_bytes(
+                    {
+                        key: value
+                        for key, value in applied["chat_response"].items()
+                        if key not in {"body", "messenger_rendering"}
+                    }
+                ),
+                _canonical_bytes(
+                    {
+                        key: value
+                        for key, value in baseline["chat_response"].items()
+                        if key not in {"body", "messenger_rendering"}
+                    }
+                ),
+            )
+            self.assertEqual(
+                applied["chat_response"]["body"],
+                "Target workflow: sales-development\n"
+                "Required input: account or segment\n\n"
+                "Which account or customer segment should this sales work focus on?",
+            )
+            # Messenger rendering is the body-derived presentation, so it must
+            # carry the same selected question rather than stale generic copy.
+            self.assertIn(
+                applied["domain_routing_context"]["question"]["text"],
+                applied["chat_response"]["messenger_rendering"]["fallback_body_text"],
             )
 
     def test_protected_and_unhealthy_rows_omit_context(self) -> None:
