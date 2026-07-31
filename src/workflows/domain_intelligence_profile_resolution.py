@@ -5,6 +5,7 @@ from pathlib import Path
 import unicodedata
 
 
+MAX_DOMAIN_CONTEXT_INPUT_CODE_POINTS = 4_096
 MAX_DOMAIN_CONTEXT_MATCHES = 64
 
 
@@ -48,6 +49,9 @@ def resolve_domain_clarification_target_result(
     from ..paths import project_identity
     from ..skills import catalog
 
+    if len(message) > MAX_DOMAIN_CONTEXT_INPUT_CODE_POINTS:
+        return DomainClarificationResolution("input_too_large")
+
     expected_scope = {
         "kind": "project",
         "ref": project_identity(project_root),
@@ -55,6 +59,8 @@ def resolve_domain_clarification_target_result(
         "identity_claim": "not_authenticated_identity_evidence",
     }
     normalized_message = _normalize_match_text(message)
+    if len(normalized_message) > MAX_DOMAIN_CONTEXT_INPUT_CODE_POINTS:
+        return DomainClarificationResolution("input_too_large")
     matches: list[tuple[dict[str, object], dict[str, object]]] = []
     for profile in profiles:
         if profile.get("scope") != expected_scope:

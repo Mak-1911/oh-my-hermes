@@ -66,14 +66,13 @@ class DomainContextDiagnosticPrivacyTests(unittest.TestCase):
                 "source_event_id": "diagnostic-event",
                 "channel_ref": "diagnostic-channel",
             }
-            with _binding(root) as binding:
-                interaction = build_chat_interaction_payload(
-                    message,
-                    source="discord",
-                    source_metadata=metadata,
-                    paths=paths,
-                    _host_project_binding=binding,
-                )
+            interaction = build_chat_interaction_payload(
+                message,
+                source="discord",
+                source_metadata=metadata,
+                paths=paths,
+                _host_project_binding_factory=lambda: _binding(root),
+            )
             session = create_or_resume_wrapper_session(
                 paths,
                 message,

@@ -8,6 +8,7 @@ from typing import Sequence
 import unicodedata
 
 from .domain_intelligence_profile_resolution import (
+    MAX_DOMAIN_CONTEXT_INPUT_CODE_POINTS,
     MAX_DOMAIN_CONTEXT_MATCHES,
     DomainClarificationTarget,
     matches_reviewed_phrase,
@@ -17,6 +18,7 @@ from ..system.local_store import FileLockTimeout
 
 
 __all__ = (
+    "MAX_DOMAIN_CONTEXT_INPUT_CODE_POINTS",
     "MAX_DOMAIN_CONTEXT_MATCHES",
     "DomainClarificationTarget",
     "build_domain_routing_context",
@@ -55,6 +57,7 @@ _DOMAIN_ROUTING_RESOLUTION_REASONS = frozenset(
         "empty_workflow_hints",
         "invalid_binding",
         "invalid_request",
+        "input_too_large",
         "match_overflow",
         "missing_binding",
         "missing_question_spec",
@@ -136,6 +139,8 @@ def resolve_domain_routing_context_result(
 
     if not isinstance(message, str):
         return DomainRoutingResolution("absent", "invalid_request")
+    if len(message) > MAX_DOMAIN_CONTEXT_INPUT_CODE_POINTS:
+        return DomainRoutingResolution("excluded", "input_too_large")
     if binding is None:
         return DomainRoutingResolution("absent", "missing_binding")
     if not isinstance(binding, HostProjectBinding):
