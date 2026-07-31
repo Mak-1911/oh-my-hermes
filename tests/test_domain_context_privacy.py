@@ -12,13 +12,12 @@ load_local_package()
 
 from omh.coding_lifecycle import start_codex_delegation_lifecycle
 from omh.paths import resolve_paths
-from omh.runtime_records import (
-    validate_coding_delegation_record,
-)
+from omh.runtime_records import validate_coding_delegation_record
 from omh.workflows.domain_project_context import bind_cli_project
 from omh.wrapper_contract import build_chat_interaction_payload, build_status_card_from_status
 
 from test_domain_routing_context import _approve_profile, _repository
+from test_domain_context_persistence_privacy import DomainContextPersistencePrivacyMixin
 
 
 AUTHORITATIVE_DIRECTORIES = ("candidates", "reviews", "profiles", "history")
@@ -168,7 +167,7 @@ class DomainContextPrivacyTestCase(unittest.TestCase):
         return binding
 
 
-class DomainContextPrivacyTests(DomainContextPrivacyTestCase):
+class DomainContextPrivacyTests(DomainContextPersistencePrivacyMixin, DomainContextPrivacyTestCase):
     def test_public_context_has_only_contract_fields_and_public_digest_inputs(self) -> None:
         interaction = self._applied_interaction()
 
@@ -244,7 +243,3 @@ def _find_key_paths(
         for index, nested in enumerate(value):
             paths.extend(_find_key_paths(nested, target, (*prefix, f"[{index}]")))
     return paths
-
-
-if __name__ == "__main__":
-    unittest.main()

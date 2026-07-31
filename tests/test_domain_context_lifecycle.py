@@ -15,6 +15,8 @@ from _local_package import load_local_package
 
 load_local_package()
 
+from test_domain_context_lifecycle_journey import DomainContextLifecycleJourneyMixin
+
 PUBLIC_CONTEXT_KEYS = {
     "schema_version",
     "workflow_hint",
@@ -203,7 +205,7 @@ def _block_external_connections():
         yield
 
 
-class DomainContextLifecycleTests(unittest.TestCase):
+class DomainContextLifecycleTests(DomainContextLifecycleJourneyMixin, unittest.TestCase):
     def test_unrelated_malformed_health_artifact_suppresses_context(self) -> None:
         with TemporaryDirectory() as temporary:
             root = _repository(Path(temporary) / "unhealthy-project")

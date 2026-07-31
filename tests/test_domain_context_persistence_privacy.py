@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-import unittest
 
 from _local_package import load_local_package
 
@@ -17,16 +16,15 @@ from omh.runtime_records import (
 from omh.workflows.domain_intelligence import retire_domain_profile
 from omh.wrapper_sessions import create_or_resume_wrapper_session
 
-from test_domain_context_privacy import (
-    AUTHORITATIVE_DIRECTORIES,
-    DomainContextPrivacyTestCase,
-    _assert_no_private_material,
-    _authoritative_snapshot,
-)
 
-
-class DomainContextPersistencePrivacyTests(DomainContextPrivacyTestCase):
+class DomainContextPersistencePrivacyMixin:
     def test_applied_interaction_leaves_authoritative_sources_unchanged(self) -> None:
+        from test_domain_context_privacy import (
+            AUTHORITATIVE_DIRECTORIES,
+            _assert_no_private_material,
+            _authoritative_snapshot,
+        )
+
         before = _authoritative_snapshot(self.store)
         stdout = StringIO()
         stderr = StringIO()
@@ -51,6 +49,8 @@ class DomainContextPersistencePrivacyTests(DomainContextPrivacyTestCase):
         )
 
     def test_session_second_turn_rederives_state_without_retaining_context(self) -> None:
+        from test_domain_context_privacy import _assert_no_private_material
+
         calls = 0
 
         def binding_factory():
@@ -102,6 +102,8 @@ class DomainContextPersistencePrivacyTests(DomainContextPrivacyTestCase):
         )
 
     def test_non_authoritative_files_and_logs_contain_no_private_material(self) -> None:
+        from test_domain_context_privacy import _assert_no_private_material
+
         self._applied_interaction()
         create_or_resume_wrapper_session(
             self.paths,
@@ -133,7 +135,3 @@ class DomainContextPersistencePrivacyTests(DomainContextPrivacyTestCase):
             self.private_values,
             label="non-authoritative recursive file and log scan",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

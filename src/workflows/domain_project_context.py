@@ -12,15 +12,7 @@ from .domain_intelligence_bound_store import (
     open_domain_directory_at,
     shared_domain_store_lock_at,
 )
-from .domain_intelligence_store_security import (
-    MAX_DOMAIN_ARTIFACT_BYTES,
-    MAX_DOMAIN_JSON_DEPTH,
-    MAX_DOMAIN_JSON_NODES,
-)
-from .domain_intelligence_store_writer import (
-    open_domain_directory,
-    read_managed_json_at,
-)
+from .domain_intelligence_store_writer import open_domain_directory
 
 
 _BINDING_TOKEN = object()
@@ -142,17 +134,6 @@ def bind_session_project(
     return _bind_root(host_binding.project_root, surface="session")
 
 
-def read_json_at(directory_fd: int, filename: str) -> dict[str, object] | None:
-    """Read one bounded artifact from a descriptor opened by the binding."""
-    return read_managed_json_at(
-        directory_fd,
-        filename,
-        max_bytes=MAX_DOMAIN_ARTIFACT_BYTES,
-        max_depth=MAX_DOMAIN_JSON_DEPTH,
-        max_nodes=MAX_DOMAIN_JSON_NODES,
-    )
-
-
 def _bind_root(root: Path, *, surface: str) -> HostProjectBinding | None:
     try:
         canonical = root.resolve(strict=True)
@@ -167,17 +148,19 @@ def _bind_root(root: Path, *, surface: str) -> HostProjectBinding | None:
         descriptor = open_domain_directory(project_paths, create=False)
     except (OSError, ValueError):
         return None
+    binding: HostProjectBinding | None = None
     try:
-        return HostProjectBinding(
+        binding = HostProjectBinding(
             canonical,
             project_paths,
             descriptor,
             surface,
             _token=_BINDING_TOKEN,
         )
-    except Exception:
-        os.close(descriptor)
-        raise
+        return binding
+    finally:
+        if binding is None:
+            os.close(descriptor)
 
 
 def _paths_for_root(root: Path) -> OmhPaths:

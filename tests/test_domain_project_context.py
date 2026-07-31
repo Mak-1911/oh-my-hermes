@@ -1,18 +1,23 @@
 from __future__ import annotations
 
-import fcntl
 import importlib
-import inspect
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import time
 import unittest
 from unittest.mock import patch
 
 from _local_package import load_local_package
 
 load_local_package()
+
+from omh.workflows.domain_intelligence_store_security import (
+    MAX_DOMAIN_ARTIFACT_BYTES,
+    MAX_DOMAIN_JSON_DEPTH,
+    MAX_DOMAIN_JSON_NODES,
+)
+from omh.workflows.domain_intelligence_store_writer import read_managed_json_at
+from domain_project_context_lock_mixin import DomainProjectContextLockMixin
 
 
 def _repo(root: Path, *, linked_worktree: bool = False) -> Path:
@@ -36,7 +41,17 @@ def _domain_store(root: Path, *, marker: str = "bound") -> Path:
     return store
 
 
-class DomainProjectContextTests(unittest.TestCase):
+def _read_marker(directory_fd: int) -> dict[str, object] | None:
+    return read_managed_json_at(
+        directory_fd,
+        "marker.json",
+        max_bytes=MAX_DOMAIN_ARTIFACT_BYTES,
+        max_depth=MAX_DOMAIN_JSON_DEPTH,
+        max_nodes=MAX_DOMAIN_JSON_NODES,
+    )
+
+
+class DomainProjectContextTests(DomainProjectContextLockMixin, unittest.TestCase):
     def _module(self):
         return importlib.import_module("omh.workflows.domain_project_context")
 
@@ -160,9 +175,9 @@ class DomainProjectContextTests(unittest.TestCase):
             self.addCleanup(self._close, second_binding)
 
             with first_binding.open_directory("profiles") as directory_fd:
-                first_value = domain_context.read_json_at(directory_fd, "marker.json")
+                first_value = _read_marker(directory_fd)
             with second_binding.open_directory("profiles") as directory_fd:
-                second_value = domain_context.read_json_at(directory_fd, "marker.json")
+                second_value = _read_marker(directory_fd)
             self.assertEqual(first_value, {"marker": "first"})
             self.assertEqual(second_value, {"marker": "second"})
 
@@ -182,7 +197,7 @@ class DomainProjectContextTests(unittest.TestCase):
 
             with binding.shared_store_lock():
                 with binding.open_directory("profiles") as directory_fd:
-                    value = domain_context.read_json_at(directory_fd, "marker.json")
+                    value = _read_marker(directory_fd)
 
             self.assertEqual(value, {"marker": "opened-before-swap"})
             opened_store = opened_home / "memory" / "domain-intelligence"
@@ -202,82 +217,27 @@ class DomainProjectContextTests(unittest.TestCase):
 
             self.assertIsNone(domain_context.bind_cli_project(root))
 
-    def test_shared_lock_is_descriptor_relative_nonblocking_and_fail_closed(self) -> None:
-        domain_context = self._module()
-        bound_store = importlib.import_module(
-            "omh.workflows.domain_intelligence_bound_store"
-        )
-        with TemporaryDirectory() as tmp:
-            root = _repo(Path(tmp).resolve() / "lock-project")
-            store = _domain_store(root)
-            binding = domain_context.bind_cli_project(root)
-            self.addCleanup(self._close, binding)
-            self.assertIsNotNone(binding)
-
-            signature = inspect.signature(bound_store.shared_domain_store_lock_at)
-            self.assertEqual(signature.parameters["timeout_seconds"].default, 0.25)
-            self.assertEqual(signature.parameters["poll_interval"].default, 0.01)
-
-            with binding.shared_store_lock() as state:
-                self.assertEqual(state, {"locked": True, "mode": "shared"})
-                contender = os.open(store / ".store.lock", os.O_RDWR)
-                try:
-                    with self.assertRaises(BlockingIOError):
-                        fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                finally:
-                    os.close(contender)
-
-            with patch.object(bound_store, "fcntl", None):
-                with self.assertRaisesRegex(ValueError, "shared_lock_unavailable"):
-                    with binding.shared_store_lock():
-                        pass
-
-            (store / ".store.lock").unlink()
-            with self.assertRaises(FileNotFoundError):
-                with binding.shared_store_lock():
-                    pass
-
-    def test_shared_lock_times_out_without_creating_or_reopening_lock(self) -> None:
+    def test_binding_constructor_failure_closes_owned_descriptor(self) -> None:
         domain_context = self._module()
         with TemporaryDirectory() as tmp:
-            root = _repo(Path(tmp).resolve() / "busy-lock-project")
+            root = _repo(Path(tmp).resolve() / "constructor-failure")
             store = _domain_store(root)
-            binding = domain_context.bind_cli_project(root)
-            self.addCleanup(self._close, binding)
-            contender = os.open(store / ".store.lock", os.O_RDWR)
-            fcntl.flock(contender, fcntl.LOCK_EX)
-            try:
-                with self.assertRaisesRegex(Exception, "within 0.03s"):
-                    with binding.shared_store_lock(
-                        timeout_seconds=0.03, poll_interval=0.01
-                    ):
-                        pass
-            finally:
-                fcntl.flock(contender, fcntl.LOCK_UN)
-                os.close(contender)
+            descriptor = os.open(store, os.O_RDONLY | os.O_DIRECTORY)
+            with (
+                patch.object(
+                    domain_context, "open_domain_directory", return_value=descriptor
+                ),
+                patch.object(
+                    domain_context,
+                    "HostProjectBinding",
+                    side_effect=RuntimeError("construction failed"),
+                ),
+                self.assertRaisesRegex(RuntimeError, "construction failed"),
+            ):
+                domain_context.bind_cli_project(root)
 
-    def test_shared_lock_honors_configured_poll_interval(self) -> None:
-        domain_context = self._module()
-        with TemporaryDirectory() as tmp:
-            root = _repo(Path(tmp).resolve() / "polling-lock-project")
-            store = _domain_store(root)
-            binding = domain_context.bind_cli_project(root)
-            self.addCleanup(self._close, binding)
-            contender = os.open(store / ".store.lock", os.O_RDWR)
-            fcntl.flock(contender, fcntl.LOCK_EX)
-            try:
-                with patch("time.sleep", wraps=time.sleep) as sleep:
-                    with self.assertRaisesRegex(Exception, "within 0.03s"):
-                        with binding.shared_store_lock(
-                            timeout_seconds=0.03,
-                            poll_interval=0.02,
-                        ):
-                            pass
-                self.assertGreaterEqual(sleep.call_count, 1)
-                self.assertEqual({call.args for call in sleep.call_args_list}, {(0.02,)})
-            finally:
-                fcntl.flock(contender, fcntl.LOCK_UN)
-                os.close(contender)
+            with self.assertRaises(OSError):
+                os.fstat(descriptor)
 
 
 if __name__ == "__main__":

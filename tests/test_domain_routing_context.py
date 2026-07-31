@@ -82,3 +82,11 @@ def _binding(root: Path):
 
 def _store(root: Path) -> Path:
     return root / ".omh" / "memory" / "domain-intelligence"
+
+
+def __getattr__(name: str):
+    if name == "DomainContextResolverTests":
+        from test_domain_context_resolution import DomainContextResolverTests
+
+        return DomainContextResolverTests
+    raise AttributeError(name)

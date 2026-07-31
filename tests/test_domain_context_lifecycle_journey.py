@@ -3,24 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import unittest
 
 from _local_package import load_local_package
 
 load_local_package()
 
-from test_domain_context_lifecycle import (
-    EN_SALES_QUESTION,
-    _approve_candidate,
-    _assert_applied_context,
-    _block_external_connections,
-    _canonical,
-    _capture_candidate,
-    _chat,
-    _repository,
-    _run_omh,
-    _unresolved_message,
-)
 from test_plugin_distribution import FakeHermesContext, load_installed_plugin
 
 
@@ -37,6 +24,8 @@ def _session_turn(
     event_id: str = "event-lifecycle",
     channel_ref: str = "channel-lifecycle",
 ) -> dict[str, object]:
+    from test_domain_context_lifecycle import _run_omh
+
     return _run_omh(
         root,
         "--scope",
@@ -54,8 +43,21 @@ def _session_turn(
     )
 
 
-class DomainContextLifecycleJourneyTests(unittest.TestCase):
+class DomainContextLifecycleJourneyMixin:
     def test_public_capture_approve_replace_retire_journey(self) -> None:
+        from test_domain_context_lifecycle import (
+            EN_SALES_QUESTION,
+            _approve_candidate,
+            _assert_applied_context,
+            _block_external_connections,
+            _canonical,
+            _capture_candidate,
+            _chat,
+            _repository,
+            _run_omh,
+            _unresolved_message,
+        )
+
         with TemporaryDirectory() as temporary:
             root = _repository(Path(temporary) / "redwood-project")
             phrase = "expert-marker-100-en"
@@ -186,7 +188,3 @@ class DomainContextLifecycleJourneyTests(unittest.TestCase):
             self.assertNotIn("domain_routing_context", after_retirement)
             self.assertEqual(after_retirement["chat_response"]["body"], generic_body)
             self.assertEqual(_canonical(after_retirement["route"]), baseline_route)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -269,7 +269,3 @@ class DomainContextResolverTests(unittest.TestCase):
                             )
                     self.assertTrue(mutated)
                     self.assertLessEqual(reader.call_count, 4)
-
-
-if __name__ == "__main__":
-    unittest.main()
