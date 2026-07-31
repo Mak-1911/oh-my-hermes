@@ -10,6 +10,7 @@ from ..coding_contracts import (
     CLAUDE_CODE_SESSION_OBSERVATION_CONTRACT_SCHEMA_VERSION,
     CODING_EXECUTOR_TARGETS,
     CODEX_SESSION_OBSERVATION_CONTRACT_SCHEMA_VERSION,
+    EXECUTOR_PROMPTING_REQUIRED_SECTIONS,
     EXECUTOR_HANDOFF_SCHEMA_VERSION,
     LOCAL_CAPABILITY_REPORT_ALLOWED_KINDS,
     LOCAL_CAPABILITY_REPORT_CAPABILITY_FIELDS,
@@ -20,6 +21,7 @@ from ..coding_contracts import (
     TASK_PROMPT_CONTRACT_SCHEMA_VERSION,
     TASK_PROMPT_REQUIRED_SECTIONS,
 )
+from .prompting import build_executor_prompting_contract, render_executor_prompt_sections
 from ..executors import (
     HERMES_CODING_TEAM_WRAPPER_ACTIONS,
     executor_label,
@@ -391,15 +393,54 @@ def build_coding_delegation_payload(
     ):
         payload["delegation_policy"] = inline_coding_policy_payload()
     if selection.selected_executor_profile == "codex" and delegation.action == "delegate":
-        payload["executor_handoff"] = _executor_handoff(executor_target, delegation, isolation_plan=isolation_plan)
+        prompting_contract = _executor_prompting_contract(
+            "codex",
+            delegation,
+            message=message,
+            isolation_plan=isolation_plan,
+            has_plan_artifact=bool(plan_artifact),
+            plan_artifact_status=str(plan_artifact.get("status", "")) if plan_artifact else "",
+        )
+        payload["executor_handoff"] = _executor_handoff(
+            executor_target,
+            delegation,
+            isolation_plan=isolation_plan,
+            prompting_contract=prompting_contract,
+        )
         _attach_context_pack(payload["executor_handoff"], context_pack)
         _attach_memory_recall_pack(payload["executor_handoff"], memory_recall_pack)
     elif selection.work_owner_mode == "runtime_handoff" and selection.selected_executor_profile and delegation.action == "delegate":
-        payload["runtime_handoff"] = _runtime_handoff(selection.selected_executor_profile, delegation, isolation_plan=isolation_plan)
+        prompting_contract = _executor_prompting_contract(
+            selection.selected_executor_profile,
+            delegation,
+            message=message,
+            isolation_plan=isolation_plan,
+            has_plan_artifact=bool(plan_artifact),
+            plan_artifact_status=str(plan_artifact.get("status", "")) if plan_artifact else "",
+        )
+        payload["runtime_handoff"] = _runtime_handoff(
+            selection.selected_executor_profile,
+            delegation,
+            isolation_plan=isolation_plan,
+            prompting_contract=prompting_contract,
+        )
         _attach_context_pack(payload["runtime_handoff"], context_pack)
         _attach_memory_recall_pack(payload["runtime_handoff"], memory_recall_pack)
     elif selection.work_owner_mode == "prompt_only_handoff" and selection.selected_executor_profile and delegation.action == "delegate":
-        payload["prompt_handoff"] = _prompt_handoff(selection.selected_executor_profile, delegation, isolation_plan=isolation_plan)
+        prompting_contract = _executor_prompting_contract(
+            selection.selected_executor_profile,
+            delegation,
+            message=message,
+            isolation_plan=isolation_plan,
+            has_plan_artifact=bool(plan_artifact),
+            plan_artifact_status=str(plan_artifact.get("status", "")) if plan_artifact else "",
+        )
+        payload["prompt_handoff"] = _prompt_handoff(
+            selection.selected_executor_profile,
+            delegation,
+            isolation_plan=isolation_plan,
+            prompting_contract=prompting_contract,
+        )
         _attach_context_pack(payload["prompt_handoff"], context_pack)
         _attach_memory_recall_pack(payload["prompt_handoff"], memory_recall_pack)
     specialist_work_quality = build_specialist_work_quality_contract(
@@ -816,6 +857,7 @@ def _executor_handoff(
     delegation: CodingDelegation,
     *,
     isolation_plan: dict[str, object],
+    prompting_contract: dict[str, object],
 ) -> dict[str, object]:
     if executor_target != "codex":
         raise ValueError(f"unsupported coding delegate executor: {executor_target}")
@@ -844,11 +886,16 @@ def _executor_handoff(
         "dispatch_contract": "wrapper_dispatches_to_codex; omh_does_not_execute_codex",
         "executor_readiness": executor_readiness_contract("codex"),
         "task_prompt_contract": _task_prompt_contract("codex"),
+        "executor_prompting_contract": prompting_contract,
         "session_observation_contract": _codex_session_observation_contract(),
         "local_capability_report_contract": _local_capability_report_contract("codex"),
-        "prompt_template": _codex_prompt_template(delegation, codex_skill=codex_skill),
+        "prompt_template": _codex_prompt_template(
+            delegation,
+            codex_skill=codex_skill,
+            prompting_contract=prompting_contract,
+        ),
         "execution_brief": {
-            "task_source": "original_message_at_dispatch_time",
+            "task_source": str(prompting_contract["task_source"]),
             "recommended_workflow": delegation.recommended_workflow,
             "recommended_harness": delegation.recommended_harness,
             "intent": delegation.intent,
@@ -917,6 +964,7 @@ def _prompt_handoff(
     delegation: CodingDelegation,
     *,
     isolation_plan: dict[str, object],
+    prompting_contract: dict[str, object],
 ) -> dict[str, object]:
     invocation = prompt_invocation_for_profile(profile)
     label = executor_label(profile)
@@ -933,8 +981,14 @@ def _prompt_handoff(
         "executor_local_capability_strategy": _executor_local_capability_strategy(profile),
         "executor_capability_snapshot": _prepared_executor_capability_snapshot(profile),
         "task_prompt_contract": _task_prompt_contract(profile),
+        "executor_prompting_contract": prompting_contract,
         "local_capability_report_contract": _local_capability_report_contract(profile),
-        "prompt_template": _prompt_only_template(delegation, profile=profile, label=label),
+        "prompt_template": _prompt_only_template(
+            delegation,
+            profile=profile,
+            label=label,
+            prompting_contract=prompting_contract,
+        ),
         "isolation_plan": isolation_plan,
         "scope": [
             "Use the original task message as the executor request.",
@@ -980,6 +1034,7 @@ def _runtime_handoff(
     delegation: CodingDelegation,
     *,
     isolation_plan: dict[str, object],
+    prompting_contract: dict[str, object],
 ) -> dict[str, object]:
     invocation = runtime_invocation_for_profile(profile)
     contract = runtime_profile_contract(profile)
@@ -998,10 +1053,16 @@ def _runtime_handoff(
         "executor_local_capability_strategy": _executor_local_capability_strategy(profile),
         "executor_capability_snapshot": _prepared_executor_capability_snapshot(profile),
         "task_prompt_contract": _task_prompt_contract(profile),
+        "executor_prompting_contract": prompting_contract,
         "local_capability_report_contract": _local_capability_report_contract(profile),
-        "prompt_template": _runtime_prompt_template(delegation, profile=profile, label=label),
+        "prompt_template": _runtime_prompt_template(
+            delegation,
+            profile=profile,
+            label=label,
+            prompting_contract=prompting_contract,
+        ),
         "runtime_brief": {
-            "task_source": "original_message_at_runtime_start",
+            "task_source": str(prompting_contract["task_source"]),
             "recommended_workflow": delegation.recommended_workflow,
             "recommended_harness": delegation.recommended_harness,
             "intent": delegation.intent,
@@ -1284,6 +1345,25 @@ def _task_prompt_contract(profile: str) -> dict[str, object]:
     }
 
 
+def _executor_prompting_contract(
+    profile: str,
+    delegation: CodingDelegation,
+    *,
+    message: str,
+    isolation_plan: dict[str, object],
+    has_plan_artifact: bool,
+    plan_artifact_status: str,
+) -> dict[str, object]:
+    return build_executor_prompting_contract(
+        profile,
+        intent=delegation.intent,
+        message=message,
+        has_plan_artifact=has_plan_artifact,
+        plan_artifact_status=plan_artifact_status,
+        isolation_plan=isolation_plan,
+    )
+
+
 def _codex_session_observation_contract() -> dict[str, object]:
     return {
         "schema_version": CODEX_SESSION_OBSERVATION_CONTRACT_SCHEMA_VERSION,
@@ -1404,8 +1484,11 @@ def _task_prompt_shape_block() -> str:
     return (
         "Task prompt shape:\n"
         "- Shape executor-facing work as: Goal / Do / Don't / Expected result / Test.\n"
-        "- Keep dispatch prompts in English unless preserving identifiers, paths, errors, quotes, or target-language output.\n"
-        "- If steering an active turn, send only the corrective delta instead of replaying the full prompt.\n\n"
+        "- Extend that base with required executor sections: "
+        + " / ".join(EXECUTOR_PROMPTING_REQUIRED_SECTIONS)
+        + ".\n"
+        + "- Keep dispatch prompts in English unless preserving identifiers, paths, errors, quotes, or target-language output.\n"
+        + "- If steering an active turn, send only the corrective delta instead of replaying the full prompt.\n\n"
     )
 
 
@@ -1473,7 +1556,12 @@ def _runtime_local_capability_prompt_block(profile: str, label: str) -> str:
     )
 
 
-def _codex_prompt_template(delegation: CodingDelegation, *, codex_skill: str) -> str:
+def _codex_prompt_template(
+    delegation: CodingDelegation,
+    *,
+    codex_skill: str,
+    prompting_contract: dict[str, object],
+) -> str:
     return (
         "You are Codex, acting as the coding executor for a Hermes-orchestrated request.\n\n"
         "Executor target: codex\n"
@@ -1490,21 +1578,26 @@ def _codex_prompt_template(delegation: CodingDelegation, *, codex_skill: str) ->
         "- Preserve unrelated behavior and user changes.\n"
         "- Run targeted verification and report exact evidence.\n"
         "- Do not say Hermes performed the implementation; Hermes prepared this handoff.\n\n"
-        "Report back with: status, changed_files, commits, tests_run, blockers, evidence_refs, "
-        "local_capabilities_used, local_capability_evidence_refs, and local_capability_fallback_reason.\n\n"
-        "Task:\n{message}"
+        "Report local executor capabilities only with evidence refs.\n\n"
+        "{prompt_sections}"
     ).format(
         codex_skill=codex_skill,
         workflow=delegation.recommended_workflow,
         harness=delegation.recommended_harness,
         intent=delegation.intent,
-        message="{message}",
         local_capability_prompt=_local_capability_prompt_block("codex", "Codex"),
         task_prompt_shape=_task_prompt_shape_block(),
+        prompt_sections=_executor_prompt_sections(delegation, prompting_contract),
     )
 
 
-def _prompt_only_template(delegation: CodingDelegation, *, profile: str, label: str) -> str:
+def _prompt_only_template(
+    delegation: CodingDelegation,
+    *,
+    profile: str,
+    label: str,
+    prompting_contract: dict[str, object],
+) -> str:
     return (
         "You are {label}, receiving a Hermes-orchestrated coding handoff.\n\n"
         "Executor profile: `{profile}`\n"
@@ -1517,23 +1610,27 @@ def _prompt_only_template(delegation: CodingDelegation, *, profile: str, label: 
         "Rules:\n"
         "- Treat this as a prompt prepared by Hermes/OMH, not as observed execution.\n"
         "- Inspect the repository or local context before claiming a code change.\n"
-        "- Report exact files changed, verification commands, blockers, evidence refs, local_capabilities_used, "
-        "local_capability_evidence_refs, and local_capability_fallback_reason.\n"
         "- Do not claim Hermes performed implementation, review, CI, or merge work.\n\n"
-        "Task:\n{message}"
+        "{prompt_sections}"
     ).format(
         label=label,
         profile=profile,
         workflow=delegation.recommended_workflow,
         harness=delegation.recommended_harness,
         intent=delegation.intent,
-        message="{message}",
         local_capability_prompt=_local_capability_prompt_block(profile, label),
         task_prompt_shape=_task_prompt_shape_block(),
+        prompt_sections=_executor_prompt_sections(delegation, prompting_contract),
     )
 
 
-def _runtime_prompt_template(delegation: CodingDelegation, *, profile: str, label: str) -> str:
+def _runtime_prompt_template(
+    delegation: CodingDelegation,
+    *,
+    profile: str,
+    label: str,
+    prompting_contract: dict[str, object],
+) -> str:
     return (
         "You are {label}, receiving a Hermes-orchestrated runtime handoff.\n\n"
         "Runtime profile: `{profile}`\n"
@@ -1549,19 +1646,28 @@ def _runtime_prompt_template(delegation: CodingDelegation, *, profile: str, labe
         "- Use tmux-style workers, panes, or equivalent runtime lanes when parallel coding is selected.\n"
         "- Use a worktree or equivalent isolation before risky or parallel coding.\n"
         "- Workers must ACK, claim scope/files, report results, and escalate blockers to the leader.\n"
-        "- Report exact files changed, worktrees used, verification commands, blockers, evidence refs, "
-        "local_capabilities_used, local_capability_evidence_refs, and local_capability_fallback_reason.\n"
         "- Do not claim Hermes, OMH, or this runtime completed implementation, review, CI, or merge work without observed evidence.\n\n"
-        "Task:\n{message}"
+        "{prompt_sections}"
     ).format(
         label=label,
         profile=profile,
         workflow=delegation.recommended_workflow,
         harness=delegation.recommended_harness,
         intent=delegation.intent,
-        message="{message}",
         local_capability_prompt=_runtime_local_capability_prompt_block(profile, label),
         task_prompt_shape=_task_prompt_shape_block(),
+        prompt_sections=_executor_prompt_sections(delegation, prompting_contract),
+    )
+
+
+def _executor_prompt_sections(delegation: CodingDelegation, prompting_contract: dict[str, object]) -> str:
+    return render_executor_prompt_sections(
+        prompting_contract,
+        recommended_workflow=delegation.recommended_workflow,
+        recommended_harness=delegation.recommended_harness,
+        acceptance_criteria=delegation.acceptance_criteria,
+        verification=delegation.verification,
+        review_required=delegation.review_required,
     )
 
 

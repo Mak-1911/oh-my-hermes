@@ -7968,6 +7968,18 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("English", task_contract["language_policy"])
         self.assertIn("changed constraint", task_contract["steering_policy"])
         self.assertIn("not dispatch", task_contract["claim_boundary"])
+        prompting_contract = handoff["executor_prompting_contract"]
+        self.assertEqual(prompting_contract["schema_version"], "executor_prompting_contract/v1")
+        self.assertEqual(prompting_contract["profile"], "codex")
+        self.assertEqual(prompting_contract["status"], "prepared_not_observed")
+        self.assertEqual(prompting_contract["strategy"], "risk_aware_change")
+        self.assertIn("Known context", prompting_contract["required_sections"])
+        self.assertIn("Progress and blockers", prompting_contract["required_sections"])
+        self.assertIn("{changed_constraint}", prompting_contract["steering_delta_template"])
+        self.assertIn("not dispatch", prompting_contract["claim_boundary"])
+        self.assertIn("Known context\n", handoff["prompt_template"])
+        self.assertIn("Unknowns and decision rule\n", handoff["prompt_template"])
+        self.assertIn("Evidence boundary\n", handoff["prompt_template"])
         session_contract = handoff["session_observation_contract"]
         self.assertEqual(session_contract["schema_version"], "codex_session_observation_contract/v1")
         self.assertEqual(session_contract["profile"], "codex")
@@ -9818,6 +9830,22 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             draft_payload = json.loads(stdout)
             self.assertEqual(draft_payload["plan_artifact"]["status"], "draft")
             self.assertEqual(draft_payload["runtime"]["coding_delegation"]["plan_artifact"]["status"], "draft")
+            self.assertEqual(
+                draft_payload["executor_handoff"]["executor_prompting_contract"]["task_source"],
+                "draft_plan_artifact",
+            )
+            self.assertEqual(
+                draft_payload["runtime"]["coding_delegation"]["executor_handoff"][
+                    "executor_prompting_contract"
+                ]["task_source"],
+                "draft_plan_artifact",
+            )
+            self.assertEqual(
+                draft_payload["executor_handoff"]["execution_brief"]["task_source"],
+                "draft_plan_artifact",
+            )
+            self.assertIn("draft Hermes plan artifact", draft_payload["executor_handoff"]["scope"][0])
+            self.assertNotIn("accepted plan artifact", draft_payload["runtime"]["run"]["inputs_summary"])
 
             invalid_plan = root / "not-a-plan.md"
             invalid_plan.write_text("---\nschema_version: other/v1\nstatus: accepted\n---\n# Not a Hermes plan\n", encoding="utf-8")
@@ -9853,6 +9881,14 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("Discord or chat summary is not the executor plan", payload["message"])
             self.assertEqual(payload["selected_executor_profile"], "codex")
             self.assertEqual(payload["executor_handoff"]["execution_brief"]["task_source"], "accepted_plan_artifact")
+            self.assertEqual(
+                payload["executor_handoff"]["executor_prompting_contract"]["strategy"],
+                "plan_backed_change",
+            )
+            self.assertEqual(
+                payload["executor_handoff"]["executor_prompting_contract"]["task_source"],
+                "accepted_plan_artifact",
+            )
             self.assertIn("plan_artifact_context_required", payload["executor_handoff"]["dispatch_contract"])
             self.assertEqual(payload["executor_handoff"]["context_pack"]["included_context"][0]["key"], "plan_artifact")
             self.assertEqual(payload["executor_handoff"]["context_pack"]["metadata"]["plan_artifact_path"], str(plan_path.resolve()))
@@ -9870,6 +9906,17 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(record["plan_artifact"]["status"], "accepted")
             self.assertEqual(record["source_metadata"]["plan_artifact_status"], "accepted")
             self.assertEqual(record["executor_handoff"]["execution_brief"]["task_source"], "accepted_plan_artifact")
+            self.assertEqual(
+                record["executor_handoff"]["executor_prompting_contract"]["strategy"],
+                "plan_backed_change",
+            )
+            self.assertEqual(
+                record["executor_handoff"]["executor_prompting_contract"]["task_source"],
+                "accepted_plan_artifact",
+            )
+            record_json = json.dumps(record)
+            self.assertNotIn(payload["message"], record_json)
+            self.assertNotIn("BEGIN ACCEPTED HERMES PLAN", record_json)
 
             status, stdout, stderr = run_cli(base + ["runtime", "show", run_id])
             self.assertEqual(stderr, "")

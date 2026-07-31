@@ -52,6 +52,7 @@ from omh.runtime.records import (
     validate_coding_executor_handoff,
     validate_coding_prompt_handoff,
     validate_coding_runtime_handoff,
+    validate_executor_prompting_contract,
     validate_isolation_plan,
 )
 
@@ -397,6 +398,46 @@ class RuntimeArtifactTests(unittest.TestCase):
             self.assertTrue(coding_delegation["verification"])
             self.assertTrue(validate_runtime(paths, run["run_id"])["ok"])
 
+    def test_write_coding_delegation_preserves_prompting_contract_across_profiles(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            cases = (
+                ("codex", "executor_handoff"),
+                ("claude-code", "prompt_handoff"),
+                ("hermes", "runtime_handoff"),
+                ("omx-runtime", "runtime_handoff"),
+            )
+            message = "Safely refactor src/example.py and add focused tests."
+
+            for executor, handoff_key in cases:
+                with self.subTest(executor=executor):
+                    run = create_run(
+                        paths,
+                        {
+                            "skill": "safe-feature-change",
+                            "harness": "coding-handling",
+                            "status": "started",
+                        },
+                    )
+                    payload = build_coding_delegation_payload(
+                        message,
+                        executor_target=executor,
+                    )
+
+                    record = write_coding_delegation(
+                        paths.runtime_runs_dir / run["run_id"],
+                        coding_delegation_record_payload(payload, message),
+                    )
+
+                    prompting_contract = record[handoff_key]["executor_prompting_contract"]
+                    self.assertEqual(prompting_contract["profile"], executor)
+                    self.assertEqual(prompting_contract["strategy"], "risk_aware_change")
+                    self.assertEqual(prompting_contract["status"], "prepared_not_observed")
+                    self.assertIn(
+                        "{required_action}",
+                        prompting_contract["steering_delta_template"],
+                    )
+
     def test_validate_coding_delegation_rejects_top_level_raw_prompt(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
@@ -428,6 +469,7 @@ class RuntimeArtifactTests(unittest.TestCase):
             del legacy["executor_local_capability_strategy"]
             del legacy["executor_capability_snapshot"]
             del legacy["task_prompt_contract"]
+            del legacy["executor_prompting_contract"]
             if "local_capability_report_contract" in legacy:
                 del legacy["local_capability_report_contract"]
             if "session_observation_contract" in legacy:
@@ -545,6 +587,11 @@ class RuntimeArtifactTests(unittest.TestCase):
         self.assertEqual(validate_coding_prompt_handoff(generic_prompt), [])
         self.assertEqual(validate_coding_runtime_handoff(runtime), [])
         self.assertEqual(executor["task_prompt_contract"]["required_sections"], ["Goal", "Do", "Don't", "Expected result", "Test"])
+        self.assertEqual(executor["executor_prompting_contract"]["profile"], "codex")
+        self.assertEqual(prompt["executor_prompting_contract"]["profile"], "claude-code")
+        self.assertEqual(runtime["executor_prompting_contract"]["profile"], "omx-runtime")
+        self.assertIn("Known context", executor["executor_prompting_contract"]["required_sections"])
+        self.assertIn("{required_action}", executor["executor_prompting_contract"]["steering_delta_template"])
         self.assertEqual(prompt["task_prompt_contract"]["profile"], "claude-code")
         self.assertEqual(runtime["task_prompt_contract"]["profile"], "omx-runtime")
         self.assertEqual(executor["local_capability_report_contract"]["profile"], "codex")
@@ -565,6 +612,27 @@ class RuntimeArtifactTests(unittest.TestCase):
         missing_section = deepcopy(executor)
         missing_section["task_prompt_contract"]["required_sections"].remove("Test")
         self.assertIn("required_sections must include required sections", json.dumps(validate_coding_executor_handoff(missing_section)))
+
+        missing_prompt_section = deepcopy(executor["executor_prompting_contract"])
+        missing_prompt_section["required_sections"].remove("Evidence boundary")
+        self.assertIn(
+            "required_sections must include required sections",
+            json.dumps(validate_executor_prompting_contract(missing_prompt_section, "prompting", expected_profile="codex")),
+        )
+
+        mismatched_executor_source = deepcopy(executor)
+        mismatched_executor_source["executor_prompting_contract"]["task_source"] = "accepted_plan_artifact"
+        self.assertIn(
+            "executor_prompting_contract.task_source must match execution_brief.task_source",
+            json.dumps(validate_coding_executor_handoff(mismatched_executor_source)),
+        )
+
+        mismatched_runtime_source = deepcopy(runtime)
+        mismatched_runtime_source["executor_prompting_contract"]["task_source"] = "accepted_plan_artifact"
+        self.assertIn(
+            "executor_prompting_contract.task_source must match runtime_brief.task_source",
+            json.dumps(validate_coding_runtime_handoff(mismatched_runtime_source)),
+        )
 
         leaked_prompt = deepcopy(generic_prompt)
         leaked_prompt["session_observation_contract"] = deepcopy(prompt["session_observation_contract"])

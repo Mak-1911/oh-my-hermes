@@ -225,6 +225,16 @@ def _coding_plan_artifact(artifact: dict[str, object]) -> dict[str, object]:
 
 
 def _apply_plan_handoff_source(payload: dict[str, object]) -> None:
+    plan_artifact = payload.get("plan_artifact")
+    plan_status = str(plan_artifact.get("status", "")) if isinstance(plan_artifact, dict) else ""
+    is_draft = plan_status == "draft"
+    task_source = "draft_plan_artifact" if is_draft else "accepted_plan_artifact"
+    scope_instruction = (
+        "Use the explicitly allowed draft Hermes plan artifact as the executor request; "
+        "verify unresolved decisions before acting."
+        if is_draft
+        else "Use the accepted Hermes plan artifact as the executor request."
+    )
     for key, brief_key in (
         ("executor_handoff", "execution_brief"),
         ("runtime_handoff", "runtime_brief"),
@@ -234,17 +244,18 @@ def _apply_plan_handoff_source(payload: dict[str, object]) -> None:
         if not isinstance(handoff, dict):
             continue
         if brief_key and isinstance(handoff.get(brief_key), dict):
-            handoff[brief_key]["task_source"] = "accepted_plan_artifact"
+            handoff[brief_key]["task_source"] = task_source
         scope = handoff.get("scope")
         if isinstance(scope, list):
-            scope.insert(0, "Use the accepted Hermes plan artifact as the executor request.")
+            scope.insert(0, scope_instruction)
         handoff["dispatch_contract"] = str(handoff.get("dispatch_contract", "")) + "; plan_artifact_context_required"
 
 
 def _inputs_summary(source: str, message: str, *, plan_artifact: dict[str, object] | None) -> str:
     if plan_artifact:
+        plan_status = str(plan_artifact.get("status", ""))
         return (
-            f"{source} coding delegation from accepted plan artifact; "
+            f"{source} coding delegation from {plan_status or 'unknown-status'} plan artifact; "
             f"plan_sha256={plan_artifact.get('sha256', '')}; message_length={len(message)}"
         )
     return f"{source} coding delegation request; message_length={len(message)}"
