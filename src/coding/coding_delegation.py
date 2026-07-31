@@ -1478,8 +1478,8 @@ def _local_capability_report_contract(profile: str) -> dict[str, object]:
 def _task_prompt_shape_block() -> str:
     return (
         "Task prompt shape:\n"
-        "- Preserve the base sequence Goal / Do / Don't / Expected result / Test, then add known context, an uncertainty rule, progress reporting, and an evidence boundary.\n"
-        "- Required executor sections: "
+        "- Shape executor-facing work as: Goal / Do / Don't / Expected result / Test.\n"
+        "- Extend that base with required executor sections: "
         + " / ".join(EXECUTOR_PROMPTING_REQUIRED_SECTIONS)
         + ".\n"
         + "- Keep dispatch prompts in English unless preserving identifiers, paths, errors, quotes, or target-language output.\n"
