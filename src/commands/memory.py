@@ -27,6 +27,7 @@ from ..plugin_bundle.omh.memory_dreaming import read_dreaming_state
 from ..plugin_bundle.omh.memory_provider import OmhMemoryProvider
 from ..plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
 from ..memory import (
+    LifecycleCandidateError,
     RejectedDecisionRecallRequest,
     apply_approved_memory_update_batch,
     apply_memory_retirement,
@@ -54,9 +55,11 @@ from ..workflows.memory_evaluation import run_memory_evaluation
 from ..workflows.memory_lifecycle import (
     apply_memory_correction,
     apply_memory_prune,
+    apply_memory_reapproval,
     apply_memory_restore,
     build_memory_correction,
     build_memory_prune,
+    build_memory_reapproval,
     build_memory_restore,
 )
 from ..workflows.memory_lifecycle_executor import execute_memory_lifecycle
@@ -121,8 +124,22 @@ def cmd_memory_review(args: argparse.Namespace) -> int:
 
 
 def cmd_memory_approve(args: argparse.Namespace) -> int:
+    paths = _paths(args)
     try:
-        payload = approve_project_memory_candidate(_paths(args), args.candidate_id, approved_by=args.approved_by)
+        payload = approve_project_memory_candidate(paths, args.candidate_id, approved_by=args.approved_by)
+    except LifecycleCandidateError:
+        # Correction/restore candidates approve through the lifecycle
+        # executor so the replacement payload and revision survive; the
+        # operator keeps one approve verb either way.
+        try:
+            plan = build_memory_reapproval(
+                paths, args.candidate_id, reviewer_claim=args.approved_by, now=datetime.now(timezone.utc)
+            )
+            payload = dict(plan.report) if not plan.report.get("eligible") else apply_memory_reapproval(
+                paths, plan, transaction_executor=execute_memory_lifecycle
+            )
+        except (OSError, ValueError) as exc:
+            raise OmhError(str(exc)) from exc
     except FileNotFoundError as exc:
         raise OmhError(f"memory candidate not found: {args.candidate_id}") from exc
     except (OSError, ValueError) as exc:
