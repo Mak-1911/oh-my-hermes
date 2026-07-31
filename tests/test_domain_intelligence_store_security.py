@@ -12,9 +12,176 @@ load_local_package()
 from omh.paths import resolve_paths
 from omh.system.local_store import file_lock
 from omh.workflows import domain_intelligence_store as store
+from omh.workflows import domain_intelligence_store_security as security
+from omh.workflows import domain_intelligence_store_writer as store_writer
 
 
 class DomainIntelligenceStoreSecurityTests(unittest.TestCase):
+    def test_domain_root_creation_stays_on_opened_parent_after_swap(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            paths.memory_dir.mkdir(mode=0o700, parents=True)
+            outside = root / "outside-root-parent"
+            outside.mkdir(mode=0o755)
+            before_mode = outside.stat().st_mode & 0o777
+            real_open = store_writer.os.open
+            swapped = False
+
+            def swap_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
+                if path == "memory" and dir_fd is not None and not swapped:
+                    swapped = True
+                    paths.memory_dir.rename(paths.memory_dir.with_name("memory-opened"))
+                    paths.memory_dir.symlink_to(outside, target_is_directory=True)
+                return descriptor
+
+            with patch.object(store_writer.os, "open", side_effect=swap_open):
+                security.secure_domain_root(paths, create=True)
+
+            self.assertTrue(swapped)
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertEqual(outside.stat().st_mode & 0o777, before_mode)
+            self.assertTrue(
+                (paths.memory_dir.with_name("memory-opened") / "domain-intelligence").is_dir()
+            )
+
+    def test_lock_stays_on_opened_domain_root_after_parent_swap(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            domain_root = paths.memory_dir / "domain-intelligence"
+            domain_root.mkdir(mode=0o700, parents=True)
+            outside = root / "outside-lock-parent"
+            outside.mkdir(mode=0o755)
+            before_mode = outside.stat().st_mode & 0o777
+            real_open = store_writer.os.open
+            swapped = False
+
+            def swap_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
+                if path == "domain-intelligence" and dir_fd is not None and not swapped:
+                    swapped = True
+                    domain_root.rename(domain_root.with_name("domain-intelligence-opened"))
+                    domain_root.symlink_to(outside, target_is_directory=True)
+                return descriptor
+
+            with patch.object(store_writer.os, "open", side_effect=swap_open):
+                with security.domain_store_lock(paths):
+                    pass
+
+            opened_root = domain_root.with_name("domain-intelligence-opened")
+            self.assertTrue(swapped)
+            self.assertTrue((opened_root / ".store.lock").is_file())
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertEqual(outside.stat().st_mode & 0o777, before_mode)
+
+    def test_managed_writes_do_not_follow_swapped_open_directory(self) -> None:
+        cases = (
+            (
+                "candidates",
+                lambda paths: store.write_candidate(
+                    paths, "candidate-swap", {"candidate_id": "candidate-swap"}
+                ),
+            ),
+            (
+                "profiles",
+                lambda paths: store.write_profile(
+                    paths, "profile-swap", {"profile_id": "profile-swap"}
+                ),
+            ),
+            (
+                "reviews",
+                lambda paths: store.write_review(
+                    paths, "review-swap", {"review_id": "review-swap"}
+                ),
+            ),
+            (
+                "history",
+                lambda paths: store.archive_profile(
+                    paths, {"profile_id": "profile-swap", "revision": 1}
+                ),
+            ),
+            (
+                "operations",
+                lambda paths: store.atomic_write_managed_json(
+                    paths,
+                    "operations",
+                    "operation-swap.json",
+                    {"operation_id": "operation-swap"},
+                ),
+            ),
+        )
+        for managed_name, write in cases:
+            with self.subTest(managed_name=managed_name), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                managed = (
+                    paths.memory_dir / "domain-intelligence" / managed_name
+                )
+                managed.mkdir(mode=0o700, parents=True)
+                outside = root / f"outside-{managed_name}"
+                outside.mkdir(mode=0o755)
+                before_mode = outside.stat().st_mode & 0o777
+                real_open = store_writer.os.open
+                swapped = False
+
+                def swap_open(path, flags, mode=0o777, *, dir_fd=None):
+                    nonlocal swapped
+                    descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
+                    if path == managed_name and dir_fd is not None and not swapped:
+                        swapped = True
+                        managed.rename(managed.with_name(f"{managed_name}-opened"))
+                        managed.symlink_to(outside, target_is_directory=True)
+                    return descriptor
+
+                with patch.object(store_writer.os, "open", side_effect=swap_open):
+                    if managed_name == "operations":
+                        write(paths)
+                    else:
+                        with self.assertRaisesRegex(ValueError, "safely opened"):
+                            write(paths)
+
+                self.assertTrue(swapped)
+                self.assertEqual(list(outside.iterdir()), [])
+                self.assertEqual(outside.stat().st_mode & 0o777, before_mode)
+
+    def test_bounded_read_stays_on_opened_parent_after_swap(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            directory = store.candidates_dir(paths)
+            target = directory / "candidate-read.json"
+            target.write_text(json.dumps({"source": "managed"}), encoding="utf-8")
+            outside = root / "outside-read-parent"
+            outside.mkdir(mode=0o755)
+            (outside / target.name).write_text(
+                json.dumps({"source": "outside"}), encoding="utf-8"
+            )
+            real_open = store_writer.os.open
+            swapped = False
+
+            def swap_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
+                if path == "candidates" and dir_fd is not None and not swapped:
+                    swapped = True
+                    directory.rename(directory.with_name("candidates-opened"))
+                    directory.symlink_to(outside, target_is_directory=True)
+                return descriptor
+
+            with patch.object(store_writer.os, "open", side_effect=swap_open):
+                value = security.read_bounded_json(target)
+
+            self.assertTrue(swapped)
+            self.assertEqual(value, {"source": "managed"})
+            self.assertEqual(
+                json.loads((outside / target.name).read_text(encoding="utf-8")),
+                {"source": "outside"},
+            )
+
     def test_authoritative_reads_reject_all_target_identity_conflicts(self) -> None:
         cases = (
             (

@@ -21,6 +21,8 @@ from omh.workflows.domain_intelligence import (
     reject_domain_candidate,
     retire_domain_profile,
 )
+from omh.workflows import domain_intelligence_operation_store as operation_store
+from omh.workflows import domain_intelligence_rejection_operations as rejection_operations
 
 
 LIFECYCLE = "omh.workflows.domain_intelligence_lifecycle"
@@ -630,6 +632,164 @@ class DomainIntelligenceTransactionTests(unittest.TestCase):
             self.assertEqual(_snapshot(root), before)
             recovered = reject_domain_candidate(paths, str(candidates[0]["candidate_id"]))
             self.assertEqual(recovered["decision"], "rejected")
+
+    def test_decision_target_capacity_fails_before_journal_creation(self) -> None:
+        cases = ("approval-review", "approval-history", "rejection-review", "retirement-review", "retirement-history")
+        for name in cases:
+            with self.subTest(name=name), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                store = root / ".omh" / "memory" / "domain-intelligence"
+                if name.startswith("approval"):
+                    paths, candidate = self._replacement(root)
+                    action = partial(
+                        approve_domain_candidate, paths, str(candidate["candidate_id"])
+                    )
+                elif name == "rejection-review":
+                    paths = resolve_paths(root / ".omh", root / ".hermes")
+                    candidate = capture_domain_candidate(
+                        paths,
+                        scope_kind="user",
+                        scope_ref="rejection-capacity",
+                        domain_id="sales",
+                        mappings=[("qbr", "qbr")],
+                    )["candidate"]
+                    action = partial(
+                        reject_domain_candidate, paths, str(candidate["candidate_id"])
+                    )
+                else:
+                    paths, _profile = self._active_profile(root)
+                    action = partial(
+                        retire_domain_profile,
+                        paths,
+                        scope_kind="organization",
+                        scope_ref="retirement-org",
+                        domain_id="payments",
+                    )
+
+                target_directory = store / (
+                    "history" if name.endswith("history") else "reviews"
+                )
+                target_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+                limit = 2 if name.endswith("history") else 1
+                while len(list(target_directory.glob("*.json"))) < limit:
+                    index = len(list(target_directory.glob("*.json")))
+                    (target_directory / f"capacity-{index}.json").write_text(
+                        "{}", encoding="utf-8"
+                    )
+                before = _snapshot(root)
+                with (
+                    patch.object(
+                        operation_store.security,
+                        "MAX_DOMAIN_ARTIFACT_FILES",
+                        limit,
+                    ),
+                    self.assertRaisesRegex(ValueError, "artifact_capacity_exceeded"),
+                ):
+                    action()
+                self.assertEqual(_snapshot(root), before)
+                self.assertEqual(list((store / "operations").glob("*.json")), [])
+
+    def test_journaled_decision_rechecks_target_capacity_before_write(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            candidate = capture_domain_candidate(
+                paths,
+                scope_kind="user",
+                scope_ref="journaled-capacity",
+                domain_id="sales",
+                mappings=[("qbr", "qbr")],
+            )["candidate"]
+            store = root / ".omh" / "memory" / "domain-intelligence"
+            reviews = store / "reviews"
+            real_write = rejection_operations.write_rejection_review_idempotent
+
+            def fill_capacity_then_write(paths, operation):
+                (reviews / "capacity.json").write_text("{}", encoding="utf-8")
+                real_write(paths, operation)
+
+            with (
+                patch.object(
+                    operation_store.security, "MAX_DOMAIN_ARTIFACT_FILES", 1
+                ),
+                patch(
+                    f"{LIFECYCLE}.write_rejection_review_idempotent",
+                    side_effect=fill_capacity_then_write,
+                ),
+                self.assertRaisesRegex(ValueError, "artifact_capacity_exceeded"),
+            ):
+                reject_domain_candidate(paths, str(candidate["candidate_id"]))
+
+            self.assertEqual(len(list((store / "operations").glob("*.json"))), 1)
+            self.assertFalse(
+                (reviews / f"direview_{candidate['candidate_id']}.json").exists()
+            )
+            (reviews / "capacity.json").unlink()
+            recovered = reject_domain_candidate(paths, str(candidate["candidate_id"]))
+            self.assertEqual(recovered["decision"], "rejected")
+
+    def test_decision_cleanup_uses_anchored_operations_directory(self) -> None:
+        cases = ("approval", "rejection", "retirement")
+        for name in cases:
+            with self.subTest(name=name), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                if name == "approval":
+                    paths, candidate = self._replacement(root)
+                    action = partial(
+                        approve_domain_candidate, paths, str(candidate["candidate_id"])
+                    )
+                elif name == "rejection":
+                    paths = resolve_paths(root / ".omh", root / ".hermes")
+                    candidate = capture_domain_candidate(
+                        paths,
+                        scope_kind="user",
+                        scope_ref="cleanup-rejection",
+                        domain_id="sales",
+                        mappings=[("qbr", "qbr")],
+                    )["candidate"]
+                    action = partial(
+                        reject_domain_candidate, paths, str(candidate["candidate_id"])
+                    )
+                else:
+                    paths, _profile = self._active_profile(root)
+                    action = partial(
+                        retire_domain_profile,
+                        paths,
+                        scope_kind="organization",
+                        scope_ref="retirement-org",
+                        domain_id="payments",
+                    )
+
+                boundary = f"delete_{name}_operation"
+                with patch(f"{LIFECYCLE}.{boundary}", side_effect=OSError("stranded")):
+                    with self.assertRaisesRegex(OSError, "stranded"):
+                        action()
+
+                operations = (
+                    root / ".omh" / "memory" / "domain-intelligence" / "operations"
+                )
+                operation_path = next(operations.glob("*.json"))
+                operation_name = operation_path.name
+                anchored = operations.with_name("operations-anchored")
+                outside = root / "outside"
+                outside.mkdir(mode=0o755)
+                victim = outside / operation_name
+                victim.write_text("external", encoding="utf-8")
+                real_unlink = operation_store.os.unlink
+
+                def swap_then_unlink(filename, *, dir_fd=None):
+                    self.assertIsNotNone(dir_fd)
+                    operations.rename(anchored)
+                    operations.symlink_to(outside, target_is_directory=True)
+                    return real_unlink(filename, dir_fd=dir_fd)
+
+                with patch.object(
+                    operation_store.os, "unlink", side_effect=swap_then_unlink
+                ):
+                    action()
+
+                self.assertEqual(victim.read_text(encoding="utf-8"), "external")
+                self.assertFalse((anchored / operation_name).exists())
 
     def test_retirement_recovers_after_every_write_boundary(self) -> None:
         boundaries = (

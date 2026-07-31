@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import hashlib
 import json
+import os
 from pathlib import Path
 
 from ..paths import OmhPaths
@@ -69,6 +70,7 @@ def scan_operations(paths: OmhPaths) -> list[tuple[Path, dict[str, object]]]:
 
 def write_operation(paths: OmhPaths, operation: dict[str, object], validate: OperationValidator) -> None:
     validate(paths, operation)
+    _preflight_transaction_targets(paths, operation)
     operation_id = str(operation["operation_id"])
     path = operation_path(paths, operation_id)
     existing = security.read_bounded_json(path)
@@ -87,18 +89,26 @@ def write_operation(paths: OmhPaths, operation: dict[str, object], validate: Ope
 
 
 def delete_operation(paths: OmhPaths, operation_id: str, validate: OperationValidator) -> None:
-    path = operation_path(paths, operation_id)
-    existing = security.read_bounded_json(path)
-    if existing is None:
-        return
-    validate(paths, existing)
-    path.unlink()
+    if not SAFE_REF.fullmatch(operation_id):
+        raise ValueError("unsafe_operation_id")
+    filename = f"{operation_id}.json"
+    with security.anchored_managed_directory(paths, "operations") as directory_fd:
+        existing = security.read_bounded_json_at(directory_fd, filename)
+        if existing is None:
+            return
+        if existing.get("operation_id") != operation_id:
+            raise ValueError("decision_operation_identity_mismatch")
+        validate(paths, existing)
+        os.unlink(filename, dir_fd=directory_fd)
+        os.fsync(directory_fd)
 
 
 def require_absent_or_exact(path: Path, target: dict[str, object], *, label: str) -> None:
     existing = security.read_bounded_json(path)
     if existing is not None and existing != target:
         raise ValueError(f"{label}_state_conflict")
+    if existing is None:
+        _ensure_transaction_target_capacity(path)
 
 
 def write_absent_or_exact(
@@ -106,6 +116,7 @@ def write_absent_or_exact(
 ) -> None:
     require_absent_or_exact(path, target, label=label)
     if security.read_bounded_json(path) is None:
+        _ensure_transaction_target_capacity(path)
         _write_json(paths, path, target)
 
 
@@ -146,6 +157,38 @@ def operation_path(paths: OmhPaths, operation_id: str) -> Path:
 
 def _write_json(paths: OmhPaths, path: Path, value: dict[str, object]) -> None:
     store.atomic_write_managed_json(paths, path.parent.name, path.name, value)
+
+
+def _preflight_transaction_targets(
+    paths: OmhPaths, operation: dict[str, object]
+) -> None:
+    prior = operation.get("prior_profile")
+    if isinstance(prior, dict):
+        profile_id = str(prior.get("profile_id", ""))
+        revision = int(prior.get("revision", 0))
+        require_absent_or_exact(
+            store.history_path(paths, profile_id, revision),
+            prior,
+            label="decision_history",
+        )
+    review = operation.get("target_review")
+    if isinstance(review, dict):
+        require_absent_or_exact(
+            store.review_path(paths, str(review.get("review_id", ""))),
+            review,
+            label="decision_review",
+        )
+
+
+def _ensure_transaction_target_capacity(path: Path) -> None:
+    if path.parent.name not in {"history", "reviews"}:
+        return
+    security.ensure_new_artifact_capacity(
+        path.parent,
+        path,
+        limit=security.MAX_DOMAIN_ARTIFACT_FILES,
+        reason="artifact_capacity_exceeded",
+    )
 
 
 def _validate_bounds(value: object) -> None:
