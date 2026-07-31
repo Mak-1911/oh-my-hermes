@@ -14,6 +14,17 @@ MAPPING_KEYS = {"phrase", "canonical"}
 _PROMPTISH_WORDS = {"message", "prompt", "raw", "text", "body", "content", "transcript", "hidden_reasoning"}
 _IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,79}$")
 _WORKFLOW_HINT = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,79}$")
+_ROLE_MARKER = re.compile(
+    r"^[^\S\r\n]*(?:user|assistant|system|developer|human|agent)[^\S\r\n]*:(?!\d+\Z)",
+    flags=re.IGNORECASE | re.MULTILINE,
+)
+_SENSITIVE_ASSIGNMENT = re.compile(
+    r"(?<![a-z0-9])(?:ssn|social[-_ ]?security(?:[-_ ]?number)?|api[-_ ]?key|password|passwd|pwd|token|"
+    r"access[-_ ]?token|authorization|auth[-_ ]?header|bearer)[^\S\r\n]*[:=][^\S\r\n]*\S+",
+    flags=re.IGNORECASE,
+)
+_SSN = re.compile(r"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
+_PROMPT_REQUEST = re.compile(r"^[^\S\r\n]*(?:please|kindly)(?:[^\S\r\n]+\S+){4,}", flags=re.IGNORECASE)
 
 
 def normalize_mappings(mappings: list[tuple[str, str]]) -> list[dict[str, str]]:
@@ -68,6 +79,7 @@ def normalize_phrase(value: object) -> str:
 def normalize_vocabulary_identifier(value: object) -> str:
     if not isinstance(value, str):
         raise ValueError("invalid_canonical_term")
+    ensure_safe_identifier_content(value, "canonical_term")
     normalized = unicodedata.normalize("NFKC", value.strip().lower())
     if not _IDENTIFIER.fullmatch(normalized) or len(normalized) > MAX_CANONICAL_CHARS:
         raise ValueError("invalid_canonical_term")
@@ -87,6 +99,7 @@ def normalize_workflow_hints(values: object) -> list[str]:
 def _normalize_workflow_hint(value: object) -> str:
     if not isinstance(value, str):
         raise ValueError("invalid_workflow_hint")
+    ensure_safe_identifier_content(value, "workflow_hint")
     normalized = unicodedata.normalize("NFKC", value.strip().lower()).replace(" ", "-")
     if not _WORKFLOW_HINT.fullmatch(normalized):
         raise ValueError("invalid_workflow_hint")
@@ -94,13 +107,37 @@ def _normalize_workflow_hint(value: object) -> str:
 
 
 def _ensure_vocabulary_safe(value: str) -> None:
-    lowered = value.lower()
+    normalized = unicodedata.normalize("NFKC", value)
+    lowered = normalized.lower()
+    ensure_safe_phrase_content(normalized)
     raw_log = any(
         marker in lowered
         for marker in ("traceback (most recent call last)", "\nstderr", "\nstdout", "[error]", "exception:", "raw log", "full log")
     )
-    timestamps = len(re.findall(r"^\d{4}-\d{2}-\d{2}[ t]\d{2}:\d{2}:\d{2}", value, flags=re.MULTILINE))
-    speakers = len(re.findall(r"^(user|assistant|system|developer|human|agent):", value, flags=re.IGNORECASE | re.MULTILINE))
-    transcript = "full transcript" in lowered or "chat transcript" in lowered or speakers >= 4
+    timestamps = len(re.findall(r"^\d{4}-\d{2}-\d{2}[ t]\d{2}:\d{2}:\d{2}", normalized, flags=re.MULTILINE))
+    transcript = "full transcript" in lowered or "chat transcript" in lowered or _ROLE_MARKER.search(normalized)
     if raw_log or timestamps >= 3 or transcript or classify_memory_admission(value).get("status") != "safe":
         raise ValueError("unsafe_domain_vocabulary")
+
+
+def ensure_safe_phrase_content(value: str) -> None:
+    _ensure_sensitive_content_safe(value, "unsafe_domain_vocabulary", reject_prompt_request=True)
+
+
+def ensure_safe_identifier_content(value: str, label: str) -> None:
+    _ensure_sensitive_content_safe(value, f"invalid_{label}")
+
+
+def ensure_safe_opaque_ref_content(value: str, label: str) -> None:
+    _ensure_sensitive_content_safe(value, f"unsafe_{label}")
+
+
+def _ensure_sensitive_content_safe(value: str, error: str, *, reject_prompt_request: bool = False) -> None:
+    normalized = unicodedata.normalize("NFKC", value)
+    if (
+        _ROLE_MARKER.search(normalized)
+        or _SENSITIVE_ASSIGNMENT.search(normalized)
+        or _SSN.search(normalized)
+        or (reject_prompt_request and _PROMPT_REQUEST.search(normalized))
+    ):
+        raise ValueError(error)

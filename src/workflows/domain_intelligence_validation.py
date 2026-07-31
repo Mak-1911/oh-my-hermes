@@ -185,7 +185,9 @@ def validate_review_artifact_for_status(
 
 def _matching_review(paths: OmhPaths, profile_id: str, revision: int, decision: str, digest: str, reviewer: object, reason: object, candidate_id: object) -> dict[str, object] | None:
     review, error = read_review(paths, f"direview_{profile_id}_r{revision}")
-    if error or not review:
+    if error:
+        raise ValueError(error)
+    if not review:
         return None
     try:
         _validate_profile_review(review, profile_id, revision, decision, digest, reviewer, reason, candidate_id)
@@ -213,6 +215,8 @@ def _validate_profile_review(review: dict[str, object], profile_id: str, revisio
         raise ValueError("review_reviewer_mismatch")
     if _canonical_reason_code(review.get("reason_code")) != reason:
         raise ValueError("review_reason_mismatch")
+
+
 def _canonical_reviewer_claim(value: object) -> str:
     normalized = normalize_safe_ref(value, "reviewer_claim")
     if value != normalized:

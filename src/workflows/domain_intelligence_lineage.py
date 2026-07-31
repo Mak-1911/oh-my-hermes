@@ -15,15 +15,14 @@ _CONTENT_FIELDS = (
     "confidence",
     "provenance",
 )
-_SHARED_APPROVAL_FIELDS = _CONTENT_FIELDS + (
-    "base_profile_revision",
-)
+_SHARED_APPROVAL_FIELDS = _CONTENT_FIELDS + ("base_profile_revision",)
 _RETIRED_INHERITED_FIELDS = _CONTENT_FIELDS + (
     "candidate_id",
     "approved_by",
     "approved_at",
     "created_at",
 )
+_CHAIN_IDENTITY_FIELDS = ("profile_id", "scope", "domain_id")
 
 
 def validate_profile_candidate_lineage(
@@ -34,13 +33,39 @@ def validate_profile_candidate_lineage(
     validate_candidate: Callable[[dict[str, object]], None],
     validate_profile: Callable[[OmhPaths, dict[str, object]], None],
 ) -> None:
+    approved = _validated_active_predecessor(paths, profile, validate_profile)
     if profile.get("status") == "active":
         candidate = _read_approved_candidate(paths, profile, validate_candidate)
         _validate_active_lineage(profile, review, candidate)
         return
-    diagnostics: list[dict[str, str]] = []
-    history = read_history_profiles(paths, diagnostics)
+    if approved is None:
+        raise ValueError("approved_candidate_lineage_required")
+    if any(
+        profile.get(field) != approved.get(field) for field in _RETIRED_INHERITED_FIELDS
+    ):
+        raise ValueError("approved_candidate_lineage_required")
+    if review.get("candidate_id") != "" or review.get("reviewed_at") != profile.get(
+        "retired_at"
+    ):
+        raise ValueError("approved_candidate_lineage_required")
+
+
+def _validated_active_predecessor(
+    paths: OmhPaths,
+    profile: dict[str, object],
+    validate_profile: Callable[[OmhPaths, dict[str, object]], None],
+) -> dict[str, object] | None:
+    revision = profile.get("revision")
     base_revision = profile.get("base_profile_revision")
+    if (
+        not isinstance(revision, int)
+        or isinstance(revision, bool)
+        or base_revision != revision - 1
+    ):
+        raise ValueError("approved_candidate_lineage_required")
+    if revision == 1:
+        return None
+    history = read_history_profiles(paths, [])
     approved = next(
         (
             item
@@ -51,18 +76,17 @@ def validate_profile_candidate_lineage(
         ),
         None,
     )
-    if approved is None:
+    if approved is None or any(
+        approved.get(field) != profile.get(field) for field in _CHAIN_IDENTITY_FIELDS
+    ):
+        raise ValueError("approved_candidate_lineage_required")
+    if approved.get("base_profile_revision") != base_revision - 1:
         raise ValueError("approved_candidate_lineage_required")
     try:
         validate_profile(paths, approved)
-    except (FileNotFoundError, OSError, TypeError, ValueError) as exc:
+    except (OSError, TypeError, ValueError) as exc:
         raise ValueError("approved_candidate_lineage_required") from exc
-    if any(profile.get(field) != approved.get(field) for field in _RETIRED_INHERITED_FIELDS):
-        raise ValueError("approved_candidate_lineage_required")
-    if profile.get("revision") != approved.get("revision", 0) + 1:
-        raise ValueError("approved_candidate_lineage_required")
-    if review.get("candidate_id") != "" or review.get("reviewed_at") != profile.get("retired_at"):
-        raise ValueError("approved_candidate_lineage_required")
+    return approved
 
 
 def _read_approved_candidate(
@@ -73,7 +97,7 @@ def _read_approved_candidate(
     try:
         candidate = read_candidate_or_raise(paths, profile["candidate_id"])
         validate_candidate(candidate)
-    except (FileNotFoundError, OSError, TypeError, ValueError) as exc:
+    except (OSError, TypeError, ValueError) as exc:
         raise ValueError("approved_candidate_lineage_required") from exc
     if candidate.get("status") != "approved":
         raise ValueError("approved_candidate_lineage_required")
@@ -83,7 +107,9 @@ def _read_approved_candidate(
 def _validate_active_lineage(
     profile: dict[str, object], review: dict[str, object], candidate: dict[str, object]
 ) -> None:
-    if any(candidate.get(field) != profile.get(field) for field in _SHARED_APPROVAL_FIELDS):
+    if any(
+        candidate.get(field) != profile.get(field) for field in _SHARED_APPROVAL_FIELDS
+    ):
         raise ValueError("approved_candidate_lineage_required")
     expected = {
         "candidate_id": profile.get("candidate_id"),
@@ -95,7 +121,9 @@ def _validate_active_lineage(
     }
     if any(candidate.get(key) != value for key, value in expected.items()):
         raise ValueError("approved_candidate_lineage_required")
-    if review.get("decision") != "approved" or review.get("reviewer_claim") != candidate.get("reviewed_by"):
+    if review.get("decision") != "approved" or review.get(
+        "reviewer_claim"
+    ) != candidate.get("reviewed_by"):
         raise ValueError("approved_candidate_lineage_required")
     if profile.get("approved_at") != review.get("reviewed_at"):
         raise ValueError("approved_candidate_lineage_required")

@@ -7,6 +7,8 @@ import re
 import unicodedata
 
 from .domain_intelligence_admission import (
+    ensure_safe_identifier_content,
+    ensure_safe_opaque_ref_content,
     normalize_mappings,  # noqa: F401 - public contract re-export
     normalize_mappings_from_value,
     normalize_workflow_hints,
@@ -82,6 +84,7 @@ def normalize_scope(kind: str | None, ref: str | None) -> dict[str, object]:
     normalized_kind = kind.strip().lower()
     if normalized_kind not in ALLOWED_SCOPE_KINDS:
         raise ValueError("invalid_scope_kind")
+    ensure_safe_opaque_ref_content(ref, "scope_ref")
     normalized_ref = ref.strip()
     if not SAFE_REF.match(normalized_ref):
         raise ValueError("unsafe_scope_ref")
@@ -96,6 +99,7 @@ def normalize_scope(kind: str | None, ref: str | None) -> dict[str, object]:
 def normalize_identifier(value: object, label: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"invalid_{label}")
+    ensure_safe_identifier_content(value, label)
     normalized = unicodedata.normalize("NFKC", value.strip().lower())
     if not _IDENTIFIER.match(normalized):
         raise ValueError(f"invalid_{label}")
@@ -110,6 +114,7 @@ def normalize_provenance(source_class: str, source_ref: str, observation_count: 
     normalized_class = source_class.strip().lower()
     if normalized_class not in ALLOWED_SOURCE_CLASSES:
         raise ValueError("invalid_source_class")
+    ensure_safe_opaque_ref_content(source_ref, "source_ref")
     normalized_ref = source_ref.strip()
     if normalized_ref and not SAFE_REF.match(normalized_ref):
         raise ValueError("unsafe_source_ref")
@@ -172,6 +177,7 @@ def normalize_confidence_from_value(value: object) -> dict[str, object]:
 def normalize_safe_ref(value: object, label: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"unsafe_{label}")
+    ensure_safe_opaque_ref_content(value, label)
     normalized = value.strip()
     if not SAFE_REF.match(normalized):
         raise ValueError(f"unsafe_{label}")
