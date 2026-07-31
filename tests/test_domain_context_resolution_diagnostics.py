@@ -1,79 +1,29 @@
 from __future__ import annotations
 
 from dataclasses import replace
-import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from omh.coding_lifecycle import start_codex_delegation_lifecycle
-from omh.paths import project_identity, resolve_paths
 from omh.skills import catalog
 from omh.system.local_store import FileLockTimeout
 from omh.workflows.domain_routing_context import (
-    DomainRoutingResolution,
-    resolve_domain_routing_context,
     resolve_domain_routing_context_result,
 )
-from omh.wrapper_contract import (
-    build_chat_interaction_payload,
-    build_status_card_from_status,
+
+from domain_context_diagnostics_support import (
+    DomainDiagnosticResolverMixin,
+    _ensure_store,
+    _profile,
 )
-from omh.wrapper_sessions import create_or_resume_wrapper_session
-
-from test_domain_routing_context import _approve_profile, _binding, _repository
+from test_domain_routing_context import _binding, _repository
 
 
-def _ensure_store(root: Path) -> None:
-    (root / ".omh" / "memory" / "domain-intelligence").mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-
-def _profile(
-    root: Path,
-    *,
-    canonical: str = "pipeline_review",
-    hints: list[object] | None = None,
-) -> dict[str, object]:
-    return {
-        "scope": {
-            "kind": "project",
-            "ref": project_identity(root),
-            "ref_authority": "operator_or_wrapper_supplied",
-            "identity_claim": "not_authenticated_identity_evidence",
-        },
-        "vocabulary_mappings": [
-            {"phrase": "pipeline review", "canonical": canonical}
-        ],
-        "workflow_hints": ["sales-development"] if hints is None else hints,
-    }
-
-
-class DomainContextDiagnosticTests(unittest.TestCase):
-    def _resolve(
-        self,
-        root: Path,
-        profiles: tuple[dict[str, object], ...],
-        message: object = "Please do a pipeline review",
-    ) -> DomainRoutingResolution:
-        _ensure_store(root)
-        with (
-            patch(
-                "omh.workflows.domain_intelligence_profile_snapshot."
-                "read_validated_domain_profiles_at",
-                return_value=profiles,
-            ),
-            _binding(root) as binding,
-        ):
-            return resolve_domain_routing_context_result(
-                binding,
-                message,
-                locale="en",
-            )
-
+class DomainContextResolutionDiagnosticTests(
+    DomainDiagnosticResolverMixin,
+    unittest.TestCase,
+):
     def test_absence_reasons_distinguish_missing_invalid_and_no_match(self) -> None:
         missing = resolve_domain_routing_context_result(
             None,
@@ -234,95 +184,6 @@ class DomainContextDiagnosticTests(unittest.TestCase):
             ("excluded", "compatibility_only_workflow_hint"),
         )
 
-    def test_public_compatibility_projection_contains_no_diagnostics(self) -> None:
-        with TemporaryDirectory() as temporary:
-            root = _repository(Path(temporary) / "public-projection")
-            _ensure_store(root)
-            profiles = (_profile(root),)
-            with patch(
-                "omh.workflows.domain_intelligence_profile_snapshot."
-                "read_validated_domain_profiles_at",
-                return_value=profiles,
-            ), _binding(root) as binding:
-                internal = resolve_domain_routing_context_result(
-                    binding,
-                    "pipeline review",
-                    locale="en",
-                )
-                public = resolve_domain_routing_context(
-                    binding,
-                    "pipeline review",
-                    locale="en",
-                )
-
-        self.assertEqual(public, internal.context)
-        serialized = json.dumps(public, sort_keys=True)
-        self.assertNotIn("domain_resolution_status", serialized)
-        self.assertNotIn("domain_resolution_reason", serialized)
-        self.assertNotIn(internal.reason, serialized)
-
-    def test_diagnostics_never_enter_wrapper_session_runtime_or_status_payloads(
-        self,
-    ) -> None:
-        with TemporaryDirectory() as temporary:
-            root = _repository(Path(temporary) / "payload-privacy")
-            _approve_profile(root, domain_id="sales")
-            paths = resolve_paths(root / ".omh", root / ".hermes")
-            message = "Please do a pipeline review"
-            metadata = {
-                "source_event_id": "diagnostic-event",
-                "channel_ref": "diagnostic-channel",
-            }
-            with _binding(root) as binding:
-                interaction = build_chat_interaction_payload(
-                    message,
-                    source="discord",
-                    source_metadata=metadata,
-                    paths=paths,
-                    _host_project_binding=binding,
-                )
-            session = create_or_resume_wrapper_session(
-                paths,
-                message,
-                source="discord",
-                source_metadata=metadata,
-                _host_project_binding_factory=lambda: _binding(root),
-            )
-            lifecycle = start_codex_delegation_lifecycle(
-                paths,
-                "Implement focused diagnostics",
-                source="discord",
-                source_metadata={
-                    "source_event_id": "coding-event",
-                    "channel_ref": "coding-channel",
-                },
-            )
-            status_card = build_status_card_from_status(lifecycle["status"])
-
-        payloads = {
-            "wrapper": interaction,
-            "session": session,
-            "runtime": lifecycle["run"],
-            "coding": lifecycle["coding_delegation"],
-            "status": status_card,
-        }
-        self.assertEqual(_find_resolution_results(payloads), [])
-        serialized = json.dumps(payloads, sort_keys=True)
-        for reason in (
-            "profile_store_unhealthy",
-            "profile_store_lock_failed",
-            "profile_store_snapshot_changed",
-            "match_overflow",
-            "empty_workflow_hints",
-            "unknown_workflow_hint",
-            "compatibility_only_workflow_hint",
-            "conflicting_workflow_hints",
-            "canonical_conflict",
-            "missing_question_spec",
-        ):
-            with self.subTest(reason=reason):
-                self.assertNotIn(reason, serialized)
-
     def test_unexpected_programmer_errors_are_not_silently_masked(self) -> None:
         with TemporaryDirectory() as temporary:
             root = _repository(Path(temporary) / "programmer-error")
@@ -338,24 +199,6 @@ class DomainContextDiagnosticTests(unittest.TestCase):
                         "pipeline review",
                         locale="en",
                     )
-
-
-def _find_resolution_results(value: object) -> list[DomainRoutingResolution]:
-    if isinstance(value, DomainRoutingResolution):
-        return [value]
-    if isinstance(value, dict):
-        return [
-            result
-            for nested in value.values()
-            for result in _find_resolution_results(nested)
-        ]
-    if isinstance(value, (list, tuple)):
-        return [
-            result
-            for nested in value
-            for result in _find_resolution_results(nested)
-        ]
-    return []
 
 
 if __name__ == "__main__":
