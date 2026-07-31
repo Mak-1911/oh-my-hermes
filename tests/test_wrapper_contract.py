@@ -94,7 +94,7 @@ class DomainContextAttachmentTests(unittest.TestCase):
             profile_path = next(
                 (root / ".omh" / "memory" / "domain-intelligence" / "profiles").glob("*.json")
             )
-            profile_path.write_bytes(profile_path.read_bytes() + b" ")
+            profile_path.write_bytes(b"\xff")
             with _binding(root) as binding:
                 unhealthy = build_chat_interaction_payload(
                     "something feels off",
@@ -103,16 +103,31 @@ class DomainContextAttachmentTests(unittest.TestCase):
                     paths=paths,
                     _host_project_binding=binding,
                 )
-                protected = build_chat_interaction_payload(
-                    "what's 2+2?",
-                    source="discord",
-                    source_metadata={},
-                    paths=paths,
-                    _host_project_binding=binding,
-                )
+                with mock.patch(
+                    "omh.wrapper.contract.resolve_domain_routing_context"
+                ) as resolver:
+                    protected = build_chat_interaction_payload(
+                        "what's 2+2?",
+                        source="discord",
+                        source_metadata={},
+                        paths=paths,
+                        _host_project_binding=binding,
+                    )
+                resolver.assert_not_called()
 
             self.assertNotIn("domain_routing_context", unhealthy)
             self.assertNotIn("domain_routing_context", protected)
+
+            binding_factory = mock.Mock()
+            protected_without_derivation = build_chat_interaction_payload(
+                "what's 2+2?",
+                source="discord",
+                source_metadata={},
+                paths=paths,
+                _host_project_binding_factory=binding_factory,
+            )
+            binding_factory.assert_not_called()
+            self.assertNotIn("domain_routing_context", protected_without_derivation)
 
     def test_cli_mints_binding_from_invocation_cwd(self) -> None:
         from test_domain_routing_context import _approve_profile, _repository
@@ -144,6 +159,17 @@ class DomainContextAttachmentTests(unittest.TestCase):
             self.assertEqual(status, 0, stderr)
             payload = json.loads(stdout)
             self.assertIn("domain_routing_context", payload)
+            self.assertEqual(
+                set(payload["domain_routing_context"]),
+                {
+                    "schema_version",
+                    "workflow_hint",
+                    "required_input",
+                    "question",
+                    "digest",
+                    "claim_boundary",
+                },
+            )
 
 
 class WrapperContractTests(unittest.TestCase):

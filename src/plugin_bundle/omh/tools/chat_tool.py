@@ -113,7 +113,12 @@ def omh_interact_handler(args: dict, **kwargs) -> str:
         return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
 
     try:
-        payload = _package_interaction(args, message, observation=observation)
+        payload = _package_interaction(
+            args,
+            message,
+            host_kwargs=kwargs,
+            observation=observation,
+        )
     except (ImportError, ModuleNotFoundError) as exc:
         payload = _fallback_interaction(args, message, error=str(exc))
     except Exception as exc:
@@ -125,9 +130,11 @@ def _package_interaction(
     args: dict[str, Any],
     message: str,
     *,
+    host_kwargs: dict[str, Any] | None = None,
     observation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from omh.paths import resolve_paths
+    from omh.workflows.domain_project_context import bind_plugin_project
     from omh.wrapper.contract import build_chat_interaction_payload
     from omh.wrapper.sessions import create_or_resume_wrapper_session
 
@@ -141,7 +148,7 @@ def _package_interaction(
     min_confidence = _min_confidence(args)
     executor_target = str(args.get("executor_target") or "choose")
     source_metadata = _source_metadata(args)
-
+    host_values = host_kwargs or {}
     if bool(args.get("record_session", True)):
         result = create_or_resume_wrapper_session(
             paths,
@@ -157,6 +164,7 @@ def _package_interaction(
                 "producer_detail": "omh_interact plugin tool",
                 "observed_by_host": bool(observation and observation.get("status") == "observed"),
             },
+            _host_project_binding_factory=lambda: bind_plugin_project(host_values),
         )
         interaction = dict(result["interaction"])
         session = result["session"]
@@ -184,6 +192,7 @@ def _package_interaction(
         executor_target=executor_target,
         source_metadata=source_metadata,
         paths=paths,
+        _host_project_binding_factory=lambda: bind_plugin_project(host_values),
     )
     interaction["wrapper_session"] = {
         "schema_version": "omh_wrapper_session_ref/v1",

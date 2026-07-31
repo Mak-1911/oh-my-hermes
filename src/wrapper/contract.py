@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 import hashlib
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..context_safety import compact_progress_events
 from ..coding.agentic_playbook import maybe_build_agentic_playbook
@@ -12,6 +12,7 @@ from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_tex
 from ..routing.catalog_questions import is_skill_catalog_question as _is_skill_catalog_question
 from ..routing.chat import public_chat_route_payload, route_explanation_payload
 from ..routing.coding_route_actions import coding_route_decision_payload, resolve_coding_route_decision
+from ..routing.domain_context_eligibility import classify_domain_context_eligibility
 from ..routing.localization import normalized_phrase
 from ..routing.missed_route import is_missed_route_feedback
 from ..routing.omh_help import (
@@ -46,6 +47,8 @@ from ..surfaces.evidence_copy import not_evidence_action_suffix, not_evidence_re
 from ..visual_summary import image_generation_setup_fallback
 from ..workflows.goal_ledger import goal_message_states_acceptance_criteria
 from ..workflows.goal_quality_coaching import is_goal_classified_message
+from ..workflows.domain_project_context import HostProjectBinding
+from ..workflows.domain_routing_context import resolve_domain_routing_context
 from ..workflows.web_visual_qa_projection import build_prepared_web_visual_qa_chat_state
 from .hermes_runtime import (
     hermes_coding_team_body,
@@ -3184,6 +3187,8 @@ def build_chat_interaction_payload(
     target_notice: dict[str, object] | None = None,
     paths: OmhPaths | None = None,
     skill_policy: dict[str, object] | None = None,
+    _host_project_binding: HostProjectBinding | None = None,
+    _host_project_binding_factory: Callable[[], HostProjectBinding | None] | None = None,
 ) -> dict[str, object]:
     if source not in CHAT_SOURCES:
         raise ValueError(f"unsupported chat interaction source: {source}")
@@ -3200,6 +3205,8 @@ def build_chat_interaction_payload(
         target_notice=target_notice,
         paths=paths,
         skill_policy=skill_policy,
+        host_project_binding=_host_project_binding,
+        host_project_binding_factory=_host_project_binding_factory,
     ):
         return _copy_chat_interaction_payload(
             _build_chat_interaction_payload_cached(
@@ -3224,6 +3231,8 @@ def build_chat_interaction_payload(
         target_notice=target_notice,
         paths=paths,
         skill_policy=skill_policy,
+        host_project_binding=_host_project_binding,
+        host_project_binding_factory=_host_project_binding_factory,
     )
     # Attached at the one point every chat surface passes through -- the plugin
     # tool's session and no-session paths both land here -- so Slack, Telegram,
@@ -3243,6 +3252,8 @@ def _can_use_chat_interaction_cache(
     target_notice: dict[str, object] | None,
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
+    host_project_binding: HostProjectBinding | None,
+    host_project_binding_factory: Callable[[], HostProjectBinding | None] | None,
 ) -> bool:
     return (
         isinstance(event_or_message, str)
@@ -3251,6 +3262,8 @@ def _can_use_chat_interaction_cache(
         and target_notice is None
         and paths is None
         and skill_policy is None
+        and host_project_binding is None
+        and host_project_binding_factory is None
     )
 
 
@@ -3699,6 +3712,8 @@ def _build_chat_interaction_payload_cached(
         target_notice=None,
         paths=None,
         skill_policy=None,
+        host_project_binding=None,
+        host_project_binding_factory=None,
     )
 
 
@@ -3715,6 +3730,8 @@ def _build_chat_interaction_payload_uncached(
     target_notice: dict[str, object] | None,
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
+    host_project_binding: HostProjectBinding | None,
+    host_project_binding_factory: Callable[[], HostProjectBinding | None] | None,
 ) -> dict[str, object]:
     message = extract_message_text(event_or_message)
     metadata = _source_metadata(event_or_message, source_metadata)
@@ -3726,6 +3743,24 @@ def _build_chat_interaction_payload_uncached(
         include_message=include_message,
         skill_policy=skill_policy,
     )
+    domain_context = None
+    eligibility = classify_domain_context_eligibility(route_payload, message)
+    if eligibility.eligible:
+        binding = host_project_binding
+        close_binding = False
+        if binding is None and host_project_binding_factory is not None:
+            binding = host_project_binding_factory()
+            close_binding = binding is not None
+        try:
+            if binding is not None:
+                domain_context = resolve_domain_routing_context(
+                    binding,
+                    message,
+                    locale=detect_copy_locale(message),
+                )
+        finally:
+            if close_binding:
+                binding.close()
     orchestration_guidance = build_omh_orchestration_guidance(
         route_payload,
         source_metadata=metadata,
@@ -3737,6 +3772,8 @@ def _build_chat_interaction_payload_uncached(
     if is_catalog_question and _route_recommendation_next_action(route_payload) != "show_command_preview":
         route_payload = _catalog_question_route_payload(route_payload)
     base["route"] = route_payload
+    if domain_context is not None:
+        base.update(domain_context)
     if not _is_omh_intro_question(message) and not is_catalog_question:
         base["omh_orchestration_guidance"] = orchestration_guidance
     if isinstance(route_payload.get("task_card"), dict):

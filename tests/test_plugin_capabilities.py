@@ -59,6 +59,17 @@ class DomainContextHostBindingTests(unittest.TestCase):
             self.assertNotIn("domain_routing_context", absent)
             self.assertIn("domain_routing_context", applied)
             self.assertEqual(
+                set(applied["domain_routing_context"]),
+                {
+                    "schema_version",
+                    "workflow_hint",
+                    "required_input",
+                    "question",
+                    "digest",
+                    "claim_boundary",
+                },
+            )
+            self.assertEqual(
                 json.dumps(applied["route"], sort_keys=True, separators=(",", ":")),
                 json.dumps(absent["route"], sort_keys=True, separators=(",", ":")),
             )

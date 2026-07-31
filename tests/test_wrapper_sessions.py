@@ -83,6 +83,17 @@ class DomainContextSessionBindingTests(unittest.TestCase):
             self.assertIn("domain_routing_context", first["interaction"])
             self.assertNotIn("domain_routing_context", second["interaction"])
             self.assertEqual(
+                set(first["interaction"]["domain_routing_context"]),
+                {
+                    "schema_version",
+                    "workflow_hint",
+                    "required_input",
+                    "question",
+                    "digest",
+                    "claim_boundary",
+                },
+            )
+            self.assertEqual(
                 json.dumps(first["interaction"]["route"], sort_keys=True, separators=(",", ":")),
                 json.dumps(second["interaction"]["route"], sort_keys=True, separators=(",", ":")),
             )
