@@ -25,6 +25,8 @@ class MemoryParserTests(unittest.TestCase):
             (["memory", "perspectives"], "cmd_memory_perspectives"),
             (["memory", "pin", "record-one"], "cmd_memory_pin"),
             (["memory", "unpin", "record-one"], "cmd_memory_unpin"),
+            (["memory", "rollup", "--tag", "deploy"], "cmd_memory_rollup"),
+            (["memory", "rollup", "--tag", "deploy", "--apply"], "cmd_memory_rollup"),
             (["memory", "capture", "summary", "--observed", "codex"], "cmd_memory_capture"),
             (["memory", "recall", "query", "--observer", "operator", "--observed", "codex"], "cmd_memory_recall"),
         )

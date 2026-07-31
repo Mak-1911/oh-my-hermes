@@ -1554,6 +1554,7 @@ def _compact_memory_recall_pack(value: Any) -> dict[str, Any]:
         },
         "scope": _compact_context_scope(value.get("scope", {})),
         "perspective": _compact_perspective(value.get("perspective")),
+        "query_intent": str(value.get("query_intent", "") or "default"),
         # Included records survive compaction: they are already redacted,
         # bounded summaries (<=500 chars each, budget-capped), and the
         # lifecycle-backed executor path re-serves the persisted record, so
@@ -1609,7 +1610,7 @@ def _compact_ranking(value: Any) -> dict[str, Any]:
         return {}
     compacted: dict[str, Any] = {
         key: int(ranking.get(key, 0) or 0)
-        for key in ("rrf_score_micro", "decayed_score_micro", "relevance_rank", "recency_rank", "usage_rank", "times_recalled", "age_tier")
+        for key in ("rrf_score_micro", "decayed_score_micro", "relevance_rank", "recency_rank", "usage_rank", "times_recalled", "age_tier", "veracity_weight_pct")
     }
     compacted["pinned"] = bool(ranking.get("pinned", False))
     return compacted

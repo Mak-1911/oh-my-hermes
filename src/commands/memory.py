@@ -35,6 +35,7 @@ from ..memory import (
     build_memory_lineage,
     build_memory_perspectives,
     build_memory_retirement,
+    build_memory_rollup,
     set_memory_pin,
     build_handoff_context_pack,
     build_memory_inspection,
@@ -161,6 +162,21 @@ def cmd_memory_recall(args: argparse.Namespace) -> int:
             include_stale=args.include_stale,
             observer=args.observer,
             observed=args.observed,
+        )
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(payload)
+    return 0
+
+
+def cmd_memory_rollup(args: argparse.Namespace) -> int:
+    try:
+        payload = build_memory_rollup(
+            _paths(args),
+            tag=args.tag,
+            scope_kind=args.scope_kind,
+            scope_ref=args.scope_ref,
+            apply=args.apply,
         )
     except (OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc

@@ -88,6 +88,13 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     perspectives = memory_sub.add_parser("perspectives", help="List observer/observed perspective pairs with reviewed-record counts.")
     perspectives.set_defaults(func=memory.cmd_memory_perspectives)
 
+    rollup = memory_sub.add_parser("rollup", help="Report an additive episode rollup over matching records; --apply stages the reviewable episode candidate.")
+    rollup.add_argument("--tag", default=None, help="Roll up records carrying this tag.")
+    rollup.add_argument("--scope-kind", choices=("project", "target", "thread", "run"), default=None)
+    rollup.add_argument("--scope-ref", default=None)
+    rollup.add_argument("--apply", action="store_true", help="Stage the episode candidate through the normal capture/review pipeline (default is report-only).")
+    rollup.set_defaults(func=memory.cmd_memory_rollup)
+
     pin = memory_sub.add_parser("pin", help="Mark one reviewed record as a recall anchor: first in packs, exempt from no-overlap cuts, never from eligibility.")
     pin.add_argument("record_id")
     pin.set_defaults(func=memory.cmd_memory_pin)
