@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..paths import OmhPaths
+from ..system.paths import OmhPaths
 from .domain_intelligence_artifacts import candidate_card, profile_projection
 from .domain_intelligence_contracts import (
     CLAIM_BOUNDARY,
@@ -9,6 +9,7 @@ from .domain_intelligence_contracts import (
     DOMAIN_STATUS_SCHEMA_VERSION,
     normalize_identifier,
     normalize_scope,
+    normalize_scope_from_value,
 )
 from .domain_intelligence_review_validation import validate_review_artifact_for_status
 from .domain_intelligence_store import (
@@ -25,6 +26,7 @@ from .domain_intelligence_validation import (
     validate_candidate_artifact,
     validate_profile_artifact,
 )
+from .domain_intelligence_validation_state import profile_key
 
 
 def build_domain_review(
@@ -88,13 +90,7 @@ def list_domain_profiles(
         if domain_filter and profile.get("domain_id") != domain_filter:
             continue
         profiles.append(profile_projection(profile))
-    profiles.sort(
-        key=lambda item: (
-            str(item["scope"]["kind"]),
-            str(item["scope"]["ref"]),
-            str(item["domain_id"]),
-        )
-    )
+    profiles.sort(key=_profile_sort_key)
     return {
         "schema_version": DOMAIN_LIST_SCHEMA_VERSION,
         "profiles": profiles,
@@ -163,7 +159,7 @@ def build_domain_status(paths: OmhPaths) -> dict[str, object]:
         str(candidate["candidate_id"]): candidate for candidate in valid_candidates
     }
     profile_index = {
-        (str(profile["profile_id"]), int(profile["revision"])): profile
+        profile_key(profile): profile
         for profile in valid_profiles
     }
     valid_reviews = 0
@@ -197,3 +193,13 @@ def build_domain_status(paths: OmhPaths) -> dict[str, object]:
         "diagnostics": diagnostics[:20],
         "claim_boundary": CLAIM_BOUNDARY,
     }
+
+
+def _profile_sort_key(profile: dict[str, object]) -> tuple[str, str, str]:
+    scope = normalize_scope_from_value(profile.get("scope"))
+    domain_id = normalize_identifier(profile.get("domain_id"), "domain_id")
+    kind = scope.get("kind")
+    ref = scope.get("ref")
+    if not isinstance(kind, str) or not isinstance(ref, str):
+        raise ValueError("profile_scope_not_canonical")
+    return kind, ref, domain_id

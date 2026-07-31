@@ -44,7 +44,13 @@ def validate_profile_identity(
 
 
 def profile_key(profile: dict[str, object]) -> tuple[str, int]:
-    return str(profile["profile_id"]), int(profile["revision"])
+    revision = profile.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+        raise ValueError("invalid_revision")
+    profile_id = profile.get("profile_id")
+    if not isinstance(profile_id, str) or not SAFE_PROFILE_ID.fullmatch(profile_id):
+        raise ValueError("unsafe_profile_id")
+    return profile_id, revision
 
 
 def canonical_confidence(value: object) -> dict[str, object]:
