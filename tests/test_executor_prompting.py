@@ -97,6 +97,15 @@ class ExecutorPromptingTests(unittest.TestCase):
         self.assertEqual(contract["strategy"], "plan_backed_change")
         self.assertEqual(contract["task_source"], "accepted_plan_artifact")
 
+        draft_payload = build_coding_delegation_payload(
+            "Implement the draft plan in src/example.py.",
+            executor_target="codex",
+            plan_artifact={"path": ".omh/plans/example.json", "status": "draft"},
+        )
+        draft_contract = draft_payload["executor_handoff"]["executor_prompting_contract"]
+        self.assertEqual(draft_contract["strategy"], "plan_backed_change")
+        self.assertEqual(draft_contract["task_source"], "draft_plan_artifact")
+
     def test_contract_rejects_missing_steering_field_and_persists_no_raw_task(self) -> None:
         raw_task = "do not persist this exact raw task in a durable artifact"
         payload = build_coding_delegation_payload(raw_task, executor_target="codex", include_message=True)

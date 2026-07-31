@@ -9830,6 +9830,22 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             draft_payload = json.loads(stdout)
             self.assertEqual(draft_payload["plan_artifact"]["status"], "draft")
             self.assertEqual(draft_payload["runtime"]["coding_delegation"]["plan_artifact"]["status"], "draft")
+            self.assertEqual(
+                draft_payload["executor_handoff"]["executor_prompting_contract"]["task_source"],
+                "draft_plan_artifact",
+            )
+            self.assertEqual(
+                draft_payload["runtime"]["coding_delegation"]["executor_handoff"][
+                    "executor_prompting_contract"
+                ]["task_source"],
+                "draft_plan_artifact",
+            )
+            self.assertEqual(
+                draft_payload["executor_handoff"]["execution_brief"]["task_source"],
+                "draft_plan_artifact",
+            )
+            self.assertIn("draft Hermes plan artifact", draft_payload["executor_handoff"]["scope"][0])
+            self.assertNotIn("accepted plan artifact", draft_payload["runtime"]["run"]["inputs_summary"])
 
             invalid_plan = root / "not-a-plan.md"
             invalid_plan.write_text("---\nschema_version: other/v1\nstatus: accepted\n---\n# Not a Hermes plan\n", encoding="utf-8")

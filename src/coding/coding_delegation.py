@@ -399,6 +399,7 @@ def build_coding_delegation_payload(
             message=message,
             isolation_plan=isolation_plan,
             has_plan_artifact=bool(plan_artifact),
+            plan_artifact_status=str(plan_artifact.get("status", "")) if plan_artifact else "",
         )
         payload["executor_handoff"] = _executor_handoff(
             executor_target,
@@ -415,6 +416,7 @@ def build_coding_delegation_payload(
             message=message,
             isolation_plan=isolation_plan,
             has_plan_artifact=bool(plan_artifact),
+            plan_artifact_status=str(plan_artifact.get("status", "")) if plan_artifact else "",
         )
         payload["runtime_handoff"] = _runtime_handoff(
             selection.selected_executor_profile,
@@ -431,6 +433,7 @@ def build_coding_delegation_payload(
             message=message,
             isolation_plan=isolation_plan,
             has_plan_artifact=bool(plan_artifact),
+            plan_artifact_status=str(plan_artifact.get("status", "")) if plan_artifact else "",
         )
         payload["prompt_handoff"] = _prompt_handoff(
             selection.selected_executor_profile,
@@ -1349,12 +1352,14 @@ def _executor_prompting_contract(
     message: str,
     isolation_plan: dict[str, object],
     has_plan_artifact: bool,
+    plan_artifact_status: str,
 ) -> dict[str, object]:
     return build_executor_prompting_contract(
         profile,
         intent=delegation.intent,
         message=message,
         has_plan_artifact=has_plan_artifact,
+        plan_artifact_status=plan_artifact_status,
         isolation_plan=isolation_plan,
     )
 

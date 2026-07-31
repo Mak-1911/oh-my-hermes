@@ -2477,7 +2477,8 @@ def validate_executor_prompting_contract(contract: Any, label: str, *, expected_
         f"{label} strategy is invalid",
     )
     _require(
-        contract.get("task_source") in {"original_message_at_dispatch_time", "accepted_plan_artifact"},
+        contract.get("task_source")
+        in {"original_message_at_dispatch_time", "draft_plan_artifact", "accepted_plan_artifact"},
         errors,
         f"{label} task_source is invalid",
     )
@@ -2544,6 +2545,25 @@ def validate_optional_executor_prompting_contract(
         label,
         expected_profile=expected_profile,
     )
+
+
+def _validate_prompting_task_source_alignment(
+    handoff: dict[str, Any],
+    *,
+    brief_key: str,
+    label: str,
+) -> list[str]:
+    prompting_contract = handoff.get("executor_prompting_contract")
+    brief = handoff.get(brief_key)
+    if not isinstance(prompting_contract, dict) or not isinstance(brief, dict):
+        return []
+    errors: list[str] = []
+    _require(
+        prompting_contract.get("task_source") == brief.get("task_source"),
+        errors,
+        f"{label} executor_prompting_contract.task_source must match {brief_key}.task_source",
+    )
+    return errors
 
 
 def validate_optional_session_observation_contract(
@@ -2676,6 +2696,13 @@ def validate_coding_executor_handoff(handoff: Any) -> list[str]:
             if isinstance(brief.get(key), list):
                 for index, value in enumerate(brief[key]):
                     _require(isinstance(value, str), errors, f"coding_delegation executor_handoff execution_brief.{key}[{index}] must be a string")
+    errors.extend(
+        _validate_prompting_task_source_alignment(
+            handoff,
+            brief_key="execution_brief",
+            label="coding_delegation executor_handoff",
+        )
+    )
     for key in ("scope", "non_goals", "acceptance_criteria", "verification"):
         _require(isinstance(handoff.get(key), list), errors, f"coding_delegation executor_handoff {key} must be a list")
         if isinstance(handoff.get(key), list):
@@ -2990,6 +3017,13 @@ def validate_coding_runtime_handoff(handoff: Any) -> list[str]:
             if isinstance(brief.get(key), list):
                 for index, value in enumerate(brief[key]):
                     _require(isinstance(value, str), errors, f"coding_delegation runtime_handoff runtime_brief.{key}[{index}] must be a string")
+    errors.extend(
+        _validate_prompting_task_source_alignment(
+            handoff,
+            brief_key="runtime_brief",
+            label="coding_delegation runtime_handoff",
+        )
+    )
 
     templates = handoff.get("runtime_templates")
     _require(isinstance(templates, list), errors, "coding_delegation runtime_handoff runtime_templates must be a list")

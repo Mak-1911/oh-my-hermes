@@ -35,6 +35,7 @@ def build_executor_prompting_contract(
     intent: str,
     message: str,
     has_plan_artifact: bool,
+    plan_artifact_status: str = "",
     isolation_plan: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Describe a deterministic executor prompt without storing the task itself."""
@@ -50,7 +51,7 @@ def build_executor_prompting_contract(
         "status": "prepared_not_observed",
         "intent": intent,
         "strategy": strategy,
-        "task_source": "accepted_plan_artifact" if has_plan_artifact else "original_message_at_dispatch_time",
+        "task_source": _task_source(has_plan_artifact, plan_artifact_status),
         "required_sections": list(EXECUTOR_PROMPTING_REQUIRED_SECTIONS),
         "repository_first_policy": (
             "Inspect the repository, project instructions, and current diff before editing; reconcile the request with observed code facts."
@@ -191,7 +192,17 @@ def _strategy_instruction(strategy: str) -> str:
 def _task_source_context(task_source: str) -> str:
     if task_source == "accepted_plan_artifact":
         return "An accepted plan artifact exists; use its criteria without treating it as proof that implementation already ran."
+    if task_source == "draft_plan_artifact":
+        return "A draft plan artifact was explicitly allowed; verify unresolved decisions and do not treat it as accepted."
     return "Use the original request only at dispatch time; OMH stores metadata, not the raw task, in durable artifacts."
+
+
+def _task_source(has_plan_artifact: bool, plan_artifact_status: str) -> str:
+    if not has_plan_artifact:
+        return "original_message_at_dispatch_time"
+    if plan_artifact_status == "draft":
+        return "draft_plan_artifact"
+    return "accepted_plan_artifact"
 
 
 def _section(title: str, items: Iterable[str]) -> str:

@@ -620,6 +620,20 @@ class RuntimeArtifactTests(unittest.TestCase):
             json.dumps(validate_executor_prompting_contract(missing_prompt_section, "prompting", expected_profile="codex")),
         )
 
+        mismatched_executor_source = deepcopy(executor)
+        mismatched_executor_source["executor_prompting_contract"]["task_source"] = "accepted_plan_artifact"
+        self.assertIn(
+            "executor_prompting_contract.task_source must match execution_brief.task_source",
+            json.dumps(validate_coding_executor_handoff(mismatched_executor_source)),
+        )
+
+        mismatched_runtime_source = deepcopy(runtime)
+        mismatched_runtime_source["executor_prompting_contract"]["task_source"] = "accepted_plan_artifact"
+        self.assertIn(
+            "executor_prompting_contract.task_source must match runtime_brief.task_source",
+            json.dumps(validate_coding_runtime_handoff(mismatched_runtime_source)),
+        )
+
         leaked_prompt = deepcopy(generic_prompt)
         leaked_prompt["session_observation_contract"] = deepcopy(prompt["session_observation_contract"])
         leaked_prompt_errors = json.dumps(validate_coding_prompt_handoff(leaked_prompt))
