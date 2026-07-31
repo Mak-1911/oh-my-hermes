@@ -122,16 +122,40 @@ def bind_plugin_project(host_kwargs: Mapping[str, object]) -> HostProjectBinding
 def bind_session_project(
     host_binding: HostProjectBinding | None,
 ) -> HostProjectBinding | None:
-    """Reopen a fresh per-turn descriptor from a trusted CLI/plugin host binding."""
+    """Duplicate a fresh per-turn descriptor from a trusted host binding."""
     if not isinstance(host_binding, HostProjectBinding):
         return None
     if host_binding.surface not in {"cli", "plugin"}:
         return None
+    descriptor: int | None = None
+    binding: HostProjectBinding | None = None
     try:
         host_binding._require_open()
+        descriptor = os.dup(host_binding.domain_store_fd)
+        os.set_inheritable(descriptor, False)
+        duplicate_stat = os.fstat(descriptor)
+        duplicate_identity = (
+            duplicate_stat.st_dev,
+            duplicate_stat.st_ino,
+            duplicate_stat.st_mode,
+        )
+        if duplicate_identity != host_binding._root_identity or not stat.S_ISDIR(
+            duplicate_stat.st_mode
+        ):
+            raise ValueError("host_project_binding_changed")
+        binding = HostProjectBinding(
+            host_binding.project_root,
+            host_binding.project_paths,
+            descriptor,
+            "session",
+            _token=_BINDING_TOKEN,
+        )
+        return binding
     except (OSError, ValueError):
         return None
-    return _bind_root(host_binding.project_root, surface="session")
+    finally:
+        if descriptor is not None and binding is None:
+            os.close(descriptor)
 
 
 def _bind_root(root: Path, *, surface: str) -> HostProjectBinding | None:
