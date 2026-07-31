@@ -4,7 +4,7 @@ import hashlib
 import json
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_text, extract_source_metadata
 from ..routing.chat import CONFIDENCE_LEVELS
@@ -13,7 +13,6 @@ from .lifecycle import report_codex_delegation_lifecycle, start_codex_delegation
 from ..local_store import atomic_write_json, ensure_dir, ensure_file, file_lock, read_json_object, read_jsonl_objects, utc_now
 from ..memory import memory_recall_pack_for_handoff, record_attached_recall_usage
 from ..paths import OmhPaths
-from ..workflows.domain_project_context import HostProjectBinding, bind_session_project
 from ..runtime.records import (
     build_event_record,
     build_wrapper_session_record,
@@ -37,6 +36,11 @@ from .contract import (
     messenger_rendering_contract,
     render_profile_for_source,
     usage_trace_payload,
+)
+from .domain_context_attachment import (
+    HostProjectBinding,
+    HostProjectBindingFactory,
+    build_session_project_binding_factory,
 )
 from .briefing import build_coding_briefing, chat_response_briefing
 from .hermes_runtime import (
@@ -93,7 +97,7 @@ def create_or_resume_wrapper_session(
     target_notice: dict[str, object] | None = None,
     record_provenance: dict[str, object] | None = None,
     _host_project_binding: HostProjectBinding | None = None,
-    _host_project_binding_factory: Callable[[], HostProjectBinding | None] | None = None,
+    _host_project_binding_factory: HostProjectBindingFactory | None = None,
 ) -> dict[str, object]:
     if source not in CHAT_SOURCES:
         raise WrapperSessionError(f"unsupported wrapper session source: {source}")
@@ -101,18 +105,6 @@ def create_or_resume_wrapper_session(
         raise WrapperSessionError(f"unsupported wrapper session mode: {mode}")
     if min_confidence not in CONFIDENCE_LEVELS:
         raise WrapperSessionError(f"unsupported wrapper session confidence threshold: {min_confidence}")
-    def session_binding_factory() -> HostProjectBinding | None:
-        host_binding = _host_project_binding
-        close_host_binding = False
-        if host_binding is None and _host_project_binding_factory is not None:
-            host_binding = _host_project_binding_factory()
-            close_host_binding = host_binding is not None
-        try:
-            return bind_session_project(host_binding)
-        finally:
-            if close_host_binding:
-                host_binding.close()
-
     interaction = build_chat_interaction_payload(
         event_or_message,
         source=source,
@@ -124,7 +116,10 @@ def create_or_resume_wrapper_session(
         executor_target=executor_target,
         target_notice=target_notice,
         paths=paths,
-        _host_project_binding_factory=session_binding_factory,
+        _host_project_binding_factory=build_session_project_binding_factory(
+            _host_project_binding,
+            _host_project_binding_factory,
+        ),
     )
     thread_key = str(interaction["thread_key"])
     session_id = session_id_for_thread_key(thread_key)

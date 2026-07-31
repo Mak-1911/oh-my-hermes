@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 import hashlib
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..context_safety import compact_progress_events
 from ..coding.agentic_playbook import maybe_build_agentic_playbook
@@ -12,7 +12,6 @@ from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_tex
 from ..routing.catalog_questions import is_skill_catalog_question as _is_skill_catalog_question
 from ..routing.chat import public_chat_route_payload, route_explanation_payload
 from ..routing.coding_route_actions import coding_route_decision_payload, resolve_coding_route_decision
-from ..routing.domain_context_eligibility import classify_domain_context_eligibility
 from ..routing.localization import normalized_phrase
 from ..routing.missed_route import is_missed_route_feedback
 from ..routing.omh_help import (
@@ -47,7 +46,6 @@ from ..surfaces.evidence_copy import not_evidence_action_suffix, not_evidence_re
 from ..visual_summary import image_generation_setup_fallback
 from ..workflows.goal_ledger import goal_message_states_acceptance_criteria
 from ..workflows.goal_quality_coaching import is_goal_classified_message
-from ..workflows.domain_project_context import HostProjectBinding
 from ..workflows.domain_routing_context import resolve_domain_routing_context
 from ..workflows.web_visual_qa_projection import build_prepared_web_visual_qa_chat_state
 from .hermes_runtime import (
@@ -55,6 +53,12 @@ from .hermes_runtime import (
     hermes_coding_team_claim_boundary,
     hermes_coding_team_extra_action_specs,
 )
+from .domain_context_attachment import (
+    HostProjectBinding,
+    HostProjectBindingFactory,
+    resolve_attached_domain_context,
+)
+from ..skills.expert_question_rendering import domain_expert_question_body
 from .localized_copy import (
     chat_copy,
     consolidation_notice_line,
@@ -3188,7 +3192,7 @@ def build_chat_interaction_payload(
     paths: OmhPaths | None = None,
     skill_policy: dict[str, object] | None = None,
     _host_project_binding: HostProjectBinding | None = None,
-    _host_project_binding_factory: Callable[[], HostProjectBinding | None] | None = None,
+    _host_project_binding_factory: HostProjectBindingFactory | None = None,
 ) -> dict[str, object]:
     if source not in CHAT_SOURCES:
         raise ValueError(f"unsupported chat interaction source: {source}")
@@ -3253,7 +3257,7 @@ def _can_use_chat_interaction_cache(
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
     host_project_binding: HostProjectBinding | None,
-    host_project_binding_factory: Callable[[], HostProjectBinding | None] | None,
+    host_project_binding_factory: HostProjectBindingFactory | None,
 ) -> bool:
     return (
         isinstance(event_or_message, str)
@@ -3731,7 +3735,7 @@ def _build_chat_interaction_payload_uncached(
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
     host_project_binding: HostProjectBinding | None,
-    host_project_binding_factory: Callable[[], HostProjectBinding | None] | None,
+    host_project_binding_factory: HostProjectBindingFactory | None,
 ) -> dict[str, object]:
     message = extract_message_text(event_or_message)
     metadata = _source_metadata(event_or_message, source_metadata)
@@ -3743,24 +3747,13 @@ def _build_chat_interaction_payload_uncached(
         include_message=include_message,
         skill_policy=skill_policy,
     )
-    domain_context = None
-    eligibility = classify_domain_context_eligibility(route_payload, message)
-    if eligibility.eligible:
-        binding = host_project_binding
-        close_binding = False
-        if binding is None and host_project_binding_factory is not None:
-            binding = host_project_binding_factory()
-            close_binding = binding is not None
-        try:
-            if binding is not None:
-                domain_context = resolve_domain_routing_context(
-                    binding,
-                    message,
-                    locale=detect_copy_locale(message),
-                )
-        finally:
-            if close_binding:
-                binding.close()
+    domain_context = resolve_attached_domain_context(
+        route_payload,
+        message,
+        host_project_binding=host_project_binding,
+        host_project_binding_factory=host_project_binding_factory,
+        resolver=resolve_domain_routing_context,
+    )
     orchestration_guidance = build_omh_orchestration_guidance(
         route_payload,
         source_metadata=metadata,
@@ -5227,7 +5220,7 @@ def build_chat_response_from_route(
         )
     if action == "clarify":
         copy = chat_copy("clarify", locale=copy_locale)
-        body = _domain_expert_question_body(domain_routing_context)
+        body = domain_expert_question_body(domain_routing_context)
         if body is None:
             body = copy.body if localized_copy else str(decision.get("clarification") or copy.body)
         return _chat_response(
@@ -5286,7 +5279,7 @@ def build_chat_response_from_route(
             },
         )
     copy = chat_copy("generic_clarify", locale=copy_locale)
-    body = _domain_expert_question_body(domain_routing_context) or copy.body
+    body = domain_expert_question_body(domain_routing_context) or copy.body
     return _chat_response(
         kind="clarification",
         headline=copy.headline,
@@ -5298,24 +5291,6 @@ def build_chat_response_from_route(
         claim_boundary="No execution has started.",
         extra_state={"route_action": action, "confidence": decision.get("confidence", "low")},
     )
-
-
-def _domain_expert_question_body(context: dict[str, object] | None) -> str | None:
-    if not isinstance(context, dict):
-        return None
-    workflow = context.get("workflow_hint")
-    required_input = context.get("required_input")
-    question = context.get("question")
-    if not isinstance(workflow, str) or not workflow:
-        return None
-    if not isinstance(required_input, str) or not required_input:
-        return None
-    if not isinstance(question, dict):
-        return None
-    text = question.get("text")
-    if not isinstance(text, str) or not text:
-        return None
-    return f"Target workflow: {workflow}\nRequired input: {required_input}\n\n{text}"
 
 
 def _is_file_lookup_fallback(decision: dict[str, object]) -> bool:
