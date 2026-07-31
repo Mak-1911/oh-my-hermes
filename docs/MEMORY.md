@@ -14,7 +14,8 @@ Domain intelligence is a separate reviewed vocabulary store for agents,
 wrappers, and operators. It lets an operator curate bounded user,
 organization, or project vocabulary without changing routing in the same
 release. The store lives under `.omh/memory/domain-intelligence/` with
-`candidates/`, `profiles/`, `reviews/`, and `history/` subdirectories.
+`candidates/`, `profiles/`, `reviews/`, `history/`, and `operations/`
+subdirectories.
 
 Every scope reference is an explicit opaque key supplied by an operator or a
 wrapper identity boundary:
@@ -72,13 +73,27 @@ confidence metadata, bounded provenance metadata, and base profile revision.
 It excludes candidate/review identifiers, reviewer claims, timestamps,
 claim-boundary prose, and filesystem paths.
 
+Local filesystem authorization is the trust boundary for this store. Payload
+and operation digests detect accidental corruption, partial or internally
+inconsistent mutation, and mismatched artifact linkage. They do not
+authenticate content against a process authorized to write the store: such a
+process can coordinate replacements across candidates, profiles, reviews,
+history entries, and operations and recompute the ordinary SHA-256 digests.
+The design has no secret key or immutable external anchor. Symlink rejection,
+path-containment checks, bounded reads, and untrusted-artifact validation still
+protect storage access and fail closed on unsafe or malformed input; they do
+not authenticate an authorized local writer.
+
 Domain-intelligence artifacts persist only explicit bounded vocabulary,
 identifier-like workflow hints, confidence metadata, and bounded provenance.
 They do not store raw prompts, transcripts, hidden reasoning, chat logs, or
 Hermes internal memory. The profile claim boundary is
 `routing_prior_not_override`: profiles are future prepared context only and do
 not affect routing, execution, review, CI, merge readiness, or merge evidence
-in this release.
+in this release. No routing consumer exists for these profiles. If a future
+routing design includes malicious local writers in its threat model, it must
+revisit authenticated provenance; key management or authenticated append-only
+infrastructure is outside this local metadata-only foundation.
 
 Reviewer claims and source references are safe opaque identifiers only:
 ASCII letters, digits, `_`, `.`, `:`, and `-`, up to 120 characters. Review
