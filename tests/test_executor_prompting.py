@@ -7,7 +7,7 @@ from _local_package import load_local_package
 
 load_local_package()
 
-from omh.coding.prompting import build_executor_prompting_contract, select_executor_prompting_strategy
+from omh.coding.prompting import select_executor_prompting_strategy
 from omh.coding_delegation import build_coding_delegation_payload, coding_delegation_record_payload
 from omh.runtime.records import (
     validate_coding_executor_handoff,
