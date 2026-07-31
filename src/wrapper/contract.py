@@ -56,6 +56,7 @@ from .hermes_runtime import (
 from .domain_context_attachment import (
     HostProjectBinding,
     HostProjectBindingFactory,
+    rendered_domain_context_fragment,
     resolve_attached_domain_context,
 )
 from ..skills.expert_question_rendering import domain_expert_question_body
@@ -3765,8 +3766,6 @@ def _build_chat_interaction_payload_uncached(
     if is_catalog_question and _route_recommendation_next_action(route_payload) != "show_command_preview":
         route_payload = _catalog_question_route_payload(route_payload)
     base["route"] = route_payload
-    if domain_context is not None:
-        base.update(domain_context)
     if not _is_omh_intro_question(message) and not is_catalog_question:
         base["omh_orchestration_guidance"] = orchestration_guidance
     if isinstance(route_payload.get("task_card"), dict):
@@ -3891,7 +3890,14 @@ def _build_chat_interaction_payload_uncached(
         if agentic_playbook:
             base["agentic_playbook"] = agentic_playbook
         base["next_action"] = str(_nested(base["chat_response"], "state").get("next_action", "answer_clarification"))
-        return _finish_interaction(base, target_notice)
+        finished = _finish_interaction(base, target_notice)
+        rendered_context = rendered_domain_context_fragment(
+            domain_context,
+            _nested(finished, "chat_response"),
+        )
+        if rendered_context is not None:
+            finished.update(rendered_context)
+        return finished
 
     if resolved_mode == "route":
         route_response = build_chat_response_from_route(

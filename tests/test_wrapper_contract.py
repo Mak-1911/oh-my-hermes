@@ -195,6 +195,62 @@ class DomainContextAttachmentTests(unittest.TestCase):
                 },
             )
 
+    def test_explicit_delegate_mode_omits_unused_domain_context(self) -> None:
+        from test_domain_routing_context import _approve_profile, _binding, _repository
+
+        message = "something feels off"
+        with TemporaryDirectory() as tmp:
+            root = _repository(Path(tmp) / "delegate-project")
+            _approve_profile(root, domain_id="sales", phrase="feels off")
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            baseline = build_chat_interaction_payload(
+                message,
+                source="discord",
+                mode="delegate",
+                source_metadata={},
+                paths=paths,
+            )
+            with _binding(root) as binding:
+                contextual = build_chat_interaction_payload(
+                    message,
+                    source="discord",
+                    mode="delegate",
+                    source_metadata={},
+                    paths=paths,
+                    _host_project_binding=binding,
+                )
+
+            self.assertEqual(contextual["mode"], "delegate")
+            self.assertNotIn("domain_routing_context", contextual)
+            self.assertEqual(
+                _canonical_bytes(contextual["chat_response"]),
+                _canonical_bytes(baseline["chat_response"]),
+            )
+
+            base = [
+                "--omh-home",
+                str(root / ".omh"),
+                "--hermes-home",
+                str(root / ".hermes"),
+            ]
+            with mock.patch("omh.commands.chat.Path.cwd", return_value=root):
+                status, stdout, stderr = run_cli(
+                    base
+                    + [
+                        "chat",
+                        "interact",
+                        "--source",
+                        "discord",
+                        "--mode",
+                        "delegate",
+                        "--json",
+                        message,
+                    ]
+                )
+
+            self.assertEqual(status, 0, stderr)
+            self.assertNotIn("domain_routing_context", json.loads(stdout))
+
 
 class WrapperContractTests(unittest.TestCase):
     def test_omh_orchestration_guidance_is_optional_for_first_use(self) -> None:

@@ -3,12 +3,29 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from ..routing.domain_context_eligibility import classify_domain_context_eligibility
+from ..skills.expert_question_rendering import domain_expert_question_body
 from ..workflows.domain_project_context import HostProjectBinding, bind_session_project
 from .localized_copy import detect_copy_locale
 
 
 HostProjectBindingFactory = Callable[[], HostProjectBinding | None]
 DomainContextResolver = Callable[..., dict[str, object] | None]
+
+
+def rendered_domain_context_fragment(
+    resolved_context: dict[str, object] | None,
+    chat_response: dict[str, object],
+) -> dict[str, object] | None:
+    """Keep context only when its catalog question is the rendered body."""
+    if not isinstance(resolved_context, dict):
+        return None
+    context = resolved_context.get("domain_routing_context")
+    if not isinstance(context, dict):
+        return None
+    expected_body = domain_expert_question_body(context)
+    if expected_body is None or chat_response.get("body") != expected_body:
+        return None
+    return {"domain_routing_context": context}
 
 
 def resolve_attached_domain_context(
