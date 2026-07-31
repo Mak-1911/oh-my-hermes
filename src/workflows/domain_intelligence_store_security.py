@@ -12,6 +12,9 @@ from typing import Iterator
 
 from ..paths import OmhPaths
 from ..system.local_store import FileLockTimeout, ensure_dir
+from .domain_intelligence_store_writer import atomic_write_managed_json
+
+__all__ = ("atomic_write_managed_json",)
 
 try:
     import fcntl
@@ -37,8 +40,29 @@ def ensure_new_artifact_capacity(
     limit: int,
     reason: str,
 ) -> None:
-    if not target.exists() and sum(1 for _ in directory.glob("*.json")) >= limit:
+    paths, overflow = bounded_json_paths(directory, limit=max(limit - 1, 0))
+    if not target.exists() and (overflow or len(paths) >= limit):
         raise ValueError(reason)
+
+
+def bounded_json_paths(directory: Path, *, limit: int) -> tuple[tuple[Path, ...], bool]:
+    """Return at most ``limit + 1`` JSON paths without an unbounded scan."""
+    paths: list[Path] = []
+    scan_limit = max(limit * 2 + 1, 1)
+    scanned = 0
+    scan_overflow = False
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            scanned += 1
+            if scanned > scan_limit:
+                scan_overflow = True
+                break
+            if entry.name.endswith(".json"):
+                paths.append(directory / entry.name)
+                if len(paths) > limit:
+                    break
+    overflow = len(paths) > limit or scan_overflow
+    return tuple(sorted(paths)), overflow
 
 
 def secure_domain_root(paths: OmhPaths, *, create: bool = False) -> Path:

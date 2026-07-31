@@ -11,6 +11,7 @@ from .domain_intelligence_contracts import (
 )
 from .domain_intelligence_store_security import (
     MAX_DOMAIN_DIAGNOSTICS,
+    bounded_json_paths,
     read_bounded_json,
     secure_artifact_path,
 )
@@ -23,8 +24,8 @@ def resolve_authoritative_artifact(
     *,
     file_limit: int,
 ) -> tuple[dict[str, object] | None, str | None]:
-    paths = sorted(directory.glob("*.json"))
-    if len(paths) > file_limit:
+    paths, overflow = bounded_json_paths(directory, limit=file_limit)
+    if overflow:
         return None, "artifact_file_count_exceeded"
     conflict_reason = f"{identity_field.removesuffix('_id')}_identity_conflict"
     canonical_error: str | None = None
@@ -66,10 +67,9 @@ def read_identity_artifacts(
     *,
     file_limit: int,
 ) -> list[tuple[dict[str, object], Path]]:
-    paths = sorted(directory.glob("*.json"))
-    if len(paths) > file_limit:
+    paths, overflow = bounded_json_paths(directory, limit=file_limit)
+    if overflow:
         _append_diagnostic(diagnostics, directory, "artifact_file_count_exceeded")
-        return []
     parsed: list[tuple[dict[str, object], Path, str, str]] = []
     for path in paths:
         try:
@@ -109,7 +109,8 @@ def read_identity_artifacts(
         if path.stem != embedded_id:
             _append_diagnostic(diagnostics, path, "artifact_identity_mismatch")
             continue
-        records.append((data, path))
+        if len(records) < file_limit:
+            records.append((data, path))
     return records
 
 
@@ -119,10 +120,9 @@ def read_history_artifacts(
     *,
     file_limit: int,
 ) -> list[tuple[dict[str, object], Path]]:
-    paths = sorted(directory.glob("*.json"))
-    if len(paths) > file_limit:
+    paths, overflow = bounded_json_paths(directory, limit=file_limit)
+    if overflow:
         _append_diagnostic(diagnostics, directory, "artifact_file_count_exceeded")
-        return []
     parsed: list[tuple[dict[str, object], Path, tuple[str, int], str]] = []
     for path in paths:
         try:
@@ -166,7 +166,8 @@ def read_history_artifacts(
         if path.stem != f"{profile_id}_r{revision}":
             _append_diagnostic(diagnostics, path, "artifact_identity_mismatch")
             continue
-        records.append((data, path))
+        if len(records) < file_limit:
+            records.append((data, path))
     return records
 
 

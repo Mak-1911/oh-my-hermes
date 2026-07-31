@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..paths import OmhPaths
-from ..system.local_store import atomic_write_json
 from .domain_intelligence_contracts import SAFE_REF
 from .domain_intelligence_store_security import (
     MAX_DOMAIN_ARTIFACT_BYTES,
@@ -11,6 +10,7 @@ from .domain_intelligence_store_security import (
     MAX_DOMAIN_CANDIDATE_FILES,
     MAX_DOMAIN_JSON_DEPTH,
     MAX_DOMAIN_JSON_NODES,
+    atomic_write_managed_json,
     domain_store_lock,
     ensure_new_artifact_capacity,
     secure_artifact_path,
@@ -31,6 +31,7 @@ __all__ = (
     "MAX_DOMAIN_CANDIDATE_FILES",
     "MAX_DOMAIN_JSON_DEPTH",
     "MAX_DOMAIN_JSON_NODES",
+    "atomic_write_managed_json",
     "diagnostic",
     "domain_store_lock",
     "ensure_candidate_capacity",
@@ -94,7 +95,7 @@ def archive_profile(paths: OmhPaths, profile: dict[str, object]) -> None:
         limit=MAX_DOMAIN_ARTIFACT_FILES,
         reason="artifact_capacity_exceeded",
     )
-    atomic_write_json(target, profile, private=True)
+    atomic_write_managed_json(paths, "history", target.name, profile)
 
 
 def write_candidate(paths: OmhPaths, candidate_id: str, candidate: dict[str, object]) -> None:
@@ -105,7 +106,7 @@ def write_candidate(paths: OmhPaths, candidate_id: str, candidate: dict[str, obj
         limit=MAX_DOMAIN_CANDIDATE_FILES,
         reason="candidate_capacity_exceeded",
     )
-    atomic_write_json(target, candidate, private=True)
+    atomic_write_managed_json(paths, "candidates", target.name, candidate)
 
 
 def write_profile(paths: OmhPaths, profile_id: str, profile: dict[str, object]) -> None:
@@ -116,7 +117,7 @@ def write_profile(paths: OmhPaths, profile_id: str, profile: dict[str, object]) 
         limit=MAX_DOMAIN_ARTIFACT_FILES,
         reason="artifact_capacity_exceeded",
     )
-    atomic_write_json(target, profile, private=True)
+    atomic_write_managed_json(paths, "profiles", target.name, profile)
 
 
 def write_review(paths: OmhPaths, review_id: str, review: dict[str, object]) -> None:
@@ -127,7 +128,7 @@ def write_review(paths: OmhPaths, review_id: str, review: dict[str, object]) -> 
         limit=MAX_DOMAIN_ARTIFACT_FILES,
         reason="artifact_capacity_exceeded",
     )
-    atomic_write_json(target, review, private=True)
+    atomic_write_managed_json(paths, "reviews", target.name, review)
 
 
 def read_candidates(paths: OmhPaths, diagnostics: list[dict[str, str]]) -> list[tuple[dict[str, object], Path]]:

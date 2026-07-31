@@ -307,16 +307,22 @@ class DomainIntelligenceStoreSecurityTests(unittest.TestCase):
             root = Path(tmp)
             paths = resolve_paths(root / ".omh", root / ".hermes")
             directory = store.candidates_dir(paths)
-            for index in range(store.MAX_DOMAIN_CANDIDATE_FILES + 1):
+            for index in range(store.MAX_DOMAIN_CANDIDATE_FILES):
                 artifact_id = f"candidate-{index}"
                 (directory / f"{artifact_id}.json").write_text(
                     json.dumps({"candidate_id": artifact_id}), encoding="utf-8"
                 )
+            (directory / "external-extra.json").write_text("{}", encoding="utf-8")
             diagnostics = []
-            self.assertEqual(store.read_candidates(paths, diagnostics), [])
+            records = store.read_candidates(paths, diagnostics)
+            self.assertEqual(len(records), store.MAX_DOMAIN_CANDIDATE_FILES)
             self.assertEqual(
+                {item[0]["candidate_id"] for item in records},
+                {f"candidate-{index}" for index in range(store.MAX_DOMAIN_CANDIDATE_FILES)},
+            )
+            self.assertIn(
+                {"path_name": "candidates", "reason": "artifact_file_count_exceeded"},
                 diagnostics,
-                [{"path_name": "candidates", "reason": "artifact_file_count_exceeded"}],
             )
 
     def test_candidate_capacity_preserves_readable_maximum_and_rejects_new_write(
@@ -354,6 +360,8 @@ class DomainIntelligenceStoreSecurityTests(unittest.TestCase):
             store.write_candidate(
                 paths, "candidate-0", {"candidate_id": "candidate-0", "updated": True}
             )
+            self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+            self.assertEqual((directory / "candidate-0.json").stat().st_mode & 0o777, 0o600)
 
     def test_general_artifact_writes_stop_at_reader_capacity(self) -> None:
         cases = (
@@ -393,6 +401,58 @@ class DomainIntelligenceStoreSecurityTests(unittest.TestCase):
                         ValueError, "artifact_capacity_exceeded"
                     ):
                         writer(paths)
+
+    def test_managed_writes_reject_directory_swap_without_external_mutation(self) -> None:
+        cases = (
+            (
+                "candidate",
+                lambda paths: store.write_candidate(
+                    paths, "candidate-race", {"candidate_id": "candidate-race"}
+                ),
+            ),
+            (
+                "profile",
+                lambda paths: store.write_profile(
+                    paths, "profile-race", {"profile_id": "profile-race"}
+                ),
+            ),
+            (
+                "review",
+                lambda paths: store.write_review(
+                    paths, "review-race", {"review_id": "review-race"}
+                ),
+            ),
+            (
+                "history",
+                lambda paths: store.archive_profile(
+                    paths, {"profile_id": "profile-race", "revision": 1}
+                ),
+            ),
+        )
+        real_capacity_check = store.ensure_new_artifact_capacity
+        for managed_name, writer in cases:
+            with self.subTest(managed_name=managed_name), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                outside = root / "outside"
+                outside.mkdir(mode=0o755)
+                before_mode = outside.stat().st_mode & 0o777
+
+                def swap_after_validation(directory, target, **kwargs):
+                    real_capacity_check(directory, target, **kwargs)
+                    directory.rename(directory.with_name(f"{directory.name}-validated"))
+                    directory.symlink_to(outside, target_is_directory=True)
+
+                with patch.object(
+                    store,
+                    "ensure_new_artifact_capacity",
+                    side_effect=swap_after_validation,
+                ):
+                    with self.assertRaisesRegex(ValueError, "safely opened"):
+                        writer(paths)
+
+                self.assertEqual(list(outside.iterdir()), [])
+                self.assertEqual(outside.stat().st_mode & 0o777, before_mode)
 
     def test_history_reader_uses_bounded_identity_checked_storage(self) -> None:
         with TemporaryDirectory() as tmp:
