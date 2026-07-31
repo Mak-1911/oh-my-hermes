@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from domain_context_resolution_support import DomainContextResolverMixin
 from domain_routing_context_support import (
     CLAIM_BOUNDARY as CLAIM_BOUNDARY,
     _approve_profile as _approve_profile,
@@ -26,9 +27,5 @@ class DomainPhraseMatcherTests(DomainPhraseMatcherMixin, unittest.TestCase):
     pass
 
 
-def __getattr__(name: str):
-    if name == "DomainContextResolverTests":
-        from test_domain_context_resolution import DomainContextResolverTests
-
-        return DomainContextResolverTests
-    raise AttributeError(name)
+class DomainContextResolverTests(DomainContextResolverMixin, unittest.TestCase):
+    pass

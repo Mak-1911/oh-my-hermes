@@ -4,12 +4,11 @@ import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import unittest
 from unittest.mock import patch
 
 from omh.workflows import domain_intelligence_profile_snapshot as profile_snapshot
 
-from test_domain_routing_context import (
+from domain_routing_context_support import (
     _approve_profile,
     _binding,
     _repository,
@@ -18,7 +17,7 @@ from test_domain_routing_context import (
 )
 
 
-class DomainContextResolverTests(unittest.TestCase):
+class DomainContextResolverMixin:
     def test_healthy_approved_exact_project_profile_resolves_once(self) -> None:
         with TemporaryDirectory() as tmp:
             root = _repository(Path(tmp) / "healthy-project")
