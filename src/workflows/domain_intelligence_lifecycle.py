@@ -4,13 +4,11 @@ import os
 
 from ..paths import OmhPaths
 from ..system.local_store import utc_now
-from .domain_intelligence_artifacts import review_record_for_profile
 from .domain_intelligence_contracts import (
     CLAIM_BOUNDARY,
     DOMAIN_CANDIDATE_SCHEMA_VERSION,
     DOMAIN_REVIEW_RECORD_SCHEMA_VERSION,
     REDUCTION_POLICY,
-    canonical_profile_digest,
     ensure_no_forbidden_keys,
     normalize_confidence,
     normalize_identifier,
@@ -23,13 +21,11 @@ from .domain_intelligence_contracts import (
     stable_profile_id,
 )
 from .domain_intelligence_store import (
-    archive_profile,
     domain_store_lock,
+    ensure_candidate_capacity,
     read_candidate_or_raise,
     read_profile,
     write_candidate,
-    write_profile,
-    write_review,
 )
 from .domain_intelligence_operations import (
     approval_operation_exists,
@@ -43,6 +39,24 @@ from .domain_intelligence_operations import (
     write_candidate_resumable,
     write_profile_resumable,
     write_review_idempotent,
+)
+from .domain_intelligence_rejection_operations import (
+    build_rejection_operation, delete_rejection_operation,
+    load_rejection_operation,
+    validate_rejection_resume_state,
+    write_rejection_candidate_resumable,
+    write_rejection_operation,
+    write_rejection_review_idempotent,
+)
+from .domain_intelligence_retirement_operations import (
+    build_retirement_operation,
+    delete_retirement_operation,
+    load_retirement_operation,
+    validate_retirement_resume_state,
+    write_retirement_archive_idempotent,
+    write_retirement_operation,
+    write_retirement_profile_resumable,
+    write_retirement_review_idempotent,
 )
 from .domain_intelligence_validation import (
     current_profile_for_authority,
@@ -76,6 +90,7 @@ def capture_domain_candidate(
     profile_id = stable_profile_id(scope, normalized_domain)
     candidate_id = "dicand_" + os.urandom(8).hex()
     with domain_store_lock(paths):
+        ensure_candidate_capacity(paths)
         candidate = {
             "schema_version": DOMAIN_CANDIDATE_SCHEMA_VERSION,
             "candidate_id": candidate_id,
@@ -155,38 +170,36 @@ def reject_domain_candidate(
     reviewer_claim = normalize_safe_ref(rejected_by, "reviewer_claim")
     reason_code = normalize_reason_code(reason)
     with domain_store_lock(paths):
-        candidate = read_candidate_or_raise(paths, candidate_id)
-        ensure_candidate_pending(candidate)
+        operation = load_rejection_operation(paths, candidate_id)
         if approval_operation_exists(paths, candidate_id):
             raise ValueError("approval_in_progress")
-        current = current_profile_for_authority(paths, str(candidate["profile_id"]))
+        if operation is None:
+            candidate = read_candidate_or_raise(paths, candidate_id)
+            ensure_candidate_pending(candidate)
+            current = current_profile_for_authority(paths, str(candidate["profile_id"]))
+            if current is not None and current.get("candidate_id") == candidate_id:
+                raise ValueError("candidate_already_approved")
+            operation = build_rejection_operation(
+                candidate,
+                reviewer_claim=reviewer_claim,
+                reason_code=reason_code,
+            )
+            validate_rejection_resume_state(paths, operation)
+            write_rejection_operation(paths, operation)
+        elif (
+            operation["target_review"].get("reviewer_claim") != reviewer_claim
+            or operation["target_review"].get("reason_code") != reason_code
+        ):
+            raise ValueError("rejection_operation_decision_mismatch")
+        current = current_profile_for_authority(paths, str(operation["pending_candidate"]["profile_id"]))
         if current is not None and current.get("candidate_id") == candidate_id:
             raise ValueError("candidate_already_approved")
-        now = utc_now()
-        review_id = f"direview_{candidate_id}"
-        review = {
-            "schema_version": DOMAIN_REVIEW_RECORD_SCHEMA_VERSION,
-            "review_id": review_id,
-            "candidate_id": candidate_id,
-            "profile_id": str(candidate.get("profile_id", "")),
-            "revision": None,
-            "decision": "rejected",
-            "reviewer_claim": reviewer_claim,
-            "reason_code": reason_code,
-            "reviewed_at": now,
-            "claim_boundary": CLAIM_BOUNDARY,
-        }
-        decided = {
-            **candidate,
-            "status": "rejected",
-            "reviewed_at": now,
-            "reviewed_by": reviewer_claim,
-            "review_id": review_id,
-            "rejection_reason_code": reason_code,
-            "updated_at": now,
-        }
-        write_review(paths, review_id, review)
-        write_candidate(paths, candidate_id, decided)
+        validate_rejection_resume_state(paths, operation)
+        write_rejection_review_idempotent(paths, operation)
+        write_rejection_candidate_resumable(paths, operation)
+        decided = operation["target_candidate"]
+        review = operation["target_review"]
+        delete_rejection_operation(paths, candidate_id)
     return {
         "schema_version": DOMAIN_REVIEW_RECORD_SCHEMA_VERSION,
         "decision": "rejected",
@@ -211,34 +224,33 @@ def retire_domain_profile(
     normalized_domain = normalize_identifier(domain_id, "domain_id")
     profile_id = stable_profile_id(scope, normalized_domain)
     with domain_store_lock(paths):
-        current = read_profile(paths, profile_id)
-        if current is None:
-            raise FileNotFoundError(profile_id)
-        validate_profile_artifact(paths, current)
-        if current.get("status") == "retired":
-            raise ValueError("already_retired")
-        archive_profile(paths, current)
-        now = utc_now()
-        retired = {
-            **current,
-            "revision": int(current.get("revision", 0)) + 1,
-            "status": "retired",
-            "base_profile_revision": int(current.get("revision", 0)),
-            "updated_at": now,
-            "retired_at": now,
-            "retired_by": reviewer_claim,
-            "retirement_reason_code": reason_code,
-        }
-        retired["payload_digest"] = canonical_profile_digest(retired)
-        review = review_record_for_profile(
-            None,
-            retired,
-            reviewer_claim=reviewer_claim,
-            decision="retired",
-            reason=reason_code,
-        )
-        write_review(paths, str(review["review_id"]), review)
-        write_profile(paths, profile_id, retired)
+        operation = load_retirement_operation(paths, profile_id)
+        if operation is None:
+            current = read_profile(paths, profile_id)
+            if current is None:
+                raise FileNotFoundError(profile_id)
+            validate_profile_artifact(paths, current)
+            if current.get("status") == "retired":
+                raise ValueError("already_retired")
+            operation = build_retirement_operation(
+                current,
+                reviewer_claim=reviewer_claim,
+                reason_code=reason_code,
+            )
+            validate_retirement_resume_state(paths, operation)
+            write_retirement_operation(paths, operation)
+        elif (
+            operation["target_review"].get("reviewer_claim") != reviewer_claim
+            or operation["target_review"].get("reason_code") != reason_code
+        ):
+            raise ValueError("retirement_operation_decision_mismatch")
+        validate_retirement_resume_state(paths, operation)
+        write_retirement_archive_idempotent(paths, operation)
+        write_retirement_review_idempotent(paths, operation)
+        write_retirement_profile_resumable(paths, operation)
+        retired = operation["target_profile"]
+        review = operation["target_review"]
+        delete_retirement_operation(paths, profile_id)
     return {
         "schema_version": DOMAIN_REVIEW_RECORD_SCHEMA_VERSION,
         "decision": "retired",
