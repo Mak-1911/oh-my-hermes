@@ -7968,6 +7968,18 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("English", task_contract["language_policy"])
         self.assertIn("changed constraint", task_contract["steering_policy"])
         self.assertIn("not dispatch", task_contract["claim_boundary"])
+        prompting_contract = handoff["executor_prompting_contract"]
+        self.assertEqual(prompting_contract["schema_version"], "executor_prompting_contract/v1")
+        self.assertEqual(prompting_contract["profile"], "codex")
+        self.assertEqual(prompting_contract["status"], "prepared_not_observed")
+        self.assertEqual(prompting_contract["strategy"], "risk_aware_change")
+        self.assertIn("Known context", prompting_contract["required_sections"])
+        self.assertIn("Progress and blockers", prompting_contract["required_sections"])
+        self.assertIn("{changed_constraint}", prompting_contract["steering_delta_template"])
+        self.assertIn("not dispatch", prompting_contract["claim_boundary"])
+        self.assertIn("Known context\n", handoff["prompt_template"])
+        self.assertIn("Unknowns and decision rule\n", handoff["prompt_template"])
+        self.assertIn("Evidence boundary\n", handoff["prompt_template"])
         session_contract = handoff["session_observation_contract"]
         self.assertEqual(session_contract["schema_version"], "codex_session_observation_contract/v1")
         self.assertEqual(session_contract["profile"], "codex")

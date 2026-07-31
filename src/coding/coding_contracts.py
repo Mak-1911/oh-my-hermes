@@ -12,6 +12,26 @@ from ..executors import (
 
 TASK_PROMPT_CONTRACT_SCHEMA_VERSION = "executor_task_prompt_contract/v1"
 TASK_PROMPT_REQUIRED_SECTIONS = ("Goal", "Do", "Don't", "Expected result", "Test")
+EXECUTOR_PROMPTING_CONTRACT_SCHEMA_VERSION = "executor_prompting_contract/v1"
+EXECUTOR_STEERING_DELTA_CONTRACT_SCHEMA_VERSION = "executor_steering_delta/v1"
+EXECUTOR_PROMPTING_REQUIRED_SECTIONS = (
+    "Goal",
+    "Do",
+    "Don't",
+    "Known context",
+    "Unknowns and decision rule",
+    "Expected result",
+    "Test",
+    "Progress and blockers",
+    "Evidence boundary",
+    "Task",
+)
+EXECUTOR_PROMPTING_STRATEGIES = (
+    "direct_change",
+    "plan_backed_change",
+    "risk_aware_change",
+    "review_or_repair",
+)
 CODEX_SESSION_OBSERVATION_CONTRACT_SCHEMA_VERSION = "codex_session_observation_contract/v1"
 CLAUDE_CODE_SESSION_OBSERVATION_CONTRACT_SCHEMA_VERSION = "claude_code_session_observation_contract/v1"
 LOCAL_CAPABILITY_REPORT_CONTRACT_SCHEMA_VERSION = "executor_local_capability_report_contract/v1"
@@ -50,6 +70,10 @@ __all__ = [
     "RUNTIME_HANDOFF_SCHEMA_VERSION",
     "TASK_PROMPT_CONTRACT_SCHEMA_VERSION",
     "TASK_PROMPT_REQUIRED_SECTIONS",
+    "EXECUTOR_PROMPTING_CONTRACT_SCHEMA_VERSION",
+    "EXECUTOR_STEERING_DELTA_CONTRACT_SCHEMA_VERSION",
+    "EXECUTOR_PROMPTING_REQUIRED_SECTIONS",
+    "EXECUTOR_PROMPTING_STRATEGIES",
     "CODEX_SESSION_OBSERVATION_CONTRACT_SCHEMA_VERSION",
     "CLAUDE_CODE_SESSION_OBSERVATION_CONTRACT_SCHEMA_VERSION",
     "LOCAL_CAPABILITY_REPORT_CONTRACT_SCHEMA_VERSION",

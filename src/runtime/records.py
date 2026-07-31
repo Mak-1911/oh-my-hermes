@@ -8,6 +8,10 @@ from ..coding_contracts import (
     CODING_EXECUTOR_HANDOFF_TARGETS,
     CODING_RUNTIME_HANDOFF_TARGETS,
     CODEX_SESSION_OBSERVATION_CONTRACT_SCHEMA_VERSION,
+    EXECUTOR_PROMPTING_CONTRACT_SCHEMA_VERSION,
+    EXECUTOR_PROMPTING_REQUIRED_SECTIONS,
+    EXECUTOR_PROMPTING_STRATEGIES,
+    EXECUTOR_STEERING_DELTA_CONTRACT_SCHEMA_VERSION,
     EXECUTOR_HANDOFF_SCHEMA_VERSION,
     LOCAL_CAPABILITY_REPORT_ALLOWED_KINDS,
     LOCAL_CAPABILITY_REPORT_CAPABILITY_FIELDS,
@@ -211,6 +215,7 @@ CODING_EXECUTOR_HANDOFF_KEYS = (
     "recording_contract",
     "dispatch_contract",
     "task_prompt_contract",
+    "executor_prompting_contract",
     "session_observation_contract",
     "local_capability_report_contract",
     "prompt_template",
@@ -246,6 +251,7 @@ CODING_PROMPT_HANDOFF_KEYS = (
     "recording_contract",
     "dispatch_contract",
     "task_prompt_contract",
+    "executor_prompting_contract",
     "session_observation_contract",
     "local_capability_report_contract",
     "prompt_template",
@@ -280,6 +286,7 @@ CODING_RUNTIME_HANDOFF_KEYS = (
     "recording_contract",
     "dispatch_contract",
     "task_prompt_contract",
+    "executor_prompting_contract",
     "local_capability_report_contract",
     "prompt_template",
     "runtime_brief",
@@ -342,6 +349,29 @@ CODING_TASK_PROMPT_CONTRACT_KEYS = (
     "required_sections",
     "language_policy",
     "steering_policy",
+    "claim_boundary",
+)
+CODING_EXECUTOR_PROMPTING_CONTRACT_KEYS = (
+    "schema_version",
+    "profile",
+    "status",
+    "intent",
+    "strategy",
+    "task_source",
+    "required_sections",
+    "repository_first_policy",
+    "uncertainty_policy",
+    "verification_policy",
+    "reporting_policy",
+    "steering_delta_contract",
+    "steering_delta_template",
+    "claim_boundary",
+)
+CODING_EXECUTOR_STEERING_DELTA_CONTRACT_KEYS = (
+    "schema_version",
+    "status",
+    "required_fields",
+    "action_rule",
     "claim_boundary",
 )
 CODEX_SESSION_OBSERVATION_CONTRACT_KEYS = (
@@ -2380,6 +2410,98 @@ def validate_optional_task_prompt_contract(
     )
 
 
+def validate_executor_prompting_contract(contract: Any, label: str, *, expected_profile: str) -> list[str]:
+    errors: list[str] = []
+    _require(isinstance(contract, dict), errors, f"{label} must be an object")
+    if not isinstance(contract, dict):
+        return errors
+    extra_keys = sorted(set(contract) - set(CODING_EXECUTOR_PROMPTING_CONTRACT_KEYS))
+    missing_keys = sorted(set(CODING_EXECUTOR_PROMPTING_CONTRACT_KEYS) - set(contract))
+    _require(not extra_keys, errors, f"{label} has unsupported keys: {extra_keys}")
+    _require(not missing_keys, errors, f"{label} is missing keys: {missing_keys}")
+    _require(
+        contract.get("schema_version") == EXECUTOR_PROMPTING_CONTRACT_SCHEMA_VERSION,
+        errors,
+        f"{label} schema_version is invalid",
+    )
+    _require(contract.get("profile") == expected_profile, errors, f"{label} profile must match selected executor")
+    _require(contract.get("status") == "prepared_not_observed", errors, f"{label} status must be prepared_not_observed")
+    _require(isinstance(contract.get("intent"), str), errors, f"{label} intent must be a string")
+    _require(
+        contract.get("strategy") in EXECUTOR_PROMPTING_STRATEGIES,
+        errors,
+        f"{label} strategy is invalid",
+    )
+    _require(
+        contract.get("task_source") in {"original_message_at_dispatch_time", "accepted_plan_artifact"},
+        errors,
+        f"{label} task_source is invalid",
+    )
+    sections = contract.get("required_sections")
+    _require(isinstance(sections, list), errors, f"{label} required_sections must be a list")
+    if isinstance(sections, list):
+        for index, value in enumerate(sections):
+            _require(isinstance(value, str), errors, f"{label} required_sections[{index}] must be a string")
+        missing_sections = sorted(set(EXECUTOR_PROMPTING_REQUIRED_SECTIONS) - {str(value) for value in sections})
+        _require(not missing_sections, errors, f"{label} required_sections must include required sections: {missing_sections}")
+    for key in (
+        "repository_first_policy",
+        "uncertainty_policy",
+        "verification_policy",
+        "reporting_policy",
+        "steering_delta_template",
+        "claim_boundary",
+    ):
+        _require(isinstance(contract.get(key), str) and bool(str(contract.get(key))), errors, f"{label} {key} must be a non-empty string")
+    template = str(contract.get("steering_delta_template", ""))
+    for field in ("changed_constraint", "new_evidence", "required_action", "verification_target_changed"):
+        _require("{" + field + "}" in template, errors, f"{label} steering_delta_template must include {{{field}}}")
+    steering = contract.get("steering_delta_contract")
+    _require(isinstance(steering, dict), errors, f"{label} steering_delta_contract must be an object")
+    if isinstance(steering, dict):
+        extra_steering_keys = sorted(set(steering) - set(CODING_EXECUTOR_STEERING_DELTA_CONTRACT_KEYS))
+        missing_steering_keys = sorted(set(CODING_EXECUTOR_STEERING_DELTA_CONTRACT_KEYS) - set(steering))
+        _require(not extra_steering_keys, errors, f"{label} steering_delta_contract has unsupported keys: {extra_steering_keys}")
+        _require(not missing_steering_keys, errors, f"{label} steering_delta_contract is missing keys: {missing_steering_keys}")
+        _require(
+            steering.get("schema_version") == EXECUTOR_STEERING_DELTA_CONTRACT_SCHEMA_VERSION,
+            errors,
+            f"{label} steering_delta_contract schema_version is invalid",
+        )
+        _require(
+            steering.get("status") == "prepared_not_observed",
+            errors,
+            f"{label} steering_delta_contract status must be prepared_not_observed",
+        )
+        fields = steering.get("required_fields")
+        _require(isinstance(fields, list), errors, f"{label} steering_delta_contract required_fields must be a list")
+        if isinstance(fields, list):
+            missing_fields = sorted(
+                {"changed_constraint", "new_evidence", "required_action", "verification_target_changed"} - {str(value) for value in fields}
+            )
+            _require(not missing_fields, errors, f"{label} steering_delta_contract required_fields must include: {missing_fields}")
+        for key in ("action_rule", "claim_boundary"):
+            _require(isinstance(steering.get(key), str) and bool(str(steering.get(key))), errors, f"{label} steering_delta_contract {key} must be a non-empty string")
+    boundary = str(contract.get("claim_boundary", "")).lower()
+    _require("not dispatch" in boundary and "evidence" in boundary, errors, f"{label} claim_boundary must preserve prepared-only evidence boundary")
+    return errors
+
+
+def validate_optional_executor_prompting_contract(
+    handoff: dict[str, Any],
+    label: str,
+    *,
+    expected_profile: str,
+) -> list[str]:
+    if "executor_prompting_contract" not in handoff:
+        return []
+    return validate_executor_prompting_contract(
+        handoff["executor_prompting_contract"],
+        label,
+        expected_profile=expected_profile,
+    )
+
+
 def validate_optional_session_observation_contract(
     handoff: dict[str, Any],
     label: str,
@@ -2476,6 +2598,13 @@ def validate_coding_executor_handoff(handoff: Any) -> list[str]:
         validate_optional_task_prompt_contract(
             handoff,
             "coding_delegation executor_handoff task_prompt_contract",
+            expected_profile="codex",
+        )
+    )
+    errors.extend(
+        validate_optional_executor_prompting_contract(
+            handoff,
+            "coding_delegation executor_handoff executor_prompting_contract",
             expected_profile="codex",
         )
     )
@@ -2793,6 +2922,13 @@ def validate_coding_runtime_handoff(handoff: Any) -> list[str]:
         )
     )
     errors.extend(
+        validate_optional_executor_prompting_contract(
+            handoff,
+            "coding_delegation runtime_handoff executor_prompting_contract",
+            expected_profile=str(handoff.get("selected_executor_profile", "")),
+        )
+    )
+    errors.extend(
         validate_optional_local_capability_report_contract(
             handoff,
             "coding_delegation runtime_handoff local_capability_report_contract",
@@ -3094,6 +3230,13 @@ def validate_coding_prompt_handoff(handoff: Any) -> list[str]:
         validate_optional_task_prompt_contract(
             handoff,
             "coding_delegation prompt_handoff task_prompt_contract",
+            expected_profile=str(handoff.get("selected_executor_profile", "")),
+        )
+    )
+    errors.extend(
+        validate_optional_executor_prompting_contract(
+            handoff,
+            "coding_delegation prompt_handoff executor_prompting_contract",
             expected_profile=str(handoff.get("selected_executor_profile", "")),
         )
     )

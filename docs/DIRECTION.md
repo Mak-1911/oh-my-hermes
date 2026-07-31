@@ -215,7 +215,11 @@ Selected coding executors/runtimes own:
 4. Delegate main coding deliberately.
    Coding-heavy work should ask for or apply an executor/runtime profile, then
    become a prepared handoff with scope, non-goals, acceptance criteria,
-   verification expectations, and review expectations. Codex can use the
+   verification expectations, review expectations, and a deterministic
+   executor-prompt contract. That contract must tell the selected executor to
+   inspect repository facts first, handle material uncertainty explicitly,
+   report progress and blockers, and send only a bounded delta when an active
+   turn needs steering. Codex can use the
    run-backed lifecycle path. Claude Code and generic agents can use portable
    prompt handoffs. Hermes, OMX, OMO, and OMC can use `coding_runtime_handoff/v1`
    contracts with team/swarm, worker-protocol, and worktree guidance while still

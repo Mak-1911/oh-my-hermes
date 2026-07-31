@@ -52,6 +52,7 @@ from omh.runtime.records import (
     validate_coding_executor_handoff,
     validate_coding_prompt_handoff,
     validate_coding_runtime_handoff,
+    validate_executor_prompting_contract,
     validate_isolation_plan,
 )
 
@@ -428,6 +429,7 @@ class RuntimeArtifactTests(unittest.TestCase):
             del legacy["executor_local_capability_strategy"]
             del legacy["executor_capability_snapshot"]
             del legacy["task_prompt_contract"]
+            del legacy["executor_prompting_contract"]
             if "local_capability_report_contract" in legacy:
                 del legacy["local_capability_report_contract"]
             if "session_observation_contract" in legacy:
@@ -545,6 +547,11 @@ class RuntimeArtifactTests(unittest.TestCase):
         self.assertEqual(validate_coding_prompt_handoff(generic_prompt), [])
         self.assertEqual(validate_coding_runtime_handoff(runtime), [])
         self.assertEqual(executor["task_prompt_contract"]["required_sections"], ["Goal", "Do", "Don't", "Expected result", "Test"])
+        self.assertEqual(executor["executor_prompting_contract"]["profile"], "codex")
+        self.assertEqual(prompt["executor_prompting_contract"]["profile"], "claude-code")
+        self.assertEqual(runtime["executor_prompting_contract"]["profile"], "omx-runtime")
+        self.assertIn("Known context", executor["executor_prompting_contract"]["required_sections"])
+        self.assertIn("{required_action}", executor["executor_prompting_contract"]["steering_delta_template"])
         self.assertEqual(prompt["task_prompt_contract"]["profile"], "claude-code")
         self.assertEqual(runtime["task_prompt_contract"]["profile"], "omx-runtime")
         self.assertEqual(executor["local_capability_report_contract"]["profile"], "codex")
@@ -565,6 +572,13 @@ class RuntimeArtifactTests(unittest.TestCase):
         missing_section = deepcopy(executor)
         missing_section["task_prompt_contract"]["required_sections"].remove("Test")
         self.assertIn("required_sections must include required sections", json.dumps(validate_coding_executor_handoff(missing_section)))
+
+        missing_prompt_section = deepcopy(executor["executor_prompting_contract"])
+        missing_prompt_section["required_sections"].remove("Evidence boundary")
+        self.assertIn(
+            "required_sections must include required sections",
+            json.dumps(validate_executor_prompting_contract(missing_prompt_section, "prompting", expected_profile="codex")),
+        )
 
         leaked_prompt = deepcopy(generic_prompt)
         leaked_prompt["session_observation_contract"] = deepcopy(prompt["session_observation_contract"])
