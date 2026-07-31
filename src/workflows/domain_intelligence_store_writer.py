@@ -17,6 +17,7 @@ _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
 _MANAGED_DIRECTORIES = frozenset(
     {"candidates", "history", "operations", "profiles", "reviews"}
 )
+_HEALTH_DIRECTORIES = ("profiles", "reviews", "history")
 
 
 def open_domain_directory(
@@ -26,11 +27,18 @@ def open_domain_directory(
 ) -> int:
     """Open a domain directory through one anchored, no-follow descriptor chain."""
     home = Path(os.path.abspath(paths.omh_home))
-    return _open_home_tree(
+    directory_fd = _open_home_tree(
         home,
         ("memory", "domain-intelligence", *relative_parts),
         create=create,
     )
+    if create and not relative_parts:
+        try:
+            _ensure_health_directories(directory_fd)
+        except (OSError, ValueError):
+            os.close(directory_fd)
+            raise
+    return directory_fd
 
 
 def open_domain_directory_path(directory: Path) -> int:
@@ -217,6 +225,28 @@ def _open_home_tree(
                 "symlink or non-directory component"
             ) from exc
         raise
+
+
+def _ensure_health_directories(domain_root_fd: int) -> None:
+    """Create the complete resolver health universe for a writable store."""
+    flags = os.O_RDONLY | _DIRECTORY_FLAG | _CLOEXEC_FLAG | _NOFOLLOW_FLAG
+    for name in _HEALTH_DIRECTORIES:
+        try:
+            os.mkdir(name, 0o700, dir_fd=domain_root_fd)
+        except FileExistsError:
+            pass
+        try:
+            descriptor = os.open(name, flags, dir_fd=domain_root_fd)
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.EMLINK, errno.ENOTDIR}:
+                raise ValueError(
+                    "domain-intelligence health directory contains a symlink or non-directory"
+                ) from exc
+            raise
+        try:
+            os.fchmod(descriptor, 0o700)
+        finally:
+            os.close(descriptor)
 
 
 def _domain_component_index(parts: tuple[str, ...]) -> int:
