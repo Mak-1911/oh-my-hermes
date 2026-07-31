@@ -8,15 +8,17 @@ import stat
 from typing import Iterator, Mapping
 
 from ..paths import OmhPaths, find_project_root, resolve_paths
+from .domain_intelligence_bound_store import (
+    open_domain_directory_at,
+    shared_domain_store_lock_at,
+)
 from .domain_intelligence_store_security import (
     MAX_DOMAIN_ARTIFACT_BYTES,
     MAX_DOMAIN_JSON_DEPTH,
     MAX_DOMAIN_JSON_NODES,
-    shared_domain_store_lock_at,
 )
 from .domain_intelligence_store_writer import (
     open_domain_directory,
-    open_domain_directory_at,
     read_managed_json_at,
 )
 

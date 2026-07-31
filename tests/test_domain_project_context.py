@@ -6,6 +6,7 @@ import inspect
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import time
 import unittest
 from unittest.mock import patch
 
@@ -203,8 +204,8 @@ class DomainProjectContextTests(unittest.TestCase):
 
     def test_shared_lock_is_descriptor_relative_nonblocking_and_fail_closed(self) -> None:
         domain_context = self._module()
-        security = importlib.import_module(
-            "omh.workflows.domain_intelligence_store_security"
+        bound_store = importlib.import_module(
+            "omh.workflows.domain_intelligence_bound_store"
         )
         with TemporaryDirectory() as tmp:
             root = _repo(Path(tmp).resolve() / "lock-project")
@@ -213,7 +214,7 @@ class DomainProjectContextTests(unittest.TestCase):
             self.addCleanup(self._close, binding)
             self.assertIsNotNone(binding)
 
-            signature = inspect.signature(security.shared_domain_store_lock_at)
+            signature = inspect.signature(bound_store.shared_domain_store_lock_at)
             self.assertEqual(signature.parameters["timeout_seconds"].default, 0.25)
             self.assertEqual(signature.parameters["poll_interval"].default, 0.01)
 
@@ -226,7 +227,7 @@ class DomainProjectContextTests(unittest.TestCase):
                 finally:
                     os.close(contender)
 
-            with patch.object(security, "fcntl", None):
+            with patch.object(bound_store, "fcntl", None):
                 with self.assertRaisesRegex(ValueError, "shared_lock_unavailable"):
                     with binding.shared_store_lock():
                         pass
@@ -251,6 +252,29 @@ class DomainProjectContextTests(unittest.TestCase):
                         timeout_seconds=0.03, poll_interval=0.01
                     ):
                         pass
+            finally:
+                fcntl.flock(contender, fcntl.LOCK_UN)
+                os.close(contender)
+
+    def test_shared_lock_honors_configured_poll_interval(self) -> None:
+        domain_context = self._module()
+        with TemporaryDirectory() as tmp:
+            root = _repo(Path(tmp).resolve() / "polling-lock-project")
+            store = _domain_store(root)
+            binding = domain_context.bind_cli_project(root)
+            self.addCleanup(self._close, binding)
+            contender = os.open(store / ".store.lock", os.O_RDWR)
+            fcntl.flock(contender, fcntl.LOCK_EX)
+            try:
+                with patch("time.sleep", wraps=time.sleep) as sleep:
+                    with self.assertRaisesRegex(Exception, "within 0.03s"):
+                        with binding.shared_store_lock(
+                            timeout_seconds=0.03,
+                            poll_interval=0.02,
+                        ):
+                            pass
+                self.assertGreaterEqual(sleep.call_count, 1)
+                self.assertEqual({call.args for call in sleep.call_args_list}, {(0.02,)})
             finally:
                 fcntl.flock(contender, fcntl.LOCK_UN)
                 os.close(contender)
