@@ -240,6 +240,58 @@ class DomainContextAttachmentTests(unittest.TestCase):
                 },
             )
 
+    def test_cli_protected_clarifications_ignore_matching_domain_profiles(self) -> None:
+        from test_domain_routing_context import _approve_profile, _repository
+
+        messages = (
+            "help",
+            "show status",
+            "operator actions",
+            "maintenance status",
+        )
+        with TemporaryDirectory() as tmp:
+            for index, message in enumerate(messages):
+                with self.subTest(message=message):
+                    root = _repository(Path(tmp) / f"protected-{index}")
+                    _approve_profile(root, domain_id="protected", phrase=message)
+                    paths = resolve_paths(root / ".omh", root / ".hermes")
+                    baseline = build_chat_interaction_payload(
+                        message,
+                        source="discord",
+                        source_metadata={},
+                        paths=paths,
+                    )
+                    base = [
+                        "--omh-home",
+                        str(root / ".omh"),
+                        "--hermes-home",
+                        str(root / ".hermes"),
+                    ]
+                    with mock.patch("omh.commands.chat.Path.cwd", return_value=root):
+                        status, stdout, stderr = run_cli(
+                            base
+                            + [
+                                "chat",
+                                "interact",
+                                "--source",
+                                "discord",
+                                "--json",
+                                message,
+                            ]
+                        )
+
+                    self.assertEqual(status, 0, stderr)
+                    payload = json.loads(stdout)
+                    self.assertNotIn("domain_routing_context", payload)
+                    self.assertEqual(
+                        _canonical_bytes(payload["route"]),
+                        _canonical_bytes(baseline["route"]),
+                    )
+                    self.assertEqual(
+                        _canonical_bytes(payload["chat_response"]),
+                        _canonical_bytes(baseline["chat_response"]),
+                    )
+
     def test_explicit_delegate_mode_omits_unused_domain_context(self) -> None:
         from test_domain_routing_context import _approve_profile, _binding, _repository
 

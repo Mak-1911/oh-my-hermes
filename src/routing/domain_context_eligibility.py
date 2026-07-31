@@ -13,12 +13,8 @@ ELIGIBLE_UNRESOLVED_ROUTE = "eligible_unresolved_route"
 _UNRESOLVED_ACTIONS = frozenset({"clarify", "fallback"})
 _ROUTER_SKILL = "oh-my-hermes"
 _PROTECTED_RECOMMENDATION_ACTIONS = frozenset({"answer_directly", "answer_file_lookup"})
-_PROTECTED_REASONS = frozenset(
-    {
-        "Plain user question; answer directly in chat instead of opening an OMH workflow or picker.",
-        "File or text lookup request; answer directly or ask for the target file instead of "
-        "dispatching to a workflow keyword.",
-    }
+_PROTECTED_LEADING_MATCHES = frozenset(
+    {"category:maintenance", "category:operator", "metadata:help", "metadata:status", "trigger:show"}
 )
 
 
@@ -60,9 +56,9 @@ def classify_domain_context_eligibility(
         return DomainContextEligibility(False, PROTECTED_ROUTE)
     if str(route.get("route_next_action") or "").strip():
         return DomainContextEligibility(False, PROTECTED_ROUTE)
-    if str(route.get("reason") or "") in _PROTECTED_REASONS:
-        return DomainContextEligibility(False, PROTECTED_ROUTE)
     if _has_protected_recommendation_action(route.get("recommendations")):
+        return DomainContextEligibility(False, PROTECTED_ROUTE)
+    if _has_protected_leading_match(route):
         return DomainContextEligibility(False, PROTECTED_ROUTE)
     return DomainContextEligibility(True, ELIGIBLE_UNRESOLVED_ROUTE)
 
@@ -87,4 +83,20 @@ def _has_protected_recommendation_action(value: object) -> bool:
         isinstance(item, Mapping)
         and str(item.get("next_action") or "") in _PROTECTED_RECOMMENDATION_ACTIONS
         for item in value
+    )
+
+
+def _has_protected_leading_match(route: Mapping[str, object]) -> bool:
+    value = route.get("recommendations")
+    if not isinstance(value, (list, tuple)):
+        return False
+    leading = [
+        item
+        for item in value
+        if isinstance(item, Mapping) and item.get("score") == route.get("score")
+    ]
+    return bool(leading) and all(
+        isinstance(item.get("matched"), (list, tuple))
+        and any(match in _PROTECTED_LEADING_MATCHES for match in item["matched"])
+        for item in leading
     )

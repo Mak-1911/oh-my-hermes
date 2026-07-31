@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import unittest
 
@@ -109,6 +110,66 @@ class DomainContextEligibilityTests(unittest.TestCase):
         self.assertFalse(
             classify_domain_context_eligibility(direct_answer, "what's 2+2?").eligible
         )
+
+    def test_structured_protected_route_signals_are_not_domain_eligible(self) -> None:
+        for message in (
+            "help",
+            "show status",
+            "operator actions",
+            "maintenance status",
+        ):
+            with self.subTest(message=message):
+                route = route_chat_message(message)
+                route_before = _canonical_bytes(route)
+                candidate_before = _canonical_bytes(route.get("candidate_handoff"))
+
+                self.assertEqual(route["action"], "clarify")
+                result = classify_domain_context_eligibility(route, message)
+
+                self.assertFalse(result.eligible)
+                self.assertEqual(result.reason, PROTECTED_ROUTE)
+                self.assertEqual(_canonical_bytes(route), route_before)
+                self.assertEqual(_canonical_bytes(route.get("candidate_handoff")), candidate_before)
+
+    def test_display_prose_does_not_control_protected_route_eligibility(self) -> None:
+        for message in (
+            "what's 2+2?",
+            "README file lookup",
+            "help",
+            "show status",
+            "operator actions",
+            "maintenance status",
+        ):
+            with self.subTest(message=message):
+                route = deepcopy(route_chat_message(message))
+                route["reason"] = "Completely revised user-facing route explanation."
+                route["clarification"] = "Completely revised user-facing clarification."
+                for recommendation in route.get("recommendations", []):
+                    recommendation["why"] = "Revised recommendation explanation."
+                    recommendation["description"] = "Revised workflow description."
+
+                result = classify_domain_context_eligibility(route, message)
+
+                self.assertFalse(result.eligible)
+                self.assertEqual(result.reason, PROTECTED_ROUTE)
+
+    def test_domain_specific_unresolved_routes_remain_eligible(self) -> None:
+        for message in (
+            "pipeline status",
+            "sales status",
+            "sales pipeline feels unresolved",
+            "help with the sales pipeline",
+            "show pipeline status",
+            "sales maintenance status",
+        ):
+            with self.subTest(message=message):
+                route = route_chat_message(message)
+
+                self.assertEqual(route["action"], "clarify")
+                result = classify_domain_context_eligibility(route, message)
+
+                self.assertTrue(result.eligible)
+                self.assertEqual(result.reason, ELIGIBLE_UNRESOLVED_ROUTE)
 
 
 if __name__ == "__main__":
