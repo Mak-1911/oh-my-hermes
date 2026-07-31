@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Protocol
 
 from ..routing.domain_context_eligibility import classify_domain_context_eligibility
 from ..skills.expert_question_rendering import domain_expert_question_body
@@ -13,7 +14,16 @@ from .localized_copy import detect_copy_locale
 
 
 HostProjectBindingFactory = Callable[[], HostProjectBinding | None]
-DomainContextResolver = Callable[..., DomainRoutingResolution]
+
+
+class DomainContextResolver(Protocol):
+    def __call__(
+        self,
+        binding: HostProjectBinding,
+        message: str,
+        *,
+        locale: str,
+    ) -> DomainRoutingResolution: ...
 
 
 def rendered_domain_context_fragment(
