@@ -3,7 +3,6 @@ from __future__ import annotations
 from contextlib import ExitStack
 from dataclasses import dataclass
 import os
-from pathlib import Path
 import stat
 
 from .domain_intelligence_contracts import (
@@ -29,7 +28,7 @@ _HEALTH_DIRECTORIES = ("profiles", "reviews", "history")
 
 @dataclass(frozen=True)
 class _DirectorySnapshot:
-    identity: tuple[int, int, int, int, int]
+    identity: tuple[int, int, int, int, int, int]
     manifest: tuple[tuple[str, int, int, int, int, int, int], ...]
     total_bytes: int
 
@@ -94,15 +93,13 @@ def _snapshot_directory(directory_fd: int) -> _DirectorySnapshot:
     manifest: list[tuple[str, int, int, int, int, int, int]] = []
     total_bytes = 0
     for name in names:
-        if Path(name).name != name:
-            raise ValueError("artifact_path_escape")
         item = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
         if not stat.S_ISREG(item.st_mode):
             raise ValueError("symlink_or_not_file")
         manifest.append((name, *stable_file_identity(item)))
         total_bytes += item.st_size
     return _DirectorySnapshot(
-        identity=_directory_identity(directory_stat),
+        identity=stable_file_identity(directory_stat),
         manifest=tuple(manifest),
         total_bytes=total_bytes,
     )
@@ -127,7 +124,7 @@ def _bounded_json_names(directory_fd: int) -> tuple[str, ...]:
 def _require_bound_directory(root_fd: int, name: str, directory_fd: int) -> None:
     bound = os.fstat(directory_fd)
     current = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
-    if _directory_identity(bound) != _directory_identity(current):
+    if stable_file_identity(bound) != stable_file_identity(current):
         raise ValueError("domain_health_directory_changed")
 
 
@@ -216,7 +213,16 @@ def _unique_profile_index(
 ) -> dict[tuple[str, int], dict[str, object]]:
     index: dict[tuple[str, int], dict[str, object]] = {}
     for profile in profiles:
-        key = (str(profile.get("profile_id")), int(profile.get("revision", 0)))
+        profile_id = profile.get("profile_id")
+        revision = profile.get("revision")
+        if (
+            not isinstance(profile_id, str)
+            or isinstance(revision, bool)
+            or not isinstance(revision, int)
+            or revision < 1
+        ):
+            raise ValueError("artifact_identity_mismatch")
+        key = (profile_id, revision)
         if key in index:
             raise ValueError("duplicate_embedded_id")
         index[key] = profile
@@ -239,13 +245,3 @@ def _validate_rejected_review_without_candidate(review: dict[str, object]) -> No
         raise ValueError("review_identity_mismatch")
     canonical_reviewer_claim(review.get("reviewer_claim"))
     canonical_reason_code(review.get("reason_code"))
-
-
-def _directory_identity(value: os.stat_result) -> tuple[int, int, int, int, int]:
-    return (
-        value.st_dev,
-        value.st_ino,
-        value.st_mode,
-        value.st_mtime_ns,
-        value.st_ctime_ns,
-    )
