@@ -13,41 +13,43 @@ class DomainContextDocumentationTests(unittest.TestCase):
         cls.readme = (ROOT / "README.md").read_text(encoding="utf-8")
         cls.memory = (ROOT / "docs" / "MEMORY.md").read_text(encoding="utf-8")
         cls.workflows = (ROOT / "docs" / "WORKFLOWS.md").read_text(encoding="utf-8")
+        cls.readme_prose = " ".join(cls.readme.split())
+        cls.memory_prose = " ".join(cls.memory.split())
 
     def test_memory_replaces_stale_no_consumer_claim_with_exact_boundary(self) -> None:
-        self.assertNotIn("No routing consumer exists for these profiles.", self.memory)
+        self.assertNotIn("No routing consumer exists for these profiles.", self.memory_prose)
         self.assertIn(
             "Only an eligible, genuinely unresolved wrapper interaction may consume an "
             "active reviewed profile from the current repository's own project-local store, "
             "and only to select one catalog-owned clarification question.",
-            self.memory,
+            self.memory_prose,
         )
         self.assertIn(
             "The route, candidate handoff, and plan artifact's "
             "`deep_interview_contract/v1` remain unchanged.",
-            self.memory,
+            self.memory_prose,
         )
         self.assertIn(
             "This is clarification context, not routing authority, plan approval, execution, "
             "review, CI, merge, authentication, or Hermes internal-memory evidence.",
-            self.memory,
+            self.memory_prose,
         )
 
     def test_public_docs_explain_natural_chat_and_current_project_binding(self) -> None:
         self.assertIn(
             "In natural-language Hermes chat, reviewed terminology from the current repository "
             "can improve one ambiguous wrapper question.",
-            self.readme,
+            self.readme_prose,
         )
         self.assertIn(
             "OMH derives the current project internally; users do not provide a domain scope, "
             "and the context is not persisted.",
-            self.readme,
+            self.readme_prose,
         )
         self.assertIn(
             "The memory commands below are an agent, wrapper, and operator control-plane "
             "reference, not steps for normal chat users.",
-            self.memory,
+            self.memory_prose,
         )
 
     def test_memory_documents_freshness_fail_closed_and_scope_limits(self) -> None:
@@ -60,7 +62,7 @@ class DomainContextDocumentationTests(unittest.TestCase):
         )
         for statement in required:
             with self.subTest(statement=statement):
-                self.assertIn(statement, self.memory)
+                self.assertIn(statement, self.memory_prose)
 
     def test_docs_name_remaining_goal_without_overclaiming_generated_content(self) -> None:
         for milestone in (
@@ -71,7 +73,7 @@ class DomainContextDocumentationTests(unittest.TestCase):
             "optional offline evaluation",
         ):
             with self.subTest(milestone=milestone):
-                self.assertIn(milestone, self.memory)
+                self.assertIn(milestone, self.memory_prose)
 
         self.assertIn("- Expert clarification questions:", self.workflows)
         self.assertIn(

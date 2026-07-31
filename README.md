@@ -219,6 +219,13 @@ was merged.
 from approved records and recalls only reviewed, prepared context into future
 handoffs. It does not pretend to read or mutate opaque Hermes memory.
 
+**💬 Project-aware clarification, without automatic routing.** In
+natural-language Hermes chat, reviewed terminology from the current repository
+can improve one ambiguous wrapper question. OMH derives the current project
+internally; users do not provide a domain scope, and the context is not
+persisted. The clarification does not change the selected route or mean that
+planning, execution, review, CI, or merge work happened.
+
 **🔌 Provider-neutral operations.** Metric, wiki, browser, image, video, and
 connector systems sit behind explicit external-provider contracts. OMH can
 validate and analyze supplied data without pretending that a provider was

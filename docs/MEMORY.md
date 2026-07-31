@@ -2,9 +2,9 @@
 
 OMH project memory is a local, reviewed control plane for one project. Normal
 users use natural-language Hermes chat: ask Hermes to remember a bounded fact,
-review existing memory, or clean up old project context. The commands in this
-document are for agents, wrappers, and operators implementing that flow; they
-are not normal-user setup.
+review existing memory, or clean up old project context. The memory commands
+below are an agent, wrapper, and operator control-plane reference, not steps for
+normal chat users.
 
 OMH does not read, patch, or mutate opaque Hermes internal memory.
 
@@ -87,13 +87,40 @@ not authenticate an authorized local writer.
 Domain-intelligence artifacts persist only explicit bounded vocabulary,
 identifier-like workflow hints, confidence metadata, and bounded provenance.
 They do not store raw prompts, transcripts, hidden reasoning, chat logs, or
-Hermes internal memory. The profile claim boundary is
-`routing_prior_not_override`: profiles are future prepared context only and do
-not affect routing, execution, review, CI, merge readiness, or merge evidence
-in this release. No routing consumer exists for these profiles. If a future
-routing design includes malicious local writers in its threat model, it must
-revisit authenticated provenance; key management or authenticated append-only
-infrastructure is outside this local metadata-only foundation.
+Hermes internal memory. The profile claim boundary remains
+`routing_prior_not_override`. Only an eligible, genuinely unresolved wrapper
+interaction may consume an active reviewed profile from the current
+repository's own project-local store, and only to select one catalog-owned
+clarification question. The route, candidate handoff, and plan artifact's
+`deep_interview_contract/v1` remain unchanged. This is clarification context,
+not routing authority, plan approval, execution, review, CI, merge,
+authentication, or Hermes internal-memory evidence.
+
+For each eligible interaction, OMH derives the canonical current repository and
+its unnamed project-scoped `.omh` store internally rather than accepting a
+caller-supplied domain identity. User and organization profiles are not
+consumed until an authenticated principal binding exists. The bounded
+`domain_routing_context/v1` response context is ephemeral: it is not copied
+into wrapper-session continuity, runtime records, coding handoffs, status
+records, or other persisted interaction artifacts.
+
+Replacement or retirement takes effect on the next eligible interaction. Any
+unhealthy, incomplete, malformed, or conflicting profile store fails closed to
+the existing generic question. Direct answers, file lookup, help, maintenance,
+task cards, explicit workflows, static specialist routes, operator actions,
+workflow learning, status, and every dispatch remain protected. Profiles do
+not automatically learn from chat, select a route, rerank candidates, or
+trigger dispatch.
+
+This clarification-only milestone leaves broader work explicit: reviewed
+activation before any routing influence; multi-round research and planning
+cognition; passive missed-route review; domain-pack expansion; and optional
+offline evaluation. Each requires its own reviewed authority, privacy, and
+evidence contract before it can change public behavior.
+
+If a future routing design includes malicious local writers in its threat model,
+it must revisit authenticated provenance; key management or authenticated
+append-only infrastructure is outside this local metadata-only foundation.
 
 Reviewer claims and source references are safe opaque identifiers only:
 ASCII letters, digits, `_`, `.`, `:`, and `-`, up to 120 characters. Review
