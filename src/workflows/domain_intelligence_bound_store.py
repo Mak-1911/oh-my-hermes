@@ -17,6 +17,7 @@ except ImportError:
 
 
 _NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
+_NONBLOCK_FLAG = getattr(os, "O_NONBLOCK", 0)
 _DIRECTORY_FLAG = getattr(os, "O_DIRECTORY", 0)
 _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
 
@@ -60,9 +61,9 @@ def shared_domain_store_lock_at(
     poll_interval: float = 0.01,
 ) -> Iterator[dict[str, object]]:
     """Acquire the existing store lock through an already-bound root descriptor."""
-    if fcntl is None or not _NOFOLLOW_FLAG:
+    if fcntl is None or not _NOFOLLOW_FLAG or not _NONBLOCK_FLAG:
         raise ValueError("shared_lock_unavailable")
-    flags = os.O_RDONLY | _CLOEXEC_FLAG | _NOFOLLOW_FLAG
+    flags = os.O_RDONLY | _CLOEXEC_FLAG | _NOFOLLOW_FLAG | _NONBLOCK_FLAG
     try:
         descriptor = os.open(".store.lock", flags, dir_fd=domain_root_fd)
     except OSError as exc:

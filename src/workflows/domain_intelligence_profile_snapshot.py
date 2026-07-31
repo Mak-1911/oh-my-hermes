@@ -78,9 +78,7 @@ def _snapshot_directory(directory_fd: int) -> _DirectorySnapshot:
     directory_stat = os.fstat(directory_fd)
     if not stat.S_ISDIR(directory_stat.st_mode):
         raise ValueError("domain_health_directory_invalid")
-    names = sorted(name for name in os.listdir(directory_fd) if name.endswith(".json"))
-    if len(names) > MAX_DOMAIN_ARTIFACT_FILES:
-        raise ValueError("artifact_file_count_exceeded")
+    names = _bounded_json_names(directory_fd)
     manifest: list[tuple[str, int, int, int, int, int, int]] = []
     for name in names:
         if Path(name).name != name:
@@ -93,6 +91,22 @@ def _snapshot_directory(directory_fd: int) -> _DirectorySnapshot:
         identity=_directory_identity(directory_stat),
         manifest=tuple(manifest),
     )
+
+
+def _bounded_json_names(directory_fd: int) -> tuple[str, ...]:
+    names: list[str] = []
+    scan_limit = max(MAX_DOMAIN_ARTIFACT_FILES * 2 + 1, 1)
+    scanned = 0
+    with os.scandir(directory_fd) as entries:
+        for entry in entries:
+            scanned += 1
+            if scanned > scan_limit:
+                raise ValueError("artifact_file_count_exceeded")
+            if entry.name.endswith(".json"):
+                names.append(entry.name)
+                if len(names) > MAX_DOMAIN_ARTIFACT_FILES:
+                    raise ValueError("artifact_file_count_exceeded")
+    return tuple(sorted(names))
 
 
 def _require_bound_directory(root_fd: int, name: str, directory_fd: int) -> None:
