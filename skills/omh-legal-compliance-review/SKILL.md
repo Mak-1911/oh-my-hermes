@@ -86,6 +86,11 @@ Required inputs:
 - supplied authority
 - review objective
 
+Expert clarification questions:
+- `jurisdiction`
+  - English: Which jurisdiction should this legal or compliance review apply to?
+  - Korean: 이 법률 또는 컴플라이언스 검토는 어느 관할권을 기준으로 해야 하나요?
+
 Expected outputs:
 
 - jurisdiction, document/version, authority, and evidence-boundary statement

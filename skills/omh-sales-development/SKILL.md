@@ -86,6 +86,11 @@ Required inputs:
 - buyer hypothesis
 - sales objective
 
+Expert clarification questions:
+- `account or segment`
+  - English: Which account or customer segment should this sales work focus on?
+  - Korean: 이 영업 작업은 어떤 계정 또는 고객 세그먼트에 집중해야 하나요?
+
 Expected outputs:
 
 - account/segment, buyer, problem, and evidence-gap brief

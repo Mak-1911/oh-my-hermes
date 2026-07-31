@@ -110,6 +110,7 @@ def _validate_skill_definition(definition: SkillDefinition, harness_names: set[s
         )
     for field in ("triggers", "required_inputs", "expected_outputs", "artifact_expectations", "safety_rules", "quality_bar"):
         _require_text_sequence(getattr(definition, field), f"{label} {field}", errors)
+    _validate_expert_questions(definition, label, errors)
     _require_text_sequence(definition.do_not_use_when, f"{label} do_not_use_when", errors)
     _validate_skill_example(definition.good_example, f"{label} good_example", errors)
     _validate_skill_example(definition.bad_example, f"{label} bad_example", errors)
@@ -117,6 +118,39 @@ def _validate_skill_definition(definition: SkillDefinition, harness_names: set[s
     if primary_harness not in harness_names:
         errors.append(f"{label} primary_harness is unknown: {primary_harness}")
     return errors
+
+
+def _validate_expert_questions(definition: SkillDefinition, label: str, errors: list[str]) -> None:
+    questions = definition.expert_questions
+    if not isinstance(questions, (tuple, list)):
+        errors.append(f"{label} expert_questions must be a list")
+        return
+    seen_inputs: set[str] = set()
+    for index, question in enumerate(questions):
+        question_label = f"{label} expert_questions[{index}]"
+        required_input = getattr(question, "required_input", None)
+        if not isinstance(required_input, str) or required_input not in definition.required_inputs:
+            errors.append(
+                f"{question_label} required_input must exactly match a declared required_inputs member"
+            )
+        elif len(required_input) > 120:
+            errors.append(f"{question_label} required_input must be at most 120 code points")
+        if isinstance(required_input, str):
+            if required_input in seen_inputs:
+                errors.append(f"{question_label} required_input must not be duplicated")
+            else:
+                seen_inputs.add(required_input)
+        for locale in ("en", "ko"):
+            text = getattr(question, locale, None)
+            if not isinstance(text, str) or not text.strip():
+                errors.append(f"{question_label} {locale} must be a non-empty string")
+                continue
+            if len(text) > 240:
+                errors.append(f"{question_label} {locale} must be at most 240 code points")
+            if text.count("?") != 1 or not text.endswith("?"):
+                errors.append(f"{question_label} {locale} must contain exactly one final question mark")
+            if any(marker in text for marker in ("\n", "\r", "|")):
+                errors.append(f"{question_label} {locale} must be plain non-table text")
 
 
 def _validate_skill_example(example: object, label: str, errors: list[str]) -> None:

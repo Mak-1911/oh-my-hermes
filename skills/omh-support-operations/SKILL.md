@@ -86,6 +86,11 @@ Required inputs:
 - customer impact
 - available ownership or escalation path
 
+Expert clarification questions:
+- `support case`
+  - English: Which support case should we examine first?
+  - Korean: 어떤 지원 사례를 먼저 살펴봐야 하나요?
+
 Expected outputs:
 
 - customer-safe reply draft with stated facts, unknowns, and tone

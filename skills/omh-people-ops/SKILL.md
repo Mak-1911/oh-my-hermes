@@ -86,6 +86,11 @@ Required inputs:
 - decision owner
 - policy constraints
 
+Expert clarification questions:
+- `role or people-process outcome`
+  - English: What role or people-process outcome should this work achieve?
+  - Korean: 이 작업에서 어떤 역할 또는 인사 프로세스 결과를 달성해야 하나요?
+
 Expected outputs:
 
 - role/outcome and must-have versus trainable-criteria brief

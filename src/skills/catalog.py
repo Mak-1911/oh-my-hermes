@@ -80,6 +80,7 @@ from .catalog_types import (
     DEEP_INTERVIEW_CLARITY_DIMENSIONS,
     DEEP_INTERVIEW_MAX_ROUNDS,
     DEEP_INTERVIEW_SOFT_CHECK_ROUND,
+    ExpertQuestion,
     HarnessDefinition,
     REASONING_DEMAND_VALUES,
     OMH_DESCRIPTION_PREFIX,

@@ -488,6 +488,17 @@ class SkillExample:
 
 
 @dataclass(frozen=True)
+class ExpertQuestion:
+    required_input: str
+    en: str
+    ko: str
+
+    def question_for_locale(self, locale: str) -> str:
+        """Return the Korean question only for Korean; otherwise use English."""
+        return self.ko if isinstance(locale, str) and locale.casefold() == "ko" else self.en
+
+
+@dataclass(frozen=True)
 class SkillDefinition:
     name: str
     description: str
@@ -526,6 +537,9 @@ class SkillDefinition:
     # Short routing-equivalent names surfaced through the frontmatter
     # description because the host picker reads only `name` + `description`.
     aliases: tuple[str, ...] = ()
+    # Catalog-owned clarification wording. The ordered first row is the stable
+    # high-value question; consumers do not infer that its input is missing.
+    expert_questions: tuple[ExpertQuestion, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "description", omh_description(self.description))

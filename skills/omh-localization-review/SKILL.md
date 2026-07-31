@@ -86,6 +86,11 @@ Required inputs:
 - source version
 - product or content context
 
+Expert clarification questions:
+- `locale`
+  - English: Which target locale should this localization review cover?
+  - Korean: 이 현지화 검토의 대상 로캘은 무엇인가요?
+
 Expected outputs:
 
 - locale/audience/context and source-version brief

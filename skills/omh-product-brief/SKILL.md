@@ -86,6 +86,11 @@ Required inputs:
 - goal and non-goals
 - decision owner
 
+Expert clarification questions:
+- `product evidence`
+  - English: What product evidence should anchor this brief?
+  - Korean: 이 브리프의 근거가 될 제품 증거는 무엇인가요?
+
 Expected outputs:
 
 - problem, user, evidence, metric, goal, and non-goal brief

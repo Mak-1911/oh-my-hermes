@@ -3979,6 +3979,15 @@ class ExpertQuestionCatalogTests(unittest.TestCase):
                 errors = _validate_skill_definition(invalid, {primary_harness_for_skill(invalid.name)})
                 self.assertTrue(any("expert_questions" in error for error in errors), errors)
 
+        oversized_input = "x" * 121
+        invalid = replace(
+            definition,
+            required_inputs=(oversized_input,),
+            expert_questions=(ExpertQuestion(oversized_input, "Which period?", "어느 기간인가요?"),),
+        )
+        errors = _validate_skill_definition(invalid, {primary_harness_for_skill(invalid.name)})
+        self.assertTrue(any("required_input must be at most 120" in error for error in errors), errors)
+
     def test_machine_and_reference_rendering_stay_catalog_owned(self) -> None:
         payload = workflow_reference_payload()
         skills = {skill["name"]: skill for skill in payload["skills"]}
