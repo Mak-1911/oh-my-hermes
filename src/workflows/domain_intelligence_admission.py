@@ -24,7 +24,26 @@ _SENSITIVE_ASSIGNMENT = re.compile(
     flags=re.IGNORECASE,
 )
 _SSN = re.compile(r"(?<!\d)\d{3}-\d{2}-\d{4}(?!\d)")
+_EMAIL = re.compile(
+    r"(?<![a-z0-9._%+-])[a-z0-9][a-z0-9._%+-]{0,63}@"
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){1,8}[a-z]{2,63}"
+    r"(?![a-z0-9.-])",
+    flags=re.IGNORECASE,
+)
+_CREDENTIAL_SHAPE = re.compile(
+    r"(?<![a-z0-9_-])(?:"
+    r"gh[pousr]_[a-z0-9]{36,255}|"
+    r"github_pat_[a-z0-9_]{20,255}|"
+    r"(?:AKIA|ASIA)[A-Z0-9]{16}|"
+    r"sk-(?:proj-)?[a-z0-9_-]{20,255}|"
+    r"xox[baprs]-[a-z0-9-]{20,255}|"
+    r"eyJ[a-z0-9_-]{8,}\.eyJ[a-z0-9_-]{8,}\.[a-z0-9_-]{16,}"
+    r")(?![a-z0-9_-])",
+    flags=re.IGNORECASE,
+)
 _PROMPT_REQUEST = re.compile(r"^[^\S\r\n]*(?:please|kindly)(?:[^\S\r\n]+\S+){4,}", flags=re.IGNORECASE)
+_BIDI_CONTROLS = {"LRE", "RLE", "LRO", "RLO", "PDF", "LRI", "RLI", "FSI", "PDI"}
+_IDENTIFIER_SEPARATORS = frozenset("._:-")
 
 
 def normalize_mappings(mappings: list[tuple[str, str]]) -> list[dict[str, str]]:
@@ -109,7 +128,7 @@ def _normalize_workflow_hint(value: object) -> str:
 def _ensure_vocabulary_safe(value: str) -> None:
     normalized = unicodedata.normalize("NFKC", value)
     lowered = normalized.lower()
-    ensure_safe_phrase_content(normalized)
+    ensure_safe_phrase_content(value)
     raw_log = any(
         marker in lowered
         for marker in ("traceback (most recent call last)", "\nstderr", "\nstdout", "[error]", "exception:", "raw log", "full log")
@@ -135,9 +154,26 @@ def ensure_safe_opaque_ref_content(value: str, label: str) -> None:
 def _ensure_sensitive_content_safe(value: str, error: str, *, reject_prompt_request: bool = False) -> None:
     normalized = unicodedata.normalize("NFKC", value)
     if (
-        _ROLE_MARKER.search(normalized)
+        _has_unsafe_unicode(value, normalized)
+        or _ROLE_MARKER.search(normalized)
         or _SENSITIVE_ASSIGNMENT.search(normalized)
         or _SSN.search(normalized)
+        or _EMAIL.search(normalized)
+        or _CREDENTIAL_SHAPE.search(normalized)
         or (reject_prompt_request and _PROMPT_REQUEST.search(normalized))
     ):
         raise ValueError(error)
+
+
+def _has_unsafe_unicode(value: str, normalized: str) -> bool:
+    if any(
+        unicodedata.category(ch) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+        or unicodedata.bidirectional(ch) in _BIDI_CONTROLS
+        for ch in value + normalized
+    ):
+        return True
+    return any(
+        ch not in _IDENTIFIER_SEPARATORS
+        and unicodedata.normalize("NFKC", ch) in _IDENTIFIER_SEPARATORS
+        for ch in value
+    )

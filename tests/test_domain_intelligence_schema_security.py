@@ -36,6 +36,11 @@ def _snapshot(root: Path) -> dict[str, bytes]:
     return {str(path.relative_to(store)): path.read_bytes() for path in sorted(store.rglob("*.json"))}
 
 
+_SYNTHETIC_GITHUB_TOKEN = "ghp_" + "A" * 36
+_SYNTHETIC_AWS_ACCESS_KEY = "AKIA" + "0" * 16
+_SYNTHETIC_JWT = "eyJhbGciOiJYIn0.eyJzdWIiOiJYIn0." + "A" * 20
+
+
 class DomainIntelligenceSchemaSecurityTests(unittest.TestCase):
     def test_allowed_fields_cannot_launder_injection_or_noncanonical_contract_values(self) -> None:
         mutations = (
@@ -707,6 +712,163 @@ class DomainIntelligenceSchemaSecurityTests(unittest.TestCase):
             )
             self.assertNotEqual(status, 0)
             self.assertEqual(_snapshot(root), before)
+
+    def test_unicode_pii_and_credential_shapes_fail_closed_across_capture_api_surfaces(self) -> None:
+        exceptional_cases = (
+            ("phrase_format", {"mappings": [("refund\u200breason", "refund-reason")]}),
+            ("phrase_bidi", {"mappings": [("refund\u202ereason", "refund-reason")]}),
+            ("phrase_email", {"mappings": [("contact support@example.com", "support-contact")]}),
+            ("phrase_confusable", {"mappings": [("refund：reason", "refund-reason")]}),
+            ("canonical_confusable", {"mappings": [("refund reason", "refund：reason")]}),
+            ("domain_confusable", {"domain_id": "sales：triage"}),
+        )
+        for label, overrides in exceptional_cases:
+            with self.subTest(case=label), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                kwargs = {
+                    "scope_kind": "user",
+                    "scope_ref": "user:123",
+                    "domain_id": "sales:triage",
+                    "mappings": [("refund reason", "refund-reason")],
+                    "workflow_hints": ["refund-reason"],
+                    "source_ref": "ticket-123",
+                    **overrides,
+                }
+                with self.assertRaises(ValueError):
+                    capture_domain_candidate(paths, **kwargs)
+                self.assertEqual(list((root / ".omh").rglob("*.json")), [])
+
+        for credential in (_SYNTHETIC_GITHUB_TOKEN, _SYNTHETIC_AWS_ACCESS_KEY, _SYNTHETIC_JWT):
+            surface_overrides = (
+                ("phrase", {"mappings": [(credential, "security-event")]}),
+                ("canonical", {"mappings": [("security event", credential)]}),
+                ("domain_id", {"domain_id": credential}),
+                ("scope_ref", {"scope_ref": credential}),
+                ("source_ref", {"source_ref": credential}),
+                ("workflow_hint", {"workflow_hints": [credential]}),
+            )
+            for surface, overrides in surface_overrides:
+                with self.subTest(surface=surface, credential=credential[:4]), TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    paths = resolve_paths(root / ".omh", root / ".hermes")
+                    kwargs = {
+                        "scope_kind": "user",
+                        "scope_ref": "user:123",
+                        "domain_id": "sales:triage",
+                        "mappings": [("refund reason", "refund-reason")],
+                        "workflow_hints": ["refund-reason"],
+                        "source_ref": "ticket-123",
+                        **overrides,
+                    }
+                    with self.assertRaises(ValueError):
+                        capture_domain_candidate(paths, **kwargs)
+                    self.assertEqual(list((root / ".omh").rglob("*.json")), [])
+
+    def test_unicode_pii_and_credential_shapes_fail_closed_across_capture_cli_surfaces(self) -> None:
+        overrides = (
+            ["--mapping", "refund\u200breason=refund-reason"],
+            ["--mapping", "contact support@example.com=support-contact"],
+            ["--mapping", "refund：reason=refund-reason"],
+            ["--mapping", "refund reason=refund：reason"],
+            ["--domain", _SYNTHETIC_GITHUB_TOKEN],
+            ["--scope-ref", _SYNTHETIC_AWS_ACCESS_KEY],
+            ["--source-ref", _SYNTHETIC_JWT],
+            ["--workflow-hint", _SYNTHETIC_GITHUB_TOKEN],
+        )
+        for override in overrides:
+            with self.subTest(override=override[0]), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+                args = [
+                    "memory",
+                    "domain-capture",
+                    "--scope-kind",
+                    "user",
+                    "--scope-ref",
+                    "user:123",
+                    "--domain",
+                    "sales:triage",
+                    "--mapping",
+                    "refund reason=refund-reason",
+                    "--source-ref",
+                    "ticket-123",
+                    *override,
+                ]
+                status, _stdout, _stderr = run_cli(base + args)
+                self.assertNotEqual(status, 0)
+                self.assertEqual(list((root / ".omh").rglob("*.json")), [])
+
+    def test_reviewer_admission_rejects_unicode_pii_and_credentials_without_api_or_cli_mutation(self) -> None:
+        reviewer_claims = (
+            "operator\u200b-1",
+            "operator：1",
+            "reviewer@example.com",
+            _SYNTHETIC_GITHUB_TOKEN,
+            _SYNTHETIC_AWS_ACCESS_KEY,
+            _SYNTHETIC_JWT,
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            pending = capture_domain_candidate(
+                paths,
+                scope_kind="user",
+                scope_ref="user:123",
+                domain_id="sales:triage",
+                mappings=[("refund reason", "refund-reason")],
+            )["candidate"]
+            active = capture_domain_candidate(
+                paths,
+                scope_kind="project",
+                scope_ref="repo-lifecycle",
+                domain_id="sales",
+                mappings=[("pipeline", "pipeline")],
+            )["candidate"]
+            approve_domain_candidate(paths, active["candidate_id"], approved_by="operator-1")
+
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+            for reviewer_claim in reviewer_claims:
+                api_calls = (
+                    lambda: approve_domain_candidate(paths, pending["candidate_id"], approved_by=reviewer_claim),
+                    lambda: reject_domain_candidate(paths, pending["candidate_id"], rejected_by=reviewer_claim),
+                    lambda: retire_domain_profile(
+                        paths,
+                        scope_kind="project",
+                        scope_ref="repo-lifecycle",
+                        domain_id="sales",
+                        retired_by=reviewer_claim,
+                    ),
+                )
+                for call in api_calls:
+                    with self.subTest(surface="api", reviewer=reviewer_claim[:4]):
+                        before = _snapshot(root)
+                        with self.assertRaises(ValueError):
+                            call()
+                        self.assertEqual(_snapshot(root), before)
+
+                cli_calls = (
+                    ["memory", "domain-approve", pending["candidate_id"], "--approved-by", reviewer_claim],
+                    ["memory", "domain-reject", pending["candidate_id"], "--rejected-by", reviewer_claim],
+                    [
+                        "memory",
+                        "domain-retire",
+                        "--scope-kind",
+                        "project",
+                        "--scope-ref",
+                        "repo-lifecycle",
+                        "--domain",
+                        "sales",
+                        "--retired-by",
+                        reviewer_claim,
+                    ],
+                )
+                for args in cli_calls:
+                    with self.subTest(surface="cli", command=args[1], reviewer=reviewer_claim[:4]):
+                        before = _snapshot(root)
+                        status, _stdout, _stderr = run_cli(base + args)
+                        self.assertNotEqual(status, 0)
+                        self.assertEqual(_snapshot(root), before)
 
     def test_sensitive_content_policy_preserves_legitimate_opaque_domain_values(self) -> None:
         with TemporaryDirectory() as tmp:
