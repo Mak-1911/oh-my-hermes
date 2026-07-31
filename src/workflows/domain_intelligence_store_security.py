@@ -229,6 +229,49 @@ def domain_store_lock(
             os.close(descriptor)
 
 
+@contextmanager
+def shared_domain_store_lock_at(
+    domain_root_fd: int,
+    *,
+    timeout_seconds: float = 0.25,
+    poll_interval: float = 0.01,
+) -> Iterator[dict[str, object]]:
+    """Acquire the existing store lock through an already-bound root descriptor."""
+    if fcntl is None:
+        raise ValueError("shared_lock_unavailable")
+    if not _NOFOLLOW_FLAG:
+        raise ValueError("shared_lock_unavailable")
+    flags = os.O_RDONLY | _CLOEXEC_FLAG | _NOFOLLOW_FLAG
+    try:
+        descriptor = os.open(".store.lock", flags, dir_fd=domain_root_fd)
+    except OSError as exc:
+        if exc.errno in {errno.ELOOP, errno.EMLINK}:
+            raise ValueError("domain-intelligence lock path must not be a symlink") from exc
+        raise
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("domain-intelligence lock path must be a regular file")
+        deadline = time.monotonic() + min(max(timeout_seconds, 0.0), 0.25)
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                break
+            except OSError as exc:
+                if exc.errno not in (errno.EACCES, errno.EAGAIN):
+                    raise
+                if time.monotonic() >= deadline:
+                    raise FileLockTimeout(
+                        f"could not acquire bound domain store lock within {timeout_seconds}s"
+                    ) from exc
+                time.sleep(0.01)
+        try:
+            yield {"locked": True, "mode": "shared"}
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
+
+
 def read_bounded_json(path: Path) -> dict[str, object] | None:
     with anchored_directory_path(path.parent) as directory_fd:
         return read_bounded_json_at(directory_fd, path.name)

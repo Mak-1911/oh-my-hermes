@@ -92,6 +92,7 @@ class DomainProjectContextTests(unittest.TestCase):
                 session_binding.domain_store_fd, plugin_binding.domain_store_fd
             )
             self.assertIsNone(domain_context.bind_session_project(None))
+            self.assertIsNone(domain_context.bind_session_project(session_binding))
 
     def test_cli_binding_canonicalizes_nested_and_symlinked_cwd(self) -> None:
         domain_context = self._module()
@@ -169,6 +170,7 @@ class DomainProjectContextTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = _repo(Path(tmp).resolve() / "swap-project")
             original_store = _domain_store(root, marker="opened-before-swap")
+            original_identity = (original_store.stat().st_dev, original_store.stat().st_ino)
             binding = domain_context.bind_cli_project(root)
             self.addCleanup(self._close, binding)
             self.assertIsNotNone(binding)
@@ -182,9 +184,10 @@ class DomainProjectContextTests(unittest.TestCase):
                     value = domain_context.read_json_at(directory_fd, "marker.json")
 
             self.assertEqual(value, {"marker": "opened-before-swap"})
+            opened_store = opened_home / "memory" / "domain-intelligence"
             self.assertEqual(
-                (original_store.parent.parent.parent / ".omh-opened").resolve(),
-                opened_home,
+                (opened_store.stat().st_dev, opened_store.stat().st_ino),
+                original_identity,
             )
 
     def test_symlinked_store_components_fail_closed(self) -> None:

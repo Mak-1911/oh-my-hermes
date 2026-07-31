@@ -47,6 +47,37 @@ def open_domain_directory_path(directory: Path) -> int:
     )
 
 
+def open_domain_directory_at(
+    domain_root_fd: int,
+    *relative_parts: str,
+) -> int:
+    """Open existing descendants without leaving a bound domain-root descriptor."""
+    if not _NOFOLLOW_FLAG or not _DIRECTORY_FLAG:
+        raise ValueError("domain-intelligence safe reads are unavailable")
+    flags = os.O_RDONLY | _DIRECTORY_FLAG | _CLOEXEC_FLAG | _NOFOLLOW_FLAG
+    directory_fd = os.dup(domain_root_fd)
+    os.set_inheritable(directory_fd, False)
+    try:
+        for part in relative_parts:
+            if Path(part).name != part or part in {"", ".", ".."}:
+                raise ValueError("domain-intelligence descriptor path is unsafe")
+            next_directory_fd = os.open(part, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = next_directory_fd
+        return directory_fd
+    except (OSError, ValueError) as exc:
+        os.close(directory_fd)
+        if isinstance(exc, OSError) and exc.errno in {
+            errno.ELOOP,
+            errno.EMLINK,
+            errno.ENOTDIR,
+        }:
+            raise ValueError(
+                "domain-intelligence descriptor path contains a symlink or non-directory"
+            ) from exc
+        raise
+
+
 def read_managed_json_at(
     directory_fd: int,
     filename: str,
