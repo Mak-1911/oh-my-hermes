@@ -189,6 +189,162 @@ class DomainIntelligenceTransactionTests(unittest.TestCase):
                 ):
                     reject_domain_candidate(paths, str(candidate["candidate_id"]))
 
+    def test_interrupted_rejection_fences_same_profile_approval_until_retry(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            candidates = [
+                capture_domain_candidate(
+                    paths,
+                    scope_kind="project",
+                    scope_ref="fenced-rejection",
+                    domain_id="sales",
+                    mappings=[(term, term)],
+                )["candidate"]
+                for term in ("pipeline", "forecast")
+            ]
+            rejected, approved = candidates
+            with patch(
+                f"{LIFECYCLE}.delete_rejection_operation",
+                side_effect=OSError("rejection interrupted"),
+            ):
+                with self.assertRaisesRegex(OSError, "rejection interrupted"):
+                    reject_domain_candidate(
+                        paths,
+                        str(rejected["candidate_id"]),
+                        reason="insufficient_evidence",
+                    )
+
+            before = _snapshot(root)
+            with self.assertRaisesRegex(ValueError, "domain_transition_in_progress"):
+                approve_domain_candidate(paths, str(approved["candidate_id"]))
+            self.assertEqual(_snapshot(root), before)
+
+            recovered = reject_domain_candidate(
+                paths,
+                str(rejected["candidate_id"]),
+                reason="insufficient_evidence",
+            )
+            self.assertEqual(recovered["decision"], "rejected")
+            decided = approve_domain_candidate(paths, str(approved["candidate_id"]))
+            self.assertEqual(decided["decision"], "approved")
+
+    def test_completed_approval_journal_fences_retirement_until_retry(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths, candidate = self._replacement(root)
+            with patch(
+                f"{LIFECYCLE}.delete_approval_operation",
+                side_effect=OSError("approval journal stranded"),
+            ):
+                with self.assertRaisesRegex(OSError, "approval journal stranded"):
+                    approve_domain_candidate(paths, str(candidate["candidate_id"]))
+
+            before = _snapshot(root)
+            with self.assertRaisesRegex(ValueError, "domain_transition_in_progress"):
+                retire_domain_profile(
+                    paths,
+                    scope_kind="project",
+                    scope_ref="transaction-repo",
+                    domain_id="sales",
+                    reason="superseded",
+                )
+            self.assertEqual(_snapshot(root), before)
+
+            recovered = approve_domain_candidate(paths, str(candidate["candidate_id"]))
+            self.assertEqual(recovered["profile"]["revision"], 2)
+            retired = retire_domain_profile(
+                paths,
+                scope_kind="project",
+                scope_ref="transaction-repo",
+                domain_id="sales",
+                reason="superseded",
+            )
+            self.assertEqual(retired["profile"]["revision"], 3)
+
+    def test_interrupted_retirement_fences_replacement_approval_until_retry(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths, _profile = self._active_profile(root)
+            replacement = capture_domain_candidate(
+                paths,
+                scope_kind="organization",
+                scope_ref="retirement-org",
+                domain_id="payments",
+                mappings=[("refund", "refund")],
+            )["candidate"]
+            retirement = {
+                "scope_kind": "organization",
+                "scope_ref": "retirement-org",
+                "domain_id": "payments",
+                "reason": "superseded",
+            }
+            with patch(
+                f"{LIFECYCLE}.delete_retirement_operation",
+                side_effect=OSError("retirement interrupted"),
+            ):
+                with self.assertRaisesRegex(OSError, "retirement interrupted"):
+                    retire_domain_profile(paths, **retirement)
+
+            before = _snapshot(root)
+            with self.assertRaisesRegex(ValueError, "domain_transition_in_progress"):
+                approve_domain_candidate(paths, str(replacement["candidate_id"]))
+            self.assertEqual(_snapshot(root), before)
+
+            recovered = retire_domain_profile(paths, **retirement)
+            self.assertEqual(recovered["decision"], "retired")
+            fresh = capture_domain_candidate(
+                paths,
+                scope_kind="organization",
+                scope_ref="retirement-org",
+                domain_id="payments",
+                mappings=[("replacement", "replacement")],
+            )["candidate"]
+            approved = approve_domain_candidate(paths, str(fresh["candidate_id"]))
+            self.assertEqual(approved["profile"]["revision"], 3)
+
+    def test_approval_and_rejection_journals_mutually_fence_and_resume(self) -> None:
+        cases = (
+            (
+                "approval",
+                "write_review_idempotent",
+                approve_domain_candidate,
+                reject_domain_candidate,
+                "approved",
+            ),
+            (
+                "rejection",
+                "delete_rejection_operation",
+                reject_domain_candidate,
+                approve_domain_candidate,
+                "rejected",
+            ),
+        )
+        for name, boundary, original, conflicting, decision in cases:
+            with self.subTest(name=name), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                candidate = capture_domain_candidate(
+                    paths,
+                    scope_kind="user",
+                    scope_ref=f"mutual-{name}",
+                    domain_id="sales",
+                    mappings=[("qbr", "qbr")],
+                )["candidate"]
+                with patch(
+                    f"{LIFECYCLE}.{boundary}", side_effect=OSError("decision interrupted")
+                ):
+                    with self.assertRaisesRegex(OSError, "decision interrupted"):
+                        original(paths, str(candidate["candidate_id"]))
+                before = _snapshot(root)
+                with self.assertRaisesRegex(
+                    ValueError, "domain_transition_in_progress|approval_in_progress"
+                ):
+                    conflicting(paths, str(candidate["candidate_id"]))
+                self.assertEqual(_snapshot(root), before)
+                recovered = original(paths, str(candidate["candidate_id"]))
+                self.assertEqual(recovered["decision"], decision)
+
     def test_recovery_conflict_preserves_store_byte_for_byte(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -352,6 +508,8 @@ class DomainIntelligenceTransactionTests(unittest.TestCase):
                     if operation_was_not_written
                     else json.loads(records[0].read_text(encoding="utf-8"))
                 )
+                if targets is not None:
+                    self.assertEqual(targets["profile_id"], candidate["profile_id"])
                 recovered = reject_domain_candidate(
                     paths,
                     str(candidate["candidate_id"]),
@@ -364,6 +522,114 @@ class DomainIntelligenceTransactionTests(unittest.TestCase):
                     )
                     self.assertEqual(recovered["review"], targets["target_review"])
                 self.assertEqual(list(operations.glob("reject_*.json")), [])
+
+    def test_rejection_operation_profile_claim_is_validated_before_retry(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            candidate = capture_domain_candidate(
+                paths,
+                scope_kind="user",
+                scope_ref="rejection-claim",
+                domain_id="sales",
+                mappings=[("qbr", "qbr")],
+            )["candidate"]
+            with patch(
+                f"{LIFECYCLE}.write_rejection_review_idempotent",
+                side_effect=OSError("rejection interrupted"),
+            ):
+                with self.assertRaisesRegex(OSError, "rejection interrupted"):
+                    reject_domain_candidate(paths, str(candidate["candidate_id"]))
+            operation_path = next(
+                (
+                    root / ".omh" / "memory" / "domain-intelligence" / "operations"
+                ).glob("reject_*.json")
+            )
+            operation = json.loads(operation_path.read_text(encoding="utf-8"))
+            operation["profile_id"] = "diprofile_tampered"
+            operation["operation_digest"] = _operation_digest(operation)
+            operation_path.write_text(json.dumps(operation), encoding="utf-8")
+            before = _snapshot(root)
+            with self.assertRaisesRegex(
+                ValueError, "rejection_operation_profile_identity"
+            ):
+                reject_domain_candidate(paths, str(candidate["candidate_id"]))
+            self.assertEqual(_snapshot(root), before)
+
+    def test_transition_scan_fails_closed_on_malformed_or_duplicate_records(self) -> None:
+        for violation in ("malformed", "duplicate"):
+            with self.subTest(violation=violation), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                candidates = [
+                    capture_domain_candidate(
+                        paths,
+                        scope_kind="project",
+                        scope_ref=f"scan-{violation}",
+                        domain_id="sales",
+                        mappings=[(term, term)],
+                    )["candidate"]
+                    for term in ("pipeline", "forecast")
+                ]
+                operations = (
+                    root / ".omh" / "memory" / "domain-intelligence" / "operations"
+                )
+                if violation == "malformed":
+                    operations.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    (operations / "broken.json").write_text("{}", encoding="utf-8")
+                else:
+                    with patch(
+                        f"{LIFECYCLE}.write_rejection_review_idempotent",
+                        side_effect=OSError("rejection interrupted"),
+                    ):
+                        with self.assertRaisesRegex(OSError, "rejection interrupted"):
+                            reject_domain_candidate(
+                                paths, str(candidates[0]["candidate_id"])
+                            )
+                    original = next(operations.glob("reject_*.json"))
+                    (operations / "duplicate.json").write_bytes(original.read_bytes())
+                before = _snapshot(root)
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "domain_transition_operation_invalid|domain_transition_operation_identity_mismatch",
+                ):
+                    approve_domain_candidate(paths, str(candidates[1]["candidate_id"]))
+                self.assertEqual(_snapshot(root), before)
+
+    def test_operation_capacity_fails_before_writes_and_keeps_retry_resumable(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            candidates = [
+                capture_domain_candidate(
+                    paths,
+                    scope_kind="project",
+                    scope_ref=f"operation-capacity-{index}",
+                    domain_id="sales",
+                    mappings=[("pipeline", "pipeline")],
+                )["candidate"]
+                for index in range(2)
+            ]
+            with patch(
+                f"{LIFECYCLE}.write_rejection_review_idempotent",
+                side_effect=OSError("rejection interrupted"),
+            ):
+                with self.assertRaisesRegex(OSError, "rejection interrupted"):
+                    reject_domain_candidate(paths, str(candidates[0]["candidate_id"]))
+            before = _snapshot(root)
+            with (
+                patch(
+                    "omh.workflows.domain_intelligence_store_security.MAX_DOMAIN_ARTIFACT_FILES",
+                    1,
+                ),
+                self.assertRaisesRegex(
+                    ValueError, "decision_operation_capacity_exceeded"
+                ),
+            ):
+                approve_domain_candidate(paths, str(candidates[1]["candidate_id"]))
+            self.assertEqual(_snapshot(root), before)
+            recovered = reject_domain_candidate(paths, str(candidates[0]["candidate_id"]))
+            self.assertEqual(recovered["decision"], "rejected")
 
     def test_retirement_recovers_after_every_write_boundary(self) -> None:
         boundaries = (

@@ -108,6 +108,7 @@ def write_retirement_archive_idempotent(
 ) -> None:
     prior = operation["prior_profile"]
     journal.write_absent_or_exact(
+        paths,
         store.history_path(paths, str(operation["profile_id"]), int(prior["revision"])),
         prior,
         label="retirement_history",
@@ -119,6 +120,7 @@ def write_retirement_review_idempotent(
 ) -> None:
     review = operation["target_review"]
     journal.write_absent_or_exact(
+        paths,
         store.review_path(paths, str(review["review_id"])),
         review,
         label="retirement_review",
@@ -129,6 +131,7 @@ def write_retirement_profile_resumable(
     paths: OmhPaths, operation: dict[str, object]
 ) -> None:
     journal.write_expected_or_target(
+        paths,
         store.profile_path(paths, str(operation["profile_id"])),
         operation["prior_profile"],
         operation["target_profile"],

@@ -114,6 +114,7 @@ def write_archive_idempotent(paths: OmhPaths, operation: dict[str, object]) -> N
     prior = operation["prior_profile"]
     if prior is not None:
         journal.write_absent_or_exact(
+            paths,
             store.history_path(paths, str(operation["profile_id"]), int(operation["base_profile_revision"])),
             prior,
             label="approval_history",
@@ -123,12 +124,14 @@ def write_archive_idempotent(paths: OmhPaths, operation: dict[str, object]) -> N
 def write_review_idempotent(paths: OmhPaths, operation: dict[str, object]) -> None:
     review = operation["target_review"]
     journal.write_absent_or_exact(
+        paths,
         store.review_path(paths, str(review["review_id"])), review, label="approval_review"
     )
 
 
 def write_profile_resumable(paths: OmhPaths, operation: dict[str, object]) -> None:
     journal.write_expected_or_target(
+        paths,
         store.profile_path(paths, str(operation["profile_id"])),
         operation["prior_profile"],
         operation["target_profile"],
@@ -138,6 +141,7 @@ def write_profile_resumable(paths: OmhPaths, operation: dict[str, object]) -> No
 
 def write_candidate_resumable(paths: OmhPaths, operation: dict[str, object]) -> None:
     journal.write_expected_or_target(
+        paths,
         store.candidate_path(paths, str(operation["candidate_id"])),
         operation["pending_candidate"],
         operation["target_candidate"],

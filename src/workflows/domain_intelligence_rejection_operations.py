@@ -15,7 +15,7 @@ from .domain_intelligence_validation import validate_candidate_artifact
 
 REJECTION_OPERATION_SCHEMA_VERSION = "domain_intelligence_rejection_operation/v1"
 _OPERATION_KEYS = frozenset(
-    "schema_version operation_id candidate_id pending_candidate target_review target_candidate "
+    "schema_version operation_id candidate_id profile_id pending_candidate target_review target_candidate "
     "claim_boundary operation_digest".split()
 )
 
@@ -43,6 +43,7 @@ def build_rejection_operation(
             "schema_version": REJECTION_OPERATION_SCHEMA_VERSION,
             "operation_id": _operation_id(candidate_id),
             "candidate_id": candidate_id,
+            "profile_id": candidate["profile_id"],
             "pending_candidate": candidate,
             "target_review": review,
             "target_candidate": target,
@@ -78,12 +79,14 @@ def validate_rejection_resume_state(paths: OmhPaths, operation: dict[str, object
 def write_rejection_review_idempotent(paths: OmhPaths, operation: dict[str, object]) -> None:
     review = operation["target_review"]
     journal.write_absent_or_exact(
+        paths,
         store.review_path(paths, str(review["review_id"])), review, label="rejection_review"
     )
 
 
 def write_rejection_candidate_resumable(paths: OmhPaths, operation: dict[str, object]) -> None:
     journal.write_expected_or_target(
+        paths,
         store.candidate_path(paths, str(operation["candidate_id"])),
         operation["pending_candidate"],
         operation["target_candidate"],
@@ -126,6 +129,8 @@ def validate_rejection_operation(paths: OmhPaths | None, operation: dict[str, ob
     }
     if review != expected_review:
         raise ValueError("rejection_operation_review_mismatch")
+    if operation.get("profile_id") != pending.get("profile_id"):
+        raise ValueError("rejection_operation_profile_identity")
 
 
 def _rejected_candidate(candidate: dict[str, object], review: dict[str, object]) -> dict[str, object]:
