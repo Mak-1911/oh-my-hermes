@@ -30,6 +30,52 @@ LEGACY_ROLE_ALIASES = {
 }
 
 
+class DomainContextHostBindingTests(unittest.TestCase):
+    def test_plugin_uses_only_host_injected_project_root(self) -> None:
+        from omh.plugin_bundle.omh.tools.chat_tool import omh_interact_handler
+        from test_domain_routing_context import _approve_profile, _repository
+
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            trusted = _repository(base / "trusted-project")
+            hostile = _repository(base / "hostile-project")
+            _approve_profile(trusted, domain_id="trusted", phrase="feels off")
+            _approve_profile(hostile, domain_id="hostile", phrase="feels off")
+            args = {
+                "message": "something feels off",
+                "source": "discord",
+                "record_session": False,
+                "omh_home": str(trusted / ".omh"),
+                "hermes_home": str(trusted / ".hermes"),
+                "project_root": str(hostile),
+                "source_metadata": {"project_ref": str(hostile)},
+            }
+
+            absent = json.loads(omh_interact_handler(args))
+            applied = json.loads(
+                omh_interact_handler(args, project_root=str(trusted))
+            )
+
+            self.assertNotIn("domain_routing_context", absent)
+            self.assertIn("domain_routing_context", applied)
+            self.assertEqual(
+                json.dumps(applied["route"], sort_keys=True, separators=(",", ":")),
+                json.dumps(absent["route"], sort_keys=True, separators=(",", ":")),
+            )
+            self.assertEqual(
+                json.dumps(
+                    applied["route"].get("candidate_handoff"),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                json.dumps(
+                    absent["route"].get("candidate_handoff"),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            )
+
+
 class PluginCapabilitiesTests(unittest.TestCase):
     def test_installed_plugin_registers_capabilities_tool_and_returns_bounded_json(self) -> None:
         with TemporaryDirectory() as tmp:

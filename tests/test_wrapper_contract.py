@@ -7,6 +7,7 @@ import unittest
 from unittest import mock
 
 from _local_package import load_local_package
+from _cli_harness import run_cli
 
 load_local_package()
 from omh.context_safety import CONTEXT_ARTIFACT_REF_SCHEMA_VERSION
@@ -26,6 +27,123 @@ from omh.wrapper.localized_copy import detect_copy_locale
 from omh.wrapper.native_commands import build_native_command_surface, render_native_command_response
 from omh.wrapper.route_hints import build_chat_route_hint_payload
 from omh.wrapper.orchestration_guidance import build_omh_orchestration_guidance
+
+
+def _canonical_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+class DomainContextAttachmentTests(unittest.TestCase):
+    def test_package_attachment_is_applied_only_and_byte_preserving(self) -> None:
+        from test_domain_routing_context import _approve_profile, _binding, _repository
+
+        message = "something feels off"
+        with TemporaryDirectory() as tmp:
+            root = _repository(Path(tmp) / "wrapper-project")
+            _approve_profile(root, domain_id="sales", phrase="feels off")
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            baseline = build_chat_interaction_payload(
+                message,
+                source="discord",
+                source_metadata={},
+                paths=paths,
+            )
+            with _binding(root) as binding:
+                applied = build_chat_interaction_payload(
+                    message,
+                    source="discord",
+                    source_metadata={},
+                    paths=paths,
+                    _host_project_binding=binding,
+                )
+
+            self.assertNotIn("domain_routing_context", baseline)
+            self.assertEqual(
+                set(applied["domain_routing_context"]),
+                {
+                    "schema_version",
+                    "workflow_hint",
+                    "required_input",
+                    "question",
+                    "digest",
+                    "claim_boundary",
+                },
+            )
+            self.assertEqual(_canonical_bytes(applied["route"]), _canonical_bytes(baseline["route"]))
+            self.assertEqual(
+                _canonical_bytes(applied["route"].get("candidate_handoff")),
+                _canonical_bytes(baseline["route"].get("candidate_handoff")),
+            )
+            self.assertEqual(
+                _canonical_bytes(applied["chat_response"]),
+                _canonical_bytes(baseline["chat_response"]),
+            )
+
+    def test_protected_and_unhealthy_rows_omit_context(self) -> None:
+        from test_domain_routing_context import _approve_profile, _binding, _repository
+
+        with TemporaryDirectory() as tmp:
+            root = _repository(Path(tmp) / "fail-closed-project")
+            _approve_profile(root, domain_id="sales", phrase="feels off")
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            profile_path = next(
+                (root / ".omh" / "memory" / "domain-intelligence" / "profiles").glob("*.json")
+            )
+            profile_path.write_bytes(profile_path.read_bytes() + b" ")
+            with _binding(root) as binding:
+                unhealthy = build_chat_interaction_payload(
+                    "something feels off",
+                    source="discord",
+                    source_metadata={},
+                    paths=paths,
+                    _host_project_binding=binding,
+                )
+                protected = build_chat_interaction_payload(
+                    "what's 2+2?",
+                    source="discord",
+                    source_metadata={},
+                    paths=paths,
+                    _host_project_binding=binding,
+                )
+
+            self.assertNotIn("domain_routing_context", unhealthy)
+            self.assertNotIn("domain_routing_context", protected)
+
+    def test_cli_mints_binding_from_invocation_cwd(self) -> None:
+        from test_domain_routing_context import _approve_profile, _repository
+
+        with TemporaryDirectory() as tmp:
+            root = _repository(Path(tmp) / "cli-project")
+            nested = root / "src" / "nested"
+            nested.mkdir(parents=True)
+            _approve_profile(root, domain_id="sales", phrase="feels off")
+            base = [
+                "--omh-home",
+                str(root / ".omh"),
+                "--hermes-home",
+                str(root / ".hermes"),
+            ]
+            with mock.patch("omh.commands.chat.Path.cwd", return_value=nested):
+                status, stdout, stderr = run_cli(
+                    base
+                    + [
+                        "chat",
+                        "interact",
+                        "--source",
+                        "discord",
+                        "--json",
+                        "something feels off",
+                    ]
+                )
+
+            self.assertEqual(status, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertIn("domain_routing_context", payload)
 
 
 class WrapperContractTests(unittest.TestCase):
