@@ -5,6 +5,7 @@ import argparse
 from ..plugin_bundle.omh.memory_blocks import DEFAULT_BLOCK_LIMIT_CHARS
 from ..plugin_bundle.omh.memory_governance import SOURCE_CLASSES
 from . import memory
+from .domain_intelligence_parser import add_domain_intelligence_commands
 
 
 def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -87,6 +88,8 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
 
     perspectives = memory_sub.add_parser("perspectives", help="List observer/observed perspective pairs with reviewed-record counts.")
     perspectives.set_defaults(func=memory.cmd_memory_perspectives)
+
+    add_domain_intelligence_commands(memory_sub)
 
     rollup = memory_sub.add_parser("rollup", help="Report an additive episode rollup over matching records; --apply stages the reviewable episode candidate.")
     rollup.add_argument("--tag", default=None, help="Roll up records carrying this tag.")
