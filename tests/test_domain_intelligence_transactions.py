@@ -21,6 +21,7 @@ from omh.workflows.domain_intelligence import (
     reject_domain_candidate,
     retire_domain_profile,
 )
+from omh.workflows import domain_intelligence_operations as approval_operations
 from omh.workflows import domain_intelligence_operation_store as operation_store
 from omh.workflows import domain_intelligence_rejection_operations as rejection_operations
 
@@ -634,12 +635,31 @@ class DomainIntelligenceTransactionTests(unittest.TestCase):
             self.assertEqual(recovered["decision"], "rejected")
 
     def test_decision_target_capacity_fails_before_journal_creation(self) -> None:
-        cases = ("approval-review", "approval-history", "rejection-review", "retirement-review", "retirement-history")
+        cases = (
+            "approval-profile",
+            "approval-review",
+            "approval-history",
+            "rejection-review",
+            "retirement-review",
+            "retirement-history",
+        )
         for name in cases:
             with self.subTest(name=name), TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 store = root / ".omh" / "memory" / "domain-intelligence"
-                if name.startswith("approval"):
+                if name == "approval-profile":
+                    paths = resolve_paths(root / ".omh", root / ".hermes")
+                    candidate = capture_domain_candidate(
+                        paths,
+                        scope_kind="user",
+                        scope_ref="approval-profile-capacity",
+                        domain_id="sales",
+                        mappings=[("qbr", "qbr")],
+                    )["candidate"]
+                    action = partial(
+                        approve_domain_candidate, paths, str(candidate["candidate_id"])
+                    )
+                elif name.startswith("approval"):
                     paths, candidate = self._replacement(root)
                     action = partial(
                         approve_domain_candidate, paths, str(candidate["candidate_id"])
@@ -666,9 +686,14 @@ class DomainIntelligenceTransactionTests(unittest.TestCase):
                         domain_id="payments",
                     )
 
-                target_directory = store / (
-                    "history" if name.endswith("history") else "reviews"
+                target_kind = (
+                    "history"
+                    if name.endswith("history")
+                    else "profiles"
+                    if name.endswith("profile")
+                    else "reviews"
                 )
+                target_directory = store / target_kind
                 target_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
                 limit = 2 if name.endswith("history") else 1
                 while len(list(target_directory.glob("*.json"))) < limit:
@@ -727,6 +752,43 @@ class DomainIntelligenceTransactionTests(unittest.TestCase):
             (reviews / "capacity.json").unlink()
             recovered = reject_domain_candidate(paths, str(candidate["candidate_id"]))
             self.assertEqual(recovered["decision"], "rejected")
+
+    def test_journaled_approval_rechecks_profile_capacity_before_write(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            candidate = capture_domain_candidate(
+                paths,
+                scope_kind="user",
+                scope_ref="journaled-profile-capacity",
+                domain_id="sales",
+                mappings=[("qbr", "qbr")],
+            )["candidate"]
+            store = root / ".omh" / "memory" / "domain-intelligence"
+            profiles = store / "profiles"
+            real_write = approval_operations.write_profile_resumable
+
+            def fill_capacity_then_write(paths, operation):
+                (profiles / "capacity.json").write_text("{}", encoding="utf-8")
+                real_write(paths, operation)
+
+            with (
+                patch.object(
+                    operation_store.security, "MAX_DOMAIN_ARTIFACT_FILES", 1
+                ),
+                patch(
+                    f"{LIFECYCLE}.write_profile_resumable",
+                    side_effect=fill_capacity_then_write,
+                ),
+                self.assertRaisesRegex(ValueError, "artifact_capacity_exceeded"),
+            ):
+                approve_domain_candidate(paths, str(candidate["candidate_id"]))
+
+            self.assertEqual(len(list((store / "operations").glob("*.json"))), 1)
+            self.assertEqual(list(profiles.glob("dprof_*.json")), [])
+            (profiles / "capacity.json").unlink()
+            recovered = approve_domain_candidate(paths, str(candidate["candidate_id"]))
+            self.assertEqual(recovered["candidate"]["status"], "approved")
 
     def test_decision_cleanup_uses_anchored_operations_directory(self) -> None:
         cases = ("approval", "rejection", "retirement")

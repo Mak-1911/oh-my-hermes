@@ -130,6 +130,8 @@ def require_expected_or_target(
     current = security.read_bounded_json(path)
     if current not in (expected, target):
         raise ValueError(f"{label}_state_conflict")
+    if current is None:
+        _ensure_transaction_target_capacity(path)
 
 
 def write_expected_or_target(
@@ -145,6 +147,8 @@ def write_expected_or_target(
         return
     if current != expected:
         raise ValueError(f"{label}_state_conflict")
+    if current is None:
+        _ensure_transaction_target_capacity(path)
     _write_json(paths, path, target)
 
 
@@ -163,6 +167,14 @@ def _preflight_transaction_targets(
     paths: OmhPaths, operation: dict[str, object]
 ) -> None:
     prior = operation.get("prior_profile")
+    profile = operation.get("target_profile")
+    if isinstance(profile, dict):
+        require_expected_or_target(
+            store.profile_path(paths, str(profile.get("profile_id", ""))),
+            prior if isinstance(prior, dict) else None,
+            profile,
+            label="decision_profile",
+        )
     if isinstance(prior, dict):
         profile_id = str(prior.get("profile_id", ""))
         revision = int(prior.get("revision", 0))
@@ -181,7 +193,7 @@ def _preflight_transaction_targets(
 
 
 def _ensure_transaction_target_capacity(path: Path) -> None:
-    if path.parent.name not in {"history", "reviews"}:
+    if path.parent.name not in {"history", "profiles", "reviews"}:
         return
     security.ensure_new_artifact_capacity(
         path.parent,
