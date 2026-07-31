@@ -130,6 +130,43 @@ match as `duplicate_of` on the candidate and its review card. Review-first:
 nothing is silently merged, the reviewer decides — but a duplicate never
 auto-approves, even under the auto-safe policy.
 
+**Episode rollup** — additive consolidation without a model:
+
+```sh
+# Agent/operator only: report which records one episode would roll up.
+omh memory rollup --tag deploy
+
+# Agent/operator only: stage the reviewable episode candidate.
+omh memory rollup --tag deploy --apply
+```
+
+The rollup selects up to 8 non-expired, non-episode records matching a tag
+and/or scope (oldest first), and proposes one `episode` candidate whose
+summary is a per-member-budgeted mechanical join — every member is
+represented — and whose `derived_from` names every member; synthesis stays
+Hermes' job. The episode inherits its members' confinement, strictest
+wins: mixed scopes or mixed perspectives refuse (`mixed_scope` /
+`mixed_perspective`), a shared perspective or scope carries onto the
+episode, and any volatile member makes the episode volatile with the
+smallest member TTL. Originals are never modified or retired by a rollup;
+the candidate always lands in review (a derived aggregate never
+auto-approves, even under the auto-safe policy), a re-run while an
+identical candidate is pending reports `already_staged` instead of staging
+twins, and `omh memory lineage` on the approved episode walks back to all
+members.
+
+**Recall signal refinements** — the ranking block reports
+`veracity_weight_pct` (an `approved_manual` record weighs 100, an
+`approved_auto_safe` record 90 in the decayed score — both classes stay
+fully eligible), and packs echo `query_intent`: a query carrying an
+unambiguous English time cue — the tokens `yesterday`, `today`, `recent`,
+`recently`, `ago`, or a phrase such as `most recent` / `last week` — is
+classified `temporal` and doubles the recency weight inside rank fusion.
+Ambiguous engineering adjectives (`current`, `latest`, `now`, `newest`)
+deliberately do not fire as bare tokens. Relevance stays the primary sort
+key in both cases, so neither signal can change which keyword matches win —
+only how peers of equal relevance order.
+
 ## Provenance and Lineage
 
 A capture may declare which approved records a new fact was derived from:

@@ -67,6 +67,7 @@ MEMORY_RECALL_USAGE_SCHEMA_VERSION = "omh_memory_recall_usage/v1"
 MEMORY_LINEAGE_SCHEMA_VERSION = "omh_memory_lineage/v1"
 MEMORY_PERSPECTIVES_SCHEMA_VERSION = "omh_memory_perspectives/v1"
 MEMORY_PINS_SCHEMA_VERSION = "omh_memory_pins/v1"
+MEMORY_ROLLUP_SCHEMA_VERSION = "omh_memory_rollup/v1"
 HERMES_MEMORY_BRIDGE_SCHEMA_VERSION = "hermes_memory_bridge/v1"
 
 SOURCE_TRUTH_LEVELS = {
@@ -146,6 +147,7 @@ _PROJECT_MEMORY_RECALL_PACK_KEYS = {
     "policy",
     "scope",
     "perspective",
+    "query_intent",
     "included_records",
     "excluded_records",
     "record_count",
@@ -184,7 +186,25 @@ _RECALL_RANKING_KEYS = {
     "times_recalled",
     "age_tier",
     "pinned",
+    "veracity_weight_pct",
 }
+# Admission-mode veracity, mnemosyne-style: a human-reviewed record outranks
+# an auto-safe one of equal relevance/age. The gap is deliberately small --
+# both classes passed the same admission gates -- and it lands in the
+# decayed score, never in eligibility. An unknown mode fails CLOSED to the
+# lower weight: a trust signal must never default to maximum trust.
+_ADMISSION_VERACITY_WEIGHT_PCT = {"approved_manual": 100, "approved_auto_safe": 90}
+_ADMISSION_VERACITY_DEFAULT_PCT = 90
+# Temporal query intent, conservative by construction: a fixed English cue
+# set (no per-language tables, per the routing-language policy) that only
+# doubles the RECENCY weight inside rank fusion. Relevance stays primary,
+# so intent can never change which keyword matches win -- only how peers of
+# equal relevance order. Single tokens must be unambiguous: "current",
+# "latest", "now", and "newest" are ordinary engineering adjectives ("the
+# current implementation") and live in the phrase list instead, where the
+# surrounding words disambiguate them.
+_TEMPORAL_QUERY_CUES = frozenset({"yesterday", "today", "recent", "recently", "ago"})
+_TEMPORAL_QUERY_PHRASES = ("most recent", "right now", "as of now", "last week", "last month", "up to date")
 # Age tiers degrade the fused score of old records inside an equal relevance
 # rank, mnemosyne-style: 0-30 days full weight, 30-180 days half, older a
 # quarter. Relevance stays the primary key, so a stale strong match still
@@ -356,6 +376,7 @@ def capture_project_memory_candidate(
     derived_from: list[str] | tuple[str, ...] | None = None,
     observer: str | None = None,
     observed: str | None = None,
+    force_review: bool = False,
 ) -> dict[str, object]:
     policy = read_project_memory_policy(paths)
     if not bool(policy.get("capture_enabled", True)):
@@ -395,7 +416,10 @@ def capture_project_memory_candidate(
     _write_project_memory_candidate(paths, candidate)
     auto_approved = False
     record: dict[str, object] = {}
-    if bool(policy.get("auto_approve_safe")) and candidate.get("safety", {}).get("status") == "safe" and not duplicate_of:
+    # force_review keeps derived aggregates (e.g. rollup episodes) on the
+    # review path even under auto-safe: derived content is a curation act,
+    # not a captured observation.
+    if bool(policy.get("auto_approve_safe")) and candidate.get("safety", {}).get("status") == "safe" and not duplicate_of and not force_review:
         approved = approve_project_memory_candidate(paths, str(candidate["candidate_id"]), approved_by="auto-safe")
         record = approved.get("record", {}) if isinstance(approved.get("record"), dict) else {}
         candidate = approved.get("candidate", candidate) if isinstance(approved.get("candidate"), dict) else candidate
@@ -619,11 +643,13 @@ def build_project_memory_recall_pack(
             excluded.append(_recall_exclusion(record, evaluation, staleness=staleness, reason="no_query_overlap"))
             continue
         included.append(_recall_item(record, score=score, staleness=staleness, evaluation=evaluation))
+    query_intent = _recall_query_intent(query)
     _attach_recall_ranking(
         included,
         read_recall_usage(paths),
         pins=pins,
         now=now if now is not None else datetime.now(timezone.utc),
+        recency_weight=2.0 if query_intent == "temporal" else _RECALL_RRF_WEIGHTS["recency"],
     )
     # Pinned anchors lead, then relevance; the decayed fused score orders
     # records only within an equal relevance rank. A weaker keyword match
@@ -691,6 +717,7 @@ def build_project_memory_recall_pack(
         "policy": policy,
         "scope": _scope(scope_kind or "project", scope_ref or "default"),
         "perspective": {"observer": observer or "", "observed": observed or ""},
+        "query_intent": query_intent,
         "included_records": included,
         "excluded_records": excluded,
         "record_count": len(included),
@@ -866,6 +893,7 @@ def _attach_recall_ranking(
     *,
     pins: set[str] | None = None,
     now: datetime | None = None,
+    recency_weight: float | None = None,
 ) -> None:
     """Fuse relevance, recency, and delivery usage into one recall order.
 
@@ -880,6 +908,7 @@ def _attach_recall_ranking(
         return
     pins = pins or set()
     now = now if now is not None else datetime.now(timezone.utc)
+    recency_weight = recency_weight if recency_weight is not None else _RECALL_RRF_WEIGHTS["recency"]
     def _times_recalled(item: dict[str, object]) -> int:
         entry = usage.get(str(item.get("record_id", "")), {})
         times = entry.get("times_recalled", 0)
@@ -892,22 +921,26 @@ def _attach_recall_ranking(
         record_id = str(item.get("record_id", ""))
         fused = (
             _RECALL_RRF_WEIGHTS["relevance"] / (_RECALL_RRF_K + relevance[record_id])
-            + _RECALL_RRF_WEIGHTS["recency"] / (_RECALL_RRF_K + recency[record_id])
+            + recency_weight / (_RECALL_RRF_K + recency[record_id])
             + _RECALL_RRF_WEIGHTS["usage"] / (_RECALL_RRF_K + usage_ranks[record_id])
         )
         tier = _age_tier(str(item.get("approved_at", "")), now=now)
+        veracity_pct = _ADMISSION_VERACITY_WEIGHT_PCT.get(str(item.get("admission_mode", "")), _ADMISSION_VERACITY_DEFAULT_PCT)
         item["ranking"] = {
-            # rrf_score_micro stays pure rank fusion so two records' fusion
-            # quality stays comparable; the age decay lands in its own field
-            # and that decayed value is what the sort uses.
+            # rrf_score_micro is undecayed rank fusion under THIS pack's
+            # weights (a temporal query raises the recency weight, so scores
+            # compare within a pack, not across packs); age decay and
+            # veracity land in decayed_score_micro, which is what the sort
+            # uses.
             "rrf_score_micro": round(fused * 1_000_000),
-            "decayed_score_micro": round(fused * _AGE_TIER_WEIGHTS[tier] * 1_000_000),
+            "decayed_score_micro": round(fused * _AGE_TIER_WEIGHTS[tier] * (veracity_pct / 100) * 1_000_000),
             "relevance_rank": relevance[record_id],
             "recency_rank": recency[record_id],
             "usage_rank": usage_ranks[record_id],
             "times_recalled": _times_recalled(item),
             "age_tier": tier,
             "pinned": record_id in pins,
+            "veracity_weight_pct": veracity_pct,
         }
 
 
@@ -949,6 +982,203 @@ def _find_duplicate_record(paths: OmhPaths, summary: str, *, now: datetime | Non
         if _normalized_summary_key(str(record.get("summary", ""))) == key:
             return str(record.get("record_id", ""))
     return ""
+
+
+def build_memory_rollup(
+    paths: OmhPaths,
+    *,
+    tag: str | None = None,
+    scope_kind: str | None = None,
+    scope_ref: str | None = None,
+    apply: bool = False,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Additive episode rollup, mnemosyne's consolidation without the model.
+
+    Report-first: the report names the member records and the deterministic
+    summary an episode candidate would carry; ``apply`` routes that candidate
+    through the normal capture pipeline (safety, duplicate detection, review,
+    ``derived_from`` provenance to every member). Originals are never touched
+    -- consolidation here is additive bookkeeping, curation stays a separate
+    reviewed act, and summarizing prose stays Hermes' job: the rollup summary
+    is a mechanical join, not a synthesis.
+    """
+    if bool(scope_kind) != bool(scope_ref):
+        raise ValueError("memory rollup needs both --scope-kind and --scope-ref, or neither")
+    if not (tag or (scope_kind and scope_ref)):
+        raise ValueError("memory rollup requires --tag and/or a full --scope-kind/--scope-ref pair")
+    normalized_tags = _normalize_tags([tag]) if tag else []
+    normalized_tag = normalized_tags[0] if normalized_tags else ""
+    if tag and not normalized_tag:
+        raise ValueError(f"unsafe rollup tag: {tag!r}")
+    now = now if now is not None else datetime.now(timezone.utc)
+    members: list[dict[str, Any]] = []
+    considered = 0
+    for record in _read_project_memory_records(paths):
+        if str(record.get("record_type", "")) == "episode":
+            continue
+        if not _record_scope_matches(record, scope_kind=scope_kind, scope_ref=scope_ref):
+            continue
+        if normalized_tag and normalized_tag not in _normalize_tags(record.get("tags", [])):
+            continue
+        considered += 1
+        if _classify_record_expiry(record, now=now) == "expired":
+            continue
+        members.append(record)
+    # Oldest first; created_at and candidate_id sharpen the second-granular
+    # approved_at ties before the record-id fallback so the selection is
+    # stable for a given store, and the contract is named in the report.
+    members.sort(
+        key=lambda record: (
+            str(record.get("approved_at", "")),
+            str(record.get("created_at", "")),
+            str(record.get("candidate_id", "")),
+            str(record.get("record_id", "")),
+        )
+    )
+    truncated_members = max(len(members) - _DERIVED_FROM_LIMIT, 0)
+    members = members[:_DERIVED_FROM_LIMIT]
+    # The episode inherits its members' confinement, strictest-wins, and
+    # refuses on conflict: mixed perspectives or mixed scopes would launder
+    # one actor's or one target's content into a wider audience, which is
+    # exactly what those boundaries exist to prevent.
+    member_scopes = {(scope["kind"], scope["ref"]) for scope in (_normalize_scope(record.get("scope", _scope("project", "default"))) for record in members)}
+    member_perspectives = {
+        (projection.get("observer", ""), projection.get("observed", ""))
+        for projection in (_perspective_projection(record.get("perspective")) for record in members)
+    }
+    reason_code = "planned"
+    if len(members) < 2:
+        reason_code = "not_enough_members"
+    elif len(member_scopes) > 1:
+        reason_code = "mixed_scope"
+    elif len(member_perspectives) > 1:
+        reason_code = "mixed_perspective"
+    eligible = reason_code == "planned"
+    episode_scope = _scope(*next(iter(member_scopes))) if len(member_scopes) == 1 else _scope(scope_kind or "project", scope_ref or "default")
+    episode_perspective = next(iter(member_perspectives)) if len(member_perspectives) == 1 else ("", "")
+    volatile_ttls = [
+        ttl_days
+        for record in members
+        if _retention_class(record) == "volatile"
+        for ttl_days in [record.get("retention", {}).get("ttl_days") if isinstance(record.get("retention"), dict) else None]
+        if isinstance(ttl_days, int) and not isinstance(ttl_days, bool)
+    ]
+    episode_retention = "volatile" if any(_retention_class(record) == "volatile" for record in members) else "standard"
+    episode_ttl_days = max(min(volatile_ttls), 1) if volatile_ttls else (1 if episode_retention == "volatile" else None)
+    selector = {"tag": normalized_tag, "scope": episode_scope, "selection": "oldest_first"}
+    selector_label = normalized_tag or f"{episode_scope['kind']}/{episode_scope['ref']}"
+    # Budget the join so every member is represented: an unbudgeted join of
+    # 240-char summaries would truncate mid-list while derived_from still
+    # names all members.
+    prefix = f"Episode rollup ({len(members)} records, {selector_label}): "
+    per_member = max((240 - len(prefix)) // max(len(members), 1) - 2, 12)
+    parts: list[str] = []
+    for record in members:
+        text = str(record.get("summary", ""))
+        if len(text) > per_member:
+            text = (text[:per_member].rsplit(" ", 1)[0] or text[:per_member]).rstrip() + "..."
+        parts.append(text)
+    proposed_summary = prefix + "; ".join(parts)
+    report: dict[str, object] = {
+        "schema_version": MEMORY_ROLLUP_SCHEMA_VERSION,
+        "applied": False,
+        "eligible": eligible,
+        "reason_code": reason_code,
+        "selector": selector,
+        "episode_perspective": {"observer": episode_perspective[0], "observed": episode_perspective[1]},
+        "episode_retention": {"class": episode_retention, "ttl_days": episode_ttl_days},
+        "members": [
+            {
+                "record_id": str(record.get("record_id", "")),
+                "record_type": str(record.get("record_type", "")),
+                "summary": _redact(str(record.get("summary", "")))[:240],
+                "approved_at": str(record.get("approved_at", "")),
+            }
+            for record in members
+        ],
+        "member_count": len(members),
+        "considered_count": considered,
+        "truncated_members": truncated_members,
+        "proposed_summary": _redact(proposed_summary)[:240],
+        "next_action": _rollup_next_action(reason_code),
+        "redaction_policy": "metadata_only",
+        "claim_boundary": (
+            "A rollup prepares one reviewable episode candidate over existing OMH records; "
+            "originals are unchanged, and nothing here is execution, review, CI, merge, or "
+            "Hermes internal-memory evidence."
+        ),
+    }
+    if apply and eligible:
+        already_staged = _find_pending_candidate_by_summary(paths, proposed_summary)
+        if already_staged:
+            report["reason_code"] = "already_staged"
+            report["staged_candidate_id"] = already_staged
+            report["next_action"] = "An identical episode candidate is already pending review; approve or reject it first."
+            return report
+        capture = capture_project_memory_candidate(
+            paths,
+            proposed_summary,
+            record_type="episode",
+            scope_kind=episode_scope["kind"],
+            scope_ref=episode_scope["ref"],
+            source="rollup",
+            tags=[normalized_tag] if normalized_tag else [],
+            ttl_days=episode_ttl_days,
+            retention_class=episode_retention,
+            derived_from=[str(record.get("record_id", "")) for record in members],
+            observer=episode_perspective[0] or None,
+            observed=episode_perspective[1] or None,
+            force_review=True,
+        )
+        candidate_status = str(capture.get("candidate", {}).get("status", "")) if isinstance(capture.get("candidate"), dict) else ""
+        report["applied"] = bool(capture.get("captured")) and candidate_status == "pending_review"
+        report["candidate_status"] = candidate_status
+        report["capture"] = capture
+        report["next_action"] = (
+            "Review and approve the staged episode candidate; member records remain active."
+            if report["applied"]
+            else "The episode candidate did not reach pending review; inspect the capture payload."
+        )
+    return report
+
+
+def _rollup_next_action(reason_code: str) -> str:
+    return {
+        "planned": "Run with --apply to stage the episode candidate for review.",
+        "not_enough_members": "Nothing to roll up: fewer than two eligible member records matched.",
+        "mixed_scope": "Members span multiple scopes; narrow the selector so one scope remains.",
+        "mixed_perspective": "Members span multiple perspectives; narrow the selector so one perspective remains.",
+    }[reason_code]
+
+
+def _find_pending_candidate_by_summary(paths: OmhPaths, summary: str) -> str:
+    key = _normalized_summary_key(_redact(summary.strip())[:500])
+    if not key:
+        return ""
+    for candidate in _read_project_memory_candidates(paths):
+        if str(candidate.get("status", "")) not in {"pending_review", "blocked_review_required"}:
+            continue
+        if _normalized_summary_key(str(candidate.get("summary", ""))) == key:
+            return str(candidate.get("candidate_id", ""))
+    return ""
+
+
+def _recall_query_intent(query: str) -> str:
+    """Return "temporal" for an unambiguous time cue, else "default".
+
+    Token cues use the recall tokenizer, so matching is exact token overlap,
+    never substring guessing ("nowhere" and "knownHosts" stay default).
+    Known limitation: hyphenated compounds tokenize whole ("recently-requested"),
+    so a cue inside one does not fire. Phrase cues match on whitespace-
+    normalized lowercase text.
+    """
+    if not query.strip():
+        return "default"
+    if _memory_tokens(query) & _TEMPORAL_QUERY_CUES:
+        return "temporal"
+    normalized = f" {' '.join(query.lower().split())} "
+    return "temporal" if any(f" {phrase} " in normalized for phrase in _TEMPORAL_QUERY_PHRASES) else "default"
 
 
 def _memory_pins_path(paths: OmhPaths) -> Path:
@@ -1791,6 +2021,8 @@ def validate_project_memory_recall_pack(value: Any, *, label: str = "memory_reca
     _validate_context_scope(value.get("scope"), errors, f"{label}.scope")
     if "perspective" in value:
         _validate_perspective(value.get("perspective"), errors, f"{label}.perspective")
+    if value.get("query_intent", "default") not in {"default", "temporal"}:
+        errors.append(f"{label}.query_intent must be default or temporal")
     _validate_context_list(value.get("included_records"), _PROJECT_MEMORY_RECALL_ITEM_KEYS, errors, f"{label}.included_records", scope_key="scope")
     _validate_context_list(value.get("excluded_records"), _PROJECT_MEMORY_EXCLUDED_KEYS, errors, f"{label}.excluded_records")
     _validate_context_map(value.get("task_ref"), _PROJECT_MEMORY_TASK_REF_KEYS, errors, f"{label}.task_ref")
@@ -1996,6 +2228,7 @@ def _empty_recall_pack(
         "policy": policy,
         "scope": _scope(scope_kind or "project", scope_ref or "default"),
         "perspective": {"observer": "", "observed": ""},
+        "query_intent": "default",
         "included_records": [],
         "excluded_records": [{"record_id": "", "reason": reason, "staleness": {"state": "not_checked"}}],
         "record_count": 0,
