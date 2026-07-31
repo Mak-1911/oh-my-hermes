@@ -472,6 +472,7 @@ def build_project_memory_review_card(candidate: dict[str, Any]) -> dict[str, obj
         "summary": str(candidate.get("summary", "")),
         "scope": _normalize_scope(candidate.get("scope", _scope("project", "default"))),
         "tags": _string_list(candidate.get("tags", [])),
+        "created_at": str(candidate.get("created_at", "")),
         **({"duplicate_of": str(candidate["duplicate_of"])} if candidate.get("duplicate_of") else {}),
         "safety": safety,
         "recommended_action": recommended_action,
@@ -488,10 +489,24 @@ def build_project_memory_review_card(candidate: dict[str, Any]) -> dict[str, obj
     }
 
 
+class LifecycleCandidateError(ValueError):
+    """A v2 lifecycle candidate reached the plain approval path."""
+
+
 def approve_project_memory_candidate(paths: OmhPaths, candidate_id: str, *, approved_by: str = "operator") -> dict[str, object]:
     candidate = _read_project_memory_candidate(paths, candidate_id)
     if not candidate:
         raise FileNotFoundError(candidate_id)
+    # Fail closed on correction/restore candidates: their payload lives under
+    # "replacement", so the plain path would mint a record with an empty
+    # summary and revision 1 -- and that garbage record then blocks the real
+    # reapproval with newer_live_revision_conflict. The CLI catches this and
+    # routes to the lifecycle reapproval executor instead.
+    if str(candidate.get("schema_version", "")) == "project_memory_candidate/v2" or str(candidate.get("lifecycle", "") or ""):
+        raise LifecycleCandidateError(
+            f"candidate {candidate_id} is a lifecycle ({candidate.get('lifecycle', 'v2')}) candidate; "
+            "it must be reapproved through the lifecycle path, not plain approval"
+        )
     safety = candidate.get("safety", {}) if isinstance(candidate.get("safety"), dict) else {}
     if safety.get("status") == "blocked":
         raise ValueError("blocked memory candidates must be rejected or recaptured without protected raw content")
@@ -634,6 +649,16 @@ def build_project_memory_recall_pack(
         )
         staleness = _record_staleness(record, now=now)
         if not bool(evaluation["eligible"]):
+            # --include-stale is an inspection affordance: it surfaces
+            # records whose ONLY problem is a passed revalidation deadline,
+            # carrying their ineligible replay evidence so the pack cannot
+            # be attached to a handoff. Expired and otherwise-ineligible
+            # records stay excluded regardless.
+            if include_stale and str(evaluation.get("reason_code", "")) == "stale_review_required":
+                score = _memory_recall_score(record, query)
+                if not query or score > 0 or str(record.get("record_id", "")) in pins:
+                    included.append(_recall_item(record, score=score, staleness=staleness, evaluation=evaluation))
+                    continue
             excluded.append(_recall_exclusion(record, evaluation, staleness=staleness))
             continue
         score = _memory_recall_score(record, query)
