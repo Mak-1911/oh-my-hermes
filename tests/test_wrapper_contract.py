@@ -15,6 +15,7 @@ from omh.ingress import CHAT_SOURCES
 from omh.paths import OmhPaths, resolve_paths
 from omh.profiles.setup import write_setup_profile
 from omh.runtime.records import build_wrapper_session_record
+from omh.workflows.domain_routing_context import DomainRoutingResolution
 from omh.wrapper_contract import (
     build_chat_interaction_payload,
     build_chat_response_from_status,
@@ -43,8 +44,8 @@ class DomainContextAttachmentTests(unittest.TestCase):
         binding = mock.Mock()
         binding_factory = mock.Mock(return_value=binding)
         with mock.patch(
-            "omh.wrapper.contract.resolve_domain_routing_context",
-            return_value=None,
+            "omh.wrapper.contract.resolve_domain_routing_context_result",
+            return_value=DomainRoutingResolution("absent", "no_match"),
         ) as resolver:
             payload = build_chat_interaction_payload(
                 "something feels off",
@@ -67,8 +68,8 @@ class DomainContextAttachmentTests(unittest.TestCase):
                 binding = mock.Mock()
                 binding_factory = mock.Mock(return_value=binding)
                 with mock.patch(
-                    "omh.wrapper.contract.resolve_domain_routing_context",
-                    return_value=None,
+                    "omh.wrapper.contract.resolve_domain_routing_context_result",
+                    return_value=DomainRoutingResolution("absent", "no_match"),
                 ) as resolver:
                     payload = build_chat_interaction_payload(
                         message,
@@ -169,7 +170,7 @@ class DomainContextAttachmentTests(unittest.TestCase):
                 _host_project_binding_factory=lambda: _binding(root),
             )
             with mock.patch(
-                "omh.wrapper.contract.resolve_domain_routing_context"
+                "omh.wrapper.contract.resolve_domain_routing_context_result"
             ) as resolver:
                 protected = build_chat_interaction_payload(
                     "what's 2+2?",
