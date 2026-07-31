@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-import unittest
+from domain_routing_context_support import (
+    CLAIM_BOUNDARY,
+    _contract_module,
+    _sales_target,
+)
 
-from test_domain_routing_context import CLAIM_BOUNDARY, _contract_module, _sales_target
 
-
-class DomainRoutingContextContractTests(unittest.TestCase):
+class DomainRoutingContextContractMixin:
     def test_exact_public_schema(self) -> None:
         contract = _contract_module()
         fragment = contract.build_domain_routing_context((_sales_target(),))
@@ -164,7 +166,3 @@ class DomainRoutingContextContractTests(unittest.TestCase):
             with self.subTest(field=field):
                 target = contract.DomainClarificationTarget(**kwargs)
                 self.assertIsNone(contract.build_domain_routing_context((target,)))
-
-
-if __name__ == "__main__":
-    unittest.main()

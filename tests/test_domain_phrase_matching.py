@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import unittest
-
-from test_domain_routing_context import _contract_module
+from domain_routing_context_support import _contract_module
 
 
-class DomainPhraseMatcherTests(unittest.TestCase):
+class DomainPhraseMatcherMixin:
     def test_required_unicode_boundary_vectors(self) -> None:
         matches = _contract_module().matches_reviewed_phrase
         vectors = (
@@ -48,7 +46,3 @@ class DomainPhraseMatcherTests(unittest.TestCase):
         self.assertFalse(matches("pipeline review", ""))
         self.assertFalse(matches("", "pipeline review"))
         self.assertFalse(matches(None, "pipeline review"))
-
-
-if __name__ == "__main__":
-    unittest.main()

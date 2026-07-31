@@ -4,7 +4,6 @@ import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import unittest
 from unittest import mock
 
 from _local_package import load_local_package
@@ -15,7 +14,7 @@ from omh.paths import resolve_paths
 from omh.wrapper_sessions import create_or_resume_wrapper_session
 from omh.workflows.domain_project_context import bind_plugin_project
 
-from test_domain_context_lifecycle import (
+from domain_context_lifecycle_support import (
     EN_SALES_QUESTION,
     _assert_applied_context,
     _block_external_connections,
@@ -28,7 +27,7 @@ from test_domain_context_lifecycle import (
 from test_plugin_distribution import FakeHermesContext, load_installed_plugin
 
 
-class DomainContextStoreIsolationTests(unittest.TestCase):
+class DomainContextStoreIsolationMixin:
     def test_same_named_repositories_use_only_the_bound_project_store(self) -> None:
         with TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -158,7 +157,3 @@ class DomainContextStoreIsolationTests(unittest.TestCase):
                 second_turn["interaction"]["domain_routing_context"]["workflow_hint"],
                 "finance-analysis",
             )
-
-
-if __name__ == "__main__":
-    unittest.main()
