@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from ..paths import OmhPaths
 from .domain_intelligence_contracts import (
     DEFAULT_REVIEW_REASON_CODE,
@@ -19,6 +21,7 @@ from .domain_intelligence_contracts import (
 from .domain_intelligence_lineage import (
     ProfileValidationContext,
     build_profile_validation_context,
+    profile_predecessor,
     validate_profile_candidate_lineage,
 )
 from .domain_intelligence_review_validation import (
@@ -81,6 +84,68 @@ def validate_profile_artifact(
     context: ProfileValidationContext | None = None,
 ) -> None:
     context = context or build_profile_validation_context(paths)
+    stack = [_ProfileFrame(profile=profile, is_root=True)]
+    added_keys: set[tuple[str, int]] = set()
+    try:
+        while stack:
+            frame = stack.pop()
+            try:
+                if frame.complete:
+                    validate_profile_candidate_lineage(
+                        frame.profile,
+                        frame.review or {},
+                        context=context,
+                        validate_candidate=validate_candidate_artifact,
+                        predecessor=frame.predecessor,
+                    )
+                    profile_key = _profile_key(frame.profile)
+                    context.validating.remove(profile_key)
+                    added_keys.remove(profile_key)
+                    context.validated[profile_key] = frame.profile
+                    continue
+                status, profile_key = _validate_profile_identity(frame.profile)
+                cached = context.validated.get(profile_key)
+                if cached is not None:
+                    if cached != frame.profile:
+                        raise ValueError("approved_candidate_lineage_required")
+                    continue
+                if profile_key in context.validating:
+                    raise ValueError("approved_candidate_lineage_required")
+                review = _validate_profile_content(context, frame.profile, status)
+                predecessor = profile_predecessor(frame.profile, context)
+                context.validating.add(profile_key)
+                added_keys.add(profile_key)
+                stack.append(
+                    _ProfileFrame(
+                        profile=frame.profile,
+                        is_root=frame.is_root,
+                        complete=True,
+                        review=review,
+                        predecessor=predecessor,
+                    )
+                )
+                if predecessor is not None:
+                    stack.append(_ProfileFrame(profile=predecessor, is_root=False))
+            except (OSError, TypeError, ValueError) as exc:
+                if not frame.is_root:
+                    raise ValueError("approved_candidate_lineage_required") from exc
+                raise
+    finally:
+        context.validating.difference_update(added_keys)
+
+
+@dataclass
+class _ProfileFrame:
+    profile: dict[str, object]
+    is_root: bool
+    complete: bool = False
+    review: dict[str, object] | None = None
+    predecessor: dict[str, object] | None = None
+
+
+def _validate_profile_identity(
+    profile: dict[str, object],
+) -> tuple[str, tuple[str, int]]:
     ensure_no_forbidden_keys(profile)
     status = validate_profile_contract(profile)
     revision = profile.get("revision")
@@ -95,14 +160,16 @@ def validate_profile_artifact(
         raise ValueError("unsafe_profile_id")
     if profile_id != stable_profile_id(scope, domain_id):
         raise ValueError("profile_identity_mismatch")
-    profile_key = (profile_id, revision)
-    cached = context.validated.get(profile_key)
-    if cached is not None:
-        if cached != profile:
-            raise ValueError("approved_candidate_lineage_required")
-        return
-    if profile_key in context.validating:
-        raise ValueError("approved_candidate_lineage_required")
+    return status, (profile_id, revision)
+
+
+def _validate_profile_content(
+    context: ProfileValidationContext,
+    profile: dict[str, object],
+    status: str,
+) -> dict[str, object]:
+    profile_id, revision = _profile_key(profile)
+    scope = normalize_scope_from_value(profile.get("scope"))
     if profile.get("scope") != scope:
         raise ValueError("scope_not_normalized")
     if profile.get("vocabulary_mappings") != normalize_mappings_from_value(profile.get("vocabulary_mappings")):
@@ -142,22 +209,11 @@ def validate_profile_artifact(
     )
     if not review:
         raise ValueError("matching_review_required")
-    context.validating.add(profile_key)
-    try:
-        validate_profile_candidate_lineage(
-            profile,
-            review,
-            context=context,
-            validate_candidate=validate_candidate_artifact,
-            validate_profile=lambda predecessor: validate_profile_artifact(
-                paths,
-                predecessor,
-                context=context,
-            ),
-        )
-    finally:
-        context.validating.remove(profile_key)
-    context.validated[profile_key] = profile
+    return review
+
+
+def _profile_key(profile: dict[str, object]) -> tuple[str, int]:
+    return str(profile["profile_id"]), int(profile["revision"])
 
 
 def current_profile_for_authority(paths: OmhPaths, profile_id: str) -> dict[str, object] | None:

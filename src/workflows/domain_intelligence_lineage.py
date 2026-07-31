@@ -62,16 +62,9 @@ def validate_profile_candidate_lineage(
     *,
     context: ProfileValidationContext,
     validate_candidate: Callable[[dict[str, object]], None],
-    validate_profile: Callable[[dict[str, object]], None],
+    predecessor: dict[str, object] | None,
 ) -> None:
     status = profile.get("status")
-    allowed_predecessors = {"active", "retired"} if status == "active" else {"active"}
-    predecessor = _validated_predecessor(
-        profile,
-        context,
-        validate_profile,
-        allowed_statuses=allowed_predecessors,
-    )
     if status == "active":
         candidate = _read_approved_candidate(profile, context, validate_candidate)
         _validate_active_lineage(profile, review, candidate)
@@ -89,12 +82,9 @@ def validate_profile_candidate_lineage(
         raise ValueError("approved_candidate_lineage_required")
 
 
-def _validated_predecessor(
+def profile_predecessor(
     profile: dict[str, object],
     context: ProfileValidationContext,
-    validate_profile: Callable[[dict[str, object]], None],
-    *,
-    allowed_statuses: set[str],
 ) -> dict[str, object] | None:
     revision = profile.get("revision")
     base_revision = profile.get("base_profile_revision")
@@ -109,17 +99,21 @@ def _validated_predecessor(
     predecessor = context.history.get(
         (str(profile.get("profile_id")), int(base_revision))
     )
-    if predecessor is None or predecessor.get("status") not in allowed_statuses or any(
-        predecessor.get(field) != profile.get(field)
-        for field in _CHAIN_IDENTITY_FIELDS
+    allowed_statuses = (
+        {"active", "retired"} if profile.get("status") == "active" else {"active"}
+    )
+    if (
+        predecessor is None
+        or predecessor.get("revision") != base_revision
+        or predecessor.get("status") not in allowed_statuses
+        or any(
+            predecessor.get(field) != profile.get(field)
+            for field in _CHAIN_IDENTITY_FIELDS
+        )
     ):
         raise ValueError("approved_candidate_lineage_required")
     if predecessor.get("base_profile_revision") != base_revision - 1:
         raise ValueError("approved_candidate_lineage_required")
-    try:
-        validate_profile(predecessor)
-    except (OSError, TypeError, ValueError) as exc:
-        raise ValueError("approved_candidate_lineage_required") from exc
     return predecessor
 
 
