@@ -4,6 +4,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 import os
 import stat
+from typing import TYPE_CHECKING
 
 from .domain_intelligence_contracts import (
     SAFE_CANDIDATE_ID,
@@ -21,6 +22,9 @@ from .domain_intelligence_schema import REJECTED_REVIEW_KEYS, validate_review_co
 from .domain_intelligence_snapshot_budget import DomainSnapshotBudget
 from .domain_intelligence_store_security import MAX_DOMAIN_ARTIFACT_FILES
 from .domain_intelligence_validation import validate_profile_artifact_for_resolution
+
+if TYPE_CHECKING:
+    from .domain_project_context import HostProjectBinding
 
 
 _HEALTH_DIRECTORIES = ("profiles", "reviews", "history")
@@ -129,7 +133,7 @@ def _require_bound_directory(root_fd: int, name: str, directory_fd: int) -> None
 
 
 def _validate_resolution_records(
-    binding: object,
+    binding: HostProjectBinding,
     records: dict[str, tuple[tuple[str, dict[str, object]], ...]],
 ) -> tuple[dict[str, object], ...]:
     profiles = _identity_records(records["profiles"], "profile_id")
@@ -139,10 +143,7 @@ def _validate_resolution_records(
     profile_index = _unique_profile_index(all_profiles)
     review_index = {str(review["review_id"]): review for review in reviews}
     context = ProfileValidationContext(
-        history={
-            (str(profile["profile_id"]), int(profile["revision"])): profile
-            for profile in history
-        },
+        history={_profile_identity(profile): profile for profile in history},
         candidates={},
         reviews=review_index,
     )
@@ -189,18 +190,9 @@ def _history_records(
     identities: set[tuple[str, int]] = set()
     for filename, value in records:
         ensure_no_forbidden_keys(value)
-        profile_id = value.get("profile_id")
-        revision = value.get("revision")
-        if (
-            not isinstance(profile_id, str)
-            or not SAFE_PROFILE_ID.fullmatch(profile_id)
-            or isinstance(revision, bool)
-            or not isinstance(revision, int)
-            or revision < 1
-            or filename != f"{profile_id}_r{revision}.json"
-        ):
+        identity = _profile_identity(value)
+        if filename != f"{identity[0]}_r{identity[1]}.json":
             raise ValueError("artifact_identity_mismatch")
-        identity = (profile_id, revision)
         if identity in identities:
             raise ValueError("duplicate_embedded_id")
         identities.add(identity)
@@ -213,20 +205,25 @@ def _unique_profile_index(
 ) -> dict[tuple[str, int], dict[str, object]]:
     index: dict[tuple[str, int], dict[str, object]] = {}
     for profile in profiles:
-        profile_id = profile.get("profile_id")
-        revision = profile.get("revision")
-        if (
-            not isinstance(profile_id, str)
-            or isinstance(revision, bool)
-            or not isinstance(revision, int)
-            or revision < 1
-        ):
-            raise ValueError("artifact_identity_mismatch")
-        key = (profile_id, revision)
+        key = _profile_identity(profile)
         if key in index:
             raise ValueError("duplicate_embedded_id")
         index[key] = profile
     return index
+
+
+def _profile_identity(profile: dict[str, object]) -> tuple[str, int]:
+    profile_id = profile.get("profile_id")
+    revision = profile.get("revision")
+    if (
+        not isinstance(profile_id, str)
+        or not SAFE_PROFILE_ID.fullmatch(profile_id)
+        or isinstance(revision, bool)
+        or not isinstance(revision, int)
+        or revision < 1
+    ):
+        raise ValueError("artifact_identity_mismatch")
+    return profile_id, revision
 
 
 def _validate_rejected_review_without_candidate(review: dict[str, object]) -> None:
