@@ -3748,19 +3748,21 @@ def _build_chat_interaction_payload_uncached(
         include_message=include_message,
         skill_policy=skill_policy,
     )
-    domain_context = resolve_attached_domain_context(
-        route_payload,
-        message,
-        host_project_binding=host_project_binding,
-        host_project_binding_factory=host_project_binding_factory,
-        resolver=resolve_domain_routing_context,
-    )
+    resolved_mode = _resolve_mode(mode, route_payload, message=message)
+    domain_context = None
+    if resolved_mode == "clarify":
+        domain_context = resolve_attached_domain_context(
+            route_payload,
+            message,
+            host_project_binding=host_project_binding,
+            host_project_binding_factory=host_project_binding_factory,
+            resolver=resolve_domain_routing_context,
+        )
     orchestration_guidance = build_omh_orchestration_guidance(
         route_payload,
         source_metadata=metadata,
         paths=paths,
     )
-    resolved_mode = _resolve_mode(mode, route_payload, message=message)
     base = _base_interaction(message, source=source, source_metadata=metadata, mode=resolved_mode, include_message=include_message)
     is_catalog_question = _is_generic_skill_catalog_route(message, route_payload)
     if is_catalog_question and _route_recommendation_next_action(route_payload) != "show_command_preview":

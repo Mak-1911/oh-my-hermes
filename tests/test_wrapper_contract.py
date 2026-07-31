@@ -39,6 +39,51 @@ def _canonical_bytes(value: object) -> bytes:
 
 
 class DomainContextAttachmentTests(unittest.TestCase):
+    def test_auto_clarification_resolves_private_domain_context_once(self) -> None:
+        binding = mock.Mock()
+        binding_factory = mock.Mock(return_value=binding)
+        with mock.patch(
+            "omh.wrapper.contract.resolve_domain_routing_context",
+            return_value=None,
+        ) as resolver:
+            payload = build_chat_interaction_payload(
+                "something feels off",
+                source="discord",
+                source_metadata={},
+                _host_project_binding_factory=binding_factory,
+            )
+
+        self.assertEqual(payload["mode"], "clarify")
+        self.assertEqual(
+            (binding_factory.call_count, resolver.call_count, binding.close.call_count),
+            (1, 1, 1),
+        )
+
+    def test_explicit_non_clarification_modes_do_not_resolve_private_domain_context(self) -> None:
+        message = "something feels off"
+
+        for mode in ("delegate", "plan", "route"):
+            with self.subTest(mode=mode):
+                binding = mock.Mock()
+                binding_factory = mock.Mock(return_value=binding)
+                with mock.patch(
+                    "omh.wrapper.contract.resolve_domain_routing_context",
+                    return_value=None,
+                ) as resolver:
+                    payload = build_chat_interaction_payload(
+                        message,
+                        source="discord",
+                        mode=mode,
+                        source_metadata={},
+                        _host_project_binding_factory=binding_factory,
+                    )
+
+                self.assertEqual(payload["mode"], mode)
+                self.assertEqual(
+                    (binding_factory.call_count, resolver.call_count, binding.close.call_count),
+                    (0, 0, 0),
+                )
+
     def test_package_attachment_is_applied_only_and_byte_preserving(self) -> None:
         from test_domain_routing_context import _approve_profile, _binding, _repository
 
