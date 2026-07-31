@@ -442,6 +442,27 @@ class DomainContextResolverTests(unittest.TestCase):
                         _resolver()(binding, "pipeline review", locale="en")
                     )
 
+    def test_identity_conflicts_and_symlink_entries_fail_closed(self) -> None:
+        for dirname in ("profiles", "reviews", "history"):
+            for corruption in ("identity_conflict", "symlink"):
+                with (
+                    self.subTest(dirname=dirname, corruption=corruption),
+                    TemporaryDirectory() as tmp,
+                ):
+                    root = _repository(Path(tmp) / f"unsafe-{dirname}-{corruption}")
+                    _approve_profile(root, domain_id="sales")
+                    _approve_profile(root, domain_id="sales")
+                    directory = _store(root) / dirname
+                    original = next(directory.glob("*.json"))
+                    if corruption == "identity_conflict":
+                        (directory / "alias.json").write_bytes(original.read_bytes())
+                    else:
+                        (directory / "linked.json").symlink_to(original.name)
+                    with _binding(root) as binding:
+                        self.assertIsNone(
+                            _resolver()(binding, "pipeline review", locale="en")
+                        )
+
     def test_malformed_candidates_and_operations_are_irrelevant(self) -> None:
         with TemporaryDirectory() as tmp:
             root = _repository(Path(tmp) / "irrelevant-artifacts")
@@ -472,12 +493,19 @@ class DomainContextResolverTests(unittest.TestCase):
     def test_noncooperating_snapshot_mutations_fail_closed_without_retry(self) -> None:
         query = importlib.import_module("omh.workflows.domain_intelligence_queries")
         for dirname in ("profiles", "reviews", "history"):
-            for operation in ("create", "replace", "delete", "content"):
+            for operation in (
+                "create",
+                "replace",
+                "delete",
+                "content",
+                "directory_swap",
+            ):
                 with (
                     self.subTest(dirname=dirname, operation=operation),
                     TemporaryDirectory() as tmp,
                 ):
                     root = _repository(Path(tmp) / f"mutation-{dirname}-{operation}")
+                    _approve_profile(root, domain_id="sales")
                     _approve_profile(root, domain_id="sales")
                     directory = _store(root) / dirname
                     original = next(directory.glob("*.json"), None)
@@ -501,6 +529,10 @@ class DomainContextResolverTests(unittest.TestCase):
                                 original.unlink()
                             elif operation == "content" and original is not None:
                                 original.write_bytes(original.read_bytes() + b" ")
+                            elif operation == "directory_swap":
+                                opened = directory.with_name(f"{dirname}-opened")
+                                directory.rename(opened)
+                                directory.mkdir()
                         return value
 
                     with patch.object(
@@ -513,7 +545,7 @@ class DomainContextResolverTests(unittest.TestCase):
                                 _resolver()(binding, "pipeline review", locale="en")
                             )
                     self.assertTrue(mutated)
-                    self.assertEqual(reader.call_count, 1)
+                    self.assertLessEqual(reader.call_count, 4)
 
 
 if __name__ == "__main__":

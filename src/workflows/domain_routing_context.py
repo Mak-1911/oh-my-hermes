@@ -19,6 +19,7 @@ MAX_WORKFLOW_HINT_CODE_POINTS = 120
 MAX_REQUIRED_INPUT_CODE_POINTS = 120
 MAX_QUESTION_CODE_POINTS = 240
 MAX_CLAIM_BOUNDARY_CODE_POINTS = 320
+MAX_DOMAIN_CONTEXT_MATCHES = 64
 _SUPPORTED_QUESTION_LOCALES = frozenset({"en", "ko"})
 
 
@@ -78,6 +79,84 @@ def matches_reviewed_phrase(message: object, phrase: object) -> bool:
             return True
         offset = normalized_message.find(normalized_phrase, offset + 1)
     return False
+
+
+def resolve_domain_routing_context(
+    binding: object,
+    message: object,
+    *,
+    locale: str,
+) -> dict[str, object] | None:
+    """Resolve one catalog-owned question from a complete reviewed store snapshot."""
+    from ..paths import project_identity
+    from ..skills import catalog
+    from .domain_intelligence_queries import read_validated_domain_profiles_at
+    from .domain_project_context import HostProjectBinding
+
+    if not isinstance(binding, HostProjectBinding) or not isinstance(message, str):
+        return None
+    try:
+        profiles = read_validated_domain_profiles_at(binding)
+        expected_scope = {
+            "kind": "project",
+            "ref": project_identity(binding.project_root),
+            "ref_authority": "operator_or_wrapper_supplied",
+            "identity_claim": "not_authenticated_identity_evidence",
+        }
+        matches: list[tuple[dict[str, object], dict[str, object]]] = []
+        for profile in profiles:
+            if profile.get("scope") != expected_scope:
+                continue
+            mappings = profile.get("vocabulary_mappings")
+            if not isinstance(mappings, list):
+                return None
+            for mapping in mappings:
+                if not isinstance(mapping, dict):
+                    return None
+                if matches_reviewed_phrase(message, mapping.get("phrase")):
+                    matches.append((profile, mapping))
+                    if len(matches) > MAX_DOMAIN_CONTEXT_MATCHES:
+                        return None
+        if not matches:
+            return None
+
+        canonicals = {str(mapping.get("canonical")) for _profile, mapping in matches}
+        if len(canonicals) != 1:
+            return None
+
+        routable = {
+            definition.name: definition for definition in catalog.routable_definitions()
+        }
+        selected_hints: set[str] = set()
+        for profile, _mapping in matches:
+            hints = profile.get("workflow_hints")
+            if not isinstance(hints, list) or not hints:
+                return None
+            for hint in hints:
+                if not isinstance(hint, str) or hint not in routable:
+                    return None
+                selected_hints.add(hint)
+        if len(selected_hints) != 1:
+            return None
+
+        workflow_hint = next(iter(selected_hints))
+        definition = routable[workflow_hint]
+        questions = definition.expert_questions
+        if not questions:
+            return None
+        question = questions[0]
+        if question.required_input not in definition.required_inputs:
+            return None
+        selected_locale = "ko" if locale == "ko" else "en"
+        target = DomainClarificationTarget(
+            workflow_hint=workflow_hint,
+            required_input=question.required_input,
+            question_locale=selected_locale,
+            question_text=question.ko if selected_locale == "ko" else question.en,
+        )
+        return build_domain_routing_context((target,))
+    except (OSError, TypeError, ValueError):
+        return None
 
 
 def _valid_target(target: DomainClarificationTarget) -> bool:

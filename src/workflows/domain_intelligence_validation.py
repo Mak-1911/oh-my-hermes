@@ -23,6 +23,7 @@ from .domain_intelligence_lineage import (
     build_profile_validation_context,
     profile_predecessor,
     validate_profile_candidate_lineage,
+    validate_profile_review_lineage,
 )
 from .domain_intelligence_review_validation import (
     canonical_reason_code,
@@ -83,6 +84,21 @@ def validate_profile_artifact(
     *,
     context: ProfileValidationContext | None = None,
 ) -> None:
+    _validate_profile_artifact(
+        paths,
+        profile,
+        context=context,
+        require_candidate_record=True,
+    )
+
+
+def _validate_profile_artifact(
+    paths: OmhPaths,
+    profile: dict[str, object],
+    *,
+    context: ProfileValidationContext | None,
+    require_candidate_record: bool,
+) -> None:
     context = context or build_profile_validation_context(paths)
     stack = [_ProfileFrame(profile=profile, is_root=True)]
     added_keys: set[tuple[str, int]] = set()
@@ -91,13 +107,20 @@ def validate_profile_artifact(
             frame = stack.pop()
             try:
                 if frame.complete:
-                    validate_profile_candidate_lineage(
-                        frame.profile,
-                        frame.review or {},
-                        context=context,
-                        validate_candidate=validate_candidate_artifact,
-                        predecessor=frame.predecessor,
-                    )
+                    if require_candidate_record:
+                        validate_profile_candidate_lineage(
+                            frame.profile,
+                            frame.review or {},
+                            context=context,
+                            validate_candidate=validate_candidate_artifact,
+                            predecessor=frame.predecessor,
+                        )
+                    else:
+                        validate_profile_review_lineage(
+                            frame.profile,
+                            frame.review or {},
+                            predecessor=frame.predecessor,
+                        )
                     profile_key = _profile_key(frame.profile)
                     context.validating.remove(profile_key)
                     added_keys.remove(profile_key)
@@ -132,6 +155,21 @@ def validate_profile_artifact(
                 raise
     finally:
         context.validating.difference_update(added_keys)
+
+
+def validate_profile_artifact_for_resolution(
+    paths: OmhPaths,
+    profile: dict[str, object],
+    *,
+    context: ProfileValidationContext,
+) -> None:
+    """Validate reviewed profile lineage without consulting candidate storage."""
+    _validate_profile_artifact(
+        paths,
+        profile,
+        context=context,
+        require_candidate_record=False,
+    )
 
 
 @dataclass
