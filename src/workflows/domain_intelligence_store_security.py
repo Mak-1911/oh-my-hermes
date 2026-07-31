@@ -19,12 +19,26 @@ except ImportError:
     fcntl = None
 
 
+_NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
+
 # These bounds keep local reviewed metadata cheap to inspect and diagnose.
 MAX_DOMAIN_ARTIFACT_BYTES = 256 * 1024
-MAX_DOMAIN_ARTIFACT_FILES = 256
+MAX_DOMAIN_CANDIDATE_FILES = 256
+MAX_DOMAIN_ARTIFACT_FILES = 1024
 MAX_DOMAIN_JSON_DEPTH = 32
 MAX_DOMAIN_JSON_NODES = 4096
 MAX_DOMAIN_DIAGNOSTICS = 64
+
+
+def ensure_new_artifact_capacity(
+    directory: Path,
+    target: Path,
+    *,
+    limit: int,
+    reason: str,
+) -> None:
+    if not target.exists() and sum(1 for _ in directory.glob("*.json")) >= limit:
+        raise ValueError(reason)
 
 
 def secure_domain_root(paths: OmhPaths, *, create: bool = False) -> Path:
@@ -35,12 +49,16 @@ def secure_domain_root(paths: OmhPaths, *, create: bool = False) -> Path:
     resolved_home = home.resolve(strict=False)
     resolved_memory = memory.resolve(strict=False)
     if not resolved_memory.is_relative_to(resolved_home):
-        raise ValueError("domain-intelligence memory storage must resolve under OMH home")
+        raise ValueError(
+            "domain-intelligence memory storage must resolve under OMH home"
+        )
     root = memory / "domain-intelligence"
     if root.is_symlink():
         raise ValueError("domain-intelligence storage must not be a symlink")
     resolved_root = root.resolve(strict=False)
-    if resolved_root.parent != resolved_memory or not resolved_root.is_relative_to(resolved_home):
+    if resolved_root.parent != resolved_memory or not resolved_root.is_relative_to(
+        resolved_home
+    ):
         raise ValueError("domain-intelligence storage must resolve under OMH home")
     if create:
         ensure_dir(root, private=True)
@@ -55,7 +73,9 @@ def secure_managed_dir(paths: OmhPaths, name: str, *, create: bool = True) -> Pa
     resolved_root = root.resolve(strict=False)
     resolved_directory = directory.resolve(strict=False)
     if resolved_directory.parent != resolved_root:
-        raise ValueError(f"domain-intelligence {name} storage must resolve under domain root")
+        raise ValueError(
+            f"domain-intelligence {name} storage must resolve under domain root"
+        )
     if create:
         ensure_dir(directory, private=True)
     return directory
@@ -66,7 +86,9 @@ def secure_artifact_path(directory: Path, filename: str) -> Path:
     if path.is_symlink():
         raise ValueError("domain-intelligence artifact path must not be a symlink")
     if path.resolve(strict=False).parent != directory.resolve(strict=False):
-        raise ValueError("domain-intelligence artifact path must resolve under managed storage")
+        raise ValueError(
+            "domain-intelligence artifact path must resolve under managed storage"
+        )
     if path.exists() and not path.is_file():
         raise ValueError("domain-intelligence artifact path must be a regular file")
     return path
@@ -95,14 +117,15 @@ def domain_store_lock(
     target = secure_store_lock_target(paths)
     lock_path = target.with_name(f".{target.name}.lock")
     flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_CLOEXEC", 0)
-    nofollow = getattr(os, "O_NOFOLLOW", 0)
-    if not nofollow:
+    if not _NOFOLLOW_FLAG:
         raise ValueError("domain-intelligence safe lock requires O_NOFOLLOW")
     try:
-        descriptor = os.open(lock_path, flags | nofollow, 0o600)
+        descriptor = os.open(lock_path, flags | _NOFOLLOW_FLAG, 0o600)
     except OSError as exc:
         if exc.errno in {errno.ELOOP, errno.EMLINK}:
-            raise ValueError("domain-intelligence lock path must not be a symlink") from exc
+            raise ValueError(
+                "domain-intelligence lock path must not be a symlink"
+            ) from exc
         raise
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
@@ -120,7 +143,9 @@ def domain_store_lock(
                 if exc.errno not in (errno.EACCES, errno.EAGAIN):
                     raise
                 if time.monotonic() >= deadline:
-                    raise FileLockTimeout(f"could not acquire lock on {target} within {timeout_seconds}s") from exc
+                    raise FileLockTimeout(
+                        f"could not acquire lock on {target} within {timeout_seconds}s"
+                    ) from exc
                 time.sleep(poll_interval)
         try:
             yield {"locked": True, "reason": ""}
@@ -132,11 +157,10 @@ def domain_store_lock(
 
 def read_bounded_json(path: Path) -> dict[str, object] | None:
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
-    nofollow = getattr(os, "O_NOFOLLOW", 0)
-    if not nofollow:
+    if not _NOFOLLOW_FLAG:
         raise ValueError("domain-intelligence safe reads require O_NOFOLLOW")
     try:
-        descriptor = os.open(path, flags | nofollow)
+        descriptor = os.open(path, flags | _NOFOLLOW_FLAG)
     except FileNotFoundError:
         return None
     except OSError as exc:
