@@ -19,6 +19,7 @@ from .domain_intelligence_review_validation import (
     validate_review_artifact_for_status,
 )
 from .domain_intelligence_schema import REJECTED_REVIEW_KEYS, validate_review_contract
+from .domain_intelligence_snapshot_budget import DomainSnapshotBudget
 from .domain_intelligence_store_security import MAX_DOMAIN_ARTIFACT_FILES
 from .domain_intelligence_validation import validate_profile_artifact_for_resolution
 
@@ -30,6 +31,7 @@ _HEALTH_DIRECTORIES = ("profiles", "reviews", "history")
 class _DirectorySnapshot:
     identity: tuple[int, int, int, int, int]
     manifest: tuple[tuple[str, int, int, int, int, int, int], ...]
+    total_bytes: int
 
 
 def read_validated_domain_profiles_at(
@@ -51,13 +53,11 @@ def read_validated_domain_profiles_at(
         }
         for name, descriptor in directories.items():
             _require_bound_directory(binding.domain_store_fd, name, descriptor)
-        records = {
-            name: tuple(
-                (filename, read_stable_json_at(directories[name], filename))
-                for filename, *_rest in before[name].manifest
-            )
-            for name in _HEALTH_DIRECTORIES
-        }
+        budget = DomainSnapshotBudget()
+        budget.require_total_bytes(
+            sum(snapshot.total_bytes for snapshot in before.values())
+        )
+        records = _read_budgeted_records(directories, before, budget)
         profiles = _validate_resolution_records(binding, records)
         after = {
             name: _snapshot_directory(descriptor)
@@ -70,12 +70,29 @@ def read_validated_domain_profiles_at(
         return profiles
 
 
+def _read_budgeted_records(
+    directories: dict[str, int],
+    snapshots: dict[str, _DirectorySnapshot],
+    budget: DomainSnapshotBudget,
+) -> dict[str, tuple[tuple[str, dict[str, object]], ...]]:
+    records: dict[str, tuple[tuple[str, dict[str, object]], ...]] = {}
+    for name in _HEALTH_DIRECTORIES:
+        values: list[tuple[str, dict[str, object]]] = []
+        for filename, *_rest in snapshots[name].manifest:
+            value = read_stable_json_at(directories[name], filename)
+            budget.consume_json(value)
+            values.append((filename, value))
+        records[name] = tuple(values)
+    return records
+
+
 def _snapshot_directory(directory_fd: int) -> _DirectorySnapshot:
     directory_stat = os.fstat(directory_fd)
     if not stat.S_ISDIR(directory_stat.st_mode):
         raise ValueError("domain_health_directory_invalid")
     names = _bounded_json_names(directory_fd)
     manifest: list[tuple[str, int, int, int, int, int, int]] = []
+    total_bytes = 0
     for name in names:
         if Path(name).name != name:
             raise ValueError("artifact_path_escape")
@@ -83,9 +100,11 @@ def _snapshot_directory(directory_fd: int) -> _DirectorySnapshot:
         if not stat.S_ISREG(item.st_mode):
             raise ValueError("symlink_or_not_file")
         manifest.append((name, *stable_file_identity(item)))
+        total_bytes += item.st_size
     return _DirectorySnapshot(
         identity=_directory_identity(directory_stat),
         manifest=tuple(manifest),
+        total_bytes=total_bytes,
     )
 
 
