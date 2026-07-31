@@ -8,6 +8,84 @@ are not normal-user setup.
 
 OMH does not read, patch, or mutate opaque Hermes internal memory.
 
+## Reviewed Domain Intelligence
+
+Domain intelligence is a separate reviewed vocabulary store for agents,
+wrappers, and operators. It lets an operator curate bounded user,
+organization, or project vocabulary without changing routing in the same
+release. The store lives under `.omh/memory/domain-intelligence/` with
+`candidates/`, `profiles/`, `reviews/`, and `history/` subdirectories.
+
+Every scope reference is an explicit opaque key supplied by an operator or a
+wrapper identity boundary:
+
+- `user`
+- `organization`
+- `project`
+
+The stored ref is labeled `operator_or_wrapper_supplied`. It is a routing
+scope key for future use, not authenticated identity evidence, and OMH v1 never
+infers it from chat text, summaries, or vocabulary.
+
+The operator lifecycle is:
+
+```sh
+# Agent/operator only: stage bounded vocabulary for manual review.
+omh memory domain-capture \
+  --scope-kind organization \
+  --scope-ref org-acme \
+  --domain sales \
+  --mapping "QBR=quarterly_business_review" \
+  --mapping "deal desk=deal_desk"
+
+# Agent/operator only: inspect pending review cards.
+omh memory domain-review
+
+# Agent/operator only: approve, reject, list, or retire.
+omh memory domain-approve <candidate-id>
+omh memory domain-reject <candidate-id> --reason insufficient_evidence
+omh memory domain-list --scope-kind organization --scope-ref org-acme
+omh memory domain-retire --scope-kind organization --scope-ref org-acme --domain sales --reason superseded
+```
+
+Captured candidates are `domain_intelligence_candidate/v1` and always remain
+`pending_review` until an explicit approval or rejection. Approval writes one
+current `domain_intelligence_profile/v1` for the exact `(scope.kind,
+scope.ref, domain_id)` key and one immutable
+`domain_intelligence_review_record/v1`. The profile id is deterministic for
+that key, so a public approval path cannot create duplicate current profiles.
+Approvals are complete replacements: the next approved candidate increments the
+revision and archives the prior profile under `history/`. Retirement writes a
+reviewed retired revision and keeps review/history files; later reactivation
+requires another reviewed candidate.
+
+Candidates record `base_profile_revision`. Approval fails closed with
+`stale_candidate` if another approval or retirement changed the current
+revision after capture.
+
+Profile eligibility is fail-closed. Readers exclude pending, rejected, retired,
+malformed, digest-mismatched, or review-mismatched artifacts and report bounded
+diagnostics instead of exposing raw content. The canonical profile digest covers
+only behavior-bearing fields: schema version, profile id, revision, status,
+scope, domain id, sorted vocabulary mappings, sorted workflow hints,
+confidence metadata, bounded provenance metadata, and base profile revision.
+It excludes candidate/review identifiers, reviewer claims, timestamps,
+claim-boundary prose, and filesystem paths.
+
+Domain-intelligence artifacts persist only explicit bounded vocabulary,
+identifier-like workflow hints, confidence metadata, and bounded provenance.
+They do not store raw prompts, transcripts, hidden reasoning, chat logs, or
+Hermes internal memory. The profile claim boundary is
+`routing_prior_not_override`: profiles are future prepared context only and do
+not affect routing, execution, review, CI, merge readiness, or merge evidence
+in this release.
+
+Reviewer claims and source references are safe opaque identifiers only:
+ASCII letters, digits, `_`, `.`, `:`, and `-`, up to 120 characters. Review
+reasons are metadata-only reason codes, not free-form text. Accepted codes are
+`duplicate`, `incorrect_scope`, `insufficient_evidence`, `operator_request`,
+`scope_error`, and `superseded`.
+
 ## V2 Model
 
 New OMH-owned artifacts use versioned, replay-gated records:
