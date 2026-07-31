@@ -1039,6 +1039,9 @@ def _compact_executor_handoff(value: Any) -> dict[str, Any]:
     snapshot = _compact_executor_capability_snapshot(value.get("executor_capability_snapshot"))
     if snapshot:
         compact["executor_capability_snapshot"] = snapshot
+    prompting_contract = _compact_executor_prompting_contract(value.get("executor_prompting_contract"))
+    if prompting_contract:
+        compact["executor_prompting_contract"] = prompting_contract
     capability_report = _compact_local_capability_report_contract(value.get("local_capability_report_contract", {}))
     if capability_report:
         compact["local_capability_report_contract"] = capability_report
@@ -1095,6 +1098,9 @@ def _compact_prompt_handoff(value: Any) -> dict[str, Any]:
     snapshot = _compact_executor_capability_snapshot(value.get("executor_capability_snapshot"))
     if snapshot:
         compact["executor_capability_snapshot"] = snapshot
+    prompting_contract = _compact_executor_prompting_contract(value.get("executor_prompting_contract"))
+    if prompting_contract:
+        compact["executor_prompting_contract"] = prompting_contract
     capability_report = _compact_local_capability_report_contract(value.get("local_capability_report_contract", {}))
     if capability_report:
         compact["local_capability_report_contract"] = capability_report
@@ -1160,6 +1166,9 @@ def _compact_runtime_handoff(value: Any) -> dict[str, Any]:
     snapshot = _compact_executor_capability_snapshot(value.get("executor_capability_snapshot"))
     if snapshot:
         compact["executor_capability_snapshot"] = snapshot
+    prompting_contract = _compact_executor_prompting_contract(value.get("executor_prompting_contract"))
+    if prompting_contract:
+        compact["executor_prompting_contract"] = prompting_contract
     capability_report = _compact_local_capability_report_contract(value.get("local_capability_report_contract", {}))
     if capability_report:
         compact["local_capability_report_contract"] = capability_report
@@ -1421,6 +1430,41 @@ def _compact_task_prompt_contract(value: Any) -> dict[str, Any]:
         "required_sections": _compact_string_list(value.get("required_sections", [])),
         "language_policy": str(value.get("language_policy", "")),
         "steering_policy": str(value.get("steering_policy", "")),
+        "claim_boundary": str(value.get("claim_boundary", "")),
+    }
+
+
+def _compact_executor_prompting_contract(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    return {
+        "schema_version": str(value.get("schema_version", "")),
+        "profile": str(value.get("profile", "")),
+        "status": str(value.get("status", "")),
+        "intent": str(value.get("intent", "")),
+        "strategy": str(value.get("strategy", "")),
+        "task_source": str(value.get("task_source", "")),
+        "required_sections": _compact_string_list(value.get("required_sections", [])),
+        "repository_first_policy": str(value.get("repository_first_policy", "")),
+        "uncertainty_policy": str(value.get("uncertainty_policy", "")),
+        "verification_policy": str(value.get("verification_policy", "")),
+        "reporting_policy": str(value.get("reporting_policy", "")),
+        "steering_delta_contract": _compact_executor_steering_delta_contract(
+            value.get("steering_delta_contract")
+        ),
+        "steering_delta_template": str(value.get("steering_delta_template", "")),
+        "claim_boundary": str(value.get("claim_boundary", "")),
+    }
+
+
+def _compact_executor_steering_delta_contract(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        "schema_version": str(value.get("schema_version", "")),
+        "status": str(value.get("status", "")),
+        "required_fields": _compact_string_list(value.get("required_fields", [])),
+        "action_rule": str(value.get("action_rule", "")),
         "claim_boundary": str(value.get("claim_boundary", "")),
     }
 

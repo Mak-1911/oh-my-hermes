@@ -9865,6 +9865,14 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("Discord or chat summary is not the executor plan", payload["message"])
             self.assertEqual(payload["selected_executor_profile"], "codex")
             self.assertEqual(payload["executor_handoff"]["execution_brief"]["task_source"], "accepted_plan_artifact")
+            self.assertEqual(
+                payload["executor_handoff"]["executor_prompting_contract"]["strategy"],
+                "plan_backed_change",
+            )
+            self.assertEqual(
+                payload["executor_handoff"]["executor_prompting_contract"]["task_source"],
+                "accepted_plan_artifact",
+            )
             self.assertIn("plan_artifact_context_required", payload["executor_handoff"]["dispatch_contract"])
             self.assertEqual(payload["executor_handoff"]["context_pack"]["included_context"][0]["key"], "plan_artifact")
             self.assertEqual(payload["executor_handoff"]["context_pack"]["metadata"]["plan_artifact_path"], str(plan_path.resolve()))
@@ -9882,6 +9890,17 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(record["plan_artifact"]["status"], "accepted")
             self.assertEqual(record["source_metadata"]["plan_artifact_status"], "accepted")
             self.assertEqual(record["executor_handoff"]["execution_brief"]["task_source"], "accepted_plan_artifact")
+            self.assertEqual(
+                record["executor_handoff"]["executor_prompting_contract"]["strategy"],
+                "plan_backed_change",
+            )
+            self.assertEqual(
+                record["executor_handoff"]["executor_prompting_contract"]["task_source"],
+                "accepted_plan_artifact",
+            )
+            record_json = json.dumps(record)
+            self.assertNotIn(payload["message"], record_json)
+            self.assertNotIn("BEGIN ACCEPTED HERMES PLAN", record_json)
 
             status, stdout, stderr = run_cli(base + ["runtime", "show", run_id])
             self.assertEqual(stderr, "")

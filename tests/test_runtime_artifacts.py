@@ -398,6 +398,46 @@ class RuntimeArtifactTests(unittest.TestCase):
             self.assertTrue(coding_delegation["verification"])
             self.assertTrue(validate_runtime(paths, run["run_id"])["ok"])
 
+    def test_write_coding_delegation_preserves_prompting_contract_across_profiles(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            cases = (
+                ("codex", "executor_handoff"),
+                ("claude-code", "prompt_handoff"),
+                ("hermes", "runtime_handoff"),
+                ("omx-runtime", "runtime_handoff"),
+            )
+            message = "Safely refactor src/example.py and add focused tests."
+
+            for executor, handoff_key in cases:
+                with self.subTest(executor=executor):
+                    run = create_run(
+                        paths,
+                        {
+                            "skill": "safe-feature-change",
+                            "harness": "coding-handling",
+                            "status": "started",
+                        },
+                    )
+                    payload = build_coding_delegation_payload(
+                        message,
+                        executor_target=executor,
+                    )
+
+                    record = write_coding_delegation(
+                        paths.runtime_runs_dir / run["run_id"],
+                        coding_delegation_record_payload(payload, message),
+                    )
+
+                    prompting_contract = record[handoff_key]["executor_prompting_contract"]
+                    self.assertEqual(prompting_contract["profile"], executor)
+                    self.assertEqual(prompting_contract["strategy"], "risk_aware_change")
+                    self.assertEqual(prompting_contract["status"], "prepared_not_observed")
+                    self.assertIn(
+                        "{required_action}",
+                        prompting_contract["steering_delta_template"],
+                    )
+
     def test_validate_coding_delegation_rejects_top_level_raw_prompt(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
