@@ -4,12 +4,13 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from _cli_harness import run_cli
 from _local_package import load_local_package
 
 load_local_package()
-from omh.paths import resolve_paths
+from omh.paths import OmhPaths, resolve_paths
 from omh.workflows.domain_intelligence import (
     approve_domain_candidate,
     build_domain_review,
@@ -33,6 +34,16 @@ def _json_files(root: Path, dirname: str) -> list[Path]:
 def _store_snapshot(root: Path) -> dict[str, bytes]:
     store = root / ".omh" / "memory" / "domain-intelligence"
     return {str(path.relative_to(store)): path.read_bytes() for path in sorted(store.rglob("*.json"))}
+
+
+def _capture_project_candidate(paths: OmhPaths, scope_ref: str, phrase: str) -> dict[str, object]:
+    return capture_domain_candidate(
+        paths,
+        scope_kind="project",
+        scope_ref=scope_ref,
+        domain_id="payments",
+        mappings=[(phrase, phrase)],
+    )["candidate"]
 
 
 def _assert_no_raw_prompt_fields(testcase: unittest.TestCase, value: object) -> None:
@@ -108,6 +119,86 @@ class DomainIntelligenceTests(unittest.TestCase):
             self.assertEqual(retired["profile"]["status"], "retired")
             self.assertEqual(list_domain_profiles(paths)["counts"]["profiles"], 0)
             self.assertEqual(len(_json_files(root, "history")), 1)
+
+    def test_retired_profile_can_be_reactivated_by_a_reviewed_candidate(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            first = _capture_project_candidate(paths, "repo-reactivation", "capture")
+            approve_domain_candidate(paths, str(first["candidate_id"]))
+            retire_domain_profile(
+                paths,
+                scope_kind="project",
+                scope_ref="repo-reactivation",
+                domain_id="payments",
+                reason="superseded",
+            )
+            replacement = _capture_project_candidate(paths, "repo-reactivation", "refund")
+
+            reactivated = approve_domain_candidate(paths, str(replacement["candidate_id"]))
+
+            self.assertEqual((reactivated["profile"]["revision"], reactivated["profile"]["status"]), (3, "active"))
+            self.assertEqual(list_domain_profiles(paths)["counts"]["profiles"], 1)
+            status = build_domain_status(paths)
+            self.assertEqual(status["counts"]["active_profiles"], 1)
+            self.assertEqual(status["counts"]["malformed_artifacts"], 0)
+
+    def test_reactivated_profile_rejects_tampered_retired_predecessor(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            first = _capture_project_candidate(paths, "repo-retired-chain", "capture")
+            approve_domain_candidate(paths, str(first["candidate_id"]))
+            retire_domain_profile(
+                paths,
+                scope_kind="project",
+                scope_ref="repo-retired-chain",
+                domain_id="payments",
+                reason="superseded",
+            )
+            replacement = _capture_project_candidate(paths, "repo-retired-chain", "refund")
+            approve_domain_candidate(paths, str(replacement["candidate_id"]))
+            retired_path = _json_files(root, "history")[1]
+            retired = json.loads(retired_path.read_text(encoding="utf-8"))
+            retired["vocabulary_mappings"] = [{"phrase": "forged", "canonical": "forged"}]
+            retired["payload_digest"] = canonical_profile_digest(retired)
+            retired_path.write_text(json.dumps(retired), encoding="utf-8")
+            review_path = next(
+                path for path in _json_files(root, "reviews") if path.stem.endswith("_r2")
+            )
+            review = json.loads(review_path.read_text(encoding="utf-8"))
+            review["payload_digest"] = retired["payload_digest"]
+            review_path.write_text(json.dumps(review), encoding="utf-8")
+
+            self.assertEqual(list_domain_profiles(paths)["profiles"], [])
+            self.assertEqual(build_domain_status(paths)["counts"]["active_profiles"], 0)
+
+    def test_profile_queries_read_each_artifact_at_most_once(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            for revision in range(1, 9):
+                candidate = _capture_project_candidate(
+                    paths, "repo-query-complexity", f"term{revision}"
+                )
+                approve_domain_candidate(paths, str(candidate["candidate_id"]))
+            artifact_count = len(_store_snapshot(root))
+            from omh.workflows import domain_intelligence_store as store
+            from omh.workflows import domain_intelligence_store_resolution as resolution
+
+            for query in (list_domain_profiles, build_domain_status):
+                with self.subTest(query=query.__name__), patch.object(
+                    resolution,
+                    "read_bounded_json",
+                    wraps=resolution.read_bounded_json,
+                ) as bounded_read, patch.object(
+                    store,
+                    "read_history_artifacts",
+                    wraps=store.read_history_artifacts,
+                ) as history_read:
+                    query(paths)
+                self.assertEqual(history_read.call_count, 1)
+                self.assertLessEqual(bounded_read.call_count, artifact_count)
 
     def test_validation_blocks_bad_inputs_before_writing(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from ..paths import OmhPaths
-from .domain_intelligence_store import read_candidate_or_raise, read_history_profiles
+from .domain_intelligence_store import read_candidates, read_history_profiles, read_reviews
 
 
 _CONTENT_FIELDS = (
@@ -25,23 +27,60 @@ _RETIRED_INHERITED_FIELDS = _CONTENT_FIELDS + (
 _CHAIN_IDENTITY_FIELDS = ("profile_id", "scope", "domain_id")
 
 
-def validate_profile_candidate_lineage(
+@dataclass
+class ProfileValidationContext:
+    history: dict[tuple[str, int], dict[str, object]]
+    candidates: dict[str, dict[str, object]]
+    reviews: dict[str, dict[str, object]]
+    validated: dict[tuple[str, int], dict[str, object]] = field(default_factory=dict)
+    validating: set[tuple[str, int]] = field(default_factory=set)
+
+
+def build_profile_validation_context(
     paths: OmhPaths,
+    *,
+    history: list[tuple[dict[str, object], Path]] | None = None,
+    candidates: list[tuple[dict[str, object], Path]] | None = None,
+    reviews: list[tuple[dict[str, object], Path]] | None = None,
+) -> ProfileValidationContext:
+    history = read_history_profiles(paths, []) if history is None else history
+    candidates = read_candidates(paths, []) if candidates is None else candidates
+    reviews = read_reviews(paths, []) if reviews is None else reviews
+    return ProfileValidationContext(
+        history={
+            (str(item.get("profile_id")), int(item.get("revision", 0))): item
+            for item, _path in history
+        },
+        candidates={str(item.get("candidate_id")): item for item, _path in candidates},
+        reviews={str(item.get("review_id")): item for item, _path in reviews},
+    )
+
+
+def validate_profile_candidate_lineage(
     profile: dict[str, object],
     review: dict[str, object],
     *,
+    context: ProfileValidationContext,
     validate_candidate: Callable[[dict[str, object]], None],
-    validate_profile: Callable[[OmhPaths, dict[str, object]], None],
+    validate_profile: Callable[[dict[str, object]], None],
 ) -> None:
-    approved = _validated_active_predecessor(paths, profile, validate_profile)
-    if profile.get("status") == "active":
-        candidate = _read_approved_candidate(paths, profile, validate_candidate)
+    status = profile.get("status")
+    allowed_predecessors = {"active", "retired"} if status == "active" else {"active"}
+    predecessor = _validated_predecessor(
+        profile,
+        context,
+        validate_profile,
+        allowed_statuses=allowed_predecessors,
+    )
+    if status == "active":
+        candidate = _read_approved_candidate(profile, context, validate_candidate)
         _validate_active_lineage(profile, review, candidate)
         return
-    if approved is None:
+    if predecessor is None:
         raise ValueError("approved_candidate_lineage_required")
     if any(
-        profile.get(field) != approved.get(field) for field in _RETIRED_INHERITED_FIELDS
+        profile.get(field) != predecessor.get(field)
+        for field in _RETIRED_INHERITED_FIELDS
     ):
         raise ValueError("approved_candidate_lineage_required")
     if review.get("candidate_id") != "" or review.get("reviewed_at") != profile.get(
@@ -50,10 +89,12 @@ def validate_profile_candidate_lineage(
         raise ValueError("approved_candidate_lineage_required")
 
 
-def _validated_active_predecessor(
-    paths: OmhPaths,
+def _validated_predecessor(
     profile: dict[str, object],
-    validate_profile: Callable[[OmhPaths, dict[str, object]], None],
+    context: ProfileValidationContext,
+    validate_profile: Callable[[dict[str, object]], None],
+    *,
+    allowed_statuses: set[str],
 ) -> dict[str, object] | None:
     revision = profile.get("revision")
     base_revision = profile.get("base_profile_revision")
@@ -65,39 +106,32 @@ def _validated_active_predecessor(
         raise ValueError("approved_candidate_lineage_required")
     if revision == 1:
         return None
-    history = read_history_profiles(paths, [])
-    approved = next(
-        (
-            item
-            for item, _path in history
-            if item.get("profile_id") == profile.get("profile_id")
-            and item.get("revision") == base_revision
-            and item.get("status") == "active"
-        ),
-        None,
+    predecessor = context.history.get(
+        (str(profile.get("profile_id")), int(base_revision))
     )
-    if approved is None or any(
-        approved.get(field) != profile.get(field) for field in _CHAIN_IDENTITY_FIELDS
+    if predecessor is None or predecessor.get("status") not in allowed_statuses or any(
+        predecessor.get(field) != profile.get(field)
+        for field in _CHAIN_IDENTITY_FIELDS
     ):
         raise ValueError("approved_candidate_lineage_required")
-    if approved.get("base_profile_revision") != base_revision - 1:
+    if predecessor.get("base_profile_revision") != base_revision - 1:
         raise ValueError("approved_candidate_lineage_required")
     try:
-        validate_profile(paths, approved)
+        validate_profile(predecessor)
     except (OSError, TypeError, ValueError) as exc:
         raise ValueError("approved_candidate_lineage_required") from exc
-    return approved
+    return predecessor
 
 
 def _read_approved_candidate(
-    paths: OmhPaths,
     profile: dict[str, object],
+    context: ProfileValidationContext,
     validate_candidate: Callable[[dict[str, object]], None],
 ) -> dict[str, object]:
     try:
-        candidate = read_candidate_or_raise(paths, profile["candidate_id"])
+        candidate = context.candidates[str(profile["candidate_id"])]
         validate_candidate(candidate)
-    except (OSError, TypeError, ValueError) as exc:
+    except (KeyError, OSError, TypeError, ValueError) as exc:
         raise ValueError("approved_candidate_lineage_required") from exc
     if candidate.get("status") != "approved":
         raise ValueError("approved_candidate_lineage_required")

@@ -19,10 +19,11 @@ from .domain_intelligence_store import (
     read_reviews,
     store_lock_target,
 )
+from .domain_intelligence_review_validation import validate_review_artifact_for_status
 from .domain_intelligence_validation import (
+    build_profile_validation_context,
     validate_candidate_artifact,
     validate_profile_artifact,
-    validate_review_artifact_for_status,
 )
 
 
@@ -63,9 +64,10 @@ def list_domain_profiles(
     domain_filter = normalize_identifier(domain_id, "domain_id") if domain_id else None
     diagnostics: list[dict[str, str]] = []
     profiles: list[dict[str, object]] = []
+    context = build_profile_validation_context(paths)
     for profile, path in read_profiles(paths, diagnostics):
         try:
-            validate_profile_artifact(paths, profile)
+            validate_profile_artifact(paths, profile, context=context)
         except ValueError as exc:
             diagnostics.append(diagnostic(path, str(exc)))
             continue
@@ -92,12 +94,18 @@ def build_domain_status(paths: OmhPaths) -> dict[str, object]:
     profiles = read_profiles(paths, diagnostics)
     reviews = read_reviews(paths, diagnostics)
     history = read_history_profiles(paths, diagnostics)
+    context = build_profile_validation_context(
+        paths,
+        history=history,
+        candidates=candidates,
+        reviews=reviews,
+    )
     active = 0
     retired = 0
     valid_profiles: list[dict[str, object]] = []
     for profile, path in profiles:
         try:
-            validate_profile_artifact(paths, profile)
+            validate_profile_artifact(paths, profile, context=context)
         except ValueError as exc:
             diagnostics.append(diagnostic(path, str(exc)))
             continue
@@ -108,7 +116,7 @@ def build_domain_status(paths: OmhPaths) -> dict[str, object]:
             retired += 1
     for profile, path in history:
         try:
-            validate_profile_artifact(paths, profile)
+            validate_profile_artifact(paths, profile, context=context)
         except ValueError as exc:
             diagnostics.append(diagnostic(path, str(exc)))
             continue
@@ -124,10 +132,21 @@ def build_domain_status(paths: OmhPaths) -> dict[str, object]:
     pending = sum(1 for candidate in valid_candidates if candidate.get("status") == "pending_review")
     rejected = sum(1 for candidate in valid_candidates if candidate.get("status") == "rejected")
     approved = sum(1 for candidate in valid_candidates if candidate.get("status") == "approved")
+    candidate_index = {
+        str(candidate["candidate_id"]): candidate for candidate in valid_candidates
+    }
+    profile_index = {
+        (str(profile["profile_id"]), int(profile["revision"])): profile
+        for profile in valid_profiles
+    }
     valid_reviews = 0
     for review, path in reviews:
         try:
-            validate_review_artifact_for_status(review, candidates=valid_candidates, profiles=valid_profiles)
+            validate_review_artifact_for_status(
+                review,
+                candidates=candidate_index,
+                profiles=profile_index,
+            )
         except ValueError as exc:
             diagnostics.append(diagnostic(path, str(exc)))
             continue
