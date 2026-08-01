@@ -22,6 +22,12 @@ from .catalog import (
     surface_exposure_for_skill,
     workflow_reference_definitions,
 )
+from .expert_question_rendering import (
+    copy_expert_question_payloads,
+    expert_question_payloads,
+    expert_question_reference_lines,
+    expert_questions_markdown,
+)
 from ..catalogs.awesome_hermes_agent import awesome_hermes_catalog
 from ..plugin_bundle.omh.awareness import (
     awareness_shared_context_markdown,
@@ -379,6 +385,10 @@ def _quality_rubric_sections(definition: SkillDefinition) -> str:
 
 
 def _skill_metadata_block(definition: SkillDefinition) -> str:
+    required_inputs = _tuple_list(definition.required_inputs)
+    expert_questions = expert_questions_markdown(definition)
+    if expert_questions:
+        required_inputs = f"{required_inputs}\n\n{expert_questions}"
     return f"""Category: `{definition.category}`
 Phase: `{definition.phase}`
 Hermes role: `{definition.hermes_role}`
@@ -395,7 +405,7 @@ Handoff policy:
 
 Required inputs:
 
-{_tuple_list(definition.required_inputs)}
+{required_inputs}
 
 Expected outputs:
 
@@ -1430,6 +1440,7 @@ def _workflow_reference_markdown_cached() -> str:
                 *[f"  - {item}" for item in definition.recovery_notes],
                 "- Required inputs:",
                 *[f"  - {item}" for item in definition.required_inputs],
+                *expert_question_reference_lines(definition),
                 "- Expected outputs:",
                 *[f"  - {item}" for item in definition.expected_outputs],
                 "- Artifact expectations:",
@@ -1519,6 +1530,7 @@ def _copy_skill_payload(payload: dict[str, object]) -> dict[str, object]:
         copied[key] = list(payload[key])
     copied["good_example"] = dict(payload["good_example"])
     copied["bad_example"] = dict(payload["bad_example"])
+    copied["expert_questions"] = copy_expert_question_payloads(payload["expert_questions"])
     return copied
 
 
@@ -1576,6 +1588,7 @@ def _skill_payload(definition: SkillDefinition) -> dict[str, object]:
         "final_checklist": list(definition.final_checklist),
         "recovery_notes": list(definition.recovery_notes),
         "required_inputs": list(definition.required_inputs),
+        "expert_questions": expert_question_payloads(definition),
         "expected_outputs": list(definition.expected_outputs),
         "artifact_expectations": list(definition.artifact_expectations),
         "safety_rules": list(definition.safety_rules),

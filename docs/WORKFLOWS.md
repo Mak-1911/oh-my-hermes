@@ -1169,6 +1169,10 @@ These surfaces are generated command references, not installed Hermes workflow s
   - supplied finance source
   - decision question
   - calculation assumptions
+- Expert clarification questions:
+  - `period`
+    - English: Which reporting period should this finance analysis cover?
+    - Korean: 이 재무 분석은 어느 기간을 대상으로 해야 하나요?
 - Expected outputs:
   - period and source-boundary statement
   - actual-versus-plan and variance narrative with calculation/assumption gaps
@@ -1226,6 +1230,10 @@ These surfaces are generated command references, not installed Hermes workflow s
   - available evidence
   - decision owner
   - policy constraints
+- Expert clarification questions:
+  - `role or people-process outcome`
+    - English: What role or people-process outcome should this work achieve?
+    - Korean: 이 작업에서 어떤 역할 또는 인사 프로세스 결과를 달성해야 하나요?
 - Expected outputs:
   - role/outcome and must-have versus trainable-criteria brief
   - structured interview scorecard and evidence-based debrief template
@@ -1283,6 +1291,10 @@ These surfaces are generated command references, not installed Hermes workflow s
   - document or process version
   - supplied authority
   - review objective
+- Expert clarification questions:
+  - `jurisdiction`
+    - English: Which jurisdiction should this legal or compliance review apply to?
+    - Korean: 이 법률 또는 컴플라이언스 검토는 어느 관할권을 기준으로 해야 하나요?
 - Expected outputs:
   - jurisdiction, document/version, authority, and evidence-boundary statement
   - clause/control/requirement matrix with issue, rationale, owner, and open question
@@ -1340,6 +1352,10 @@ These surfaces are generated command references, not installed Hermes workflow s
   - known facts
   - customer impact
   - available ownership or escalation path
+- Expert clarification questions:
+  - `support case`
+    - English: Which support case should we examine first?
+    - Korean: 어떤 지원 사례를 먼저 살펴봐야 하나요?
 - Expected outputs:
   - customer-safe reply draft with stated facts, unknowns, and tone
   - issue/severity/impact/escalation matrix
@@ -1397,6 +1413,10 @@ These surfaces are generated command references, not installed Hermes workflow s
   - learning goal
   - prerequisites
   - constraints
+- Expert clarification questions:
+  - `learners`
+    - English: Who are the learners this curriculum should serve?
+    - Korean: 이 커리큘럼의 대상 학습자는 누구인가요?
 - Expected outputs:
   - learner/audience, prerequisite, outcome, and constraint brief
   - scope-and-sequence with modules/lessons and activity rationale
@@ -1454,6 +1474,10 @@ These surfaces are generated command references, not installed Hermes workflow s
   - audience
   - source version
   - product or content context
+- Expert clarification questions:
+  - `locale`
+    - English: Which target locale should this localization review cover?
+    - Korean: 이 현지화 검토의 대상 로캘은 무엇인가요?
 - Expected outputs:
   - locale/audience/context and source-version brief
   - approved-term glossary and transcreation/localization choices
@@ -1511,6 +1535,10 @@ These surfaces are generated command references, not installed Hermes workflow s
   - available evidence
   - buyer hypothesis
   - sales objective
+- Expert clarification questions:
+  - `account or segment`
+    - English: Which account or customer segment should this sales work focus on?
+    - Korean: 이 영업 작업은 어떤 계정 또는 고객 세그먼트에 집중해야 하나요?
 - Expected outputs:
   - account/segment, buyer, problem, and evidence-gap brief
   - discovery-question and qualification framework
@@ -1568,6 +1596,10 @@ These surfaces are generated command references, not installed Hermes workflow s
   - problem and user
   - goal and non-goals
   - decision owner
+- Expert clarification questions:
+  - `product evidence`
+    - English: What product evidence should anchor this brief?
+    - Korean: 이 브리프의 근거가 될 제품 증거는 무엇인가요?
 - Expected outputs:
   - problem, user, evidence, metric, goal, and non-goal brief
   - PRD with requirements, open questions, risks, dependencies, and acceptance shape

@@ -86,6 +86,11 @@ Required inputs:
 - decision question
 - calculation assumptions
 
+Expert clarification questions:
+- `period`
+  - English: Which reporting period should this finance analysis cover?
+  - Korean: 이 재무 분석은 어느 기간을 대상으로 해야 하나요?
+
 Expected outputs:
 
 - period and source-boundary statement

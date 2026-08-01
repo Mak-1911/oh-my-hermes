@@ -86,6 +86,11 @@ Required inputs:
 - prerequisites
 - constraints
 
+Expert clarification questions:
+- `learners`
+  - English: Who are the learners this curriculum should serve?
+  - Korean: 이 커리큘럼의 대상 학습자는 누구인가요?
+
 Expected outputs:
 
 - learner/audience, prerequisite, outcome, and constraint brief

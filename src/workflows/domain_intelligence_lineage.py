@@ -69,6 +69,26 @@ def validate_profile_candidate_lineage(
         candidate = _read_approved_candidate(profile, context, validate_candidate)
         _validate_active_lineage(profile, review, candidate)
         return
+    _validate_retired_lineage(profile, review, predecessor)
+
+
+def validate_profile_review_lineage(
+    profile: dict[str, object],
+    review: dict[str, object],
+    *,
+    predecessor: dict[str, object] | None,
+) -> None:
+    if profile.get("status") == "active":
+        _validate_active_review_lineage(profile, review)
+        return
+    _validate_retired_lineage(profile, review, predecessor)
+
+
+def _validate_retired_lineage(
+    profile: dict[str, object],
+    review: dict[str, object],
+    predecessor: dict[str, object] | None,
+) -> None:
     if predecessor is None:
         raise ValueError("approved_candidate_lineage_required")
     if any(
@@ -154,4 +174,16 @@ def _validate_active_lineage(
     ) != candidate.get("reviewed_by"):
         raise ValueError("approved_candidate_lineage_required")
     if profile.get("approved_at") != review.get("reviewed_at"):
+        raise ValueError("approved_candidate_lineage_required")
+
+
+def _validate_active_review_lineage(
+    profile: dict[str, object], review: dict[str, object]
+) -> None:
+    if (
+        review.get("decision") != "approved"
+        or review.get("candidate_id") != profile.get("candidate_id")
+        or review.get("reviewer_claim") != profile.get("approved_by")
+        or review.get("reviewed_at") != profile.get("approved_at")
+    ):
         raise ValueError("approved_candidate_lineage_required")

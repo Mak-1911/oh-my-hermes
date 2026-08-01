@@ -46,12 +46,19 @@ from ..surfaces.evidence_copy import not_evidence_action_suffix, not_evidence_re
 from ..visual_summary import image_generation_setup_fallback
 from ..workflows.goal_ledger import goal_message_states_acceptance_criteria
 from ..workflows.goal_quality_coaching import is_goal_classified_message
+from ..workflows.domain_routing_context import resolve_domain_routing_context_result
 from ..workflows.web_visual_qa_projection import build_prepared_web_visual_qa_chat_state
 from .hermes_runtime import (
     hermes_coding_team_body,
     hermes_coding_team_claim_boundary,
     hermes_coding_team_extra_action_specs,
 )
+from .domain_context_attachment import (
+    HostProjectBindingFactory,
+    rendered_domain_context_fragment,
+    resolve_attached_domain_context,
+)
+from ..skills.expert_question_rendering import domain_expert_question_body
 from .localized_copy import (
     chat_copy,
     consolidation_notice_line,
@@ -3184,6 +3191,7 @@ def build_chat_interaction_payload(
     target_notice: dict[str, object] | None = None,
     paths: OmhPaths | None = None,
     skill_policy: dict[str, object] | None = None,
+    _host_project_binding_factory: HostProjectBindingFactory | None = None,
 ) -> dict[str, object]:
     if source not in CHAT_SOURCES:
         raise ValueError(f"unsupported chat interaction source: {source}")
@@ -3200,6 +3208,7 @@ def build_chat_interaction_payload(
         target_notice=target_notice,
         paths=paths,
         skill_policy=skill_policy,
+        host_project_binding_factory=_host_project_binding_factory,
     ):
         return _copy_chat_interaction_payload(
             _build_chat_interaction_payload_cached(
@@ -3224,6 +3233,7 @@ def build_chat_interaction_payload(
         target_notice=target_notice,
         paths=paths,
         skill_policy=skill_policy,
+        host_project_binding_factory=_host_project_binding_factory,
     )
     # Attached at the one point every chat surface passes through -- the plugin
     # tool's session and no-session paths both land here -- so Slack, Telegram,
@@ -3243,6 +3253,7 @@ def _can_use_chat_interaction_cache(
     target_notice: dict[str, object] | None,
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
+    host_project_binding_factory: HostProjectBindingFactory | None,
 ) -> bool:
     return (
         isinstance(event_or_message, str)
@@ -3251,6 +3262,7 @@ def _can_use_chat_interaction_cache(
         and target_notice is None
         and paths is None
         and skill_policy is None
+        and host_project_binding_factory is None
     )
 
 
@@ -3699,6 +3711,7 @@ def _build_chat_interaction_payload_cached(
         target_notice=None,
         paths=None,
         skill_policy=None,
+        host_project_binding_factory=None,
     )
 
 
@@ -3715,6 +3728,7 @@ def _build_chat_interaction_payload_uncached(
     target_notice: dict[str, object] | None,
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
+    host_project_binding_factory: HostProjectBindingFactory | None,
 ) -> dict[str, object]:
     message = extract_message_text(event_or_message)
     metadata = _source_metadata(event_or_message, source_metadata)
@@ -3726,12 +3740,20 @@ def _build_chat_interaction_payload_uncached(
         include_message=include_message,
         skill_policy=skill_policy,
     )
+    resolved_mode = _resolve_mode(mode, route_payload, message=message)
+    domain_context = None
+    if resolved_mode == "clarify":
+        domain_context = resolve_attached_domain_context(
+            route_payload,
+            message,
+            host_project_binding_factory=host_project_binding_factory,
+            resolver=resolve_domain_routing_context_result,
+        )
     orchestration_guidance = build_omh_orchestration_guidance(
         route_payload,
         source_metadata=metadata,
         paths=paths,
     )
-    resolved_mode = _resolve_mode(mode, route_payload, message=message)
     base = _base_interaction(message, source=source, source_metadata=metadata, mode=resolved_mode, include_message=include_message)
     is_catalog_question = _is_generic_skill_catalog_route(message, route_payload)
     if is_catalog_question and _route_recommendation_next_action(route_payload) != "show_command_preview":
@@ -3844,17 +3866,30 @@ def _build_chat_interaction_payload_uncached(
         return _finish_interaction(base, target_notice)
 
     if resolved_mode == "clarify" or route_payload["action"] != "dispatch":
+        applied_domain_context: dict[str, object] | None = None
+        if isinstance(domain_context, dict):
+            attached_context = domain_context.get("domain_routing_context")
+            if isinstance(attached_context, dict):
+                applied_domain_context = attached_context
         base["chat_response"] = build_chat_response_from_route(
             route_payload,
             thread_key=str(base["thread_key"]),
             message=message,
             include_message=include_message,
+            domain_routing_context=applied_domain_context,
         )
         agentic_playbook = maybe_build_agentic_playbook(message, route_payload=route_payload)
         if agentic_playbook:
             base["agentic_playbook"] = agentic_playbook
         base["next_action"] = str(_nested(base["chat_response"], "state").get("next_action", "answer_clarification"))
-        return _finish_interaction(base, target_notice)
+        finished = _finish_interaction(base, target_notice)
+        rendered_context = rendered_domain_context_fragment(
+            domain_context,
+            _nested(finished, "chat_response"),
+        )
+        if rendered_context is not None:
+            finished.update(rendered_context)
+        return finished
 
     if resolved_mode == "route":
         route_response = build_chat_response_from_route(
@@ -4397,6 +4432,7 @@ def build_chat_response_from_route(
     thread_key: str = "",
     message: str = "",
     include_message: bool = False,
+    domain_routing_context: dict[str, object] | None = None,
 ) -> dict[str, object]:
     action = str(decision.get("action", "fallback"))
     copy_locale = detect_copy_locale(message)
@@ -5182,7 +5218,9 @@ def build_chat_response_from_route(
         )
     if action == "clarify":
         copy = chat_copy("clarify", locale=copy_locale)
-        body = copy.body if localized_copy else str(decision.get("clarification") or copy.body)
+        body = domain_expert_question_body(domain_routing_context)
+        if body is None:
+            body = copy.body if localized_copy else str(decision.get("clarification") or copy.body)
         return _chat_response(
             kind="clarification",
             headline=copy.headline,
@@ -5239,10 +5277,11 @@ def build_chat_response_from_route(
             },
         )
     copy = chat_copy("generic_clarify", locale=copy_locale)
+    body = domain_expert_question_body(domain_routing_context) or copy.body
     return _chat_response(
         kind="clarification",
         headline=copy.headline,
-        body=copy.body,
+        body=body,
         phase="clarifying",
         next_action="answer_clarification",
         thread_key=thread_key,

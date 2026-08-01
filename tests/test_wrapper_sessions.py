@@ -48,6 +48,71 @@ from omh.wrapper_sessions import (
 )
 
 
+class DomainContextSessionBindingTests(unittest.TestCase):
+    def test_each_turn_uses_a_fresh_host_binding_without_cross_project_reuse(self) -> None:
+        from omh.workflows.domain_project_context import bind_plugin_project
+        from domain_project_context_helpers import domain_store as _domain_store
+        from test_domain_routing_context import _approve_profile, _repository
+
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            first_root = _repository(base / "first" / "same-name")
+            second_root = _repository(base / "second" / "same-name")
+            _approve_profile(first_root, domain_id="sales", phrase="feels off")
+            _domain_store(second_root)
+            first_paths = resolve_paths(first_root / ".omh", first_root / ".hermes")
+            second_paths = resolve_paths(second_root / ".omh", second_root / ".hermes")
+
+            first = create_or_resume_wrapper_session(
+                first_paths,
+                "something feels off",
+                source="discord",
+                source_metadata={"source_event_id": "m1", "channel_ref": "c1"},
+                _host_project_binding_factory=lambda: bind_plugin_project(
+                    {"project_root": str(first_root)}
+                ),
+            )
+            second = create_or_resume_wrapper_session(
+                second_paths,
+                "something feels off",
+                source="discord",
+                source_metadata={"source_event_id": "m1", "channel_ref": "c1"},
+                _host_project_binding_factory=lambda: bind_plugin_project(
+                    {"project_root": str(second_root)}
+                ),
+            )
+
+            self.assertIn("domain_routing_context", first["interaction"])
+            self.assertNotIn("domain_routing_context", second["interaction"])
+            self.assertEqual(
+                set(first["interaction"]["domain_routing_context"]),
+                {
+                    "schema_version",
+                    "workflow_hint",
+                    "required_input",
+                    "question",
+                    "digest",
+                    "claim_boundary",
+                },
+            )
+            self.assertEqual(
+                json.dumps(first["interaction"]["route"], sort_keys=True, separators=(",", ":")),
+                json.dumps(second["interaction"]["route"], sort_keys=True, separators=(",", ":")),
+            )
+            self.assertEqual(
+                json.dumps(
+                    first["interaction"]["route"].get("candidate_handoff"),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                json.dumps(
+                    second["interaction"]["route"].get("candidate_handoff"),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            )
+
+
 class WrapperSessionTests(unittest.TestCase):
     def test_session_delegate_mode_uses_setup_default_codex_executor_when_available(self) -> None:
         with TemporaryDirectory() as tmp:

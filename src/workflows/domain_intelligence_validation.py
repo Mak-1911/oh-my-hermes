@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from ..paths import OmhPaths
 from .domain_intelligence_contracts import (
     DEFAULT_REVIEW_REASON_CODE,
     SAFE_CANDIDATE_ID,
-    SAFE_PROFILE_ID,
     canonical_profile_digest,
     ensure_no_forbidden_keys,
     normalize_base_profile_revision,
-    normalize_confidence_from_value,
     normalize_identifier,
     normalize_mappings_from_value,
-    normalize_provenance_from_value,
     normalize_scope_from_value,
     normalize_workflow_hints,
     stable_profile_id,
@@ -23,6 +18,7 @@ from .domain_intelligence_lineage import (
     build_profile_validation_context,
     profile_predecessor,
     validate_profile_candidate_lineage,
+    validate_profile_review_lineage,
 )
 from .domain_intelligence_review_validation import (
     canonical_reason_code,
@@ -30,8 +26,15 @@ from .domain_intelligence_review_validation import (
     matching_profile_review,
     validate_review_artifact_for_status as validate_review_artifact_for_status,
 )
-from .domain_intelligence_schema import validate_candidate_contract, validate_profile_contract
+from .domain_intelligence_schema import validate_candidate_contract
 from .domain_intelligence_store import read_profile
+from .domain_intelligence_validation_state import (
+    ProfileValidationFrame as _ProfileFrame,
+    canonical_confidence as _canonical_confidence,
+    canonical_provenance as _canonical_provenance,
+    profile_key as _profile_key,
+    validate_profile_identity as _validate_profile_identity,
+)
 
 
 def ensure_candidate_pending(candidate: dict[str, object]) -> None:
@@ -83,6 +86,21 @@ def validate_profile_artifact(
     *,
     context: ProfileValidationContext | None = None,
 ) -> None:
+    _validate_profile_artifact(
+        paths,
+        profile,
+        context=context,
+        require_candidate_record=True,
+    )
+
+
+def _validate_profile_artifact(
+    paths: OmhPaths,
+    profile: dict[str, object],
+    *,
+    context: ProfileValidationContext | None,
+    require_candidate_record: bool,
+) -> None:
     context = context or build_profile_validation_context(paths)
     stack = [_ProfileFrame(profile=profile, is_root=True)]
     added_keys: set[tuple[str, int]] = set()
@@ -91,13 +109,20 @@ def validate_profile_artifact(
             frame = stack.pop()
             try:
                 if frame.complete:
-                    validate_profile_candidate_lineage(
-                        frame.profile,
-                        frame.review or {},
-                        context=context,
-                        validate_candidate=validate_candidate_artifact,
-                        predecessor=frame.predecessor,
-                    )
+                    if require_candidate_record:
+                        validate_profile_candidate_lineage(
+                            frame.profile,
+                            frame.review or {},
+                            context=context,
+                            validate_candidate=validate_candidate_artifact,
+                            predecessor=frame.predecessor,
+                        )
+                    else:
+                        validate_profile_review_lineage(
+                            frame.profile,
+                            frame.review or {},
+                            predecessor=frame.predecessor,
+                        )
                     profile_key = _profile_key(frame.profile)
                     context.validating.remove(profile_key)
                     added_keys.remove(profile_key)
@@ -134,33 +159,19 @@ def validate_profile_artifact(
         context.validating.difference_update(added_keys)
 
 
-@dataclass
-class _ProfileFrame:
-    profile: dict[str, object]
-    is_root: bool
-    complete: bool = False
-    review: dict[str, object] | None = None
-    predecessor: dict[str, object] | None = None
-
-
-def _validate_profile_identity(
+def validate_profile_artifact_for_resolution(
+    paths: OmhPaths,
     profile: dict[str, object],
-) -> tuple[str, tuple[str, int]]:
-    ensure_no_forbidden_keys(profile)
-    status = validate_profile_contract(profile)
-    revision = profile.get("revision")
-    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
-        raise ValueError("invalid_revision")
-    scope = normalize_scope_from_value(profile.get("scope"))
-    domain_id = normalize_identifier(profile.get("domain_id"), "domain_id")
-    if profile.get("domain_id") != domain_id:
-        raise ValueError("profile_domain_id_not_canonical")
-    profile_id = profile.get("profile_id")
-    if not isinstance(profile_id, str) or not SAFE_PROFILE_ID.fullmatch(profile_id):
-        raise ValueError("unsafe_profile_id")
-    if profile_id != stable_profile_id(scope, domain_id):
-        raise ValueError("profile_identity_mismatch")
-    return status, (profile_id, revision)
+    *,
+    context: ProfileValidationContext,
+) -> None:
+    """Validate reviewed profile lineage without consulting candidate storage."""
+    _validate_profile_artifact(
+        paths,
+        profile,
+        context=context,
+        require_candidate_record=False,
+    )
 
 
 def _validate_profile_content(
@@ -212,10 +223,6 @@ def _validate_profile_content(
     return review
 
 
-def _profile_key(profile: dict[str, object]) -> tuple[str, int]:
-    return str(profile["profile_id"]), int(profile["revision"])
-
-
 def current_profile_for_authority(paths: OmhPaths, profile_id: str) -> dict[str, object] | None:
     profile = read_profile(paths, profile_id)
     if profile:
@@ -226,17 +233,3 @@ def current_profile_for_authority(paths: OmhPaths, profile_id: str) -> dict[str,
 def current_profile_revision(paths: OmhPaths, profile_id: str) -> int:
     profile = current_profile_for_authority(paths, profile_id)
     return int(profile["revision"]) if profile else 0
-
-
-def _canonical_confidence(value: object) -> dict[str, object]:
-    normalized = normalize_confidence_from_value(value)
-    if value != normalized:
-        raise ValueError("confidence_not_canonical")
-    return normalized
-
-
-def _canonical_provenance(value: object) -> dict[str, object]:
-    normalized = normalize_provenance_from_value(value)
-    if value != normalized:
-        raise ValueError("provenance_not_canonical")
-    return normalized

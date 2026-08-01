@@ -31,6 +31,7 @@ from ..source_finder import (
 
 from .catalog_types import (
     DEEP_INTERVIEW_MAX_ROUNDS,
+    ExpertQuestion,
     SkillDefinition,
     SkillExample,
     _HERMES_SETUP_FIVE_STEP_BAR,
@@ -1275,6 +1276,13 @@ _DEFINITIONS = [
             + " Calculations are only as authoritative as supplied or observed sources and methods; no ERP, bank, ledger, tax, payment, or filing action is implied."
         ),
         required_inputs=("period", "supplied finance source", "decision question", "calculation assumptions"),
+        expert_questions=(
+            ExpertQuestion(
+                required_input="period",
+                en="Which reporting period should this finance analysis cover?",
+                ko="이 재무 분석은 어느 기간을 대상으로 해야 하나요?",
+            ),
+        ),
         expected_outputs=(
             "period and source-boundary statement",
             "actual-versus-plan and variance narrative with calculation/assumption gaps",
@@ -1323,6 +1331,13 @@ _DEFINITIONS = [
             + " Hermes can prepare fair process guidance and interview artifacts; it cannot claim a candidate was contacted, evaluated, hired, rejected, or recorded in an HR system."
         ),
         required_inputs=("role or people-process outcome", "available evidence", "decision owner", "policy constraints"),
+        expert_questions=(
+            ExpertQuestion(
+                required_input="role or people-process outcome",
+                en="What role or people-process outcome should this work achieve?",
+                ko="이 작업에서 어떤 역할 또는 인사 프로세스 결과를 달성해야 하나요?",
+            ),
+        ),
         expected_outputs=(
             "role/outcome and must-have versus trainable-criteria brief",
             "structured interview scorecard and evidence-based debrief template",
@@ -1371,6 +1386,13 @@ _DEFINITIONS = [
             + " The result is a prepared review and escalation aid, not legal advice, counsel sign-off, compliance certification, contract execution, filing, or regulator communication."
         ),
         required_inputs=("jurisdiction", "document or process version", "supplied authority", "review objective"),
+        expert_questions=(
+            ExpertQuestion(
+                required_input="jurisdiction",
+                en="Which jurisdiction should this legal or compliance review apply to?",
+                ko="이 법률 또는 컴플라이언스 검토는 어느 관할권을 기준으로 해야 하나요?",
+            ),
+        ),
         expected_outputs=(
             "jurisdiction, document/version, authority, and evidence-boundary statement",
             "clause/control/requirement matrix with issue, rationale, owner, and open question",
@@ -1419,6 +1441,13 @@ _DEFINITIONS = [
             + " Reply text is a draft, escalation is a recommendation, and no ticket state, message send, refund, account action, or customer outcome is claimed."
         ),
         required_inputs=("support case", "known facts", "customer impact", "available ownership or escalation path"),
+        expert_questions=(
+            ExpertQuestion(
+                required_input="support case",
+                en="Which support case should we examine first?",
+                ko="어떤 지원 사례를 먼저 살펴봐야 하나요?",
+            ),
+        ),
         expected_outputs=(
             "customer-safe reply draft with stated facts, unknowns, and tone",
             "issue/severity/impact/escalation matrix",
@@ -1467,6 +1496,13 @@ _DEFINITIONS = [
             + " Hermes designs an instructional plan; it does not create an LMS course, enroll learners, grade submissions, certify learning, publish materials, or claim learning outcomes occurred."
         ),
         required_inputs=("learners", "learning goal", "prerequisites", "constraints"),
+        expert_questions=(
+            ExpertQuestion(
+                required_input="learners",
+                en="Who are the learners this curriculum should serve?",
+                ko="이 커리큘럼의 대상 학습자는 누구인가요?",
+            ),
+        ),
         expected_outputs=(
             "learner/audience, prerequisite, outcome, and constraint brief",
             "scope-and-sequence with modules/lessons and activity rationale",
@@ -1515,6 +1551,13 @@ _DEFINITIONS = [
             + " Hermes may draft and review language guidance; it does not alter locale files, upload strings, publish translations, validate a rendered build, or claim market approval."
         ),
         required_inputs=("locale", "audience", "source version", "product or content context"),
+        expert_questions=(
+            ExpertQuestion(
+                required_input="locale",
+                en="Which target locale should this localization review cover?",
+                ko="이 현지화 검토의 대상 로캘은 무엇인가요?",
+            ),
+        ),
         expected_outputs=(
             "locale/audience/context and source-version brief",
             "approved-term glossary and transcreation/localization choices",
@@ -1563,6 +1606,13 @@ _DEFINITIONS = [
             + " Hermes prepares research, discovery, and message guidance; it does not research unobserved facts as facts, contact prospects, create opportunities, change CRM data, book meetings, or claim revenue or progress."
         ),
         required_inputs=("account or segment", "available evidence", "buyer hypothesis", "sales objective"),
+        expert_questions=(
+            ExpertQuestion(
+                required_input="account or segment",
+                en="Which account or customer segment should this sales work focus on?",
+                ko="이 영업 작업은 어떤 계정 또는 고객 세그먼트에 집중해야 하나요?",
+            ),
+        ),
         expected_outputs=(
             "account/segment, buyer, problem, and evidence-gap brief",
             "discovery-question and qualification framework",
@@ -1611,6 +1661,13 @@ _DEFINITIONS = [
             + " A PRD or roadmap is prepared planning, not stakeholder acceptance, Jira or Linear mutation, implementation, test evidence, delivery, or a market commitment."
         ),
         required_inputs=("product evidence", "problem and user", "goal and non-goals", "decision owner"),
+        expert_questions=(
+            ExpertQuestion(
+                required_input="product evidence",
+                en="What product evidence should anchor this brief?",
+                ko="이 브리프의 근거가 될 제품 증거는 무엇인가요?",
+            ),
+        ),
         expected_outputs=(
             "problem, user, evidence, metric, goal, and non-goal brief",
             "PRD with requirements, open questions, risks, dependencies, and acceptance shape",

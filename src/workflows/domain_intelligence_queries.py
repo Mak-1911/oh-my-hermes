@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..paths import OmhPaths
+from ..system.paths import OmhPaths
 from .domain_intelligence_artifacts import candidate_card, profile_projection
 from .domain_intelligence_contracts import (
     CLAIM_BOUNDARY,
@@ -9,7 +9,9 @@ from .domain_intelligence_contracts import (
     DOMAIN_STATUS_SCHEMA_VERSION,
     normalize_identifier,
     normalize_scope,
+    normalize_scope_from_value,
 )
+from .domain_intelligence_review_validation import validate_review_artifact_for_status
 from .domain_intelligence_store import (
     diagnostic,
     domain_root,
@@ -19,15 +21,20 @@ from .domain_intelligence_store import (
     read_reviews,
     store_lock_target,
 )
-from .domain_intelligence_review_validation import validate_review_artifact_for_status
 from .domain_intelligence_validation import (
     build_profile_validation_context,
     validate_candidate_artifact,
     validate_profile_artifact,
 )
+from .domain_intelligence_validation_state import profile_key
 
 
-def build_domain_review(paths: OmhPaths, *, candidate_id: str | None = None, limit: int = 20) -> dict[str, object]:
+def build_domain_review(
+    paths: OmhPaths,
+    *,
+    candidate_id: str | None = None,
+    limit: int = 20,
+) -> dict[str, object]:
     diagnostics: list[dict[str, str]] = []
     cards: list[dict[str, object]] = []
     for candidate, path in read_candidates(paths, diagnostics):
@@ -46,7 +53,10 @@ def build_domain_review(paths: OmhPaths, *, candidate_id: str | None = None, lim
     return {
         "schema_version": DOMAIN_REVIEW_QUEUE_SCHEMA_VERSION,
         "cards": cards,
-        "counts": {"pending_review": len(cards), "malformed_artifacts": len(diagnostics)},
+        "counts": {
+            "pending_review": len(cards),
+            "malformed_artifacts": len(diagnostics),
+        },
         "diagnostics": diagnostics[:20],
         "claim_boundary": CLAIM_BOUNDARY,
     }
@@ -60,7 +70,9 @@ def list_domain_profiles(
     domain_id: str | None = None,
     include_retired: bool = False,
 ) -> dict[str, object]:
-    scope_filter = normalize_scope(scope_kind, scope_ref) if scope_kind or scope_ref else None
+    scope_filter = (
+        normalize_scope(scope_kind, scope_ref) if scope_kind or scope_ref else None
+    )
     domain_filter = normalize_identifier(domain_id, "domain_id") if domain_id else None
     diagnostics: list[dict[str, str]] = []
     profiles: list[dict[str, object]] = []
@@ -78,11 +90,14 @@ def list_domain_profiles(
         if domain_filter and profile.get("domain_id") != domain_filter:
             continue
         profiles.append(profile_projection(profile))
-    profiles.sort(key=lambda item: (str(item["scope"]["kind"]), str(item["scope"]["ref"]), str(item["domain_id"])))
+    profiles.sort(key=_profile_sort_key)
     return {
         "schema_version": DOMAIN_LIST_SCHEMA_VERSION,
         "profiles": profiles,
-        "counts": {"profiles": len(profiles), "malformed_artifacts": len(diagnostics)},
+        "counts": {
+            "profiles": len(profiles),
+            "malformed_artifacts": len(diagnostics),
+        },
         "diagnostics": diagnostics[:20],
         "claim_boundary": CLAIM_BOUNDARY,
     }
@@ -129,14 +144,22 @@ def build_domain_status(paths: OmhPaths) -> dict[str, object]:
             diagnostics.append(diagnostic(path, str(exc)))
             continue
         valid_candidates.append(candidate)
-    pending = sum(1 for candidate in valid_candidates if candidate.get("status") == "pending_review")
-    rejected = sum(1 for candidate in valid_candidates if candidate.get("status") == "rejected")
-    approved = sum(1 for candidate in valid_candidates if candidate.get("status") == "approved")
+    pending = sum(
+        1
+        for candidate in valid_candidates
+        if candidate.get("status") == "pending_review"
+    )
+    rejected = sum(
+        1 for candidate in valid_candidates if candidate.get("status") == "rejected"
+    )
+    approved = sum(
+        1 for candidate in valid_candidates if candidate.get("status") == "approved"
+    )
     candidate_index = {
         str(candidate["candidate_id"]): candidate for candidate in valid_candidates
     }
     profile_index = {
-        (str(profile["profile_id"]), int(profile["revision"])): profile
+        profile_key(profile): profile
         for profile in valid_profiles
     }
     valid_reviews = 0
@@ -170,3 +193,13 @@ def build_domain_status(paths: OmhPaths) -> dict[str, object]:
         "diagnostics": diagnostics[:20],
         "claim_boundary": CLAIM_BOUNDARY,
     }
+
+
+def _profile_sort_key(profile: dict[str, object]) -> tuple[str, str, str]:
+    scope = normalize_scope_from_value(profile.get("scope"))
+    domain_id = normalize_identifier(profile.get("domain_id"), "domain_id")
+    kind = scope.get("kind")
+    ref = scope.get("ref")
+    if not isinstance(kind, str) or not isinstance(ref, str):
+        raise ValueError("profile_scope_not_canonical")
+    return kind, ref, domain_id

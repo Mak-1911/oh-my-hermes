@@ -41,6 +41,7 @@ from ..wrapper.sessions import (
     select_wrapper_session_executor,
     show_wrapper_session,
 )
+from ..workflows.domain_project_context import bind_cli_project
 from .common import (
     _chat_input_and_metadata,
     _chat_message,
@@ -158,6 +159,7 @@ def cmd_chat_interact(args: argparse.Namespace) -> int:
             )
         else:
             event_or_message, source_metadata = _chat_input_and_metadata(args)
+            invocation_cwd = Path.cwd()
             payload = build_chat_interaction_payload(
                 event_or_message,
                 source=args.source,
@@ -170,6 +172,7 @@ def cmd_chat_interact(args: argparse.Namespace) -> int:
                 target_notice=_target_notice(args, source_metadata),
                 paths=_paths(args),
                 skill_policy=_chat_route_skill_policy(args),
+                _host_project_binding_factory=lambda: bind_cli_project(invocation_cwd),
             )
     except FileNotFoundError as exc:
         raise OmhError(f"runtime run not found: {args.run_id}") from exc
@@ -187,6 +190,7 @@ def cmd_chat_interact(args: argparse.Namespace) -> int:
 def cmd_chat_session_start(args: argparse.Namespace) -> int:
     try:
         event_or_message, source_metadata = _chat_input_and_metadata(args)
+        invocation_cwd = Path.cwd()
         payload = create_or_resume_wrapper_session(
             _paths(args),
             event_or_message,
@@ -196,6 +200,7 @@ def cmd_chat_session_start(args: argparse.Namespace) -> int:
             source_metadata=source_metadata,
             executor_target=_resolved_executor(args, default="choose"),
             target_notice=_target_notice(args, source_metadata),
+            _host_project_binding_factory=lambda: bind_cli_project(invocation_cwd),
         )
     except (OSError, json.JSONDecodeError, ValueError, WrapperSessionError) as exc:
         raise OmhError(str(exc)) from exc

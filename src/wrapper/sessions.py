@@ -37,6 +37,10 @@ from .contract import (
     render_profile_for_source,
     usage_trace_payload,
 )
+from .domain_context_attachment import (
+    HostProjectBindingFactory,
+    build_session_project_binding_factory,
+)
 from .briefing import build_coding_briefing, chat_response_briefing
 from .hermes_runtime import (
     hermes_coding_team_body,
@@ -91,6 +95,7 @@ def create_or_resume_wrapper_session(
     executor_target: str = "choose",
     target_notice: dict[str, object] | None = None,
     record_provenance: dict[str, object] | None = None,
+    _host_project_binding_factory: HostProjectBindingFactory | None = None,
 ) -> dict[str, object]:
     if source not in CHAT_SOURCES:
         raise WrapperSessionError(f"unsupported wrapper session source: {source}")
@@ -109,6 +114,9 @@ def create_or_resume_wrapper_session(
         executor_target=executor_target,
         target_notice=target_notice,
         paths=paths,
+        _host_project_binding_factory=build_session_project_binding_factory(
+            _host_project_binding_factory,
+        ),
     )
     thread_key = str(interaction["thread_key"])
     session_id = session_id_for_thread_key(thread_key)
