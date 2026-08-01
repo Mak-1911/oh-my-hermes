@@ -44,7 +44,7 @@
   <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml"><img alt="GitHub Pages" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml/badge.svg"></a>
   <a href="https://github.com/rlaope/oh-my-hermes/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/rlaope/oh-my-hermes?logo=github"></a>
-  <img alt="Status" src="https://img.shields.io/badge/status-1.0.3%20stable-blue">
+  <img alt="Status" src="https://img.shields.io/badge/status-1.0.4%20stable-blue">
 </p>
 
 <p align="center">
