@@ -96,6 +96,82 @@ class DomainContextEligibilityTests(unittest.TestCase):
         self.assertEqual(_canonical_bytes(route), route_before)
         self.assertEqual(_canonical_bytes(route.get("candidate_handoff")), candidate_before)
 
+        governance_reachable = deepcopy(route)
+        governance_reachable["explicit"] = False
+        governance_reachable["clarification"] = "Which workflow should own this?"
+        reached = classify_domain_context_eligibility(governance_reachable, message)
+        self.assertFalse(reached.eligible)
+        self.assertEqual(reached.reason, PROTECTED_ROUTE)
+
+    def test_each_guard_field_independently_protects_synthetic_routes(self) -> None:
+        message = "the release checklist feels unresolved"
+
+        def eligible_route() -> dict:
+            return {
+                "action": "clarify",
+                "selected_skill": "oh-my-hermes",
+                "explicit": False,
+                "clarification": "Which workflow should own this?",
+                "skill_governance": None,
+                "route_next_action": "",
+                "recommendations": [],
+                "score": 1,
+            }
+
+        baseline = classify_domain_context_eligibility(eligible_route(), message)
+        self.assertTrue(baseline.eligible)
+        self.assertEqual(baseline.reason, ELIGIBLE_UNRESOLVED_ROUTE)
+
+        dispatch = classify_domain_context_eligibility(
+            {**eligible_route(), "action": "dispatch"}, message
+        )
+        self.assertFalse(dispatch.eligible)
+        self.assertEqual(dispatch.reason, DISPATCH_ROUTE)
+
+        guard_cases = (
+            ("non_unresolved_action", {"action": "answer"}),
+            ("missing_action", {"action": ""}),
+            ("foreign_selected_skill", {"selected_skill": "sales-development"}),
+            ("explicit_true", {"explicit": True}),
+            ("explicit_missing", {"explicit": None}),
+            ("empty_clarification", {"clarification": "   "}),
+            ("governance_not_mapping", {"skill_governance": "fail_closed"}),
+            ("governance_unresolved", {"skill_governance": {"status": "fail_closed"}}),
+            ("task_card_present", {"task_card": {"unit": "reproduce-setup"}}),
+            ("workflow_route_plan_present", {"workflow_route_plan": {"steps": []}}),
+            ("learning_candidate_card_present", {"learning_candidate_card": {"id": "c1"}}),
+            ("route_next_action_set", {"route_next_action": "dispatch"}),
+            (
+                "protected_recommendation_action",
+                {
+                    "recommendations": [
+                        {"next_action": "answer_directly", "score": 0, "matched": []}
+                    ]
+                },
+            ),
+            (
+                "protected_leading_match",
+                {
+                    "recommendations": [
+                        {"next_action": "recommend", "score": 1, "matched": ["metadata:status"]}
+                    ]
+                },
+            ),
+        )
+        for name, override in guard_cases:
+            with self.subTest(name=name):
+                result = classify_domain_context_eligibility(
+                    {**eligible_route(), **override}, message
+                )
+                self.assertFalse(result.eligible)
+                self.assertEqual(result.reason, PROTECTED_ROUTE)
+
+        for prefixed in ("", "   ", "/plan release", "$plan release", "./plan release", "@plan release"):
+            with self.subTest(message=prefixed or "<blank>"):
+                result = classify_domain_context_eligibility(eligible_route(), prefixed)
+                self.assertFalse(result.eligible)
+                self.assertEqual(result.reason, PROTECTED_ROUTE)
+
     def test_low_confidence_or_candidate_presence_alone_is_not_eligibility(self) -> None:
         message = "something feels off"
         unresolved = route_chat_message(message)
