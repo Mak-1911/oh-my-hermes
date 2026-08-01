@@ -2,7 +2,7 @@
 
 Preview installs track a branch archive, so `release_version` stays empty and the
 release identity used to fall back to the source ref. An operator upgrading
-1.0.2 -> 1.0.3 saw `main -> main` and could not tell whether anything changed.
+1.0.2 -> 1.0.4 saw `main -> main` and could not tell whether anything changed.
 The package version is already recorded; these tests pin that it is used.
 """
 
@@ -97,12 +97,12 @@ class StableChannelVersionDisplayTests(unittest.TestCase):
         status = _status(
             previous,
             channel="stable",
-            version="1.0.3",
-            source_ref="v1.0.3",
-            package_url="https://example.invalid/v1.0.3.zip",
+            version="1.0.4",
+            source_ref="v1.0.4",
+            package_url="https://example.invalid/v1.0.4.zip",
         )
-        self.assertEqual(status["display"]["version_change"], "1.0.2 -> 1.0.3")
-        self.assertEqual(_release_card_identity(status["current"], language="en"), "1.0.3")
+        self.assertEqual(status["display"]["version_change"], "1.0.2 -> 1.0.4")
+        self.assertEqual(_release_card_identity(status["current"], language="en"), "1.0.4")
 
     def test_pin_disagreeing_with_the_package_is_reported_as_pinned(self) -> None:
         # An operator pinning an older archive should see the pin they asked for,
