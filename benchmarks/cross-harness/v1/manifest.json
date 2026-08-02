@@ -1,7 +1,7 @@
 {
   "schema_version": "cross_harness_benchmark/v1",
   "corpus_id": "omh-independent-cross-harness-v1",
-  "corpus_digest": "8dcea64c0446e7d23fe57b6bf691ac4d8c67d0127cf92bacb392cecad7912380",
+  "corpus_digest": "4d4bc2bd00029ba54897a270d8b60e09ae060336a820b5bd56541da386a64656",
   "claim_boundary": "Offline metadata evaluation does not prove live executor quality or observed execution.",
   "dimensions": [
     {"id": "model_selection", "weight": 10, "minimum": 6},
@@ -19,7 +19,7 @@
     {"source_id": "omh-contract-research", "commit": "40062e0678b148e26a67aee4b3e60e936960dea9", "license": "MIT", "path_metadata": "src/quality/harness_quality.py"}
   ],
   "command_bindings": [
-    {"command_id": "benchmark-probe", "harness": "reference-harness", "argv": ["uv", "run", "python", "-m", "omh.cli", "harness", "validate"], "cwd_class": "repository_root", "source_id": "omh-contract-research", "source_commit": "40062e0678b148e26a67aee4b3e60e936960dea9", "expected_exit": 0, "expected_semantic_result": "validated"}
+    {"command_id": "benchmark-probe", "harness": "reference-harness", "argv": ["python3", "-m", "omh.cli", "harness", "validate"], "cwd_class": "repository_root", "source_id": "omh-contract-research", "source_commit": "40062e0678b148e26a67aee4b3e60e936960dea9", "expected_exit": 0, "expected_semantic_result": "validated"}
   ],
   "fixtures": [
     {"id": "model-explicit-selection", "dimension": "model_selection", "priority": "P1", "dynamic": false, "prompt": {"intent": "model_selection", "constraint": "explicit_owner"}, "setup": {"profile": "codex", "mode": "prepared"}, "expected_machine": [{"scope": "actual_machine", "key": "selected_owner", "operator": "eq", "value": "codex"}], "required_evidence_class": "static", "evaluator": "predicate_subset/v1", "adapter_id": "model-selection/v1", "capability_id": "explicit-owner", "source_id": "omh-contract-research", "command_binding_id": "benchmark-probe"},

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -21,7 +22,7 @@ from src.quality.cross_harness_benchmark_values import JsonValue, corpus_digest
 
 
 ROOT = Path(__file__).parents[1]
-CLI_COMMAND = ("uv", "run", "python", "-m", "omh.cli", "benchmark")
+CLI_COMMAND = (sys.executable, "-m", "omh.cli", "benchmark")
 
 
 def _json_object(value: JsonValue) -> dict[str, JsonValue]:

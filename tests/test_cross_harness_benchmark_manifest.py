@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -33,12 +34,15 @@ class CrossHarnessBenchmarkManifestTests(unittest.TestCase):
         assert isinstance(argv, list)
         self.assertEqual(
             argv,
-            ["uv", "run", "python", "-m", "omh.cli", "harness", "validate"],
+            ["python3", "-m", "omh.cli", "harness", "validate"],
         )
-        assert all(isinstance(argument, str) for argument in argv)
+        command_argv: list[str] = []
+        for argument in argv:
+            assert isinstance(argument, str)
+            command_argv.append(argument)
 
         completed = subprocess.run(
-            argv,
+            command_argv,
             cwd=_ROOT,
             capture_output=True,
             text=True,
@@ -77,9 +81,7 @@ class CrossHarnessBenchmarkManifestTests(unittest.TestCase):
         # When: the source-bound CLI validates the envelope from the repository root.
         completed = subprocess.run(
             [
-                "uv",
-                "run",
-                "python",
+                sys.executable,
                 "-m",
                 "omh.cli",
                 "benchmark",
@@ -141,9 +143,7 @@ class CrossHarnessBenchmarkManifestTests(unittest.TestCase):
         # When: the source-bound CLI validates the envelope from the repository root.
         completed = subprocess.run(
             [
-                "uv",
-                "run",
-                "python",
+                sys.executable,
                 "-m",
                 "omh.cli",
                 "benchmark",

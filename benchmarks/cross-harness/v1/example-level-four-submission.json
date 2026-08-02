@@ -4,9 +4,7 @@
     "command_bindings": [
       {
         "argv": [
-          "uv",
-          "run",
-          "python",
+          "python3",
           "-m",
           "omh.cli",
           "harness",
@@ -21,7 +19,7 @@
         "source_id": "omh-contract-research"
       }
     ],
-    "corpus_digest": "8dcea64c0446e7d23fe57b6bf691ac4d8c67d0127cf92bacb392cecad7912380",
+    "corpus_digest": "4d4bc2bd00029ba54897a270d8b60e09ae060336a820b5bd56541da386a64656",
     "corpus_id": "omh-independent-cross-harness-v1",
     "dimensions": [
       {
@@ -509,7 +507,7 @@
   },
   "schema_version": "cross_harness_benchmark_cli_input/v1",
   "submission": {
-    "corpus_digest": "8dcea64c0446e7d23fe57b6bf691ac4d8c67d0127cf92bacb392cecad7912380",
+    "corpus_digest": "4d4bc2bd00029ba54897a270d8b60e09ae060336a820b5bd56541da386a64656",
     "harness_id": "reference-harness",
     "results": [
       {
@@ -526,15 +524,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -571,15 +567,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -616,15 +610,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -659,15 +651,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -706,15 +696,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -749,15 +737,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -794,15 +780,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -841,15 +825,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -886,15 +868,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -929,15 +909,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -976,15 +954,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -1019,15 +995,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -1066,15 +1040,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -1109,15 +1081,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,
@@ -1156,15 +1126,13 @@
         ],
         "command_evidence": {
           "argv": [
-            "uv",
-            "run",
-            "python",
+            "python3",
             "-m",
             "omh.cli",
             "harness",
             "validate"
           ],
-          "binding_digest": "cb0d2533da66eaaa0667502a9b7a404ea470d516bbec9cc07a7d8fb8d7989195",
+          "binding_digest": "f9d27d02811be03bca92a4b122520742172d72a8d145bed05ccf7bbda9f10032",
           "command_id": "benchmark-probe",
           "cwd_class": "repository_root",
           "expected_exit": 0,

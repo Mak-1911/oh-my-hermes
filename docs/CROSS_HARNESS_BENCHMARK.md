@@ -22,7 +22,7 @@ The evaluator derives result status; an input cannot self-report a pass or score
 
 Production code hardcodes both the `v1` manifest digest and a digest of the parsed corpus identity as independent trust anchors. A caller cannot replace fixture predicates, source pins, commands, corpus ids, or metadata and make that replacement trusted by recomputing co-located digests. Parsing requires the declared digest to equal the built-in manifest anchor and the supplied payload to hash to that value. Evaluation and scoring then require the parsed corpus identity to match the second built-in anchor.
 
-`cross_harness_benchmark/v1` is immutable. Any corpus content change requires a new versioned benchmark directory and schema such as `v2`, new examples, and newly reviewed production trust anchors for that version. Never update the `v1` anchors to bless changed `v1` content in place.
+`cross_harness_benchmark/v1` fixtures and scoring semantics are immutable. Any semantic corpus change requires a new versioned benchmark directory and schema such as `v2`, new examples, and newly reviewed production trust anchors for that version. A portability repair to an existing command binding must preserve its semantic result and update the corpus, typed-corpus, and command-evidence digests together. The exact `v1` probe binding is `python3 -m omh.cli harness validate`; `uv` is not part of its argv.
 
 CLI JSON is bounded to 1,000,000 UTF-8 bytes, 64 levels, 10,000 containers, and 50,000 total nodes. The decoder rejects `NaN`, `Infinity`, and `-Infinity` as invalid JSON, converts decoder recursion failures to structured exit-2 errors, and applies the same byte limit to files and stdin. Oversize input returns `input_too_large`; excessive depth or structure returns `input_too_complex`.
 
@@ -80,23 +80,23 @@ The diagnostic failing, unsupported, and partial files intentionally submit one 
 
 ## Operator command surface
 
-The benchmark command is available to agents and operators. These are its exact commands.
+The benchmark command is available to agents and operators. Run these exact source-tree commands from the repository root; none depends on `uv`.
 
 ```sh
-uv run python -m omh.cli benchmark validate \
+python3 -m omh.cli benchmark validate \
   --input benchmarks/cross-harness/v1/example-passing-submission.json
 
-uv run python -m omh.cli benchmark score \
+python3 -m omh.cli benchmark score \
   --input benchmarks/cross-harness/v1/example-passing-submission.json
 
-uv run python -m omh.cli benchmark report \
+python3 -m omh.cli benchmark report \
   --input benchmarks/cross-harness/v1/example-passing-submission.json
 ```
 
 Use exactly one of `--input PATH` or `--stdin`. `validate` exits zero when the JSON and benchmark contract are valid, even if a fixture evaluates to a semantic failure. All three commands exit two for missing input, unavailable files, malformed JSON, non-object JSON, conflicting input modes, stale corpus, or another contract error. For a successfully evaluated `score` or `report`, exit status is based on `contract_certified`: true exits zero and false exits one. These statuses do not authenticate evidence or verify execution. The failed-child, unsupported, and partial inputs therefore exit one from `score` and `report` while retaining structured JSON output for inspection.
 
 ```sh
-uv run python -m omh.cli benchmark score --stdin \
+python3 -m omh.cli benchmark score --stdin \
   < benchmarks/cross-harness/v1/example-passing-submission.json
 ```
 
@@ -111,7 +111,7 @@ Run from the repository root.
 5. Validate the child-failure input; confirm exit 0 and a `fail` despite parent exit zero. Score and report must exit 1 and include `p0_failure`.
 6. Report the unsupported input; confirm unsupported coverage and exit 1. Do not report it as pass.
 7. Score the partial input; confirm partial status and exit 1.
-8. Run `uv run python -m omh.cli harness validate`; it remains a separate generated-harness validation surface.
+8. Run `python3 -m omh.cli harness validate`; it remains a separate generated-harness validation surface.
 
 The benchmark command must create no `.omh` directory or runtime artifact in an isolated directory. It is pure input-to-output evaluation: no network calls, subprocess dispatch, executor launch, persistent runtime state, skill-body loading, or production-routing mutation belongs here.
 
