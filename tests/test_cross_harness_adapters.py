@@ -1,0 +1,243 @@
+from __future__ import annotations
+
+from copy import deepcopy
+import json
+from pathlib import Path
+import sys
+from tempfile import TemporaryDirectory
+import unittest
+from unittest.mock import patch
+
+from src.quality import cross_harness_adapters as runner
+from src.quality.cross_harness_adapter_evidence import (
+    CommandEvidence,
+    SourceEvidence,
+    parse_adapter_evidence,
+)
+from src.quality.cross_harness_adapter_model import (
+    AdapterRequest,
+    JsonValue,
+    canonical_digest,
+    parse_adapter_request,
+)
+from src.quality.cross_harness_adapters import (
+    ExecutionSpec,
+    run_adapter,
+)
+
+
+ROOT = Path(__file__).parents[1]
+FIXTURES = ROOT / "tests" / "fixtures" / "cross_harness_adapter"
+FAKE = FIXTURES / "fake_adapter.py"
+
+
+def _output(root: Path) -> runner.OutputContract:
+    source_raw: dict[str, JsonValue] = {"source_id": "fixture-source", "commit": "a" * 40, "license": "MIT", "path_metadata": "fixtures/fake"}
+    command_raw: dict[str, JsonValue] = {"command_id": "fixture-command", "harness": "fake", "argv": ["fake-adapter", "run"], "cwd_class": "disposable", "source_id": "fixture-source", "source_commit": "a" * 40, "expected_exit": 0, "expected_semantic_result": "pass"}
+    source = SourceEvidence("fixture-source", "a" * 40, "MIT", "fixtures/fake", canonical_digest(source_raw))
+    command = CommandEvidence("fixture-command", "fake", ("fake-adapter", "run"), "disposable", "fixture-source", "a" * 40, 0, "pass", canonical_digest(command_raw), 0, "pass")
+    return runner.OutputContract(root / "receipt.json", root / "evidence.json", "fixture-harness", source, command)
+
+
+def _request(argv: tuple[str, ...], **changes: JsonValue) -> AdapterRequest:
+    raw: dict[str, JsonValue] = {
+        "schema_version": "cross_harness_adapter_request/v1",
+        "protocol_version": "cross_harness_adapter_protocol/v1",
+        "corpus_digest": "0" * 64,
+        "fixture_binding_digest": "1" * 64,
+        "fixture_id": "fixture-a",
+        "adapter_id": "fake-adapter",
+        "capability_id": "sandbox-probe",
+        "profile": "codex",
+        "executable": Path(argv[0]).name,
+        "executable_version": "fake-adapter 1.0",
+        "model": "fixture-model",
+        "effort": "none",
+        "capabilities": ["tool-events", "child-events"],
+        "argv_digest": canonical_digest(list(argv)),
+        "repetition": 1,
+        "timeout_seconds": 2,
+    }
+    raw.update(changes)
+    return parse_adapter_request(raw)
+
+
+def _spec(root: Path, scenario: str, **changes: JsonValue) -> tuple[AdapterRequest, ExecutionSpec]:
+    argv = (str(Path(sys.executable).resolve()), str(FAKE.resolve()), scenario)
+    request = _request(argv)
+    spec = ExecutionSpec(
+        argv=argv,
+        read_roots=(FIXTURES,),
+        scratch_parent=root,
+        backend="sandbox-exec",
+        version_argv=(argv[0], argv[1], "--version"),
+    )
+    if changes:
+        values = {
+            "argv": spec.argv,
+            "read_roots": spec.read_roots,
+            "scratch_parent": spec.scratch_parent,
+            "backend": spec.backend,
+            "allow_network": spec.allow_network,
+            "environment": spec.environment,
+            "version_argv": spec.version_argv,
+        }
+        values.update(changes)
+        spec = ExecutionSpec(**values)
+    return request, spec
+
+
+def _passthrough_backend(argv: tuple[str, ...], *_args: Path | str | bool | tuple[Path, ...], **_kwargs: Path | str | bool | tuple[Path, ...]) -> tuple[str, ...]:
+    return argv
+
+
+class LegacyBoundaryCharacterizationTests(unittest.TestCase):
+    def test_fanout_timeout_and_result_contract_remain_pinned(self) -> None:
+        source = (ROOT / "src" / "coding" / "fanout_dispatch.py").read_text(encoding="utf-8")
+        self.assertIn("except subprocess.TimeoutExpired:", source)
+        self.assertIn("exit_code, output_tail = 124", source)
+        self.assertIn('"status": "completed" if exit_code == 0 else "failed"', source)
+
+class _RunnerMixin:
+    def _run(self, scenario: str, *, repetition: int = 1, sandbox: bool = False, environment: tuple[tuple[str, str], ...] = (), read_roots: tuple[Path, ...] = (), allow_network: bool = False):
+        temporary = TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        allocator = root / "allocator"
+        allocator.mkdir()
+        request, spec = _spec(allocator, scenario)
+        spec = ExecutionSpec(spec.argv, (*spec.read_roots, *read_roots), spec.scratch_parent, spec.backend, allow_network, environment, spec.version_argv)
+        if repetition != 1:
+            raw = deepcopy(json.loads(json.dumps({
+                "schema_version": request.schema_version,
+                "protocol_version": request.protocol_version,
+                "corpus_digest": request.corpus_digest,
+                "fixture_binding_digest": request.fixture_binding_digest,
+                "fixture_id": request.fixture_id,
+                "adapter_id": request.adapter_id,
+                "capability_id": request.capability_id,
+                "profile": request.profile.value,
+                "executable": request.executable,
+                "executable_version": request.executable_version,
+                "model": request.model,
+                "effort": request.effort.value,
+                "capabilities": list(request.capabilities),
+                "argv_digest": request.argv_digest,
+                "repetition": repetition,
+                "timeout_seconds": request.timeout_seconds,
+            })))
+            request = parse_adapter_request(raw)
+        if sandbox:
+            outcome = run_adapter(request, spec, _output(root))
+        else:
+            with patch("src.quality.cross_harness_adapters._sandbox_command", _passthrough_backend), patch(
+                "src.quality.cross_harness_adapters._preflight", return_value=(True, "test-backend")
+            ):
+                outcome = run_adapter(request, spec, _output(root))
+        self.assertEqual(tuple(allocator.iterdir()), ())
+        return outcome
+
+
+class FailClosedAdapterRunnerTests(_RunnerMixin, unittest.TestCase):
+    def test_exact_receipt_and_replayable_evidence_are_persisted(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            request, spec = _spec(root / "allocator", "passing")
+            (root / "allocator").mkdir()
+            receipt = run_adapter(request, spec, _output(root))
+            receipt_raw = json.loads((root / "receipt.json").read_text(encoding="utf-8"))
+            evidence = parse_adapter_evidence(json.loads((root / "evidence.json").read_text(encoding="utf-8")))
+            persisted = (root / "receipt.json").read_text(encoding="utf-8") + (root / "evidence.json").read_text(encoding="utf-8")
+            self.assertEqual((receipt.status, evidence.schema_version), ("observed_success", "cross_harness_adapter_evidence/v1"))
+            self.assertEqual(set(receipt_raw), {"schema_version", "status", "reason_code", "backend", "backend_version", "preflight", "network_allowed", "request_digest", "argv_digest", "version_spawn_digest", "cleanup_verified", "repetitions"})
+            self.assertEqual(receipt_raw["repetitions"][0]["spawn_digest"], receipt.repetitions[0].spawn_digest)
+            self.assertNotIn(str(root), persisted)
+            self.assertNotIn("stdout_sample", persisted)
+
+    def test_unavailable_persists_receipt_without_evidence(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            argv = ("definitely-missing-adapter",)
+            receipt = run_adapter(_request(argv, executable_version="missing"), ExecutionSpec(argv, (FIXTURES,), root, "sandbox-exec"), _output(root))
+            self.assertEqual((receipt.status, (root / "receipt.json").is_file(), (root / "evidence.json").exists()), ("unavailable", True, False))
+
+    def test_cleanup_and_spawn_identity_are_observed(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            existing = root / "existing"
+            existing.mkdir()
+            self.assertFalse(runner._roots_absent((existing,)))
+            existing.rmdir()
+            allocator = root / "allocator"
+            allocator.mkdir()
+            canary = allocator / "version-canary"
+            canary.write_text("unchanged", encoding="utf-8")
+            request, spec = _spec(allocator, "passing", environment=(("OMH_VERSION_CANARY", str(canary)),))
+            receipt = run_adapter(request, spec, _output(root))
+            self.assertEqual((receipt.cleanup_verified, canary.read_text(encoding="utf-8"), tuple(allocator.iterdir())), (True, "unchanged", (canary,)))
+            self.assertEqual((len(receipt.version_spawn_digest), len(receipt.repetitions[0].spawn_digest)), (64, 64))
+    def test_missing_executable_and_backend_never_launch(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            argv = ("definitely-missing-adapter",)
+            outcome = run_adapter(
+                _request(argv, executable_version="missing"),
+                ExecutionSpec(argv, (FIXTURES,), root, "sandbox-exec"),
+                _output(root),
+            )
+            self.assertEqual((outcome.status, outcome.reason_code), ("unavailable", "executable_not_found"))
+
+            request, spec = _spec(root, "passing", backend="missing")
+            outcome = run_adapter(request, spec, _output(root))
+            self.assertEqual((outcome.status, outcome.reason_code), ("unavailable", "sandbox_backend_unavailable"))
+            self.assertFalse((root / "launched").exists())
+
+    def test_preflight_failure_never_launches_adapter(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            allocator = root / "allocator"
+            allocator.mkdir()
+            sentinel = root / "launch-sentinel"
+            request, spec = _spec(allocator, "passing", environment=(("OMH_LAUNCH_PROBE", str(sentinel)),))
+            with patch("src.quality.cross_harness_adapters._preflight", return_value=(False, "test-backend")):
+                outcome = run_adapter(request, spec, _output(root))
+            self.assertEqual(outcome.reason_code, "sandbox_preflight_failed")
+            self.assertFalse(sentinel.exists())
+            self.assertEqual(tuple(allocator.iterdir()), ())
+
+    def test_timeout_crash_wrong_stale_and_misleading_zero_fail(self) -> None:
+        expected = {
+            "timeout": "process_timeout", "crash": "process_crash",
+            "wrong-artifact": "wrong_artifact_type",
+            "stale-artifact": "request_digest_mismatch",
+            "preseed-stale": "stale_artifact",
+            "misleading-zero": "artifact_missing",
+        }
+        for scenario, reason in expected.items():
+            with self.subTest(scenario=scenario):
+                outcome = self._run(scenario)
+                self.assertEqual(outcome.reason_code, reason)
+                self.assertNotEqual(outcome.status, "observed_success")
+                if scenario == "timeout":
+                    self.assertEqual((outcome.repetitions[0].process_group_terminated, outcome.repetitions[0].inventory[0].path), (True, "work/descendant-heartbeat"))
+
+    def test_partial_child_or_flaky_repetition_blocks_success(self) -> None:
+        partial = self._run("partial-child")
+        flaky = self._run("flaky", repetition=2)
+        self.assertEqual(partial.reason_code, "partial_child_failure")
+        self.assertEqual((flaky.status, flaky.reason_code, len(flaky.repetitions)), ("observed_failed", "failed_child_event", 2))
+
+    def test_interrupt_always_cleans_scratch_and_propagates(self) -> None:
+        for _attempt in range(3):
+            with TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                request, spec = _spec(root, "passing")
+                with patch("src.quality.cross_harness_adapters._sandbox_command", _passthrough_backend), patch(
+                    "src.quality.cross_harness_adapters._preflight", return_value=(True, "test-backend")
+                ), patch("src.quality.cross_harness_adapters._observe_process", side_effect=KeyboardInterrupt):
+                    with self.assertRaises(KeyboardInterrupt):
+                        run_adapter(request, spec, _output(root))
+                self.assertEqual(tuple(root.iterdir()), ())
+
+if __name__ == "__main__":
+    unittest.main()
