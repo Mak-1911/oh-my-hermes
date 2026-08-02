@@ -453,6 +453,25 @@ class WrapperGoldenExampleTests(unittest.TestCase):
                 self.assertIn(item["wrapper_action"], source["expected_response"]["action_ids"])
                 self.assertNotIn("token", json.dumps(item).lower())
 
+    def test_executor_local_workflow_contract(self) -> None:
+        payload = json.loads(Path("examples/wrapper-golden/hermes-agent-integration.json").read_text(encoding="utf-8"))
+        contracts = {item["schema_version"]: item for item in payload["consumed_contracts"]}
+        live_handoff = build_coding_delegation_payload(
+            "$ai-slop-cleaner clean delegation code",
+            source="discord",
+            executor_target="codex",
+        )["executor_handoff"]
+        binding = live_handoff["executor_local_workflow"]
+
+        self.assertIn("executor_local_workflow", contracts["coding_executor_handoff/v1"]["renderable_fields"])
+        self.assertEqual(payload["executor_local_workflow_example"], binding)
+        self.assertEqual(binding["status"], "unknown")
+        self.assertFalse(binding["dispatchability"]["candidate_invocation_dispatchable"])
+        self.assertEqual(live_handoff["codex_invocation"]["dispatch_text_template"], "{message}")
+        serialized = json.dumps(payload["executor_local_workflow_example"], sort_keys=True)
+        for forbidden_key in ("raw_prompt", "local_path", "skill_body", "execution_result"):
+            self.assertNotIn(forbidden_key, serialized)
+
     def test_hermes_surface_shims_render_fixture_events(self) -> None:
         cases = (
             (

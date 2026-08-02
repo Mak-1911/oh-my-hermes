@@ -502,6 +502,88 @@ wrapper can record `runtime_start` while `worktree_creation`, `worker_dispatch`,
 `worker_result`, `verification`, `review`, `ci`, `merge_readiness`, and `merge`
 remain explicitly missing.
 
+### Executor-local workflow binding
+
+Coding handoffs may carry one optional `executor_local_workflow/v1` object. It
+is a prepared, task-scoped candidate selected from the final guarded workflow;
+it is not a discovery result, an installed-skill claim, or an execution
+instruction. When present, its exact root keys are `schema_version`, `profile`,
+`status`, `routed_workflow`, `candidate`, `availability`, `dispatchability`,
+`fallback`, and `claim_boundary`. The candidate has exactly `kind`, `skill_id`,
+`invocation`, `rationale`, and `selection_basis`; the invocation has exactly
+`mode`, `syntax`, `template`, and `message_placeholder`.
+
+The profile mapping is deliberately narrow:
+
+| Profile | Candidate kind | Invocation representation | Dispatch rule |
+| --- | --- | --- | --- |
+| `codex` | `codex_skill` | `command_template`, `$<canonical-skill> {message}` | Only an exact matching `observed_available` record may make the candidate invocation dispatchable, and the parent handoff must remain `ask_before_dispatch`. |
+| `hermes` | `hermes_installed_skill` | `display_only`, `/<display-name> {message}` | Always non-dispatchable display metadata. |
+| `omx-runtime` | `omx_skill` | `display_only`, `$<canonical-skill> {message}` | Always non-dispatchable display metadata. |
+| `omo-runtime` | `omo_skill_reference` | `skill_reference`, empty template | Non-executable reference only; no `load_skills` payload is serialized. |
+| `omc-runtime` | `omc_skill_descriptor` | `descriptor_only`, empty template | Non-executable descriptor only; no universal slash command is inferred. |
+
+`claude-code`, `generic`, `choose`, `pi`/generic aliases, and unmapped
+profiles omit the binding entirely. OMH has no `pi` profile: a pi or generic
+alias is treated as an unmapped generic boundary, not as a new executor.
+Canonical Hermes display names come from the catalog (for example,
+`ultragoal` displays as `/ulw-goal` and `ultrawork` as `/ulw-work`); the
+canonical `skill_id` remains unchanged in the metadata.
+
+Availability is an evidence state machine, not an installation probe. The
+root `status` mirrors `availability.status` and is one of `unknown`,
+`observed_available`, or `observed_unavailable`. `unknown` is the prepared
+default and also covers missing, malformed, stale-profile, stale-skill, or
+out-of-scope evidence. `observed_available` and `observed_unavailable` require
+an explicit operator-recorded capability snapshot whose `profile`, `skill_id`,
+bounded `environment`, timezone-aware `observed_at`, and bounded nonsensitive
+`evidence_ref` all match the candidate. OMH does not probe `PATH`, scan skill
+directories, load a skill body, install anything, or invoke an executor to
+produce this state. A matching observation says only what that observation
+recorded at that time; it never proves invocation, dispatch, execution,
+verification, review, CI, merge readiness, or merge.
+
+The availability object has exactly `status`, `basis`, `profile`, `skill_id`,
+`scope`, `observed_at`, and `evidence_ref`. Its `basis` is
+`prepared_mapping` for `unknown` and `operator_recorded_snapshot` for either
+observed state. The scope is bounded and nonsensitive; it is not a filesystem
+listing or a transcript.
+
+The dispatchability object has exactly `handoff_dispatchable`,
+`candidate_invocation_dispatchable`, and `reason`. `reason` is restricted to
+`availability_not_observed`, `candidate_observed_unavailable`,
+`parent_handoff_prepare_only`, `descriptor_only`, and
+`observed_available_ask_before_dispatch`, and must agree with the state and
+parent lane. Runtime, Hermes display, OMX display, OMO reference, and OMC
+descriptor candidates are never dispatchable.
+For unknown or unavailable Codex candidates, the actual executor prompt and
+legacy `codex_invocation.dispatch_text_template` remain the generic
+`{message}` placeholder. The candidate metadata may still display the
+prepared `$<canonical-skill> {message}` shape, but it cannot authorize use.
+They retain the exact fallback
+`Keep the parent handoff prompt and dispatch mode unchanged; do not invoke the candidate.`
+Every binding carries the exact claim boundary:
+`Prepared executor-local workflow metadata is not evidence of installation, loading, invocation, dispatch, execution, verification, review, CI, merge readiness, or merge.`
+
+The binding is projected consistently, when present, through direct coding
+delegation, routed delegation, wrapper session state, briefing/work-summary
+metadata, persisted replay, and the wrapper golden contract. Each projection
+copies the bounded object; none synthesizes a command or copies a raw prompt,
+local path, skill body, transcript, or evidence contents. Manual QA for a
+projection must capture the parsed schema, profile, status, skill id,
+invocation mode/template, both dispatchability booleans, and the parent lane's
+dispatch mode. A missing capture is missing observation, not a positive claim.
+
+The boundary follows pinned upstream evidence. OMO's skill-loader descriptors
+contain richer loader metadata than a portable OMH invocation contract, and its
+task tool injects skill contents at spawn time; see the pinned
+[`b072d279` descriptor types](https://github.com/code-yeongyu/oh-my-openagent/blob/b072d279110bdda2c6ac2525d0d24dc54d16148/packages/skills-loader-core/src/features/opencode-skill-loader/types.ts#L26-L37)
+and [`b072d279` task skill loading](https://github.com/code-yeongyu/oh-my-openagent/blob/b072d279110bdda2c6ac2525d0d24dc54d16148/packages/senpi-task/src/tools/task/skills.ts#L17-L23).
+OMC's pinned, bounded skill discovery and user-skill compatibility helpers do
+not define a universal slash-command grammar; see the
+[`41a4c0f` discovery path](https://github.com/Yeachan-Heo/oh-my-claudecode/blob/41a4c0f77144c5beb5f5f000a89cff379c680606/scripts/skill-injector.mjs#L517-L563)
+and [`41a4c0f` compatibility helper](https://github.com/Yeachan-Heo/oh-my-claudecode/blob/41a4c0f77144c5beb5f5f000a89cff379c680606/src/utils/user-skill-compat.ts#L48-L89).
+
 Hermes planning writes Markdown plans under the configured Hermes home rather
 than runtime JSON under `.omh/runtime/`. The artifact is user-facing: it includes
 the task statement, goals, non-goals, options, risks, acceptance criteria,
