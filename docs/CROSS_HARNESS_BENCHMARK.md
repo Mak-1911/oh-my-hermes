@@ -20,6 +20,12 @@ The checked-in corpus is [manifest.json](../benchmarks/cross-harness/v1/manifest
 
 The evaluator derives result status; an input cannot self-report a pass or score. Each fixture result binds its exact `adapter_id` and `capability_id`, source metadata and source digest, and command binding and binding digest. A command binding fixes the harness, argv, working-directory class, source id and commit, expected exit, and expected semantic result. Changed pins, digests, argv, or harness ids are rejected instead of scored.
 
+Production code hardcodes both the `v1` manifest digest and a digest of the parsed corpus identity as independent trust anchors. A caller cannot replace fixture predicates, source pins, commands, corpus ids, or metadata and make that replacement trusted by recomputing co-located digests. Parsing requires the declared digest to equal the built-in manifest anchor and the supplied payload to hash to that value. Evaluation and scoring then require the parsed corpus identity to match the second built-in anchor.
+
+`cross_harness_benchmark/v1` is immutable. Any corpus content change requires a new versioned benchmark directory and schema such as `v2`, new examples, and newly reviewed production trust anchors for that version. Never update the `v1` anchors to bless changed `v1` content in place.
+
+CLI JSON is bounded to 1,000,000 UTF-8 bytes, 64 levels, 10,000 containers, and 50,000 total nodes. The decoder rejects `NaN`, `Infinity`, and `-Infinity` as invalid JSON, converts decoder recursion failures to structured exit-2 errors, and applies the same byte limit to files and stdin. Oversize input returns `input_too_large`; excessive depth or structure returns `input_too_complex`.
+
 A result also contains `child_results`. Any child with `result: "fail"` makes that fixture fail even when the parent command says `observed_exit: 0`. Child aggregation is therefore stronger than a parent exit-code claim.
 
 ## Corpus
@@ -109,6 +115,6 @@ The benchmark command must create no `.omh` directory or runtime artifact in an 
 
 ## Privacy and reporting
 
-Keep corpus, submissions, and reports metadata-only. Never include raw user prompts, transcripts, absolute local paths, home directories, secrets, API keys, private keys, credentials, skill bodies, PII, or untrusted instruction text. The parser rejects common secret, absolute-path, script, and prompt-injection markers, but this is a guardrail rather than permission to include sensitive data. Use stable ids, relative repository metadata, capability ids, digests, reason codes, and bounded machine facts.
+Keep corpus, submissions, and reports metadata-only. Never include raw user prompts, transcripts, absolute local paths, home directories, secrets, API keys, private keys, credentials, skill bodies, PII, or untrusted instruction text. Caller-supplied corpus metadata is rejected before evaluation or reporting unless it passes both trust-anchor checks above. Submission metadata also rejects common secret, absolute-path, script, and prompt-injection markers, but these controls are guardrails rather than permission to include sensitive data. Benchmark validation rejections return reason codes and never echo the rejected value. Use stable ids, relative repository metadata, capability ids, digests, reason codes, and bounded machine facts.
 
 Offline source inspection, static metadata, and tests establish only their stated evidence class. In dashboards, issue reports, and automation, report the level and coverage with that class; never invent execution observation or a live-quality claim.

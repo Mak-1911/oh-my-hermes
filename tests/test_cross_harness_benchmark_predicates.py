@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 import unittest
 
 from src.quality.cross_harness_benchmark import (
+    Corpus,
+    Fixture,
+    FixtureOutcome,
     JsonValue,
-    corpus_digest,
+    _evaluate_fixture,
     evaluate_submission,
     parse_corpus,
 )
@@ -46,14 +50,22 @@ def _actual_machine(
     return _json_object(_json_object(results[index])["actual_machine"])
 
 
-def _refresh_corpus_digest(raw: dict[str, JsonValue]) -> None:
-    payload = {key: value for key, value in raw.items() if key != "corpus_digest"}
-    raw["corpus_digest"] = corpus_digest(payload)
+def _fixture_with_first_predicate(corpus: Corpus, value: JsonValue) -> Fixture:
+    fixture = corpus.fixtures[0]
+    predicate = fixture.predicates[0]
+    return replace(
+        fixture,
+        predicates=(replace(predicate, value=value), *fixture.predicates[1:]),
+    )
 
 
-def _first_predicate(raw_corpus: dict[str, JsonValue]) -> dict[str, JsonValue]:
-    first_fixture = _json_object(_json_array(raw_corpus["fixtures"])[0])
-    return _json_object(_json_array(first_fixture["expected_machine"])[0])
+def _evaluate_first_fixture(
+    corpus: Corpus, fixture: Fixture, submission: dict[str, JsonValue]
+) -> FixtureOutcome:
+    harness = submission["harness_id"]
+    assert isinstance(harness, str)
+    raw = _json_object(_json_array(submission["results"])[0])
+    return _evaluate_fixture(fixture, raw, corpus, harness)
 
 
 class CrossHarnessBenchmarkPredicateTests(unittest.TestCase):
@@ -91,16 +103,13 @@ class CrossHarnessBenchmarkPredicateTests(unittest.TestCase):
 
     def test_missing_key_does_not_satisfy_null_predicate(self) -> None:
         # Given: a valid corpus explicitly expects a present JSON null value.
-        raw_corpus = _load_corpus_data()
-        _first_predicate(raw_corpus)["value"] = None
-        _refresh_corpus_digest(raw_corpus)
-        corpus = parse_corpus(raw_corpus)
+        corpus = parse_corpus(_load_corpus_data())
+        fixture = _fixture_with_first_predicate(corpus, None)
         submission = _passing_submission()
-        submission["corpus_digest"] = corpus.digest
         del _actual_machine(submission)["selected_owner"]
 
         # When: the submission omits the predicate key entirely.
-        outcome = evaluate_submission(submission, corpus).outcomes[0]
+        outcome = _evaluate_first_fixture(corpus, fixture, submission)
 
         # Then: absence remains distinct from a present null value.
         self.assertEqual(
@@ -112,16 +121,13 @@ class CrossHarnessBenchmarkPredicateTests(unittest.TestCase):
         for scalar in (None, False, 0, 1.5, "codex"):
             with self.subTest(scalar=scalar):
                 # Given: the predicate and submitted fact contain the same JSON scalar.
-                raw_corpus = _load_corpus_data()
-                _first_predicate(raw_corpus)["value"] = scalar
-                _refresh_corpus_digest(raw_corpus)
-                corpus = parse_corpus(raw_corpus)
+                corpus = parse_corpus(_load_corpus_data())
+                fixture = _fixture_with_first_predicate(corpus, scalar)
                 submission = _passing_submission()
-                submission["corpus_digest"] = corpus.digest
                 _actual_machine(submission)["selected_owner"] = scalar
 
                 # When: exact predicate equality evaluates the matching fact.
-                outcome = evaluate_submission(submission, corpus).outcomes[0]
+                outcome = _evaluate_first_fixture(corpus, fixture, submission)
 
                 # Then: every valid JSON scalar remains supported.
                 self.assertEqual((outcome.status, outcome.reason_codes), ("pass", ()))

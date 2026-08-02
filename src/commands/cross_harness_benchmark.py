@@ -11,12 +11,17 @@ from typing import Final, Literal, assert_never
 from ..quality.cross_harness_benchmark import (
     BenchmarkValidationError,
     EvaluationReport,
-    JsonValue,
     ScoreReport,
     evaluate_submission,
     parse_corpus,
-    score_evaluation,
+    score_submission,
 )
+from ..quality.cross_harness_benchmark_input import (
+    MAX_INPUT_BYTES,
+    BenchmarkJsonInputError,
+    decode_benchmark_bytes,
+)
+from ..quality.cross_harness_benchmark_values import JsonValue
 
 
 INPUT_SCHEMA: Final = "cross_harness_benchmark_cli_input/v1"
@@ -58,49 +63,56 @@ def _run_command(args: argparse.Namespace, command: CommandName) -> int:
     try:
         benchmark_input = _read_input(args)
         corpus = parse_corpus(benchmark_input.corpus)
-        evaluation = evaluate_submission(benchmark_input.submission, corpus)
-        score = score_evaluation(evaluation, corpus)
-    except BenchmarkCliInputError as error:
+        match command:
+            case "validate":
+                evaluation = evaluate_submission(benchmark_input.submission, corpus)
+                payload = _validation_payload(evaluation)
+                status = 0
+            case "score":
+                score = score_submission(benchmark_input.submission, corpus)
+                payload = _score_payload(score)
+                status = 0 if score.certified else 1
+            case "report":
+                evaluation = evaluate_submission(benchmark_input.submission, corpus)
+                score = score_submission(benchmark_input.submission, corpus)
+                payload = _report_payload(
+                    benchmark_input.claim_boundary, evaluation, score
+                )
+                status = 0 if score.certified else 1
+            case unreachable:
+                assert_never(unreachable)
+    except (BenchmarkCliInputError, BenchmarkJsonInputError) as error:
         _print_json(_error_payloads((error.reason_code,)))
         return 2
     except BenchmarkValidationError as error:
         _print_json(_error_payloads(error.reason_codes))
         return 2
-    match command:
-        case "validate":
-            _print_json(_validation_payload(evaluation))
-            return 0
-        case "score":
-            _print_json(_score_payload(score))
-        case "report":
-            _print_json(
-                _report_payload(benchmark_input.claim_boundary, evaluation, score)
-            )
-        case unreachable:
-            assert_never(unreachable)
-    return 0 if score.certified else 1
+    _print_json(payload)
+    return status
 
 
 def _read_input(args: argparse.Namespace) -> BenchmarkCliInput:
-    input_path = args.input_file
+    input_path: str | None = args.input_file
     use_stdin = bool(args.stdin)
     if input_path is not None and use_stdin:
         raise BenchmarkCliInputError("conflicting_input")
-    if input_path is None and not use_stdin:
-        raise BenchmarkCliInputError("missing_input")
     if use_stdin:
-        text = sys.stdin.read()
-    else:
         try:
-            text = Path(input_path).read_text(encoding="utf-8")
+            encoded = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
+        except AttributeError:
+            try:
+                encoded = sys.stdin.read(MAX_INPUT_BYTES + 1).encode("utf-8")
+            except UnicodeEncodeError as error:
+                raise BenchmarkJsonInputError("invalid_utf8") from error
+    elif input_path is not None:
+        try:
+            with Path(input_path).open("rb") as stream:
+                encoded = stream.read(MAX_INPUT_BYTES + 1)
         except OSError as error:
             raise BenchmarkCliInputError("input_file_unavailable") from error
-        except UnicodeDecodeError as error:
-            raise BenchmarkCliInputError("invalid_utf8") from error
-    try:
-        value = json.loads(text)
-    except json.JSONDecodeError as error:
-        raise BenchmarkCliInputError("invalid_json") from error
+    else:
+        raise BenchmarkCliInputError("missing_input")
+    value = decode_benchmark_bytes(encoded)
     if not isinstance(value, dict):
         raise BenchmarkCliInputError("input_must_be_object")
     if set(value) != {"schema_version", "corpus", "submission"}:
@@ -129,12 +141,12 @@ def _validation_payload(evaluation: EvaluationReport) -> dict[str, JsonValue]:
 def _report_payload(
     claim_boundary: str, evaluation: EvaluationReport, score: ScoreReport
 ) -> dict[str, JsonValue]:
-    unsupported = [
+    unsupported: list[JsonValue] = [
         outcome.fixture_id
         for outcome in evaluation.outcomes
         if outcome.status == "unsupported"
     ]
-    unknowns = [
+    unknowns: list[JsonValue] = [
         outcome.fixture_id
         for outcome in evaluation.outcomes
         if outcome.status in {"unsupported", "partial"}
@@ -155,6 +167,16 @@ def _report_payload(
 
 
 def _score_payload(score: ScoreReport) -> dict[str, JsonValue]:
+    dimensions: list[JsonValue] = [
+        {
+            "dimension": dimension.dimension,
+            "earned": dimension.earned,
+            "available": dimension.available,
+            "supported": dimension.supported,
+            "fixtures": dimension.fixtures,
+        }
+        for dimension in score.dimensions
+    ]
     return {
         "schema_version": SCORE_SCHEMA,
         "total": score.total,
@@ -162,16 +184,7 @@ def _score_payload(score: ScoreReport) -> dict[str, JsonValue]:
         "certified": score.certified,
         "coverage_supported": score.coverage_supported,
         "coverage_total": score.coverage_total,
-        "dimensions": [
-            {
-                "dimension": dimension.dimension,
-                "earned": dimension.earned,
-                "available": dimension.available,
-                "supported": dimension.supported,
-                "fixtures": dimension.fixtures,
-            }
-            for dimension in score.dimensions
-        ],
+        "dimensions": dimensions,
         "reason_codes": list(score.reason_codes),
     }
 
@@ -185,8 +198,8 @@ def _evaluation_payload(evaluation: EvaluationReport) -> dict[str, JsonValue]:
     }
 
 
-def _outcomes_payload(evaluation: EvaluationReport) -> list[dict[str, JsonValue]]:
-    return [
+def _outcomes_payload(evaluation: EvaluationReport) -> list[JsonValue]:
+    outcomes: list[JsonValue] = [
         {
             "fixture_id": outcome.fixture_id,
             "dimension": outcome.dimension,
@@ -197,6 +210,7 @@ def _outcomes_payload(evaluation: EvaluationReport) -> list[dict[str, JsonValue]
         }
         for outcome in evaluation.outcomes
     ]
+    return outcomes
 
 
 def _error_payloads(reason_codes: tuple[str, ...]) -> dict[str, JsonValue]:

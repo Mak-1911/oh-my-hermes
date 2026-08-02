@@ -137,7 +137,9 @@ class CrossHarnessBenchmarkCliTests(unittest.TestCase):
         self,
     ) -> None:
         benchmark_input = _passing_input()
+        corpus = benchmark_input["corpus"]
         submission = benchmark_input["submission"]
+        assert isinstance(corpus, dict)
         assert isinstance(submission, dict)
         results = submission["results"]
         assert isinstance(results, list)
@@ -156,6 +158,7 @@ class CrossHarnessBenchmarkCliTests(unittest.TestCase):
         self.assertEqual(first_stdout, second_stdout)
         payload = json.loads(first_stdout)
         self.assertEqual(payload["schema_version"], "cross_harness_benchmark_report/v1")
+        self.assertEqual(payload["claim_boundary"], corpus["claim_boundary"])
         self.assertEqual(payload["coverage"]["unsupported"], 1)
         self.assertEqual(payload["unsupported"], ["model-explicit-selection"])
         self.assertEqual(payload["unknowns"], ["model-explicit-selection"])
@@ -182,7 +185,7 @@ class CrossHarnessBenchmarkCliTests(unittest.TestCase):
         self,
     ) -> None:
         class InterruptingStdin:
-            def read(self) -> str:
+            def read(self, _size: int = -1) -> str:
                 raise KeyboardInterrupt
 
         with TemporaryDirectory() as tmp:

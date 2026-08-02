@@ -11,7 +11,7 @@ from src.quality.cross_harness_benchmark import (
     ScoreReport,
     evaluate_submission,
     parse_corpus,
-    score_evaluation,
+    score_submission,
 )
 
 
@@ -57,7 +57,7 @@ def _evaluate(
         raise AssertionError(f"{name} must contain corpus and submission objects")
     parsed_corpus = parse_corpus(corpus)
     report = evaluate_submission(submission, parsed_corpus)
-    return report, score_evaluation(report, parsed_corpus), submission
+    return report, score_submission(submission, parsed_corpus), submission
 
 
 def _outcome_map(

@@ -107,8 +107,8 @@ class CrossHarnessBenchmarkManifestTests(unittest.TestCase):
             ("fail", ["predicate_mismatch"]),
         )
 
-    def test_real_cli_rejects_missing_key_for_null_predicate(self) -> None:
-        # Given: a complete envelope expects null but omits the corresponding fact.
+    def test_real_cli_rejects_recomputed_corpus_for_null_predicate(self) -> None:
+        # Given: a caller changes a frozen predicate and recomputes its digest.
         benchmark_input = _load_json_object(
             _BENCHMARK_DIR / "example-passing-submission.json"
         )
@@ -158,14 +158,10 @@ class CrossHarnessBenchmarkManifestTests(unittest.TestCase):
             env={**os.environ, "OMH_OUTPUT": "json"},
         )
 
-        # Then: the real CLI distinguishes absence from a present null.
-        self.assertEqual(completed.returncode, 0, completed.stderr)
+        # Then: the real CLI rejects the caller-owned corpus before evaluation.
+        self.assertEqual(completed.returncode, 2, completed.stderr)
         payload = json.loads(completed.stdout)
-        outcome = payload["outcomes"][0]
-        self.assertEqual(
-            (outcome["status"], outcome["reason_codes"]),
-            ("fail", ["predicate_mismatch"]),
-        )
+        self.assertEqual(payload["reason_codes"], ["untrusted_corpus_digest"])
 
     def test_manifest_source_path_is_available_locally_and_at_the_pinned_commit(
         self,

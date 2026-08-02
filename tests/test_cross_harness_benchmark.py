@@ -10,7 +10,7 @@ from src.quality.cross_harness_benchmark import (
     corpus_digest,
     evaluate_submission,
     parse_corpus,
-    score_evaluation,
+    score_submission,
 )
 
 
@@ -57,30 +57,30 @@ def _refresh_corpus_digest(raw: dict[str, JsonValue]) -> None:
 
 
 class CrossHarnessBenchmarkTests(unittest.TestCase):
-    def test_corpus_requires_fifteen_fixtures(self) -> None:
+    def test_recomputed_corpus_cannot_remove_a_fixture(self) -> None:
         raw = _load_corpus_data()
         _json_array(raw["fixtures"]).pop()
         _refresh_corpus_digest(raw)
 
-        with self.assertRaisesRegex(BenchmarkValidationError, "invalid_fixture_corpus"):
+        with self.assertRaisesRegex(BenchmarkValidationError, "untrusted_corpus_digest"):
             parse_corpus(raw)
 
-    def test_corpus_requires_unique_fixture_ids(self) -> None:
+    def test_recomputed_corpus_cannot_duplicate_fixture_ids(self) -> None:
         raw = _load_corpus_data()
         fixtures = _json_array(raw["fixtures"])
         _json_object(fixtures[1])["id"] = _json_object(fixtures[0])["id"]
         _refresh_corpus_digest(raw)
 
-        with self.assertRaisesRegex(BenchmarkValidationError, "duplicate_fixture"):
+        with self.assertRaisesRegex(BenchmarkValidationError, "untrusted_corpus_digest"):
             parse_corpus(raw)
 
-    def test_corpus_requires_dimension_weights_total_100(self) -> None:
+    def test_recomputed_corpus_cannot_change_dimension_weights(self) -> None:
         raw = _load_corpus_data()
         dimensions = _json_array(raw["dimensions"])
         _json_object(dimensions[0])["weight"] = 9
         _refresh_corpus_digest(raw)
 
-        with self.assertRaisesRegex(BenchmarkValidationError, "invalid_dimension_weights"):
+        with self.assertRaisesRegex(BenchmarkValidationError, "untrusted_corpus_digest"):
             parse_corpus(raw)
 
     def test_extra_corpus_fields_are_rejected(self) -> None:
@@ -97,7 +97,7 @@ class CrossHarnessBenchmarkTests(unittest.TestCase):
         with self.assertRaisesRegex(BenchmarkValidationError, "wrong_type"):
             evaluate_submission(submission, parse_corpus(_load_corpus_data()))
 
-    def test_json_booleans_are_never_corpus_integer_fields(self) -> None:
+    def test_recomputed_corpus_cannot_replace_integers_with_booleans(self) -> None:
         for section, field in (("dimensions", "weight"), ("dimensions", "minimum"), ("command_bindings", "expected_exit")):
             for value in (False, True):
                 with self.subTest(field=field, value=value):
@@ -106,7 +106,9 @@ class CrossHarnessBenchmarkTests(unittest.TestCase):
                     _json_object(entries[0])[field] = value
                     _refresh_corpus_digest(raw)
 
-                    with self.assertRaisesRegex(BenchmarkValidationError, "wrong_type"):
+                    with self.assertRaisesRegex(
+                        BenchmarkValidationError, "untrusted_corpus_digest"
+                    ):
                         parse_corpus(raw)
 
     def test_json_booleans_are_never_submission_integer_fields(self) -> None:
@@ -175,7 +177,7 @@ class CrossHarnessBenchmarkTests(unittest.TestCase):
         _submission_result(submission, dynamic_index)["runtime_observation"] = "prepared_not_observed"
         report = evaluate_submission(submission, corpus)
         outcome = report.outcomes[dynamic_index]
-        score = score_evaluation(report, corpus)
+        score = score_submission(submission, corpus)
 
         self.assertEqual((outcome.status, outcome.reason_codes), ("partial", ("runtime_not_observed",)))
         self.assertEqual((score.total, score.level, score.certified), (95, 3, False))
@@ -246,7 +248,7 @@ class CrossHarnessBenchmarkTests(unittest.TestCase):
         submission = _passing_submission()
         _submission_result(submission)["capability_id"] = "missing"
 
-        score = score_evaluation(evaluate_submission(submission, corpus), corpus)
+        score = score_submission(submission, corpus)
 
         self.assertEqual((score.total, score.level, score.certified), (90, 3, False))
 
@@ -260,7 +262,7 @@ class CrossHarnessBenchmarkTests(unittest.TestCase):
                 if fixture.dimension in failed:
                     _result_object(submission, "actual_machine", index).clear()
                     _result_object(submission, "facts", index).clear()
-            return score_evaluation(evaluate_submission(submission, corpus), corpus).level
+            return score_submission(submission, corpus).level
 
         for failed_dimensions, expected_level in ((10, 0), (9, 1), (5, 2), (1, 3)):
             with self.subTest(expected_level=expected_level):
@@ -275,7 +277,7 @@ class CrossHarnessBenchmarkTests(unittest.TestCase):
                 result["evidence_class"] = "test"
                 result["runtime_observation"] = "prepared_not_observed"
         report = evaluate_submission(level_four, corpus)
-        score = score_evaluation(report, corpus)
+        score = score_submission(level_four, corpus)
 
         self.assertEqual(
             tuple((outcome.status, outcome.runtime_observed) for outcome in report.outcomes),
@@ -286,7 +288,7 @@ class CrossHarnessBenchmarkTests(unittest.TestCase):
     def test_all_pass_with_observed_dynamic_runtime_reaches_level_five(self) -> None:
         corpus = parse_corpus(_load_corpus_data())
 
-        score = score_evaluation(evaluate_submission(_passing_submission(), corpus), corpus)
+        score = score_submission(_passing_submission(), corpus)
 
         self.assertEqual((score.total, score.level, score.certified), (100, 5, True))
 
@@ -296,7 +298,7 @@ class CrossHarnessBenchmarkTests(unittest.TestCase):
         p0_index = next(index for index, item in enumerate(corpus.fixtures) if item.priority == "P0")
         _result_object(submission, "actual_machine", p0_index).clear()
 
-        score = score_evaluation(evaluate_submission(submission, corpus), corpus)
+        score = score_submission(submission, corpus)
 
         self.assertFalse(score.certified)
         self.assertIn("p0_failure", score.reason_codes)
