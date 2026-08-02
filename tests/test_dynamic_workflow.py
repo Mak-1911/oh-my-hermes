@@ -19,7 +19,12 @@ from omh.dynamic_workflow import (
     write_dynamic_coding_workflow,
 )
 from omh.paths import resolve_paths
-from omh.coding.executor_capability_snapshots import build_executor_capability_snapshot, write_executor_capability_snapshot
+from omh.coding.executor_capability_snapshots import (
+    KNOWN_CAPABILITY_NAMES,
+    LOCAL_WORKFLOW_CAPABILITY_NAME,
+    build_executor_capability_snapshot,
+    write_executor_capability_snapshot,
+)
 
 
 class DynamicWorkflowTests(unittest.TestCase):
@@ -48,6 +53,9 @@ class DynamicWorkflowTests(unittest.TestCase):
     def test_default_workflow_prepares_dynamic_target_plan_without_claiming_execution(self) -> None:
         workflow = build_dynamic_coding_workflow("Build the dynamic coding orchestration feature")
 
+        self.assertEqual(LOCAL_WORKFLOW_CAPABILITY_NAME, "local_workflow")
+        self.assertNotIn(LOCAL_WORKFLOW_CAPABILITY_NAME, KNOWN_CAPABILITY_NAMES)
+
         self.assertEqual(workflow["schema_version"], DYNAMIC_WORKFLOW_SCHEMA_VERSION)
         self.assertEqual(workflow["status"], "prepared_not_observed")
         targets = {stage["target"] for stage in workflow["stages"]}
@@ -75,6 +83,19 @@ class DynamicWorkflowTests(unittest.TestCase):
             snapshot = stage["executor_capability_snapshot"]
             self.assertEqual(snapshot["schema_version"], "executor_capability_snapshot/v1")
             self.assertEqual(snapshot["executor"], stage["target"])
+            self.assertEqual(
+                set(snapshot["capabilities"]),
+                {
+                    "background_work",
+                    "browser_or_computer_use",
+                    "long_running_continuation",
+                    "parallel_agents",
+                    "scheduled_or_recurring_work",
+                    "visual_qa",
+                    "worktree_isolation",
+                },
+            )
+            self.assertNotIn(LOCAL_WORKFLOW_CAPABILITY_NAME, snapshot["capabilities"])
             self.assertTrue(
                 all(capability["status"] == "unknown" for capability in snapshot["capabilities"].values())
             )

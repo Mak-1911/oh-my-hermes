@@ -125,3 +125,117 @@ class ExecutorCapabilitySnapshotTests(unittest.TestCase):
                     }
                 },
             )
+
+    def test_local_workflow_records_replay_for_observed_and_unavailable_statuses(self) -> None:
+        observed = build_executor_capability_snapshot(
+            executor="codex",
+            capabilities={
+                "local_workflow": {
+                    "status": "host_observed",
+                    "scope": {
+                        "profile": "codex",
+                        "skill_id": "ultrawork",
+                        "environment": "local_codex",
+                    },
+                    "evidence_ref": "operator:codex-skill-catalog",
+                    "observed_at": "2026-08-02T00:00:00Z",
+                }
+            },
+            recorded_at="2026-08-02T00:00:01Z",
+        )
+        unavailable = build_executor_capability_snapshot(
+            executor="codex",
+            capabilities={
+                "local_workflow": {
+                    "status": "unavailable",
+                    "scope": {
+                        "profile": "codex",
+                        "skill_id": "ultrawork",
+                        "environment": "local_codex",
+                    },
+                    "evidence_ref": "operator:codex-skill-catalog",
+                    "observed_at": "2026-08-02T00:00:00+00:00",
+                }
+            },
+            recorded_at="2026-08-02T00:00:01Z",
+        )
+        unknown = build_executor_capability_snapshot(
+            executor="codex",
+            capabilities={"local_workflow": {"status": "unknown"}},
+            recorded_at="2026-08-02T00:00:01Z",
+        )
+        legacy = {
+            "schema_version": "executor_capability_snapshot/v1",
+            "executor": "codex",
+            "recorded_at": "2026-07-15T00:00:01Z",
+            "capabilities": {"parallel_agents": {"status": "unknown"}},
+        }
+
+        with TemporaryDirectory() as tmp:
+            observed_path = Path(tmp) / "observed.json"
+            unavailable_path = Path(tmp) / "unavailable.json"
+            unknown_path = Path(tmp) / "unknown.json"
+            legacy_path = Path(tmp) / "legacy.json"
+            write_executor_capability_snapshot(observed_path, observed)
+            write_executor_capability_snapshot(unavailable_path, unavailable)
+            write_executor_capability_snapshot(unknown_path, unknown)
+            write_executor_capability_snapshot(legacy_path, legacy)
+
+            self.assertEqual(read_executor_capability_snapshot(observed_path), observed)
+            self.assertEqual(read_executor_capability_snapshot(unavailable_path), unavailable)
+            self.assertEqual(read_executor_capability_snapshot(unknown_path), unknown)
+            self.assertEqual(read_executor_capability_snapshot(legacy_path), legacy)
+
+    def test_local_workflow_observation_requires_exact_scope_and_evidence(self) -> None:
+        valid = {
+            "status": "host_observed",
+            "scope": {
+                "profile": "codex",
+                "skill_id": "ultrawork",
+                "environment": "local_codex",
+            },
+            "evidence_ref": "operator:codex-skill-catalog",
+            "observed_at": "2026-08-02T00:00:00Z",
+        }
+        for field in ("profile", "skill_id", "environment"):
+            malformed = {**valid, "scope": {key: value for key, value in valid["scope"].items() if key != field}}
+            with self.assertRaisesRegex(ExecutorCapabilitySnapshotError, "scope"):
+                build_executor_capability_snapshot(executor="codex", capabilities={"local_workflow": malformed})
+        malformed = {**valid, "scope": {**valid["scope"], "host": "local"}}
+        with self.assertRaisesRegex(ExecutorCapabilitySnapshotError, "scope"):
+            build_executor_capability_snapshot(executor="codex", capabilities={"local_workflow": malformed})
+        malformed = {**valid, "evidence_ref": ""}
+        with self.assertRaisesRegex(ExecutorCapabilitySnapshotError, "evidence_ref"):
+            build_executor_capability_snapshot(executor="codex", capabilities={"local_workflow": malformed})
+        malformed = {**valid, "observed_at": "2026-08-02T00:00:00"}
+        with self.assertRaisesRegex(ExecutorCapabilitySnapshotError, "observed_at"):
+            build_executor_capability_snapshot(executor="codex", capabilities={"local_workflow": malformed})
+
+    def test_local_workflow_unavailable_rejects_missing_or_sensitive_evidence(self) -> None:
+        valid = {
+            "status": "unavailable",
+            "scope": {
+                "profile": "codex",
+                "skill_id": "ultrawork",
+                "environment": "local_codex",
+            },
+            "evidence_ref": "operator:codex-skill-catalog",
+            "observed_at": "2026-08-02T00:00:00Z",
+        }
+        for field in ("scope", "evidence_ref", "observed_at"):
+            malformed = {key: value for key, value in valid.items() if key != field}
+            with self.assertRaises(ExecutorCapabilitySnapshotError):
+                build_executor_capability_snapshot(executor="codex", capabilities={"local_workflow": malformed})
+        malformed = {**valid, "evidence_ref": "operator:Bearer secret"}
+        with self.assertRaisesRegex(ExecutorCapabilitySnapshotError, "sensitive metadata"):
+            build_executor_capability_snapshot(executor="codex", capabilities={"local_workflow": malformed})
+        malformed = {**valid, "scope": {**valid["scope"], "environment": "github_pat_secret"}}
+        with self.assertRaisesRegex(ExecutorCapabilitySnapshotError, "sensitive metadata"):
+            build_executor_capability_snapshot(executor="codex", capabilities={"local_workflow": malformed})
+        malformed = {**valid, "evidence_ref": "/Users/alice/private-worktree/evidence.json"}
+        with self.assertRaisesRegex(ExecutorCapabilitySnapshotError, "local path"):
+            build_executor_capability_snapshot(executor="codex", capabilities={"local_workflow": malformed})
+        with self.assertRaisesRegex(ExecutorCapabilitySnapshotError, "status"):
+            build_executor_capability_snapshot(
+                executor="codex", capabilities={"local_workflow": {"status": "prepared"}}
+            )

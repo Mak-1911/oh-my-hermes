@@ -11,6 +11,7 @@ from ..local_store import atomic_write_json, read_json_object, utc_now
 
 EXECUTOR_CAPABILITY_SNAPSHOT_SCHEMA_VERSION: Final = "executor_capability_snapshot/v1"
 CAPABILITY_STATUSES: Final = frozenset({"prepared", "host_observed", "unavailable", "unknown"})
+LOCAL_WORKFLOW_CAPABILITY_NAME: Final = "local_workflow"
 KNOWN_CAPABILITY_NAMES: Final = frozenset(
     {
         "parallel_agents",
@@ -52,9 +53,11 @@ _MAX_EXECUTOR_LENGTH: Final = 80
 _MAX_EVIDENCE_REF_LENGTH: Final = 240
 _MAX_SCOPE_ITEMS: Final = 12
 _MAX_SCOPE_TEXT_LENGTH: Final = 160
+_LOCAL_WORKFLOW_SCOPE_KEYS: Final = frozenset({"profile", "skill_id", "environment"})
 _FORBIDDEN_SCOPE_KEY_TERMS: Final = ("raw", "prompt", "log", "transcript", "reasoning")
 _SENSITIVE_METADATA_PATTERNS: Final = ("api_key", "apikey", "authorization:", "bearer ", "ghp_", "github_pat_", "password", "private-token", "secret", "token", "xoxb-", "xoxp-")
 _SENSITIVE_METADATA_TOKEN_RE: Final = re.compile(r"(?:^|[\s=:,])(sk-|gh[opsu]_)", re.IGNORECASE)
+_LOCAL_PATH_RE: Final = re.compile(r"^(?:/|~[/\\]|[a-z]:[/\\]|file://)", re.IGNORECASE)
 
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -168,6 +171,9 @@ def _root_errors(snapshot: Mapping[str, JsonValue]) -> list[str]:
 def _capability_errors(capabilities: Mapping[str, JsonValue]) -> list[str]:
     errors: list[str] = []
     for name, value in capabilities.items():
+        if name == LOCAL_WORKFLOW_CAPABILITY_NAME:
+            errors.extend(_local_workflow_errors(value))
+            continue
         if name not in KNOWN_CAPABILITY_NAMES:
             errors.append(f"unsupported capability name: {name}")
             continue
@@ -177,7 +183,7 @@ def _capability_errors(capabilities: Mapping[str, JsonValue]) -> list[str]:
         status = value.get("status")
         match status:
             case "host_observed":
-                errors.extend(_host_observed_errors(name, value))
+                errors.extend(_observed_capability_errors(name, value, status="host_observed"))
             case "prepared" | "unavailable" | "unknown":
                 errors.extend(_status_only_errors(name, value))
             case _:
@@ -185,20 +191,40 @@ def _capability_errors(capabilities: Mapping[str, JsonValue]) -> list[str]:
     return errors
 
 
-def _host_observed_errors(name: str, capability: Mapping[str, JsonValue]) -> list[str]:
+def _local_workflow_errors(capability: JsonValue) -> list[str]:
+    name = LOCAL_WORKFLOW_CAPABILITY_NAME
+    if not isinstance(capability, Mapping):
+        return [f"{name} capability must be a mapping"]
+    status = capability.get("status")
+    match status:
+        case "host_observed" | "unavailable":
+            errors = _observed_capability_errors(name, capability, status=status)
+            scope = capability.get("scope")
+            if isinstance(scope, Mapping) and set(scope) != _LOCAL_WORKFLOW_SCOPE_KEYS:
+                errors.append(f"{name} scope must contain exactly profile, skill_id, and environment")
+            if _looks_like_local_path(capability.get("evidence_ref")):
+                errors.append(f"{name} evidence_ref must not contain a local path")
+            return errors
+        case "unknown":
+            return _status_only_errors(name, capability)
+        case _:
+            return [f"{name} capability status must be one of host_observed, unavailable, unknown"]
+
+
+def _observed_capability_errors(name: str, capability: Mapping[str, JsonValue], *, status: str) -> list[str]:
     errors = _unexpected_capability_field_errors(name, capability, _OBSERVED_CAPABILITY_FIELDS)
     scope = capability.get("scope")
     if not isinstance(scope, Mapping) or not scope:
-        errors.append(f"{name} host_observed capability requires a nonempty bounded scope mapping")
+        errors.append(f"{name} {status} capability requires a nonempty bounded scope mapping")
     else:
         errors.extend(_scope_errors(name, scope))
     evidence_ref = capability.get("evidence_ref")
     if not isinstance(evidence_ref, str) or not evidence_ref.strip() or len(evidence_ref.strip()) > _MAX_EVIDENCE_REF_LENGTH:
-        errors.append(f"{name} host_observed capability requires a nonempty evidence_ref")
+        errors.append(f"{name} {status} capability requires a nonempty evidence_ref")
     elif _looks_sensitive_metadata(evidence_ref):
-        errors.append(f"{name} host_observed capability evidence_ref must not contain sensitive metadata")
+        errors.append(f"{name} {status} capability evidence_ref must not contain sensitive metadata")
     if not _is_timestamp(capability.get("observed_at")):
-        errors.append(f"{name} host_observed capability requires an observed_at timestamp")
+        errors.append(f"{name} {status} capability requires an observed_at timestamp")
     return errors
 
 
@@ -259,3 +285,7 @@ def _is_timestamp(value: JsonValue | None) -> bool:
 
 def _looks_sensitive_metadata(value: str) -> bool:
     return any(pattern in value.casefold() for pattern in _SENSITIVE_METADATA_PATTERNS) or bool(_SENSITIVE_METADATA_TOKEN_RE.search(value))
+
+
+def _looks_like_local_path(value: JsonValue | None) -> bool:
+    return isinstance(value, str) and _LOCAL_PATH_RE.search(value.strip()) is not None
