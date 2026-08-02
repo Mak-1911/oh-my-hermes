@@ -1,3 +1,4 @@
+# noqa: SIZE_OK -- Central argparse registry intentionally keeps all command wiring cohesive and auditable.
 from __future__ import annotations
 
 import argparse
@@ -177,6 +178,7 @@ from .state import _add_state_commands, cmd_state_clear, cmd_state_finish, cmd_s
 from .use_cases import _add_cases_commands, cmd_cases_inspect, cmd_cases_list, cmd_cases_recommend
 from .visual import _add_visual_commands, cmd_visual_observe, cmd_visual_prompt_card
 from .adapter_quality import _add_adapter_quality_commands
+from .cross_harness_benchmark import _add_benchmark_commands
 from .quality_evidence import _add_quality_evidence_commands
 from .web_qa import _add_web_qa_commands, cmd_web_qa_observe_capture, cmd_web_qa_package, cmd_web_qa_record_verdict
 from .worktree import cmd_worktree_bind, cmd_worktree_list, _add_worktree_commands
@@ -293,6 +295,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_materials_commands(sub)
     _add_visual_commands(sub)
     _add_adapter_quality_commands(sub)
+    _add_benchmark_commands(sub)
     _add_quality_evidence_commands(sub)
     _add_web_qa_commands(sub)
     _add_worktree_commands(sub)
