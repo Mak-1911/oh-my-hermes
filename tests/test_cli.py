@@ -317,6 +317,179 @@ class CliTests(unittest.TestCase):
             self.assertEqual(stderr, "")
             self.assertIn("snapshot.execution is forbidden metadata", json.loads(stdout)["errors"])
 
+    def test_local_workflow_capability_snapshot_record_inspect_validate(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+            capabilities_path = root / "local-workflow-capabilities.json"
+            capabilities_path.write_text(
+                json.dumps(
+                    {
+                        "local_workflow": {
+                            "status": "host_observed",
+                            "scope": {
+                                "profile": "codex",
+                                "skill_id": "ultrawork",
+                                "environment": "local_codex",
+                            },
+                            "evidence_ref": "operator:codex-skill-catalog",
+                            "observed_at": "2026-08-02T00:00:00Z",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            status, stdout, stderr = run_cli(
+                base
+                + [
+                    "coding",
+                    "capability-snapshot",
+                    "record",
+                    "--executor",
+                    "codex",
+                    "--capabilities-json",
+                    str(capabilities_path),
+                    "--recorded-at",
+                    "2026-08-02T00:00:01Z",
+                ]
+            )
+
+            self.assertEqual((status, stderr), (0, ""))
+            recorded = json.loads(stdout)
+            self.assertEqual(recorded["snapshot"]["capabilities"]["local_workflow"]["status"], "host_observed")
+
+            status, stdout, stderr = run_cli(
+                base + ["coding", "capability-snapshot", "inspect", "--executor", "codex"]
+            )
+            self.assertEqual((status, stderr), (0, ""))
+            self.assertEqual(json.loads(stdout)["snapshot"], recorded["snapshot"])
+
+            status, stdout, stderr = run_cli(
+                base + ["coding", "capability-snapshot", "validate", "--executor", "codex"]
+            )
+            self.assertEqual((status, stderr), (0, ""))
+            self.assertTrue(json.loads(stdout)["valid"])
+
+            capabilities_path.write_text(
+                json.dumps({"local_workflow": {"status": "unavailable", "scope": {"profile": "codex"}}}),
+                encoding="utf-8",
+            )
+            status, _, stderr = run_cli(
+                base
+                + [
+                    "coding",
+                    "capability-snapshot",
+                    "record",
+                    "--executor",
+                    "codex",
+                    "--capabilities-json",
+                    str(capabilities_path),
+                ]
+            )
+            self.assertNotEqual(status, 0)
+            self.assertIn("scope", stderr)
+
+    def test_coding_delegate_local_workflow_profile_matrix(self) -> None:
+        cases = (
+            ("codex", "$ai-slop-cleaner clean delegation code", "executor_handoff", "ai-slop-cleaner", "command_template", "$ai-slop-cleaner {message}", True),
+            ("omx-runtime", "$ultragoal complete the goal", "runtime_handoff", "ultragoal", "display_only", "$ultragoal {message}", False),
+            ("omo-runtime", "$ultragoal complete the goal", "runtime_handoff", "ultragoal", "skill_reference", "", False),
+            ("omc-runtime", "$ultragoal complete the goal", "runtime_handoff", "ultragoal", "descriptor_only", "", False),
+            ("hermes", "$ultragoal complete the goal", "runtime_handoff", "ultragoal", "display_only", "/ulw-goal {message}", False),
+        )
+
+        for profile, message, lane, workflow, mode, template, handoff_dispatchable in cases:
+            with self.subTest(profile=profile):
+                status, stdout, stderr = run_cli(["coding", "delegate", "--executor", profile, message])
+
+                self.assertEqual((status, stderr), (0, ""))
+                payload = json.loads(stdout)
+                binding = payload[lane]["executor_local_workflow"]
+                self.assertEqual(binding["schema_version"], "executor_local_workflow/v1")
+                self.assertEqual((binding["profile"], binding["status"]), (profile, "unknown"))
+                self.assertEqual((binding["routed_workflow"], binding["candidate"]["skill_id"]), (workflow, workflow))
+                self.assertEqual(binding["candidate"]["invocation"]["mode"], mode)
+                self.assertEqual(binding["candidate"]["invocation"]["template"], template)
+                self.assertEqual(binding["dispatchability"]["handoff_dispatchable"], handoff_dispatchable)
+                self.assertFalse(binding["dispatchability"]["candidate_invocation_dispatchable"])
+                self.assertEqual(payload["dispatch_policy"], "ask_before_dispatch" if profile == "codex" else "prepare_only")
+                self.assertEqual(payload[lane]["dispatchable"], handoff_dispatchable)
+                if profile == "codex":
+                    self.assertEqual(payload[lane]["codex_invocation"]["dispatch_text_template"], "{message}")
+
+        for profile in ("claude-code", "generic"):
+            with self.subTest(profile=profile):
+                status, stdout, stderr = run_cli(["coding", "delegate", "--executor", profile, "$ulw complete the goal"])
+
+                self.assertEqual((status, stderr), (0, ""))
+                payload = json.loads(stdout)
+                self.assertNotIn("executor_local_workflow", payload["prompt_handoff"])
+                self.assertEqual((payload["dispatch_policy"], payload["dispatchable"]), ("prepare_only", False))
+
+    def test_local_workflow_matching_and_mismatched_observations(self) -> None:
+        observations = (
+            ("matching", "host_observed", "codex", "ai-slop-cleaner", "observed_available", True),
+            ("profile-mismatch", "host_observed", "omx-runtime", "ai-slop-cleaner", "unknown", False),
+            ("skill-mismatch", "host_observed", "codex", "ultragoal", "unknown", False),
+            ("unavailable", "unavailable", "codex", "ai-slop-cleaner", "observed_unavailable", False),
+        )
+
+        for name, observed_status, observed_profile, observed_skill, expected_status, candidate_dispatchable in observations:
+            with self.subTest(name=name), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                omh_home = root / ".omh"
+                capabilities = root / "capabilities.json"
+                capabilities.write_text(
+                    json.dumps(
+                        {
+                            "local_workflow": {
+                                "status": observed_status,
+                                "scope": {
+                                    "profile": observed_profile,
+                                    "skill_id": observed_skill,
+                                    "environment": "test_host",
+                                },
+                                "evidence_ref": f"operator:{name}",
+                                "observed_at": "2026-08-02T00:00:00Z",
+                            }
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                base = ["--omh-home", str(omh_home)]
+                status, _, stderr = run_cli(
+                    base
+                    + [
+                        "coding",
+                        "capability-snapshot",
+                        "record",
+                        "--executor",
+                        "codex",
+                        "--capabilities-json",
+                        str(capabilities),
+                        "--recorded-at",
+                        "2026-08-02T00:00:01Z",
+                    ]
+                )
+                self.assertEqual((status, stderr), (0, ""))
+
+                status, stdout, stderr = run_cli(
+                    base + ["coding", "delegate", "--executor", "codex", "$ai-slop-cleaner clean delegation code"]
+                )
+
+                self.assertEqual((status, stderr), (0, ""))
+                handoff = json.loads(stdout)["executor_handoff"]
+                binding = handoff["executor_local_workflow"]
+                self.assertEqual(binding["status"], expected_status)
+                self.assertEqual(binding["dispatchability"]["candidate_invocation_dispatchable"], candidate_dispatchable)
+                self.assertEqual(
+                    handoff["codex_invocation"]["dispatch_text_template"],
+                    "$ai-slop-cleaner {message}" if candidate_dispatchable else "{message}",
+                )
+                self.assertEqual(handoff["dispatch_policy"], "ask_before_dispatch")
+                self.assertEqual(handoff["status"], "prepared_not_observed")
+
     def test_no_arg_cli_shows_welcome_instead_of_error(self) -> None:
         status, stdout, stderr = run_cli([], output_json=False)
 
@@ -7901,7 +8074,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(handoff["codex_skill"], "$ai-slop-cleaner")
         self.assertEqual(handoff["codex_invocation"]["syntax"], "$skill")
         self.assertEqual(handoff["codex_invocation"]["skill"], handoff["codex_skill"])
-        self.assertEqual(handoff["codex_invocation"]["dispatch_text_template"], "$ai-slop-cleaner {message}")
+        self.assertEqual(handoff["codex_invocation"]["dispatch_text_template"], "{message}")
         strategy = handoff["executor_local_capability_strategy"]
         self.assertEqual(strategy["schema_version"], "executor_local_capability_strategy/v1")
         self.assertEqual(strategy["profile"], "codex")
@@ -7932,7 +8105,6 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(handoff["executor_readiness"]["profile"], "codex")
         self.assertEqual(handoff["execution_brief"]["recommended_workflow"], "ai-slop-cleaner")
         self.assertIn("{message}", handoff["prompt_template"])
-        self.assertIn("Use Codex skill: `$ai-slop-cleaner`", handoff["prompt_template"])
         self.assertIn("Local capability discovery:", handoff["prompt_template"])
         self.assertIn("Codex-native skills/workflows", handoff["prompt_template"])
         self.assertIn("installed OMX/oh-my workflow packs", handoff["prompt_template"])
@@ -8980,7 +9152,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             handoff = record["executor_handoff"]
             self.assertEqual(handoff["executor_target"], "codex")
             self.assertEqual(handoff["codex_skill"], "$ai-slop-cleaner")
-            self.assertEqual(handoff["codex_invocation"]["dispatch_text_template"], "$ai-slop-cleaner {message}")
+            self.assertEqual(handoff["codex_invocation"]["dispatch_text_template"], "{message}")
             self.assertEqual(handoff["executor_local_capability_strategy"]["profile"], "codex")
             self.assertFalse(handoff["executor_local_capability_strategy"]["installation_observed"])
             self.assertIn("$ultragoal", handoff["executor_local_capability_strategy"]["examples_if_available"]["codex"])

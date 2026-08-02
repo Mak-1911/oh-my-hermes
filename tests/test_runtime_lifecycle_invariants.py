@@ -8,18 +8,100 @@ from tempfile import TemporaryDirectory
 from _local_package import load_local_package
 
 load_local_package()
+from omh.coding.executor_capability_snapshots import (
+    build_executor_capability_snapshot,
+    executor_capability_snapshot_path,
+    write_executor_capability_snapshot,
+)
 from omh.coding_lifecycle import record_codex_dispatch, record_codex_result, record_codex_verification
 from omh.paths import resolve_paths
 from omh.runtime_artifacts import summarize_delegated_coding_status, validate_runtime
 from omh.wrapper_sessions import (
+    build_wrapper_session_status,
     create_or_resume_wrapper_session,
     prepare_wrapper_session_handoff,
     record_plan_decision,
     select_wrapper_session_executor,
+    validate_wrapper_sessions,
 )
 
 
 class RuntimeLifecycleInvariantTests(unittest.TestCase):
+    def test_local_workflow_metadata_never_proves_execution(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            snapshot = build_executor_capability_snapshot(
+                executor="codex",
+                capabilities={
+                    "local_workflow": {
+                        "status": "host_observed",
+                        "scope": {
+                            "profile": "codex",
+                            "skill_id": "ai-slop-cleaner",
+                            "environment": "test_host",
+                        },
+                        "evidence_ref": "operator:lifecycle-probe",
+                        "observed_at": "2026-08-02T00:00:00Z",
+                    }
+                },
+                recorded_at="2026-08-02T00:00:01Z",
+            )
+            snapshot_path = executor_capability_snapshot_path(
+                paths.omh_home / "coding" / "executor-capability-snapshots",
+                "codex",
+            )
+            write_executor_capability_snapshot(snapshot_path, snapshot)
+            message = "$ai-slop-cleaner clean delegation code"
+            started = create_or_resume_wrapper_session(paths, message, source="discord")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            select_wrapper_session_executor(paths, session_id, "codex")
+
+            prepared = prepare_wrapper_session_handoff(paths, session_id, message)
+            run_id = str(prepared["session"]["current_run_id"])
+            binding = prepared["handoff"]["coding_delegation"]["executor_handoff"]["executor_local_workflow"]
+            status = summarize_delegated_coding_status(paths, run_id)
+
+            self.assertEqual(binding["status"], "observed_available")
+            self.assertTrue(binding["dispatchability"]["candidate_invocation_dispatchable"])
+            self.assertFalse(status["execution"]["observed"])
+            self.assertFalse(status["verification"]["observed"])
+            self.assertEqual(status["next_action"], "dispatch_to_executor")
+            self.assertTrue(validate_runtime(paths, run_id)["ok"])
+
+    def test_local_workflow_wrong_lane_profile_and_replay_are_safe(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            message = "$ultragoal complete the goal"
+            started = create_or_resume_wrapper_session(paths, message, source="slack")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            select_wrapper_session_executor(paths, session_id, "hermes")
+            prepare_wrapper_session_handoff(paths, session_id, message)
+
+            first = build_wrapper_session_status(paths, session_id)
+            second = build_wrapper_session_status(paths, session_id)
+
+            self.assertEqual(first, second)
+            self.assertEqual(first["current_run_id"], "")
+            self.assertEqual(validate_runtime(paths)["runs"], [])
+
+            session_path = paths.runtime_wrapper_sessions_dir / session_id / "session.json"
+            session = json.loads(session_path.read_text(encoding="utf-8"))
+            session["runtime_handoff"]["executor_local_workflow"]["profile"] = "codex"
+            session_path.write_text(json.dumps(session, sort_keys=True), encoding="utf-8")
+
+            validation = validate_wrapper_sessions(paths, session_id)
+            replay = build_wrapper_session_status(paths, session_id)
+
+            self.assertFalse(validation["ok"])
+            self.assertIn("profile", json.dumps(validation))
+            self.assertNotIn(
+                "executor_local_workflow",
+                replay["coding_briefing"]["work_summary"]["handoff_contract"],
+            )
+            self.assertEqual(replay["current_run_id"], "")
+
     def test_codex_session_link_preserves_prepared_not_observed_boundary(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")

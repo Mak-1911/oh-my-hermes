@@ -6,6 +6,41 @@
     "statuses": ["prepared", "host_observed", "unavailable", "unknown"],
     "claim_boundary": "Host-observed capability metadata is not executor dispatch, execution, review, CI, or merge evidence."
   },
+  "executor_local_workflow_example": {
+    "schema_version": "executor_local_workflow/v1",
+    "profile": "codex",
+    "status": "unknown",
+    "routed_workflow": "ai-slop-cleaner",
+    "candidate": {
+      "kind": "codex_skill",
+      "skill_id": "ai-slop-cleaner",
+      "invocation": {
+        "mode": "command_template",
+        "syntax": "$skill",
+        "template": "$ai-slop-cleaner {message}",
+        "message_placeholder": "{message}"
+      },
+      "rationale": "This is the final guarded workflow mapped to the selected executor profile.",
+      "selection_basis": "final_guarded_recommended_workflow"
+    },
+    "availability": {
+      "status": "unknown",
+      "basis": "prepared_mapping",
+      "profile": "codex",
+      "skill_id": "ai-slop-cleaner",
+      "scope": {},
+      "recorded_at": "",
+      "observed_at": "",
+      "evidence_ref": ""
+    },
+    "dispatchability": {
+      "handoff_dispatchable": true,
+      "candidate_invocation_dispatchable": false,
+      "reason": "availability_not_observed"
+    },
+    "fallback": "Keep the parent handoff prompt and dispatch mode unchanged; do not invoke the candidate.",
+    "claim_boundary": "Prepared executor-local workflow metadata is not evidence of installation, loading, invocation, dispatch, execution, verification, review, CI, merge readiness, or merge."
+  },
   "description": "Contract examples for Hermes Agent surfaces consuming OMH outputs.",
   "runbook": "docs/HERMES_AGENT_INTEGRATION_RUNBOOK.md",
   "hermes_surface_contract": {
@@ -150,7 +185,8 @@
         "verification",
         "report_contract.required_fields",
         "review.required",
-        "executor_capability_snapshot.capabilities"
+        "executor_capability_snapshot.capabilities",
+        "executor_local_workflow"
       ]
     }
   ],

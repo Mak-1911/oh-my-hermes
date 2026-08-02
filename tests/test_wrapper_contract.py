@@ -18,6 +18,7 @@ from omh.runtime.records import build_wrapper_session_record
 from omh.workflows.domain_routing_context import DomainRoutingResolution
 from omh.wrapper_contract import (
     build_chat_interaction_payload,
+    build_chat_response_from_delegation,
     build_chat_response_from_status,
     build_chat_status_interaction,
     build_status_card_from_status,
@@ -1099,6 +1100,63 @@ class WrapperContractTests(unittest.TestCase):
         self.assertIn("start_runtime", actions)
         self.assertIn("prepare_worktree", actions)
         self.assertNotIn("prompt_handoff", payload["delegation"])
+
+    def test_executor_local_workflow_projects_all_handoff_lanes(self) -> None:
+        for executor, handoff_key in (("codex", "executor_handoff"), ("omx-runtime", "runtime_handoff")):
+            with self.subTest(executor=executor):
+                payload = build_chat_interaction_payload(
+                    "$ultrawork implement a focused parser fix with tests",
+                    mode="delegate",
+                    source="discord",
+                    executor_target=executor,
+                )
+
+                handoff = payload["delegation"][handoff_key]
+                binding = handoff["executor_local_workflow"]
+                state = payload["chat_response"]["state"]
+
+                self.assertEqual(state["executor_local_workflow"], binding)
+                self.assertEqual(binding["profile"], executor)
+                self.assertEqual(binding["candidate"]["skill_id"], binding["routed_workflow"])
+                self.assertEqual(binding["status"], "unknown")
+                self.assertFalse(binding["dispatchability"]["candidate_invocation_dispatchable"])
+
+        prompt_payload = build_chat_interaction_payload(
+            "risky refactor",
+            mode="delegate",
+            source="discord",
+            executor_target="claude-code",
+        )
+        self.assertNotIn("executor_local_workflow", prompt_payload["delegation"]["prompt_handoff"])
+        self.assertNotIn("executor_local_workflow", prompt_payload["chat_response"]["state"])
+
+    def test_legacy_handoff_omits_local_workflow_projection(self) -> None:
+        payload = build_chat_interaction_payload(
+            "risky refactor",
+            mode="delegate",
+            source="discord",
+            executor_target="codex",
+        )
+        payload["delegation"]["executor_handoff"].pop("executor_local_workflow", None)
+
+        response = build_chat_response_from_delegation(payload["delegation"], thread_key="discord:legacy")
+
+        self.assertNotIn("executor_local_workflow", response["state"])
+
+        unsafe_payload = build_chat_interaction_payload(
+            "risky refactor",
+            mode="delegate",
+            source="discord",
+            executor_target="codex",
+        )
+        unsafe_payload["delegation"]["executor_handoff"]["executor_local_workflow"]["raw_prompt"] = "private-token-123"
+        unsafe_payload["delegation"]["executor_handoff"]["executor_local_workflow"]["local_path"] = "/private/secret/repository"
+        unsafe_response = build_chat_response_from_delegation(unsafe_payload["delegation"], thread_key="discord:unsafe")
+        serialized_response = json.dumps(unsafe_response)
+
+        self.assertNotIn("executor_local_workflow", unsafe_response["state"])
+        self.assertNotIn("private-token-123", serialized_response)
+        self.assertNotIn("/private/secret/repository", serialized_response)
 
     def test_delegate_mode_can_prepare_hermes_coding_team_path(self) -> None:
         payload = build_chat_interaction_payload("coordinate a safe coding team for a risky refactor", mode="delegate", source="discord", executor_target="hermes")

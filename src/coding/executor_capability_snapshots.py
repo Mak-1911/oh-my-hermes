@@ -7,10 +7,17 @@ import re
 from typing import Final, TypeAlias
 
 from ..local_store import atomic_write_json, read_json_object, utc_now
+from .executor_local_workflow_selection import (
+    environment_name,
+    evidence_reference,
+    is_workflow,
+    observation_time_relation,
+)
 
 
 EXECUTOR_CAPABILITY_SNAPSHOT_SCHEMA_VERSION: Final = "executor_capability_snapshot/v1"
 CAPABILITY_STATUSES: Final = frozenset({"prepared", "host_observed", "unavailable", "unknown"})
+LOCAL_WORKFLOW_CAPABILITY_NAME: Final = "local_workflow"
 KNOWN_CAPABILITY_NAMES: Final = frozenset(
     {
         "parallel_agents",
@@ -52,13 +59,12 @@ _MAX_EXECUTOR_LENGTH: Final = 80
 _MAX_EVIDENCE_REF_LENGTH: Final = 240
 _MAX_SCOPE_ITEMS: Final = 12
 _MAX_SCOPE_TEXT_LENGTH: Final = 160
+_LOCAL_WORKFLOW_SCOPE_KEYS: Final = frozenset({"profile", "skill_id", "environment"})
 _FORBIDDEN_SCOPE_KEY_TERMS: Final = ("raw", "prompt", "log", "transcript", "reasoning")
 _SENSITIVE_METADATA_PATTERNS: Final = ("api_key", "apikey", "authorization:", "bearer ", "ghp_", "github_pat_", "password", "private-token", "secret", "token", "xoxb-", "xoxp-")
 _SENSITIVE_METADATA_TOKEN_RE: Final = re.compile(r"(?:^|[\s=:,])(sk-|gh[opsu]_)", re.IGNORECASE)
-
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
-CapabilityInput: TypeAlias = Mapping[str, JsonValue]
 SnapshotRecord: TypeAlias = dict[str, JsonValue]
 
 
@@ -69,25 +75,24 @@ class ExecutorCapabilitySnapshotError(ValueError):
 def build_executor_capability_snapshot(
     *,
     executor: str,
-    capabilities: Mapping[str, CapabilityInput],
+    capabilities: Mapping[str, Mapping[str, JsonValue]],
     recorded_at: str | None = None,
 ) -> SnapshotRecord:
     snapshot: SnapshotRecord = {
         "schema_version": EXECUTOR_CAPABILITY_SNAPSHOT_SCHEMA_VERSION,
         "executor": executor.strip(),
         "recorded_at": recorded_at or utc_now(),
-        "capabilities": {name: _copy_capability(capability) for name, capability in capabilities.items()},
+        "capabilities": {name: _copy_snapshot(capability) for name, capability in capabilities.items()},
     }
     _raise_if_invalid(snapshot)
     return snapshot
 
 
 def validate_executor_capability_snapshot(snapshot: Mapping[str, JsonValue]) -> list[str]:
-    errors = _forbidden_key_errors(snapshot)
-    errors.extend(_root_errors(snapshot))
+    errors = _forbidden_key_errors(snapshot) + _root_errors(snapshot)
     capabilities = snapshot.get("capabilities")
     if isinstance(capabilities, Mapping):
-        errors.extend(_capability_errors(capabilities))
+        errors.extend(_capability_errors(capabilities, recorded_at=snapshot.get("recorded_at")))
     return errors
 
 
@@ -128,10 +133,6 @@ def _copy_snapshot(snapshot: Mapping[str, JsonValue]) -> SnapshotRecord:
     return {str(key): _copy_json_value(value) for key, value in snapshot.items()}
 
 
-def _copy_capability(capability: CapabilityInput) -> dict[str, JsonValue]:
-    return {str(key): _copy_json_value(value) for key, value in capability.items()}
-
-
 def _copy_json_value(value: JsonValue) -> JsonValue:
     if isinstance(value, dict):
         return {str(key): _copy_json_value(item) for key, item in value.items()}
@@ -165,9 +166,16 @@ def _root_errors(snapshot: Mapping[str, JsonValue]) -> list[str]:
     return errors
 
 
-def _capability_errors(capabilities: Mapping[str, JsonValue]) -> list[str]:
+def _capability_errors(
+    capabilities: Mapping[str, JsonValue],
+    *,
+    recorded_at: JsonValue | None,
+) -> list[str]:
     errors: list[str] = []
     for name, value in capabilities.items():
+        if name == LOCAL_WORKFLOW_CAPABILITY_NAME:
+            errors.extend(_local_workflow_errors(value, recorded_at=recorded_at))
+            continue
         if name not in KNOWN_CAPABILITY_NAMES:
             errors.append(f"unsupported capability name: {name}")
             continue
@@ -177,33 +185,56 @@ def _capability_errors(capabilities: Mapping[str, JsonValue]) -> list[str]:
         status = value.get("status")
         match status:
             case "host_observed":
-                errors.extend(_host_observed_errors(name, value))
+                errors.extend(_observed_capability_errors(name, value, status="host_observed"))
             case "prepared" | "unavailable" | "unknown":
-                errors.extend(_status_only_errors(name, value))
+                errors.extend(_unexpected_capability_field_errors(name, value, _STATUS_ONLY_CAPABILITY_FIELDS))
             case _:
                 errors.append(f"{name} capability status must be one of {', '.join(sorted(CAPABILITY_STATUSES))}")
     return errors
 
 
-def _host_observed_errors(name: str, capability: Mapping[str, JsonValue]) -> list[str]:
+def _local_workflow_errors(capability: JsonValue, *, recorded_at: JsonValue | None) -> list[str]:
+    name = LOCAL_WORKFLOW_CAPABILITY_NAME
+    if not isinstance(capability, Mapping):
+        return [f"{name} capability must be a mapping"]
+    status = capability.get("status")
+    match status:
+        case "host_observed" | "unavailable":
+            errors = _observed_capability_errors(name, capability, status=status)
+            scope = capability.get("scope")
+            if isinstance(scope, Mapping):
+                if set(scope) != _LOCAL_WORKFLOW_SCOPE_KEYS:
+                    errors.append(f"{name} scope must contain exactly profile, skill_id, and environment")
+                if not is_workflow(scope.get("skill_id")):
+                    errors.append(f"{name} skill_id must name a routable workflow")
+                if not environment_name(scope.get("environment")):
+                    errors.append(f"{name} environment must be a canonical local identifier")
+            if not evidence_reference(capability.get("evidence_ref")):
+                errors.append(f"{name} evidence_ref must be a safe opaque reference")
+            if not observation_time_relation(recorded_at, capability.get("observed_at")):
+                errors.append(f"{name} observed_at must be timezone-aware and within 24 hours before recorded_at")
+            return errors
+        case "unknown":
+            return _unexpected_capability_field_errors(name, capability, _STATUS_ONLY_CAPABILITY_FIELDS)
+        case _:
+            return [f"{name} capability status must be one of host_observed, unavailable, unknown"]
+
+
+def _observed_capability_errors(name: str, capability: Mapping[str, JsonValue], *, status: str) -> list[str]:
     errors = _unexpected_capability_field_errors(name, capability, _OBSERVED_CAPABILITY_FIELDS)
     scope = capability.get("scope")
     if not isinstance(scope, Mapping) or not scope:
-        errors.append(f"{name} host_observed capability requires a nonempty bounded scope mapping")
+        errors.append(f"{name} {status} capability requires a nonempty bounded scope mapping")
     else:
         errors.extend(_scope_errors(name, scope))
     evidence_ref = capability.get("evidence_ref")
     if not isinstance(evidence_ref, str) or not evidence_ref.strip() or len(evidence_ref.strip()) > _MAX_EVIDENCE_REF_LENGTH:
-        errors.append(f"{name} host_observed capability requires a nonempty evidence_ref")
+        errors.append(f"{name} {status} capability requires a nonempty evidence_ref")
     elif _looks_sensitive_metadata(evidence_ref):
-        errors.append(f"{name} host_observed capability evidence_ref must not contain sensitive metadata")
+        errors.append(f"{name} {status} capability evidence_ref must not contain sensitive metadata")
     if not _is_timestamp(capability.get("observed_at")):
-        errors.append(f"{name} host_observed capability requires an observed_at timestamp")
+        errors.append(f"{name} {status} capability requires an observed_at timestamp")
     return errors
-
-
-def _status_only_errors(name: str, capability: Mapping[str, JsonValue]) -> list[str]:
-    return _unexpected_capability_field_errors(name, capability, _STATUS_ONLY_CAPABILITY_FIELDS)
 
 
 def _unexpected_capability_field_errors(

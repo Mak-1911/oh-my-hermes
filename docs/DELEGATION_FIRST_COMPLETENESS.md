@@ -39,6 +39,7 @@ evidence exists.
 | `omh hermes readiness` | Inspects local Hermes Agent home/config/skills/plugins/sessions/state/source-checkout markers and maps them to OMH memory, learning, loop, wiki/external-knowledge, runtime-observation, and subagent/handoff reinforcement. | `src/workflows/hermes_readiness.py`, `src/commands/hermes.py` |
 | `omh hermes retained-context` | Inspects metadata-only Hermes sessions/state/memory-provider markers alongside OMH memory, workflow-learning, runtime journal, loop, and external knowledge-store markers so wrappers can show what durable context can actually be reinforced without reading raw retained artifacts or claiming opaque Hermes memory contents. | `src/workflows/hermes_retained_context.py`, `src/workflows/hermes_retained_context_probes.py`, `tests/test_hermes_retained_context.py` |
 | `omh coding delegate` | Prepares metadata-only coding handoffs, executor/runtime-choice contracts, prompt-only payloads, runtime contracts, and accepted-plan `--from-plan` Codex handoffs without overclaiming execution. Hermes selection also exposes an optional coding team path with solo, durable-goal, team, and swarm start choices plus a read-only `hermes_coding_harness/v1` projection over builder, verifier, reviewer, docs, and PR lanes. Handoffs include an executor-neutral task prompt contract; Codex lifecycle handoffs also include a prepared-only session observation contract for future executor-session adapters. | `src/coding/coding_delegation.py`, `src/coding/hermes_harness.py`, `src/runtime/artifacts.py` |
+| `executor_local_workflow/v1` | Optional, task-scoped metadata naming at most one locally appropriate workflow candidate for a selected executor. It is prepared mapping plus explicit operator-recorded availability evidence; it is never an installation, loading, invocation, dispatch, execution, verification, review, CI, merge-readiness, or merge claim. | `src/coding/executor_local_workflow.py`, `src/coding/executor_capability_snapshots.py`, `tests/test_executor_local_workflow.py` |
 | `worktree_session_isolation/v1` | Adds deterministic workspace-isolation guidance to coding handoffs and executor-session status: same workspace ok, worktree recommended, or worktree required. | `src/coding/isolation.py`, `src/wrapper/executor_sessions.py`, `tests/test_wrapper_sessions.py` |
 | `omh coding lifecycle` | Tracks Codex-selected handoff dispatch, executor result, verification, and reportable status from existing runtime evidence. | `src/wrapper/lifecycle.py`, `tests/test_coding_lifecycle.py`, `tests/test_cli.py` |
 | `omh memory status/capture/review/approve/reject/recall` plus `inspect/pack/apply` | Captures typed OMH project-memory candidates, keeps reviewed records separate, recalls `memory_recall_pack/v1` into prepared coding handoffs, and reviews OMH-local or wrapper-supplied context before attaching conflict-free `handoff_context_pack/v1` summaries. | `src/workflows/memory.py`, `tests/test_memory.py` |
@@ -93,6 +94,99 @@ The strongest existing path is:
    `verification: requested`.
 7. Separate wrapper/runtime evidence is required before OMH can say execution,
    review, verification, CI, merge, or merge-readiness was observed.
+
+### Executor-local workflow contract
+
+The optional `executor_local_workflow/v1` binding is an executor-neutral
+projection of one final guarded workflow. It is intentionally not part of the
+automatic dynamic-workflow capability set. Unless an operator has recorded a
+matching task-scoped capability snapshot, availability is `unknown` and the
+candidate remains prepared metadata. The exact root keys are
+`schema_version`, `profile`, `status`, `routed_workflow`, `candidate`,
+`availability`, `dispatchability`, `fallback`, and `claim_boundary`.
+The exact availability keys are `status`, `basis`, `profile`, `skill_id`,
+`scope`, `recorded_at`, `observed_at`, and `evidence_ref`. For observed evidence,
+`recorded_at` must be no earlier than `observed_at` and at most 24 hours later.
+The exact dispatchability keys are
+`handoff_dispatchable`, `candidate_invocation_dispatchable`, and `reason`.
+
+The supported mapping is:
+
+| Profile | Candidate / syntax | Availability and dispatch boundary |
+| --- | --- | --- |
+| `codex` | `codex_skill`; `command_template`; `$<canonical-skill> {message}` | Unknown or unavailable keeps the actual executor prompt and legacy dispatch template at generic `{message}`. Only an exact matching `observed_available` snapshot can make the candidate invocation dispatchable, and the parent handoff still requires `ask_before_dispatch`. |
+| `hermes` | `hermes_installed_skill`; `display_only`; installed `/<display-name> {message}` | Display metadata only; never dispatchable by this binding. The display name comes from the catalog, not from probing. |
+| `omx-runtime` | `omx_skill`; `display_only`; `$<canonical-skill> {message}` | Display metadata only; runtime handoff remains `prepare_only` and non-dispatchable. |
+| `omo-runtime` | `omo_skill_reference`; `skill_reference`; empty template | A canonical reference only. OMH does not serialize OMO `load_skills`, skill contents, or executable text. |
+| `omc-runtime` | `omc_skill_descriptor`; `descriptor_only`; empty template | A descriptor only. OMC's upstream discovery does not establish a portable OMH slash command. |
+
+`claude-code`, `generic`, `choose`, `pi`/generic aliases, and every unmapped
+profile omit `executor_local_workflow`. Pi is represented only by this
+generic/unmapped boundary; OMH does not add a pi executor profile or invent a
+pi-specific command grammar. The candidate's `selection_basis` is always
+`final_guarded_recommended_workflow`, so no second selector or ranking source
+can override the guarded route. The candidate and invocation nested objects
+also have fixed key sets; arbitrary command text, multiple candidates, and
+truthy non-boolean dispatch flags are invalid.
+
+Availability uses three states:
+
+- `unknown`: prepared default, or missing, malformed, stale, or mismatched
+  evidence.
+- `observed_available`: an explicit operator-recorded snapshot exactly matches
+  profile, skill id, bounded environment, timezone-aware `observed_at`, and a
+  bounded nonsensitive `evidence_ref`.
+- `observed_unavailable`: the same exact match, with an operator recording that
+  the capability is unavailable.
+
+Recording and validating these snapshots are agent/operator control-plane
+actions. They are not normal-user prerequisites and do not probe `PATH`, scan
+installed skill directories, install or load skills, launch an executor, or
+dispatch a runtime. An observation is time- and task-scoped; it never proves
+that a candidate was invoked or that implementation, verification, review, CI,
+merge readiness, or merge occurred.
+
+`dispatchability` has exactly `handoff_dispatchable`,
+`candidate_invocation_dispatchable`, and `reason`. Runtime, Hermes display,
+OMX display, OMO reference, and OMC descriptor candidates always have
+`candidate_invocation_dispatchable: false`. The only positive candidate gate is
+an exact `observed_available` Codex match under a parent
+`ask_before_dispatch` handoff. Its `reason` is restricted to
+`availability_not_observed`, `candidate_observed_unavailable`,
+`parent_handoff_prepare_only`, `descriptor_only`, or
+`observed_available_ask_before_dispatch`. Unknown and unavailable candidates retain the
+exact fallback:
+`Keep the parent handoff prompt and dispatch mode unchanged; do not invoke the candidate.`
+Every binding carries the exact claim boundary:
+`Prepared executor-local workflow metadata is not evidence of installation, loading, invocation, dispatch, execution, verification, review, CI, merge readiness, or merge.`
+
+The binding is metadata-only across direct and routed delegation, wrapper
+session state, briefing/work summaries, persisted replay, and golden examples.
+Projections copy the strict object and omit it for legacy handoffs; they do not
+reconstruct commands or leak raw prompts, local paths, skill bodies, evidence
+contents, logs, or transcripts. Manual CLI QA must capture parsed assertions for
+schema, profile, status, skill id, invocation mode/template, both
+dispatchability booleans, and parent dispatch mode. The artifact is evidence of
+the observed CLI output only; it is not execution evidence.
+
+Compatibility is deliberately one-way in two layers:
+
+1. The outer `coding_executor_handoff/v1`, `coding_prompt_handoff/v1`, and
+   `coding_runtime_handoff/v1` fields are optional. New readers accept legacy
+   handoffs that omit `executor_local_workflow`; an older strict reader may
+   reject a record containing this new optional field.
+2. The task-scoped `local_workflow` capability remains inside the existing
+   `executor_capability_snapshot/v1` contract. New readers accept old v1
+   snapshots without it, while an older strict reader may reject a v1 snapshot
+   containing the new capability record. Automatic prepared dynamic-workflow
+   snapshots keep their existing capability-key set and continue to omit
+   `local_workflow`; only explicit operator record/inspect/validate flows may
+   persist it.
+
+The compatibility direction is therefore not a promise that every executor
+understands the new metadata. It is a safe replay rule: old data remains
+readable by new code, while an old strict consumer must opt into the extended
+shape before consuming it.
 
 ## Hermes Surface Readiness
 

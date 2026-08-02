@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
-from typing import Any
+from typing import Any, Literal, assert_never
 
 from ..coding_contracts import (
     CLAUDE_CODE_SESSION_OBSERVATION_CONTRACT_SCHEMA_VERSION,
@@ -26,7 +27,12 @@ from ..coding.hermes_harness import (
     compact_hermes_coding_harness as _compact_hermes_coding_harness,
     validate_hermes_coding_harness as _validate_hermes_coding_harness,
 )
-from ..coding.executor_capability_snapshots import validate_executor_capability_snapshot
+from ..coding.executor_capability_snapshots import (
+    LOCAL_WORKFLOW_CAPABILITY_NAME,
+    validate_executor_capability_snapshot,
+)
+from ..coding.executor_local_workflow import validate_executor_local_workflow
+from ..coding.executor_local_workflow_selection import availability_for
 from ..executors import (
     DISPATCH_POLICIES,
     EXECUTOR_PROFILES,
@@ -210,6 +216,7 @@ CODING_EXECUTOR_HANDOFF_KEYS = (
     "codex_skill",
     "codex_invocation",
     "executor_local_capability_strategy",
+    "executor_local_workflow",
     "executor_capability_snapshot",
     "status",
     "recording_contract",
@@ -246,6 +253,7 @@ CODING_PROMPT_HANDOFF_KEYS = (
     "dispatchable",
     "invocation",
     "executor_local_capability_strategy",
+    "executor_local_workflow",
     "executor_capability_snapshot",
     "status",
     "recording_contract",
@@ -281,6 +289,7 @@ CODING_RUNTIME_HANDOFF_KEYS = (
     "dispatchable",
     "invocation",
     "executor_local_capability_strategy",
+    "executor_local_workflow",
     "executor_capability_snapshot",
     "status",
     "recording_contract",
@@ -1036,6 +1045,8 @@ def _compact_executor_handoff(value: Any) -> dict[str, Any]:
     strategy = _compact_optional_executor_local_capability_strategy(value)
     if strategy:
         compact["executor_local_capability_strategy"] = strategy
+    if "executor_local_workflow" in value:
+        compact["executor_local_workflow"] = deepcopy(value["executor_local_workflow"])
     snapshot = _compact_executor_capability_snapshot(value.get("executor_capability_snapshot"))
     if snapshot:
         compact["executor_capability_snapshot"] = snapshot
@@ -1095,6 +1106,8 @@ def _compact_prompt_handoff(value: Any) -> dict[str, Any]:
     strategy = _compact_optional_executor_local_capability_strategy(value)
     if strategy:
         compact["executor_local_capability_strategy"] = strategy
+    if "executor_local_workflow" in value:
+        compact["executor_local_workflow"] = deepcopy(value["executor_local_workflow"])
     snapshot = _compact_executor_capability_snapshot(value.get("executor_capability_snapshot"))
     if snapshot:
         compact["executor_capability_snapshot"] = snapshot
@@ -1163,6 +1176,8 @@ def _compact_runtime_handoff(value: Any) -> dict[str, Any]:
     strategy = _compact_optional_executor_local_capability_strategy(value)
     if strategy:
         compact["executor_local_capability_strategy"] = strategy
+    if "executor_local_workflow" in value:
+        compact["executor_local_workflow"] = deepcopy(value["executor_local_workflow"])
     snapshot = _compact_executor_capability_snapshot(value.get("executor_capability_snapshot"))
     if snapshot:
         compact["executor_capability_snapshot"] = snapshot
@@ -2597,6 +2612,94 @@ def _validate_optional_specialist_work_quality(handoff: dict[str, Any], label: s
     return [f"{label} {error}" for error in validate_prepared_specialist_work_quality(handoff["specialist_work_quality"])]
 
 
+def validate_optional_executor_local_workflow(
+    handoff: dict[str, Any],
+    label: str,
+    lane: Literal["executor_handoff", "prompt_handoff", "runtime_handoff"],
+) -> list[str]:
+    if "executor_local_workflow" not in handoff:
+        return []
+    binding = handoff["executor_local_workflow"]
+    if not isinstance(binding, dict):
+        return [f"{label} must be an object"]
+
+    errors = [
+        f"{label}{error.removeprefix('binding')}" if error.startswith("binding ") else f"{label}.{error}"
+        for error in validate_executor_local_workflow(binding)
+    ]
+    expected_profile = handoff.get("selected_executor_profile")
+    if binding.get("profile") != expected_profile:
+        errors.append(f"{label}.profile must match selected_executor_profile")
+
+    availability = binding.get("availability")
+    if binding.get("status") in {"observed_available", "observed_unavailable"}:
+        snapshot = handoff.get("executor_capability_snapshot")
+        capabilities = snapshot.get("capabilities") if isinstance(snapshot, dict) else None
+        evidence = capabilities.get(LOCAL_WORKFLOW_CAPABILITY_NAME) if isinstance(capabilities, dict) else None
+        expected_availability = None
+        if isinstance(evidence, dict):
+            expected_availability = availability_for(
+                str(expected_profile),
+                str(binding.get("routed_workflow")),
+                {**evidence, "recorded_at": snapshot.get("recorded_at")},
+            )
+        if availability != expected_availability:
+            errors.append(f"{label}.availability must match executor_capability_snapshot local_workflow evidence")
+
+    dispatchability = binding.get("dispatchability")
+    if not isinstance(dispatchability, dict):
+        return errors
+    parent_dispatchable = handoff.get("dispatchable")
+    handoff_dispatchable = dispatchability.get("handoff_dispatchable")
+    candidate_dispatchable = dispatchability.get("candidate_invocation_dispatchable")
+    if type(handoff_dispatchable) is not bool:
+        errors.append(f"{label}.dispatchability.handoff_dispatchable must be an exact boolean")
+    elif type(parent_dispatchable) is bool and handoff_dispatchable is not parent_dispatchable:
+        errors.append(f"{label}.dispatchability.handoff_dispatchable must match parent dispatchable")
+    if type(candidate_dispatchable) is not bool:
+        errors.append(f"{label}.dispatchability.candidate_invocation_dispatchable must be an exact boolean")
+    elif candidate_dispatchable and handoff_dispatchable is not True:
+        errors.append(f"{label}.dispatchability.candidate_invocation_dispatchable requires a dispatchable parent")
+
+    routed_workflow = binding.get("routed_workflow")
+    match lane:
+        case "executor_handoff":
+            codex_skill = handoff.get("codex_skill")
+            if not isinstance(routed_workflow, str) or codex_skill != f"${routed_workflow}":
+                errors.append(f"{label}.routed_workflow must match codex_skill")
+            legacy_invocation = handoff.get("codex_invocation")
+            candidate = binding.get("candidate")
+            candidate_invocation = candidate.get("invocation") if isinstance(candidate, dict) else None
+            candidate_template = (
+                candidate_invocation.get("template")
+                if isinstance(candidate_invocation, dict)
+                else None
+            )
+            expected_template = candidate_template if candidate_dispatchable is True else "{message}"
+            legacy_template = (
+                legacy_invocation.get("dispatch_text_template")
+                if isinstance(legacy_invocation, dict)
+                else None
+            )
+            if legacy_template != expected_template:
+                errors.append(
+                    f"{label}.codex_invocation.dispatch_text_template must match candidate dispatchability"
+                )
+        case "runtime_handoff":
+            runtime_brief = handoff.get("runtime_brief")
+            recommended = runtime_brief.get("recommended_workflow") if isinstance(runtime_brief, dict) else None
+            if routed_workflow != recommended:
+                errors.append(f"{label}.routed_workflow must match runtime_brief.recommended_workflow")
+            if candidate_dispatchable is True:
+                errors.append(f"{label}.dispatchability.candidate_invocation_dispatchable runtime handoff cannot grant candidate invocation authority")
+        case "prompt_handoff":
+            if candidate_dispatchable is True:
+                errors.append(f"{label}.dispatchability.candidate_invocation_dispatchable prompt handoff cannot grant candidate invocation authority")
+        case unreachable:
+            assert_never(unreachable)
+    return errors
+
+
 def validate_coding_executor_handoff(handoff: Any) -> list[str]:
     errors: list[str] = []
     _require(isinstance(handoff, dict), errors, "coding_delegation executor_handoff must be an object")
@@ -2649,6 +2752,13 @@ def validate_coding_executor_handoff(handoff: Any) -> list[str]:
             handoff,
             "coding_delegation executor_handoff executor_local_capability_strategy",
             expected_profile="codex",
+        )
+    )
+    errors.extend(
+        validate_optional_executor_local_workflow(
+            handoff,
+            "coding_delegation executor_handoff executor_local_workflow",
+            "executor_handoff",
         )
     )
     errors.extend(
@@ -2979,6 +3089,13 @@ def validate_coding_runtime_handoff(handoff: Any) -> list[str]:
         )
     )
     errors.extend(
+        validate_optional_executor_local_workflow(
+            handoff,
+            "coding_delegation runtime_handoff executor_local_workflow",
+            "runtime_handoff",
+        )
+    )
+    errors.extend(
         validate_optional_executor_capability_snapshot(
             handoff,
             "coding_delegation runtime_handoff executor_capability_snapshot",
@@ -3028,7 +3145,12 @@ def validate_coding_runtime_handoff(handoff: Any) -> list[str]:
     templates = handoff.get("runtime_templates")
     _require(isinstance(templates, list), errors, "coding_delegation runtime_handoff runtime_templates must be a list")
     if isinstance(templates, list):
-        _require(bool(templates), errors, "coding_delegation runtime_handoff runtime_templates must not be empty")
+        descriptor_only = handoff.get("selected_executor_profile") in {"omo-runtime", "omc-runtime"}
+        _require(
+            bool(templates) or descriptor_only,
+            errors,
+            "coding_delegation runtime_handoff runtime_templates must not be empty",
+        )
         for index, template in enumerate(templates):
             _require(isinstance(template, dict), errors, f"coding_delegation runtime_handoff runtime_templates[{index}] must be an object")
             if not isinstance(template, dict):
@@ -3295,6 +3417,13 @@ def validate_coding_prompt_handoff(handoff: Any) -> list[str]:
             handoff,
             "coding_delegation prompt_handoff executor_local_capability_strategy",
             expected_profile=str(handoff.get("selected_executor_profile", "")),
+        )
+    )
+    errors.extend(
+        validate_optional_executor_local_workflow(
+            handoff,
+            "coding_delegation prompt_handoff executor_local_workflow",
+            "prompt_handoff",
         )
     )
     errors.extend(

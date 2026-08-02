@@ -13,6 +13,13 @@ from _local_package import load_local_package
 load_local_package()
 from omh.coding_lifecycle import record_codex_dispatch, record_codex_result, record_codex_verification, start_codex_delegation_lifecycle
 from omh.codex_progress import summarize_codex_jsonl_text
+from omh.coding.executor_local_workflow import build_executor_local_workflow
+from omh.coding.executor_capability_snapshots import (
+    build_executor_capability_snapshot,
+    executor_capability_snapshot_path,
+    write_executor_capability_snapshot,
+)
+from omh.coding_delegation import build_coding_delegation_payload
 from omh.paths import resolve_paths
 from omh.memory import capture_project_memory_candidate
 from omh.profiles.setup import write_setup_profile
@@ -46,6 +53,7 @@ from omh.wrapper_sessions import (
     session_id_for_thread_key,
     write_wrapper_session,
 )
+from omh.wrapper_contract import build_chat_interaction_payload
 
 
 class DomainContextSessionBindingTests(unittest.TestCase):
@@ -401,6 +409,7 @@ class WrapperSessionTests(unittest.TestCase):
             self.assertEqual(briefing["run_id"], "")
             self.assertEqual(briefing["current_state"]["selected_executor_profile"], "claude-code")
             self.assertEqual(briefing["work_summary"]["handoff_schema_version"], "coding_prompt_handoff/v1")
+            self.assertNotIn("executor_local_workflow", briefing["work_summary"]["handoff_contract"])
             self.assertEqual(
                 briefing["work_summary"]["handoff_contract"]["task_prompt_contract"]["schema_version"],
                 "executor_task_prompt_contract/v1",
@@ -421,6 +430,144 @@ class WrapperSessionTests(unittest.TestCase):
             self.assertEqual(states["dispatch"], "pending")
             self.assertIn("dispatch", briefing["pending_gaps"])
             self.assertIn("prompt-only handoff", json.dumps(briefing["user_facing_lines"]))
+
+    def test_executor_local_workflow_projects_to_briefing(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            message = "$ultrawork fix the focused parser regression with tests"
+            started = create_or_resume_wrapper_session(paths, message, source="discord")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            select_wrapper_session_executor(paths, session_id, "codex")
+
+            prepared = prepare_wrapper_session_handoff(paths, session_id, message)
+            binding = prepared["handoff"]["coding_delegation"]["executor_handoff"]["executor_local_workflow"]
+            briefing = prepared["status"]["coding_briefing"]
+            work_summary = briefing["work_summary"]
+
+            self.assertEqual(work_summary["handoff_contract"]["executor_local_workflow"], binding)
+            self.assertEqual(binding["profile"], "codex")
+            self.assertEqual(binding["candidate"]["skill_id"], binding["routed_workflow"])
+            self.assertEqual(binding["status"], "unknown")
+            self.assertEqual(binding["dispatchability"]["reason"], "availability_not_observed")
+            self.assertEqual({step["id"]: step["state"] for step in briefing["progress"]}["dispatch"], "pending")
+
+    def test_local_workflow_direct_route_wrapper_replay_parity(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            snapshot = build_executor_capability_snapshot(
+                executor="codex",
+                recorded_at="2026-08-02T00:00:01Z",
+                capabilities={
+                    "local_workflow": {
+                        "status": "host_observed",
+                        "scope": {
+                            "profile": "codex",
+                            "skill_id": "ai-slop-cleaner",
+                            "environment": "test_host",
+                        },
+                        "evidence_ref": "operator:wrapper-parity",
+                        "observed_at": "2026-08-02T00:00:00Z",
+                    }
+                },
+            )
+            snapshot_path = executor_capability_snapshot_path(
+                paths.omh_home / "coding" / "executor-capability-snapshots",
+                "codex",
+            )
+            write_executor_capability_snapshot(snapshot_path, snapshot)
+            message = "$ai-slop-cleaner clean delegation code"
+
+            direct = build_coding_delegation_payload(
+                message,
+                executor_target="codex",
+                capability_snapshot_directory=snapshot_path.parent,
+            )["executor_handoff"]["executor_local_workflow"]
+            routed_payload = build_chat_interaction_payload(
+                message,
+                source="discord",
+                mode="delegate",
+                executor_target="codex",
+                paths=paths,
+            )
+            routed = routed_payload["delegation"]["executor_handoff"]["executor_local_workflow"]
+
+            started = create_or_resume_wrapper_session(paths, message, source="discord")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            select_wrapper_session_executor(paths, session_id, "codex")
+            prepared = prepare_wrapper_session_handoff(paths, session_id, message)
+            wrapper = prepared["handoff"]["coding_delegation"]["executor_handoff"]["executor_local_workflow"]
+            replay = build_wrapper_session_status(paths, session_id)["coding_briefing"]["work_summary"]["handoff_contract"][
+                "executor_local_workflow"
+            ]
+
+            self.assertEqual(routed_payload["route"]["selected_skill"], "ai-slop-cleaner")
+            self.assertEqual(direct, routed)
+            self.assertEqual(routed, wrapper)
+            self.assertEqual(wrapper, replay)
+            self.assertEqual(direct["status"], "observed_available")
+            self.assertTrue(direct["dispatchability"]["candidate_invocation_dispatchable"])
+            self.assertEqual(direct["availability"]["evidence_ref"], "operator:wrapper-parity")
+
+    def test_local_workflow_projection_excludes_raw_metadata(self) -> None:
+        binding = build_executor_local_workflow(
+            profile="codex",
+            routed_workflow="ultrawork",
+            parent_handoff_dispatchable=True,
+        )
+        assert binding is not None
+        sensitive_binding = deepcopy(binding)
+        sensitive_binding["raw_prompt"] = "private-token-123"
+        sensitive_binding["local_path"] = "/private/secret/repository"
+        sensitive_binding["evidence_contents"] = "transcript-content"
+        sensitive_binding["skill_body"] = "hidden-skill-body"
+
+        from omh.wrapper.briefing import build_coding_briefing
+
+        briefing = build_coding_briefing(
+            {
+                "session_id": "ws-sensitive",
+                "thread_key": "discord:sensitive",
+                "status": "prompt_handoff_prepared",
+                "selected_executor_profile": "codex",
+                "prompt_handoff": {
+                    "schema_version": "coding_prompt_handoff/v1",
+                    "selected_executor_profile": "codex",
+                    "executor_local_workflow": sensitive_binding,
+                },
+            }
+        )
+        serialized = json.dumps(briefing, sort_keys=True)
+
+        self.assertNotIn("executor_local_workflow", briefing["work_summary"]["handoff_contract"])
+        for secret in ("private-token-123", "/private/secret/repository", "transcript-content", "hidden-skill-body"):
+            self.assertNotIn(secret, serialized)
+        self.assertEqual({step["id"]: step["state"] for step in briefing["progress"]}["dispatch"], "pending")
+
+    def test_wrapper_status_excludes_forged_local_workflow_metadata(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            message = "$ultragoal complete the goal"
+            started = create_or_resume_wrapper_session(paths, message, source="slack")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            select_wrapper_session_executor(paths, session_id, "hermes")
+            prepare_wrapper_session_handoff(paths, session_id, message)
+            session_path = paths.runtime_wrapper_sessions_dir / session_id / "session.json"
+            session = json.loads(session_path.read_text(encoding="utf-8"))
+            session["runtime_handoff"]["executor_local_workflow"]["raw_prompt"] = "private-token-123"
+            session_path.write_text(json.dumps(session, sort_keys=True), encoding="utf-8")
+
+            replay = build_wrapper_session_status(paths, session_id)
+            serialized = json.dumps(replay, sort_keys=True)
+
+            self.assertEqual(replay["runtime_handoff"], {})
+            self.assertNotIn("private-token-123", serialized)
+            self.assertNotIn(
+                "executor_local_workflow",
+                replay["coding_briefing"]["work_summary"]["handoff_contract"],
+            )
 
     def test_prompt_briefing_keeps_bounded_replay_evidence_prepared_only(self) -> None:
         with TemporaryDirectory() as tmp:

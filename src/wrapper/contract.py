@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from functools import lru_cache
 import hashlib
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 from ..context_safety import compact_progress_events
 from ..coding.agentic_playbook import maybe_build_agentic_playbook
 from ..coding.agentic_playbook_contract import chat_response_with_agentic_playbook
+from ..coding.executor_local_workflow import validate_executor_local_workflow
 from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_text, extract_source_metadata
 from ..routing.catalog_questions import is_skill_catalog_question as _is_skill_catalog_question
 from ..routing.chat import public_chat_route_payload, route_explanation_payload
@@ -5626,6 +5628,7 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 "executor_resolution": executor_resolution,
                 "coding_status_request": status_request,
                 "route_context": delegation_payload.get("route_context", {}),
+                **_executor_local_workflow_state(handoff, executor),
             },
         )
     if action == "delegate" and delegation_payload.get("prompt_handoff"):
@@ -5695,6 +5698,7 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 "executor_resolution": executor_resolution,
                 "coding_status_request": status_request,
                 "route_context": delegation_payload.get("route_context", {}),
+                **_executor_local_workflow_state(prompt_handoff, selected),
             },
         )
     if action == "delegate" and delegation_payload.get("runtime_handoff"):
@@ -5766,6 +5770,7 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 "executor_readiness": delegation_payload.get("executor_readiness", {}),
                 "executor_resolution": executor_resolution,
                 "coding_status_request": status_request,
+                **_executor_local_workflow_state(runtime_handoff, selected),
             },
         )
     if action == "delegate" and _nested(delegation_payload, "executor_selection").get("choice_required"):
@@ -5862,6 +5867,15 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
             **_delegation_policy_state(delegation_payload),
         },
     )
+
+
+def _executor_local_workflow_state(handoff: dict[str, object], selected_profile: str) -> dict[str, object]:
+    binding = handoff.get("executor_local_workflow")
+    if not isinstance(binding, dict) or str(binding.get("profile", "")) != selected_profile:
+        return {}
+    if validate_executor_local_workflow(binding):
+        return {}
+    return {"executor_local_workflow": deepcopy(binding)}
 
 
 def _delegation_policy_state(delegation_payload: dict[str, Any]) -> dict[str, object]:
