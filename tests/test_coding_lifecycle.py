@@ -19,9 +19,89 @@ from omh.coding_lifecycle import (
 from omh.memory import capture_project_memory_candidate
 from omh.paths import resolve_paths
 from omh.profiles.setup import write_setup_profile
+from omh.coding.executor_capability_snapshots import (
+    build_executor_capability_snapshot,
+    executor_capability_snapshot_path,
+    write_executor_capability_snapshot,
+)
+
+
+def _write_local_workflow_snapshot(directory: Path, recorded: tuple[str, str, str]) -> None:
+    profile, skill_id, status = recorded
+    snapshot = build_executor_capability_snapshot(
+        executor="codex",
+        capabilities={"local_workflow": {
+            "status": status,
+            "scope": {"profile": profile, "skill_id": skill_id, "environment": "test-host"},
+            "observed_at": "2026-08-02T12:00:00+09:00",
+            "evidence_ref": "operator:task3-lifecycle",
+        }},
+    )
+    write_executor_capability_snapshot(executor_capability_snapshot_path(directory, "codex"), snapshot)
 
 
 class CodingLifecycleTests(unittest.TestCase):
+    def test_matching_local_workflow_evidence_binds_before_prompt(self) -> None:
+        # Given: matching task-scoped Codex evidence recorded before lifecycle preparation.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            _write_local_workflow_snapshot(
+                paths.omh_home / "coding" / "executor-capability-snapshots",
+                ("codex", "ai-slop-cleaner", "host_observed"),
+            )
+
+            # When: the lifecycle builds and persists its prepared handoff.
+            payload = start_codex_delegation_lifecycle(
+                paths,
+                "risky refactor",
+                preferred_workflow="ai-slop-cleaner",
+                preferred_workflow_score=10,
+                force_coding_handoff=True,
+            )
+
+            # Then: one candidate authority controls metadata, prompt, and legacy dispatch fields.
+            handoff = payload["coding_delegation"]["executor_handoff"]
+            binding = handoff["executor_local_workflow"]
+            self.assertEqual((binding["status"], binding["dispatchability"]["candidate_invocation_dispatchable"], handoff["dispatch_policy"], handoff["codex_skill"]), ("observed_available", True, "ask_before_dispatch", "$ai-slop-cleaner"))
+            self.assertEqual(handoff["codex_invocation"]["skill"], handoff["codex_skill"])
+            self.assertEqual(
+                handoff["codex_invocation"]["dispatch_text_template"],
+                binding["candidate"]["invocation"]["template"],
+            )
+            self.assertIn(binding["candidate"]["invocation"]["template"], handoff["prompt_template"])
+            self.assertNotIn("risky refactor", json.dumps(payload))
+
+    def test_unknown_unavailable_and_mismatched_workflows_never_inject_invocation(self) -> None:
+        cases = (
+            (None, "unknown"),
+            (("codex", "ai-slop-cleaner", "unavailable"), "observed_unavailable"),
+            (("hermes", "ai-slop-cleaner", "host_observed"), "unknown"),
+            (("codex", "ultragoal", "host_observed"), "unknown"),
+        )
+        for recorded, expected_status in cases:
+            with self.subTest(recorded=recorded), TemporaryDirectory() as tmp:
+                # Given: absent, unavailable, wrong-profile, or wrong-skill persisted evidence.
+                paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+                if recorded is not None:
+                    directory = paths.omh_home / "coding" / "executor-capability-snapshots"
+                    _write_local_workflow_snapshot(directory, recorded)
+
+                # When: Codex lifecycle preparation resolves the selected profile.
+                payload = start_codex_delegation_lifecycle(
+                    paths,
+                    "risky refactor",
+                    preferred_workflow="ai-slop-cleaner",
+                    preferred_workflow_score=10,
+                    force_coding_handoff=True,
+                )
+
+                # Then: candidate metadata remains prepared and dispatch text stays generic.
+                handoff = payload["coding_delegation"]["executor_handoff"]
+                binding = handoff["executor_local_workflow"]
+                actual = (binding["status"], binding["dispatchability"]["candidate_invocation_dispatchable"], handoff["codex_invocation"]["dispatch_text_template"])
+                self.assertEqual(actual, (expected_status, False, "{message}"))
+                self.assertNotIn("$ai-slop-cleaner", handoff["prompt_template"])
+
     def test_started_codex_lifecycle_exposes_progress_reporting_policy(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")

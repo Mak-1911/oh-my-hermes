@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from _local_package import load_local_package
 
@@ -9,6 +11,11 @@ load_local_package()
 
 from omh.coding.prompting import select_executor_prompting_strategy
 from omh.coding_delegation import build_coding_delegation_payload, coding_delegation_record_payload
+from omh.coding.executor_capability_snapshots import (
+    build_executor_capability_snapshot,
+    executor_capability_snapshot_path,
+    write_executor_capability_snapshot,
+)
 from omh.runtime.records import (
     validate_coding_executor_handoff,
     validate_coding_prompt_handoff,
@@ -18,6 +25,92 @@ from omh.runtime.records import (
 
 
 class ExecutorPromptingTests(unittest.TestCase):
+    def test_observed_codex_candidate_is_ask_before_dispatch(self) -> None:
+        # Given: an exact observed-available Codex workflow snapshot.
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            snapshot = build_executor_capability_snapshot(
+                executor="codex",
+                capabilities={
+                    "local_workflow": {
+                        "status": "host_observed",
+                        "scope": {
+                            "profile": "codex",
+                            "skill_id": "ai-slop-cleaner",
+                            "environment": "test-host",
+                        },
+                        "observed_at": "2026-08-02T12:00:00+09:00",
+                        "evidence_ref": "operator:task3-prompting",
+                    }
+                },
+            )
+            write_executor_capability_snapshot(
+                executor_capability_snapshot_path(directory, "codex"),
+                snapshot,
+            )
+
+            # When: the executor handoff is constructed.
+            payload = build_coding_delegation_payload(
+                "risky refactor src/example.py",
+                executor_target="codex",
+                preferred_workflow="ai-slop-cleaner",
+                preferred_workflow_score=10,
+                force_coding_handoff=True,
+                capability_snapshot_directory=directory,
+            )
+
+            # Then: the candidate is invocable only behind the parent ask-before-dispatch policy.
+            handoff = payload["executor_handoff"]
+            binding = handoff["executor_local_workflow"]
+            self.assertEqual(binding["status"], "observed_available")
+            self.assertTrue(binding["dispatchability"]["candidate_invocation_dispatchable"])
+            self.assertEqual(handoff["dispatch_policy"], "ask_before_dispatch")
+            self.assertTrue(handoff["dispatchable"])
+            self.assertEqual(
+                handoff["codex_invocation"]["dispatch_text_template"],
+                binding["candidate"]["invocation"]["template"],
+            )
+
+    def test_runtime_and_prompt_candidates_remain_prepare_only(self) -> None:
+        # Given: final guarded workflow routing across mapped runtime and omitted prompt-only profiles.
+        cases = (
+            ("hermes", "runtime_handoff", "/ulw-goal {message}"),
+            ("omx-runtime", "runtime_handoff", "$ultragoal {message}"),
+            ("omo-runtime", "runtime_handoff", ""),
+            ("omc-runtime", "runtime_handoff", ""),
+        )
+        for profile, handoff_key, candidate_template in cases:
+            with self.subTest(profile=profile):
+                # When: the mapped handoff is built without matching observed evidence.
+                payload = build_coding_delegation_payload(
+                    "risky refactor src/example.py",
+                    executor_target=profile,
+                    preferred_workflow="ultragoal",
+                    preferred_workflow_score=10,
+                    force_coding_handoff=True,
+                )
+
+                # Then: display/reference metadata never becomes runtime invocation authority.
+                handoff = payload[handoff_key]
+                binding = handoff["executor_local_workflow"]
+                self.assertEqual(binding["candidate"]["invocation"]["template"], candidate_template)
+                self.assertFalse(binding["dispatchability"]["candidate_invocation_dispatchable"])
+                self.assertFalse(handoff["dispatchable"])
+                self.assertNotEqual(handoff["invocation"]["dispatch_text_template"], candidate_template)
+                if candidate_template:
+                    self.assertNotIn(candidate_template, handoff["prompt_template"])
+
+        for profile in ("claude-code", "generic"):
+            with self.subTest(profile=profile):
+                prompt = build_coding_delegation_payload(
+                    "risky refactor src/example.py",
+                    executor_target=profile,
+                    preferred_workflow="ultragoal",
+                    preferred_workflow_score=10,
+                    force_coding_handoff=True,
+                )["prompt_handoff"]
+                self.assertNotIn("executor_local_workflow", prompt)
+
     def test_handoffs_share_canonical_prompt_sections_across_executor_paths(self) -> None:
         cases = (
             ("codex", "executor_handoff", validate_coding_executor_handoff),

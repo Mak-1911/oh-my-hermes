@@ -36,10 +36,12 @@ from ..executors import (
 from .hermes_harness import build_hermes_coding_harness
 from .executor_capability_snapshots import (
     KNOWN_CAPABILITY_NAMES,
+    LOCAL_WORKFLOW_CAPABILITY_NAME,
     build_executor_capability_snapshot,
     executor_capability_snapshot_path,
     read_matching_executor_capability_snapshot,
 )
+from .executor_local_workflow import build_executor_local_workflow
 from .product_family_templates import product_family_template
 from .product_quality_harnesses import product_quality_harness
 from .project_governance import discover_project_governance, governance_handoff_attachment
@@ -358,6 +360,22 @@ def build_coding_delegation_payload(
         "readiness_evidence_rule": READINESS_EVIDENCE_RULE,
     }
     selection = executor_selection_for_target(executor_target, action=delegation.action)
+    selected_profile = selection.selected_executor_profile
+    capability_snapshot = (
+        _resolved_executor_capability_snapshot(selected_profile, capability_snapshot_directory)
+        if selected_profile
+        else None
+    )
+    executor_local_workflow = (
+        build_executor_local_workflow(
+            profile=selected_profile,
+            routed_workflow=delegation.recommended_workflow,
+            parent_handoff_dispatchable=selection.dispatchable,
+            availability_evidence=_local_workflow_evidence(capability_snapshot),
+        )
+        if selected_profile
+        else None
+    )
     isolation_plan = (
         build_isolation_plan(
             message,
@@ -406,6 +424,8 @@ def build_coding_delegation_payload(
             delegation,
             isolation_plan=isolation_plan,
             prompting_contract=prompting_contract,
+            capability_snapshot=capability_snapshot,
+            executor_local_workflow=executor_local_workflow,
         )
         _attach_context_pack(payload["executor_handoff"], context_pack)
         _attach_memory_recall_pack(payload["executor_handoff"], memory_recall_pack)
@@ -423,6 +443,8 @@ def build_coding_delegation_payload(
             delegation,
             isolation_plan=isolation_plan,
             prompting_contract=prompting_contract,
+            capability_snapshot=capability_snapshot,
+            executor_local_workflow=executor_local_workflow,
         )
         _attach_context_pack(payload["runtime_handoff"], context_pack)
         _attach_memory_recall_pack(payload["runtime_handoff"], memory_recall_pack)
@@ -440,6 +462,8 @@ def build_coding_delegation_payload(
             delegation,
             isolation_plan=isolation_plan,
             prompting_contract=prompting_contract,
+            capability_snapshot=capability_snapshot,
+            executor_local_workflow=executor_local_workflow,
         )
         _attach_context_pack(payload["prompt_handoff"], context_pack)
         _attach_memory_recall_pack(payload["prompt_handoff"], memory_recall_pack)
@@ -451,7 +475,6 @@ def build_coding_delegation_payload(
     payload["specialist_work_quality"] = specialist_work_quality
     _attach_specialist_work_quality(payload, specialist_work_quality)
     _attach_governance_and_family(payload, governance, family_template, quality_harness)
-    _bind_persisted_executor_capability_snapshot(payload, capability_snapshot_directory)
     payload["harness_quality"] = _public_harness_quality(
         harness,
         action=delegation.action,
@@ -858,11 +881,25 @@ def _executor_handoff(
     *,
     isolation_plan: dict[str, object],
     prompting_contract: dict[str, object],
+    capability_snapshot: dict[str, object] | None,
+    executor_local_workflow: dict[str, object] | None,
 ) -> dict[str, object]:
     if executor_target != "codex":
         raise ValueError(f"unsupported coding delegate executor: {executor_target}")
-    codex_skill = _codex_skill_for_workflow(delegation.recommended_workflow)
-    return {
+    if executor_local_workflow is None:
+        raise KeyError("executor_local_workflow")
+    candidate = executor_local_workflow["candidate"]
+    if not isinstance(candidate, dict):
+        raise KeyError("executor_local_workflow.candidate")
+    candidate_invocation = candidate.get("invocation")
+    dispatchability = executor_local_workflow.get("dispatchability")
+    if not isinstance(candidate_invocation, dict) or not isinstance(dispatchability, dict):
+        raise KeyError("executor_local_workflow candidate invocation or dispatchability")
+    candidate_template = str(candidate_invocation["template"])
+    codex_skill = candidate_template.removesuffix(" {message}")
+    candidate_dispatchable = dispatchability.get("candidate_invocation_dispatchable") is True
+    dispatch_text_template = candidate_template if candidate_dispatchable else "{message}"
+    handoff: dict[str, object] = {
         "schema_version": EXECUTOR_HANDOFF_SCHEMA_VERSION,
         "work_owner_mode": "external_executor",
         "selected_executor_profile": "codex",
@@ -875,12 +912,13 @@ def _executor_handoff(
         "codex_invocation": {
             "syntax": "$skill",
             "skill": codex_skill,
-            "dispatch_text_template": f"{codex_skill} {{message}}",
+            "dispatch_text_template": dispatch_text_template,
             "message_placeholder": "{message}",
             "wrapper_note": "Replace {message} only at dispatch time; do not persist the raw task in OMH artifacts.",
         },
         "executor_local_capability_strategy": _executor_local_capability_strategy("codex"),
-        "executor_capability_snapshot": _prepared_executor_capability_snapshot("codex"),
+        "executor_capability_snapshot": capability_snapshot or _prepared_executor_capability_snapshot("codex"),
+        "executor_local_workflow": executor_local_workflow,
         "status": "prepared_not_observed",
         "recording_contract": "prepared_not_observed",
         "dispatch_contract": "wrapper_dispatches_to_codex; omh_does_not_execute_codex",
@@ -891,7 +929,7 @@ def _executor_handoff(
         "local_capability_report_contract": _local_capability_report_contract("codex"),
         "prompt_template": _codex_prompt_template(
             delegation,
-            codex_skill=codex_skill,
+            candidate_template=candidate_template if candidate_dispatchable else None,
             prompting_contract=prompting_contract,
         ),
         "execution_brief": {
@@ -915,7 +953,11 @@ def _executor_handoff(
         "isolation_plan": isolation_plan,
         "scope": [
             "Use the original task message as the implementation request.",
-            f"Invoke the Codex-side workflow with `{codex_skill}` unless the executor has stronger local routing evidence.",
+            (
+                f"Ask before dispatching the observed Codex-side workflow `{candidate_template}`."
+                if candidate_dispatchable
+                else "Keep dispatch text generic because the executor-local workflow is not observed available."
+            ),
             "Respect the recommended OMH workflow and harness metadata.",
             "Keep Hermes-facing status separate from Codex execution evidence.",
         ],
@@ -957,6 +999,7 @@ def _executor_handoff(
         },
         "harness_quality": harness_quality_contract(delegation.recommended_harness),
     }
+    return handoff
 
 
 def _prompt_handoff(
@@ -965,6 +1008,8 @@ def _prompt_handoff(
     *,
     isolation_plan: dict[str, object],
     prompting_contract: dict[str, object],
+    capability_snapshot: dict[str, object] | None,
+    executor_local_workflow: dict[str, object] | None,
 ) -> dict[str, object]:
     invocation = prompt_invocation_for_profile(profile)
     label = executor_label(profile)
@@ -979,7 +1024,7 @@ def _prompt_handoff(
         "dispatch_contract": "prompt_only_no_dispatch",
         "executor_readiness": executor_readiness_contract(profile),
         "executor_local_capability_strategy": _executor_local_capability_strategy(profile),
-        "executor_capability_snapshot": _prepared_executor_capability_snapshot(profile),
+        "executor_capability_snapshot": capability_snapshot or _prepared_executor_capability_snapshot(profile),
         "task_prompt_contract": _task_prompt_contract(profile),
         "executor_prompting_contract": prompting_contract,
         "local_capability_report_contract": _local_capability_report_contract(profile),
@@ -1024,6 +1069,8 @@ def _prompt_handoff(
             ("show_prompt_handoff", "copy_prompt_handoff", "choose_executor", "show_status"),
         ),
     }
+    if executor_local_workflow is not None:
+        handoff["executor_local_workflow"] = executor_local_workflow
     if profile == "claude-code":
         handoff["session_observation_contract"] = _claude_code_session_observation_contract()
     return handoff
@@ -1035,6 +1082,8 @@ def _runtime_handoff(
     *,
     isolation_plan: dict[str, object],
     prompting_contract: dict[str, object],
+    capability_snapshot: dict[str, object] | None,
+    executor_local_workflow: dict[str, object] | None,
 ) -> dict[str, object]:
     invocation = runtime_invocation_for_profile(profile)
     contract = runtime_profile_contract(profile)
@@ -1051,7 +1100,7 @@ def _runtime_handoff(
         "dispatch_contract": "wrapper_or_user_starts_runtime; omh_does_not_execute_runtime",
         "executor_readiness": executor_readiness_contract(profile),
         "executor_local_capability_strategy": _executor_local_capability_strategy(profile),
-        "executor_capability_snapshot": _prepared_executor_capability_snapshot(profile),
+        "executor_capability_snapshot": capability_snapshot or _prepared_executor_capability_snapshot(profile),
         "task_prompt_contract": _task_prompt_contract(profile),
         "executor_prompting_contract": prompting_contract,
         "local_capability_report_contract": _local_capability_report_contract(profile),
@@ -1211,6 +1260,8 @@ def _runtime_handoff(
     if team_path:
         handoff["hermes_coding_team_path"] = team_path
         handoff["hermes_coding_harness"] = build_hermes_coding_harness(runtime_handoff=handoff)
+    if executor_local_workflow is not None:
+        handoff["executor_local_workflow"] = executor_local_workflow
     return handoff
 
 
@@ -1290,21 +1341,25 @@ def _prepared_executor_capability_snapshot(profile: str) -> dict[str, object]:
     return build_executor_capability_snapshot(executor=profile, capabilities=capabilities)
 
 
-def _bind_persisted_executor_capability_snapshot(payload: dict[str, object], directory: Path | None) -> None:
-    if directory is None:
-        return
-    selected = payload.get("selected_executor_profile")
-    if not isinstance(selected, str) or not selected:
-        return
-    snapshot = read_matching_executor_capability_snapshot(
-        executor_capability_snapshot_path(directory, selected), expected_executor=selected
-    )
+def _resolved_executor_capability_snapshot(profile: str, directory: Path | None) -> dict[str, object]:
+    if directory is not None:
+        snapshot = read_matching_executor_capability_snapshot(
+            executor_capability_snapshot_path(directory, profile),
+            expected_executor=profile,
+        )
+        if snapshot is not None:
+            return snapshot
+    return _prepared_executor_capability_snapshot(profile)
+
+
+def _local_workflow_evidence(snapshot: dict[str, object] | None) -> dict[str, object] | None:
     if snapshot is None:
-        return
-    for handoff_key in ("executor_handoff", "runtime_handoff", "prompt_handoff"):
-        handoff = payload.get(handoff_key)
-        if isinstance(handoff, dict) and handoff.get("executor_target") == selected:
-            handoff["executor_capability_snapshot"] = snapshot
+        return None
+    capabilities = snapshot.get("capabilities")
+    if not isinstance(capabilities, dict):
+        return None
+    evidence = capabilities.get(LOCAL_WORKFLOW_CAPABILITY_NAME)
+    return evidence if isinstance(evidence, dict) else None
 
 
 def _local_capability_fallback(profile: str) -> str:
@@ -1559,14 +1614,20 @@ def _runtime_local_capability_prompt_block(profile: str, label: str) -> str:
 def _codex_prompt_template(
     delegation: CodingDelegation,
     *,
-    codex_skill: str,
+    candidate_template: str | None,
     prompting_contract: dict[str, object],
 ) -> str:
+    workflow_instruction = (
+        "Observed executor-local workflow candidate: `{candidate_template}`.\n"
+        "Ask before dispatching this candidate.\n"
+    ).format(candidate_template=candidate_template) if candidate_template else (
+        "Executor-local workflow invocation is not observed available.\n"
+        "Keep the dispatched task text generic.\n"
+    )
     return (
         "You are Codex, acting as the coding executor for a Hermes-orchestrated request.\n\n"
         "Executor target: codex\n"
-        "Use Codex skill: `{codex_skill}`\n"
-        "Codex invocation template: `{codex_skill} {{message}}`\n"
+        "{workflow_instruction}"
         "Recommended OMH workflow: `{workflow}`\n"
         "Recommended harness: `{harness}`\n"
         "Intent: `{intent}`\n"
@@ -1581,7 +1642,7 @@ def _codex_prompt_template(
         "Report local executor capabilities only with evidence refs.\n\n"
         "{prompt_sections}"
     ).format(
-        codex_skill=codex_skill,
+        workflow_instruction=workflow_instruction,
         workflow=delegation.recommended_workflow,
         harness=delegation.recommended_harness,
         intent=delegation.intent,
@@ -1669,11 +1730,6 @@ def _executor_prompt_sections(delegation: CodingDelegation, prompting_contract: 
         verification=delegation.verification,
         review_required=delegation.review_required,
     )
-
-
-def _codex_skill_for_workflow(workflow: str) -> str:
-    name = workflow.strip() or "oh-my-hermes"
-    return name if name.startswith("$") else f"${name}"
 
 
 def _delegation_prompt_template(action: str, intent: str, workflow: str, harness: str) -> str:
