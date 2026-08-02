@@ -10,6 +10,7 @@ from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_tex
 from ..routing.chat import CONFIDENCE_LEVELS
 from ..executors import CODING_EXECUTOR_TARGETS, executor_selection_for_target
 from .lifecycle import report_codex_delegation_lifecycle, start_codex_delegation_lifecycle
+from .session_handoff_projection import project_valid_session_handoffs
 from ..local_store import atomic_write_json, ensure_dir, ensure_file, file_lock, read_json_object, read_jsonl_objects, utc_now
 from ..memory import memory_recall_pack_for_handoff, record_attached_recall_usage
 from ..paths import OmhPaths
@@ -611,6 +612,7 @@ def build_wrapper_session_status(paths: OmhPaths, session_id: str) -> dict[str, 
         runtime_observation=runtime_observation,
     )
     chat_response["coding_briefing"] = chat_response_briefing(coding_briefing)
+    prompt_handoff, runtime_handoff = project_valid_session_handoffs(session)
     return {
         "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,
         "session_id": session_id,
@@ -620,8 +622,8 @@ def build_wrapper_session_status(paths: OmhPaths, session_id: str) -> dict[str, 
         "work_owner_mode": session.get("work_owner_mode", "external_executor"),
         "selected_executor_profile": session.get("selected_executor_profile"),
         "dispatch_policy": session.get("dispatch_policy", "ask_before_dispatch"),
-        "prompt_handoff": session.get("prompt_handoff", {}) if session["status"] == "prompt_handoff_prepared" else {},
-        "runtime_handoff": session.get("runtime_handoff", {}) if session["status"] == "runtime_handoff_prepared" else {},
+        "prompt_handoff": prompt_handoff if session["status"] == "prompt_handoff_prepared" else {},
+        "runtime_handoff": runtime_handoff if session["status"] == "runtime_handoff_prepared" else {},
         "runtime_observation": runtime_observation,
         "runtime_observation_errors": observation_errors,
         "hermes_coding_harness": hermes_harness,

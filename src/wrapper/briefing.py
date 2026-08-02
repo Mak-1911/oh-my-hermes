@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
+from ..coding.executor_local_workflow import validate_executor_local_workflow
 
 CODING_BRIEFING_SCHEMA_VERSION = "coding_briefing/v1"
 
@@ -220,6 +222,7 @@ def _work_summary(session: dict[str, Any], runtime_status: dict[str, Any]) -> di
             "task_prompt_contract": _object(handoff.get("task_prompt_contract")),
             "session_observation_contract": _object(handoff.get("session_observation_contract")),
             "local_capability_report_contract": _object(handoff.get("local_capability_report_contract")),
+            **_executor_local_workflow_contract(handoff),
             "report_contract": _object(handoff.get("report_contract")),
             "evidence_contract": _object(handoff.get("evidence_contract")),
             "coding_team_path": _coding_team_path_summary(_object(handoff.get("hermes_coding_team_path"))),
@@ -253,6 +256,16 @@ def _active_handoff(session: dict[str, Any], runtime_status: dict[str, Any]) -> 
             "recommended_harness": prepared.get("harness", ""),
         }
     return {}
+
+
+def _executor_local_workflow_contract(handoff: dict[str, Any]) -> dict[str, Any]:
+    binding = handoff.get("executor_local_workflow")
+    selected_profile = str(handoff.get("selected_executor_profile", ""))
+    if not isinstance(binding, dict) or str(binding.get("profile", "")) != selected_profile:
+        return {}
+    if validate_executor_local_workflow(binding):
+        return {}
+    return {"executor_local_workflow": deepcopy(binding)}
 
 
 def _handoff_summary(session: dict[str, Any], handoff: dict[str, Any]) -> str:
@@ -401,6 +414,9 @@ def _user_facing_lines(
     safe_summary = str(work_summary.get("safe_summary", ""))
     if safe_summary and safe_summary not in lines:
         lines.append(safe_summary)
+    local_workflow_line = _executor_local_workflow_line(work_summary)
+    if local_workflow_line:
+        lines.append(local_workflow_line)
     team_path = _object(_object(work_summary.get("handoff_contract")).get("coding_team_path"))
     isolation_plan = _object(_object(work_summary.get("handoff_contract")).get("isolation_plan"))
     if isolation_plan:
@@ -426,6 +442,23 @@ def _user_facing_lines(
         lines.append(f"Still missing evidence: {', '.join(pending_gaps[:5])}.")
     lines.append(f"Next action: {next_action}.")
     return _dedupe(lines)
+
+
+def _executor_local_workflow_line(work_summary: dict[str, Any]) -> str:
+    handoff_contract = _object(work_summary.get("handoff_contract"))
+    binding = _object(handoff_contract.get("executor_local_workflow"))
+    candidate = _object(binding.get("candidate"))
+    dispatchability = _object(binding.get("dispatchability"))
+    profile = str(binding.get("profile", ""))
+    skill_id = str(candidate.get("skill_id", ""))
+    status = str(binding.get("status", ""))
+    reason = str(dispatchability.get("reason", ""))
+    if not all((profile, skill_id, status, reason)):
+        return ""
+    return (
+        f"Executor-local workflow candidate: {profile}/{skill_id}; availability: {status}; "
+        f"dispatch reason: {reason}. Prepared metadata only; it is not invocation or execution evidence."
+    )
 
 
 def _narrative(headline: str, pending_gaps: list[str], next_action: str) -> str:
