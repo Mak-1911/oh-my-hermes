@@ -40,9 +40,7 @@ def _benchmark_input(filename: str = "example-passing-submission.json") -> dict[
     return _json_object(value)
 
 
-def _run_cli(
-    stdin_text: str, command: str = "score"
-) -> subprocess.CompletedProcess[str]:
+def _run_cli(stdin_text: str, command: str = "score") -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [*CLI_COMMAND, command, "--stdin"],
         cwd=ROOT,
@@ -81,7 +79,9 @@ def _forge_corpus_and_matching_submission(
 
 
 class CrossHarnessBenchmarkSecurityTests(unittest.TestCase):
-    def test_forged_evaluation_report_has_no_public_certification_path(self) -> None:
+    def test_forged_evaluation_report_has_no_public_contract_certification_path(
+        self,
+    ) -> None:
         failing_input = _benchmark_input("example-failing-child-submission.json")
         corpus = parse_corpus(_json_object(failing_input["corpus"]))
         failing_submission = _json_object(failing_input["submission"])
@@ -94,7 +94,7 @@ class CrossHarnessBenchmarkSecurityTests(unittest.TestCase):
         self.assertNotIn("score_evaluation", benchmark.__dict__)
         self.assertRaises(TypeError, score_submission, forged, corpus)
         score = score_submission(failing_submission, corpus)
-        self.assertEqual((score.total, score.level, score.certified), (0, 0, False))
+        self.assertEqual((score.total, score.level, score.contract_certified), (0, 0, False))
         self.assertIn("p0_failure", score.reason_codes)
 
     def test_decoder_rejects_duplicate_members_at_every_object_depth(self) -> None:
@@ -189,7 +189,9 @@ class CrossHarnessBenchmarkSecurityTests(unittest.TestCase):
                     submission, forged, "corpus_digest_mismatch"
                 )
 
-    def test_recomputed_attacker_corpus_is_rejected_before_certification(self) -> None:
+    def test_recomputed_attacker_corpus_is_rejected_before_contract_certification(
+        self,
+    ) -> None:
         benchmark_input = _benchmark_input()
         _forge_corpus_and_matching_submission(benchmark_input, "attacker-controlled")
 

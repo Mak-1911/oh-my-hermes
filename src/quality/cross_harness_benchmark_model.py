@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from .cross_harness_benchmark_values import JsonScalar
 
@@ -70,7 +71,7 @@ class FixtureOutcome:
     priority: str
     status: str
     reason_codes: tuple[str, ...]
-    runtime_observed: bool
+    submission_claims_runtime_observed: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +95,9 @@ class DimensionScore:
 class ScoreReport:
     total: int
     level: int
-    certified: bool
+    contract_certified: bool
+    evidence_authenticity: Literal["unverified_submission"]
+    execution_verified: Literal[False]
     coverage_supported: int
     coverage_total: int
     dimensions: tuple[DimensionScore, ...]

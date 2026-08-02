@@ -180,7 +180,7 @@ class CrossHarnessBenchmarkTests(unittest.TestCase):
         score = score_submission(submission, corpus)
 
         self.assertEqual((outcome.status, outcome.reason_codes), ("partial", ("runtime_not_observed",)))
-        self.assertEqual((score.total, score.level, score.certified), (95, 3, False))
+        self.assertEqual((score.total, score.level, score.contract_certified), (95, 3, False))
 
     def test_evidence_failure_precedes_unobserved_runtime(self) -> None:
         corpus = parse_corpus(_load_corpus_data())
@@ -243,14 +243,16 @@ class CrossHarnessBenchmarkTests(unittest.TestCase):
 
         self.assertEqual((outcome.status, outcome.reason_codes), ("fail", ("child_failed",)))
 
-    def test_unsupported_result_lowers_score_and_blocks_certification(self) -> None:
+    def test_unsupported_result_lowers_score_and_blocks_contract_certification(
+        self,
+    ) -> None:
         corpus = parse_corpus(_load_corpus_data())
         submission = _passing_submission()
         _submission_result(submission)["capability_id"] = "missing"
 
         score = score_submission(submission, corpus)
 
-        self.assertEqual((score.total, score.level, score.certified), (90, 3, False))
+        self.assertEqual((score.total, score.level, score.contract_certified), (90, 3, False))
 
     def test_score_levels_zero_through_three_are_reachable_by_contract(self) -> None:
         corpus = parse_corpus(_load_corpus_data())
@@ -280,19 +282,24 @@ class CrossHarnessBenchmarkTests(unittest.TestCase):
         score = score_submission(level_four, corpus)
 
         self.assertEqual(
-            tuple((outcome.status, outcome.runtime_observed) for outcome in report.outcomes),
+            tuple(
+                (outcome.status, outcome.submission_claims_runtime_observed)
+                for outcome in report.outcomes
+            ),
             tuple(("pass", not fixture.dynamic) for fixture in corpus.fixtures),
         )
-        self.assertEqual((score.total, score.level, score.certified), (100, 4, True))
+        self.assertEqual((score.total, score.level, score.contract_certified), (100, 4, True))
 
     def test_all_pass_with_observed_dynamic_runtime_reaches_level_five(self) -> None:
         corpus = parse_corpus(_load_corpus_data())
 
         score = score_submission(_passing_submission(), corpus)
 
-        self.assertEqual((score.total, score.level, score.certified), (100, 5, True))
+        self.assertEqual((score.total, score.level, score.contract_certified), (100, 5, True))
+        self.assertEqual(score.evidence_authenticity, "unverified_submission")
+        self.assertFalse(score.execution_verified)
 
-    def test_p0_failure_blocks_certification(self) -> None:
+    def test_p0_failure_blocks_contract_certification(self) -> None:
         corpus = parse_corpus(_load_corpus_data())
         submission = _passing_submission()
         p0_index = next(index for index, item in enumerate(corpus.fixtures) if item.priority == "P0")
@@ -300,7 +307,7 @@ class CrossHarnessBenchmarkTests(unittest.TestCase):
 
         score = score_submission(submission, corpus)
 
-        self.assertFalse(score.certified)
+        self.assertFalse(score.contract_certified)
         self.assertIn("p0_failure", score.reason_codes)
 
     def test_fixture_mutation_invalidates_declared_corpus_digest(self) -> None:

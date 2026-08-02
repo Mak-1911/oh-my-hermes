@@ -36,9 +36,6 @@ CommandName = Literal["validate", "score", "report"]
 class BenchmarkCliInputError(ValueError):
     reason_code: str
 
-    def __str__(self) -> str:
-        return self.reason_code
-
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkCliInput:
@@ -71,14 +68,14 @@ def _run_command(args: argparse.Namespace, command: CommandName) -> int:
             case "score":
                 score = score_submission(benchmark_input.submission, corpus)
                 payload = _score_payload(score)
-                status = 0 if score.certified else 1
+                status = 0 if score.contract_certified else 1
             case "report":
                 evaluation = evaluate_submission(benchmark_input.submission, corpus)
                 score = score_submission(benchmark_input.submission, corpus)
                 payload = _report_payload(
                     benchmark_input.claim_boundary, evaluation, score
                 )
-                status = 0 if score.certified else 1
+                status = 0 if score.contract_certified else 1
             case unreachable:
                 assert_never(unreachable)
     except (BenchmarkCliInputError, BenchmarkJsonInputError) as error:
@@ -181,7 +178,9 @@ def _score_payload(score: ScoreReport) -> dict[str, JsonValue]:
         "schema_version": SCORE_SCHEMA,
         "total": score.total,
         "level": score.level,
-        "certified": score.certified,
+        "contract_certified": score.contract_certified,
+        "evidence_authenticity": score.evidence_authenticity,
+        "execution_verified": score.execution_verified,
         "coverage_supported": score.coverage_supported,
         "coverage_total": score.coverage_total,
         "dimensions": dimensions,
@@ -206,7 +205,7 @@ def _outcomes_payload(evaluation: EvaluationReport) -> list[JsonValue]:
             "priority": outcome.priority,
             "status": outcome.status,
             "reason_codes": list(outcome.reason_codes),
-            "runtime_observed": outcome.runtime_observed,
+            "submission_claims_runtime_observed": outcome.submission_claims_runtime_observed,
         }
         for outcome in evaluation.outcomes
     ]
@@ -240,19 +239,19 @@ def _add_benchmark_commands(
     _add_benchmark_command(
         commands,
         "validate",
-        "Validate an explicit benchmark envelope without certification.",
+        "Validate an explicit benchmark envelope without contract certification.",
         cmd_benchmark_validate,
     )
     _add_benchmark_command(
         commands,
         "score",
-        "Score an explicit benchmark envelope; non-certified results exit nonzero.",
+        "Score an explicit benchmark envelope; results without contract certification exit nonzero.",
         cmd_benchmark_score,
     )
     _add_benchmark_command(
         commands,
         "report",
-        "Report score, coverage, unknowns, and claim boundary; non-certified results exit nonzero.",
+        "Report score, coverage, unknowns, and claim boundary; results without contract certification exit nonzero.",
         cmd_benchmark_report,
     )
 

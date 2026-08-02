@@ -67,7 +67,7 @@ def _outcome_map(
         outcome.fixture_id: (
             outcome.status,
             outcome.reason_codes,
-            outcome.runtime_observed,
+            outcome.submission_claims_runtime_observed,
         )
         for outcome in report.outcomes
     }
@@ -93,7 +93,9 @@ class CrossHarnessBenchmarkDocumentationExamplesTests(unittest.TestCase):
             _outcome_map(report),
             {fixture_id: ("pass", (), True) for fixture_id in _FIXTURE_IDS},
         )
-        self.assertEqual((score.total, score.level, score.certified), (100, 5, True))
+        self.assertEqual(
+            (score.total, score.level, score.contract_certified), (100, 5, True)
+        )
         self.assertEqual(
             (score.coverage_supported, score.coverage_total, score.reason_codes),
             (15, 15, ()),
@@ -111,7 +113,9 @@ class CrossHarnessBenchmarkDocumentationExamplesTests(unittest.TestCase):
                 for fixture_id in _FIXTURE_IDS
             },
         )
-        self.assertEqual((score.total, score.level, score.certified), (100, 4, True))
+        self.assertEqual(
+            (score.total, score.level, score.contract_certified), (100, 4, True)
+        )
         self.assertEqual(
             (score.coverage_supported, score.coverage_total, score.reason_codes),
             (15, 15, ()),
@@ -132,7 +136,9 @@ class CrossHarnessBenchmarkDocumentationExamplesTests(unittest.TestCase):
             _outcome_map(report),
             _single_result_outcome_map(target, ("fail", ("child_failed",), True)),
         )
-        self.assertEqual((score.total, score.level, score.certified), (0, 0, False))
+        self.assertEqual(
+            (score.total, score.level, score.contract_certified), (0, 0, False)
+        )
         self.assertEqual(
             score.reason_codes,
             ("p0_failure", "fixture_not_passed", "below_dimension_minimum"),
@@ -149,7 +155,9 @@ class CrossHarnessBenchmarkDocumentationExamplesTests(unittest.TestCase):
                 ("unsupported", ("adapter_unavailable",), True),
             ),
         )
-        self.assertEqual((score.total, score.level, score.certified), (0, 0, False))
+        self.assertEqual(
+            (score.total, score.level, score.contract_certified), (0, 0, False)
+        )
         self.assertEqual(
             score.reason_codes, ("fixture_not_passed", "below_dimension_minimum")
         )
@@ -165,7 +173,9 @@ class CrossHarnessBenchmarkDocumentationExamplesTests(unittest.TestCase):
                 ("partial", ("insufficient_evidence_class",), True),
             ),
         )
-        self.assertEqual((score.total, score.level, score.certified), (0, 0, False))
+        self.assertEqual(
+            (score.total, score.level, score.contract_certified), (0, 0, False)
+        )
         self.assertEqual(
             score.reason_codes, ("fixture_not_passed", "below_dimension_minimum")
         )

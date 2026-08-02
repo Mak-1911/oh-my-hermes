@@ -1,6 +1,6 @@
 # Cross-harness benchmark contract
 
-`cross_harness_benchmark/v1` is an agent/operator-facing deterministic comparison contract. It evaluates explicit submitted machine facts against a frozen metadata corpus. It does not launch an executor, call a network service, inspect a local skill directory, read or mutate an OMH runtime store, write persistent state, or prove general live executor quality.
+`cross_harness_benchmark/v1` is an agent/operator-facing deterministic comparison contract. It evaluates explicit submitted machine facts against a frozen metadata corpus. File and stdin submissions are unauthenticated: OMH does not establish who produced their evidence or independently verify that claimed execution occurred. The command does not launch an executor, call a network service, inspect a local skill directory, read or mutate an OMH runtime store, write persistent state, or prove general live executor quality.
 
 This is not the normal human OMH workflow. Normal users ask Hermes for an outcome; operators use this surface to validate, score, and report bounded benchmark artifacts.
 
@@ -50,7 +50,7 @@ All fixture data is synthetic metadata. `prompt.intent` and `prompt.constraint` 
 | Reproducibility | `reproducibility-source-pin` | P0 | no |
 | Reporting | `reporting-coverage-separation` | P1 | no |
 
-A P0 fixture with status `fail` adds `p0_failure` and blocks certification. An unsupported P0 fixture is a coverage gap, not a successful P0 check.
+A P0 fixture with status `fail` adds `p0_failure` and blocks contract certification. An unsupported P0 fixture is a coverage gap, not a successful P0 check.
 
 ## Evidence, scoring, and coverage
 
@@ -58,9 +58,11 @@ Evidence classes are ordered `prepared`, `static`, `test`, then `runtime`. A mat
 
 Each dimension weighs 10 points (100 total). A dimension earns 10 when all its fixtures pass, 5 when its fixtures are only pass or partial, and 0 otherwise. The report keeps coverage separate: `coverage_supported` counts non-unsupported outcomes and `coverage_total` is 15. Missing results or unavailable adapters/capabilities are `unsupported`: they do not earn points and cannot improve quality.
 
-Levels are mechanical: 0 has no earned points; 1 is below 50; 2 is 50–69; 3 is 70–99 without all fixtures passing; 4 has every fixture passing; 5 has every fixture passing plus observed runtime for every dynamic fixture. The level-four input records dynamic work as test evidence with `prepared_not_observed`; it is an offline level-4 contract result, not observed runtime work. The passing input records runtime evidence and observed dynamic facts, so it reaches level 5.
+Levels are mechanical statements about submitted facts: 0 has no earned points; 1 is below 50; 2 is 50–69; 3 is 70–99 without all fixtures passing; 4 has every fixture passing; 5 has every fixture passing and the submission claims runtime observation for every dynamic fixture. The level-four input records dynamic work as test evidence with `prepared_not_observed`; it is an offline level-4 contract result, not observed runtime work. The passing input claims runtime evidence and runtime observation for its dynamic facts, so it reaches level 5.
 
-`certified: true` means contract certification only: no P0 failure, every fixture passes, dimension minimums are met, and the level is at least 4. Neither level 4 nor level 5 proves general live executor quality. A live-quality claim needs a separately approved isolated runtime benchmark and observed evidence; this offline contract deliberately provides neither.
+`contract_certified: true` means only that the submitted facts satisfy the frozen deterministic contract: no P0 failure, every fixture passes, dimension minimums are met, and the level is at least 4. Both a score response and the score nested in a report return `evidence_authenticity: "unverified_submission"` and `execution_verified: false`. Outcome JSON uses `submission_claims_runtime_observed` so a true value cannot be read as OMH observation. Neither level 4 nor level 5 proves general live executor quality. A live-quality claim needs a separately approved isolated runtime benchmark and authenticated observed evidence; this offline command deliberately provides neither.
+
+`cross_harness_benchmark_score/v1` and `cross_harness_benchmark_report/v1` are the first public score and report schemas. Their score shape uses `contract_certified` and does not include `certified`.
 
 ## Checked-in machine inputs
 
@@ -68,9 +70,9 @@ All examples are complete CLI envelopes and validate through the same corpus par
 
 | File | Derived state | Score behaviour |
 | --- | --- | --- |
-| [example-passing-submission.json](../benchmarks/cross-harness/v1/example-passing-submission.json) | all 15 fixtures pass with observed runtime facts | 100, level 5, contract-certified |
-| [example-level-four-submission.json](../benchmarks/cross-harness/v1/example-level-four-submission.json) | all fixtures pass, dynamic facts are test-only and unobserved | 100, level 4, contract-certified but not live observation |
-| [example-failing-child-submission.json](../benchmarks/cross-harness/v1/example-failing-child-submission.json) | `ultrawork-child-propagation` has a failing child while parent exit is zero | P0 failure; non-certified |
+| [example-passing-submission.json](../benchmarks/cross-harness/v1/example-passing-submission.json) | all 15 fixtures pass and the submission claims runtime observation | 100, level 5, contract-certified |
+| [example-level-four-submission.json](../benchmarks/cross-harness/v1/example-level-four-submission.json) | all fixtures pass, dynamic facts are test-only and unobserved | 100, level 4, contract-certified |
+| [example-failing-child-submission.json](../benchmarks/cross-harness/v1/example-failing-child-submission.json) | `ultrawork-child-propagation` has a failing child while parent exit is zero | P0 failure; not contract-certified |
 | [example-unsupported-submission.json](../benchmarks/cross-harness/v1/example-unsupported-submission.json) | an adapter is unavailable | unsupported coverage; never a quality pass |
 | [example-partial-submission.json](../benchmarks/cross-harness/v1/example-partial-submission.json) | prepared evidence where static is required | partial; never full quality |
 
@@ -91,7 +93,7 @@ uv run python -m omh.cli benchmark report \
   --input benchmarks/cross-harness/v1/example-passing-submission.json
 ```
 
-Use exactly one of `--input PATH` or `--stdin`. `validate` exits zero when the JSON and benchmark contract are valid, even if a fixture evaluates to a semantic failure. It exits nonzero for missing input, unavailable files, malformed JSON, non-object JSON, conflicting input modes, stale corpus, or another contract error. `score` and `report` exit nonzero when the score is not contract-certified; the failed-child, unsupported, and partial inputs therefore have nonzero score and report exits while retaining structured JSON output for inspection.
+Use exactly one of `--input PATH` or `--stdin`. `validate` exits zero when the JSON and benchmark contract are valid, even if a fixture evaluates to a semantic failure. All three commands exit two for missing input, unavailable files, malformed JSON, non-object JSON, conflicting input modes, stale corpus, or another contract error. For a successfully evaluated `score` or `report`, exit status is based on `contract_certified`: true exits zero and false exits one. These statuses do not authenticate evidence or verify execution. The failed-child, unsupported, and partial inputs therefore exit one from `score` and `report` while retaining structured JSON output for inspection.
 
 ```sh
 uv run python -m omh.cli benchmark score --stdin \
@@ -103,12 +105,12 @@ uv run python -m omh.cli benchmark score --stdin \
 Run from the repository root.
 
 1. Validate the passing input; confirm exit 0 and `valid: true`.
-2. Score it; confirm `total: 100`, `level: 5`, and `certified: true`.
-3. Report it; confirm outcomes, dimensions, score, coverage, unknowns, and claim boundary.
-4. Score the level-four input; confirm level 4 and preserve the distinction between test evidence and observed runtime.
-5. Validate the child-failure input; confirm a `fail` despite parent exit zero. Score and report must exit nonzero and include `p0_failure`.
-6. Report the unsupported input; confirm unsupported coverage and a nonzero exit. Do not report it as pass.
-7. Score the partial input; confirm partial status and a nonzero exit.
+2. Score it; confirm `total: 100`, `level: 5`, `contract_certified: true`, `evidence_authenticity: "unverified_submission"`, and `execution_verified: false`; confirm there is no `certified` key.
+3. Report it; confirm outcomes, dimensions, score, coverage, unknowns, claim boundary, and the same unverified authenticity and execution fields in the nested score.
+4. Report the level-four input; confirm level 4 and `submission_claims_runtime_observed: false` for every dynamic fixture.
+5. Validate the child-failure input; confirm exit 0 and a `fail` despite parent exit zero. Score and report must exit 1 and include `p0_failure`.
+6. Report the unsupported input; confirm unsupported coverage and exit 1. Do not report it as pass.
+7. Score the partial input; confirm partial status and exit 1.
 8. Run `uv run python -m omh.cli harness validate`; it remains a separate generated-harness validation surface.
 
 The benchmark command must create no `.omh` directory or runtime artifact in an isolated directory. It is pure input-to-output evaluation: no network calls, subprocess dispatch, executor launch, persistent runtime state, skill-body loading, or production-routing mutation belongs here.
@@ -117,4 +119,4 @@ The benchmark command must create no `.omh` directory or runtime artifact in an 
 
 Keep corpus, submissions, and reports metadata-only. Never include raw user prompts, transcripts, absolute local paths, home directories, secrets, API keys, private keys, credentials, skill bodies, PII, or untrusted instruction text. Caller-supplied corpus metadata is rejected before evaluation or reporting unless it passes both trust-anchor checks above. Submission metadata also rejects common secret, absolute-path, script, and prompt-injection markers, but these controls are guardrails rather than permission to include sensitive data. Benchmark validation rejections return reason codes and never echo the rejected value. Use stable ids, relative repository metadata, capability ids, digests, reason codes, and bounded machine facts.
 
-Offline source inspection, static metadata, and tests establish only their stated evidence class. In dashboards, issue reports, and automation, report the level and coverage with that class; never invent execution observation or a live-quality claim.
+Offline source inspection, static metadata, and tests establish only their submitted evidence class. In dashboards, issue reports, and automation, report the level and coverage with `evidence_authenticity` and `execution_verified`; never turn a submitted runtime-observation claim into OMH execution observation or a live-quality claim.

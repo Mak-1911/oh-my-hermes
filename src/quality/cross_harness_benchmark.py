@@ -104,7 +104,7 @@ def evaluate_submission(raw: Submission, corpus: Corpus) -> EvaluationReport:
 
 
 def score_submission(submission: Submission, corpus: Corpus) -> ScoreReport:
-    """Evaluate trusted submission facts before deriving a certification score."""
+    """Evaluate submission claims for deterministic contract compliance."""
     return _score_evaluation(evaluate_submission(submission, corpus), corpus)
 
 
@@ -125,9 +125,9 @@ def _score_evaluation(report: EvaluationReport, corpus: Corpus) -> ScoreReport:
         scores.append(DimensionScore(dimension.id, earned, dimension.weight, supported, len(outcomes)))
     total = sum(item.earned for item in scores)
     all_pass = all(item.status == "pass" for item in report.outcomes)
-    dynamic_observed = all(not fixture.dynamic or next(item for item in report.outcomes if item.fixture_id == fixture.id).runtime_observed for fixture in corpus.fixtures)
+    all_dynamic_runtime_observations_claimed = all(not fixture.dynamic or next(item for item in report.outcomes if item.fixture_id == fixture.id).submission_claims_runtime_observed for fixture in corpus.fixtures)
     if all_pass:
-        level = 5 if dynamic_observed else 4
+        level = 5 if all_dynamic_runtime_observations_claimed else 4
     elif total >= 70:
         level = 3
     elif total >= 50:
@@ -143,8 +143,8 @@ def _score_evaluation(report: EvaluationReport, corpus: Corpus) -> ScoreReport:
         reasons.append("fixture_not_passed")
     if any(score.earned < dimension.minimum for score, dimension in zip(scores, corpus.dimensions, strict=True)):
         reasons.append("below_dimension_minimum")
-    certified = not reasons and level >= 4
-    return ScoreReport(total, level, certified, sum(item.supported for item in scores), len(report.outcomes), tuple(scores), tuple(reasons))
+    contract_certified = not reasons and level >= 4
+    return ScoreReport(total, level, contract_certified, "unverified_submission", False, sum(item.supported for item in scores), len(report.outcomes), tuple(scores), tuple(reasons))
 
 
 def _evaluate_fixture(fixture: Fixture, raw: Mapping[str, JsonValue] | None, corpus: Corpus, harness: str) -> FixtureOutcome:
@@ -153,7 +153,7 @@ def _evaluate_fixture(fixture: Fixture, raw: Mapping[str, JsonValue] | None, cor
     _shape(raw, {"fixture_id", "adapter_id", "capability_id", "evidence_class", "runtime_observation", "actual_machine", "facts", "source_binding", "command_evidence", "child_results"})
     adapter = _text(raw["adapter_id"])
     capability = _text(raw["capability_id"])
-    runtime = _text(raw["runtime_observation"])
+    runtime_observation_claim = _text(raw["runtime_observation"])
     source = next(item for item in corpus.sources if item.source_id == fixture.source_id)
     command = next(item for item in corpus.commands if item.command_id == fixture.command_binding_id)
     _verify_source(_map(raw["source_binding"]), source)
@@ -169,25 +169,25 @@ def _evaluate_fixture(fixture: Fixture, raw: Mapping[str, JsonValue] | None, cor
         if predicate.key not in values or type(values[predicate.key]) is not type(predicate.value) or values[predicate.key] != predicate.value:
             predicates_ok = False
             break
-    observed = runtime == "observed"
+    submission_claims_runtime_observed = runtime_observation_claim == "observed"
     evidence = _text(raw["evidence_class"])
-    if evidence not in EVIDENCE_RANK or runtime not in {"observed", "prepared_not_observed", "not_applicable"}:
+    if evidence not in EVIDENCE_RANK or runtime_observation_claim not in {"observed", "prepared_not_observed", "not_applicable"}:
         _raise("invalid_evidence_state")
     if adapter != fixture.adapter_id:
-        return _outcome(fixture, "unsupported", "adapter_unavailable", observed)
+        return _outcome(fixture, "unsupported", "adapter_unavailable", submission_claims_runtime_observed)
     if capability != fixture.capability_id:
-        return _outcome(fixture, "unsupported", "capability_unavailable", observed)
+        return _outcome(fixture, "unsupported", "capability_unavailable", submission_claims_runtime_observed)
     if child_failed:
-        return _outcome(fixture, "fail", "child_failed", observed)
+        return _outcome(fixture, "fail", "child_failed", submission_claims_runtime_observed)
     if not command_ok:
-        return _outcome(fixture, "fail", "command_result_mismatch", observed)
+        return _outcome(fixture, "fail", "command_result_mismatch", submission_claims_runtime_observed)
     if not predicates_ok:
-        return _outcome(fixture, "fail", "predicate_mismatch", observed)
+        return _outcome(fixture, "fail", "predicate_mismatch", submission_claims_runtime_observed)
     if EVIDENCE_RANK[evidence] < EVIDENCE_RANK[fixture.required_evidence_class]:
-        return _outcome(fixture, "partial", "insufficient_evidence_class", observed)
-    if fixture.dynamic and evidence == "runtime" and not observed:
-        return _outcome(fixture, "partial", "runtime_not_observed", observed)
-    return _outcome(fixture, "pass", "predicate_satisfied", observed, no_reason=True)
+        return _outcome(fixture, "partial", "insufficient_evidence_class", submission_claims_runtime_observed)
+    if fixture.dynamic and evidence == "runtime" and not submission_claims_runtime_observed:
+        return _outcome(fixture, "partial", "runtime_not_observed", submission_claims_runtime_observed)
+    return _outcome(fixture, "pass", "predicate_satisfied", submission_claims_runtime_observed, no_reason=True)
 
 
 def _parse_dimension(value: JsonValue) -> Dimension:
@@ -278,5 +278,5 @@ def _child_failed(raw: Mapping[str, JsonValue]) -> bool:
     return result == "fail"
 
 
-def _outcome(fixture: Fixture, status: str, reason: str, observed: bool, *, no_reason: bool = False) -> FixtureOutcome:
-    return FixtureOutcome(fixture.id, fixture.dimension, fixture.priority, status, () if no_reason else (reason,), observed)
+def _outcome(fixture: Fixture, status: str, reason: str, submission_claims_runtime_observed: bool, *, no_reason: bool = False) -> FixtureOutcome:
+    return FixtureOutcome(fixture.id, fixture.dimension, fixture.priority, status, () if no_reason else (reason,), submission_claims_runtime_observed)
