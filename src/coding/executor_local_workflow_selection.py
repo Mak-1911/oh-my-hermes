@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 from typing import Callable, Final, TypeAlias
 
+from ..skills.catalog import routable_skill_names
 from ..skills.catalog_types import omh_skill_display_name
+from ..system.metadata_safety import is_sensitive_metadata_text
 
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
@@ -14,6 +16,9 @@ WorkflowInput: TypeAlias = Mapping[str, JsonValue]
 CandidateSpec: TypeAlias = tuple[str, str, str, Callable[[str], str]]
 
 _WORKFLOW_RE: Final = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?")
+_ROUTABLE_WORKFLOWS: Final = frozenset(routable_skill_names())
+_ENVIRONMENT_RE: Final = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}")
+_EVIDENCE_REF_RE: Final = re.compile(r"[a-z][a-z0-9_-]{0,31}:[a-z0-9][a-z0-9._-]{0,159}")
 _SENSITIVE_RE: Final = re.compile(
     r"(?:api[_-]?key|authorization|bearer\s|password|private[_-]?token|secret|token|sk-|gh[opsu]_|xox[bp]-)",
     re.IGNORECASE,
@@ -63,10 +68,11 @@ def availability_for(profile: str, skill_id: str, evidence: WorkflowInput | None
         "profile": profile,
         "skill_id": skill_id,
         "scope": {},
+        "recorded_at": "",
         "observed_at": "",
         "evidence_ref": "",
     }
-    if evidence is None or set(evidence) != {"status", "scope", "observed_at", "evidence_ref"}:
+    if evidence is None or set(evidence) != {"status", "scope", "recorded_at", "observed_at", "evidence_ref"}:
         return unknown
     scope = evidence.get("scope")
     if not isinstance(scope, Mapping) or set(scope) != {"profile", "skill_id", "environment"}:
@@ -74,9 +80,14 @@ def availability_for(profile: str, skill_id: str, evidence: WorkflowInput | None
     if scope.get("profile") != profile or scope.get("skill_id") != skill_id:
         return unknown
     environment = scope.get("environment")
+    recorded_at = evidence.get("recorded_at")
     observed_at = evidence.get("observed_at")
     evidence_ref = evidence.get("evidence_ref")
-    if not bounded_safe(environment) or not timestamp(observed_at) or not bounded_safe(evidence_ref):
+    if (
+        not environment_name(environment)
+        or not evidence_reference(evidence_ref)
+        or not observation_time_relation(recorded_at, observed_at)
+    ):
         return unknown
     observed_status = evidence.get("status")
     if not isinstance(observed_status, str):
@@ -90,6 +101,7 @@ def availability_for(profile: str, skill_id: str, evidence: WorkflowInput | None
         "profile": profile,
         "skill_id": skill_id,
         "scope": {"environment": environment},
+        "recorded_at": recorded_at,
         "observed_at": observed_at,
         "evidence_ref": evidence_ref,
     }
@@ -115,7 +127,33 @@ def dispatchability_for(profile: str, status: str, parent: bool) -> WorkflowReco
 
 
 def is_workflow(value: JsonValue | None) -> bool:
-    return isinstance(value, str) and bool(_WORKFLOW_RE.fullmatch(value))
+    return (
+        isinstance(value, str)
+        and bool(_WORKFLOW_RE.fullmatch(value))
+        and value in _ROUTABLE_WORKFLOWS
+    )
+
+
+def environment_name(value: JsonValue | None) -> bool:
+    return isinstance(value, str) and bool(_ENVIRONMENT_RE.fullmatch(value))
+
+
+def evidence_reference(value: JsonValue | None) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(_EVIDENCE_REF_RE.fullmatch(value))
+        and not is_sensitive_metadata_text(value)
+        and not is_sensitive_metadata_text(value.upper())
+    )
+
+
+def observation_time_relation(recorded_at: JsonValue | None, observed_at: JsonValue | None) -> bool:
+    recorded = _parsed_timestamp(recorded_at)
+    observed = _parsed_timestamp(observed_at)
+    if recorded is None or observed is None:
+        return False
+    age = recorded - observed
+    return timedelta(0) <= age <= timedelta(hours=24)
 
 
 def bounded_safe(value: JsonValue | None) -> bool:
@@ -128,11 +166,11 @@ def bounded_safe(value: JsonValue | None) -> bool:
     )
 
 
-def timestamp(value: JsonValue | None) -> bool:
+def _parsed_timestamp(value: JsonValue | None) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
-        return False
+        return None
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        return False
-    return parsed.tzinfo is not None
+        return None
+    return parsed if parsed.tzinfo is not None else None

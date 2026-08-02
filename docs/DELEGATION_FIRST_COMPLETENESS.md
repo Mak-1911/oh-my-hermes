@@ -105,7 +105,9 @@ candidate remains prepared metadata. The exact root keys are
 `schema_version`, `profile`, `status`, `routed_workflow`, `candidate`,
 `availability`, `dispatchability`, `fallback`, and `claim_boundary`.
 The exact availability keys are `status`, `basis`, `profile`, `skill_id`,
-`scope`, `observed_at`, and `evidence_ref`; the exact dispatchability keys are
+`scope`, `recorded_at`, `observed_at`, and `evidence_ref`. For observed evidence,
+`recorded_at` must be no earlier than `observed_at` and at most 24 hours later.
+The exact dispatchability keys are
 `handoff_dispatchable`, `candidate_invocation_dispatchable`, and `reason`.
 
 The supported mapping is:

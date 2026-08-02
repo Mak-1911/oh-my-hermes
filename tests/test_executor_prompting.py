@@ -31,6 +31,7 @@ class ExecutorPromptingTests(unittest.TestCase):
             directory = Path(tmp)
             snapshot = build_executor_capability_snapshot(
                 executor="codex",
+                recorded_at="2026-08-02T12:00:01+09:00",
                 capabilities={
                     "local_workflow": {
                         "status": "host_observed",
@@ -68,8 +69,27 @@ class ExecutorPromptingTests(unittest.TestCase):
             self.assertTrue(handoff["dispatchable"])
             self.assertEqual(
                 handoff["codex_invocation"]["dispatch_text_template"],
-                binding["candidate"]["invocation"]["template"],
+                "$ai-slop-cleaner {message}",
             )
+            self.assertEqual(validate_coding_executor_handoff(handoff), [])
+
+    def test_noncatalog_preferred_workflow_cannot_replace_guarded_recommendation(self) -> None:
+        payload = build_coding_delegation_payload(
+            "risky refactor src/example.py",
+            executor_target="codex",
+            preferred_workflow="rm-rf",
+            preferred_workflow_score=10,
+            force_coding_handoff=True,
+        )
+
+        self.assertEqual(
+            (
+                payload["delegation"]["recommended_workflow"],
+                payload["executor_handoff"]["codex_skill"],
+                payload["executor_handoff"]["executor_local_workflow"]["candidate"]["skill_id"],
+            ),
+            ("ai-slop-cleaner", "$ai-slop-cleaner", "ai-slop-cleaner"),
+        )
 
     def test_runtime_and_prompt_candidates_remain_prepare_only(self) -> None:
         # Given: final guarded workflow routing across mapped runtime and omitted prompt-only profiles.

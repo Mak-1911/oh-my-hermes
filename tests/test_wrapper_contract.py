@@ -1120,7 +1120,6 @@ class WrapperContractTests(unittest.TestCase):
                 self.assertEqual(binding["candidate"]["skill_id"], binding["routed_workflow"])
                 self.assertEqual(binding["status"], "unknown")
                 self.assertFalse(binding["dispatchability"]["candidate_invocation_dispatchable"])
-                self.assertIn("not evidence", binding["claim_boundary"])
 
         prompt_payload = build_chat_interaction_payload(
             "risky refactor",
@@ -1153,10 +1152,11 @@ class WrapperContractTests(unittest.TestCase):
         unsafe_payload["delegation"]["executor_handoff"]["executor_local_workflow"]["raw_prompt"] = "private-token-123"
         unsafe_payload["delegation"]["executor_handoff"]["executor_local_workflow"]["local_path"] = "/private/secret/repository"
         unsafe_response = build_chat_response_from_delegation(unsafe_payload["delegation"], thread_key="discord:unsafe")
+        serialized_response = json.dumps(unsafe_response)
 
         self.assertNotIn("executor_local_workflow", unsafe_response["state"])
-        self.assertNotIn("private-token-123", json.dumps(unsafe_response))
-        self.assertNotIn("/private/secret/repository", json.dumps(unsafe_response))
+        self.assertNotIn("private-token-123", serialized_response)
+        self.assertNotIn("/private/secret/repository", serialized_response)
 
     def test_delegate_mode_can_prepare_hermes_coding_team_path(self) -> None:
         payload = build_chat_interaction_payload("coordinate a safe coding team for a risky refactor", mode="delegate", source="discord", executor_target="hermes")

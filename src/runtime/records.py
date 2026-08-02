@@ -2648,6 +2648,24 @@ def validate_optional_executor_local_workflow(
             codex_skill = handoff.get("codex_skill")
             if not isinstance(routed_workflow, str) or codex_skill != f"${routed_workflow}":
                 errors.append(f"{label}.routed_workflow must match codex_skill")
+            legacy_invocation = handoff.get("codex_invocation")
+            candidate = binding.get("candidate")
+            candidate_invocation = candidate.get("invocation") if isinstance(candidate, dict) else None
+            candidate_template = (
+                candidate_invocation.get("template")
+                if isinstance(candidate_invocation, dict)
+                else None
+            )
+            expected_template = candidate_template if candidate_dispatchable is True else "{message}"
+            legacy_template = (
+                legacy_invocation.get("dispatch_text_template")
+                if isinstance(legacy_invocation, dict)
+                else None
+            )
+            if legacy_template != expected_template:
+                errors.append(
+                    f"{label}.codex_invocation.dispatch_text_template must match candidate dispatchability"
+                )
         case "runtime_handoff":
             runtime_brief = handoff.get("runtime_brief")
             recommended = runtime_brief.get("recommended_workflow") if isinstance(runtime_brief, dict) else None

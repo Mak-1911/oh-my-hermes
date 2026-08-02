@@ -11,8 +11,10 @@ from .executor_local_workflow_selection import (
     bounded_safe,
     candidate_for,
     dispatchability_for,
+    environment_name,
+    evidence_reference,
     is_workflow,
-    timestamp,
+    observation_time_relation,
 )
 
 
@@ -28,7 +30,7 @@ EXECUTOR_LOCAL_WORKFLOW_CLAIM_BOUNDARY: Final = (
 _ROOT_KEYS: Final = frozenset({"schema_version", "profile", "status", "routed_workflow", "candidate", "availability", "dispatchability", "fallback", "claim_boundary"})
 _CANDIDATE_KEYS: Final = frozenset({"kind", "skill_id", "invocation", "rationale", "selection_basis"})
 _INVOCATION_KEYS: Final = frozenset({"mode", "syntax", "template", "message_placeholder"})
-_AVAILABILITY_KEYS: Final = frozenset({"status", "basis", "profile", "skill_id", "scope", "observed_at", "evidence_ref"})
+_AVAILABILITY_KEYS: Final = frozenset({"status", "basis", "profile", "skill_id", "scope", "recorded_at", "observed_at", "evidence_ref"})
 _DISPATCHABILITY_KEYS: Final = frozenset({"handoff_dispatchable", "candidate_invocation_dispatchable", "reason"})
 _OBSERVED_STATUSES: Final = frozenset({"observed_available", "observed_unavailable"})
 
@@ -44,11 +46,8 @@ def build_executor_local_workflow(
     if candidate is None:
         return None
     availability = availability_for(profile, routed_workflow, availability_evidence)
-    status, dispatchability = str(availability["status"]), dispatchability_for(
-        profile,
-        str(availability["status"]),
-        parent_handoff_dispatchable,
-    )
+    status = str(availability["status"])
+    dispatchability = dispatchability_for(profile, status, parent_handoff_dispatchable)
     binding: WorkflowRecord = {
         "schema_version": EXECUTOR_LOCAL_WORKFLOW_SCHEMA_VERSION,
         "profile": profile,
@@ -139,15 +138,24 @@ def _availability_errors(binding: WorkflowInput, availability: Mapping[str, Json
     if availability.get("profile") != binding.get("profile") or availability.get("skill_id") != binding.get("routed_workflow"):
         errors.append("availability profile and skill_id must match the selected candidate")
     if status == "unknown":
-        if (availability.get("basis"), availability.get("scope"), availability.get("observed_at"), availability.get("evidence_ref")) != ("prepared_mapping", {}, "", ""):
+        if (
+            availability.get("basis"),
+            availability.get("scope"),
+            availability.get("recorded_at"),
+            availability.get("observed_at"),
+            availability.get("evidence_ref"),
+        ) != ("prepared_mapping", {}, "", "", ""):
             errors.append("unknown availability must contain only prepared mapping metadata")
     elif status in _OBSERVED_STATUSES:
         scope = availability.get("scope")
         if availability.get("basis") != "operator_recorded_snapshot":
             errors.append("observed availability requires operator_recorded_snapshot basis")
-        if not isinstance(scope, Mapping) or set(scope) != {"environment"} or not bounded_safe(scope.get("environment")):
+        if not isinstance(scope, Mapping) or set(scope) != {"environment"} or not environment_name(scope.get("environment")):
             errors.append("observed availability requires one bounded environment scope")
-        if not timestamp(availability.get("observed_at")) or not bounded_safe(availability.get("evidence_ref")):
+        if not evidence_reference(availability.get("evidence_ref")) or not observation_time_relation(
+            availability.get("recorded_at"),
+            availability.get("observed_at"),
+        ):
             errors.append("observed availability requires bounded timestamped evidence")
     else:
         errors.append("availability.status must be unknown, observed_available, or observed_unavailable")

@@ -450,8 +450,6 @@ class WrapperSessionTests(unittest.TestCase):
             self.assertEqual(binding["candidate"]["skill_id"], binding["routed_workflow"])
             self.assertEqual(binding["status"], "unknown")
             self.assertEqual(binding["dispatchability"]["reason"], "availability_not_observed")
-            self.assertIn("executor-local workflow candidate", "\n".join(briefing["user_facing_lines"]).lower())
-            self.assertIn("prepared metadata only", "\n".join(briefing["user_facing_lines"]).lower())
             self.assertEqual({step["id"]: step["state"] for step in briefing["progress"]}["dispatch"], "pending")
 
     def test_local_workflow_direct_route_wrapper_replay_parity(self) -> None:

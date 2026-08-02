@@ -504,14 +504,16 @@ remain explicitly missing.
 
 ### Executor-local workflow binding
 
-Coding handoffs may carry one optional `executor_local_workflow/v1` object. It
-is a prepared, task-scoped candidate selected from the final guarded workflow;
-it is not a discovery result, an installed-skill claim, or an execution
-instruction. When present, its exact root keys are `schema_version`, `profile`,
-`status`, `routed_workflow`, `candidate`, `availability`, `dispatchability`,
-`fallback`, and `claim_boundary`. The candidate has exactly `kind`, `skill_id`,
-`invocation`, `rationale`, and `selection_basis`; the invocation has exactly
-`mode`, `syntax`, `template`, and `message_placeholder`.
+Coding handoffs may carry one optional `executor_local_workflow/v1` object for
+the final guarded workflow. The workflow must have a canonical ID in the
+routable skill catalog; workflows outside that catalog omit the binding. The
+object is a prepared, task-scoped candidate, not a discovery result,
+installed-skill claim, or execution instruction. When present, its exact root
+keys are `schema_version`, `profile`, `status`, `routed_workflow`, `candidate`,
+`availability`, `dispatchability`, `fallback`, and `claim_boundary`. The
+candidate has exactly `kind`, `skill_id`, `invocation`, `rationale`, and
+`selection_basis`; the invocation has exactly `mode`, `syntax`, `template`, and
+`message_placeholder`.
 
 The profile mapping is deliberately narrow:
 
@@ -535,16 +537,18 @@ root `status` mirrors `availability.status` and is one of `unknown`,
 `observed_available`, or `observed_unavailable`. `unknown` is the prepared
 default and also covers missing, malformed, stale-profile, stale-skill, or
 out-of-scope evidence. `observed_available` and `observed_unavailable` require
-an explicit operator-recorded capability snapshot whose `profile`, `skill_id`,
-bounded `environment`, timezone-aware `observed_at`, and bounded nonsensitive
-`evidence_ref` all match the candidate. OMH does not probe `PATH`, scan skill
-directories, load a skill body, install anything, or invoke an executor to
-produce this state. A matching observation says only what that observation
-recorded at that time; it never proves invocation, dispatch, execution,
-verification, review, CI, merge readiness, or merge.
+an explicit operator-recorded capability snapshot. Its scope must contain
+exactly the matching `profile` and `skill_id` plus a canonical local
+`environment`, and its `evidence_ref` must be a safe opaque
+`namespace:identifier` reference. Its timezone-aware `observed_at` must be no
+later than the snapshot `recorded_at` and no more than 24 hours older. OMH does
+not probe `PATH`, scan skill directories, load a skill body, install anything,
+or invoke an executor to produce this state. A matching observation says only
+what that observation recorded at that time; it never proves invocation,
+dispatch, execution, verification, review, CI, merge readiness, or merge.
 
 The availability object has exactly `status`, `basis`, `profile`, `skill_id`,
-`scope`, `observed_at`, and `evidence_ref`. Its `basis` is
+`scope`, `recorded_at`, `observed_at`, and `evidence_ref`. Its `basis` is
 `prepared_mapping` for `unknown` and `operator_recorded_snapshot` for either
 observed state. The scope is bounded and nonsensitive; it is not a filesystem
 listing or a transcript.

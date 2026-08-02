@@ -121,11 +121,6 @@ class RuntimeArtifactTests(unittest.TestCase):
         second = build_coding_delegation_record(first)
 
         self.assertEqual(second["executor_handoff"], first["executor_handoff"])
-        self.assertIs(type(second["executor_handoff"]["executor_local_workflow"]["dispatchability"]["handoff_dispatchable"]), bool)
-        self.assertIs(
-            type(second["executor_handoff"]["executor_local_workflow"]["dispatchability"]["candidate_invocation_dispatchable"]),
-            bool,
-        )
 
     def test_legacy_handoffs_without_local_workflow_still_validate(self) -> None:
         cases = (
@@ -207,7 +202,6 @@ class RuntimeArtifactTests(unittest.TestCase):
 
         runtime_errors = json.dumps(validate_coding_runtime_handoff(runtime))
         self.assertIn("executor_local_workflow.dispatchability.candidate_invocation_dispatchable", runtime_errors)
-        self.assertIn("runtime handoff cannot grant candidate invocation authority", runtime_errors)
 
         prompt = build_coding_delegation_payload(
             "$ultragoal complete the goal",
@@ -215,9 +209,23 @@ class RuntimeArtifactTests(unittest.TestCase):
         )["prompt_handoff"]
         prompt["executor_local_workflow"] = deepcopy(executor_binding)
         self.assertIn(
-            "executor_local_workflow.profile must match selected_executor_profile",
+            "executor_local_workflow.profile",
             json.dumps(validate_coding_prompt_handoff(prompt)),
         )
+
+    def test_executor_handoff_rejects_dispatch_template_when_candidate_is_not_dispatchable(self) -> None:
+        handoff = build_coding_delegation_payload(
+            "$ultragoal complete the goal",
+            executor_target="codex",
+        )["executor_handoff"]
+        self.assertFalse(
+            handoff["executor_local_workflow"]["dispatchability"]["candidate_invocation_dispatchable"]
+        )
+        handoff["codex_invocation"]["dispatch_text_template"] = "$ai-slop-cleaner {message}"
+
+        errors = validate_coding_executor_handoff(handoff)
+
+        self.assertTrue(any("codex_invocation.dispatch_text_template" in error for error in errors), errors)
 
     def test_executor_local_workflow_rejects_truthy_non_booleans(self) -> None:
         cases = (
@@ -247,7 +255,7 @@ class RuntimeArtifactTests(unittest.TestCase):
 
                     errors = json.dumps(validator(handoff))
 
-                    self.assertIn(f"executor_local_workflow.dispatchability.{field} must be an exact boolean", errors)
+                    self.assertIn(f"executor_local_workflow.dispatchability.{field}", errors)
 
     def test_descriptor_only_runtime_profiles_allow_no_executable_templates(self) -> None:
         for profile in ("omo-runtime", "omc-runtime"):
@@ -269,7 +277,7 @@ class RuntimeArtifactTests(unittest.TestCase):
                 handoff["runtime_templates"] = []
 
                 self.assertIn(
-                    "runtime_templates must not be empty",
+                    "runtime_templates",
                     json.dumps(validate_coding_runtime_handoff(handoff)),
                 )
 

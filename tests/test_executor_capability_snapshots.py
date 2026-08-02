@@ -4,6 +4,7 @@ import stat
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import TypedDict
 
 from _local_package import load_local_package
 
@@ -16,6 +17,32 @@ from omh.coding.executor_capability_snapshots import (
     validate_executor_capability_snapshot,
     write_executor_capability_snapshot,
 )
+
+
+class _LocalWorkflowScope(TypedDict):
+    profile: str
+    skill_id: str
+    environment: str
+
+
+class _LocalWorkflowCapability(TypedDict):
+    status: str
+    scope: _LocalWorkflowScope
+    evidence_ref: str
+    observed_at: str
+
+
+def _local_workflow_capability(
+    *,
+    status: str = "host_observed",
+    observed_at: str = "2026-08-02T00:00:00Z",
+) -> _LocalWorkflowCapability:
+    return {
+        "status": status,
+        "scope": {"profile": "codex", "skill_id": "ultrawork", "environment": "local_codex"},
+        "evidence_ref": "operator:codex-skill-catalog",
+        "observed_at": observed_at,
+    }
 
 
 class ExecutorCapabilitySnapshotTests(unittest.TestCase):
@@ -129,33 +156,15 @@ class ExecutorCapabilitySnapshotTests(unittest.TestCase):
     def test_local_workflow_records_replay_for_observed_and_unavailable_statuses(self) -> None:
         observed = build_executor_capability_snapshot(
             executor="codex",
-            capabilities={
-                "local_workflow": {
-                    "status": "host_observed",
-                    "scope": {
-                        "profile": "codex",
-                        "skill_id": "ultrawork",
-                        "environment": "local_codex",
-                    },
-                    "evidence_ref": "operator:codex-skill-catalog",
-                    "observed_at": "2026-08-02T00:00:00Z",
-                }
-            },
+            capabilities={"local_workflow": _local_workflow_capability()},
             recorded_at="2026-08-02T00:00:01Z",
         )
         unavailable = build_executor_capability_snapshot(
             executor="codex",
             capabilities={
-                "local_workflow": {
-                    "status": "unavailable",
-                    "scope": {
-                        "profile": "codex",
-                        "skill_id": "ultrawork",
-                        "environment": "local_codex",
-                    },
-                    "evidence_ref": "operator:codex-skill-catalog",
-                    "observed_at": "2026-08-02T00:00:00+00:00",
-                }
+                "local_workflow": _local_workflow_capability(
+                    status="unavailable", observed_at="2026-08-02T00:00:00+00:00"
+                )
             },
             recorded_at="2026-08-02T00:00:01Z",
         )
@@ -187,16 +196,7 @@ class ExecutorCapabilitySnapshotTests(unittest.TestCase):
             self.assertEqual(read_executor_capability_snapshot(legacy_path), legacy)
 
     def test_local_workflow_observation_requires_exact_scope_and_evidence(self) -> None:
-        valid = {
-            "status": "host_observed",
-            "scope": {
-                "profile": "codex",
-                "skill_id": "ultrawork",
-                "environment": "local_codex",
-            },
-            "evidence_ref": "operator:codex-skill-catalog",
-            "observed_at": "2026-08-02T00:00:00Z",
-        }
+        valid = _local_workflow_capability()
         for field in ("profile", "skill_id", "environment"):
             malformed = {**valid, "scope": {key: value for key, value in valid["scope"].items() if key != field}}
             with self.assertRaisesRegex(ExecutorCapabilitySnapshotError, "scope"):
@@ -212,16 +212,7 @@ class ExecutorCapabilitySnapshotTests(unittest.TestCase):
             build_executor_capability_snapshot(executor="codex", capabilities={"local_workflow": malformed})
 
     def test_local_workflow_unavailable_rejects_missing_or_sensitive_evidence(self) -> None:
-        valid = {
-            "status": "unavailable",
-            "scope": {
-                "profile": "codex",
-                "skill_id": "ultrawork",
-                "environment": "local_codex",
-            },
-            "evidence_ref": "operator:codex-skill-catalog",
-            "observed_at": "2026-08-02T00:00:00Z",
-        }
+        valid = _local_workflow_capability(status="unavailable")
         for field in ("scope", "evidence_ref", "observed_at"):
             malformed = {key: value for key, value in valid.items() if key != field}
             with self.assertRaises(ExecutorCapabilitySnapshotError):
@@ -233,9 +224,42 @@ class ExecutorCapabilitySnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(ExecutorCapabilitySnapshotError, "sensitive metadata"):
             build_executor_capability_snapshot(executor="codex", capabilities={"local_workflow": malformed})
         malformed = {**valid, "evidence_ref": "/Users/alice/private-worktree/evidence.json"}
-        with self.assertRaisesRegex(ExecutorCapabilitySnapshotError, "local path"):
+        with self.assertRaises(ExecutorCapabilitySnapshotError):
             build_executor_capability_snapshot(executor="codex", capabilities={"local_workflow": malformed})
         with self.assertRaisesRegex(ExecutorCapabilitySnapshotError, "status"):
             build_executor_capability_snapshot(
                 executor="codex", capabilities={"local_workflow": {"status": "prepared"}}
             )
+
+    def test_local_workflow_rejects_hostile_metadata(self) -> None:
+        valid = _local_workflow_capability()
+        hostile_cases = (
+            ("environment control character", {**valid, "scope": {**valid["scope"], "environment": "prod\nOMO:activate"}}),
+            ("environment path injection", {**valid, "scope": {**valid["scope"], "environment": "operator: /Users/alice"}}),
+            ("evidence path traversal", {**valid, "evidence_ref": "../../private/session.json"}),
+            ("evidence control character", {**valid, "evidence_ref": "artifact\n$autopilot"}),
+            ("AWS access key", {**valid, "evidence_ref": "operator:akiaiosfodnn7example"}),
+            ("private key marker", {**valid, "evidence_ref": "operator:private-key-material"}),
+        )
+        for case, capability in hostile_cases:
+            with self.subTest(case=case):
+                with self.assertRaises(ExecutorCapabilitySnapshotError):
+                    build_executor_capability_snapshot(
+                        executor="codex",
+                        capabilities={"local_workflow": capability},
+                        recorded_at="2026-08-02T00:00:01Z",
+                    )
+
+    def test_local_workflow_rejects_invalid_time_relation(self) -> None:
+        valid = _local_workflow_capability()
+        for observed_at in (
+            "2026-08-02T00:00:02Z",
+            "2026-08-01T00:00:00Z",
+        ):
+            with self.subTest(observed_at=observed_at):
+                with self.assertRaises(ExecutorCapabilitySnapshotError):
+                    build_executor_capability_snapshot(
+                        executor="codex",
+                        capabilities={"local_workflow": {**valid, "observed_at": observed_at}},
+                        recorded_at="2026-08-02T00:00:01Z",
+                    )

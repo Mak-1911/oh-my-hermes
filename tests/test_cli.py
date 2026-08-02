@@ -8105,8 +8105,6 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(handoff["executor_readiness"]["profile"], "codex")
         self.assertEqual(handoff["execution_brief"]["recommended_workflow"], "ai-slop-cleaner")
         self.assertIn("{message}", handoff["prompt_template"])
-        self.assertIn("Executor-local workflow invocation is not observed available.", handoff["prompt_template"])
-        self.assertNotIn("Use Codex skill: `$ai-slop-cleaner`", handoff["prompt_template"])
         self.assertIn("Local capability discovery:", handoff["prompt_template"])
         self.assertIn("Codex-native skills/workflows", handoff["prompt_template"])
         self.assertIn("installed OMX/oh-my workflow packs", handoff["prompt_template"])

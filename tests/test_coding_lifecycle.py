@@ -30,6 +30,7 @@ def _write_local_workflow_snapshot(directory: Path, recorded: tuple[str, str, st
     profile, skill_id, status = recorded
     snapshot = build_executor_capability_snapshot(
         executor="codex",
+        recorded_at="2026-08-02T12:00:01+09:00",
         capabilities={"local_workflow": {
             "status": status,
             "scope": {"profile": profile, "skill_id": skill_id, "environment": "test-host"},

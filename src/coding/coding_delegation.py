@@ -42,6 +42,7 @@ from .executor_capability_snapshots import (
     read_matching_executor_capability_snapshot,
 )
 from .executor_local_workflow import build_executor_local_workflow
+from .executor_local_workflow_selection import is_workflow
 from .product_family_templates import product_family_template
 from .product_quality_harnesses import product_quality_harness
 from .project_governance import discover_project_governance, governance_handoff_attachment
@@ -1359,7 +1360,9 @@ def _local_workflow_evidence(snapshot: dict[str, object] | None) -> dict[str, ob
     if not isinstance(capabilities, dict):
         return None
     evidence = capabilities.get(LOCAL_WORKFLOW_CAPABILITY_NAME)
-    return evidence if isinstance(evidence, dict) else None
+    if not isinstance(evidence, dict):
+        return None
+    return {**evidence, "recorded_at": snapshot.get("recorded_at", "")}
 
 
 def _local_capability_fallback(profile: str) -> str:
@@ -1802,7 +1805,7 @@ def _prioritize_preferred_workflow(
     preferred_workflow_score: int | None,
 ) -> list[dict[str, object]]:
     workflow = str(preferred_workflow or "").strip()
-    if not workflow:
+    if not is_workflow(workflow):
         return recommendations
     route_score = _int_or_none(preferred_workflow_score)
     prioritized: dict[str, object] | None = None
