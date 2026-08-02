@@ -15,6 +15,7 @@ load_local_package()
 from omh.paths import resolve_paths
 from omh.chat_router import route_chat_message, routing_record_payload
 from omh.coding_delegation import build_coding_delegation_payload, coding_delegation_record_payload
+from omh.coding.executor_local_workflow import build_executor_local_workflow
 from omh.executor_progress import build_progress_binding, build_safe_progress_signal, observe_executor_progress, write_progress_binding
 from omh.runtime_artifacts import (
     DEFAULT_RUN_HISTORY_LIMIT,
@@ -49,6 +50,7 @@ from omh.runtime_artifacts import (
 )
 from omh.runtime.records import (
     RUNTIME_OBSERVATION_EVENTS,
+    build_coding_delegation_record,
     validate_coding_executor_handoff,
     validate_coding_prompt_handoff,
     validate_coding_runtime_handoff,
@@ -58,6 +60,219 @@ from omh.runtime.records import (
 
 
 class RuntimeArtifactTests(unittest.TestCase):
+    def test_executor_local_workflow_round_trips_all_handoff_lanes(self) -> None:
+        cases = (
+            ("codex", "executor_handoff", True),
+            ("omx-runtime", "runtime_handoff", False),
+        )
+
+        for profile, handoff_key, parent_dispatchable in cases:
+            with self.subTest(profile=profile):
+                payload = build_coding_delegation_payload(
+                    "$ultragoal complete the goal",
+                    executor_target=profile,
+                )
+                handoff = payload[handoff_key]
+                binding = build_executor_local_workflow(
+                    profile=profile,
+                    routed_workflow="ultragoal",
+                    parent_handoff_dispatchable=parent_dispatchable,
+                )
+                self.assertIsNotNone(binding)
+                handoff["executor_local_workflow"] = binding
+
+                record_input = coding_delegation_record_payload(
+                    payload,
+                    "$ultragoal complete the goal",
+                )
+                compacted = build_coding_delegation_record(record_input)
+                replayed = json.loads(json.dumps(compacted))
+
+                self.assertEqual(replayed[handoff_key]["executor_local_workflow"], binding)
+                validator = validate_coding_executor_handoff if handoff_key == "executor_handoff" else validate_coding_runtime_handoff
+                self.assertEqual(validator(replayed[handoff_key]), [])
+
+        prompt = build_coding_delegation_payload(
+            "$ultragoal complete the goal",
+            executor_target="claude-code",
+        )
+        compacted_prompt = build_coding_delegation_record(
+            coding_delegation_record_payload(prompt, "$ultragoal complete the goal")
+        )["prompt_handoff"]
+        self.assertNotIn("executor_local_workflow", compacted_prompt)
+        self.assertEqual(validate_coding_prompt_handoff(compacted_prompt), [])
+
+    def test_executor_local_workflow_compaction_is_idempotent(self) -> None:
+        payload = build_coding_delegation_payload(
+            "$ultragoal complete the goal",
+            executor_target="codex",
+        )
+        binding = build_executor_local_workflow(
+            profile="codex",
+            routed_workflow="ultragoal",
+            parent_handoff_dispatchable=True,
+        )
+        self.assertIsNotNone(binding)
+        payload["executor_handoff"]["executor_local_workflow"] = binding
+
+        first = build_coding_delegation_record(
+            coding_delegation_record_payload(payload, "$ultragoal complete the goal")
+        )
+        second = build_coding_delegation_record(first)
+
+        self.assertEqual(second["executor_handoff"], first["executor_handoff"])
+        self.assertIs(type(second["executor_handoff"]["executor_local_workflow"]["dispatchability"]["handoff_dispatchable"]), bool)
+        self.assertIs(
+            type(second["executor_handoff"]["executor_local_workflow"]["dispatchability"]["candidate_invocation_dispatchable"]),
+            bool,
+        )
+
+    def test_legacy_handoffs_without_local_workflow_still_validate(self) -> None:
+        cases = (
+            ("codex", "executor_handoff", validate_coding_executor_handoff),
+            ("claude-code", "prompt_handoff", validate_coding_prompt_handoff),
+            ("omx-runtime", "runtime_handoff", validate_coding_runtime_handoff),
+        )
+
+        for profile, handoff_key, validator in cases:
+            with self.subTest(profile=profile):
+                handoff = build_coding_delegation_payload(
+                    "risky refactor",
+                    executor_target=profile,
+                )[handoff_key]
+                handoff.pop("executor_local_workflow", None)
+
+                self.assertNotIn("executor_local_workflow", handoff)
+                self.assertEqual(validator(handoff), [])
+
+    def test_executor_local_workflow_rejects_cross_field_forgery(self) -> None:
+        executor = build_coding_delegation_payload(
+            "$ultragoal complete the goal",
+            executor_target="codex",
+        )["executor_handoff"]
+        executor_binding = build_executor_local_workflow(
+            profile="codex",
+            routed_workflow="ultragoal",
+            parent_handoff_dispatchable=True,
+        )
+        self.assertIsNotNone(executor_binding)
+        executor["executor_local_workflow"] = executor_binding
+
+        mutations = (
+            ("profile", lambda value: value["executor_local_workflow"].__setitem__("profile", "hermes"), "executor_local_workflow.profile"),
+            (
+                "candidate",
+                lambda value: value["executor_local_workflow"]["candidate"].__setitem__("skill_id", "ralph"),
+                "executor_local_workflow.candidate.skill_id",
+            ),
+            (
+                "availability",
+                lambda value: value["executor_local_workflow"].__setitem__("status", "observed_available"),
+                "executor_local_workflow.status",
+            ),
+            (
+                "legacy_codex",
+                lambda value: value.__setitem__("codex_skill", "$ralph"),
+                "executor_local_workflow.routed_workflow",
+            ),
+            (
+                "extra_key",
+                lambda value: value["executor_local_workflow"]["candidate"].__setitem__("dispatch", True),
+                "executor_local_workflow.candidate",
+            ),
+            (
+                "malformed",
+                lambda value: value["executor_local_workflow"].__setitem__("candidate", []),
+                "executor_local_workflow.candidate",
+            ),
+        )
+        for name, mutate, expected_path in mutations:
+            with self.subTest(name=name):
+                forged = deepcopy(executor)
+                mutate(forged)
+                self.assertIn(expected_path, json.dumps(validate_coding_executor_handoff(forged)))
+
+        runtime = build_coding_delegation_payload(
+            "$ultragoal complete the goal",
+            executor_target="omx-runtime",
+        )["runtime_handoff"]
+        runtime_binding = build_executor_local_workflow(
+            profile="omx-runtime",
+            routed_workflow="ultragoal",
+            parent_handoff_dispatchable=False,
+        )
+        self.assertIsNotNone(runtime_binding)
+        runtime["executor_local_workflow"] = runtime_binding
+        runtime["executor_local_workflow"]["dispatchability"]["candidate_invocation_dispatchable"] = True
+
+        runtime_errors = json.dumps(validate_coding_runtime_handoff(runtime))
+        self.assertIn("executor_local_workflow.dispatchability.candidate_invocation_dispatchable", runtime_errors)
+        self.assertIn("runtime handoff cannot grant candidate invocation authority", runtime_errors)
+
+        prompt = build_coding_delegation_payload(
+            "$ultragoal complete the goal",
+            executor_target="claude-code",
+        )["prompt_handoff"]
+        prompt["executor_local_workflow"] = deepcopy(executor_binding)
+        self.assertIn(
+            "executor_local_workflow.profile must match selected_executor_profile",
+            json.dumps(validate_coding_prompt_handoff(prompt)),
+        )
+
+    def test_executor_local_workflow_rejects_truthy_non_booleans(self) -> None:
+        cases = (
+            ("codex", "executor_handoff", True, validate_coding_executor_handoff),
+            ("omx-runtime", "runtime_handoff", False, validate_coding_runtime_handoff),
+        )
+        mutations = (
+            ("handoff_dispatchable", 1),
+            ("candidate_invocation_dispatchable", "false"),
+        )
+
+        for profile, handoff_key, parent_dispatchable, validator in cases:
+            for field, forged_value in mutations:
+                with self.subTest(profile=profile, field=field):
+                    handoff = build_coding_delegation_payload(
+                        "$ultragoal complete the goal",
+                        executor_target=profile,
+                    )[handoff_key]
+                    binding = build_executor_local_workflow(
+                        profile=profile,
+                        routed_workflow="ultragoal",
+                        parent_handoff_dispatchable=parent_dispatchable,
+                    )
+                    self.assertIsNotNone(binding)
+                    binding["dispatchability"][field] = forged_value
+                    handoff["executor_local_workflow"] = binding
+
+                    errors = json.dumps(validator(handoff))
+
+                    self.assertIn(f"executor_local_workflow.dispatchability.{field} must be an exact boolean", errors)
+
+    def test_descriptor_only_runtime_profiles_allow_no_executable_templates(self) -> None:
+        for profile in ("omo-runtime", "omc-runtime"):
+            with self.subTest(profile=profile):
+                handoff = build_coding_delegation_payload(
+                    "$ultragoal complete the goal",
+                    executor_target=profile,
+                )["runtime_handoff"]
+
+                self.assertEqual(handoff["runtime_templates"], [])
+                self.assertEqual(validate_coding_runtime_handoff(handoff), [])
+
+        for profile in ("hermes", "omx-runtime"):
+            with self.subTest(profile=profile):
+                handoff = build_coding_delegation_payload(
+                    "$ultragoal complete the goal",
+                    executor_target=profile,
+                )["runtime_handoff"]
+                handoff["runtime_templates"] = []
+
+                self.assertIn(
+                    "runtime_templates must not be empty",
+                    json.dumps(validate_coding_runtime_handoff(handoff)),
+                )
+
     def test_new_run_id_is_stable_and_slugged(self) -> None:
         now = datetime(2026, 6, 4, 12, 1, 2, tzinfo=timezone.utc)
 

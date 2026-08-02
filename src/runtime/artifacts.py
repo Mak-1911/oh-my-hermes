@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import re
 import secrets
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ..context_safety import MAX_RUN_HISTORY_EVENTS, build_coding_progress_reporting_policy
+from ..coding.executor_local_workflow import validate_executor_local_workflow
 from ..executor_progress import validate_progress_binding, validate_progress_event, validate_progress_report
 from ..executors import (
     CODING_EXECUTOR_HANDOFF_TARGETS,
@@ -1124,6 +1126,10 @@ def _handoff_contract_summary(handoff: dict[str, Any]) -> dict[str, Any]:
     memory_recall_pack = _object_or_empty(handoff.get("memory_recall_pack"))
     if memory_recall_pack:
         summary["memory_recall_pack"] = _memory_recall_pack_summary(memory_recall_pack)
+    binding = _object_or_empty(handoff.get("executor_local_workflow"))
+    selected_profile = str(summary["selected_executor_profile"])
+    if binding and str(binding.get("profile", "")) == selected_profile and not validate_executor_local_workflow(binding):
+        summary["executor_local_workflow"] = deepcopy(binding)
     return summary
 
 
