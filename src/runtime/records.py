@@ -27,8 +27,12 @@ from ..coding.hermes_harness import (
     compact_hermes_coding_harness as _compact_hermes_coding_harness,
     validate_hermes_coding_harness as _validate_hermes_coding_harness,
 )
-from ..coding.executor_capability_snapshots import validate_executor_capability_snapshot
+from ..coding.executor_capability_snapshots import (
+    LOCAL_WORKFLOW_CAPABILITY_NAME,
+    validate_executor_capability_snapshot,
+)
 from ..coding.executor_local_workflow import validate_executor_local_workflow
+from ..coding.executor_local_workflow_selection import availability_for
 from ..executors import (
     DISPATCH_POLICIES,
     EXECUTOR_PROFILES,
@@ -2626,6 +2630,21 @@ def validate_optional_executor_local_workflow(
     expected_profile = handoff.get("selected_executor_profile")
     if binding.get("profile") != expected_profile:
         errors.append(f"{label}.profile must match selected_executor_profile")
+
+    availability = binding.get("availability")
+    if binding.get("status") in {"observed_available", "observed_unavailable"}:
+        snapshot = handoff.get("executor_capability_snapshot")
+        capabilities = snapshot.get("capabilities") if isinstance(snapshot, dict) else None
+        evidence = capabilities.get(LOCAL_WORKFLOW_CAPABILITY_NAME) if isinstance(capabilities, dict) else None
+        expected_availability = None
+        if isinstance(evidence, dict):
+            expected_availability = availability_for(
+                str(expected_profile),
+                str(binding.get("routed_workflow")),
+                {**evidence, "recorded_at": snapshot.get("recorded_at")},
+            )
+        if availability != expected_availability:
+            errors.append(f"{label}.availability must match executor_capability_snapshot local_workflow evidence")
 
     dispatchability = binding.get("dispatchability")
     if not isinstance(dispatchability, dict):

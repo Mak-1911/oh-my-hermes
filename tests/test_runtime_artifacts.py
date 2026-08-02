@@ -227,6 +227,35 @@ class RuntimeArtifactTests(unittest.TestCase):
 
         self.assertTrue(any("codex_invocation.dispatch_text_template" in error for error in errors), errors)
 
+    def test_executor_handoff_rejects_observed_binding_without_matching_snapshot_evidence(self) -> None:
+        handoff = build_coding_delegation_payload(
+            "$ultragoal complete the goal",
+            executor_target="codex",
+        )["executor_handoff"]
+        binding = build_executor_local_workflow(
+            profile="codex",
+            routed_workflow="ultragoal",
+            parent_handoff_dispatchable=True,
+            availability_evidence={
+                "status": "host_observed",
+                "scope": {
+                    "profile": "codex",
+                    "skill_id": "ultragoal",
+                    "environment": "local",
+                },
+                "recorded_at": "2026-08-02T12:00:01+09:00",
+                "observed_at": "2026-08-02T12:00:00+09:00",
+                "evidence_ref": "operator:local-workflow-check",
+            },
+        )
+        self.assertIsNotNone(binding)
+        handoff["executor_local_workflow"] = binding
+        handoff["codex_invocation"]["dispatch_text_template"] = "$ultragoal {message}"
+
+        errors = validate_coding_executor_handoff(handoff)
+
+        self.assertTrue(any("executor_capability_snapshot" in error for error in errors), errors)
+
     def test_executor_local_workflow_rejects_truthy_non_booleans(self) -> None:
         cases = (
             ("codex", "executor_handoff", True, validate_coding_executor_handoff),
