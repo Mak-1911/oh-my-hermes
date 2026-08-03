@@ -202,9 +202,8 @@ class AwarenessDeliveryLedgerTests(unittest.TestCase):
             self.assertTrue(legacy.ok)
             self.assertEqual(legacy.severity, "ok")
 
+    @unittest.skipUnless(os.name == "posix", "POSIX mode bits do not exist off POSIX")
     def test_ledger_file_and_directory_are_private(self) -> None:
-        if os.name != "posix":
-            self.skipTest("POSIX permission bits are not meaningful on Windows/NTFS")
         with TemporaryDirectory() as tmp:
             record_awareness_delivery(
                 delivered=False,
