@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import stat
 import threading
 import unittest
@@ -202,6 +203,8 @@ class AwarenessDeliveryLedgerTests(unittest.TestCase):
             self.assertEqual(legacy.severity, "ok")
 
     def test_ledger_file_and_directory_are_private(self) -> None:
+        if os.name != "posix":
+            self.skipTest("POSIX permission bits are not meaningful on Windows/NTFS")
         with TemporaryDirectory() as tmp:
             record_awareness_delivery(
                 delivered=False,
