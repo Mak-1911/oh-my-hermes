@@ -99,6 +99,7 @@ class _RunnerMixin(unittest.TestCase):
         scenario: str,
         *,
         repetition: int = 1,
+        timeout_seconds: int = 2,
         sandbox: bool = False,
         environment: tuple[tuple[str, str], ...] = (),
         read_roots: tuple[Path, ...] = (),
@@ -111,9 +112,10 @@ class _RunnerMixin(unittest.TestCase):
         allocator.mkdir()
         request, spec = _spec(allocator, scenario)
         spec = ExecutionSpec(spec.argv, (*spec.read_roots, *read_roots), spec.scratch_parent, spec.backend, allow_network, environment, spec.version_argv)
-        if repetition != 1:
+        if repetition != 1 or timeout_seconds != 2:
             raw = adapter_request_payload(request)
             raw["repetition"] = repetition
+            raw["timeout_seconds"] = timeout_seconds
             request = parse_adapter_request(raw)
         if sandbox:
             outcome = run_adapter(request, spec, _output(root))
@@ -153,11 +155,11 @@ class FailClosedAdapterRunnerTests(_RunnerMixin):
                     self.assertNotIn(str(canary), persisted)
                     self.assertEqual(canary.read_text(encoding="utf-8"), "real-outside-secret")
 
-    def _assert_descendant_is_killed(self, scenario: str) -> runner.AdapterRunReceipt:
+    def _assert_descendant_is_killed(self, scenario: str, timeout_seconds: int = 2) -> runner.AdapterRunReceipt:
         with TemporaryDirectory() as temporary:
             pid_path = Path(temporary) / "descendant.pid"
             started = time.monotonic()
-            outcome = self._run(scenario, environment=(("OMH_DESCENDANT_PID", str(pid_path)),))
+            outcome = self._run(scenario, timeout_seconds=timeout_seconds, environment=(("OMH_DESCENDANT_PID", str(pid_path)),))
             pid = int(pid_path.read_text(encoding="utf-8"))
             with self.assertRaises(ProcessLookupError):
                 os.kill(pid, 0)
@@ -172,7 +174,7 @@ class FailClosedAdapterRunnerTests(_RunnerMixin):
         self._assert_descendant_is_killed("descendant-exit-inherited")
 
     def test_crashed_parent_descendant_is_killed(self) -> None:
-        self.assertEqual(self._assert_descendant_is_killed("crash-descendant").reason_code, "process_crash")
+        self.assertEqual(self._assert_descendant_is_killed("crash-descendant", timeout_seconds=5).reason_code, "process_crash")
 
     def test_timed_out_parent_descendant_is_killed(self) -> None:
         self.assertEqual(self._assert_descendant_is_killed("timeout").reason_code, "process_timeout")
