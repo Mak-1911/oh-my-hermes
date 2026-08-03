@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..capabilities.toggles import build_capability_policy
 from ..executors import CODING_EXECUTOR_TARGETS
 from ..local_store import atomic_write_json, read_json_object, utc_now
 from ..paths import OmhPaths
@@ -92,6 +93,10 @@ def build_setup_profile(
         "dispatch_policy": "ask_before_dispatch" if resolved_executor in {"codex", "choose"} else "prepare_only",
         "memory_mode": memory_policy["mode"],
         "memory_policy": memory_policy,
+        # Additive and optional, exactly like memory_policy: an absent key means
+        # all six families are offered, so an install written before this key
+        # existed keeps working without a migration.
+        "capability_policy": build_capability_policy(),
         "normal_user_surface": "Hermes Agent chat and installed Hermes skills",
         "local_only": True,
         "network_calls": False,

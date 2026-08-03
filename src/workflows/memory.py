@@ -300,12 +300,35 @@ def build_project_memory_policy(paths: OmhPaths, *, mode: str | None = None) -> 
 
 def read_project_memory_policy(paths: OmhPaths) -> dict[str, object]:
     setup = read_setup_profile(paths)
-    if isinstance(setup, dict):
-        policy = setup.get("memory_policy")
-        if isinstance(policy, dict):
-            return build_project_memory_policy(paths, mode=str(policy.get("mode", "") or "review-first"))
-        return build_project_memory_policy(paths, mode=str(setup.get("memory_mode", "") or "review-first"))
-    return build_project_memory_policy(paths)
+    if not isinstance(setup, dict):
+        return build_project_memory_policy(paths)
+    if not _retain_knowledge_family_enabled(setup):
+        # Disabling the `retain_knowledge` capability family has to actually
+        # stop memory, not merely stop advertising it. Resolving to mode "off"
+        # here reuses the capture gate in `record_project_memory` and the
+        # recall gate's empty pack, so there is one disabled path rather than a
+        # second one that could drift from it.
+        return build_project_memory_policy(paths, mode="off")
+    policy = setup.get("memory_policy")
+    if isinstance(policy, dict):
+        return build_project_memory_policy(paths, mode=str(policy.get("mode", "") or "review-first"))
+    return build_project_memory_policy(paths, mode=str(setup.get("memory_mode", "") or "review-first"))
+
+
+def _retain_knowledge_family_enabled(setup: dict[str, object]) -> bool:
+    """Read the capability policy straight off the already-loaded profile.
+
+    Deliberately not a call into `capabilities.toggles`: that module imports
+    the skill catalog, and the memory path must not pull the catalog in just to
+    answer a boolean.
+    """
+    policy = setup.get("capability_policy")
+    if not isinstance(policy, dict):
+        return True
+    disabled = policy.get("disabled_families", [])
+    if not isinstance(disabled, list):
+        return True
+    return "retain_knowledge" not in {str(value) for value in disabled}
 
 
 def build_hermes_memory_bridge(paths: OmhPaths) -> dict[str, object]:
