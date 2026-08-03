@@ -6541,7 +6541,9 @@ def _finish_interaction(payload: dict[str, object], target_notice: dict[str, obj
     if isinstance(response, dict):
         response = _chat_response_with_route_explanation(response, _nested(payload, "route"))
         if target_notice:
-            response = _chat_response_with_target_notice(response, target_notice)
+            response = _chat_response_with_target_notice(
+                response, target_notice, source=str(payload.get("source", "generic"))
+            )
         goal_quality_coaching_card = payload.get("goal_quality_coaching_card")
         if isinstance(goal_quality_coaching_card, dict):
             response = _chat_response_with_goal_quality_coaching(response, goal_quality_coaching_card)
@@ -6592,7 +6594,9 @@ def _chat_response_with_route_explanation(
     return updated
 
 
-def _chat_response_with_target_notice(response: dict[str, object], target_notice: dict[str, object]) -> dict[str, object]:
+def _chat_response_with_target_notice(
+    response: dict[str, object], target_notice: dict[str, object], *, source: str = ""
+) -> dict[str, object]:
     updated = dict(response)
     state = dict(_nested(updated, "state"))
     topology = target_notice.get("topology")
@@ -6636,6 +6640,7 @@ def _chat_response_with_target_notice(response: dict[str, object], target_notice
             first_line=str(updated.get("headline", "")),
             body=str(updated.get("body", "")),
             claim_boundary=str(updated.get("claim_boundary", "")),
+            source=source,
         )
     return updated
 
@@ -6656,6 +6661,7 @@ def _chat_response_with_render_profile(
             body=str(updated.get("body", "")),
             claim_boundary=str(updated.get("claim_boundary", "")),
             render_profile=render_profile_for_source(source, source_metadata),
+            source=source,
         )
     return updated
 
@@ -7438,6 +7444,20 @@ def _thread_key(source: str, metadata: dict[str, str], *, message: str = "", run
     return f"{source}:{channel}:{event}"
 
 
+def _source_from_thread_key(thread_key: str) -> str:
+    """Recover the ``source`` a ``_thread_key`` was built from.
+
+    Mirrors ``sessions._source_from_thread_key``: ``_thread_key`` always
+    prefixes with ``f"{source}:..."``, so this is the one place a chat
+    response builder that only has ``thread_key`` in scope can still resolve
+    a per-platform messenger ceiling without every caller threading `source`
+    through separately.
+    """
+    if ":" not in thread_key:
+        return "generic"
+    return thread_key.split(":", 1)[0] or "generic"
+
+
 def _target_scope_key(metadata: dict[str, str]) -> str:
     parts = [
         metadata.get("hermes_home", ""),
@@ -7492,6 +7512,7 @@ def _chat_response(
             first_line=headline_with_prefix,
             body=body,
             claim_boundary=claim_boundary,
+            source=_source_from_thread_key(thread_key),
         ),
         "actions": actions,
         "claim_boundary": claim_boundary,
@@ -7695,20 +7716,37 @@ def messenger_rendering_contract(
     body: str,
     claim_boundary: str,
     render_profile: str = RENDER_PROFILE_LIMITED_MARKDOWN,
+    source: str = "",
 ) -> dict[str, object]:
     resolved_profile = _normalize_render_profile(render_profile)
     safe_body_text, safe_transforms = _messenger_safe_body(body)
     if resolved_profile == RENDER_PROFILE_RICH_MARKDOWN:
         body_text = body
         body_format = "rich_markdown"
-        preferred_blocks = ["short_paragraph", "bulleted_list", "numbered_list", "markdown_table", "status_lines"]
+        preferred_blocks = [
+            "short_paragraph",
+            "bulleted_list",
+            "numbered_list",
+            "markdown_table",
+            "code_block",
+            "status_lines",
+        ]
         avoid_blocks = ["large_unbroken_block"]
         table_policy = "preserve_markdown_tables_when_supported"
         transforms: list[str] = []
     else:
         body_text = safe_body_text
         body_format = "messenger_safe_markdown"
-        preferred_blocks = ["short_paragraph", "bulleted_list", "numbered_list", "status_lines"]
+        # `code_block` is preferred on the limited profile too: Discord, Slack,
+        # and Telegram all render triple-backtick fences, and a fence is the
+        # only way column alignment survives a messenger. Tables still do not.
+        preferred_blocks = [
+            "short_paragraph",
+            "bulleted_list",
+            "numbered_list",
+            "code_block",
+            "status_lines",
+        ]
         avoid_blocks = ["markdown_table", "wide_table", "large_unbroken_block"]
         table_policy = "convert_tables_to_bullets_for_messenger"
         transforms = safe_transforms
@@ -7725,13 +7763,25 @@ def messenger_rendering_contract(
         "fallback_body_blocks": _messenger_body_blocks(safe_body_text),
         "preferred_blocks": preferred_blocks,
         "avoid_blocks": avoid_blocks,
-        "chunking": _messenger_chunking_hint(),
+        "chunking": _messenger_chunking_hint(source),
         "transforms_applied": transforms,
         "fallback_transforms_applied": safe_transforms,
         "prefix_policy": {
             "default": "once_per_response_first_line",
             "repeat_when": "adapter_splits_response_across_separate_messages_or_chunks",
             "do_not_repeat": "every_paragraph_or_every_line",
+        },
+        # Declared, not enforced: nothing on this path rewrites body_text to
+        # fit these numbers (that would be a saturation/density transform,
+        # which is a separate feature). This exists because the chat path had
+        # no markdown-density or saturation control at all -- context_budget
+        # protects the supervising agent's context window, not a human
+        # reader's chat bubble. An adapter or future transform can read this
+        # as guidance for what a human reader tolerates.
+        "density_policy": {
+            "max_heading_levels": 2,
+            "max_bullets": 12,
+            "avoid": ["nested_bullets", "bold_inside_bullets", "tables_on_limited_profiles"],
         },
         "platform_hints": {
             "discord": "Start the first message with the visible prefix, prefer bullets or numbered lists over tables, and repeat the prefix only if the adapter splits a long response into separate messages.",
@@ -7842,14 +7892,46 @@ def _normalize_render_profile(render_profile: str) -> str:
     return RENDER_PROFILE_LIMITED_MARKDOWN
 
 
-def _messenger_chunking_hint() -> dict[str, object]:
-    """Return the advisory chunking hint shared by every messenger rendering block.
+# Real per-platform message ceilings, not one global advisory number. Each
+# `hard_limit_chars` sits below that platform's actual delivery cap so an
+# adapter has an enforceable stop, not just advice. `max_recommended_chars`
+# sits a flat 200 characters below `hard_limit_chars` on every platform --
+# room for the visible prefix OMH puts on the first line plus a chunk marker
+# an adapter may add when it splits a long response, neither of which grows
+# with the platform's own cap.
+_MESSENGER_CHAR_CEILINGS: dict[str, dict[str, int]] = {
+    # Discord's server-enforced per-message cap is 2000 characters; 1900
+    # keeps 100 characters of headroom below that hard API limit.
+    "discord": {"max_recommended_chars": 1700, "hard_limit_chars": 1900},
+    # Slack renders a single message/block reliably up to roughly 3000
+    # characters before mrkdwn text objects start truncating; 2900 stays
+    # under that.
+    "slack": {"max_recommended_chars": 2700, "hard_limit_chars": 2900},
+    # Telegram's server-enforced per-message cap is 4096 characters; 3900
+    # keeps headroom below that hard API limit.
+    "telegram": {"max_recommended_chars": 3700, "hard_limit_chars": 3900},
+}
+# Generic/Hermes surfaces -- and any source not in the map above -- have no
+# platform-enforced cap. 1800 is OMH's own long-standing advisory ceiling,
+# now paired with a hard_limit_chars floor so an unknown source still gets an
+# enforceable number instead of only advice.
+_MESSENGER_GENERIC_CEILING: dict[str, int] = {"max_recommended_chars": 1600, "hard_limit_chars": 1800}
 
-    OMH advises, adapters split. A fresh dict per call so a caller embedding it
+
+def _messenger_chunking_hint(source: str = "") -> dict[str, object]:
+    """Return the advisory chunking hint for ``source``'s messenger platform.
+
+    OMH advises, adapters split. Ceilings are per-platform: Discord, Slack,
+    and Telegram each enforce a different hard per-message character cap, so
+    one global number under-warns on generous platforms and over-warns on
+    tight ones. An unknown, empty, or unmapped source falls back to the
+    generic Hermes ceiling. A fresh dict per call so a caller embedding it
     in a payload cannot mutate the hint for every other caller.
     """
+    ceiling = _MESSENGER_CHAR_CEILINGS.get(source, _MESSENGER_GENERIC_CEILING)
     return {
-        "max_recommended_chars": 1800,
+        "max_recommended_chars": ceiling["max_recommended_chars"],
+        "hard_limit_chars": ceiling["hard_limit_chars"],
         "split_on": ["headings", "bullets", "paragraphs"],
     }
 
@@ -8024,39 +8106,71 @@ def _unescape_table_pipes(value: str) -> str:
 
 
 def _messenger_body_blocks(body: str) -> list[dict[str, object]]:
-    return [
-        {"type": block_type, "text": text}
-        for block_type, text in _messenger_body_blocks_cached(body)
-    ]
+    blocks: list[dict[str, object]] = []
+    for block_type, text, language in _messenger_body_blocks_cached(body):
+        block: dict[str, object] = {"type": block_type, "text": text}
+        if block_type == "code_block":
+            block["language"] = language
+        blocks.append(block)
+    return blocks
 
 
 @lru_cache(maxsize=4096)
-def _messenger_body_blocks_cached(body: str) -> tuple[tuple[str, str], ...]:
-    blocks: list[tuple[str, str]] = []
+def _messenger_body_blocks_cached(body: str) -> tuple[tuple[str, str, str], ...]:
+    """Split a body into blocks, keeping fenced code intact.
+
+    Fences get their own block with newlines and leading whitespace PRESERVED.
+    Every other block type joins its lines with a space, which is correct for
+    prose and destructive for anything column-aligned: before this, a fenced
+    status table collapsed into one run-on paragraph on both render profiles,
+    so every adapter that consumes `body_blocks` lost the alignment.
+    """
+    blocks: list[tuple[str, str, str]] = []
     current: list[str] = []
+    fence: list[str] = []
+    language = ""
+    in_code_fence = False
+
+    def flush_paragraph() -> None:
+        nonlocal current
+        if current:
+            blocks.append(("paragraph", " ".join(current), ""))
+            current = []
+
     for line in body.splitlines():
         stripped = line.strip()
+        if _is_code_fence_line(line):
+            if in_code_fence:
+                blocks.append(("code_block", "\n".join(fence), language))
+                fence = []
+                language = ""
+                in_code_fence = False
+            else:
+                flush_paragraph()
+                language = stripped.lstrip("`~").strip()
+                in_code_fence = True
+            continue
+        if in_code_fence:
+            fence.append(line)
+            continue
         if not stripped:
-            if current:
-                blocks.append(("paragraph", " ".join(current)))
-                current = []
+            flush_paragraph()
             continue
         if stripped.startswith(("- ", "* ")):
-            if current:
-                blocks.append(("paragraph", " ".join(current)))
-                current = []
-            blocks.append(("bullet", stripped[2:].strip()))
+            flush_paragraph()
+            blocks.append(("bullet", stripped[2:].strip(), ""))
             continue
         numbered_text = _numbered_list_text(stripped)
         if numbered_text:
-            if current:
-                blocks.append(("paragraph", " ".join(current)))
-                current = []
-            blocks.append(("numbered", numbered_text))
+            flush_paragraph()
+            blocks.append(("numbered", numbered_text, ""))
             continue
         current.append(stripped)
-    if current:
-        blocks.append(("paragraph", " ".join(current)))
+    if in_code_fence and fence:
+        # An unterminated fence still keeps its shape; dropping back to prose
+        # would silently reflow the very content the fence was protecting.
+        blocks.append(("code_block", "\n".join(fence), language))
+    flush_paragraph()
     return tuple(blocks)
 
 
@@ -8091,12 +8205,20 @@ def _rich_markdown_body_blocks(body: str) -> list[dict[str, object]]:
                 paragraph.extend(table_lines)
             continue
         if not stripped:
+            if in_code_fence:
+                # A blank line inside a fence belongs to the code. Flushing here
+                # would split one fenced block into two and reflow the halves.
+                paragraph.append(line)
+                index += 1
+                continue
             if paragraph:
                 blocks.extend(_messenger_body_blocks("\n".join(paragraph)))
                 paragraph = []
             index += 1
             continue
-        paragraph.append(stripped)
+        # Raw inside a fence: `stripped` would drop the leading whitespace that
+        # column alignment is made of.
+        paragraph.append(line if in_code_fence else stripped)
         index += 1
     if paragraph:
         blocks.extend(_messenger_body_blocks("\n".join(paragraph)))

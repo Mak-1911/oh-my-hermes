@@ -20,6 +20,13 @@ from ..awareness_delivery import record_awareness_delivery
 from ..host_observation import observe_plugin_hook_call
 from ..omh_roles import extract_role_marker, role_context_payload
 from ..runtime_reader import read_omh_hud, read_omh_status
+from ..status_board_reader import (
+    last_running_work_board_fingerprint,
+    read_running_work_board,
+    record_running_work_board_emission,
+    render_running_work_block_text,
+    running_work_board_fingerprint,
+)
 
 
 def _token_metadata_from_kwargs(kwargs: dict) -> dict[str, object]:
@@ -134,12 +141,24 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         hud = {}
         degraded.append((COMPONENT_RUNTIME_STATUS_READ, safe_error_type(type(exc).__name__)))
 
+    board = read_running_work_board(omh_home, limit=6)
+    running_count = int(board.get("running_count", 0) or 0)
+    # Two or more concurrently running coding units IS the "multi-session
+    # orchestration is in flight" condition -- no fixed keyword phrasing can
+    # cover every way a user's message might arrive while that is true, but a
+    # live running-unit count cannot be phrased around. One running unit is
+    # ordinary single-session work, not evidence of orchestration, so the
+    # threshold is a count (>= 2), never a keyword match.
+    board_fingerprint = running_work_board_fingerprint(board) if running_count >= 2 else ""
+    show_running_work = running_count >= 2 and board_fingerprint != last_running_work_board_fingerprint(omh_home)
+
     degradation = degradation_payload(degraded)
     if (
         not context_parts
         and not degradation
         and not status.get("runtime_state_present")
         and not status.get("runs")
+        and not show_running_work
     ):
         _record_delivery(delivered=False, route_hint=False, context_chars=0, omh_home=omh_home)
         return None
@@ -168,6 +187,10 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
             )
         lines.append("Use omh_hud for the compact status line, omh_role for role context, or omh_status for full metadata-only status.")
         context_parts.append("\n".join(lines))
+    if show_running_work:
+        board_text = render_running_work_block_text(board)
+        context_parts.append(board_text)
+        record_running_work_board_emission(omh_home, byte_count=len(board_text), fingerprint=board_fingerprint)
     if degradation:
         payload["omh_degradation"] = degradation
         # Component labels only: error types stay in the structured payload, so

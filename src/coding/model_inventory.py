@@ -33,7 +33,12 @@ from typing import Final, Mapping
 from ..system.local_store import utc_now
 from ..system.metadata_safety import require_opaque_metadata_ref
 from .executor_auth_signals import executor_auth_signals
-from .model_routing import model_family
+from .model_routing import (
+    CATEGORY_ROLE_SOURCES,
+    CATEGORY_SCALE_SOURCES,
+    merged_category_chain,
+    model_family,
+)
 
 MODEL_INVENTORY_SCHEMA_VERSION: Final[str] = "model_inventory/v1"
 
@@ -86,25 +91,12 @@ MODEL_INVENTORY_CATALOG_PROFILE: Final[str] = "omo-runtime"
 
 LOCAL_MODEL_CATALOG_SCHEMA_VERSION: Final[str] = "local_model_catalog/v1"
 
-# Ordered category sources per role: deterministic data, not inference. The
-# omo config's semantic categories map onto the fanout roles; where several
-# categories serve one role, the order below decides chain concatenation and
-# ties break toward the stronger-signal category. Review deliberately reuses
-# the high-capability categories — reviewer-vs-author separation is advisory
-# handoff text, not a catalog property.
-OMO_CATEGORY_ROLE_SOURCES: Final[dict[str, tuple[str, ...]]] = {
-    "brain": ("ultrabrain", "deep", "unspecified-high"),
-    "implementation": ("unspecified-high", "unspecified-low"),
-    "design_visual": ("visual-engineering", "artistry"),
-    "review": ("unspecified-high", "deep"),
-    "docs": ("writing", "quick"),
-    # Read-only investigation lanes: standard depth is the default; the
-    # shallow/deep entries resolve only when the unit DECLARES that depth
-    # (autorouting survey consensus: depth is a dial, never inferred).
-    "research": ("unspecified-low", "quick"),
-    "research:shallow": ("quick",),
-    "research:deep": ("deep", "ultrabrain"),
-}
+# The routing rule is ONE rule, defined in `model_routing` and imported here so
+# a locally-derived catalog and the built-in table cannot drift apart. These
+# aliases keep the omo-flavoured names that callers and tests already use; the
+# categories themselves are not omo-specific, they are how OMH routes.
+OMO_CATEGORY_ROLE_SOURCES: Final[dict[str, tuple[str, ...]]] = CATEGORY_ROLE_SOURCES
+OMO_CATEGORY_SCALE_SOURCES: Final[dict[str, tuple[str, ...]]] = CATEGORY_SCALE_SOURCES
 
 _OMO_AGENT_CONFIG_RELATIVE: Final[str] = ".config/opencode/oh-my-openagent.json"
 _OPENCODE_CONFIG_RELATIVE: Final[str] = ".config/opencode/opencode.json"
@@ -305,22 +297,22 @@ def inventory_model_catalog(inventory: Mapping[str, object]) -> dict[str, object
     chains: dict[str, tuple[dict[str, str], ...]] = {}
     if isinstance(category_chains, Mapping):
         for role, categories in OMO_CATEGORY_ROLE_SOURCES.items():
-            merged: list[dict[str, str]] = []
-            seen: set[tuple[str, str]] = set()
-            for category in categories:
-                chain = category_chains.get(category)
-                if not isinstance(chain, list):
-                    continue
-                for entry in chain:
-                    if not isinstance(entry, Mapping):
-                        continue
-                    key = (str(entry.get("model_id", "")), str(entry.get("reasoning_effort", "")))
-                    if key in seen or not key[0]:
-                        continue
-                    seen.add(key)
-                    merged.append({"model_id": key[0], "reasoning_effort": key[1]})
+            merged = merged_category_chain(category_chains, categories)
             if merged:
                 chains[role] = tuple(merged)
+        # `{role}:{scale}` chains, keyed exactly like the `research:{depth}`
+        # entries the resolver already looks up, so the local path and the
+        # built-in path answer the same question the same way.
+        for role in OMO_CATEGORY_ROLE_SOURCES:
+            # `research` is excluded because the resolver skips the scale dial
+            # for it in favour of depth; deriving `research:small` would be a
+            # chain nothing can ever look up.
+            if ":" in role or role == "research":
+                continue
+            for scale, categories in OMO_CATEGORY_SCALE_SOURCES.items():
+                merged = merged_category_chain(category_chains, categories)
+                if merged:
+                    chains[f"{role}:{scale}"] = tuple(merged)
     sources = inventory.get("sources", {})
     source_statuses = (
         {name: str(entry.get("status", "unknown")) for name, entry in sources.items() if isinstance(entry, Mapping)}

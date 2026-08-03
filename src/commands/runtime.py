@@ -57,7 +57,7 @@ from ..executors import CODING_RUNTIME_HANDOFF_TARGETS
 from ..local_store import read_json_object
 from ..skill_pack import builtin_harnesses, routable_definitions
 from ..team_readiness import DEFAULT_RUNTIME_TARGET_SCAN_LIMIT, build_team_worker_readiness
-from .common import _paths, _print_json
+from .common import _paths, _print_json, _wants_json
 
 
 def _valid_skill_names() -> set[str]:
@@ -485,15 +485,77 @@ def cmd_runtime_progress_status(args: argparse.Namespace) -> int:
         payload = smaller_payload(shown, unchanged_progress_status_payload(shown, ledger))
     else:
         payload = shown
-    _print_json(payload)
+    # Plain text is the default here for the same reason it is everywhere else
+    # in omh: this projection is one full binding record per executor, and
+    # printing it raw put roughly fifteen kilobytes of JSON in front of whoever
+    # asked "what is running?". `--json` (or OMH_OUTPUT=json) keeps the machine
+    # payload for agents and scripts.
+    if _wants_json(args):
+        emitted = json.dumps(payload, sort_keys=True)
+        _print_json(payload)
+    else:
+        emitted = _render_progress_status_text(payload)
+        print(emitted)
     record_context_emission(
         paths,
         PROGRESS_STATUS_LEDGER_KEY,
         surface=surface,
-        byte_count=len(json.dumps(payload, sort_keys=True)),
+        # The ledger charges what was actually emitted, so a text call is not
+        # billed for JSON it never printed. The fingerprint stays the payload's
+        # so the suppression decision is identical in both modes.
+        byte_count=len(emitted),
         payload_fingerprint_value=fingerprint,
     )
     return 0
+
+
+def _render_progress_status_text(payload: dict) -> str:
+    """Compact human board for `runtime progress-status`.
+
+    Handles both shapes the command can emit: the full projection, and the
+    suppressed `unchanged_since_last_emission` replacement that carries counts
+    instead of rows. Rendering only the full shape would print an empty board on
+    every repeated call, which reads as "everything stopped" when nothing moved.
+    """
+    if payload.get("unchanged_since_last_emission"):
+        return "\n".join(
+            [
+                "Executor progress status: unchanged since the last emission.",
+                f"  Active executors: {payload.get('active_executor_count', 0)}",
+                f"  Stale executors: {payload.get('stale_executor_count', 0)}",
+                f"  Next: {payload.get('next_action', '')}",
+                f"  Full output: {payload.get('full_output_command', '')}",
+                str(payload.get("claim_boundary", "")),
+            ]
+        )
+    active = [row for row in payload.get("active_executors", []) or [] if isinstance(row, dict)]
+    stale = [row for row in payload.get("stale_executors", []) or [] if isinstance(row, dict)]
+    lines = [f"Executor progress status ({len(active)} active, {len(stale)} stale)"]
+    if not active and not stale:
+        lines.append("  No executor progress observed.")
+    for label, rows in (("Active", active), ("Stale", stale)):
+        if not rows:
+            continue
+        lines.append(f"{label}:")
+        lines.extend(f"  {_progress_status_row_text(row)}" for row in rows)
+    lines.append(str(payload.get("claim_boundary", "")))
+    return "\n".join(line for line in lines if line)
+
+
+def _progress_status_row_text(row: dict) -> str:
+    event = row.get("latest_event", {})
+    event = event if isinstance(event, dict) else {}
+    # The summary is the only free text on the row and it already passed the
+    # observe-side sanitizer; everything else is an identifier or a status word.
+    parts = [
+        f"{row.get('target_type', 'unknown')} {row.get('target_id', 'unknown')}",
+        str(row.get("executor_profile", "") or "unknown"),
+        str(event.get("event_type", "") or "no_observed_event"),
+        f"observed {row.get('latest_observed_at', '') or 'unknown'}",
+    ]
+    line = " — ".join(parts)
+    summary = str(event.get("summary", "") or "")
+    return f"{line} — {summary}" if summary else line
 
 
 def _validate_runtime_observation_target(target_dir, target_type: str, runtime_profile: str) -> bool:
@@ -665,6 +727,7 @@ def _add_progress_status_args(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Always print the full projection, even when nothing changed since the last call.",
     )
+    parser.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
     parser.set_defaults(func=cmd_runtime_progress_status)
 
 

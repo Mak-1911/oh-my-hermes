@@ -40,6 +40,7 @@ from ..wrapper.lifecycle import (
 )
 from .common import _chat_input_and_metadata, _explicit_source_metadata, _paths, _print_json, _resolved_executor, _wants_json
 from .dynamic_workflow import _add_dynamic_workflow_command, cmd_coding_dynamic_workflow
+from .status_board import add_coding_status_board_command
 
 
 _CAPABILITY_SNAPSHOT_CLAIM_BOUNDARY = (
@@ -1405,6 +1406,8 @@ def _add_coding_commands(sub) -> None:
     )
     composition_guide.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
     composition_guide.set_defaults(func=cmd_coding_composition_guide)
+
+    add_coding_status_board_command(coding_sub)
 
     delegate = coding_sub.add_parser("delegate")
     delegate.add_argument("message", nargs="*", help="Coding task description to prepare for executor delegation.")

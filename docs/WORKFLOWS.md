@@ -4175,6 +4175,60 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Do not imply hidden Hermes runtime behavior.
   - Use the smallest verification that can prove the claim.
 
+### running-work-board
+
+[omh] Hermes adaptation for showing which coding units are running right now, on which runtime and model, with observed tokens and elapsed time.
+
+- Category: `operator`
+- Phase: `observability`
+- Hermes role: `tracker`
+- Quality tier: `evidence-gated`
+- Reasoning demand: `light`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Read local dispatch and progress artifacts directly and render the board; never dispatch or modify a unit from this workflow.
+- Why this exists: `running-work-board` exists because multi-session coding work was invisible: the runtime was tracked but the model was dropped, token counts had no write site at all, and a blocking dispatch could not report that it was still running. The board answers which model on which runtime, or says unknown.
+- Use when: Use when the user asks what coding work is running right now -- which unit, which runtime, which model, how long, how many tokens -- rather than asking to start, plan, or review work.
+- Do not use when:
+  - The user wants to start, plan, or dispatch coding work rather than observe it.
+  - The user wants review, CI, or merge evidence, which a status board never provides.
+  - The user is asking about their own application's runtime status rather than OMH coding units.
+- Strong routing signals: `running-work-board`, `running work board`, `which units are running`, `what models are running`, `지금 뭐 돌고 있어`, `뭐가 돌고 있어`, `어떤 모델로 돌고 있어`, `실행 중인 작업 보여줘`
+- Good example:
+  - Prompt: what is running right now
+  - Expected behavior: One line per unit: label, runtime, model, status, elapsed, tokens, with unknown printed where nothing was observed.
+  - Why: The request is about observed local coding activity, not about starting work.
+- Bad example:
+  - Prompt: is the deploy done and did CI pass
+  - Expected behavior: Route to verification or CI evidence instead of the activity board.
+  - Why: Observed activity is not result, review, CI, or merge evidence.
+- Quality bar:
+  - Name the workflow target, constraints, validation evidence, and stop condition.
+  - Separate Hermes guidance from executor or wrapper behavior unless evidence proves the step happened.
+- Completion checklist:
+  - Runtime and model are named per unit, or explicitly reported as unknown.
+  - Token counts and session references are observed values or the literal unknown, never estimates.
+  - Elapsed time for an unfinished unit comes from its start marker, which cannot prove the unit is still alive.
+  - The board is labelled observed activity, not result, verification, review, CI, or merge evidence.
+- Recovery notes:
+  - If no units are found, say so plainly rather than implying nothing ever ran.
+  - If a marker is stale because a process died, report it as observed-start-without-end instead of claiming the unit is running.
+  - If tokens are unknown for a runtime with no structured output, say the runtime does not report them.
+- Required inputs:
+  - local coding artifacts
+- Expected outputs:
+  - per-unit runtime and model
+  - observed tokens and elapsed
+  - explicit unknowns
+- Artifact expectations:
+  - metadata-only status board projection from local artifacts
+- Safety rules:
+  - Do not imply hidden Hermes runtime behavior.
+  - Use the smallest verification that can prove the claim.
+
 ### model-setup
 
 [omh] Hermes Model Setup workflow: diagnose role-slot model configuration, guide provider connection, and apply changes only after diff approval.

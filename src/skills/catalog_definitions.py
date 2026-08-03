@@ -4740,6 +4740,77 @@ _DEFINITIONS = [
         ),
     ),
     SkillDefinition(
+        "running-work-board",
+        "Hermes adaptation for showing which coding units are running right now, on which runtime and model, with observed tokens and elapsed time.",
+        (
+            "running-work-board",
+            # No short English phrase lives here. The scorer credits shared
+            # tokens, so "status board" claimed "show status"/"show pipeline
+            # status" and "show me the sessions" claimed them again through
+            # `show`. Both are domain phrasings that must stay a clarify.
+            # Every generic English phrasing is handled by
+            # `_coding_status_board_fast_path_decision`, which matches whole
+            # cue phrases and cannot be reached by a single shared token.
+            "running work board",
+            # Only phrasings that reach NO owner today. Deliberately absent:
+            # "coding status"/"coding progress"/"codex status" dispatch to
+            # ultraprocess at score 56, and "뭐해"/"지금뭐함" dispatch to
+            # agent-ops-review at 14. Claiming those would steal a decided route.
+            "which units are running",
+            "what models are running",
+            "지금 뭐 돌고 있어",
+            "뭐가 돌고 있어",
+            "어떤 모델로 돌고 있어",
+            "실행 중인 작업 보여줘",
+        ),
+        (
+            "Use when the user asks what coding work is running right now -- which unit, which runtime, which model, "
+            "how long, how many tokens -- rather than asking to start, plan, or review work."
+        ),
+        category="operator",
+        # Not `status`: that produces a `phase:status` leading match, which is
+        # absent from `_PROTECTED_LEADING_MATCHES` in
+        # `routing/domain_context_eligibility.py`, so this skill tying at the
+        # top score turned protected routes like "maintenance status" eligible.
+        phase="observability",
+        hermes_role="retained-operator",
+        handoff_policy="Read local dispatch and progress artifacts directly and render the board; never dispatch or modify a unit from this workflow.",
+        required_inputs=("local coding artifacts",),
+        expected_outputs=("per-unit runtime and model", "observed tokens and elapsed", "explicit unknowns"),
+        artifact_expectations=("metadata-only status board projection from local artifacts",),
+        why_this_exists=(
+            "`running-work-board` exists because multi-session coding work was invisible: the runtime was tracked but "
+            "the model was dropped, token counts had no write site at all, and a blocking dispatch could not report "
+            "that it was still running. The board answers which model on which runtime, or says unknown."
+        ),
+        do_not_use_when=(
+            "The user wants to start, plan, or dispatch coding work rather than observe it.",
+            "The user wants review, CI, or merge evidence, which a status board never provides.",
+            "The user is asking about their own application's runtime status rather than OMH coding units.",
+        ),
+        good_example=SkillExample(
+            prompt="what is running right now",
+            expected="One line per unit: label, runtime, model, status, elapsed, tokens, with unknown printed where nothing was observed.",
+            why="The request is about observed local coding activity, not about starting work.",
+        ),
+        bad_example=SkillExample(
+            prompt="is the deploy done and did CI pass",
+            expected="Route to verification or CI evidence instead of the activity board.",
+            why="Observed activity is not result, review, CI, or merge evidence.",
+        ),
+        final_checklist=(
+            "Runtime and model are named per unit, or explicitly reported as unknown.",
+            "Token counts and session references are observed values or the literal unknown, never estimates.",
+            "Elapsed time for an unfinished unit comes from its start marker, which cannot prove the unit is still alive.",
+            "The board is labelled observed activity, not result, verification, review, CI, or merge evidence.",
+        ),
+        recovery_notes=(
+            "If no units are found, say so plainly rather than implying nothing ever ran.",
+            "If a marker is stale because a process died, report it as observed-start-without-end instead of claiming the unit is running.",
+            "If tokens are unknown for a runtime with no structured output, say the runtime does not report them.",
+        ),
+    ),
+    SkillDefinition(
         "model-setup",
         "Hermes Model Setup workflow: diagnose role-slot model configuration, guide provider connection, and apply changes only after diff approval.",
         (

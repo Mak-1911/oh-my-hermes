@@ -13,7 +13,9 @@ from ..system.metadata_safety import redact_metadata_text
 from ..system.paths import OmhPaths
 from .executor_readiness import probe_executor_readiness
 from .fanout_contracts import FANOUT_CLAIM_BOUNDARY
+from .inflight import InflightMarkerError, clear_inflight_marker, write_inflight_marker
 from .unit_prompt_protocol import unit_protocol_lines
+from .unit_telemetry import parse_unit_telemetry
 
 FANOUT_DISPATCH_SCHEMA_VERSION = "fanout_dispatch_summary/v1"
 DISPATCH_CLAIM_BOUNDARY = (
@@ -253,6 +255,9 @@ def dispatch_fanout(
     units = {str(unit["unit_id"]): unit for unit in contract.get("units", []) if isinstance(unit, Mapping)}
     order = [str(unit_id) for unit_id in contract.get("merge_plan", {}).get("merge_order", [])]
     current_catalog_digest = _current_catalog_digest(units.values())
+    # Resolved up here rather than beside the summary write below: the dispatch
+    # loop needs it to write per-unit in-flight markers while units are running.
+    fanout_id = str(contract.get("fanout_id", "") or "")
     selected = set(only_units) if only_units else set(order)
     results: dict[str, dict[str, Any]] = {}
 
@@ -303,6 +308,7 @@ def dispatch_fanout(
                     runner=runner,
                     readiness=readiness,
                     current_catalog_digest=current_catalog_digest,
+                    fanout_id=fanout_id,
                 )
                 for unit_id in ready
             }
@@ -327,7 +333,6 @@ def dispatch_fanout(
         "base_sha": base_sha,
         "claim_boundary": f"{DISPATCH_CLAIM_BOUNDARY} {FANOUT_CLAIM_BOUNDARY}",
     }
-    fanout_id = str(contract.get("fanout_id", "") or "")
     if not dry_run and fanout_id:
         from .fanout_artifacts import fanout_dispatch_summary_path
 
@@ -396,6 +401,42 @@ def _current_catalog_digest(units: Iterable[Mapping[str, Any]]) -> str:
     return str(fingerprint.get("digest", "") or "") if isinstance(fingerprint, Mapping) else ""
 
 
+# Telemetry keys copied onto a dispatch result. `parse_unit_telemetry` also
+# returns schema/owner/parsed/source, which describe the READING rather than the
+# unit, and would be noise on every row of the summary.
+_TELEMETRY_RESULT_KEYS: tuple[str, ...] = (
+    "tokens_total",
+    "tokens_billable",
+    "tokens_billable_source",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "reasoning_tokens",
+    "session_ref",
+)
+
+
+def _write_inflight(paths: OmhPaths, fanout_id: str, unit_id: str, fields: dict[str, str]) -> None:
+    """Best-effort marker write. Observability must never fail a dispatch."""
+    if not fanout_id:
+        return
+    try:
+        write_inflight_marker(paths, fanout_id, unit_id, fields)
+    except (InflightMarkerError, OSError):
+        return
+
+
+def _clear_inflight(paths: OmhPaths, fanout_id: str, unit_id: str) -> None:
+    """Runs inside `finally`, so it must never mask the dispatch exception."""
+    if not fanout_id:
+        return
+    try:
+        clear_inflight_marker(paths, fanout_id, unit_id)
+    except (InflightMarkerError, OSError):
+        return
+
+
 def _dispatch_unit(
     paths: OmhPaths,
     unit: Mapping[str, Any],
@@ -408,6 +449,7 @@ def _dispatch_unit(
     runner: Callable[..., Any],
     readiness: Callable[..., dict[str, object]],
     current_catalog_digest: str = "",
+    fanout_id: str = "",
 ) -> dict[str, Any]:
     from .model_inventory import catalog_fingerprint_note
 
@@ -505,15 +547,39 @@ def _dispatch_unit(
             "summary": f"local dispatch of unit {unit_id} to {owner}",
             "worker_ref": unit_id,
             "worktree_ref": str(worktree),
+            # The schema has carried this field all along and nothing set it,
+            # so the runtime name survived only inside free-text `summary`.
+            "runtime_profile": owner,
         },
     )
     started_at = utc_now()
     started_clock = time.monotonic()
     stderr_tail = ""
+    stdout_text = ""
+    owner_host = omo_runtime_host() or "" if owner == "omo-runtime" else ""
+    # Written BEFORE the spawn and cleared in `finally`. This call blocks for
+    # the whole unit, so the dispatching process cannot report on itself; the
+    # marker is what lets ANOTHER session see that this unit is running and
+    # compute its elapsed time. Marker failures never block a dispatch.
+    _write_inflight(
+        paths,
+        fanout_id,
+        unit_id,
+        {
+            "owner": owner,
+            "owner_host": owner_host,
+            "model": routed_model,
+            "reasoning_effort": routed_effort,
+            "run_ref": run_ref,
+            "worktree": str(worktree),
+            "started_at": started_at,
+        },
+    )
     try:
         completed = runner(argv, cwd=str(worktree), text=True, capture_output=True, timeout=timeout)
         exit_code = int(getattr(completed, "returncode", 1))
-        output_tail = str(getattr(completed, "stdout", "") or "")[-2000:]
+        stdout_text = str(getattr(completed, "stdout", "") or "")
+        output_tail = stdout_text[-2000:]
         stderr_tail = str(getattr(completed, "stderr", "") or "")[-2000:]
     except FileNotFoundError:
         exit_code, output_tail = 127, f"{argv[0]} not found on PATH"
@@ -521,6 +587,8 @@ def _dispatch_unit(
         exit_code, output_tail = 124, f"unit timed out after {timeout}s"
     except OSError as exc:
         exit_code, output_tail = 1, f"spawn failed: {exc}"
+    finally:
+        _clear_inflight(paths, fanout_id, unit_id)
     finished_at = utc_now()
     duration_seconds = round(time.monotonic() - started_clock, 3)
     limit_label = _limit_shaped_label(output_tail, stderr_tail) if exit_code != 0 else ""
@@ -549,6 +617,7 @@ def _dispatch_unit(
             "summary": summary,
             "worker_ref": unit_id,
             "worktree_ref": str(worktree),
+            "runtime_profile": owner,
         },
     )
     result = {
@@ -565,6 +634,15 @@ def _dispatch_unit(
         "finished_at": finished_at,
         "duration_seconds": duration_seconds,
     }
+    if owner_host:
+        result["owner_host"] = owner_host
+    # `tokens_total` and `session_ref` were READ by `omh coding fanout brief`
+    # and had no write site anywhere, so both columns always printed "unknown".
+    # Only keys the executor actually reported are copied: an absent count stays
+    # absent rather than becoming a zero that would read as an observation.
+    for key, value in parse_unit_telemetry(owner, stdout_text).items():
+        if key in _TELEMETRY_RESULT_KEYS:
+            result[key] = value
     if fingerprint_note is not None:
         result["inventory_fingerprint"] = fingerprint_note
     if limit_label:

@@ -293,7 +293,16 @@ def coding_progress_policy_enforcement() -> dict[str, object]:
     return {
         "schema_version": CODING_PROGRESS_POLICY_ENFORCEMENT_SCHEMA_VERSION,
         "mechanism": "bounded_tail_plus_run_context_budget_ledger",
-        "bounded_surfaces": ["omh runtime show", "omh coding fanout show", "omh coding fanout brief"],
+        # `omh coding status-board` belongs here for the same reason the other
+        # three do: it is a surface an agent will poll while waiting on work, so
+        # it caps its own rows (`--limit`, default 20) instead of growing with
+        # the number of observed units.
+        "bounded_surfaces": [
+            "omh runtime show",
+            "omh coding fanout show",
+            "omh coding fanout brief",
+            "omh coding status-board",
+        ],
         "default_history_limit": MAX_RUN_HISTORY_EVENTS,
         "run_context_budget_bytes": RUN_CONTEXT_BUDGET_BYTES,
         "degraded_output": "summary_only_with_artifact_pointers",

@@ -16,7 +16,11 @@ EXECUTOR_PROGRESS_BINDING_SCHEMA_VERSION = "omh_executor_progress_binding/v1"
 EXECUTOR_PROGRESS_EVENT_SCHEMA_VERSION = "omh_progress_event/v1"
 EXECUTOR_PROGRESS_REPORT_SCHEMA_VERSION = "omh_progress_report/v1"
 
-ALLOWED_EXECUTOR_PROFILES = ("codex", "claude_code", "hermes_local")
+# `omo_runtime` is one profile covering every omo host CLI (`pi`, `senpi`,
+# `opencode`) because the binding answers "which lane is working", not "which
+# binary was on PATH". Without it `fanout dispatch` spawns omo units into a lane
+# that `normalize_executor_profile` rejects, so the units run entirely unobserved.
+ALLOWED_EXECUTOR_PROFILES = ("codex", "claude_code", "hermes_local", "omo_runtime")
 TARGET_TYPES = ("run", "wrapper_session")
 BINDING_STATES = ("active", "stale", "expired", "closed")
 PROGRESS_EVENT_TYPES = (
@@ -63,6 +67,20 @@ CLAIM_BOUNDARY = (
     "review, CI, merge-readiness, or merge evidence."
 )
 
+# Metadata-only scalars that let a live row answer "which model, how long, how
+# many tokens" without carrying any model output. They are identifiers and
+# counts, never prompts, reasoning, or transcripts -- `_RAW_OR_HIDDEN_KEYS`
+# still rejects those. `routed_reasoning_effort` names an effort *level*
+# ("high"), not reasoning content; it survives that check because the check
+# compares whole keys, and it must stay a whole-key comparison or this key
+# starts failing on the "reasoning" substring.
+ROUTING_METRIC_SIGNAL_KEYS = (
+    "routed_model",
+    "routed_reasoning_effort",
+    "tokens_total",
+    "elapsed_seconds",
+)
+
 _RAW_OR_HIDDEN_KEYS = {
     "analysis",
     "chain_of_thought",
@@ -92,6 +110,12 @@ def normalize_executor_profile(value: str, *, observed_hermes_execution: bool = 
         "claude-code": "claude_code",
         "claude-code-cli": "claude_code",
         "claude_code": "claude_code",
+        # The omo host CLIs collapse into one lane. `normalized` has already
+        # folded "_" to "-", so "omo_runtime" arrives here as "omo-runtime".
+        "omo-runtime": "omo_runtime",
+        "pi": "omo_runtime",
+        "senpi": "omo_runtime",
+        "opencode": "omo_runtime",
     }
     if normalized == "hermes":
         if observed_hermes_execution:
@@ -354,6 +378,10 @@ def build_safe_progress_signal(
     explicit_summary: str = "",
     evidence_refs: list[str] | tuple[str, ...] | None = None,
     observed_hermes_execution: bool = False,
+    routed_model: str = "",
+    routed_reasoning_effort: str = "",
+    tokens_total: int | None = None,
+    elapsed_seconds: int | None = None,
 ) -> dict[str, Any]:
     profile = normalize_executor_profile(executor_profile, observed_hermes_execution=observed_hermes_execution)
     progress = _safe_progress_summary(
@@ -384,6 +412,13 @@ def build_safe_progress_signal(
         "explicit_event_type": explicit,
         "explicit_summary": _compact_text(_sanitize_progress_copy(explicit_summary), 280),
         "evidence_ref_count": len(evidence_refs or []),
+        # The routed model is what a live row needs to answer "which model is
+        # this"; the runtime alone cannot, because one profile (omo_runtime
+        # especially) fronts many models.
+        "routed_model": _compact_text(routed_model, 120),
+        "routed_reasoning_effort": _compact_text(routed_reasoning_effort, 40),
+        "tokens_total": _observed_count(tokens_total),
+        "elapsed_seconds": _observed_count(elapsed_seconds),
     }
     return _safe_signal(signal)
 
@@ -815,6 +850,16 @@ def project_active_executor_status(paths: OmhPaths, *, limit: int | None = 50, n
     }
 
 
+def _unsupported_profile_error() -> str:
+    """Render the profile-rejection message from the tuple the check reads.
+
+    All three validators shared a hand-written "codex, claude_code, or
+    hermes_local" sentence, so widening the tuple left every message naming a
+    profile set that no longer matched what the code accepted.
+    """
+    return f"executor_profile must be one of {', '.join(ALLOWED_EXECUTOR_PROFILES)}"
+
+
 def validate_progress_binding(record: dict[str, Any]) -> list[str]:
     errors = _raw_or_hidden_errors(record)
     if record.get("schema_version") != EXECUTOR_PROGRESS_BINDING_SCHEMA_VERSION:
@@ -831,7 +876,7 @@ def validate_progress_binding(record: dict[str, Any]) -> list[str]:
         errors.append("target_id is required")
     profile = str(record.get("executor_profile") or record.get("executor") or "")
     if profile not in ALLOWED_EXECUTOR_PROFILES:
-        errors.append("executor_profile must be codex, claude_code, or hermes_local")
+        errors.append(_unsupported_profile_error())
     if str(record.get("binding_id", "")) != binding_id_for(target_type, target_id, profile):
         errors.append("binding_id must be target_type:target_id:executor_profile")
     if not str(record.get("instance_id", "")).strip():
@@ -854,7 +899,7 @@ def validate_progress_event(record: dict[str, Any]) -> list[str]:
     if str(record.get("event_type", "")) not in PROGRESS_EVENT_TYPES:
         errors.append("event_type is unsupported")
     if str(record.get("executor_profile", "")) not in ALLOWED_EXECUTOR_PROFILES:
-        errors.append("executor_profile must be codex, claude_code, or hermes_local")
+        errors.append(_unsupported_profile_error())
     if not str(record.get("binding_id", "")):
         errors.append("binding_id is required")
     if not str(record.get("instance_id", "")).strip():
@@ -873,7 +918,7 @@ def validate_progress_report(record: dict[str, Any]) -> list[str]:
     if record.get("schema_version") != EXECUTOR_PROGRESS_REPORT_SCHEMA_VERSION:
         errors.append("schema_version must be omh_progress_report/v1")
     if str(record.get("executor_profile", "")) not in ALLOWED_EXECUTOR_PROFILES:
-        errors.append("executor_profile must be codex, claude_code, or hermes_local")
+        errors.append(_unsupported_profile_error())
     if not str(record.get("binding_id", "")):
         errors.append("binding_id is required")
     if not str(record.get("instance_id", "")).strip():
@@ -975,7 +1020,7 @@ def _project_binding_row(
         for binding in group
         if binding.get("binding_id") != primary.get("binding_id")
     ]
-    return {
+    row = {
         "primary_binding_id": primary.get("binding_id", ""),
         "primary_instance_id": primary.get("instance_id", ""),
         "binding_id": primary.get("binding_id", ""),
@@ -992,10 +1037,15 @@ def _project_binding_row(
         "linked_bindings": linked,
         "claim_boundary": CLAIM_BOUNDARY,
     }
+    # Promoted to the row itself, not left nested in `latest_event`: the status
+    # board renders one line per executor and had no way to say which model was
+    # running, because the profile alone does not identify it.
+    row.update(_observed_routing_metrics(event.get("signal") if event else {}))
+    return row
 
 
 def _compact_event_projection(event: dict[str, Any], binding: dict[str, Any]) -> dict[str, Any]:
-    return {
+    projection = {
         "binding_id": event.get("binding_id") or binding.get("binding_id", ""),
         "instance_id": event.get("instance_id") or binding.get("instance_id", ""),
         "executor_profile": event.get("executor_profile") or binding.get("executor_profile", ""),
@@ -1005,6 +1055,8 @@ def _compact_event_projection(event: dict[str, Any], binding: dict[str, Any]) ->
         "observed_at": event.get("observed_at", ""),
         "claim_boundary": event.get("claim_boundary", CLAIM_BOUNDARY),
     }
+    projection.update(_observed_routing_metrics(event.get("signal")))
+    return projection
 
 
 def _compact_report_projection(report: dict[str, Any]) -> dict[str, Any]:
@@ -1076,6 +1128,7 @@ def _safe_signal(signal: dict[str, Any]) -> dict[str, Any]:
         "evidence_ref_count",
         "explicit_event_type",
         "explicit_summary",
+        *ROUTING_METRIC_SIGNAL_KEYS,
     }
     cleaned = {key: signal.get(key) for key in allowed if signal.get(key) not in (None, "", [], {})}
     _require_valid("signal", _raw_or_hidden_errors(cleaned))
@@ -1189,6 +1242,35 @@ def _safe_progress_summary(summary: dict[str, Any] | None, *, codex_profile: boo
     return {
         **normalized,
     }
+
+
+def _observed_count(value: Any) -> int | None:
+    """Return a non-negative int, or None when nothing was observed.
+
+    None is the whole point: `_safe_signal` drops None but keeps 0, so a
+    defaulted 0 would be persisted and then read back as "observed zero tokens"
+    when the truth is that no token count was ever collected. Floats are
+    truncated so the stored value stays a scalar int -- the setup-profile
+    correct/restore path drops non-scalar and float leaves.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return None
+    return count if count >= 0 else None
+
+
+def _observed_routing_metrics(signal: Any) -> dict[str, Any]:
+    """Lift the routed-model metrics out of an event signal for a live row.
+
+    Absent keys stay absent rather than being filled with "" or 0, so a row
+    never claims an observation the signal did not carry.
+    """
+    if not isinstance(signal, dict):
+        return {}
+    return {key: signal[key] for key in ROUTING_METRIC_SIGNAL_KEYS if signal.get(key) not in (None, "")}
 
 
 def _safe_int(value: Any, default: int) -> int:

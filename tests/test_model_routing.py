@@ -35,7 +35,11 @@ class ResearchRoleTests(unittest.TestCase):
         the declared saving, deep the declared escalation — never inferred."""
         codex = resolve_model_route("codex", role="research")
         self.assertEqual(codex["selected_model"], "gpt-5")
-        self.assertEqual(codex["selected_reasoning_effort"], "medium")
+        # Standard research carries no effort of its own now that chains derive
+        # from categories: `research` reads unspecified-low/quick and neither
+        # declares one. The old hand-written `medium` had no category behind it,
+        # and depth is the dial that escalates.
+        self.assertEqual(codex["selected_reasoning_effort"], "")
         self.assertEqual(codex["provenance"], "role_chain_head")
         self.assertNotIn("depth", codex)
         claude = resolve_model_route("claude-code", role="research")
@@ -48,7 +52,10 @@ class ResearchRoleTests(unittest.TestCase):
         self.assertEqual(shallow["depth"], "shallow")
         deep = resolve_model_route("claude-code", role="research", requested_depth="deep")
         self.assertEqual(deep["selected_model"], "opus")
-        self.assertEqual(deep["selected_reasoning_effort"], "high")
+        # `deep` reads the `ultrabrain` category, which is the deepest rung and
+        # is reachable only by DECLARING it -- so the escalation to xhigh costs
+        # nothing until someone asks for it.
+        self.assertEqual(deep["selected_reasoning_effort"], "xhigh")
         deep_codex = resolve_model_route("codex", role="research", requested_depth="deep")
         self.assertEqual(deep_codex["selected_model"], "gpt-5-codex")
         self.assertEqual(deep_codex["selected_reasoning_effort"], "xhigh")
