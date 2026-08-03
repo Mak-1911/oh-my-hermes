@@ -220,3 +220,75 @@ class PreLlmCallAutoSurfaceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AwarenessMarkerCostTests(unittest.TestCase):
+    """Every marker is a context cost paid on each message it matches.
+
+    The running-work markers were first written as the bare verb -- `돌고 있어`
+    and `what is running` -- and measured 5 false positives on 14 unrelated
+    messages: `돌고 있어` is ordinary Korean for "is running" and fired on
+    server, test, deploy, and cron chatter, while `what is running` fired on
+    "what is running in production right now", a phrasing the ROUTER itself
+    blocks. The marker was looser than the route it exists to support.
+    """
+
+    # Plausible chat that is NOT about OMH coding units.
+    UNRELATED = (
+        "is the server still running on port 8080",
+        "my docker container is running fine",
+        "what is running in production right now",
+        "the tests are running slowly",
+        "is the deploy still running",
+        "while running the migration it crashed",
+        "지금 서버 돌고 있어?",
+        "테스트 돌고 있어서 기다리는 중",
+        "배포 돌고있어",
+        "크론 돌고 있어 아마",
+        "running low on disk space",
+        "i went running this morning",
+    )
+
+    RUNNING_WORK_MARKERS = (
+        "what is running right now",
+        "what's running",
+        "whats running",
+        "which units are running",
+        "running work board",
+        "뭐 돌고 있어",
+        "뭐가 돌고 있어",
+        "뭐 돌고있어",
+        "뭐가 돌고있어",
+    )
+
+    def _fires_on(self, message: str, markers: tuple[str, ...]) -> bool:
+        import unicodedata
+
+        text = unicodedata.normalize("NFKC", message).casefold()
+        return any(marker in text for marker in markers)
+
+    def test_no_running_work_marker_fires_on_unrelated_prose(self) -> None:
+        from omh.plugin_bundle.omh import awareness
+
+        for message in self.UNRELATED:
+            with self.subTest(message=message):
+                self.assertFalse(self._fires_on(message, self.RUNNING_WORK_MARKERS))
+        # And the markers are actually the ones installed.
+        for marker in self.RUNNING_WORK_MARKERS:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, awareness._AWARENESS_MESSAGE_MARKERS)
+
+    def test_every_marker_carries_the_interrogative_not_just_the_verb(self) -> None:
+        # `돌고 있어` alone is "is running"; the question word is what makes it
+        # a request about OMH units rather than a statement about a server.
+        for marker in self.RUNNING_WORK_MARKERS:
+            with self.subTest(marker=marker):
+                if "돌고" in marker:
+                    self.assertTrue(marker.startswith(("뭐 ", "뭐가 ")), marker)
+
+    def test_the_running_work_corpus_still_arms_awareness(self) -> None:
+        from omh.plugin_bundle.omh.awareness import awareness_context_matches_message
+
+        for message in ("지금 뭐 돌고 있어", "뭐가 돌고 있어", "what is running right now", "메모리 기능 꺼줘"):
+            with self.subTest(message=message):
+                self.assertTrue(awareness_context_matches_message(message))

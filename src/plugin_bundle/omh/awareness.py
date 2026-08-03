@@ -1221,6 +1221,23 @@ _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW = {
     "ultrawork": "coding_handoff",
 }
 _AWARENESS_MESSAGE_MARKERS = (
+    # Running-work questions. Every marker must carry the INTERROGATIVE, not
+    # just the verb: measured against 14 unrelated messages, a bare `돌고 있어`
+    # armed awareness on "서버 돌고 있어", "테스트 돌고 있어서 기다리는 중",
+    # "배포 돌고있어", and "크론 돌고 있어" -- it is ordinary Korean for "is
+    # running". A bare `what is running` armed on "what is running in
+    # production right now", which the router itself BLOCKS, so the marker was
+    # looser than the route it exists to support. Requiring 뭐/뭐가 and keeping
+    # `right now` adjacent takes the new false positives from 5 to 0.
+    "what is running right now",
+    "what's running",
+    "whats running",
+    "which units are running",
+    "running work board",
+    "뭐 돌고 있어",
+    "뭐가 돌고 있어",
+    "뭐 돌고있어",
+    "뭐가 돌고있어",
     "codebase onboarding",
     "performance bottleneck",
     "\uba54\ubaa8\ub9ac \ub204\uc218",
@@ -1482,6 +1499,49 @@ _AWARENESS_TOKEN_MARKERS = frozenset(
     }
 )
 _ROUTE_HINT_RULES = (
+    {
+        "id": "capability_toggle",
+        "workflow": "capability-toggle",
+        "lane": "automation_and_status",
+        "next_action": "apply_capability_toggle",
+        "reason": "The user wants an OMH capability family turned on or off rather than run.",
+        "fallback_action": "apply_capability_toggle",
+        "phrases": (
+            "turn off memory",
+            "disable memory",
+            "enable memory",
+            "disable coding orchestration",
+            "capability policy",
+            "메모리 기능 꺼줘",
+            "메모리 비활성화",
+            "코딩 오케스트레이션 비활성화",
+        ),
+        # No bare token: `memory` alone belongs to the memory workflows,
+        # and a lone token here would pull their requests into a toggle.
+        "tokens": (),
+        "adjacent_workflows": ("doctor", "skill", "memory-sync"),
+    },
+    {
+        "id": "running_work_board",
+        "workflow": "running-work-board",
+        "lane": "automation_and_status",
+        "next_action": "show_running_work_board",
+        "reason": "The user is asking what coding work is running right now, not asking to start work.",
+        "fallback_action": "show_running_work_board",
+        "phrases": (
+            "what is running",
+            "which units are running",
+            "what models are running",
+            "running work board",
+            "지금 뭐 돌고 있어",
+            "뭐가 돌고 있어",
+            "어떤 모델로 돌고 있어",
+        ),
+        # `status`/`running` are shared with ultraprocess and the domain
+        # lanes; whole phrases only.
+        "tokens": (),
+        "adjacent_workflows": ("agent-ops-review", "ultraprocess", "doctor"),
+    },
     {
         "id": "missed_workflow",
         "workflow": "workflow-learning",

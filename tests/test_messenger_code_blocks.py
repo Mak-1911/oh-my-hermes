@@ -147,3 +147,110 @@ class CodeBlockIsPreferredEverywhereTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StatusBoardOnAMessengerScreenTests(unittest.TestCase):
+    """What Discord/Slack/Telegram actually receive for a running-work board.
+
+    OMH never posts: it produces the contract and an adapter sends it. These
+    assertions therefore pin the emitted bytes and the per-platform fit, which
+    is the whole of what this package controls.
+    """
+
+    def _board_contract(self, source: str, profile: str) -> dict:
+        from omh.coding.status_board import (
+            CODING_STATUS_BOARD_CLAIM_BOUNDARY,
+            CODING_STATUS_BOARD_SHORT_BOUNDARY,
+            status_board_messenger_body,
+        )
+
+        payload = {
+            "schema_version": "omh_coding_status_board/v1",
+            "observed_at": "2026-08-03T04:35:00Z",
+            "unit_count": 2,
+            "running_count": 2,
+            "claim_boundary": CODING_STATUS_BOARD_CLAIM_BOUNDARY,
+            "units": [
+                {
+                    "label": "api-ratelimit",
+                    "runtime": "codex",
+                    "model_label": "gpt-5.6-sol xhigh",
+                    "status": "running",
+                    "elapsed_text": "35m",
+                    "tokens_text": "128,400",
+                    "session_ref": "019a7b3e",
+                    "summary": "",
+                },
+                {
+                    "label": "research-sweep",
+                    "runtime": "claude-code",
+                    "model_label": "opus xhigh",
+                    "status": "running",
+                    "elapsed_text": "4m",
+                    "tokens_text": "unknown",
+                    "session_ref": "unknown",
+                    "summary": "",
+                },
+            ],
+        }
+        body = status_board_messenger_body(payload, render_profile=profile)
+        self.short_boundary = CODING_STATUS_BOARD_SHORT_BOUNDARY
+        self.full_boundary = CODING_STATUS_BOARD_CLAIM_BOUNDARY
+        return messenger_rendering_contract(
+            visible_prefix="[omh] running-work-board",
+            first_line="Running work",
+            body=body,
+            claim_boundary=CODING_STATUS_BOARD_CLAIM_BOUNDARY,
+            render_profile=profile,
+            source=source,
+        )
+
+    def test_the_board_fits_one_message_on_every_messenger(self) -> None:
+        for source, profile in (
+            ("discord", "limited_markdown"),
+            ("slack", "limited_markdown"),
+            ("telegram", "limited_markdown"),
+            ("hermes", "rich_markdown"),
+        ):
+            with self.subTest(source=source):
+                contract = self._board_contract(source, profile)
+                posted = "\n".join(
+                    [contract["visible_prefix"], contract["first_line"], contract["body_text"]]
+                )
+                self.assertLessEqual(len(posted), contract["chunking"]["hard_limit_chars"])
+
+    def test_the_limited_profile_emits_bullets_and_never_a_table(self) -> None:
+        contract = self._board_contract("discord", "limited_markdown")
+        types = [block["type"] for block in contract["body_blocks"]]
+        self.assertIn("bullet", types)
+        self.assertNotIn("markdown_table", types)
+
+    def test_the_rich_profile_keeps_the_table_monospaced_and_the_caveat_prose(self) -> None:
+        # A boundary paragraph inside the fence gets monospace-wrapped at the
+        # table's width, which reads as broken rendering rather than a caveat.
+        contract = self._board_contract("hermes", "rich_markdown")
+        types = [block["type"] for block in contract["body_blocks"]]
+        self.assertEqual(types, ["code_block", "paragraph"])
+        code = next(b for b in contract["body_blocks"] if b["type"] == "code_block")
+        self.assertNotIn(self.short_boundary, code["text"])
+
+    def test_the_messenger_body_carries_the_short_boundary_not_the_full_one(self) -> None:
+        # The full text was 53% of a two-row board -- boilerplate a reader
+        # scrolls past to reach the data. It stays in the payload and --json.
+        for profile in ("limited_markdown", "rich_markdown"):
+            with self.subTest(profile=profile):
+                contract = self._board_contract("discord", profile)
+                self.assertIn(self.short_boundary, contract["body_text"])
+                self.assertNotIn(self.full_boundary, contract["body_text"])
+
+    def test_runtime_and_model_read_as_one_field(self) -> None:
+        contract = self._board_contract("discord", "limited_markdown")
+        self.assertIn("codex (gpt-5.6-sol xhigh)", contract["body_text"])
+        self.assertNotIn("codex — (", contract["body_text"])
+
+    def test_the_board_uses_no_markup_that_needs_per_dialect_escaping(self) -> None:
+        # No bold, italics, links, or headings means no Slack mrkdwn or
+        # Telegram MarkdownV2 conversion is required for this surface.
+        contract = self._board_contract("slack", "limited_markdown")
+        for marker in ("**", "__", "###", "](", "~~"):
+            self.assertNotIn(marker, contract["body_text"], marker)

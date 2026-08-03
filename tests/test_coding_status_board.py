@@ -372,12 +372,26 @@ class MessengerProfileTests(unittest.TestCase):
                 return build_status_board(paths, now=_NOW)
 
     def test_rich_markdown_is_a_fenced_block_preserving_alignment(self) -> None:
+        from omh.coding.status_board import (
+            CODING_STATUS_BOARD_CLAIM_BOUNDARY,
+            CODING_STATUS_BOARD_SHORT_BOUNDARY,
+        )
+
         body = status_board_messenger_body(self._payload(), render_profile="rich_markdown")
         self.assertTrue(body.startswith("```\n"))
-        self.assertTrue(body.endswith("\n```"))
         self.assertIn("LABEL", body)
-        inner = body[4:-4]
-        self.assertEqual(inner, render_status_board_text(self._payload()))
+
+        # The caveat sits AFTER the fence. Inside it, a paragraph of prose is
+        # monospace-wrapped at the table's width and reads as broken rendering.
+        inner, _, trailer = body[4:].partition("\n```")
+        self.assertNotIn(CODING_STATUS_BOARD_SHORT_BOUNDARY, inner)
+        self.assertNotIn(CODING_STATUS_BOARD_CLAIM_BOUNDARY, inner)
+        self.assertEqual(trailer.strip(), CODING_STATUS_BOARD_SHORT_BOUNDARY)
+
+        # Alignment survives: every fenced line is a verbatim board row.
+        aligned = render_status_board_text(self._payload())
+        for line in inner.splitlines():
+            self.assertIn(line, aligned)
 
     def test_limited_markdown_is_flat_bullets(self) -> None:
         body = status_board_messenger_body(self._payload(), render_profile="limited_markdown")
@@ -387,10 +401,23 @@ class MessengerProfileTests(unittest.TestCase):
         self.assertNotIn("  -", body)
         bullets = [line for line in body.splitlines() if line.startswith("- ")]
         self.assertEqual(len(bullets), 2)
-        self.assertIn("research — claude — (fable-5 high) — running — 35m — tokens unknown", bullets[0])
-        self.assertIn("feature work — codex — (gpt-5-codex xhigh) — completed — 35m — 10,000,000 tokens", bullets[1])
+        # Runtime and model read as ONE field. Separating them with a dash as
+        # well produced "claude — (fable-5 high)", a doubled separator around a
+        # parenthetical.
+        self.assertIn("research — claude (fable-5 high) — running — 35m — tokens unknown", bullets[0])
+        self.assertIn("feature work — codex (gpt-5-codex xhigh) — completed — 35m — 10,000,000 tokens", bullets[1])
+        for bullet in bullets:
+            self.assertNotIn(" — (", bullet)
         self.assertIn("session sess-7", bullets[1])
-        self.assertIn(CODING_STATUS_BOARD_CLAIM_BOUNDARY, body)
+        # The SHORT boundary, not the full one. At 308 characters the full text
+        # was 53% of a two-row board -- boilerplate a reader scrolls past to
+        # reach the data. It stays in the payload and in `--json`, which is
+        # where an auditor reads it.
+        from omh.coding.status_board import CODING_STATUS_BOARD_SHORT_BOUNDARY
+
+        self.assertIn(CODING_STATUS_BOARD_SHORT_BOUNDARY, body)
+        self.assertNotIn(CODING_STATUS_BOARD_CLAIM_BOUNDARY, body)
+        self.assertIn(CODING_STATUS_BOARD_CLAIM_BOUNDARY, self._payload()["claim_boundary"])
 
     def test_limited_markdown_empty_state(self) -> None:
         with TemporaryDirectory() as tmp:

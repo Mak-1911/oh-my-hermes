@@ -114,6 +114,8 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "run_cto_loop": "preparing the CTO loop",
     "run_hermes_research": "starting source-backed Hermes research",
     "run_local_operator_check": "running the local operator check",
+    "apply_capability_toggle": "turning an OMH capability family on or off",
+    "show_running_work_board": "showing the running work board",
     "run_omh_uninstall": "running omh uninstall",
     "run_setup_guide": "walking the setup guide",
     "send_to_executor": "opening the selected coding agent",
