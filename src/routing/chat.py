@@ -1480,6 +1480,17 @@ def _route_chat_message_cached(
     )
     if fast_omh_help_decision is not None:
         return fast_omh_help_decision.to_dict()
+    # Sits above the bounded-direct-task path on purpose: its terms already
+    # include "change a setting"/"설정 하나만", which would deflect a capability
+    # toggle into a direct answer instead of the policy that applies it.
+    fast_capability_toggle_decision = _capability_toggle_fast_path_decision(
+        message,
+        routing_message=routing_message,
+        source=source,
+        min_confidence=min_confidence,
+    )
+    if fast_capability_toggle_decision is not None:
+        return fast_capability_toggle_decision.to_dict()
     fast_maintenance_task_decision = _maintenance_task_fast_path_decision(
         message,
         routing_message=routing_message,
@@ -4799,6 +4810,153 @@ def _ecosystem_identity_connector_fast_path_signal(message: str) -> bool:
             "miniverse bridge",
             "crustocean platform connector",
         )
+    )
+
+
+# Which OMH capability family a request names. Keys are the canonical family
+# ids from `capabilities/families.py`; the cues are what a person types instead.
+# Korean cues live here rather than in catalog triggers because the scorer alone
+# loses to `memory-sync` on "메모리 기능 꺼줘" -- an intent to TURN MEMORY OFF was
+# dispatching into the workflow that WRITES memory, which is worse than a miss.
+_CAPABILITY_TOGGLE_TARGET_CUES: dict[str, tuple[str, ...]] = {
+    "retain_knowledge": ("memory", "memory management", "메모리", "기억"),
+    "delegate_coding_and_ship": (
+        "coding orchestration",
+        "coding delegation",
+        "coding handoff",
+        "코딩 오케스트레이션",
+        "코딩 위임",
+    ),
+    "learn_and_gather": ("research", "web research", "리서치", "조사 기능"),
+    "plan_and_decide": ("planning", "plan and decide", "기획 기능", "계획 기능"),
+    "create_materials_and_visuals": ("materials", "visuals", "산출물 기능", "비주얼 기능"),
+    "operate_and_observe": ("ops", "operations", "status surface", "운영 기능"),
+}
+_CAPABILITY_TOGGLE_OFF_CUES = (
+    "turn off",
+    "switch off",
+    "disable",
+    "shut off",
+    "꺼줘",
+    "끄기",
+    "끄고",
+    "꺼주세요",
+    "비활성화",
+)
+_CAPABILITY_TOGGLE_ON_CUES = (
+    "turn on",
+    "switch on",
+    "enable",
+    "re-enable",
+    "reenable",
+    "켜줘",
+    "켜기",
+    "켜주세요",
+    "활성화",
+    "다시 켜",
+)
+# A toggle in the USER'S OWN product is not an OMH capability change. Without
+# these, "add a dark mode toggle to my app" would read as (target + off/on).
+_CAPABILITY_TOGGLE_BLOCKERS = (
+    "dark mode",
+    "feature flag",
+    "in my app",
+    "in my product",
+    "settings page",
+    "settings button",
+    "toggle component",
+    "switch component",
+    "내 앱",
+    "내 서비스",
+)
+
+
+def _capability_toggle_states(message: str) -> tuple[bool, bool]:
+    """Return (wants_off, wants_on) with containment collisions resolved.
+
+    `비활성화` (deactivate) contains `활성화` (activate), so a plain membership
+    test reports BOTH states for a disable request and the contradiction guard
+    below would then refuse a perfectly clear message. An on-cue only counts
+    when it is not a substring of an off-cue that already matched.
+    """
+    off_hits = tuple(cue for cue in _CAPABILITY_TOGGLE_OFF_CUES if contains_cue_phrase(message, (cue,)))
+    on_hits = tuple(
+        cue
+        for cue in _CAPABILITY_TOGGLE_ON_CUES
+        if contains_cue_phrase(message, (cue,)) and not any(cue in off_cue for off_cue in off_hits)
+    )
+    return bool(off_hits), bool(on_hits)
+
+
+def _capability_toggle_family(message: str) -> str:
+    """The single family a message names, or "" when none or several."""
+    matched = [
+        family_id
+        for family_id, cues in _CAPABILITY_TOGGLE_TARGET_CUES.items()
+        if contains_cue_phrase(message, cues)
+    ]
+    return matched[0] if len(matched) == 1 else ""
+
+
+def _capability_toggle_fast_path_decision(
+    message: str,
+    *,
+    routing_message: str,
+    source: str,
+    min_confidence: str,
+) -> ChatRouteDecision | None:
+    """Claim "turn <an OMH capability family> on/off" before the scorer runs.
+
+    Strict conjunction -- a named family AND an on/off verb AND no blocker --
+    so it stays out of the coding lane. An explicitly invoked workflow always
+    wins, matching the guard `_operator_surface_fast_path_decision` uses.
+    """
+    if _has_explicit_invocation_prefix(routing_message) or explicit_skill_invocation(routing_message):
+        return None
+    if contains_cue_phrase(routing_message, _CAPABILITY_TOGGLE_BLOCKERS):
+        return None
+    family_id = _capability_toggle_family(routing_message)
+    if not family_id:
+        return None
+    wants_off, wants_on = _capability_toggle_states(routing_message)
+    if wants_off == wants_on:
+        # Neither verb, or a contradictory "turn memory off and on": both are
+        # ambiguous, and guessing which one would edit the user's install.
+        return None
+    selected_skill = "capability-toggle"
+    selected_harness = primary_harness_for_skill(selected_skill)
+    reason = (
+        f"Named the {family_id} capability family with an explicit "
+        f"{'disable' if wants_off else 'enable'} verb; route to capability policy before scoring workflows."
+    )
+    score = 58
+    recommendation = recommendation_for_definition(
+        _skill_definition_by_name(selected_skill),
+        message,
+        matched=(f"capability_family:{family_id}", "capability_state:off" if wants_off else "capability_state:on"),
+        score=score,
+        why=reason,
+    )
+    return ChatRouteDecision(
+        schema_version=1,
+        source=source,
+        action="dispatch",
+        selected_skill=selected_skill,
+        selected_harness=selected_harness,
+        candidate_skill=selected_skill,
+        candidate_harness=selected_harness,
+        confidence="high",
+        score=score,
+        threshold=min_confidence,
+        explicit=False,
+        ambiguous=False,
+        reason=reason,
+        clarification="",
+        routing_prompt=_routing_prompt("dispatch", selected_skill, selected_skill, reason, message),
+        task_card=None,
+        workflow_route_plan=None,
+        learning_candidate_card=None,
+        recommendations=(recommendation,),
     )
 
 

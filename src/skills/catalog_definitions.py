@@ -4670,6 +4670,76 @@ _DEFINITIONS = [
         ),
     ),
     SkillDefinition(
+        "capability-toggle",
+        "Hermes adaptation for turning one OMH capability family on or off so an install can be tailored instead of taken whole.",
+        (
+            "capability-toggle",
+            "capability policy",
+            # No "turn off ..." trigger lives here. The scorer credits shared
+            # tokens, so "turn off memory" also claimed "turn off the lights",
+            # "turn off my laptop", and "turn off notifications". Every
+            # "turn off/on <family>" phrasing is handled instead by
+            # `_capability_toggle_fast_path_decision`, which requires a named
+            # capability family and therefore cannot match those three.
+            "disable memory",
+            "enable memory",
+            "disable coding orchestration",
+            "disable a capability family",
+            "enable a capability family",
+            "메모리 기능 꺼줘",
+            "메모리 기능 끄기",
+            "메모리 기능 켜줘",
+            "메모리 비활성화",
+            "메모리 관리 비활성화",
+            "코딩 오케스트레이션 비활성화",
+            "코딩 오케스트레이션 꺼줘",
+            "기능 비활성화",
+            "기능 활성화",
+        ),
+        (
+            "Use when the user wants to turn an OMH capability family on or off -- memory, coding delegation, research, "
+            "planning, materials, or operations -- rather than uninstall OMH or run the workflow that family owns."
+        ),
+        category="operator",
+        phase="configuration",
+        hermes_role="retained-operator",
+        handoff_policy="Read and write the local capability policy directly; propose executor work only when a repository fix is required.",
+        required_inputs=("capability family", "requested state"),
+        expected_outputs=("policy change summary", "what was removed versus retained", "the exact command that reverses it"),
+        artifact_expectations=("capability policy recorded in the local setup profile",),
+        why_this_exists=(
+            "`capability-toggle` exists because OMH shipped one binary install lever -- 9 core skills or all of them -- "
+            "so a user who wanted the coding surface but not the memory surface had to take both. It turns that into a "
+            "per-family choice without uninstalling OMH."
+        ),
+        do_not_use_when=(
+            "The user wants to run the workflow a family owns rather than change whether that family is offered.",
+            "The user is asking to build an on/off switch inside their own product.",
+            "The user wants OMH removed entirely, which is the uninstall path rather than a capability policy change.",
+        ),
+        good_example=SkillExample(
+            prompt="turn off memory, I already run my own memory system",
+            expected="Disable the retain_knowledge family, report the four memory workflows removed and the five core skills retained, and name the enable command.",
+            why="The request is about which OMH surfaces are offered locally, not about capturing a memory.",
+        ),
+        bad_example=SkillExample(
+            prompt="add a dark mode toggle to my settings page",
+            expected="Route to frontend or coding delegation instead of capability policy.",
+            why="That is a feature in the user's own product, not an OMH capability family.",
+        ),
+        final_checklist=(
+            "The affected family is named by its canonical id, not guessed from a partial word.",
+            "Removed workflows and retained core skills are listed separately.",
+            "The reversing command is stated so the change never reads as permanent.",
+            "Locally modified skill files are reported as retained exceptions rather than deleted.",
+        ),
+        recovery_notes=(
+            "If the family id is ambiguous, list all six and ask rather than picking the closest match.",
+            "If a disable would remove a core skill, refuse that part and report it; core skills are the floor doctor checks for.",
+            "If files were kept with --keep-files, say the policy changed but the files remain so the state is not misread as a full removal.",
+        ),
+    ),
+    SkillDefinition(
         "model-setup",
         "Hermes Model Setup workflow: diagnose role-slot model configuration, guide provider connection, and apply changes only after diff approval.",
         (

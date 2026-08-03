@@ -164,7 +164,7 @@ Maintenance paths such as reconciling a `--full` install back to core live in
   <img src="assets/hermes-agent-mom.png" alt="Hermes-Agent mixture-of-models orchestration illustration" width="520">
 </p>
 
-OMH packages **101 installable workflow skills** behind six human-readable
+OMH packages **102 installable workflow skills** behind six human-readable
 capability families. The family is the front door; exact skill names remain
 available when a wrapper or operator needs precise control.
 
