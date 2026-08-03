@@ -1203,6 +1203,7 @@ def _chat_response(
             body=body,
             claim_boundary=claim_boundary,
             render_profile=render_profile_for_source(_source_from_thread_key(thread_key), source_metadata),
+            source=_source_from_thread_key(thread_key),
         ),
         "actions": actions,
         "claim_boundary": claim_boundary,

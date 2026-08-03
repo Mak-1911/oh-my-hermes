@@ -6541,7 +6541,9 @@ def _finish_interaction(payload: dict[str, object], target_notice: dict[str, obj
     if isinstance(response, dict):
         response = _chat_response_with_route_explanation(response, _nested(payload, "route"))
         if target_notice:
-            response = _chat_response_with_target_notice(response, target_notice)
+            response = _chat_response_with_target_notice(
+                response, target_notice, source=str(payload.get("source", "generic"))
+            )
         goal_quality_coaching_card = payload.get("goal_quality_coaching_card")
         if isinstance(goal_quality_coaching_card, dict):
             response = _chat_response_with_goal_quality_coaching(response, goal_quality_coaching_card)
@@ -6592,7 +6594,9 @@ def _chat_response_with_route_explanation(
     return updated
 
 
-def _chat_response_with_target_notice(response: dict[str, object], target_notice: dict[str, object]) -> dict[str, object]:
+def _chat_response_with_target_notice(
+    response: dict[str, object], target_notice: dict[str, object], *, source: str = ""
+) -> dict[str, object]:
     updated = dict(response)
     state = dict(_nested(updated, "state"))
     topology = target_notice.get("topology")
@@ -6636,6 +6640,7 @@ def _chat_response_with_target_notice(response: dict[str, object], target_notice
             first_line=str(updated.get("headline", "")),
             body=str(updated.get("body", "")),
             claim_boundary=str(updated.get("claim_boundary", "")),
+            source=source,
         )
     return updated
 
@@ -6656,6 +6661,7 @@ def _chat_response_with_render_profile(
             body=str(updated.get("body", "")),
             claim_boundary=str(updated.get("claim_boundary", "")),
             render_profile=render_profile_for_source(source, source_metadata),
+            source=source,
         )
     return updated
 
@@ -7438,6 +7444,20 @@ def _thread_key(source: str, metadata: dict[str, str], *, message: str = "", run
     return f"{source}:{channel}:{event}"
 
 
+def _source_from_thread_key(thread_key: str) -> str:
+    """Recover the ``source`` a ``_thread_key`` was built from.
+
+    Mirrors ``sessions._source_from_thread_key``: ``_thread_key`` always
+    prefixes with ``f"{source}:..."``, so this is the one place a chat
+    response builder that only has ``thread_key`` in scope can still resolve
+    a per-platform messenger ceiling without every caller threading `source`
+    through separately.
+    """
+    if ":" not in thread_key:
+        return "generic"
+    return thread_key.split(":", 1)[0] or "generic"
+
+
 def _target_scope_key(metadata: dict[str, str]) -> str:
     parts = [
         metadata.get("hermes_home", ""),
@@ -7492,6 +7512,7 @@ def _chat_response(
             first_line=headline_with_prefix,
             body=body,
             claim_boundary=claim_boundary,
+            source=_source_from_thread_key(thread_key),
         ),
         "actions": actions,
         "claim_boundary": claim_boundary,
@@ -7695,6 +7716,7 @@ def messenger_rendering_contract(
     body: str,
     claim_boundary: str,
     render_profile: str = RENDER_PROFILE_LIMITED_MARKDOWN,
+    source: str = "",
 ) -> dict[str, object]:
     resolved_profile = _normalize_render_profile(render_profile)
     safe_body_text, safe_transforms = _messenger_safe_body(body)
@@ -7741,13 +7763,25 @@ def messenger_rendering_contract(
         "fallback_body_blocks": _messenger_body_blocks(safe_body_text),
         "preferred_blocks": preferred_blocks,
         "avoid_blocks": avoid_blocks,
-        "chunking": _messenger_chunking_hint(),
+        "chunking": _messenger_chunking_hint(source),
         "transforms_applied": transforms,
         "fallback_transforms_applied": safe_transforms,
         "prefix_policy": {
             "default": "once_per_response_first_line",
             "repeat_when": "adapter_splits_response_across_separate_messages_or_chunks",
             "do_not_repeat": "every_paragraph_or_every_line",
+        },
+        # Declared, not enforced: nothing on this path rewrites body_text to
+        # fit these numbers (that would be a saturation/density transform,
+        # which is a separate feature). This exists because the chat path had
+        # no markdown-density or saturation control at all -- context_budget
+        # protects the supervising agent's context window, not a human
+        # reader's chat bubble. An adapter or future transform can read this
+        # as guidance for what a human reader tolerates.
+        "density_policy": {
+            "max_heading_levels": 2,
+            "max_bullets": 12,
+            "avoid": ["nested_bullets", "bold_inside_bullets", "tables_on_limited_profiles"],
         },
         "platform_hints": {
             "discord": "Start the first message with the visible prefix, prefer bullets or numbered lists over tables, and repeat the prefix only if the adapter splits a long response into separate messages.",
@@ -7858,14 +7892,46 @@ def _normalize_render_profile(render_profile: str) -> str:
     return RENDER_PROFILE_LIMITED_MARKDOWN
 
 
-def _messenger_chunking_hint() -> dict[str, object]:
-    """Return the advisory chunking hint shared by every messenger rendering block.
+# Real per-platform message ceilings, not one global advisory number. Each
+# `hard_limit_chars` sits below that platform's actual delivery cap so an
+# adapter has an enforceable stop, not just advice. `max_recommended_chars`
+# sits a flat 200 characters below `hard_limit_chars` on every platform --
+# room for the visible prefix OMH puts on the first line plus a chunk marker
+# an adapter may add when it splits a long response, neither of which grows
+# with the platform's own cap.
+_MESSENGER_CHAR_CEILINGS: dict[str, dict[str, int]] = {
+    # Discord's server-enforced per-message cap is 2000 characters; 1900
+    # keeps 100 characters of headroom below that hard API limit.
+    "discord": {"max_recommended_chars": 1700, "hard_limit_chars": 1900},
+    # Slack renders a single message/block reliably up to roughly 3000
+    # characters before mrkdwn text objects start truncating; 2900 stays
+    # under that.
+    "slack": {"max_recommended_chars": 2700, "hard_limit_chars": 2900},
+    # Telegram's server-enforced per-message cap is 4096 characters; 3900
+    # keeps headroom below that hard API limit.
+    "telegram": {"max_recommended_chars": 3700, "hard_limit_chars": 3900},
+}
+# Generic/Hermes surfaces -- and any source not in the map above -- have no
+# platform-enforced cap. 1800 is OMH's own long-standing advisory ceiling,
+# now paired with a hard_limit_chars floor so an unknown source still gets an
+# enforceable number instead of only advice.
+_MESSENGER_GENERIC_CEILING: dict[str, int] = {"max_recommended_chars": 1600, "hard_limit_chars": 1800}
 
-    OMH advises, adapters split. A fresh dict per call so a caller embedding it
+
+def _messenger_chunking_hint(source: str = "") -> dict[str, object]:
+    """Return the advisory chunking hint for ``source``'s messenger platform.
+
+    OMH advises, adapters split. Ceilings are per-platform: Discord, Slack,
+    and Telegram each enforce a different hard per-message character cap, so
+    one global number under-warns on generous platforms and over-warns on
+    tight ones. An unknown, empty, or unmapped source falls back to the
+    generic Hermes ceiling. A fresh dict per call so a caller embedding it
     in a payload cannot mutate the hint for every other caller.
     """
+    ceiling = _MESSENGER_CHAR_CEILINGS.get(source, _MESSENGER_GENERIC_CEILING)
     return {
-        "max_recommended_chars": 1800,
+        "max_recommended_chars": ceiling["max_recommended_chars"],
+        "hard_limit_chars": ceiling["hard_limit_chars"],
         "split_on": ["headings", "bullets", "paragraphs"],
     }
 

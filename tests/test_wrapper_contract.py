@@ -534,13 +534,20 @@ class WrapperContractTests(unittest.TestCase):
         self.assertTrue(limited["body_blocks"])
         self.assertEqual(limited["render_profile"], "limited_markdown")
         self.assertEqual(discord["render_profile"], "limited_markdown")
-        # `profile` is the deprecated raw source echo and is the only field
-        # allowed to vary between an opted-in generic surface and discord.
+        # `profile` is the deprecated raw source echo, and `chunking` carries
+        # a real per-platform character ceiling: `generic` has no known hard
+        # cap even when it opts into the limited render profile, so it stays
+        # on the generic ceiling while `discord` gets Discord's real one.
+        # Those two fields are the only ones allowed to vary.
         self.assertEqual(limited["profile"], "generic")
         self.assertEqual(discord["profile"], "discord")
+        self.assertEqual(limited["chunking"]["max_recommended_chars"], 1600)
+        self.assertEqual(limited["chunking"]["hard_limit_chars"], 1800)
+        self.assertEqual(discord["chunking"]["max_recommended_chars"], 1700)
+        self.assertEqual(discord["chunking"]["hard_limit_chars"], 1900)
         self.assertEqual(
-            {key: value for key, value in limited.items() if key != "profile"},
-            {key: value for key, value in discord.items() if key != "profile"},
+            {key: value for key, value in limited.items() if key not in ("profile", "chunking")},
+            {key: value for key, value in discord.items() if key not in ("profile", "chunking")},
         )
 
     def test_route_hint_rendering_keeps_rich_markdown_for_generic_without_metadata(self) -> None:
@@ -617,7 +624,10 @@ class WrapperContractTests(unittest.TestCase):
             {"render_profile", "body_blocks", "fallback_body_text", "transforms_applied", "chunking"},
             set(rendering),
         )
-        self.assertEqual(rendering["chunking"]["max_recommended_chars"], 1800)
+        # Discord now gets its own real per-platform ceiling here, not the old
+        # one-size-fits-all 1800 advisory number.
+        self.assertEqual(rendering["chunking"]["max_recommended_chars"], 1700)
+        self.assertEqual(rendering["chunking"]["hard_limit_chars"], 1900)
 
     def test_route_hint_payload_rejects_sources_outside_the_chat_source_registry(self) -> None:
         with self.assertRaises(ValueError) as raised:

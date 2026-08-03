@@ -294,7 +294,10 @@ def _response_for_hint(
             "body_blocks": _render_body_blocks(rendered_body_text, render_profile=render_profile),
             "fallback_body_text": fallback_body_text,
             "transforms_applied": transforms_applied,
-            "chunking": _messenger_chunking_hint(),
+            # Per-platform, not the old one-size-fits-all number: Discord,
+            # Slack, and Telegram each get their own real ceiling here too,
+            # since a route hint is itself a messenger-rendered reply.
+            "chunking": _messenger_chunking_hint(source),
             "checkpoint_text": checkpoint_body,
             "primary_action": actions[0],
             "secondary_actions": actions[1:],
