@@ -90,6 +90,10 @@ def _passthrough_backend(argv: tuple[str, ...], *_args: Path | str | bool | tupl
 
 
 class _RunnerMixin(unittest.TestCase):
+    def _run_fake_adapter(self, request: AdapterRequest, spec: ExecutionSpec, output: runner.OutputContract) -> runner.AdapterRunReceipt:
+        with patch("src.quality.cross_harness_adapters._backend_available", return_value=True), patch("src.quality.cross_harness_adapters._sandbox_command", _passthrough_backend), patch("src.quality.cross_harness_adapters._preflight", return_value=(True, "test-backend")):
+            return run_adapter(request, spec, output)
+
     def _run(
         self,
         scenario: str,
@@ -114,11 +118,11 @@ class _RunnerMixin(unittest.TestCase):
         if sandbox:
             outcome = run_adapter(request, spec, _output(root))
         else:
-            with patch("src.quality.cross_harness_adapters._sandbox_command", _passthrough_backend), patch(
-                "src.quality.cross_harness_adapters._preflight", return_value=(True, "test-backend")
-            ):
-                outcome = run_adapter(request, spec, _output(root))
+            outcome = self._run_fake_adapter(request, spec, _output(root))
         self.assertEqual(tuple(allocator.iterdir()), ())
+        if sandbox and sys.platform != "darwin":
+            self.assertEqual((outcome.status, outcome.reason_code in {"sandbox_backend_unavailable", "sandbox_preflight_failed"}), ("unavailable", True))
+            self.skipTest("requested OS sandbox backend is unavailable on this host")
         return outcome
 
 
@@ -178,7 +182,7 @@ class FailClosedAdapterRunnerTests(_RunnerMixin):
             root = Path(temporary)
             request, spec = _spec(root / "allocator", "passing")
             (root / "allocator").mkdir()
-            receipt = run_adapter(request, spec, _output(root))
+            receipt = self._run_fake_adapter(request, spec, _output(root))
             receipt_raw = json.loads((root / "receipt.json").read_text(encoding="utf-8"))
             evidence = parse_adapter_evidence(json.loads((root / "evidence.json").read_text(encoding="utf-8")))
             persisted = (root / "receipt.json").read_text(encoding="utf-8") + (root / "evidence.json").read_text(encoding="utf-8")
@@ -192,7 +196,7 @@ class FailClosedAdapterRunnerTests(_RunnerMixin):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             argv = ("definitely-missing-adapter",)
-            receipt = run_adapter(_request(argv, executable_version="missing"), ExecutionSpec(argv, (FIXTURES,), root, "sandbox-exec"), _output(root))
+            receipt = self._run_fake_adapter(_request(argv, executable_version="missing"), ExecutionSpec(argv, (FIXTURES,), root, "sandbox-exec"), _output(root))
             self.assertEqual((receipt.status, (root / "receipt.json").is_file(), (root / "evidence.json").exists()), ("unavailable", True, False))
 
     def test_cleanup_and_spawn_identity_are_observed(self) -> None:
@@ -208,17 +212,16 @@ class FailClosedAdapterRunnerTests(_RunnerMixin):
             canary.write_text("unchanged", encoding="utf-8")
             request, spec = _spec(allocator, "passing", environment=(("OMH_VERSION_CANARY", str(canary)),))
             receipt = run_adapter(request, spec, _output(root))
+            if sys.platform != "darwin":
+                self.assertEqual((receipt.status, receipt.reason_code in {"sandbox_backend_unavailable", "sandbox_preflight_failed"}), ("unavailable", True))
+                self.skipTest("requested OS sandbox backend is unavailable on this host")
             self.assertEqual((receipt.cleanup_verified, canary.read_text(encoding="utf-8"), tuple(allocator.iterdir())), (True, "unchanged", (canary,)))
             self.assertEqual((len(receipt.version_spawn_digest), len(receipt.repetitions[0].spawn_digest)), (64, 64))
     def test_missing_executable_and_backend_never_launch(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             argv = ("definitely-missing-adapter",)
-            outcome = run_adapter(
-                _request(argv, executable_version="missing"),
-                ExecutionSpec(argv, (FIXTURES,), root, "sandbox-exec"),
-                _output(root),
-            )
+            outcome = self._run_fake_adapter(_request(argv, executable_version="missing"), ExecutionSpec(argv, (FIXTURES,), root, "sandbox-exec"), _output(root))
             self.assertEqual((outcome.status, outcome.reason_code), ("unavailable", "executable_not_found"))
 
             request, spec = _spec(root, "passing", backend="missing")
@@ -233,7 +236,7 @@ class FailClosedAdapterRunnerTests(_RunnerMixin):
             allocator.mkdir()
             sentinel = root / "launch-sentinel"
             request, spec = _spec(allocator, "passing", environment=(("OMH_LAUNCH_PROBE", str(sentinel)),))
-            with patch("src.quality.cross_harness_adapters._preflight", return_value=(False, "test-backend")):
+            with patch("src.quality.cross_harness_adapters._backend_available", return_value=True), patch("src.quality.cross_harness_adapters._preflight", return_value=(False, "test-backend")):
                 outcome = run_adapter(request, spec, _output(root))
             self.assertEqual(outcome.reason_code, "sandbox_preflight_failed")
             self.assertFalse(sentinel.exists())
@@ -268,7 +271,7 @@ class FailClosedAdapterRunnerTests(_RunnerMixin):
                 request, spec = _spec(root, "passing")
                 with patch("src.quality.cross_harness_adapters._sandbox_command", _passthrough_backend), patch(
                     "src.quality.cross_harness_adapters._preflight", return_value=(True, "test-backend")
-                ), patch("src.quality.cross_harness_adapters._observe_process", side_effect=KeyboardInterrupt):
+                ), patch("src.quality.cross_harness_adapters._backend_available", return_value=True), patch("src.quality.cross_harness_adapters._observe_process", side_effect=KeyboardInterrupt):
                     with self.assertRaises(KeyboardInterrupt):
                         run_adapter(request, spec, _output(root))
                 self.assertEqual(tuple(root.iterdir()), ())

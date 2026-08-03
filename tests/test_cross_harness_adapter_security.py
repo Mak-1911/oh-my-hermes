@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 from src.quality import cross_harness_adapter_io as adapter_io
 from src.quality.cross_harness_adapter_sandbox import ChildContext, ProcessObservation, environment_is_safe, observe_process, preflight, sandbox_command
-from src.quality.cross_harness_adapters import ExecutionSpec, _artifact_result, run_adapter, runner_receipt_payload
+from src.quality.cross_harness_adapters import ExecutionSpec, _artifact_result, runner_receipt_payload
 from tests.test_cross_harness_adapters import ROOT, _RunnerMixin, _output, _request, _spec
 
 
@@ -135,7 +135,7 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
 
         with TemporaryDirectory() as temporary:
             request, spec = _spec(Path(temporary), "passing", environment=(("GITHUB_TOKEN", "secret"),))
-            outcome = run_adapter(request, spec, _output(Path(temporary)))
+            outcome = self._run_fake_adapter(request, spec, _output(Path(temporary)))
         self.assertEqual(outcome.reason_code, "credential_environment_rejected")
 
     def test_real_home_credentials_are_unreadable(self) -> None:
@@ -210,7 +210,7 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
             request, spec = _spec(root, "passing")
             sensitive_link = root / "sensitive"
             sensitive_link.symlink_to(Path.home() / ".ssh")
-            rejected = run_adapter(request, ExecutionSpec(spec.argv, (sensitive_link,), root, spec.backend), _output(root))
+            rejected = self._run_fake_adapter(request, ExecutionSpec(spec.argv, (sensitive_link,), root, spec.backend), _output(root))
             self.assertEqual(rejected.reason_code, "unsafe_read_root")
 
     def test_linux_command_is_strict_and_missing_backend_fails_closed(self) -> None:
@@ -280,7 +280,7 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
             for unsafe in (Path("/"), Path.home(), Path.home() / ".ssh"):
                 with self.subTest(unsafe=unsafe.name):
                     candidate = ExecutionSpec(spec.argv, (unsafe,), root, spec.backend)
-                    outcome = run_adapter(request, candidate, _output(root))
+                    outcome = self._run_fake_adapter(request, candidate, _output(root))
                     self.assertEqual(outcome.reason_code, "unsafe_read_root")
 
 

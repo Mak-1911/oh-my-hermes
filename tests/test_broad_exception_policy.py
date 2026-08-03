@@ -68,6 +68,13 @@ class ClassifiedSite(NamedTuple):
 
 CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
     ClassifiedSite(
+        "src/quality/cross_harness_adapter_io.py",
+        "_open_directory",
+        INTENTIONAL,
+        "Closes the directory descriptor for every interruption, then immediately re-raises "
+        "the same BaseException so cancellation cannot be mistaken for successful traversal.",
+    ),
+    ClassifiedSite(
         "src/install/plugin_pack.py",
         "_register_smoke",
         INTENTIONAL,
@@ -180,8 +187,8 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
 # Ruff reports one hit per handler; the inventory is keyed per enclosing
 # function. `_is_catalog_question` and `_resume_unlocked` each hold two
 # handlers, so the handler count is two above the anchor count.
-EXPECTED_HANDLER_COUNT = 15
-EXPECTED_ANCHOR_COUNT = 13
+EXPECTED_HANDLER_COUNT = 16
+EXPECTED_ANCHOR_COUNT = 14
 
 
 class DerivedSite(NamedTuple):
