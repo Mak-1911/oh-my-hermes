@@ -199,7 +199,11 @@ def build_dispatch_argv(
     return argv[:insert_at] + options + argv[insert_at:]
 
 
-def build_unit_prompt(unit: Mapping[str, Any], goal_text: str) -> str:
+def build_unit_prompt(
+    unit: Mapping[str, Any],
+    goal_text: str,
+    discovery: Mapping[str, Any] | None = None,
+) -> str:
     boundary = unit.get("boundary", {}) if isinstance(unit.get("boundary"), Mapping) else {}
     file_scope = ", ".join(str(path) for path in boundary.get("file_scope", []))
     do_not_touch = ", ".join(str(path) for path in boundary.get("do_not_touch", []))
@@ -215,8 +219,82 @@ def build_unit_prompt(unit: Mapping[str, Any], goal_text: str) -> str:
     # integration checks), bounded verification discipline, and — on
     # high-effort routes — the per-family over-verification calibration.
     lines.extend(unit_protocol_lines(unit))
+    # Skills the operator actually has, named with the invocation form their
+    # source directory implies. Absent discovery (the default, and every
+    # zero-skill environment) leaves the prompt byte-identical.
+    lines.extend(unit_skill_lines(unit, discovery))
     lines.append("Commit your work; do not merge or push other branches.")
     return "\n".join(lines)
+
+
+# The one hedge every emitted sequence carries: declared-on-disk is not loaded,
+# and a step the work does not need is droppable.
+_SKILL_SEQUENCE_PREAMBLE = (
+    "Suggested skill sequence for this unit, from what this environment declares. OMH read these "
+    "definitions on disk; it did not load or verify them, so resolve each one in your own registry, "
+    "skip any that does not resolve, and drop any step that does not fit the work:"
+)
+_DECLARED_SEQUENCE_PREAMBLE = (
+    "Operator-declared skill sequence for this unit. Resolve each one in your own registry and skip "
+    "any that does not resolve:"
+)
+
+
+def unit_skill_lines(unit: Mapping[str, Any], discovery: Mapping[str, Any] | None) -> list[str]:
+    """Return the skill-sequence block for one unit, or an empty list.
+
+    Precedence: an explicit `skill_sequence` on the unit always wins — a
+    non-empty list renders verbatim (interview option 4), an empty list
+    suppresses the block entirely (option 5, pure prompt). Otherwise the
+    recommended sequence is arranged from discovery; and with no discovery or
+    no matches the block is absent, so the modal operator — a fresh install
+    with no executor skills — gets exactly the prompt they get today.
+    """
+    from .executor_skill_discovery import suggested_skill_sequence
+
+    declared = unit.get("skill_sequence")
+    if isinstance(declared, (list, tuple)):
+        entries = [str(entry).strip() for entry in declared if str(entry).strip()]
+        if not entries:
+            return []
+        steps = [f"{index}. `{entry}`" for index, entry in enumerate(entries, start=1)]
+        return [_DECLARED_SEQUENCE_PREAMBLE, *steps]
+    if not isinstance(discovery, Mapping):
+        return []
+    steps = [
+        f"{index}. `{step['invocation']}` — {step['purpose']}"
+        for index, step in enumerate(suggested_skill_sequence(discovery, _unit_role(unit)), start=1)
+    ]
+    if not steps:
+        return []
+    return [_SKILL_SEQUENCE_PREAMBLE, *steps]
+
+
+def _unit_role(unit: Mapping[str, Any]) -> str:
+    handoff = unit.get("handoff", {}) if isinstance(unit.get("handoff"), Mapping) else {}
+    route = handoff.get("model_route") if isinstance(handoff.get("model_route"), Mapping) else {}
+    return str(route.get("role", "") or "") if isinstance(route, Mapping) else ""
+
+
+def _owner_skill_discoveries(units: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Observe declared skills once per distinct spawnable owner in this contract.
+
+    Only owners that actually spawn are probed — a prepared-prompt fallback
+    owner never reaches `build_unit_prompt`, so scanning for it would be IO
+    nobody reads.
+    """
+    from .executor_skill_discovery import discovered_executor_skills
+
+    owners = {
+        str(unit.get("handoff", {}).get("executor_target", ""))
+        for unit in units
+        if isinstance(unit.get("handoff"), Mapping)
+    }
+    return {
+        owner: discovered_executor_skills(owner)
+        for owner in sorted(owners)
+        if owner and DISPATCH_COMMAND_TEMPLATES.get(owner) is not None
+    }
 
 
 def verify_goal_matches_contract(contract: Mapping[str, Any], goal_text: str) -> None:
@@ -259,6 +337,11 @@ def dispatch_fanout(
     # loop needs it to write per-unit in-flight markers while units are running.
     fanout_id = str(contract.get("fanout_id", "") or "")
     selected = set(only_units) if only_units else set(order)
+    # Observed once per distinct owner, here at the dispatch boundary rather
+    # than inside the prompt builder: `build_unit_prompt` stays a pure function
+    # of its arguments, so a prompt built without discovery is byte-identical
+    # across machines.
+    discoveries = _owner_skill_discoveries(units.values())
     results: dict[str, dict[str, Any]] = {}
 
     for unit_id in order:
@@ -309,6 +392,7 @@ def dispatch_fanout(
                     readiness=readiness,
                     current_catalog_digest=current_catalog_digest,
                     fanout_id=fanout_id,
+                    discoveries=discoveries,
                 )
                 for unit_id in ready
             }
@@ -450,6 +534,7 @@ def _dispatch_unit(
     readiness: Callable[..., dict[str, object]],
     current_catalog_digest: str = "",
     fanout_id: str = "",
+    discoveries: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     from .model_inventory import catalog_fingerprint_note
 
@@ -498,10 +583,13 @@ def _dispatch_unit(
             "readiness_status": str(probe.get("status", "unknown")),
             "merge_ready": False,
         }
-    prompt = build_unit_prompt(unit, goal_text)
+    discovery = (discoveries or {}).get(owner)
+    prompt = build_unit_prompt(unit, goal_text, discovery)
     argv = build_dispatch_argv(owner, prompt, model_route)
     worktree = _worktree_path(repo_root, unit_id)
     if dry_run:
+        from .executor_skill_discovery import skill_selection_card
+
         planned: dict[str, Any] = {
             "unit_id": unit_id,
             "run_ref": run_ref,
@@ -514,6 +602,21 @@ def _dispatch_unit(
         }
         if fingerprint_note is not None:
             planned["inventory_fingerprint"] = fingerprint_note
+        # The deep-interview surface: when the unit has not answered (no
+        # declared skill_sequence) and the environment offers a genuine
+        # arrangement choice, the dry run carries the question card so a
+        # wrapper can double-check with the user before live dispatch. Live
+        # dispatch never blocks on it — unanswered means option 1.
+        declared = unit.get("skill_sequence")
+        if isinstance(declared, (list, tuple)):
+            planned["skill_sequence_source"] = "declared" if any(str(v).strip() for v in declared) else "declared_none"
+        else:
+            card = skill_selection_card(discovery, _unit_role(unit))
+            if card is not None:
+                planned["skill_sequence_source"] = "auto_recommended"
+                planned["skill_selection"] = card
+            else:
+                planned["skill_sequence_source"] = "auto" if unit_skill_lines(unit, discovery) else "none"
         return planned
     from .worktree_creator import ensure_fanout_unit_worktree
 

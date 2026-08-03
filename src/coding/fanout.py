@@ -184,7 +184,38 @@ def _normalized_unit(unit: Mapping[str, object], index: int) -> dict[str, object
         "role": str(unit.get("role", "") or "").strip(),
         "domain": str(unit.get("domain", "") or "").strip(),
         "depth": str(unit.get("depth", "") or "").strip(),
+        # None (key absent) and [] (declared empty) are different answers: absent
+        # means "arrange from discovery at dispatch time", [] means "the operator
+        # chose the pure prompt". Order is preserved — a sequence is a sequence.
+        "skill_sequence": _normalized_skill_sequence(unit.get("skill_sequence"), index),
     }
+
+
+# Declared skill invocations are the one operator-typed string that reaches
+# executor-facing prompt text verbatim, so they get an explicit shape gate:
+# bounded, single-line, and free of the backticks the prompt wraps them in.
+_MAX_SKILL_SEQUENCE_STEPS = 8
+_MAX_SKILL_INVOCATION_CHARS = 80
+
+
+def _normalized_skill_sequence(value: object, index: int) -> list[str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, (list, tuple)):
+        raise FanoutContractError(f"unit at index {index} skill_sequence must be a list of invocation strings")
+    entries = [str(entry).strip() for entry in value]
+    entries = [entry for entry in entries if entry]
+    if len(entries) > _MAX_SKILL_SEQUENCE_STEPS:
+        raise FanoutContractError(
+            f"unit at index {index} skill_sequence must have at most {_MAX_SKILL_SEQUENCE_STEPS} steps"
+        )
+    for entry in entries:
+        if len(entry) > _MAX_SKILL_INVOCATION_CHARS or "`" in entry or "\n" in entry or "\r" in entry:
+            raise FanoutContractError(
+                f"unit at index {index} skill_sequence entries must be single-line, "
+                f"at most {_MAX_SKILL_INVOCATION_CHARS} chars, and contain no backticks"
+            )
+    return entries
 
 
 def _sibling_scopes(units: Sequence[Mapping[str, object]], unit_id: str) -> list[str]:
@@ -220,7 +251,7 @@ def _contract_unit(
     }
     if model_route is not None:
         handoff["model_route"] = model_route
-    return {
+    contract_unit: dict[str, object] = {
         "unit_id": unit_id,
         "title": str(unit.get("title") or unit_id),
         "owner": unit.get("owner"),
@@ -238,3 +269,8 @@ def _contract_unit(
         ],
         "status": "prepared",
     }
+    # Only a declared answer rides the contract; absence keeps existing
+    # contracts byte-identical and means "arrange from discovery at dispatch".
+    if unit.get("skill_sequence") is not None:
+        contract_unit["skill_sequence"] = list(unit["skill_sequence"])
+    return contract_unit
