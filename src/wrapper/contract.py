@@ -7701,14 +7701,30 @@ def messenger_rendering_contract(
     if resolved_profile == RENDER_PROFILE_RICH_MARKDOWN:
         body_text = body
         body_format = "rich_markdown"
-        preferred_blocks = ["short_paragraph", "bulleted_list", "numbered_list", "markdown_table", "status_lines"]
+        preferred_blocks = [
+            "short_paragraph",
+            "bulleted_list",
+            "numbered_list",
+            "markdown_table",
+            "code_block",
+            "status_lines",
+        ]
         avoid_blocks = ["large_unbroken_block"]
         table_policy = "preserve_markdown_tables_when_supported"
         transforms: list[str] = []
     else:
         body_text = safe_body_text
         body_format = "messenger_safe_markdown"
-        preferred_blocks = ["short_paragraph", "bulleted_list", "numbered_list", "status_lines"]
+        # `code_block` is preferred on the limited profile too: Discord, Slack,
+        # and Telegram all render triple-backtick fences, and a fence is the
+        # only way column alignment survives a messenger. Tables still do not.
+        preferred_blocks = [
+            "short_paragraph",
+            "bulleted_list",
+            "numbered_list",
+            "code_block",
+            "status_lines",
+        ]
         avoid_blocks = ["markdown_table", "wide_table", "large_unbroken_block"]
         table_policy = "convert_tables_to_bullets_for_messenger"
         transforms = safe_transforms
@@ -8024,39 +8040,71 @@ def _unescape_table_pipes(value: str) -> str:
 
 
 def _messenger_body_blocks(body: str) -> list[dict[str, object]]:
-    return [
-        {"type": block_type, "text": text}
-        for block_type, text in _messenger_body_blocks_cached(body)
-    ]
+    blocks: list[dict[str, object]] = []
+    for block_type, text, language in _messenger_body_blocks_cached(body):
+        block: dict[str, object] = {"type": block_type, "text": text}
+        if block_type == "code_block":
+            block["language"] = language
+        blocks.append(block)
+    return blocks
 
 
 @lru_cache(maxsize=4096)
-def _messenger_body_blocks_cached(body: str) -> tuple[tuple[str, str], ...]:
-    blocks: list[tuple[str, str]] = []
+def _messenger_body_blocks_cached(body: str) -> tuple[tuple[str, str, str], ...]:
+    """Split a body into blocks, keeping fenced code intact.
+
+    Fences get their own block with newlines and leading whitespace PRESERVED.
+    Every other block type joins its lines with a space, which is correct for
+    prose and destructive for anything column-aligned: before this, a fenced
+    status table collapsed into one run-on paragraph on both render profiles,
+    so every adapter that consumes `body_blocks` lost the alignment.
+    """
+    blocks: list[tuple[str, str, str]] = []
     current: list[str] = []
+    fence: list[str] = []
+    language = ""
+    in_code_fence = False
+
+    def flush_paragraph() -> None:
+        nonlocal current
+        if current:
+            blocks.append(("paragraph", " ".join(current), ""))
+            current = []
+
     for line in body.splitlines():
         stripped = line.strip()
+        if _is_code_fence_line(line):
+            if in_code_fence:
+                blocks.append(("code_block", "\n".join(fence), language))
+                fence = []
+                language = ""
+                in_code_fence = False
+            else:
+                flush_paragraph()
+                language = stripped.lstrip("`~").strip()
+                in_code_fence = True
+            continue
+        if in_code_fence:
+            fence.append(line)
+            continue
         if not stripped:
-            if current:
-                blocks.append(("paragraph", " ".join(current)))
-                current = []
+            flush_paragraph()
             continue
         if stripped.startswith(("- ", "* ")):
-            if current:
-                blocks.append(("paragraph", " ".join(current)))
-                current = []
-            blocks.append(("bullet", stripped[2:].strip()))
+            flush_paragraph()
+            blocks.append(("bullet", stripped[2:].strip(), ""))
             continue
         numbered_text = _numbered_list_text(stripped)
         if numbered_text:
-            if current:
-                blocks.append(("paragraph", " ".join(current)))
-                current = []
-            blocks.append(("numbered", numbered_text))
+            flush_paragraph()
+            blocks.append(("numbered", numbered_text, ""))
             continue
         current.append(stripped)
-    if current:
-        blocks.append(("paragraph", " ".join(current)))
+    if in_code_fence and fence:
+        # An unterminated fence still keeps its shape; dropping back to prose
+        # would silently reflow the very content the fence was protecting.
+        blocks.append(("code_block", "\n".join(fence), language))
+    flush_paragraph()
     return tuple(blocks)
 
 
@@ -8091,12 +8139,20 @@ def _rich_markdown_body_blocks(body: str) -> list[dict[str, object]]:
                 paragraph.extend(table_lines)
             continue
         if not stripped:
+            if in_code_fence:
+                # A blank line inside a fence belongs to the code. Flushing here
+                # would split one fenced block into two and reflow the halves.
+                paragraph.append(line)
+                index += 1
+                continue
             if paragraph:
                 blocks.extend(_messenger_body_blocks("\n".join(paragraph)))
                 paragraph = []
             index += 1
             continue
-        paragraph.append(stripped)
+        # Raw inside a fence: `stripped` would drop the leading whitespace that
+        # column alignment is made of.
+        paragraph.append(line if in_code_fence else stripped)
         index += 1
     if paragraph:
         blocks.extend(_messenger_body_blocks("\n".join(paragraph)))
