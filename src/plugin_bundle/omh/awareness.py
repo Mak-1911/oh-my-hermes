@@ -1221,15 +1221,23 @@ _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW = {
     "ultrawork": "coding_handoff",
 }
 _AWARENESS_MESSAGE_MARKERS = (
-    # Running-work questions. Whole phrases on purpose: a bare `running` or
-    # `status` would arm mid-session awareness on unrelated prose, and every
-    # marker here is a context cost paid on each message that matches it.
-    "what is running",
+    # Running-work questions. Every marker must carry the INTERROGATIVE, not
+    # just the verb: measured against 14 unrelated messages, a bare `돌고 있어`
+    # armed awareness on "서버 돌고 있어", "테스트 돌고 있어서 기다리는 중",
+    # "배포 돌고있어", and "크론 돌고 있어" -- it is ordinary Korean for "is
+    # running". A bare `what is running` armed on "what is running in
+    # production right now", which the router itself BLOCKS, so the marker was
+    # looser than the route it exists to support. Requiring 뭐/뭐가 and keeping
+    # `right now` adjacent takes the new false positives from 5 to 0.
+    "what is running right now",
     "what's running",
     "whats running",
+    "which units are running",
     "running work board",
-    "돌고 있어",
-    "돌고있어",
+    "뭐 돌고 있어",
+    "뭐가 돌고 있어",
+    "뭐 돌고있어",
+    "뭐가 돌고있어",
     "codebase onboarding",
     "performance bottleneck",
     "\uba54\ubaa8\ub9ac \ub204\uc218",
