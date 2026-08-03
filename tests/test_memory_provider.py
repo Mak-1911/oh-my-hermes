@@ -150,9 +150,18 @@ class RenderTests(unittest.TestCase):
                 write_memory_block(home, block)
             selection = select_memory_blocks(blocks, omh_home=home)
             rendered = render_memory_blocks(blocks, budget_chars=400, evaluations=selection.evaluations)
-            self.assertIn("render_budget_exhausted", rendered)
-            self.assertNotIn("b4", rendered)
-            self.assertNotIn("<b4>", rendered)
+            # The one block that fits carries its whole value, and no second value survives.
+            self.assertIn(f"<value>{'x' * 200}</value>", rendered)
+            self.assertEqual(rendered.count("<value>"), 1)
+            # Dropped blocks keep no element at all, and only their opaque id names them.
+            # Probe the markup, not a bare label: block_id is random and collides with short needles.
+            for block in blocks[1:]:
+                self.assertNotIn(f"<{block.label}>", rendered)
+                self.assertNotIn(f"</{block.label}>", rendered)
+                self.assertIn(
+                    f'<omitted block_id="{block.block_id}" revision="{block.revision}" reason="render_budget_exhausted" />',
+                    rendered,
+                )
 
     def test_the_index_lists_reference_blocks_without_their_values(self) -> None:
         with TemporaryDirectory() as tmp:
