@@ -17,15 +17,21 @@ import unittest
 from pathlib import Path
 
 from omh.coding.model_inventory import (
+    OMO_CATEGORY_ROLE_SOURCES,
     OMO_CATEGORY_SCALE_SOURCES,
     inventory_model_catalog,
     local_model_inventory,
 )
 from omh.coding.model_routing import (
+    BUILTIN_CATEGORY_MODELS,
+    CATEGORY_ROLE_SOURCES,
+    CATEGORY_SCALE_SOURCES,
+    MODEL_CATEGORIES,
     MODEL_ROLES,
     ROLE_MODEL_CHAINS,
     TASK_SCALE_CHAINS,
     TASK_SCALES,
+    merged_category_chain,
     resolve_model_route,
 )
 
@@ -77,23 +83,25 @@ class TaskScaleVocabularyTests(unittest.TestCase):
 
 class TaskScaleResolutionTests(unittest.TestCase):
     def test_scale_moves_the_selected_model_on_codex(self) -> None:
+        # Three distinct rungs: quick -> the default working model -> ultrabrain.
         small = resolve_model_route("codex", role="implementation", requested_scale="small")
         standard = resolve_model_route("codex", role="implementation", requested_scale="standard")
         large = resolve_model_route("codex", role="implementation", requested_scale="large")
+        self.assertEqual(small["selected_model"], "gpt-5")
         self.assertEqual(small["selected_reasoning_effort"], "low")
-        self.assertEqual(standard["selected_model"], "gpt-5")
+        self.assertEqual(standard["selected_model"], "gpt-5-codex")
+        self.assertEqual(standard["selected_reasoning_effort"], "")
         self.assertEqual(large["selected_model"], "gpt-5-codex")
-        self.assertEqual(large["selected_reasoning_effort"], "high")
+        self.assertEqual(large["selected_reasoning_effort"], "xhigh")
 
     def test_scale_moves_the_selected_model_on_claude_code(self) -> None:
         self.assertEqual(
             resolve_model_route("claude-code", role="implementation", requested_scale="small")["selected_model"],
             "haiku",
         )
-        self.assertEqual(
-            resolve_model_route("claude-code", role="implementation", requested_scale="large")["selected_model"],
-            "opus",
-        )
+        large = resolve_model_route("claude-code", role="implementation", requested_scale="large")
+        self.assertEqual(large["selected_model"], "opus")
+        self.assertEqual(large["selected_reasoning_effort"], "xhigh")
 
     def test_no_declared_scale_leaves_the_role_chain_untouched(self) -> None:
         without = resolve_model_route("codex", role="implementation")
@@ -105,7 +113,7 @@ class TaskScaleResolutionTests(unittest.TestCase):
     def test_an_unknown_scale_is_named_not_rejected(self) -> None:
         route = resolve_model_route("codex", role="implementation", requested_scale="enormous")
         self.assertEqual(route["status"], "routed")
-        self.assertEqual(route["selected_model"], "gpt-5")
+        self.assertEqual(route["selected_model"], "gpt-5-codex")
         self.assertEqual(_scale_stage(route)["outcome"], "unknown_scale")
 
     def test_research_keeps_its_depth_dial_and_says_so(self) -> None:
@@ -130,6 +138,65 @@ class TaskScaleResolutionTests(unittest.TestCase):
         for role in MODEL_ROLES:
             with self.subTest(role=role):
                 self.assertEqual(_scale_stage(resolve_model_route("codex", role=role)), {})
+
+
+class OneRoutingRuleTests(unittest.TestCase):
+    """Built-in defaults and a user's omo config must go through ONE rule."""
+
+    def test_role_and_scale_chains_are_derived_not_hand_written(self) -> None:
+        for profile, category_models in BUILTIN_CATEGORY_MODELS.items():
+            for role, categories in CATEGORY_ROLE_SOURCES.items():
+                if ":" in role:
+                    continue
+                with self.subTest(profile=profile, role=role):
+                    self.assertEqual(
+                        ROLE_MODEL_CHAINS[profile][role],
+                        merged_category_chain(category_models, categories),
+                    )
+            for scale, categories in CATEGORY_SCALE_SOURCES.items():
+                with self.subTest(profile=profile, scale=scale):
+                    self.assertEqual(
+                        TASK_SCALE_CHAINS[profile][scale],
+                        merged_category_chain(category_models, categories),
+                    )
+
+    def test_the_inventory_module_reuses_the_same_rule_objects(self) -> None:
+        # Aliases, not copies: a second table would drift from this one.
+        self.assertIs(OMO_CATEGORY_ROLE_SOURCES, CATEGORY_ROLE_SOURCES)
+        self.assertIs(OMO_CATEGORY_SCALE_SOURCES, CATEGORY_SCALE_SOURCES)
+
+    def test_every_category_the_rules_name_exists_in_every_builtin_table(self) -> None:
+        named = {
+            category
+            for categories in (*CATEGORY_ROLE_SOURCES.values(), *CATEGORY_SCALE_SOURCES.values())
+            for category in categories
+        }
+        self.assertTrue(named <= set(MODEL_CATEGORIES), named - set(MODEL_CATEGORIES))
+        for profile, category_models in BUILTIN_CATEGORY_MODELS.items():
+            with self.subTest(profile=profile):
+                self.assertEqual(set(category_models), set(MODEL_CATEGORIES))
+
+    def test_a_chain_never_names_the_same_model_twice(self) -> None:
+        # Next-candidate advice is only useful when it names a DIFFERENT model.
+        for profile, roles in ROLE_MODEL_CHAINS.items():
+            for role, chain in roles.items():
+                with self.subTest(profile=profile, role=role):
+                    models = [entry["model_id"] for entry in chain]
+                    self.assertEqual(len(models), len(set(models)))
+
+    def test_the_three_scale_rungs_stay_distinct_for_implementation(self) -> None:
+        for profile in BUILTIN_CATEGORY_MODELS:
+            with self.subTest(profile=profile):
+                rungs = {
+                    scale: (
+                        resolve_model_route(profile, role="implementation", requested_scale=scale)["selected_model"],
+                        resolve_model_route(profile, role="implementation", requested_scale=scale)[
+                            "selected_reasoning_effort"
+                        ],
+                    )
+                    for scale in TASK_SCALES
+                }
+                self.assertEqual(len(set(rungs.values())), 3, rungs)
 
 
 class TaskScaleLocalInventoryTests(unittest.TestCase):

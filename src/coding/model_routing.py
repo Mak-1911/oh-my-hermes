@@ -144,64 +144,153 @@ EXECUTOR_MODEL_OPTIONS: Final[dict[str, tuple[dict[str, object], ...]]] = {
     ),
 }
 
-# Ordered per-role chains: head is the deterministic selection, later entries
-# are prepared next-candidate advice. An entry's reasoning_effort applies only
-# when the user requested none (requested > chain-entry > none). Every profile
-# in EXECUTOR_MODEL_OPTIONS carries a chain for every role and every chain
-# model_id exists in that profile's catalog — both directions are policy-gated.
-ROLE_MODEL_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = {
+# ONE routing rule, two model tables.
+#
+# Routing is expressed as semantic CATEGORIES -- what kind of thinking a unit
+# needs -- and a role or scale is resolved by naming the categories that serve
+# it. This is the rule the omo config already uses, and adopting it here means a
+# user with an omo config and a user without one go through the SAME rule
+# engine; only the category->model table differs. Previously the built-ins were
+# a hand-written per-role table that had to be kept in sync with omo's semantics
+# by hand, and drifted from them.
+#
+# The local-inventory module imports these three names rather than restating
+# them, which is why the vocabulary lives here: that module already depends on
+# this one (`model_family`), and the reverse direction is policy-gated -- by a
+# gate that greps THIS file's source, so do not name that module here.
+MODEL_CATEGORIES: Final[tuple[str, ...]] = (
+    "ultrabrain",
+    "deep",
+    "unspecified-high",
+    "unspecified-low",
+    "quick",
+    "writing",
+    "visual-engineering",
+    "artistry",
+)
+
+# Ordered category sources per role. Where several categories serve one role the
+# order decides chain concatenation, and ties break toward the stronger-signal
+# category. Review deliberately reuses the high-capability categories --
+# reviewer-vs-author separation is advisory handoff text, not a catalog property.
+CATEGORY_ROLE_SOURCES: Final[dict[str, tuple[str, ...]]] = {
+    # `deep` first, not `ultrabrain`: the composer runs on every split, so its
+    # default is the strong tier rather than the deepest one. `ultrabrain` is
+    # reserved for work that DECLARES it needs that depth -- `research:deep`
+    # and scale `large` -- which is what keeps a declared dial meaningful.
+    # `deep` first, not `ultrabrain`: the composer runs on every split, so its
+    # default is the strong tier rather than the deepest one. `ultrabrain` is
+    # reserved for work that DECLARES it needs that depth -- `research:deep`
+    # and scale `large` -- which is what keeps a declared dial meaningful.
+    # `unspecified-low` closes the chain so the fallback names a DIFFERENT
+    # model rather than repeating the head at a weaker effort.
+    "brain": ("deep", "unspecified-low"),
+    # `unspecified-high` is omo's name for "the default working model", not for
+    # "the strongest one" -- that is `ultrabrain`. So standard implementation
+    # heads on it, `small` drops to quick/unspecified-low, and `large` escalates
+    # to ultrabrain/deep. All three rungs stay distinct.
+    "implementation": ("unspecified-high", "unspecified-low"),
+    "design_visual": ("visual-engineering", "artistry"),
+    "review": ("unspecified-high", "unspecified-low"),
+    "docs": ("writing", "quick"),
+    # Read-only investigation lanes: standard depth is the default; the
+    # shallow/deep entries resolve only when the unit DECLARES that depth.
+    "research": ("unspecified-low", "quick"),
+    "research:shallow": ("quick", "unspecified-low"),
+    # Strongest first: the chain head is the selection, so a declared `deep`
+    # must land on the deepest category rather than reach it as a fallback.
+    "research:deep": ("ultrabrain", "deep"),
+}
+
+# Declared task scale over the same categories. `standard` is absent because it
+# IS the role chain.
+CATEGORY_SCALE_SOURCES: Final[dict[str, tuple[str, ...]]] = {
+    "small": ("quick", "unspecified-low"),
+    "large": ("ultrabrain", "deep", "unspecified-high"),
+}
+
+# The built-in category->model table, the fallback for a profile with no local
+# inventory. Codex takes vendor model ids; Claude Code takes stable tier aliases
+# that track the newest model in each tier, which is why the claude side needs
+# no maintenance as models ship and the codex side does.
+BUILTIN_CATEGORY_MODELS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = {
+    # Codex: gpt-5-codex is the frontier CODING model, gpt-5 the general one.
+    # Every category that means "do the work well" therefore names the coding
+    # model, and the light categories name the general one.
     "codex": {
-        "brain": (
-            {"model_id": "gpt-5-codex", "reasoning_effort": "high"},
-            {"model_id": "gpt-5", "reasoning_effort": "high"},
-        ),
-        "implementation": (
-            {"model_id": "gpt-5", "reasoning_effort": ""},
-            {"model_id": "gpt-5-codex", "reasoning_effort": ""},
-        ),
-        "design_visual": (
-            {"model_id": "gpt-5-codex", "reasoning_effort": ""},
-            {"model_id": "gpt-5", "reasoning_effort": ""},
-        ),
-        "review": (
-            {"model_id": "gpt-5-codex", "reasoning_effort": ""},
-            {"model_id": "gpt-5", "reasoning_effort": ""},
-        ),
-        "docs": (
-            {"model_id": "gpt-5", "reasoning_effort": ""},
-        ),
-        "research": (
-            {"model_id": "gpt-5", "reasoning_effort": "medium"},
-            {"model_id": "gpt-5-codex", "reasoning_effort": ""},
-        ),
+        "ultrabrain": ({"model_id": "gpt-5-codex", "reasoning_effort": "xhigh"},),
+        "deep": ({"model_id": "gpt-5-codex", "reasoning_effort": "high"},),
+        "unspecified-high": ({"model_id": "gpt-5-codex", "reasoning_effort": ""},),
+        "unspecified-low": ({"model_id": "gpt-5", "reasoning_effort": ""},),
+        "quick": ({"model_id": "gpt-5", "reasoning_effort": "low"},),
+        "writing": ({"model_id": "gpt-5", "reasoning_effort": ""},),
+        "visual-engineering": ({"model_id": "gpt-5-codex", "reasoning_effort": ""},),
+        "artistry": ({"model_id": "gpt-5", "reasoning_effort": ""},),
     },
+    # Claude Code takes stable tier aliases that track the newest model in each
+    # tier, which is why this side needs no maintenance as models ship and the
+    # codex side does.
     "claude-code": {
-        "brain": (
-            {"model_id": "opus", "reasoning_effort": "high"},
-            {"model_id": "sonnet", "reasoning_effort": "high"},
-        ),
-        "implementation": (
-            {"model_id": "sonnet", "reasoning_effort": ""},
-            {"model_id": "opus", "reasoning_effort": ""},
-        ),
-        "design_visual": (
-            {"model_id": "opus", "reasoning_effort": ""},
-            {"model_id": "sonnet", "reasoning_effort": ""},
-        ),
-        "review": (
-            {"model_id": "opus", "reasoning_effort": ""},
-            {"model_id": "sonnet", "reasoning_effort": ""},
-        ),
-        "docs": (
-            {"model_id": "haiku", "reasoning_effort": ""},
-            {"model_id": "sonnet", "reasoning_effort": ""},
-        ),
-        "research": (
-            {"model_id": "sonnet", "reasoning_effort": ""},
-            {"model_id": "haiku", "reasoning_effort": ""},
-        ),
+        "ultrabrain": ({"model_id": "opus", "reasoning_effort": "xhigh"},),
+        "deep": ({"model_id": "opus", "reasoning_effort": "high"},),
+        "unspecified-high": ({"model_id": "opus", "reasoning_effort": ""},),
+        "unspecified-low": ({"model_id": "sonnet", "reasoning_effort": ""},),
+        "quick": ({"model_id": "haiku", "reasoning_effort": ""},),
+        "writing": ({"model_id": "haiku", "reasoning_effort": ""},),
+        "visual-engineering": ({"model_id": "opus", "reasoning_effort": ""},),
+        "artistry": ({"model_id": "sonnet", "reasoning_effort": ""},),
     },
 }
+
+
+def merged_category_chain(
+    category_models: Mapping[str, object],
+    categories: tuple[str, ...],
+) -> tuple[dict[str, str], ...]:
+    """Concatenate the named categories' entries, first occurrence winning.
+
+    Shared by the built-in table here and the locally-derived table the
+    inventory side builds, so both answer a role or a scale the same way.
+
+    Deduplicated by MODEL, not by (model, effort). A chain is next-candidate
+    advice, so a second entry is only useful when it names a DIFFERENT model;
+    the same model repeated at a weaker effort is noise, and because the
+    strongest category is listed first, first-wins keeps the right one.
+    """
+    merged: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for category in categories:
+        entries = category_models.get(category)
+        if not isinstance(entries, (list, tuple)):
+            continue
+        for entry in entries:
+            if not isinstance(entry, Mapping):
+                continue
+            model_id = str(entry.get("model_id", ""))
+            if not model_id or model_id in seen:
+                continue
+            seen.add(model_id)
+            merged.append({"model_id": model_id, "reasoning_effort": str(entry.get("reasoning_effort", ""))})
+    return tuple(merged)
+
+
+def _derived_role_chains() -> dict[str, dict[str, tuple[dict[str, str], ...]]]:
+    return {
+        profile: {
+            role: chain
+            for role, categories in CATEGORY_ROLE_SOURCES.items()
+            if ":" not in role and (chain := merged_category_chain(category_models, categories))
+        }
+        for profile, category_models in BUILTIN_CATEGORY_MODELS.items()
+    }
+
+
+# Ordered per-role chains: head is the deterministic selection, later entries
+# are prepared next-candidate advice. An entry's reasoning_effort applies only
+# when the user requested none (requested > chain-entry > none). Derived from
+# the category table above rather than hand-written, so a category change moves
+# every role that names it.
+ROLE_MODEL_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = _derived_role_chains()
 
 # Explicit research-depth dial (surveyed autorouting consensus: depth is a
 # DECLARED dial, never inferred from text; standard is the default, shallow
@@ -209,26 +298,18 @@ ROLE_MODEL_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = {
 # no entry here on purpose: it IS the role chain above.
 RESEARCH_DEPTHS: Final[tuple[str, ...]] = ("shallow", "standard", "deep")
 
-RESEARCH_DEPTH_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = {
-    "codex": {
-        "shallow": (
-            {"model_id": "gpt-5", "reasoning_effort": "low"},
-        ),
-        "deep": (
-            {"model_id": "gpt-5-codex", "reasoning_effort": "xhigh"},
-            {"model_id": "gpt-5", "reasoning_effort": "high"},
-        ),
-    },
-    "claude-code": {
-        "shallow": (
-            {"model_id": "haiku", "reasoning_effort": ""},
-        ),
-        "deep": (
-            {"model_id": "opus", "reasoning_effort": "high"},
-            {"model_id": "sonnet", "reasoning_effort": "high"},
-        ),
-    },
-}
+def _derived_depth_chains() -> dict[str, dict[str, tuple[dict[str, str], ...]]]:
+    return {
+        profile: {
+            depth: chain
+            for depth in ("shallow", "deep")
+            if (chain := merged_category_chain(category_models, CATEGORY_ROLE_SOURCES[f"research:{depth}"]))
+        }
+        for profile, category_models in BUILTIN_CATEGORY_MODELS.items()
+    }
+
+
+RESEARCH_DEPTH_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = _derived_depth_chains()
 
 # Declared task-scale dial. Role says WHAT the unit does; scale says HOW MUCH
 # of it there is, and the two are independent -- a one-line fix and a forty-file
@@ -245,27 +326,18 @@ RESEARCH_DEPTH_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] =
 # that declares both keeps depth for research and records scale as skipped.
 TASK_SCALES: Final[tuple[str, ...]] = ("small", "standard", "large")
 
-TASK_SCALE_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = {
-    "codex": {
-        "small": (
-            {"model_id": "gpt-5", "reasoning_effort": "low"},
-        ),
-        "large": (
-            {"model_id": "gpt-5-codex", "reasoning_effort": "high"},
-            {"model_id": "gpt-5", "reasoning_effort": "high"},
-        ),
-    },
-    "claude-code": {
-        "small": (
-            {"model_id": "haiku", "reasoning_effort": ""},
-            {"model_id": "sonnet", "reasoning_effort": ""},
-        ),
-        "large": (
-            {"model_id": "opus", "reasoning_effort": "high"},
-            {"model_id": "sonnet", "reasoning_effort": "high"},
-        ),
-    },
-}
+def _derived_scale_chains() -> dict[str, dict[str, tuple[dict[str, str], ...]]]:
+    return {
+        profile: {
+            scale: chain
+            for scale, categories in CATEGORY_SCALE_SOURCES.items()
+            if (chain := merged_category_chain(category_models, categories))
+        }
+        for profile, category_models in BUILTIN_CATEGORY_MODELS.items()
+    }
+
+
+TASK_SCALE_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = _derived_scale_chains()
 
 # Model-family prefixes mirror the dynamic-workflow target classifier so both
 # surfaces name families the same way; bare Claude tier aliases fold into the
