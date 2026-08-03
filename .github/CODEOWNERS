@@ -1,0 +1,36 @@
+# Code owners for oh-my-hermes.
+#
+# @rlaope is requested for review on every pull request. Later patterns win,
+# so the catch-all comes first and the higher-risk surfaces are restated below
+# to keep them obvious to anyone reading this file.
+
+*                                               @rlaope
+
+# Contracts and product direction.
+/AGENTS.md                                      @rlaope
+/CLAUDE.md                                      @rlaope
+/REVIEW.md                                      @rlaope
+/CONTRIBUTING.md                                @rlaope
+/docs/DIRECTION.md                              @rlaope
+
+# Generated artifacts. Edits belong in the source of truth, never here.
+/docs/WORKFLOWS.md                              @rlaope
+/docs/ROLES.md                                  @rlaope
+/skills/                                        @rlaope
+/examples/use-cases/                            @rlaope
+/src/plugin_bundle/omh/tools/capability_families.json  @rlaope
+
+# Sources of truth behind those artifacts.
+/src/skills/                                    @rlaope
+/src/capabilities/                              @rlaope
+
+# Routing precision and the count assertions that pin it.
+/src/routing/                                   @rlaope
+
+# The one sanctioned execution surface.
+/src/coding/                                    @rlaope
+
+# Release, packaging, and CI.
+/.github/                                       @rlaope
+/pyproject.toml                                 @rlaope
+/src/install/                                   @rlaope

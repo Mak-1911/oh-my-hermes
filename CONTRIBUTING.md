@@ -50,3 +50,70 @@ uv run --group lint ruff check src tests
 
 Use concise decision-oriented messages. Mention why the change exists, not just
 what files changed.
+
+### Sign your commits (required)
+
+Every commit must carry a Developer Certificate of Origin sign-off. A `DCO`
+check runs on each pull request and fails when any commit is missing one, so a
+PR without sign-offs cannot merge.
+
+Add it automatically with `-s`:
+
+```sh
+git commit -s -m "fix: stop the router matching bare 'plan'"
+```
+
+That appends a trailer built from your configured git identity:
+
+```
+Signed-off-by: Your Name <you@example.com>
+```
+
+The name and email must match the commit author, and `Signed-off-by:` must be
+the **last** trailer in the message. If you forgot on the most recent commit:
+
+```sh
+git commit --amend -s --no-edit
+```
+
+To fix a whole branch at once:
+
+```sh
+git rebase --signoff origin/main
+```
+
+Both rewrite history, so force-push the branch afterwards
+(`git push --force-with-lease`).
+
+By signing off you certify the [Developer Certificate of
+Origin](https://developercertificate.org/): that you wrote the patch or
+otherwise have the right to submit it under this project's license.
+
+### Decision trailers
+
+Maintainer and agent commits also carry decision trailers — `Constraint`,
+`Rejected`, `Confidence`, `Scope-risk`, `Directive`, `Tested`, `Not-tested` —
+documented in `AGENTS.md`. They record why a change looks the way it does.
+Outside contributions are welcome without them; only the sign-off is required.
+Whatever else the message carries, `Signed-off-by:` stays last.
+
+## Review and Labels
+
+Pull requests are reviewed against [`REVIEW.md`](REVIEW.md), which defines what
+counts as a blocking finding in this repository. Reading it before you open a
+PR is the fastest way to avoid a round trip — most findings here are contract
+drift, not ordinary bugs.
+
+Two things catch outside contributions most often:
+
+- **Generated files.** `skills/*/SKILL.md`, `docs/WORKFLOWS.md`,
+  `docs/ROLES.md`, `examples/use-cases/g1-g10-demo-cards.json`, and
+  `src/plugin_bundle/omh/tools/capability_families.json` are generated. Edit the
+  source under `src/`, regenerate, and commit both. Byte-exact gates fail on a
+  one-character drift.
+- **Exact-count assertions.** Adding a routing case, skill, or demo card
+  invalidates counts pinned in the tests. Update them in the same commit; they
+  are the contract, not noise.
+
+Labels are defined in [`.github/labels.yml`](.github/labels.yml) and applied by
+the maintainer. You do not need to label your own PR.
