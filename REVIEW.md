@@ -1,5 +1,13 @@
 # Review instructions
 
+**Who reads this file.** Today it is read explicitly, by the `review-sweep`
+skill in `.claude/skills/review-sweep/` and by anyone reviewing a PR by hand.
+Nothing reads it automatically. Anthropic's managed Code Review service picks
+up a root `REVIEW.md` on its own, but that service is a separate paid product
+and is not enabled here; the `claude-code-action` GitHub Action and the local
+`/code-review` command both ignore this file. So treat it as the written policy
+a reviewer is expected to load, not as configuration that enforces itself.
+
 oh-my-hermes is pure Python 3.11+ with zero runtime dependencies. Core `omh`
 code makes no LLM, API, or network calls and never patches Hermes. Most defects
 here are **contract drift**, not algorithmic bugs. Weight the review that way:
