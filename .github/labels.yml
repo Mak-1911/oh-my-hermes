@@ -18,6 +18,16 @@
 #   kind     what type of change it is                     (flat, GitHub defaults)
 #   needs-*  what the maintainer still has to do           (workflow state)
 #   risk/*   why this one deserves a closer look           (rare, deliberate)
+#
+# Glob semantics, stated because matchers disagree and the disagreement is not
+# academic — it silently mislabels:
+#   `*`   matches within one path segment and does NOT cross `/`
+#   `**`  matches across segments, so `src/routing/**` covers nested files
+#   a bare `*.md` therefore means root-level only, never `a/b/c.md`
+# Write globs that are correct under this reading. When a rule needs to catch
+# a specific file wherever it sits, list the path instead of leaning on `*`.
+#
+# GitHub rejects a label `description` longer than 100 characters.
 
 labels:
   # ---------------------------------------------------------------------------
@@ -165,16 +175,25 @@ labels:
   - name: area/docs
     color: "84b6eb"
     description: Hand-written documentation
+    # Listed explicitly rather than as a bare `*.md`. Matchers disagree about
+    # whether `*.md` crosses a `/`, and under the permissive reading it
+    # swallows every SKILL.md in the repo. Name the root docs instead.
     paths:
       - "docs/**"
       - "README.md"
-      - "*.md"
+      - "CONTRIBUTING.md"
+      - "REVIEW.md"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "SECURITY.md"
+      - "CHANGELOG.md"
 
   - name: area/ci
     color: "000000"
     description: CI workflows, packaging metadata, and repository configuration
     paths:
       - ".github/**"
+      - ".claude/**"
       - "pyproject.toml"
       - ".editorconfig"
 
