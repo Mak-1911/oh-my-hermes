@@ -22,6 +22,7 @@ from pathlib import Path
 import pwd
 import signal
 import socket
+import stat
 import subprocess
 import sys
 from typing import Callable, TypeAlias, TypeVar
@@ -71,6 +72,20 @@ def _write_result(*, child_result: str = "pass", artifact_type: str = "cross_har
     output.write_text(json.dumps(result, sort_keys=True), encoding="utf-8")
 
 
+def _spawn_descendant(*, inherit_stdio: bool) -> None:
+    pid_path = Path(os.environ["OMH_DESCENDANT_PID"])
+    child_code = "import os,signal,sys;open(sys.argv[1],'w').write(str(os.getpid()));signal.pause()"
+    stream = None if inherit_stdio else subprocess.DEVNULL
+    child = subprocess.Popen(
+        (sys.executable, "-c", child_code, str(pid_path)),
+        stdin=subprocess.DEVNULL,
+        stdout=stream,
+        stderr=stream,
+    )
+    while not pid_path.exists():
+        os.kill(child.pid, 0)
+
+
 def main() -> int:
     scenario = sys.argv[1]
     if scenario == "--version":
@@ -87,7 +102,9 @@ def main() -> int:
         read_fd, write_fd = os.pipe()
         heartbeat = Path(os.environ["HOME"]).parent / "work" / "descendant-heartbeat"
         child_code = "import os,signal,sys;open(sys.argv[1],'wb').write(b'alive');os.write(int(sys.argv[2]),b'1');signal.pause()"
-        subprocess.Popen((sys.executable, "-c", child_code, str(heartbeat), str(write_fd)), close_fds=True, pass_fds=(write_fd,))
+        descendant = subprocess.Popen((sys.executable, "-c", child_code, str(heartbeat), str(write_fd)), close_fds=True, pass_fds=(write_fd,))
+        if pid_path := os.environ.get("OMH_DESCENDANT_PID"):
+            Path(pid_path).write_text(str(descendant.pid), encoding="utf-8")
         os.close(write_fd)
         os.read(read_fd, 1)
         os.close(read_fd)
@@ -95,6 +112,20 @@ def main() -> int:
     if scenario == "crash":
         _write_result(process_status="crash", exit_code=None)
         os.abort()
+    if scenario == "crash-descendant":
+        _write_result(process_status="crash", exit_code=None)
+        _spawn_descendant(inherit_stdio=False)
+        os.abort()
+    if scenario == "descendant-exit-closed":
+        _spawn_descendant(inherit_stdio=False)
+    if scenario == "descendant-exit-inherited":
+        _spawn_descendant(inherit_stdio=True)
+    if scenario == "session-escape-denied":
+        child_code = "import os,sys; operation=getattr(os,sys.argv[1]);\ntry: operation() if sys.argv[1]=='setsid' else operation(0,0)\nexcept PermissionError: sys.exit(0)\nsys.exit(13)"
+        for operation in ("setsid", "setpgid"):
+            completed = subprocess.run((sys.executable, "-c", child_code, operation), check=False)
+            if completed.returncode != 0:
+                return 13
     if scenario == "misleading-zero":
         return 0
     if scenario == "environment-clean" and "AWS_SECRET_ACCESS_KEY" in os.environ:
@@ -133,6 +164,16 @@ def main() -> int:
         target.write_bytes(b"observed")
         if target.read_bytes() != b"observed":
             return 10
+    if scenario == "inventory-symlink":
+        target = Path(os.environ["OMH_FILE_CANARY"])
+        (Path(os.environ["HOME"]).parent / "work" / "linked-canary").symlink_to(target)
+    if scenario == "artifact-symlink":
+        target = Path(os.environ["OMH_FILE_CANARY"])
+        output = Path(os.environ["OMH_ADAPTER_OUTPUT"])
+        output.symlink_to(target)
+        if not stat.S_ISLNK(output.lstat().st_mode):
+            return 11
+        return 0
     if scenario == "wrong-artifact":
         _write_result(artifact_type="wrong/v1")
     elif scenario == "stale-artifact":

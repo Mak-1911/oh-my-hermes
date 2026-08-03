@@ -3,16 +3,35 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import socket
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from src.quality.cross_harness_adapter_sandbox import ChildContext, sandbox_command
-from src.quality.cross_harness_adapters import ExecutionSpec, run_adapter
+from src.quality.cross_harness_adapter_sandbox import (
+    ChildContext,
+    environment_is_safe,
+    preflight,
+    sandbox_command,
+)
+from src.quality.cross_harness_adapters import ExecutionSpec, run_adapter, runner_receipt_payload
 from tests.test_cross_harness_adapters import ROOT, _RunnerMixin, _output, _spec
 
 
 class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
+    def test_secret_shaped_values_are_rejected_but_numeric_listener_values_are_allowed(self) -> None:
+        rejected = (
+            "ghp_abcdefghijklmnopqrstuvwxyz1234567890",
+            "AKIAIOSFODNN7EXAMPLE",
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
+            "Bearer opaque-credential",
+            "-----BEGIN PRIVATE KEY-----",
+        )
+        for value in rejected:
+            with self.subTest(value=value[:8]):
+                self.assertFalse(environment_is_safe((("OMH_LISTENER_VALUE", value),)))
+        self.assertTrue(environment_is_safe((("OMH_NETWORK_PORT", "54321"),)))
+
     def test_ambient_credentials_are_stripped_and_requested_credentials_rejected(self) -> None:
         with patch.dict(os.environ, {"AWS_SECRET_ACCESS_KEY": "ambient-secret"}):
             outcome = self._run("environment-clean")
@@ -39,6 +58,11 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
             allowed = self._run("network-allowed", sandbox=True, environment=(("OMH_NETWORK_PORT", str(port)),), allow_network=True)
         outside = self._run("outside-write-denied", sandbox=True)
         self.assertEqual((network.status, allowed.status, outside.status, allowed.network_allowed), ("observed_success", "observed_success", "observed_success", True))
+
+    @unittest.skipUnless(sys.platform == "darwin", "sandbox-exec is macOS-only")
+    def test_macos_session_and_process_group_escape_syscalls_are_denied(self) -> None:
+        outcome = self._run("session-escape-denied", sandbox=True)
+        self.assertEqual(outcome.status, "observed_success")
 
     def test_dirty_worktree_is_not_observed_or_modified(self) -> None:
         dirty = ROOT / "task2-dirty-sentinel.txt"
@@ -96,11 +120,45 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
     def test_linux_command_is_strict_and_missing_backend_fails_closed(self) -> None:
         child = ChildContext(Path("/tmp/scratch"), Path("/tmp/scratch/home"), Path("/tmp/scratch/work"), Path("/tmp/scratch/tmp"), Path("/tmp/scratch/output"), Path("/tmp/scratch/request.json"), Path("/tmp/scratch/output/result.json"), "f" * 64)
         environment = {"HOME": "/tmp/scratch/home", "PATH": "/usr/bin:/bin", "PYTHONNOUSERSITE": "1"}
-        with patch("src.quality.cross_harness_adapter_sandbox.shutil.which", return_value="/usr/bin/bwrap"):
+        with patch("src.quality.cross_harness_adapter_sandbox._trusted_bwrap", return_value="/usr/bin/bwrap"):
             command = sandbox_command(("/opt/runtime/bin/tool", "run"), "bwrap", (Path("/opt/fixtures"),), child, False, environment)
         expected = ("/usr/bin/bwrap", "--unshare-user", "--unshare-ipc", "--unshare-pid", "--unshare-net", "--unshare-uts", "--disable-userns", "--new-session", "--die-with-parent", "--clearenv", "--tmpfs", "/", "--ro-bind", "/opt/fixtures", "/opt/fixtures", "--ro-bind", "/opt/runtime/bin", "/opt/runtime/bin", "--bind", "/tmp/scratch", "/tmp/scratch", "--chdir", "/tmp/scratch/work", "--setenv", "HOME", "/tmp/scratch/home", "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "PYTHONNOUSERSITE", "1", "--", "/opt/runtime/bin/tool", "run")
         self.assertEqual(command, expected)
         self.assertFalse(any("try" in part or part in {str(Path.home()), "--share-net"} for part in command))
+
+    def test_ambient_path_bwrap_is_never_executed(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            sentinel = root / "ambient-bwrap-ran"
+            fake = fake_bin / "bwrap"
+            fake.write_text(f"#!/bin/sh\ntouch {sentinel}\n", encoding="utf-8")
+            fake.chmod(0o700)
+            child_root = root / "child"
+            child_root.mkdir()
+            child = ChildContext(child_root, *(child_root / name for name in ("home", "work", "tmp", "output")), child_root / "request.json", child_root / "output/result.json", "f" * 64)
+            for directory in (child.home, child.work, child.temporary, child.output):
+                directory.mkdir()
+            with patch.dict(os.environ, {"PATH": str(fake_bin)}), patch(
+                "src.quality.cross_harness_adapter_sandbox._TRUSTED_BWRAP_CANDIDATES",
+                (root / "missing-bwrap",),
+            ):
+                ready, _digest = preflight("bwrap", (), child, False, {"PATH": str(fake_bin)})
+            self.assertFalse(ready)
+            self.assertFalse(sentinel.exists())
+
+    def test_version_cleanup_verification_failure_fails_closed(self) -> None:
+        with patch("src.quality.cross_harness_adapter_sandbox.terminate_process_group", return_value=False):
+            outcome = self._run("passing")
+        serialized = runner_receipt_payload(outcome)
+        self.assertEqual((outcome.status, outcome.reason_code, outcome.cleanup_verified, serialized["cleanup_verified"]), ("unavailable", "process_cleanup_failed", False, False))
+
+    def test_repetition_cleanup_verification_failure_blocks_success(self) -> None:
+        with patch("src.quality.cross_harness_adapter_sandbox.terminate_process_group", side_effect=(True, False)):
+            outcome = self._run("passing")
+        serialized = runner_receipt_payload(outcome)
+        self.assertEqual((outcome.status, outcome.reason_code, outcome.cleanup_verified, serialized["cleanup_verified"]), ("observed_failed", "process_cleanup_failed", False, False))
 
     def test_unsafe_read_roots_fail_before_launch(self) -> None:
         with TemporaryDirectory() as temporary:

@@ -6,17 +6,27 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
+import re
 import signal
+import stat
 import subprocess
 import sys
 from threading import Thread
+import time
 from typing import BinaryIO, Final
 
 from .cross_harness_benchmark_values import JsonValue
+from .cross_harness_adapter_io import read_regular_file
 
 
 MAX_OUTPUT_BYTES: Final = 1_048_576
+PROCESS_CLEANUP_SECONDS: Final = 1.0
+_TRUSTED_BWRAP_CANDIDATES: Final = tuple(Path(path) for path in ("/usr/bin/bwrap", "/usr/local/bin/bwrap"))
+_SECRET_VALUE_PATTERNS: Final = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
+    r"\bghp_[A-Za-z0-9]{20,}\b", r"\bAKIA[A-Z0-9]{16}\b",
+    r"\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b",
+    r"\bbearer\s+\S+", r"-----BEGIN [A-Z ]*PRIVATE KEY-----", r"\bsk-[A-Za-z0-9_-]{16,}\b",
+))
 _CREDENTIAL_KEY_MARKERS: Final = (
     "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL", "API_KEY",
     "AWS_", "AZURE_", "GOOGLE_", "OPENAI_", "ANTHROPIC_", "GITHUB_",
@@ -61,12 +71,6 @@ class ProcessObservation:
     overflow: bool
 
 
-@dataclass(frozen=True, slots=True)
-class InventoryEntry:
-    path: str
-    sha256: str
-
-
 def allocate_child(
     root: Path,
     request_payload: Mapping[str, JsonValue],
@@ -103,13 +107,17 @@ def observe_process(
 
     def consume_stream(position: int, stream: BinaryIO) -> None:
         digest, count, sample, overflow = hashlib.sha256(), 0, bytearray(), False
-        while chunk := stream.read(8192):
-            count += len(chunk)
-            overflow = overflow or count > MAX_OUTPUT_BYTES
-            digest.update(chunk)
-            if len(sample) < 512:
-                sample.extend(chunk[: 512 - len(sample)])
-        stream_results[position] = (digest.hexdigest(), count, bytes(sample), overflow)
+        try:
+            while chunk := stream.read(8192):
+                count += len(chunk)
+                overflow = overflow or count > MAX_OUTPUT_BYTES
+                digest.update(chunk)
+                if len(sample) < 512:
+                    sample.extend(chunk[: 512 - len(sample)])
+        except OSError:
+            overflow = True
+        finally:
+            stream_results[position] = (digest.hexdigest(), count, bytes(sample), overflow)
 
     threads = (
         Thread(target=consume_stream, args=(0, process.stdout), daemon=True),
@@ -121,18 +129,21 @@ def observe_process(
         exit_code = process.wait(timeout=timeout)
         status = "crash" if exit_code < 0 else "exit"
     except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
         status, exit_code = "timeout", None
-    process_group_terminated = process_group_absent(process.pid)
+    cleanup_deadline = time.monotonic() + PROCESS_CLEANUP_SECONDS
+    cleanup_ok = terminate_process_group(process.pid, process, cleanup_deadline)
     for thread in threads:
-        thread.join()
-    process.stdout.close()
-    process.stderr.close()
+        thread.join(max(0.0, cleanup_deadline - time.monotonic()))
+    streams_done = not any(thread.is_alive() for thread in threads)
+    cleanup_ok = cleanup_ok and streams_done
+    if streams_done:
+        process.stdout.close()
+        process.stderr.close()
     stdout, stderr = stream_results
-    assert stdout is not None and stderr is not None
+    stdout = stdout or (hashlib.sha256().hexdigest(), 0, b"", True)
+    stderr = stderr or (hashlib.sha256().hexdigest(), 0, b"", True)
     return ProcessObservation(
-        status, exit_code, process_group_terminated, stdout[0], stdout[1], stderr[0],
+        status, exit_code, cleanup_ok, stdout[0], stdout[1], stderr[0],
         stderr[1], stdout[2], stderr[2], stdout[3] or stderr[3],
     )
 
@@ -142,7 +153,26 @@ def process_group_absent(process_id: int) -> bool:
         os.killpg(process_id, 0)
     except ProcessLookupError:
         return True
+    except PermissionError:
+        return False
     return False
+
+
+def terminate_process_group(process_id: int, process: subprocess.Popen[bytes], deadline: float) -> bool:
+    try:
+        os.killpg(process_id, signal.SIGKILL)
+    except ProcessLookupError:
+        return process.poll() is not None
+    except PermissionError:
+        return False
+    if process.poll() is None:
+        try:
+            process.wait(timeout=max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            return False
+    while not process_group_absent(process_id) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return process_group_absent(process_id)
 
 
 def backend(selected: str) -> str:
@@ -164,7 +194,8 @@ def environment_is_safe(environment: Sequence[tuple[str, str]]) -> bool:
     return not any(
         not key.startswith("OMH_")
         or any(marker in key.upper() for marker in _CREDENTIAL_KEY_MARKERS)
-        or any(marker in value.casefold() for marker in ("sk-", "ignore previous", "private key", "bearer "))
+        or "ignore previous" in value.casefold()
+        or any(pattern.search(value) for pattern in _SECRET_VALUE_PATTERNS)
         for key, value in environment
     )
 
@@ -191,10 +222,13 @@ def preflight(
     allow_network: bool,
     environment: Mapping[str, str],
 ) -> tuple[bool, str]:
-    tool = "/usr/bin/sandbox-exec" if selected == "sandbox-exec" else shutil.which("bwrap")
-    if tool is None or not Path(tool).is_file():
+    tool = "/usr/bin/sandbox-exec" if selected == "sandbox-exec" else _trusted_bwrap()
+    if tool is None:
         return False, "unavailable"
-    tool_digest = hashlib.sha256(Path(tool).read_bytes()).hexdigest()
+    try:
+        tool_digest = hashlib.sha256(read_regular_file(Path(tool))[0]).hexdigest()
+    except OSError:
+        return False, "unavailable"
     try:
         completed = subprocess.run(
             sandbox_command(("/usr/bin/true",), selected, roots, child, allow_network, environment),
@@ -219,9 +253,10 @@ def sandbox_command(
         literals = " ".join(f'(literal {json.dumps(str(Path(item).resolve()))})' for item in (argv[0], "/usr/bin/true"))
         subpaths = " ".join(f'(subpath {json.dumps(str(root))})' for root in unique_roots((*roots, child.root)))
         network = "(allow network*)" if allow_network else ""
-        policy = f'(version 1)(deny default)(allow process-fork)(allow process-exec {literals})(allow sysctl-read)(allow file-read* (literal "/") {literals} {subpaths})(allow file-write* (subpath {json.dumps(str(child.root))})){network}'
+        policy = f'(version 1)(deny default)(deny syscall-unix (syscall-number 147 82))(allow process-fork)(allow process-exec {literals})(allow sysctl-read)(allow file-read* (literal "/") {literals} {subpaths})(allow file-write* (subpath {json.dumps(str(child.root))})){network}'
         return ("/usr/bin/sandbox-exec", "-p", policy, *argv)
-    tool = shutil.which("bwrap") or "bwrap"
+    tool = _trusted_bwrap()
+    assert tool is not None
     flags = ["--unshare-user", "--unshare-ipc", "--unshare-pid", "--unshare-uts", "--disable-userns", "--new-session", "--die-with-parent", "--clearenv"]
     if not allow_network:
         flags.insert(3, "--unshare-net")
@@ -231,13 +266,15 @@ def sandbox_command(
     return (tool, *flags, "--tmpfs", "/", *binds, "--bind", str(child.root), str(child.root), "--chdir", str(child.work), *env_flags, "--", *argv)
 
 
-def inventory(root: Path, excluded: set[str]) -> tuple[InventoryEntry, ...]:
-    entries: list[InventoryEntry] = []
-    for path in sorted(item for item in root.rglob("*") if item.is_file()):
-        relative = path.relative_to(root).as_posix()
-        if relative not in excluded:
-            entries.append(InventoryEntry(relative, hashlib.sha256(path.read_bytes()).hexdigest()))
-    return tuple(entries)
+def _trusted_bwrap() -> str | None:
+    for candidate in _TRUSTED_BWRAP_CANDIDATES:
+        try:
+            metadata = candidate.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        if stat.S_ISREG(metadata.st_mode) and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 
 def unique_roots(roots: Sequence[Path]) -> tuple[Path, ...]:

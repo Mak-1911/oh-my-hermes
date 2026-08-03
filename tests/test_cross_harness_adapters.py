@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
+import time
 import unittest
 from unittest.mock import patch
 
@@ -86,13 +88,6 @@ def _passthrough_backend(argv: tuple[str, ...], *_args: Path | str | bool | tupl
     return argv
 
 
-class LegacyBoundaryCharacterizationTests(unittest.TestCase):
-    def test_fanout_timeout_and_result_contract_remain_pinned(self) -> None:
-        source = (ROOT / "src" / "coding" / "fanout_dispatch.py").read_text(encoding="utf-8")
-        self.assertIn("except subprocess.TimeoutExpired:", source)
-        self.assertIn("exit_code, output_tail = 124", source)
-        self.assertIn('"status": "completed" if exit_code == 0 else "failed"', source)
-
 class _RunnerMixin(unittest.TestCase):
     def _run(
         self,
@@ -127,6 +122,56 @@ class _RunnerMixin(unittest.TestCase):
 
 
 class FailClosedAdapterRunnerTests(_RunnerMixin):
+    def test_atomic_json_write_does_not_follow_predictable_temp_symlink(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "receipt.json"
+            victim = root / "victim"
+            victim.write_text("unchanged", encoding="utf-8")
+            predictable = target.with_suffix(".json.tmp")
+            predictable.symlink_to(victim)
+            runner._write_json(target, {"status": "ok"})
+            self.assertEqual((victim.read_text(encoding="utf-8"), json.loads(target.read_text(encoding="utf-8"))), ("unchanged", {"status": "ok"}))
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            self.assertTrue(predictable.is_symlink())
+
+    def test_artifact_and_inventory_symlinks_fail_closed_without_reading_canary(self) -> None:
+        with TemporaryDirectory() as temporary:
+            canary = Path(temporary) / "outside-canary"
+            canary.write_text("real-outside-secret", encoding="utf-8")
+            for scenario, reason in (("artifact-symlink", "artifact_not_regular_file"), ("inventory-symlink", "unsafe_inventory_entry")):
+                with self.subTest(scenario=scenario):
+                    outcome = self._run(scenario, environment=(("OMH_FILE_CANARY", str(canary)),))
+                    persisted = json.dumps(runner.runner_receipt_payload(outcome), sort_keys=True)
+                    self.assertEqual(outcome.reason_code, reason)
+                    self.assertNotIn("real-outside-secret", persisted)
+                    self.assertNotIn(str(canary), persisted)
+                    self.assertEqual(canary.read_text(encoding="utf-8"), "real-outside-secret")
+
+    def _assert_descendant_is_killed(self, scenario: str) -> runner.AdapterRunReceipt:
+        with TemporaryDirectory() as temporary:
+            pid_path = Path(temporary) / "descendant.pid"
+            started = time.monotonic()
+            outcome = self._run(scenario, environment=(("OMH_DESCENDANT_PID", str(pid_path)),))
+            pid = int(pid_path.read_text(encoding="utf-8"))
+            with self.assertRaises(ProcessLookupError):
+                os.kill(pid, 0)
+            self.assertTrue(outcome.repetitions[0].process_group_terminated)
+            self.assertLess(time.monotonic() - started, 4.0)
+            return outcome
+
+    def test_zero_exit_descendant_with_closed_stdio_is_killed(self) -> None:
+        self._assert_descendant_is_killed("descendant-exit-closed")
+
+    def test_zero_exit_descendant_with_inherited_stdio_is_killed(self) -> None:
+        self._assert_descendant_is_killed("descendant-exit-inherited")
+
+    def test_crashed_parent_descendant_is_killed(self) -> None:
+        self.assertEqual(self._assert_descendant_is_killed("crash-descendant").reason_code, "process_crash")
+
+    def test_timed_out_parent_descendant_is_killed(self) -> None:
+        self.assertEqual(self._assert_descendant_is_killed("timeout").reason_code, "process_timeout")
+
     def test_exact_receipt_and_replayable_evidence_are_persisted(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)

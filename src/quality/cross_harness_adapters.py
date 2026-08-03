@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
-import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -28,16 +27,15 @@ from .cross_harness_adapter_model import (
     canonical_digest,
     parse_adapter_result,
 )
+from . import cross_harness_adapter_io as _adapter_io
 from .cross_harness_adapter_sandbox import (
     ChildContext as _ChildContext,
-    InventoryEntry,
     PopenFactory as _PopenFactory,
     ProcessObservation as _ProcessObservation,
     allocate_child as _allocate_child,
     backend as _backend,
     backend_available as _backend_available,
     environment_is_safe as _environment_is_safe,
-    inventory as _inventory,
     observe_process as _observe_process,
     preflight as _preflight,
     read_roots_are_safe as _read_roots_are_safe,
@@ -50,6 +48,7 @@ from .cross_harness_benchmark_values import JsonValue, json_map
 
 
 RECEIPT_SCHEMA: Final = "cross_harness_adapter_runner_receipt/v1"
+_write_json = _adapter_io.write_json
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +87,7 @@ class RepetitionReceipt:
     stderr_bytes: int
     artifact_hash: str | None
     inventory_digest: str
-    inventory: tuple[InventoryEntry, ...]
+    inventory: tuple[_adapter_io.InventoryEntry, ...]
     result: AdapterResult | None
 
 
@@ -148,6 +147,8 @@ def run_adapter(
             popen_factory,
         )
     version_text = (version.stdout_sample + version.stderr_sample).decode("utf-8", "replace")
+    if not version.process_group_terminated:
+        return _finish(_receipt("unavailable", "process_cleanup_failed", backend, backend_version, "passed", request_digest, spec, version_child.spawn_digest, False, ()), output)
     if version.status != "exit" or version.exit_code != 0 or request.executable_version not in version_text:
         return _finish(_receipt("unavailable", "executable_version_mismatch", backend, backend_version, "passed", request_digest, spec, version_child.spawn_digest, _roots_absent(allocated), ()), output)
     repetitions: list[RepetitionReceipt] = []
@@ -157,7 +158,7 @@ def run_adapter(
             allocated.append(child.root)
             repetitions.append(_run_once(request, spec, backend, roots, executable, child, index, request_digest, popen_factory))
     failed = next((item.reason_code for item in repetitions if item.reason_code != "none"), None)
-    receipt = _receipt("observed_failed" if failed else "observed_success", failed or "none", backend, backend_version, "passed", request_digest, spec, version_child.spawn_digest, _roots_absent(allocated), tuple(repetitions))
+    receipt = _receipt("observed_failed" if failed else "observed_success", failed or "none", backend, backend_version, "passed", request_digest, spec, version_child.spawn_digest, _roots_absent(allocated) and version.process_group_terminated and all(item.process_group_terminated for item in repetitions), tuple(repetitions))
     evidence = _evidence_bundle(request, request_digest, receipt, output)
     return _finish(receipt, output, evidence)
 
@@ -185,19 +186,30 @@ def _run_once(request: AdapterRequest, spec: ExecutionSpec, backend: str, roots:
     if observed.status == "exit" and observed.exit_code != 0:
         reason = "adapter_exit_nonzero"
     excluded = {child.request_path.relative_to(child.root).as_posix(), child.artifact_path.relative_to(child.root).as_posix()}
-    inventory = _inventory(child.root, excluded)
+    try:
+        inventory = _adapter_io.inventory(child.root, excluded)
+    except _adapter_io.UnsafeRegularFileError:
+        inventory, reason = (), "unsafe_inventory_entry"
+    if not observed.process_group_terminated:
+        reason = "process_cleanup_failed"
     result_digest = canonical_digest(adapter_result_payload(result)) if result else None
     inventory_payload: list[JsonValue] = [{"path": item.path, "sha256": item.sha256} for item in inventory]
     return RepetitionReceipt(index, child.spawn_digest, request_digest, result_digest, observed.status, observed.process_group_terminated, observed.exit_code, reason, observed.stdout_hash, observed.stdout_bytes, observed.stderr_hash, observed.stderr_bytes, result.artifact_hash if result else None, canonical_digest(inventory_payload), inventory, result)
 
 
 def _artifact_result(path: Path, request: AdapterRequest, request_digest: str, observed: _ProcessObservation, started_ns: int) -> tuple[AdapterResult | None, str]:
-    if not path.is_file():
+    try:
+        raw, metadata = _adapter_io.read_regular_file(path)
+    except FileNotFoundError:
         return None, "artifact_missing"
-    if path.stat().st_mtime_ns < started_ns:
+    except _adapter_io.UnsafeRegularFileError:
+        return None, "artifact_not_regular_file"
+    except OSError:
+        return None, "artifact_unreadable"
+    if metadata.st_mtime_ns < started_ns:
         return None, "stale_artifact"
     try:
-        result = parse_adapter_result(json_map(decode_benchmark_bytes(path.read_bytes())))
+        result = parse_adapter_result(json_map(decode_benchmark_bytes(raw)))
     except (AdapterContractError, BenchmarkJsonInputError) as error:
         return None, str(error)
     if result.request_digest != request_digest or (result.fixture_id, result.adapter_id, result.capability_id) != (request.fixture_id, request.adapter_id, request.capability_id):
@@ -259,14 +271,6 @@ def _finish(receipt: AdapterRunReceipt, output: OutputContract, evidence: Adapte
     if evidence is not None:
         _write_json(output.evidence_path, adapter_evidence_payload(evidence))
     return receipt
-
-
-def _write_json(path: Path, payload: Mapping[str, JsonValue]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
-    temporary.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-    temporary.chmod(0o600)
-    temporary.replace(path)
 
 
 def _receipt(status: str, reason: str, backend: str, version: str, preflight: str, request_digest: str, spec: ExecutionSpec, version_spawn_digest: str, cleanup_verified: bool, repetitions: tuple[RepetitionReceipt, ...]) -> AdapterRunReceipt:
