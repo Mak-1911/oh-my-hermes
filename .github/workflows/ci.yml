@@ -13,6 +13,12 @@ jobs:
         python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Full history so the whitespace gate below can resolve a merge base
+          # against the PR's base branch. A shallow clone has none, and
+          # `git diff --check` with no range compares the working tree to the
+          # index -- always empty after checkout, so it would always pass.
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
@@ -30,6 +36,13 @@ jobs:
         run: python -m compileall src
       - name: Generated workflow docs check
         run: python -m omh.cli docs workflows --check
+      - name: Generated role docs check
+        run: python -m omh.cli docs roles --check
+      - name: Generated capability families check
+        run: python -m omh.cli docs capability-families --check
+      - name: Whitespace and conflict-marker check
+        if: matrix.python-version == '3.11' && github.event_name == 'pull_request'
+        run: git diff --check "origin/${{ github.base_ref }}...HEAD"
       - name: Dry-run install smoke
         run: python -m omh.cli --omh-home /tmp/omh-smoke --hermes-home /tmp/hermes-smoke install --dry-run
       - name: Stable-channel dry-run smoke
