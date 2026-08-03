@@ -230,6 +230,43 @@ RESEARCH_DEPTH_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] =
     },
 }
 
+# Declared task-scale dial. Role says WHAT the unit does; scale says HOW MUCH
+# of it there is, and the two are independent -- a one-line fix and a forty-file
+# migration are both `implementation`, and routing them to the same model wastes
+# a frontier model on the first and starves the second.
+#
+# Same contract as the research-depth dial above and for the same reason: scale
+# is DECLARED by the unit, never inferred from the request text. Inferring
+# "large" from words like "refactor everything" would make model cost depend on
+# phrasing, which is exactly the unpredictability the depth dial was written to
+# avoid. `standard` has no entry here on purpose: it IS the role chain.
+#
+# Scale covers every role EXCEPT `research`, which already has `depth`. A unit
+# that declares both keeps depth for research and records scale as skipped.
+TASK_SCALES: Final[tuple[str, ...]] = ("small", "standard", "large")
+
+TASK_SCALE_CHAINS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]] = {
+    "codex": {
+        "small": (
+            {"model_id": "gpt-5", "reasoning_effort": "low"},
+        ),
+        "large": (
+            {"model_id": "gpt-5-codex", "reasoning_effort": "high"},
+            {"model_id": "gpt-5", "reasoning_effort": "high"},
+        ),
+    },
+    "claude-code": {
+        "small": (
+            {"model_id": "haiku", "reasoning_effort": ""},
+            {"model_id": "sonnet", "reasoning_effort": ""},
+        ),
+        "large": (
+            {"model_id": "opus", "reasoning_effort": "high"},
+            {"model_id": "sonnet", "reasoning_effort": "high"},
+        ),
+    },
+}
+
 # Model-family prefixes mirror the dynamic-workflow target classifier so both
 # surfaces name families the same way; bare Claude tier aliases fold into the
 # claude family because the claude CLI resolves them to concrete claude models.
@@ -276,6 +313,7 @@ def resolve_model_route(
     role: str = "",
     requested_domain: str = "",
     requested_depth: str = "",
+    requested_scale: str = "",
     chains: Mapping[str, Mapping[str, tuple[Mapping[str, str], ...]]] | None = None,
     local_catalog: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
@@ -361,6 +399,17 @@ def resolve_model_route(
     if depth:
         role_chain = _depth_selected_chain(
             depth, normalized_role, profile, role_chain, local_chains if catalog_kind == "local_inventory" else None, attempted
+        )
+    scale = str(requested_scale or "").strip().casefold()
+    if scale:
+        role_chain = _scale_selected_chain(
+            scale,
+            normalized_role,
+            profile,
+            role_chain,
+            local_chains if catalog_kind == "local_inventory" else None,
+            depth,
+            attempted,
         )
     domain = str(requested_domain or "").strip().casefold().replace("-", "_")
     if domain:
@@ -543,6 +592,7 @@ def model_route_for_unit(
         role=role,
         requested_domain=str(unit.get("domain", "") or "").strip(),
         requested_depth=str(unit.get("depth", "") or "").strip(),
+        requested_scale=str(unit.get("scale", "") or "").strip(),
         local_catalog=local_catalog,
     )
 
@@ -575,6 +625,88 @@ def route_provenance(route: Mapping[str, object] | object) -> tuple[str, str]:
 def _normalized_role(role: str) -> str:
     normalized = str(role or "").strip().casefold().replace("-", "_")
     return normalized if normalized in MODEL_ROLES else ""
+
+
+def _scale_selected_chain(
+    scale: str,
+    normalized_role: str,
+    profile: str,
+    role_chain: tuple[Mapping[str, str], ...],
+    local_chains: Mapping[str, object] | None,
+    depth: str,
+    attempted: list[dict[str, str]],
+) -> tuple[Mapping[str, str], ...]:
+    """Swap in the declared task-scale chain, recording the outcome.
+
+    Mirrors `_depth_selected_chain` deliberately: scale never infers, unknown
+    vocabulary keeps the chain untouched with a named skip, and `standard` is
+    the role chain by definition. The research role is excluded because it
+    already has `depth`; a unit declaring both keeps depth and is told so
+    rather than having one dial silently overwrite the other.
+    """
+    if normalized_role == "research":
+        attempted.append(
+            {
+                "stage": "task_scale",
+                "outcome": "skipped",
+                "reason": (
+                    f"scale `{scale}` recorded; the research role uses the depth dial"
+                    + (f" (`{depth}` declared)" if depth else "")
+                ),
+            }
+        )
+        return role_chain
+    if scale not in TASK_SCALES:
+        attempted.append(
+            {
+                "stage": "task_scale",
+                "outcome": "unknown_scale",
+                "reason": f"scale `{scale}` is not in ({', '.join(TASK_SCALES)}); role chain kept",
+            }
+        )
+        return role_chain
+    if scale == "standard":
+        attempted.append(
+            {"stage": "task_scale", "outcome": "standard", "reason": "standard is the role chain"}
+        )
+        return role_chain
+    if local_chains is not None:
+        scale_chain = local_chains.get(f"{normalized_role}:{scale}")
+        if isinstance(scale_chain, (list, tuple)) and scale_chain:
+            attempted.append(
+                {
+                    "stage": "task_scale",
+                    "outcome": "applied",
+                    "reason": f"declared `{scale}` task scale uses its locally-derived chain",
+                }
+            )
+            return tuple(entry for entry in scale_chain if isinstance(entry, Mapping))
+        attempted.append(
+            {
+                "stage": "task_scale",
+                "outcome": "no_scale_chain",
+                "reason": f"the local catalog derives no `{scale}` chain for `{normalized_role}`; role chain kept",
+            }
+        )
+        return role_chain
+    scale_chain = TASK_SCALE_CHAINS.get(profile, {}).get(scale, ())
+    if scale_chain:
+        attempted.append(
+            {
+                "stage": "task_scale",
+                "outcome": "applied",
+                "reason": f"declared `{scale}` task scale uses its declared chain",
+            }
+        )
+        return tuple(scale_chain)
+    attempted.append(
+        {
+            "stage": "task_scale",
+            "outcome": "no_scale_chain",
+            "reason": f"no `{scale}` scale chain is declared for `{profile}`; role chain kept",
+        }
+    )
+    return role_chain
 
 
 def _depth_selected_chain(

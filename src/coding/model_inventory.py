@@ -106,6 +106,18 @@ OMO_CATEGORY_ROLE_SOURCES: Final[dict[str, tuple[str, ...]]] = {
     "research:deep": ("deep", "ultrabrain"),
 }
 
+# Declared task scale, resolved from the SAME omo categories rather than from a
+# hardcoded tier table. A user who names their own models in omo gets scale
+# routing for them without omh ever deciding which model is "frontier" -- the
+# category they filed it under already says so. Applied to every role except
+# `research`, which has its own depth entries above.
+#
+# `standard` is absent on purpose: it is the role chain, exactly as for depth.
+OMO_CATEGORY_SCALE_SOURCES: Final[dict[str, tuple[str, ...]]] = {
+    "small": ("quick", "unspecified-low"),
+    "large": ("ultrabrain", "deep", "unspecified-high"),
+}
+
 _OMO_AGENT_CONFIG_RELATIVE: Final[str] = ".config/opencode/oh-my-openagent.json"
 _OPENCODE_CONFIG_RELATIVE: Final[str] = ".config/opencode/opencode.json"
 _OPENCODE_AUTH_RELATIVE: Final[str] = ".local/share/opencode/auth.json"
@@ -305,22 +317,22 @@ def inventory_model_catalog(inventory: Mapping[str, object]) -> dict[str, object
     chains: dict[str, tuple[dict[str, str], ...]] = {}
     if isinstance(category_chains, Mapping):
         for role, categories in OMO_CATEGORY_ROLE_SOURCES.items():
-            merged: list[dict[str, str]] = []
-            seen: set[tuple[str, str]] = set()
-            for category in categories:
-                chain = category_chains.get(category)
-                if not isinstance(chain, list):
-                    continue
-                for entry in chain:
-                    if not isinstance(entry, Mapping):
-                        continue
-                    key = (str(entry.get("model_id", "")), str(entry.get("reasoning_effort", "")))
-                    if key in seen or not key[0]:
-                        continue
-                    seen.add(key)
-                    merged.append({"model_id": key[0], "reasoning_effort": key[1]})
+            merged = _merged_category_chain(category_chains, categories)
             if merged:
                 chains[role] = tuple(merged)
+        # `{role}:{scale}` chains, keyed exactly like the `research:{depth}`
+        # entries the resolver already looks up, so the local path and the
+        # built-in path answer the same question the same way.
+        for role in OMO_CATEGORY_ROLE_SOURCES:
+            # `research` is excluded because the resolver skips the scale dial
+            # for it in favour of depth; deriving `research:small` would be a
+            # chain nothing can ever look up.
+            if ":" in role or role == "research":
+                continue
+            for scale, categories in OMO_CATEGORY_SCALE_SOURCES.items():
+                merged = _merged_category_chain(category_chains, categories)
+                if merged:
+                    chains[f"{role}:{scale}"] = tuple(merged)
     sources = inventory.get("sources", {})
     source_statuses = (
         {name: str(entry.get("status", "unknown")) for name, entry in sources.items() if isinstance(entry, Mapping)}
@@ -385,6 +397,33 @@ def catalog_fingerprint_note(
         "current_digest": current,
         "match": bool(frozen) and frozen == current,
     }
+
+
+def _merged_category_chain(
+    category_chains: Mapping[str, object],
+    categories: tuple[str, ...],
+) -> list[dict[str, str]]:
+    """Concatenate the named categories' chains, first occurrence winning.
+
+    Order is the caller's category order, which is the config's own
+    primary-then-fallback intent; duplicates across categories collapse so a
+    model named in two categories does not appear twice in one chain.
+    """
+    merged: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for category in categories:
+        chain = category_chains.get(category)
+        if not isinstance(chain, list):
+            continue
+        for entry in chain:
+            if not isinstance(entry, Mapping):
+                continue
+            key = (str(entry.get("model_id", "")), str(entry.get("reasoning_effort", "")))
+            if key in seen or not key[0]:
+                continue
+            seen.add(key)
+            merged.append({"model_id": key[0], "reasoning_effort": key[1]})
+    return merged
 
 
 def _aggregated_models(entries: list[tuple[str, str, str]]) -> list[dict[str, object]]:
