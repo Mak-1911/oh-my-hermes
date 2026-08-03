@@ -600,6 +600,27 @@ CHAT_CARD_COVERAGE_CASES: tuple[ChatCardCoverageCase, ...] = (
         "workspace_file_operator",
         "prepare_workspace_file_operator_card",
     ),
+    # Both of these rendered DOCTOR's card until they declared their own
+    # next_action: an operator-category skill with no policy falls through to
+    # `run_local_operator_check`, so "메모리 기능 꺼줘" routed correctly and then
+    # answered "I can check whether OMH is installed and connected correctly."
+    # These cases exist so the harness proves the reply is about the skill.
+    ChatCardCoverageCase(
+        "capability-toggle",
+        "Capability toggle",
+        "메모리 기능 꺼줘",
+        "capability-toggle",
+        "capability_toggle",
+        "apply_capability_toggle",
+    ),
+    ChatCardCoverageCase(
+        "running-work-board",
+        "Running work board",
+        "지금 뭐 돌고 있어",
+        "running-work-board",
+        "running_work_board",
+        "show_running_work_board",
+    ),
 )
 
 

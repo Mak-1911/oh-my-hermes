@@ -363,6 +363,8 @@ VISIBLE_ACTIONS = (
     "prepare_deploy_monitor_plan",
     "prepare_review_or_followup_handoff",
     "run_local_operator_check",
+    "apply_capability_toggle",
+    "show_running_work_board",
     "run_setup_guide",
     "prepare_operating_workflow",
     "prepare_memory_review",
@@ -538,6 +540,14 @@ _DIRECT_WORKFLOW_SKILLS = {
     "doctor",
     "skill",
     "wiki",
+    # Neither needs a plan first, and wrapping them in one was actively wrong:
+    # a capability toggle is a reversible local policy write that names the
+    # command undoing it, and the running-work board only reads local files.
+    # Without an entry here a dispatch is wrapped into "I routed this to
+    # `omh-plan` because it needs a safe plan first", so asking to turn memory
+    # off got a planning card instead of the toggle.
+    "capability-toggle",
+    "running-work-board",
     *_RETAINED_DELEGATION_SKILLS,
 } - (_CLARIFICATION_SKILLS | {"cancel"})
 _CODING_OWNER_NEXT_ACTIONS = frozenset(
@@ -861,6 +871,8 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "prepare_deploy_monitor_plan": ("prepare_deploy_monitor_plan", "Prepare deploy plan"),
     "prepare_review_or_followup_handoff": ("prepare_review_or_followup_handoff", "Prepare review"),
     "run_local_operator_check": ("run_local_operator_check", "Show local check"),
+    "apply_capability_toggle": ("apply_capability_toggle", "Show capability policy"),
+    "show_running_work_board": ("show_running_work_board", "Show running work"),
     "run_setup_guide": ("run_setup_guide", "Start setup guide"),
     "prepare_operating_workflow": ("prepare_operating_workflow", "Prepare workflow"),
     "prepare_memory_review": ("prepare_memory_review", "Review memory"),
@@ -3046,6 +3058,56 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS.update(
 
 _WORKFLOW_OPERATIONS_CHAT_CARDS.update(
     {
+        "capability-toggle": {
+            "kind": "capability_toggle",
+            "headline": "I can turn one OMH capability family on or off.",
+            "body": (
+                "I will name the family, list the workflows it withholds and the core skills it always retains, "
+                "and give you the command that reverses it. Memory is the one family with runtime behavior behind "
+                "it, so disabling it stops capture and recall rather than only hiding them."
+            ),
+            "phase": "capability_toggle_prepared",
+            "next_action": "apply_capability_toggle",
+            "artifact_schema": "omh_capability_policy/v1",
+            "evidence_not_observed": [
+                "policy write",
+                "skill file removal",
+                "Hermes reconfiguration",
+                "memory capture or recall change taking effect",
+            ],
+            "claim_boundary_suffix": (
+                "It records which family surfaces this install offers; it is not Hermes reconfiguration, "
+                "uninstall, execution, review, CI, or merge evidence."
+            ),
+            "actions": [
+                {"id": "apply_capability_toggle", "label": "Show capability policy", "style": "primary"},
+            ],
+        },
+        "running-work-board": {
+            "kind": "running_work_board",
+            "headline": "I can show what coding work is running right now.",
+            "body": (
+                "I will show one row per unit: which runtime, which model, status, elapsed time, and tokens. "
+                "Runtime and model are exact because omh chose them; anything nobody observed prints as the "
+                "literal unknown rather than an estimate."
+            ),
+            "phase": "running_work_board_prepared",
+            "next_action": "show_running_work_board",
+            "artifact_schema": "omh_coding_status_board/v1",
+            "evidence_not_observed": [
+                "unit liveness",
+                "token counts a runtime never reported",
+                "unit completion",
+                "review, CI, or merge outcome",
+            ],
+            "claim_boundary_suffix": (
+                "Presence is not liveness, and the board is not result, verification, review, CI, "
+                "merge-readiness, or merge evidence."
+            ),
+            "actions": [
+                {"id": "show_running_work_board", "label": "Show running work", "style": "primary"},
+            ],
+        },
         "ultraperf": {
             "kind": "ultraperf_loop",
             "headline": "I can find where this is actually slow, leaking, or expensive - then fix one measured hot path at a time.",

@@ -772,6 +772,34 @@ _SKILL_POLICIES = {
 }
 _SKILL_POLICIES.update(
     {
+        # Both of these are `category="operator"`, and without an entry here an
+        # operator skill falls through to `run_local_operator_check` -- the
+        # doctor lane. Routing was correct while the REPLY was doctor's: asking
+        # to turn memory off answered "I can check whether OMH is installed and
+        # connected correctly." The coverage gates passed because they check
+        # that a skill is registered, not that its reply is about that skill.
+        "capability-toggle": RecommendationPolicy(
+            next_action="apply_capability_toggle",
+            evidence_boundary=(
+                "A capability policy change records which OMH family surfaces this install offers; it is not "
+                "Hermes reconfiguration, uninstall, execution, review, CI, or merge evidence."
+            ),
+            wrapper_guidance=(
+                "Name the capability family and the requested state, list the workflows it withholds and the core "
+                "skills it always retains, and state the command that reverses it. Never guess the family."
+            ),
+        ),
+        "running-work-board": RecommendationPolicy(
+            next_action="show_running_work_board",
+            evidence_boundary=(
+                "A running-work board is observed activity metadata; presence is not liveness, and it is not "
+                "result, verification, review, CI, merge-readiness, or merge evidence."
+            ),
+            wrapper_guidance=(
+                "Show one row per unit with its runtime and model, and print the literal unknown wherever nothing "
+                "was observed. Never estimate a token count or claim an unfinished unit is still alive."
+            ),
+        ),
         "github-event-ops": RecommendationPolicy(
             next_action="prepare_github_event_ops_card",
             evidence_boundary="A GitHub event ops card is not webhook delivery, API mutation, label application, review completion, CI rerun, or fix execution evidence.",
