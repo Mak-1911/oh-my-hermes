@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-import shutil
-import tempfile
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -272,24 +269,14 @@ omh = "src"
         )
 
     def test_scanner_skips_python_symlink_files(self) -> None:
-        # Symlink creation requires SeCreateSymbolicLinkPrivilege on Windows
-        # (absent for non-elevated processes), so skip there.
-        try:
-            tmp_dir = tempfile.mkdtemp()
-            probe = os.path.join(tmp_dir, "probe_target.py")
-            open(probe, "w").close()
-            os.symlink(probe, os.path.join(tmp_dir, "probe_link.py"))
-            os.remove(os.path.join(tmp_dir, "probe_link.py"))
-        except (OSError, NotImplementedError):
-            self.skipTest("symlink creation is not permitted on this platform")
-        finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-
         with TemporaryDirectory() as tmp, TemporaryDirectory() as outside_tmp:
             repo = Path(tmp)
             outside = Path(outside_tmp) / "outside.py"
             outside.write_text("def outside_symbol():\n    return True\n", encoding="utf-8")
-            (repo / "linked.py").symlink_to(outside)
+            try:
+                (repo / "linked.py").symlink_to(outside)
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"symlink creation unavailable: {exc}")
             _write(repo / "inside.py", "def inside_symbol():\n    return True\n")
 
             from omh.codegraph import build_codegraph
