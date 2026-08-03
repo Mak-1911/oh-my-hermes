@@ -53,6 +53,16 @@ CODING_STATUS_BOARD_CLAIM_BOUNDARY: Final[str] = (
     "CI, merge-readiness, or merge evidence."
 )
 
+# The messenger line. The full boundary above is 308 characters against a
+# two-row board of roughly 275 -- 53% of what a person sees on a phone would be
+# boilerplate they scroll past to reach two lines of data, which is exactly the
+# saturation a chat surface has to avoid. The full text stays in the payload and
+# in `--json`, where an auditor reads it; the short form carries the two claims
+# a reader of the board actually needs.
+CODING_STATUS_BOARD_SHORT_BOUNDARY: Final[str] = (
+    "Observed activity only; unknown is never estimated."
+)
+
 # Closed status vocabulary. Anything else an artifact carries collapses to
 # `prepared_not_observed`, which is the honest reading of "we wrote it down but
 # never watched it run".
@@ -155,9 +165,20 @@ def render_status_board_text(payload: dict[str, Any], *, locale: str = "") -> st
 
 
 def status_board_messenger_body(payload: dict[str, Any], *, render_profile: str = _LIMITED_MARKDOWN) -> str:
-    """Messenger-safe body. `rich_markdown` keeps alignment; `limited_markdown` is flat bullets."""
+    """Messenger-safe body. `rich_markdown` keeps alignment; `limited_markdown` is flat bullets.
+
+    The boundary is the SHORT form and sits OUTSIDE the fence. Inside it, a
+    paragraph of prose is monospace-wrapped at the table's width, which reads as
+    broken rendering rather than as a caveat; and at full length it was more of
+    the message than the data was.
+    """
     if render_profile == _RICH_MARKDOWN:
-        return "```\n" + render_status_board_text(payload) + "\n```"
+        return (
+            "```\n"
+            + _aligned_rows_only(payload)
+            + "\n```\n"
+            + CODING_STATUS_BOARD_SHORT_BOUNDARY
+        )
     units = _payload_units(payload)
     lines = [_header_line(payload, korean=False)]
     if not units:
@@ -167,8 +188,17 @@ def status_board_messenger_body(payload: dict[str, Any], *, render_profile: str 
     truncation = _truncation_line(payload, korean=False)
     if truncation:
         lines.append(truncation)
-    lines.append(str(payload.get("claim_boundary", "")))
+    lines.append(CODING_STATUS_BOARD_SHORT_BOUNDARY)
     return "\n".join(line for line in lines if line)
+
+
+def _aligned_rows_only(payload: dict[str, Any]) -> str:
+    """The aligned table without the trailing boundary paragraph."""
+    boundary = str(payload.get("claim_boundary", "") or "")
+    text = render_status_board_text(payload)
+    if boundary and text.endswith(boundary):
+        text = text[: -len(boundary)]
+    return text.rstrip("\n")
 
 
 def model_label_for(model: str, reasoning_effort: str) -> str:
@@ -470,8 +500,10 @@ def _bullet_line(unit: dict[str, Any]) -> str:
     tokens_phrase = "tokens unknown" if tokens_text == UNKNOWN else f"{tokens_text} tokens"
     parts = [
         str(unit.get("label", "")),
-        str(unit.get("runtime", UNKNOWN)),
-        f"({unit.get('model_label', _MODEL_DEFAULT_LABEL)})",
+        # Runtime and model are ONE field visually: "codex (gpt-5.6-sol xhigh)".
+        # Separating them with a dash as well produced "codex — (gpt-5.6-sol
+        # xhigh)", a doubled separator around a parenthetical.
+        f"{unit.get('runtime', UNKNOWN)} ({unit.get('model_label', _MODEL_DEFAULT_LABEL)})",
         str(unit.get("status", "")),
         elapsed_phrase,
         tokens_phrase,
