@@ -192,6 +192,34 @@ git diff --check
 For direction, docs, generated skill, wrapper contract, lifecycle, or runtime
 artifact changes, add or update tests that lock the public contract.
 
+## Repository Maintenance Procedures
+
+Two maintainer sweeps are written down as executor-neutral procedures. Any
+coding agent runs them the same way — Codex, Claude Code, a Hermes handoff, or
+a generic executor profile. Both are manual and default to a dry run; neither
+runs in CI.
+
+| Procedure | File | What it does |
+| --- | --- | --- |
+| Triage sweep | `docs/TRIAGE-SWEEP.md` | Labels issues and PRs that have no `area/` label, deriving a PR's areas from its changed files against `.github/labels.yml` |
+| Review sweep | `docs/REVIEW-SWEEP.md` | Reviews PRs carrying no review at their current head commit, against `REVIEW.md` |
+
+When asked to triage, label, or review the backlog, read the matching file and
+follow it rather than improvising. Each states its own allowlist, dry-run
+default, and boundaries.
+
+Supporting contracts:
+
+- `REVIEW.md` — what counts as a blocking finding in this repository. Nothing
+  loads it automatically; a reviewer is expected to read it.
+- `.github/labels.yml` — the label manifest and the path globs that map a
+  changed file to an `area/` label. It is the entire allowlist; never apply or
+  create a label that is not in it.
+
+`.claude/skills/triage-sweep/` and `.claude/skills/review-sweep/` exist only so
+Claude Code can reach these as slash commands. They hold no rules of their own
+and defer to the two files above, which stay the single source of truth.
+
 ## Git And Commits
 
 Use executor-appropriate branch names. `codex/` is fine for Codex-authored work,
