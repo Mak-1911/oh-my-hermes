@@ -61,6 +61,34 @@ observed start without an observed end rather than claiming the unit is alive.
 omo-runtime lane (pi / senpi / opencode) has no structured token surface, so
 its token columns stay unknown by design rather than being filled with a guess.
 
+## Why the token number is a sum, and what that means
+
+Neither CLI reports a total. Verified by capturing real output:
+
+```
+claude  usage: {input_tokens: 2, cache_creation_input_tokens: 14441,
+                cache_read_input_tokens: 15273, output_tokens: 4}
+codex   usage: {input_tokens: 27305, cached_input_tokens: 6912,
+                cache_write_input_tokens: 0, output_tokens: 5,
+                reasoning_output_tokens: 0}
+```
+
+Two things follow. Reporting `input_tokens` alone would have shown **2** for a
+claude run that consumed roughly **29,700** input tokens. And reading only
+`total_tokens` — which neither CLI emits — would have left the column `unknown`
+on every real run.
+
+So the board shows `tokens_billable`: the sum of the components the CLI itself
+printed, carrying `tokens_billable_source: "summed_reported_components"` in the
+record. Summing numbers a provider stated is aggregation. It is not the
+estimation this system refuses to do, and a provider-reported `total_tokens`
+still wins when one exists.
+
+The two CLIs also name the same categories differently
+(`cache_read_input_tokens` vs `cached_input_tokens`,
+`cache_creation_input_tokens` vs `cache_write_input_tokens`), so the parser
+normalizes both vocabularies onto one set of keys.
+
 ## Where the data comes from
 
 | Source | Provides |

@@ -406,8 +406,13 @@ def _current_catalog_digest(units: Iterable[Mapping[str, Any]]) -> str:
 # unit, and would be noise on every row of the summary.
 _TELEMETRY_RESULT_KEYS: tuple[str, ...] = (
     "tokens_total",
+    "tokens_billable",
+    "tokens_billable_source",
     "input_tokens",
     "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "reasoning_tokens",
     "session_ref",
 )
 

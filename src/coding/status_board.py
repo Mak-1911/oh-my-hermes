@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Mapping
 
 from ..local_store import read_json_object_result, utc_now
 from ..paths import OmhPaths
@@ -293,7 +293,7 @@ def _dispatch_summary_units(paths: OmhPaths) -> list[dict[str, Any]]:
                     reasoning_effort=str(entry.get("reasoning_effort", "") or ""),
                     status=normalize_status(entry.get("status")),
                     elapsed_seconds=_finished_seconds(entry.get("duration_seconds")),
-                    tokens_total=_observed_tokens(entry.get("tokens_total")),
+                    tokens_total=_reported_tokens(entry),
                     session_ref=str(entry.get("session_ref", "") or ""),
                     summary=str(entry.get("reason", "") or ""),
                 )
@@ -399,6 +399,23 @@ def _observed_tokens(value: Any) -> Any:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return UNKNOWN
     return value
+
+
+def _reported_tokens(entry: Mapping[str, Any]) -> Any:
+    """Prefer a provider-stated total, else the sum of stated components.
+
+    Neither codex nor claude reports a `total_tokens`, verified against real
+    captured output, so reading only `tokens_total` left this column `unknown`
+    on every actual run -- the exact defect the board exists to remove.
+    `tokens_billable` is the sum of components the CLI itself printed
+    (input, output, cache read, cache write, reasoning); it is aggregation of
+    stated numbers, never an estimate, and it carries its own
+    `tokens_billable_source` label in the record for anyone auditing it.
+    """
+    total = _observed_tokens(entry.get("tokens_total"))
+    if total != UNKNOWN:
+        return total
+    return _observed_tokens(entry.get("tokens_billable"))
 
 
 def _elapsed_since(started_at: str, observed_at: str) -> Any:

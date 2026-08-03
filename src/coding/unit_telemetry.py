@@ -68,8 +68,13 @@ UNIT_TELEMETRY_SOURCES: Final[tuple[str, ...]] = ("codex_json", "claude_json", "
 # appears only when the stream actually reported it.
 UNIT_TELEMETRY_VALUE_KEYS: Final[tuple[str, ...]] = (
     "tokens_total",
+    "tokens_billable",
+    "tokens_billable_source",
     "input_tokens",
     "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "reasoning_tokens",
     "session_ref",
 )
 
@@ -99,12 +104,42 @@ _STRUCTURED_SOURCE_BY_OWNER: Final[dict[str, str]] = {
 # this repo; it is supported as documented.
 _TOKEN_CONTAINER_KEYS: Final[tuple[str, ...]] = ("total_token_usage", "token_usage", "usage")
 
-# (payload key, key inside the token container). Claude reports no total, so
-# `tokens_total` is absent for that owner rather than derived from the parts.
-_TOKEN_FIELDS: Final[tuple[tuple[str, str], ...]] = (
-    ("tokens_total", "total_tokens"),
-    ("input_tokens", "input_tokens"),
-    ("output_tokens", "output_tokens"),
+# (payload key, keys inside the token container, first match wins).
+#
+# The cache rows are here because REAL captured output proved that dropping
+# them is not an omission but a misreport. `claude -p ... --output-format json`
+# returned:
+#     "usage": {"input_tokens": 2, "cache_creation_input_tokens": 14441,
+#               "cache_read_input_tokens": 15273, "output_tokens": 4}
+# Reporting `input_tokens: 2` for a call that consumed roughly 29,700 input
+# tokens is wrong by four orders of magnitude. `codex exec --json` reported the
+# same categories under different names (`cached_input_tokens`,
+# `cache_write_input_tokens`) plus `reasoning_output_tokens`, so the two
+# vocabularies are normalized onto one set of payload keys here.
+#
+# Neither CLI reports a total: codex's `turn.completed.usage` has no
+# `total_tokens` and claude's `usage` has none either. The row stays for a
+# provider that does report one.
+_TOKEN_FIELDS: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
+    ("tokens_total", ("total_tokens",)),
+    ("input_tokens", ("input_tokens",)),
+    ("output_tokens", ("output_tokens",)),
+    ("cache_read_tokens", ("cache_read_input_tokens", "cached_input_tokens")),
+    ("cache_write_tokens", ("cache_creation_input_tokens", "cache_write_input_tokens")),
+    ("reasoning_tokens", ("reasoning_output_tokens",)),
+)
+
+# Components of everything a run actually consumed. Summed into
+# `tokens_billable` ONLY when the stream reported at least one of them, and
+# always labelled `tokens_billable_source: "summed_reported_components"` so it
+# can never be read as a total the provider stated. Summing values the CLI
+# printed is aggregation; it is not the estimation this module refuses to do.
+_BILLABLE_COMPONENT_KEYS: Final[tuple[str, ...]] = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "reasoning_tokens",
 )
 
 # Session/thread identifier keys per source, in priority order.
@@ -179,9 +214,13 @@ def _observed_values(objects: list[dict[str, Any]], source: str) -> dict[str, ob
     for item in objects:
         usage = _token_usage(item)
         if usage:
-            for payload_key, _source_key in _TOKEN_FIELDS:
+            for payload_key, _source_keys in _TOKEN_FIELDS:
                 observed.pop(payload_key, None)
+            observed.pop("tokens_billable", None)
+            observed.pop("tokens_billable_source", None)
             observed.update(usage)
+            if "tokens_billable" in usage:
+                observed["tokens_billable_source"] = "summed_reported_components"
         if "session_ref" not in observed:
             session_ref = _session_ref(item, session_keys)
             if session_ref:
@@ -258,10 +297,15 @@ def _collect_token_containers(value: Any, containers: dict[str, dict[str, int]],
 
 def _token_fields(usage: Mapping[str, Any]) -> dict[str, int]:
     fields: dict[str, int] = {}
-    for payload_key, source_key in _TOKEN_FIELDS:
-        count = _token_count(usage.get(source_key))
-        if count is not None:
-            fields[payload_key] = count
+    for payload_key, source_keys in _TOKEN_FIELDS:
+        for source_key in source_keys:
+            count = _token_count(usage.get(source_key))
+            if count is not None:
+                fields[payload_key] = count
+                break
+    billable = [fields[key] for key in _BILLABLE_COMPONENT_KEYS if key in fields]
+    if billable:
+        fields["tokens_billable"] = sum(billable)
     return fields
 
 
