@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import secrets
 import stat
+import sys
 
 from .cross_harness_benchmark_values import JsonValue
 
@@ -28,12 +29,33 @@ _CLOSE_ON_EXEC = getattr(os, "O_CLOEXEC", None)
 _DIRECTORY_FLAGS = os.O_RDONLY | (_CLOSE_ON_EXEC or 0) | (_DIRECTORY_ONLY or 0) | (_NO_FOLLOW or 0)
 
 
+def _normalize_platform_alias(path: Path) -> Path:
+    absolute = path.absolute()
+    if sys.platform != "darwin" or absolute.parts[:2] != ("/", "var"):
+        return absolute
+    try:
+        alias = Path("/var").lstat()
+        private = Path("/private").stat(follow_symlinks=False)
+        target = Path("/private/var").stat(follow_symlinks=False)
+        link_target = os.readlink("/var")
+    except OSError as error:
+        raise UnsafeRegularFileError from error
+    trusted = (
+        stat.S_ISLNK(alias.st_mode) and alias.st_uid == 0 and not alias.st_mode & 0o022
+        and link_target == "private/var"
+        and all(stat.S_ISDIR(item.st_mode) and item.st_uid == 0 and not item.st_mode & 0o022 for item in (private, target))
+    )
+    if not trusted:
+        raise UnsafeRegularFileError("untrusted platform alias")
+    return Path("/private/var", *absolute.parts[2:])
+
+
 def _open_directory(path: Path, *, create: bool) -> int:
     if _DIRECTORY_ONLY is None or _NO_FOLLOW is None or _CLOSE_ON_EXEC is None:
         raise UnsafeRegularFileError("safe directory traversal is unsupported")
     directory = os.open("/", _DIRECTORY_FLAGS)
     try:
-        for part in path.absolute().parts[1:]:
+        for part in _normalize_platform_alias(path).parts[1:]:
             try:
                 child = os.open(part, _DIRECTORY_FLAGS, dir_fd=directory)
             except FileNotFoundError:

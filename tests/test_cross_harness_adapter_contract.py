@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -29,6 +31,14 @@ ROOT = Path(__file__).parents[1]
 
 
 class ExistingBenchmarkCharacterizationTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "darwin", "macOS system alias only")
+    def test_adapter_io_accepts_trusted_macos_var_alias(self) -> None:
+        with TemporaryDirectory() as temporary:
+            target = Path(temporary) / "receipt.json"
+            self.assertEqual(target.parts[1], "var")
+            adapter_io.write_json(target, {"status": "ok"})
+            self.assertTrue(target.is_file())
+
     def test_adapter_io_imports_without_required_flags_and_fails_closed_on_use(self) -> None:
         self.addCleanup(importlib.reload, adapter_io)
         for flag in ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC"):
