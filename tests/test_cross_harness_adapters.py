@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import json
 from pathlib import Path
 import sys
@@ -12,11 +11,12 @@ from src.quality import cross_harness_adapters as runner
 from src.quality.cross_harness_adapter_evidence import (
     CommandEvidence,
     SourceEvidence,
+    adapter_request_payload,
     parse_adapter_evidence,
 )
+from src.quality.cross_harness_benchmark_values import JsonValue
 from src.quality.cross_harness_adapter_model import (
     AdapterRequest,
-    JsonValue,
     canonical_digest,
     parse_adapter_request,
 )
@@ -62,28 +62,23 @@ def _request(argv: tuple[str, ...], **changes: JsonValue) -> AdapterRequest:
     return parse_adapter_request(raw)
 
 
-def _spec(root: Path, scenario: str, **changes: JsonValue) -> tuple[AdapterRequest, ExecutionSpec]:
+def _spec(
+    root: Path,
+    scenario: str,
+    *,
+    backend: str = "sandbox-exec",
+    environment: tuple[tuple[str, str], ...] = (),
+) -> tuple[AdapterRequest, ExecutionSpec]:
     argv = (str(Path(sys.executable).resolve()), str(FAKE.resolve()), scenario)
     request = _request(argv)
     spec = ExecutionSpec(
         argv=argv,
         read_roots=(FIXTURES,),
         scratch_parent=root,
-        backend="sandbox-exec",
+        backend=backend,
+        environment=environment,
         version_argv=(argv[0], argv[1], "--version"),
     )
-    if changes:
-        values = {
-            "argv": spec.argv,
-            "read_roots": spec.read_roots,
-            "scratch_parent": spec.scratch_parent,
-            "backend": spec.backend,
-            "allow_network": spec.allow_network,
-            "environment": spec.environment,
-            "version_argv": spec.version_argv,
-        }
-        values.update(changes)
-        spec = ExecutionSpec(**values)
     return request, spec
 
 
@@ -98,8 +93,17 @@ class LegacyBoundaryCharacterizationTests(unittest.TestCase):
         self.assertIn("exit_code, output_tail = 124", source)
         self.assertIn('"status": "completed" if exit_code == 0 else "failed"', source)
 
-class _RunnerMixin:
-    def _run(self, scenario: str, *, repetition: int = 1, sandbox: bool = False, environment: tuple[tuple[str, str], ...] = (), read_roots: tuple[Path, ...] = (), allow_network: bool = False):
+class _RunnerMixin(unittest.TestCase):
+    def _run(
+        self,
+        scenario: str,
+        *,
+        repetition: int = 1,
+        sandbox: bool = False,
+        environment: tuple[tuple[str, str], ...] = (),
+        read_roots: tuple[Path, ...] = (),
+        allow_network: bool = False,
+    ) -> runner.AdapterRunReceipt:
         temporary = TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -108,24 +112,8 @@ class _RunnerMixin:
         request, spec = _spec(allocator, scenario)
         spec = ExecutionSpec(spec.argv, (*spec.read_roots, *read_roots), spec.scratch_parent, spec.backend, allow_network, environment, spec.version_argv)
         if repetition != 1:
-            raw = deepcopy(json.loads(json.dumps({
-                "schema_version": request.schema_version,
-                "protocol_version": request.protocol_version,
-                "corpus_digest": request.corpus_digest,
-                "fixture_binding_digest": request.fixture_binding_digest,
-                "fixture_id": request.fixture_id,
-                "adapter_id": request.adapter_id,
-                "capability_id": request.capability_id,
-                "profile": request.profile.value,
-                "executable": request.executable,
-                "executable_version": request.executable_version,
-                "model": request.model,
-                "effort": request.effort.value,
-                "capabilities": list(request.capabilities),
-                "argv_digest": request.argv_digest,
-                "repetition": repetition,
-                "timeout_seconds": request.timeout_seconds,
-            })))
+            raw = adapter_request_payload(request)
+            raw["repetition"] = repetition
             request = parse_adapter_request(raw)
         if sandbox:
             outcome = run_adapter(request, spec, _output(root))
@@ -138,7 +126,7 @@ class _RunnerMixin:
         return outcome
 
 
-class FailClosedAdapterRunnerTests(_RunnerMixin, unittest.TestCase):
+class FailClosedAdapterRunnerTests(_RunnerMixin):
     def test_exact_receipt_and_replayable_evidence_are_persisted(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)

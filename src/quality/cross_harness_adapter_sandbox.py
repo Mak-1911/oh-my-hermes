@@ -17,7 +17,7 @@ from .cross_harness_benchmark_values import JsonValue
 
 
 MAX_OUTPUT_BYTES: Final = 1_048_576
-_CREDENTIAL_KEY: Final = (
+_CREDENTIAL_KEY_MARKERS: Final = (
     "TOKEN", "SECRET", "PASSWORD", "AUTH", "CREDENTIAL", "API_KEY",
     "AWS_", "AZURE_", "GOOGLE_", "OPENAI_", "ANTHROPIC_", "GITHUB_",
     "CODEX_", "CLAUDE_", "HERMES_",
@@ -98,10 +98,10 @@ def observe_process(
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True,
         start_new_session=True,
     )
-    outputs: list[tuple[str, int, bytes, bool] | None] = [None, None]
+    stream_results: list[tuple[str, int, bytes, bool] | None] = [None, None]
     assert process.stdout is not None and process.stderr is not None
 
-    def consume(position: int, stream: BinaryIO) -> None:
+    def consume_stream(position: int, stream: BinaryIO) -> None:
         digest, count, sample, overflow = hashlib.sha256(), 0, bytearray(), False
         while chunk := stream.read(8192):
             count += len(chunk)
@@ -109,11 +109,11 @@ def observe_process(
             digest.update(chunk)
             if len(sample) < 512:
                 sample.extend(chunk[: 512 - len(sample)])
-        outputs[position] = (digest.hexdigest(), count, bytes(sample), overflow)
+        stream_results[position] = (digest.hexdigest(), count, bytes(sample), overflow)
 
     threads = (
-        Thread(target=consume, args=(0, process.stdout), daemon=True),
-        Thread(target=consume, args=(1, process.stderr), daemon=True),
+        Thread(target=consume_stream, args=(0, process.stdout), daemon=True),
+        Thread(target=consume_stream, args=(1, process.stderr), daemon=True),
     )
     for thread in threads:
         thread.start()
@@ -124,15 +124,15 @@ def observe_process(
         os.killpg(process.pid, signal.SIGKILL)
         process.wait()
         status, exit_code = "timeout", None
-    terminated = process_group_absent(process.pid)
+    process_group_terminated = process_group_absent(process.pid)
     for thread in threads:
         thread.join()
     process.stdout.close()
     process.stderr.close()
-    stdout, stderr = outputs
+    stdout, stderr = stream_results
     assert stdout is not None and stderr is not None
     return ProcessObservation(
-        status, exit_code, terminated, stdout[0], stdout[1], stderr[0],
+        status, exit_code, process_group_terminated, stdout[0], stdout[1], stderr[0],
         stderr[1], stdout[2], stderr[2], stdout[3] or stderr[3],
     )
 
@@ -154,7 +154,7 @@ def backend(selected: str) -> str:
 
 
 def backend_available(selected: str) -> bool:
-    return selected in {"sandbox-exec", "bwrap"} and (
+    return (
         (selected == "sandbox-exec" and sys.platform == "darwin")
         or (selected == "bwrap" and sys.platform.startswith("linux"))
     )
@@ -163,7 +163,7 @@ def backend_available(selected: str) -> bool:
 def environment_is_safe(environment: Sequence[tuple[str, str]]) -> bool:
     return not any(
         not key.startswith("OMH_")
-        or any(marker in key.upper() for marker in _CREDENTIAL_KEY)
+        or any(marker in key.upper() for marker in _CREDENTIAL_KEY_MARKERS)
         or any(marker in value.casefold() for marker in ("sk-", "ignore previous", "private key", "bearer "))
         for key, value in environment
     )
@@ -194,7 +194,7 @@ def preflight(
     tool = "/usr/bin/sandbox-exec" if selected == "sandbox-exec" else shutil.which("bwrap")
     if tool is None or not Path(tool).is_file():
         return False, "unavailable"
-    version = hashlib.sha256(Path(tool).read_bytes()).hexdigest()
+    tool_digest = hashlib.sha256(Path(tool).read_bytes()).hexdigest()
     try:
         completed = subprocess.run(
             sandbox_command(("/usr/bin/true",), selected, roots, child, allow_network, environment),
@@ -203,8 +203,8 @@ def preflight(
             timeout=5, check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return False, version
-    return completed.returncode == 0, version
+        return False, tool_digest
+    return completed.returncode == 0, tool_digest
 
 
 def sandbox_command(

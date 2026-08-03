@@ -28,8 +28,6 @@ from .cross_harness_adapter_model import (
     canonical_digest,
     parse_adapter_result,
 )
-from .cross_harness_benchmark_input import BenchmarkJsonInputError, decode_benchmark_bytes
-from .cross_harness_benchmark_values import JsonValue, json_map
 from .cross_harness_adapter_sandbox import (
     ChildContext as _ChildContext,
     InventoryEntry,
@@ -47,6 +45,8 @@ from .cross_harness_adapter_sandbox import (
     sandbox_command as _sandbox_command,
     unique_roots as _unique_roots,
 )
+from .cross_harness_benchmark_input import BenchmarkJsonInputError, decode_benchmark_bytes
+from .cross_harness_benchmark_values import JsonValue, json_map
 
 
 RECEIPT_SCHEMA: Final = "cross_harness_adapter_runner_receipt/v1"
@@ -120,7 +120,7 @@ def run_adapter(
     backend = _backend(spec.backend)
     allocated: list[Path] = []
     failure = _prelaunch_failure(request, spec, backend, output)
-    if failure:
+    if failure is not None:
         return _finish(_receipt("unavailable", failure, backend, "unavailable", "failed", request_digest, spec, "0" * 64, _roots_absent(allocated), ()), output)
     located = shutil.which(spec.argv[0])
     if located is None:
@@ -139,10 +139,11 @@ def run_adapter(
         allocated.append(version_child.root)
         logical_version = spec.version_argv or (spec.argv[0], "--version")
         version_argv = (executable, *logical_version[1:])
+        version_environment = _environment(spec, version_child, request_digest, 0)
         version = _observe_process(
-            _sandbox_command(version_argv, backend, roots, version_child, spec.allow_network, _environment(spec, version_child, request_digest, 0)),
+            _sandbox_command(version_argv, backend, roots, version_child, spec.allow_network, version_environment),
             version_child.work,
-            _environment(spec, version_child, request_digest, 0),
+            version_environment,
             min(request.timeout_seconds, 10),
             popen_factory,
         )
@@ -240,10 +241,13 @@ def _evidence_bundle(request: AdapterRequest, request_digest: str, receipt: Adap
         selected = next((item for item in reversed(receipt.repetitions) if item.result is not None), None)
     if selected is None or selected.result is None or selected.result_digest is None:
         return None
-    observed_exit = selected.result.exit_code if selected.result.exit_code is not None else 124 if selected.result.process_status.value == "timeout" else 1
+    result = selected.result
+    observed_exit = result.exit_code
+    if observed_exit is None:
+        observed_exit = 124 if result.process_status.value == "timeout" else 1
     semantic = "pass" if selected.reason_code == "none" else "fail"
     command = replace(output.command_evidence, observed_exit=observed_exit, observed_semantic_result=semantic)
-    case = AdapterEvidenceCase(request.fixture_id, request, request_digest, selected.result, selected.result_digest, output.source_binding, command)
+    case = AdapterEvidenceCase(request.fixture_id, request, request_digest, result, selected.result_digest, output.source_binding, command)
     draft = AdapterEvidenceBundle("cross_harness_adapter_evidence/v1", request.corpus_digest, output.harness_id, (case,), "0" * 64)
     raw = adapter_evidence_payload(draft)
     digest = canonical_digest({key: value for key, value in raw.items() if key != "bundle_digest"})

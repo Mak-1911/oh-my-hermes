@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from src.quality import cross_harness_adapters as runner
+from src.quality.cross_harness_adapter_sandbox import ChildContext, sandbox_command
 from src.quality.cross_harness_adapters import ExecutionSpec, run_adapter
 from tests.test_cross_harness_adapters import ROOT, _RunnerMixin, _output, _spec
 
@@ -94,12 +94,10 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
             self.assertEqual(rejected.reason_code, "unsafe_read_root")
 
     def test_linux_command_is_strict_and_missing_backend_fails_closed(self) -> None:
-        from src.quality.cross_harness_adapters import _sandbox_command
-
-        child = runner._ChildContext(Path("/tmp/scratch"), Path("/tmp/scratch/home"), Path("/tmp/scratch/work"), Path("/tmp/scratch/tmp"), Path("/tmp/scratch/output"), Path("/tmp/scratch/request.json"), Path("/tmp/scratch/output/result.json"), "f" * 64)
+        child = ChildContext(Path("/tmp/scratch"), Path("/tmp/scratch/home"), Path("/tmp/scratch/work"), Path("/tmp/scratch/tmp"), Path("/tmp/scratch/output"), Path("/tmp/scratch/request.json"), Path("/tmp/scratch/output/result.json"), "f" * 64)
         environment = {"HOME": "/tmp/scratch/home", "PATH": "/usr/bin:/bin", "PYTHONNOUSERSITE": "1"}
-        with patch("src.quality.cross_harness_adapters.shutil.which", return_value="/usr/bin/bwrap"):
-            command = _sandbox_command(("/opt/runtime/bin/tool", "run"), "bwrap", (Path("/opt/fixtures"),), child, False, environment)
+        with patch("src.quality.cross_harness_adapter_sandbox.shutil.which", return_value="/usr/bin/bwrap"):
+            command = sandbox_command(("/opt/runtime/bin/tool", "run"), "bwrap", (Path("/opt/fixtures"),), child, False, environment)
         expected = ("/usr/bin/bwrap", "--unshare-user", "--unshare-ipc", "--unshare-pid", "--unshare-net", "--unshare-uts", "--disable-userns", "--new-session", "--die-with-parent", "--clearenv", "--tmpfs", "/", "--ro-bind", "/opt/fixtures", "/opt/fixtures", "--ro-bind", "/opt/runtime/bin", "/opt/runtime/bin", "--bind", "/tmp/scratch", "/tmp/scratch", "--chdir", "/tmp/scratch/work", "--setenv", "HOME", "/tmp/scratch/home", "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "PYTHONNOUSERSITE", "1", "--", "/opt/runtime/bin/tool", "run")
         self.assertEqual(command, expected)
         self.assertFalse(any("try" in part or part in {str(Path.home()), "--share-net"} for part in command))

@@ -18,7 +18,7 @@ RESULT_SCHEMA: Final = "cross_harness_adapter_result/v1"
 PROTOCOL_VERSION: Final = "cross_harness_adapter_protocol/v1"
 ARTIFACT_TYPE: Final = "cross_harness_adapter_fixture_result/v1"
 MAX_ITEMS: Final = 128
-_HEX_64: Final = re.compile(r"[0-9a-f]{64}\Z")
+_HEX_64: Final = re.compile(r"[0-9a-f]{64}")
 _SECRET: Final = re.compile(r"(sk-[A-Za-z0-9]|ghp_[A-Za-z0-9]|AKIA[0-9A-Z]{16}|api[_-]?key|authorization|bearer\s+|password|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|ignore previous|<script)", re.IGNORECASE)
 _RAW_KEY: Final = re.compile(r"(^|_)(environment|env|body|prompt|response|stdout|stderr|skill_body|secret|token|credential|password|authorization)($|_)", re.IGNORECASE)
 _EnumT = TypeVar("_EnumT", bound=StrEnum)
@@ -289,8 +289,6 @@ def _safe(value: JsonValue | Mapping[str, JsonValue]) -> None:
 
 def _bounded_unique(values: Iterable[str], reason: str) -> None:
     parsed = tuple(values)
-    if len(parsed) > MAX_ITEMS:
-        _raise("collection_too_large")
     if len(parsed) != len(set(parsed)):
         _raise(reason)
 

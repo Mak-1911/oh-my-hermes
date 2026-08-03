@@ -85,8 +85,8 @@ def parse_adapter_evidence(raw: Mapping[str, JsonValue]) -> AdapterEvidenceBundl
         _raise("bundle_digest_mismatch")
     corpus_digest = _digest(raw["corpus_digest"])
     cases = tuple(_parse_case(item, corpus_digest) for item in _items(raw["cases"]))
-    identities = tuple(item.fixture_id for item in cases)
-    if len(identities) != len(set(identities)):
+    fixture_ids = {item.fixture_id for item in cases}
+    if len(cases) != len(fixture_ids):
         _raise("duplicate_fixture_evidence")
     return AdapterEvidenceBundle(
         EVIDENCE_SCHEMA, corpus_digest, _text(raw["harness_id"]), cases,
@@ -102,32 +102,34 @@ def project_adapter_evidence(
         _raise("stale_corpus_digest")
     indexed = {item.fixture_id: item for item in bundle.cases}
     expected = {item.id for item in corpus.fixtures}
-    if expected - set(indexed):
+    if expected - indexed.keys():
         _raise("missing_fixture_evidence")
-    if set(indexed) - expected:
+    if indexed.keys() - expected:
         _raise("mismatched_fixture_evidence")
     results: list[JsonValue] = []
     for fixture in corpus.fixtures:
         case = indexed[fixture.id]
+        request = case.request
+        result = case.result
         source = next(item for item in corpus.sources if item.source_id == fixture.source_id)
         command = next(item for item in corpus.commands if item.command_id == fixture.command_binding_id)
         if (
-            case.request.fixture_id != fixture.id
-            or case.result.fixture_id != fixture.id
-            or case.request.fixture_binding_digest != corpus_fixture_binding_digest(fixture)
-            or case.request.adapter_id != fixture.adapter_id
-            or case.result.adapter_id != fixture.adapter_id
-            or case.request.capability_id != fixture.capability_id
-            or case.result.capability_id != fixture.capability_id
-            or not _source_matches(case.source_binding, source)
-            or not _command_matches(case.command_evidence, command)
+            request.fixture_id != fixture.id
+            or result.fixture_id != fixture.id
+            or request.fixture_binding_digest != corpus_fixture_binding_digest(fixture)
         ):
             _raise("fixture_binding_mismatch")
-        if not _satisfies(case.result, fixture) and any(
-            _satisfies(case.result, other) for other in corpus.fixtures if other.id != fixture.id
+        if request.adapter_id != fixture.adapter_id or result.adapter_id != fixture.adapter_id:
+            _raise("fixture_binding_mismatch")
+        if request.capability_id != fixture.capability_id or result.capability_id != fixture.capability_id:
+            _raise("fixture_binding_mismatch")
+        if not _source_matches(case.source_binding, source) or not _command_matches(case.command_evidence, command):
+            _raise("fixture_binding_mismatch")
+        if not _satisfies(result, fixture) and any(
+            _satisfies(result, other) for other in corpus.fixtures if other.id != fixture.id
         ):
             _raise("fixture_binding_mismatch")
-        if case.result.artifact_hash != artifact_content_digest(adapter_result_payload(case.result)):
+        if result.artifact_hash != artifact_content_digest(adapter_result_payload(result)):
             _raise("artifact_hash_mismatch")
         results.append(_submission_result(case))
     return {
@@ -180,12 +182,9 @@ def _parse_case(value: JsonValue, corpus_digest: str) -> AdapterEvidenceCase:
         _raise("result_digest_mismatch")
     if request.corpus_digest != corpus_digest:
         _raise("stale_corpus_digest")
-    if (
-        fixture_id != request.fixture_id
-        or fixture_id != result.fixture_id
-        or request.adapter_id != result.adapter_id
-        or request.capability_id != result.capability_id
-    ):
+    if fixture_id != request.fixture_id or fixture_id != result.fixture_id:
+        _raise("fixture_binding_mismatch")
+    if request.adapter_id != result.adapter_id or request.capability_id != result.capability_id:
         _raise("fixture_binding_mismatch")
     source = _parse_source(raw["source_binding"])
     command = _parse_command(raw["command_evidence"])

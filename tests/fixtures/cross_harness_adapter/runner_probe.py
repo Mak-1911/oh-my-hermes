@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 from pathlib import Path
 import socket
 import sys
@@ -52,27 +53,21 @@ def main() -> int:
     raw["argv_digest"] = canonical_digest(list(argv))
     if arguments.scenario == "flaky":
         raw["repetition"] = 2
-    environment: tuple[tuple[str, str], ...] = ()
-    listener: socket.socket | None = None
-    if arguments.scenario == "network-denied":
-        listener = socket.socket()
-        listener.bind(("127.0.0.1", 0))
-        listener.listen()
-        environment = (("OMH_NETWORK_PORT", str(listener.getsockname()[1])),)
-    try:
-        with TemporaryDirectory(prefix="omh-runner-probe-") as temporary:
-            source_raw = {"source_id": "fixture-source", "commit": "a" * 40, "license": "MIT", "path_metadata": "tests/fixtures/cross_harness_adapter"}
-            command_raw = {"command_id": "runner-probe", "harness": "fake", "argv": ["fake-adapter", arguments.scenario], "cwd_class": "disposable", "source_id": "fixture-source", "source_commit": "a" * 40, "expected_exit": 0, "expected_semantic_result": "pass"}
-            source = SourceEvidence("fixture-source", "a" * 40, "MIT", "tests/fixtures/cross_harness_adapter", canonical_digest(source_raw))
-            command = CommandEvidence("runner-probe", "fake", ("fake-adapter", arguments.scenario), "disposable", "fixture-source", "a" * 40, 0, "pass", canonical_digest(command_raw), 0, "pass")
-            receipt_path = arguments.output.with_name(f"{arguments.output.stem}.receipt.json")
-            output = OutputContract(receipt_path, arguments.output, "runner-probe", source, command)
-            spec = ExecutionSpec(argv, (FIXTURES,), Path(temporary), arguments.backend, False, environment, (executable, argv[1], "--version"))
-            receipt = run_adapter(parse_adapter_request(raw), spec, output)
-            clean = not any(Path(temporary).iterdir())
-    finally:
-        if listener is not None:
-            listener.close()
+    with ExitStack() as resources:
+        environment: tuple[tuple[str, str], ...] = ()
+        if arguments.scenario == "network-denied":
+            listener = resources.enter_context(socket.create_server(("127.0.0.1", 0)))
+            environment = (("OMH_NETWORK_PORT", str(listener.getsockname()[1])),)
+        temporary = Path(resources.enter_context(TemporaryDirectory(prefix="omh-runner-probe-")))
+        source_raw = {"source_id": "fixture-source", "commit": "a" * 40, "license": "MIT", "path_metadata": "tests/fixtures/cross_harness_adapter"}
+        command_raw = {"command_id": "runner-probe", "harness": "fake", "argv": ["fake-adapter", arguments.scenario], "cwd_class": "disposable", "source_id": "fixture-source", "source_commit": "a" * 40, "expected_exit": 0, "expected_semantic_result": "pass"}
+        source = SourceEvidence("fixture-source", "a" * 40, "MIT", "tests/fixtures/cross_harness_adapter", canonical_digest(source_raw))
+        command = CommandEvidence("runner-probe", "fake", ("fake-adapter", arguments.scenario), "disposable", "fixture-source", "a" * 40, 0, "pass", canonical_digest(command_raw), 0, "pass")
+        receipt_path = arguments.output.with_name(f"{arguments.output.stem}.receipt.json")
+        output = OutputContract(receipt_path, arguments.output, "runner-probe", source, command)
+        spec = ExecutionSpec(argv, (FIXTURES,), temporary, arguments.backend, False, environment, (executable, argv[1], "--version"))
+        receipt = run_adapter(parse_adapter_request(raw), spec, output)
+        clean = not any(temporary.iterdir())
     if receipt.cleanup_verified != clean:
         return 3
     if receipt.status == "unavailable":
