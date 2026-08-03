@@ -34,6 +34,7 @@ FAKE = FIXTURES / "fake_adapter.py"
 
 
 def _output(root: Path) -> runner.OutputContract:
+    root = root.resolve()
     source_raw: dict[str, JsonValue] = {"source_id": "fixture-source", "commit": "a" * 40, "license": "MIT", "path_metadata": "fixtures/fake"}
     command_raw: dict[str, JsonValue] = {"command_id": "fixture-command", "harness": "fake", "argv": ["fake-adapter", "run"], "cwd_class": "disposable", "source_id": "fixture-source", "source_commit": "a" * 40, "expected_exit": 0, "expected_semantic_result": "pass"}
     source = SourceEvidence("fixture-source", "a" * 40, "MIT", "fixtures/fake", canonical_digest(source_raw))
@@ -124,7 +125,7 @@ class _RunnerMixin(unittest.TestCase):
 class FailClosedAdapterRunnerTests(_RunnerMixin):
     def test_atomic_json_write_does_not_follow_predictable_temp_symlink(self) -> None:
         with TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             target = root / "receipt.json"
             victim = root / "victim"
             victim.write_text("unchanged", encoding="utf-8")

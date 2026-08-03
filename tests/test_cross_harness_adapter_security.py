@@ -1,24 +1,120 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
+import signal
 import socket
+import subprocess
 import sys
 from tempfile import TemporaryDirectory
+from threading import Thread
 import unittest
 from unittest.mock import patch
 
-from src.quality.cross_harness_adapter_sandbox import (
-    ChildContext,
-    environment_is_safe,
-    preflight,
-    sandbox_command,
-)
-from src.quality.cross_harness_adapters import ExecutionSpec, run_adapter, runner_receipt_payload
-from tests.test_cross_harness_adapters import ROOT, _RunnerMixin, _output, _spec
+from src.quality import cross_harness_adapter_io as adapter_io
+from src.quality.cross_harness_adapter_sandbox import ChildContext, ProcessObservation, environment_is_safe, observe_process, preflight, sandbox_command
+from src.quality.cross_harness_adapters import ExecutionSpec, _artifact_result, run_adapter, runner_receipt_payload
+from tests.test_cross_harness_adapters import ROOT, _RunnerMixin, _output, _request, _spec
+
+
+def _kill_group(process_id: int) -> None:
+    with suppress(ProcessLookupError):
+        os.killpg(process_id, signal.SIGKILL)
+
+
+def _capture_inventory_error(root: Path, errors: list[OSError]) -> None:
+    try:
+        adapter_io.inventory(root, set())
+    except OSError as error:
+        errors.append(error)
+
+
+def _fifo_call_completes(call: Callable[[], None], fifo: Path) -> bool:
+    worker = Thread(target=call, daemon=True)
+    worker.start()
+    worker.join(0.2)
+    completed = not worker.is_alive()
+    if not completed:
+        writer = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+        os.close(writer)
+        worker.join(1)
+    return completed
 
 
 class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
+    def test_keyboard_interrupt_during_real_wait_cleans_exact_process_and_streams(self) -> None:
+        created: list[subprocess.Popen[bytes]] = []
+
+        def interrupting_factory(*args, **kwargs):
+            process = subprocess.Popen(*args, **kwargs)
+            created.append(process)
+            self.addCleanup(_kill_group, process.pid)
+            original_wait = process.wait
+            interrupted = False
+
+            def interrupt_once(timeout=None):
+                nonlocal interrupted
+                if not interrupted:
+                    interrupted = True
+                    raise KeyboardInterrupt
+                return original_wait(timeout=timeout)
+
+            process.wait = interrupt_once
+            return process
+
+        with TemporaryDirectory() as temporary, self.assertRaises(KeyboardInterrupt):
+            observe_process((sys.executable, "-c", "import signal; signal.pause()"), Path(temporary), os.environ, 2, interrupting_factory)
+        process = created[0]
+        with self.assertRaises(ProcessLookupError):
+            os.kill(process.pid, 0)
+        self.assertEqual((process.stdout is not None and process.stdout.closed, process.stderr is not None and process.stderr.closed), (True, True))
+
+    def test_fifo_device_and_socket_artifacts_and_inventory_fail_without_blocking(self) -> None:
+        observation = ProcessObservation("exit", 0, True, "0" * 64, 0, "0" * 64, 0, b"", b"", False)
+        request = _request(("fake-adapter",))
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            fifo = root / "artifact-fifo"
+            os.mkfifo(fifo)
+            artifact: list[tuple[object, str]] = []
+            self.assertTrue(_fifo_call_completes(lambda: artifact.append(_artifact_result(fifo, request, "0" * 64, observation, 0)), fifo))
+            self.assertEqual(artifact[0][1], "artifact_not_regular_file")
+
+            socket_path = root / "artifact-socket"
+            with socket.socket(socket.AF_UNIX) as listener:
+                listener.bind(str(socket_path))
+                for path in (Path("/dev/null"), socket_path):
+                    with self.subTest(path=path.name):
+                        self.assertEqual(_artifact_result(path, request, "0" * 64, observation, 0)[1], "artifact_not_regular_file")
+
+                inventory_root = root / "inventory"
+                inventory_root.mkdir()
+                inventory_fifo = inventory_root / "fifo"
+                os.mkfifo(inventory_fifo)
+                inventory_errors: list[OSError] = []
+                self.assertTrue(_fifo_call_completes(lambda: _capture_inventory_error(inventory_root, inventory_errors), inventory_fifo))
+                self.assertEqual((len(inventory_errors), type(inventory_errors[0])), (1, adapter_io.UnsafeRegularFileError))
+                _capture_inventory_error(Path("/dev/null"), inventory_errors)
+                self.assertTrue(all(isinstance(error, adapter_io.UnsafeRegularFileError) for error in inventory_errors))
+                inventory_fifo.unlink()
+                with socket.socket(socket.AF_UNIX) as inventory_listener:
+                    inventory_listener.bind(str(inventory_root / "socket"))
+                    with self.assertRaises(adapter_io.UnsafeRegularFileError):
+                        adapter_io.inventory(inventory_root, set())
+
+    def test_atomic_output_rejects_symlinked_ancestors_without_external_write(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            outside = root / "outside"
+            outside.mkdir()
+            linked = root / "linked"
+            linked.symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(adapter_io.UnsafeRegularFileError):
+                adapter_io.write_json(linked / "nested" / "receipt.json", {"status": "blocked"})
+            self.assertEqual(tuple(outside.iterdir()), ())
+
     def test_secret_shaped_values_are_rejected_but_numeric_listener_values_are_allowed(self) -> None:
         rejected = (
             "ghp_abcdefghijklmnopqrstuvwxyz1234567890",
@@ -141,10 +237,27 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
             for directory in (child.home, child.work, child.temporary, child.output):
                 directory.mkdir()
             with patch.dict(os.environ, {"PATH": str(fake_bin)}), patch(
-                "src.quality.cross_harness_adapter_sandbox._TRUSTED_BWRAP_CANDIDATES",
+                "src.quality.cross_harness_adapter_backend._TRUSTED_BWRAP_CANDIDATES",
                 (root / "missing-bwrap",),
             ):
                 ready, _digest = preflight("bwrap", (), child, False, {"PATH": str(fake_bin)})
+            self.assertFalse(ready)
+            self.assertFalse(sentinel.exists())
+
+    def test_writable_temp_self_swapping_bwrap_candidate_is_never_launched(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            sentinel = root / "self-swap-ran"
+            fake = root / "bwrap"
+            fake.write_text(f"#!/bin/sh\nprintf changed > {fake}\ntouch {sentinel}\n", encoding="utf-8")
+            fake.chmod(0o700)
+            child_root = root / "child"
+            child_root.mkdir()
+            child = ChildContext(child_root, *(child_root / name for name in ("home", "work", "tmp", "output")), child_root / "request.json", child_root / "output/result.json", "f" * 64)
+            for directory in (child.home, child.work, child.temporary, child.output):
+                directory.mkdir()
+            with patch("src.quality.cross_harness_adapter_backend._TRUSTED_BWRAP_CANDIDATES", (fake,)):
+                ready, _digest = preflight("bwrap", (), child, False, {"PATH": "/usr/bin:/bin"})
             self.assertFalse(ready)
             self.assertFalse(sentinel.exists())
 

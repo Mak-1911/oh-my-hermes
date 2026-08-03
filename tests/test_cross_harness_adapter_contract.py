@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import FrozenInstanceError
+import importlib
+import json
+import os
 from pathlib import Path
+import subprocess
 import unittest
+from unittest.mock import patch
 
-from src.quality.cross_harness_adapter_evidence import artifact_content_digest
+from src.quality.cross_harness_adapter_evidence import (
+    adapter_request_payload,
+    adapter_result_payload,
+    artifact_content_digest,
+)
+from src.quality import cross_harness_adapter_io as adapter_io
 from src.quality.cross_harness_adapter_model import (
     AdapterContractError,
     canonical_digest,
@@ -13,28 +22,42 @@ from src.quality.cross_harness_adapter_model import (
     parse_adapter_result,
 )
 from src.quality.cross_harness_benchmark_values import JsonValue
+from src.quality.cross_harness_benchmark import evaluate_submission, parse_corpus, score_submission
 
 
 ROOT = Path(__file__).parents[1]
 
 
 class ExistingBenchmarkCharacterizationTests(unittest.TestCase):
-    def test_production_benchmark_modules_remain_subprocess_free(self) -> None:
-        modules = tuple((ROOT / "src" / "quality").glob("cross_harness_benchmark*.py"))
-        modules += (ROOT / "src" / "commands" / "cross_harness_benchmark.py",)
-        forbidden: list[str] = []
-        for path in modules:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.Import, ast.ImportFrom)):
-                    names = (
-                        tuple(alias.name for alias in node.names)
-                        if isinstance(node, ast.Import)
-                        else (node.module or "",)
-                    )
-                    if any(name.split(".")[0] == "subprocess" for name in names):
-                        forbidden.append(path.name)
-        self.assertEqual(forbidden, [])
+    def test_adapter_io_imports_without_required_flags_and_fails_closed_on_use(self) -> None:
+        self.addCleanup(importlib.reload, adapter_io)
+        for flag in ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC"):
+            with self.subTest(flag=flag), patch.object(os, flag, None):
+                unsupported = importlib.reload(adapter_io)
+                with self.assertRaisesRegex(unsupported.UnsafeRegularFileError, "unsupported"):
+                    unsupported.read_regular_file(ROOT / "pyproject.toml")
+            importlib.reload(adapter_io)
+
+    def test_task_one_parsers_scorer_and_projections_never_spawn_processes(self) -> None:
+        example = json.loads(
+            (ROOT / "benchmarks" / "cross-harness" / "v1" / "example-passing-submission.json").read_text(encoding="utf-8")
+        )
+        with (
+            patch.object(subprocess, "Popen", side_effect=AssertionError("unexpected process spawn")),
+            patch.object(subprocess, "run", side_effect=AssertionError("unexpected process spawn")),
+        ):
+            corpus = parse_corpus(example["corpus"])
+            evaluation = evaluate_submission(example["submission"], corpus)
+            score = score_submission(example["submission"], corpus)
+            request = parse_adapter_request(_request())
+            result = parse_adapter_result(_result())
+            request_payload = adapter_request_payload(request)
+            result_payload = adapter_result_payload(result)
+
+        self.assertTrue(all(outcome.status == "pass" for outcome in evaluation.outcomes))
+        self.assertEqual((score.total, score.level), (100, 5))
+        self.assertEqual(parse_adapter_request(request_payload), request)
+        self.assertEqual(parse_adapter_result(result_payload), result)
 
 
 def _request() -> dict[str, JsonValue]:

@@ -113,8 +113,8 @@ def run_adapter(
     output: OutputContract,
     popen_factory: _PopenFactory = subprocess.Popen,
 ) -> AdapterRunReceipt:
-    output.evidence_path.unlink(missing_ok=True)
-    output.receipt_path.unlink(missing_ok=True)
+    _adapter_io.unlink_file(output.evidence_path)
+    _adapter_io.unlink_file(output.receipt_path)
     request_digest = canonical_digest(adapter_request_payload(request))
     backend = _backend(spec.backend)
     allocated: list[Path] = []
@@ -140,11 +140,11 @@ def run_adapter(
         version_argv = (executable, *logical_version[1:])
         version_environment = _environment(spec, version_child, request_digest, 0)
         version = _observe_process(
-            _sandbox_command(version_argv, backend, roots, version_child, spec.allow_network, version_environment),
+            _sandbox_command(version_argv, backend, roots, version_child, spec.allow_network, version_environment, backend_version),
             version_child.work,
             version_environment,
             min(request.timeout_seconds, 10),
-            popen_factory,
+            popen_factory, backend_version,
         )
     version_text = (version.stdout_sample + version.stderr_sample).decode("utf-8", "replace")
     if not version.process_group_terminated:
@@ -156,7 +156,7 @@ def run_adapter(
         with TemporaryDirectory(prefix="omh-adapter-run-", dir=spec.scratch_parent) as root_text:
             child = _child_context(Path(root_text), request, request_digest, index)
             allocated.append(child.root)
-            repetitions.append(_run_once(request, spec, backend, roots, executable, child, index, request_digest, popen_factory))
+            repetitions.append(_run_once(request, spec, backend, backend_version, roots, executable, child, index, request_digest, popen_factory))
     failed = next((item.reason_code for item in repetitions if item.reason_code != "none"), None)
     receipt = _receipt("observed_failed" if failed else "observed_success", failed or "none", backend, backend_version, "passed", request_digest, spec, version_child.spawn_digest, _roots_absent(allocated) and version.process_group_terminated and all(item.process_group_terminated for item in repetitions), tuple(repetitions))
     evidence = _evidence_bundle(request, request_digest, receipt, output)
@@ -171,11 +171,11 @@ def _child_context(root: Path, request: AdapterRequest, request_digest: str, rep
     return _allocate_child(root, adapter_request_payload(request), request_digest, repetition)
 
 
-def _run_once(request: AdapterRequest, spec: ExecutionSpec, backend: str, roots: tuple[Path, ...], executable: str, child: _ChildContext, index: int, request_digest: str, popen_factory: _PopenFactory) -> RepetitionReceipt:
+def _run_once(request: AdapterRequest, spec: ExecutionSpec, backend: str, backend_version: str, roots: tuple[Path, ...], executable: str, child: _ChildContext, index: int, request_digest: str, popen_factory: _PopenFactory) -> RepetitionReceipt:
     started_ns = time.time_ns()
     argv = (executable, *spec.argv[1:])
     environment = _environment(spec, child, request_digest, index)
-    observed = _observe_process(_sandbox_command(argv, backend, roots, child, spec.allow_network, environment), child.work, environment, request.timeout_seconds, popen_factory)
+    observed = _observe_process(_sandbox_command(argv, backend, roots, child, spec.allow_network, environment, backend_version), child.work, environment, request.timeout_seconds, popen_factory, backend_version)
     result, reason = _artifact_result(child.artifact_path, request, request_digest, observed, started_ns)
     if observed.overflow:
         reason = "output_limit_exceeded"

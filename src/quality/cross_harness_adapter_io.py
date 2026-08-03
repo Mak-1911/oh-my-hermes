@@ -6,8 +6,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import secrets
 import stat
-from tempfile import mkstemp
 
 from .cross_harness_benchmark_values import JsonValue
 
@@ -22,23 +22,48 @@ class UnsafeRegularFileError(OSError):
     pass
 
 
-def read_regular_file(path: Path) -> tuple[bytes, os.stat_result]:
-    directory_flags = os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
-    directory = os.open("/", directory_flags)
+_DIRECTORY_ONLY = getattr(os, "O_DIRECTORY", None)
+_NO_FOLLOW = getattr(os, "O_NOFOLLOW", None)
+_CLOSE_ON_EXEC = getattr(os, "O_CLOEXEC", None)
+_DIRECTORY_FLAGS = os.O_RDONLY | (_CLOSE_ON_EXEC or 0) | (_DIRECTORY_ONLY or 0) | (_NO_FOLLOW or 0)
+
+
+def _open_directory(path: Path, *, create: bool) -> int:
+    if _DIRECTORY_ONLY is None or _NO_FOLLOW is None or _CLOSE_ON_EXEC is None:
+        raise UnsafeRegularFileError("safe directory traversal is unsupported")
+    directory = os.open("/", _DIRECTORY_FLAGS)
     try:
-        for part in path.absolute().parts[1:-1]:
-            child = os.open(part, directory_flags, dir_fd=directory)
+        for part in path.absolute().parts[1:]:
+            try:
+                child = os.open(part, _DIRECTORY_FLAGS, dir_fd=directory)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                os.mkdir(part, mode=0o700, dir_fd=directory)
+                child = os.open(part, _DIRECTORY_FLAGS, dir_fd=directory)
+            except OSError as error:
+                raise UnsafeRegularFileError from error
             os.close(directory)
             directory = child
-        descriptor = os.open(
-            path.name,
-            os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=directory,
-        )
-    except OSError as error:
-        if error.errno == getattr(os, "ELOOP", 62):
-            raise UnsafeRegularFileError from None
+        return directory
+    except BaseException:
+        os.close(directory)
         raise
+
+
+def read_regular_file(path: Path) -> tuple[bytes, os.stat_result]:
+    directory = _open_directory(path.parent, create=False)
+    try:
+        try:
+            descriptor = os.open(
+                path.name,
+                os.O_RDONLY | os.O_NONBLOCK | (_CLOSE_ON_EXEC or 0) | (_NO_FOLLOW or 0),
+                dir_fd=directory,
+            )
+        except FileNotFoundError:
+            raise
+        except OSError as error:
+            raise UnsafeRegularFileError from error
     finally:
         os.close(directory)
     with os.fdopen(descriptor, "rb") as stream:
@@ -49,11 +74,13 @@ def read_regular_file(path: Path) -> tuple[bytes, os.stat_result]:
 
 
 def inventory(root: Path, excluded: set[str]) -> tuple[InventoryEntry, ...]:
+    directory = _open_directory(root, create=False)
+    os.close(directory)
     entries: list[InventoryEntry] = []
-    for directory, names, files in os.walk(root, followlinks=False):
+    for directory_text, names, files in os.walk(root, followlinks=False):
         names.sort()
         files.sort()
-        base = Path(directory)
+        base = Path(directory_text)
         if any((base / name).is_symlink() for name in names):
             raise UnsafeRegularFileError
         for name in files:
@@ -67,25 +94,40 @@ def inventory(root: Path, excluded: set[str]) -> tuple[InventoryEntry, ...]:
     return tuple(entries)
 
 
-def write_json(path: Path, payload: Mapping[str, JsonValue]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    descriptor, temporary = mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+def unlink_file(path: Path) -> None:
     try:
-        os.fchmod(descriptor, 0o600)
+        directory = _open_directory(path.parent, create=False)
+    except FileNotFoundError:
+        return
+    try:
+        try:
+            os.unlink(path.name, dir_fd=directory)
+        except FileNotFoundError:
+            pass
+    finally:
+        os.close(directory)
+
+
+def write_json(path: Path, payload: Mapping[str, JsonValue]) -> None:
+    encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    directory = _open_directory(path.parent, create=True)
+    temporary = f".{path.name}.{secrets.token_hex(16)}.tmp"
+    descriptor = -1
+    try:
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | (_CLOSE_ON_EXEC or 0), 0o600, dir_fd=directory)
         stream = os.fdopen(descriptor, "wb")
         descriptor = -1
         with stream:
             stream.write(encoded)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        os.replace(temporary, path.name, src_dir_fd=directory, dst_dir_fd=directory)
+        os.fsync(directory)
     finally:
         if descriptor >= 0:
             os.close(descriptor)
-        Path(temporary).unlink(missing_ok=True)
+        try:
+            os.unlink(temporary, dir_fd=directory)
+        except FileNotFoundError:
+            pass
+        os.close(directory)

@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import re
 import signal
-import stat
 import subprocess
 import sys
 from threading import Thread
@@ -17,11 +16,11 @@ from typing import BinaryIO, Final
 
 from .cross_harness_benchmark_values import JsonValue
 from .cross_harness_adapter_io import read_regular_file
+from . import cross_harness_adapter_backend as _backend_security
 
 
 MAX_OUTPUT_BYTES: Final = 1_048_576
 PROCESS_CLEANUP_SECONDS: Final = 1.0
-_TRUSTED_BWRAP_CANDIDATES: Final = tuple(Path(path) for path in ("/usr/bin/bwrap", "/usr/local/bin/bwrap"))
 _SECRET_VALUE_PATTERNS: Final = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
     r"\bghp_[A-Za-z0-9]{20,}\b", r"\bAKIA[A-Z0-9]{16}\b",
     r"\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b",
@@ -96,7 +95,10 @@ def observe_process(
     env: Mapping[str, str],
     timeout: int,
     popen_factory: PopenFactory,
+    backend_digest: str | None = None,
 ) -> ProcessObservation:
+    if not _backend_security.command_is_trusted(argv[0], backend_digest):
+        raise OSError("sandbox backend identity changed")
     process = popen_factory(
         argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True,
@@ -126,19 +128,21 @@ def observe_process(
     for thread in threads:
         thread.start()
     try:
-        exit_code = process.wait(timeout=timeout)
-        status = "crash" if exit_code < 0 else "exit"
-    except subprocess.TimeoutExpired:
-        status, exit_code = "timeout", None
-    cleanup_deadline = time.monotonic() + PROCESS_CLEANUP_SECONDS
-    cleanup_ok = terminate_process_group(process.pid, process, cleanup_deadline)
-    for thread in threads:
-        thread.join(max(0.0, cleanup_deadline - time.monotonic()))
-    streams_done = not any(thread.is_alive() for thread in threads)
-    cleanup_ok = cleanup_ok and streams_done
-    if streams_done:
-        process.stdout.close()
-        process.stderr.close()
+        try:
+            exit_code = process.wait(timeout=timeout)
+            status = "crash" if exit_code < 0 else "exit"
+        except subprocess.TimeoutExpired:
+            status, exit_code = "timeout", None
+    finally:
+        cleanup_deadline = time.monotonic() + PROCESS_CLEANUP_SECONDS
+        cleanup_ok = terminate_process_group(process.pid, process, cleanup_deadline)
+        for thread in threads:
+            thread.join(max(0.0, cleanup_deadline - time.monotonic()))
+        streams_done = not any(thread.is_alive() for thread in threads)
+        cleanup_ok = cleanup_ok and streams_done
+        if streams_done:
+            process.stdout.close()
+            process.stderr.close()
     stdout, stderr = stream_results
     stdout = stdout or (hashlib.sha256().hexdigest(), 0, b"", True)
     stderr = stderr or (hashlib.sha256().hexdigest(), 0, b"", True)
@@ -231,7 +235,7 @@ def preflight(
         return False, "unavailable"
     try:
         completed = subprocess.run(
-            sandbox_command(("/usr/bin/true",), selected, roots, child, allow_network, environment),
+            sandbox_command(("/usr/bin/true",), selected, roots, child, allow_network, environment, tool_digest),
             cwd=child.work, env=environment, stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
             timeout=5, check=False,
@@ -248,6 +252,7 @@ def sandbox_command(
     child: ChildContext,
     allow_network: bool,
     environment: Mapping[str, str],
+    backend_digest: str | None = None,
 ) -> tuple[str, ...]:
     if selected == "sandbox-exec":
         literals = " ".join(f'(literal {json.dumps(str(Path(item).resolve()))})' for item in (argv[0], "/usr/bin/true"))
@@ -255,7 +260,7 @@ def sandbox_command(
         network = "(allow network*)" if allow_network else ""
         policy = f'(version 1)(deny default)(deny syscall-unix (syscall-number 147 82))(allow process-fork)(allow process-exec {literals})(allow sysctl-read)(allow file-read* (literal "/") {literals} {subpaths})(allow file-write* (subpath {json.dumps(str(child.root))})){network}'
         return ("/usr/bin/sandbox-exec", "-p", policy, *argv)
-    tool = _trusted_bwrap()
+    tool = _trusted_bwrap(backend_digest)
     assert tool is not None
     flags = ["--unshare-user", "--unshare-ipc", "--unshare-pid", "--unshare-uts", "--disable-userns", "--new-session", "--die-with-parent", "--clearenv"]
     if not allow_network:
@@ -266,15 +271,9 @@ def sandbox_command(
     return (tool, *flags, "--tmpfs", "/", *binds, "--bind", str(child.root), str(child.root), "--chdir", str(child.work), *env_flags, "--", *argv)
 
 
-def _trusted_bwrap() -> str | None:
-    for candidate in _TRUSTED_BWRAP_CANDIDATES:
-        try:
-            metadata = candidate.stat(follow_symlinks=False)
-        except OSError:
-            continue
-        if stat.S_ISREG(metadata.st_mode) and os.access(candidate, os.X_OK):
-            return str(candidate)
-    return None
+def _trusted_bwrap(expected_digest: str | None = None) -> str | None:
+    snapshot = _backend_security.trusted_bwrap(expected_digest)
+    return str(snapshot.path) if snapshot is not None else None
 
 
 def unique_roots(roots: Sequence[Path]) -> tuple[Path, ...]:
