@@ -29,7 +29,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - `planner`: `loop`, `deep-interview`, `curriculum-design`, `product-brief`, `codebase-onboarding`, `codegraph-refresh`, `plan`, `ralplan`
 - `researcher`: `web-research`, `source-finder`, `research-brief`, `research-department`, `paper-learning`, `best-practice-research`, `autoresearch-goal`
 - `reviewer`: `legal-compliance-review`, `localization-review`, `accessibility-audit`, `build-failure-triage`, `production-audit`, `verification-gate`, `security-safety-review`, `ultraqa`, `code-review`, `ask`, `failure-signal-audit`
-- `tracker`: `context-budget-review`, `performance-goal`, `ultraperf`, `cancel`, `skill`, `doctor`, `capability-toggle`, `agent-board`, `toolbelt-readiness`, `harness-session-inventory`, `ops-observability-card`, `achievements`, `agent-ops-review`, `instinct-ledger`, `workflow-learning`, `run-efficiency`
+- `tracker`: `context-budget-review`, `performance-goal`, `ultraperf`, `cancel`, `skill`, `doctor`, `capability-toggle`, `running-work-board`, `agent-board`, `toolbelt-readiness`, `harness-session-inventory`, `ops-observability-card`, `achievements`, `agent-ops-review`, `instinct-ledger`, `workflow-learning`, `run-efficiency`
 - Installed workflow skill policies live in generated workflow skills; compatibility/reference-only surface policies live in `docs/WORKFLOWS.md` and are not guaranteed to have `skills/<name>/SKILL.md` files.
 
 ## Automatic Routing Registry
@@ -100,6 +100,7 @@ When Hermes exposes installed skill descriptions to the model, use this registry
 - `skill`: `skill`, `$skill`, `skills`, `manage skills`
 - `doctor`: `doctor`, `$doctor`, `diagnose omh`, `installation health`
 - `capability-toggle`: `capability-toggle`, `capability policy`, `disable memory`, `enable memory`, `disable coding orchestration`, `disable a capability family`, `enable a capability family`, `메모리 기능 꺼줘`, `메모리 기능 끄기`
+- `running-work-board`: `running-work-board`, `running work board`, `which units are running`, `what models are running`, `지금 뭐 돌고 있어`, `뭐가 돌고 있어`, `어떤 모델로 돌고 있어`, `실행 중인 작업 보여줘`
 - `model-setup`: `model-setup`, `hermes model setup`, `set up my models`, `set up my model`, `configure my models`, `configure model provider`, `connect my model provider`, `set up model role slots`, `switch my session model`
 - `parallel-tools`: `parallel-tools`, `parallel tools`, `hermes parallel tools setup`, `update hermes for parallel tools`, `check parallel tool support`, `enable parallel tool calls`, `verify parallel tools capability`, `check hermes version for parallel tools`, `헤르메스 업데이트 확인해줘`
 - `websearch-setup`: `websearch-setup`, `web search setup`, `make web search cheaper`, `set up web search`, `configure web search`, `reduce web search cost`, `connect scraper api key`, `set up auxiliary web-extract model`, `웹 검색 싸게 만들어줘`

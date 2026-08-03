@@ -1572,6 +1572,16 @@ def _route_chat_message_cached(
     )
     if fast_agent_ops_status_decision is not None:
         return fast_agent_ops_status_decision.to_dict()
+    # Deliberately BELOW agent-ops: "뭐해"/"지금뭐함" already dispatch there at
+    # score 14, and this path must never take a route that is already decided.
+    fast_status_board_decision = _coding_status_board_fast_path_decision(
+        message,
+        routing_message=routing_message,
+        source=source,
+        min_confidence=min_confidence,
+    )
+    if fast_status_board_decision is not None:
+        return fast_status_board_decision.to_dict()
     fast_operator_surface_decision = _operator_surface_fast_path_decision(
         message,
         routing_message=routing_message,
@@ -4934,6 +4944,89 @@ def _capability_toggle_fast_path_decision(
         _skill_definition_by_name(selected_skill),
         message,
         matched=(f"capability_family:{family_id}", "capability_state:off" if wants_off else "capability_state:on"),
+        score=score,
+        why=reason,
+    )
+    return ChatRouteDecision(
+        schema_version=1,
+        source=source,
+        action="dispatch",
+        selected_skill=selected_skill,
+        selected_harness=selected_harness,
+        candidate_skill=selected_skill,
+        candidate_harness=selected_harness,
+        confidence="high",
+        score=score,
+        threshold=min_confidence,
+        explicit=False,
+        ambiguous=False,
+        reason=reason,
+        clarification="",
+        routing_prompt=_routing_prompt("dispatch", selected_skill, selected_skill, reason, message),
+        task_card=None,
+        workflow_route_plan=None,
+        learning_candidate_card=None,
+        recommendations=(recommendation,),
+    )
+
+
+# "what is running" is the most natural way to ask for the board and the one
+# the scorer cannot carry: strip the stopwords and a single common token is
+# left, so every one of these resolved to fallback at score 0. Catalog triggers
+# alone therefore miss the phrasing the feature exists to answer.
+_CODING_STATUS_BOARD_CUES = (
+    "what is running",
+    "what's running",
+    "whats running",
+    "what is currently running",
+    "what is running right now",
+    "anything running",
+    "what is still running",
+    # Whole phrases only. As catalog triggers these leaked through single
+    # shared tokens -- `status` claimed "show status", `show` claimed
+    # "show pipeline status" -- so they live here where a full phrase is
+    # required and a lone token cannot reach them.
+    "show me the sessions",
+    "show me the running sessions",
+    "status board",
+    "coding status board",
+)
+# The same words describe a server or container in the user's own stack, which
+# is not an OMH coding unit.
+_CODING_STATUS_BOARD_BLOCKERS = (
+    "on port",
+    "my server",
+    "docker",
+    "container",
+    "kubernetes",
+    "k8s",
+    "process on",
+    "in production",
+)
+
+
+def _coding_status_board_fast_path_decision(
+    message: str,
+    *,
+    routing_message: str,
+    source: str,
+    min_confidence: str,
+) -> ChatRouteDecision | None:
+    """Claim the "what is running" phrasings that reach no owner today."""
+    if _has_explicit_invocation_prefix(routing_message) or explicit_skill_invocation(routing_message):
+        return None
+    if contains_cue_phrase(routing_message, _CODING_STATUS_BOARD_BLOCKERS):
+        return None
+    if not contains_cue_phrase(routing_message, _CODING_STATUS_BOARD_CUES):
+        return None
+    selected_skill = "running-work-board"
+    selected_harness = primary_harness_for_skill(selected_skill)
+    reason = "Asked what is running with no other owner; show the observed coding status board."
+    score = 34
+    recommendation = recommendation_for_definition(
+        _skill_definition_by_name(selected_skill),
+        message,
+        matched=("status_board:running_question",),
         score=score,
         why=reason,
     )
