@@ -128,7 +128,7 @@ omh doctor
 
 ## OMH가 더하는 것
 
-OMH는 **101개**의 설치형 workflow skill을 사람이 이해하기 쉬운 6개 기능군으로
+OMH는 **102개**의 설치형 workflow skill을 사람이 이해하기 쉬운 6개 기능군으로
 제공합니다.
 
 그중 11개는 workflow engine입니다 - `deep-interview`, `loop`, `ralph`, `ralplan`, `team`, `ultragoal`, `ultraperf`, `ultraprocess`, `ultraqa`, `ultrawork`, `web-research` - 이들은 `ulw-` 라벨로 렌더링되어

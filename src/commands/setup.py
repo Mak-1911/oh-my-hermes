@@ -3198,6 +3198,51 @@ def _add_top_level_commands(sub) -> None:
     skill_profile_reconcile.add_argument("--json", action="store_true", help="Print the full machine-readable reconcile payload.")
     skill_profile_reconcile.set_defaults(func=cmd_skill_profile_reconcile)
 
+    # Imported here rather than at module scope: `capability_policy` is a
+    # command module like the ones `main` imports from here, so a top-level
+    # import would close a cycle through this module's own parser wiring.
+    from .capability_policy import (
+        cmd_capability_policy_disable,
+        cmd_capability_policy_enable,
+        cmd_capability_policy_status,
+    )
+
+    capability_policy = sub.add_parser(
+        "capability-policy",
+        help="Show or change which OMH capability families this install offers.",
+    )
+    capability_policy_sub = capability_policy.add_subparsers(dest="capability_policy_command", required=True)
+    capability_policy_status = capability_policy_sub.add_parser(
+        "status",
+        help="Show each capability family, whether it is offered, and the command that flips it.",
+    )
+    capability_policy_status.add_argument("--json", action="store_true", help="Print the full machine-readable policy report.")
+    capability_policy_status.set_defaults(func=cmd_capability_policy_status)
+    capability_policy_disable = capability_policy_sub.add_parser(
+        "disable",
+        help="Stop offering one capability family. Core skills are never removed and the change is reversible.",
+    )
+    capability_policy_disable.add_argument("family", help="Capability family id, label, or short alias (for example memory).")
+    capability_policy_disable.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the affected workflows without writing the policy.",
+    )
+    capability_policy_disable.add_argument("--json", action="store_true", help="Print the full machine-readable change payload.")
+    capability_policy_disable.set_defaults(func=cmd_capability_policy_disable)
+    capability_policy_enable = capability_policy_sub.add_parser(
+        "enable",
+        help="Offer one capability family again.",
+    )
+    capability_policy_enable.add_argument("family", help="Capability family id, label, or short alias (for example memory).")
+    capability_policy_enable.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the affected workflows without writing the policy.",
+    )
+    capability_policy_enable.add_argument("--json", action="store_true", help="Print the full machine-readable change payload.")
+    capability_policy_enable.set_defaults(func=cmd_capability_policy_enable)
+
     doctor = sub.add_parser("doctor", help="Check local OMH install health and Hermes skill registration.")
     doctor.add_argument("--json", action="store_true", help="Print the full machine-readable doctor payload.")
     doctor.add_argument("--language", default=None, help=f"Human output language ({', '.join(LANGUAGE_CODES)}).")
