@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import threading
 import unittest
 from pathlib import Path
@@ -49,7 +48,6 @@ class LocalStoreLockingTests(unittest.TestCase):
             for index in range(worker_count):
                 self.assertEqual(final.get(f"key-{index}"), index)
 
-    @unittest.skipUnless(os.name == "posix", "concurrent os.replace over an open target relies on POSIX rename semantics")
     def test_concurrent_atomic_writes_do_not_collide_on_temp_file(self) -> None:
         writer_count = 24
         with TemporaryDirectory() as tmp:
