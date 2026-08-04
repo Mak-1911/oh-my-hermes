@@ -115,6 +115,10 @@
 >     <td>Thank you to <a href="https://nousresearch.com/">Nous Research</a> for creating Hermes Agent.</td>
 >   </tr>
 > </table>
+>
+> <p align="center">
+>   <img src="assets/omh-goal-post.png" alt="Post from @rlaope: the goal of oh-my-hermes is a single entry point for Hermes Agent that eliminates plugin fatigue and turns anyone into a power user" width="680">
+> </p>
 
 <br>
 
@@ -158,7 +162,7 @@ Maintenance paths such as reconciling a `--full` install back to core live in
 
 ## What OMH Adds
 
-### Mixture of Modes
+### Mixture of Models
 
 <p align="left">
   <img src="assets/hermes-agent-mom.png" alt="Hermes-Agent mixture-of-models orchestration illustration" width="520">
