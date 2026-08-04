@@ -2740,7 +2740,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             preserved_probe = json.loads(stdout)
             preserved_capabilities = {item["name"]: item for item in preserved_probe["capabilities"]}
             self.assertEqual(preserved_capabilities["mcp_host_config"]["status"], "available")
-            self.assertIn(str(codex_config), preserved_capabilities["mcp_host_config"]["evidence"])
+            self.assertIn(str(codex_config.resolve()), preserved_capabilities["mcp_host_config"]["evidence"])
 
             codex_config.write_text("[profiles.default]\nmodel = \"gpt-5\"\n", encoding="utf-8")
             status, stdout, stderr = run_cli(base + ["probe", "--parity", "--json"], output_json=False)

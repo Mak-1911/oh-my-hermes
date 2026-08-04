@@ -466,7 +466,7 @@ print(json.dumps(observed, ensure_ascii=False))
                 "    )\n",
                 "",
             )
-            init_py.write_text(stale_text, encoding="utf-8")
+            init_py.write_text(stale_text, encoding="utf-8", newline="")
             manifest_path = plugin_dir / ".omh-plugin-manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             for record in manifest["files"]:
