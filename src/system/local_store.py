@@ -50,7 +50,9 @@ def atomic_write_text(path: Path, text: str, *, private: bool = False) -> None:
     tmp = path.with_name(f".{path.name}.{os.getpid()}-{secrets.token_hex(8)}.tmp")
     created_tmp = False
     try:
-        with tmp.open("x", encoding="utf-8") as handle:
+        # newline="" keeps written bytes platform-stable ("\n" stays "\n");
+        # managed-file freshness checks compare disk bytes against template bytes.
+        with tmp.open("x", encoding="utf-8", newline="") as handle:
             created_tmp = True
             handle.write(text)
         if private:

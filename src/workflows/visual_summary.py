@@ -1429,7 +1429,8 @@ def _valid_path_or_uri(value: str) -> bool:
     if not value or "\x00" in value:
         return False
     parsed = urlparse(value)
-    if parsed.scheme:
+    # A single-letter "scheme" is a Windows drive letter ("C:\..."), not a URI.
+    if parsed.scheme and len(parsed.scheme) > 1:
         if parsed.scheme == "file":
             return Path(parsed.path).is_absolute()
         return bool(parsed.netloc)
