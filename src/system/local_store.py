@@ -45,6 +45,21 @@ def can_write_dir(path: Path, *, probe_name: str = ".write-test", private: bool 
         return False
 
 
+def _replace_with_windows_retry(tmp: Path, path: Path) -> None:
+    # Windows denies os.replace while the target is transiently opened by a
+    # concurrent reader or replacer (WinError 5/32); POSIX rename never does.
+    # Retry briefly there; on POSIX a PermissionError is a real error.
+    for delay in (0.01, 0.05, 0.1, 0.2, 0.5):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:
+            if os.name != "nt":
+                raise
+            time.sleep(delay)
+    tmp.replace(path)
+
+
 def atomic_write_text(path: Path, text: str, *, private: bool = False) -> None:
     ensure_dir(path.parent, private=private)
     tmp = path.with_name(f".{path.name}.{os.getpid()}-{secrets.token_hex(8)}.tmp")
@@ -57,7 +72,7 @@ def atomic_write_text(path: Path, text: str, *, private: bool = False) -> None:
             handle.write(text)
         if private:
             tmp.chmod(0o600)
-        tmp.replace(path)
+        _replace_with_windows_retry(tmp, path)
         if private:
             path.chmod(0o600)
     except OSError:
