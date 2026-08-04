@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -9,6 +8,12 @@ import unittest
 from unittest.mock import patch
 
 from _local_package import load_local_package
+from _platform_support import requires_domain_intelligence_store
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows; the suite below is skipped there
+    fcntl = None  # type: ignore[assignment]
 
 load_local_package()
 
@@ -78,6 +83,7 @@ def _write_max_node_artifacts(
         )
 
 
+@requires_domain_intelligence_store
 class DomainSnapshotBudgetRegressionTests(unittest.TestCase):
     def test_aggregate_bytes_reject_96_near_limit_files_before_any_decode(self) -> None:
         with TemporaryDirectory() as tmp:
