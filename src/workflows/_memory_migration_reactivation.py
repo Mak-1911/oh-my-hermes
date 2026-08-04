@@ -108,7 +108,7 @@ def _operation(source: dict[str, Any] | None, existing: dict[str, Any] | None, p
         steps = [{str(key): str(value) for key, value in step.items() if key != "state"} for step in raw_steps if isinstance(step, dict)]
         return str(existing["operation_id"]), steps
     assert source is not None
-    target = str(source["path"].relative_to(paths.memory_dir))
+    target = source["path"].relative_to(paths.memory_dir).as_posix()
     new_id = f"migrated_{secrets.token_hex(12)}"
     new_review = f"review_{secrets.token_hex(12)}"
     review_dir = "block_reviews" if source["kind"] == "block" else "reviews"

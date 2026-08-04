@@ -27,7 +27,9 @@ _DUPLICATE_EXTERNAL_DIRS_SHAPE = "duplicate skills.external_dirs entries are uns
 
 
 def _normalize(value: str | Path) -> str:
-    return str(Path(value).expanduser())
+    # POSIX-form separators keep config.yaml entries byte-stable across
+    # platforms; on POSIX this equals str().
+    return Path(value).expanduser().as_posix()
 
 
 def _parse_inline_list(value: str) -> list[str] | None:

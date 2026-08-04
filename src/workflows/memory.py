@@ -3412,10 +3412,10 @@ def _write_memory_index_unlocked(paths: OmhPaths) -> None:
     here, or they wait out the full timeout against themselves.
     """
     ensure_dir(paths.memory_dir, private=True)
-    scopes = [str(path.relative_to(paths.memory_dir)) for path in _memory_scope_paths(paths)]
-    candidates = [str(path.relative_to(paths.memory_dir)) for path in _safe_memory_files(paths, _memory_candidates_dir(paths))]
-    records = [str(path.relative_to(paths.memory_dir)) for path in _safe_memory_files(paths, _memory_records_dir(paths))]
-    reviews = [str(path.relative_to(paths.memory_dir)) for path in _safe_memory_files(paths, _memory_reviews_dir(paths))]
+    scopes = [path.relative_to(paths.memory_dir).as_posix() for path in _memory_scope_paths(paths)]
+    candidates = [path.relative_to(paths.memory_dir).as_posix() for path in _safe_memory_files(paths, _memory_candidates_dir(paths))]
+    records = [path.relative_to(paths.memory_dir).as_posix() for path in _safe_memory_files(paths, _memory_records_dir(paths))]
+    reviews = [path.relative_to(paths.memory_dir).as_posix() for path in _safe_memory_files(paths, _memory_reviews_dir(paths))]
     atomic_write_json(
         paths.memory_index_path,
         {

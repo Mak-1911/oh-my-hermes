@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
 
@@ -1433,7 +1434,12 @@ def _valid_path_or_uri(value: str) -> bool:
             return Path(parsed.path).is_absolute()
         return bool(parsed.netloc)
     path = Path(value).expanduser()
-    return path.is_absolute()
+    if path.is_absolute():
+        return True
+    # Contract payloads may be recorded on POSIX hosts; a Windows reader must
+    # still classify their POSIX-absolute paths as absolute. POSIX readers are
+    # unaffected: Path() already accepted every PurePosixPath absolute there.
+    return os.name == "nt" and PurePosixPath(value).is_absolute()
 
 
 def _valid_visual_id(value: str) -> bool:

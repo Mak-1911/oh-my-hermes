@@ -231,7 +231,7 @@ def _operation_path(paths: OmhPaths, operation_id: str) -> Path:
 
 
 def _rebuild_index(paths: OmhPaths) -> None:
-    files = {key: [str(path.relative_to(paths.memory_dir)) for path in sorted((paths.memory_dir / directory).rglob("*.json")) if path.is_file() and not path.is_symlink()] for key, directory in _INDEX_DIRS}
+    files = {key: [path.relative_to(paths.memory_dir).as_posix() for path in sorted((paths.memory_dir / directory).rglob("*.json")) if path.is_file() and not path.is_symlink()] for key, directory in _INDEX_DIRS}
     atomic_write_json(paths.memory_index_path, {"schema_version": "omh_memory_index/v1", "updated_at": utc_now(), **files, "claim_boundary": "OMH local memory only; this index is not Hermes internal memory."}, private=True)
 
 

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import os
 import re
 import secrets
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Final, TypeAlias
 from urllib.parse import urlparse
 
@@ -431,7 +432,12 @@ def valid_path_or_uri(value: str) -> bool:
         if parsed.scheme == "file":
             return Path(parsed.path).is_absolute()
         return bool(parsed.netloc)
-    return Path(value).expanduser().is_absolute()
+    if Path(value).expanduser().is_absolute():
+        return True
+    # Contract payloads may be recorded on POSIX hosts; a Windows reader must
+    # still classify their POSIX-absolute paths as absolute. POSIX readers are
+    # unaffected: Path() already accepted every PurePosixPath absolute there.
+    return os.name == "nt" and PurePosixPath(value).is_absolute()
 
 
 def valid_id(value: str) -> bool:

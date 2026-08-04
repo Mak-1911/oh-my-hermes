@@ -175,7 +175,7 @@ def _candidate_pairs(root: Path) -> list[tuple[str, str]]:
     ):
         path = root / directory
         if path.is_dir() and not path.is_symlink():
-            pairs.extend((str(item.relative_to(root)), category) for item in sorted(path.iterdir()) if item.suffix in suffixes)
+            pairs.extend((item.relative_to(root).as_posix(), category) for item in sorted(path.iterdir()) if item.suffix in suffixes)
         elif path.is_symlink():
             pairs.append((directory, category))
     return pairs

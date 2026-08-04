@@ -57,7 +57,7 @@ def skill_records(skills_dir: Path, source: str) -> list[SkillRecord]:
         records.append(
             SkillRecord(
                 name=canonical_by_directory.get(directory, directory),
-                path=str(rel),
+                path=rel.as_posix(),
                 sha256=sha256_file(skill_file),
                 source=source,
             )
