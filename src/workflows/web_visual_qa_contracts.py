@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Final, TypeAlias
 from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from omh.local_store import utc_now
 
@@ -431,7 +432,8 @@ def valid_path_or_uri(value: str) -> bool:
     # A single-letter "scheme" is a Windows drive letter ("C:\..."), not a URI.
     if parsed.scheme and len(parsed.scheme) > 1:
         if parsed.scheme == "file":
-            return Path(parsed.path).is_absolute()
+            # url2pathname turns "/C:/x" into a drive path on Windows; identity on POSIX.
+            return Path(url2pathname(parsed.path)).is_absolute()
         return bool(parsed.netloc)
     if Path(value).expanduser().is_absolute():
         return True

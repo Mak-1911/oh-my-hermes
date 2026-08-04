@@ -130,7 +130,8 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
     config_text = read_config(paths.hermes_config_path)
     dirs = external_dirs(config_text)
     checks.append(Check("hermes_config", paths.hermes_config_path.exists(), f"{paths.hermes_config_path}"))
-    external_registered = str(paths.skills_dir) in dirs
+    # config.yaml stores external_dirs in POSIX form (config_adapter._normalize).
+    external_registered = paths.skills_dir.as_posix() in dirs
     checks.append(Check("external_dir", external_registered, f"{paths.skills_dir} in skills.external_dirs"))
     checks.append(_skill_shadowing_check(paths, dirs))
     checks.append(_memory_provider_check(config_text))
