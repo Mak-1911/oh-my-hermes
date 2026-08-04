@@ -8,6 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from _local_package import load_local_package
+from _platform_support import requires_domain_intelligence_store
 
 load_local_package()
 from omh.coding_delegation import build_coding_delegation_payload
@@ -77,6 +78,7 @@ def _canonical_bytes(value: object) -> bytes:
 
 
 class DomainExpertQuestionGoldenTests(unittest.TestCase):
+    @requires_domain_intelligence_store
     def test_all_catalog_questions_render_with_exact_target_input_and_protected_fields(self) -> None:
         from test_domain_routing_context import _approve_profile, _binding, _repository
 
@@ -178,6 +180,7 @@ class DomainExpertQuestionGoldenTests(unittest.TestCase):
                         1,
                     )
 
+    @requires_domain_intelligence_store
     def test_unsupported_script_uses_the_english_question(self) -> None:
         from test_domain_routing_context import _approve_profile, _binding, _repository
 
@@ -201,6 +204,7 @@ class DomainExpertQuestionGoldenTests(unittest.TestCase):
             "Which account or customer segment should this sales work focus on?",
         )
 
+    @requires_domain_intelligence_store
     def test_non_applied_and_protected_cases_keep_the_exact_existing_body(self) -> None:
         from omh.workflows.domain_intelligence import retire_domain_profile
         from test_domain_routing_context import _approve_profile, _repository

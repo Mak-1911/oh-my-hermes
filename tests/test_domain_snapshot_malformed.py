@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from _platform_support import requires_domain_intelligence_store
 from omh.paths import resolve_paths
 from omh.workflows.domain_intelligence_profile_snapshot import (
     read_validated_domain_profiles_at,
@@ -20,6 +21,7 @@ from domain_routing_context_support import (
 )
 
 
+@requires_domain_intelligence_store
 class DomainSnapshotMalformedTests(unittest.TestCase):
     def test_malformed_profile_revisions_fail_closed_at_each_public_boundary(
         self,

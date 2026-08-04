@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from _cli_harness import run_cli
 from _local_package import load_local_package
+from _platform_support import requires_posix, requires_secure_dir_io
 
 
 load_local_package()
@@ -16,6 +17,7 @@ from omh.workflows.prompt_compatibility import audit_prompt_compatibility
 
 
 class PromptCompatibilityAuditTests(unittest.TestCase):
+    @requires_secure_dir_io
     def test_audit_classifies_explicit_text_sources_without_returning_prompt_bodies(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
@@ -61,6 +63,7 @@ class PromptCompatibilityAuditTests(unittest.TestCase):
             self.assertIn("slash command registration", payload["claim_boundary"].lower())
             self.assertEqual(payload["not_observed"]["slash_command_registration"]["status"], "not_observed")
 
+    @requires_secure_dir_io
     def test_audit_marks_secret_like_text_for_review_and_rejects_unsafe_source_shapes(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
@@ -87,6 +90,7 @@ class PromptCompatibilityAuditTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exceeds 131072 bytes"):
                 audit_prompt_compatibility((oversized,))
 
+    @requires_secure_dir_io
     def test_audit_rejects_sensitive_metadata_and_symlinks_at_every_path_component(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
@@ -110,6 +114,7 @@ class PromptCompatibilityAuditTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "must not contain a symlink"):
                 audit_prompt_compatibility((aliased_dir / "safe.md",))
 
+    @requires_secure_dir_io
     def test_audit_rejects_final_symlink_replaced_after_validation(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
@@ -123,6 +128,7 @@ class PromptCompatibilityAuditTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "cannot be safely opened"):
                     audit_prompt_compatibility((source,))
 
+    @requires_posix
     def test_audit_rejects_final_fifo_replaced_after_validation_without_blocking(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
@@ -136,6 +142,7 @@ class PromptCompatibilityAuditTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "regular file"):
                     audit_prompt_compatibility((source,))
 
+    @requires_secure_dir_io
     def test_cli_audits_only_named_prompt_files_without_writing_or_registering_commands(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()

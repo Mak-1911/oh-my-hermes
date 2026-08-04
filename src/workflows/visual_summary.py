@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from ..hashutil import sha256_text
 from ..local_store import atomic_write_json, ensure_dir, read_json_object_result, utc_now
@@ -1428,12 +1430,19 @@ def _valid_path_or_uri(value: str) -> bool:
     if not value or "\x00" in value:
         return False
     parsed = urlparse(value)
-    if parsed.scheme:
+    # A single-letter "scheme" is a Windows drive letter ("C:\..."), not a URI.
+    if parsed.scheme and len(parsed.scheme) > 1:
         if parsed.scheme == "file":
-            return Path(parsed.path).is_absolute()
+            # url2pathname turns "/C:/x" into a drive path on Windows; identity on POSIX.
+            return Path(url2pathname(parsed.path)).is_absolute()
         return bool(parsed.netloc)
     path = Path(value).expanduser()
-    return path.is_absolute()
+    if path.is_absolute():
+        return True
+    # Contract payloads may be recorded on POSIX hosts; a Windows reader must
+    # still classify their POSIX-absolute paths as absolute. POSIX readers are
+    # unaffected: Path() already accepted every PurePosixPath absolute there.
+    return os.name == "nt" and PurePosixPath(value).is_absolute()
 
 
 def _valid_visual_id(value: str) -> bool:

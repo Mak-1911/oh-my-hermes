@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from typing import TypedDict
 
 from _local_package import load_local_package
+from _platform_support import requires_posix_permissions
 
 load_local_package()
 from omh.coding.executor_capability_snapshots import (
@@ -93,6 +94,7 @@ class ExecutorCapabilitySnapshotTests(unittest.TestCase):
         }
         self.assertIn("parallel_agents host_observed capability requires a nonempty evidence_ref", validate_executor_capability_snapshot(invalid))
 
+    @requires_posix_permissions
     def test_persists_private_snapshot_and_rejects_lifecycle_or_raw_material(self) -> None:
         snapshot = build_executor_capability_snapshot(
             executor="claude-code",

@@ -181,7 +181,7 @@ class RouterContentTests(unittest.TestCase):
     def test_router_documents_best_effort_and_recovery(self) -> None:
         router = next(skill for skill in builtin_skill_templates() if skill.name == "oh-my-hermes")
         references = {
-            str(Path(template.skill_name) / template.relative_path): template.content
+            (Path(template.skill_name) / template.relative_path).as_posix(): template.content
             for template in builtin_skill_reference_templates()
         }
         workflow_registry = references["oh-my-hermes/references/workflow-registry.md"]
@@ -1097,7 +1097,7 @@ class RouterContentTests(unittest.TestCase):
 
     def test_router_renders_representative_harness_registry(self) -> None:
         references = {
-            str(Path(template.skill_name) / template.relative_path): template.content
+            (Path(template.skill_name) / template.relative_path).as_posix(): template.content
             for template in builtin_skill_reference_templates()
         }
         harness_registry = references["oh-my-hermes/references/harness-registry.md"]

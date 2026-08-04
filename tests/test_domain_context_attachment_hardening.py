@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
+from _platform_support import requires_domain_intelligence_store
 from omh.routing.chat import route_chat_message
 from omh.workflows.domain_project_context import HostProjectBinding
 from omh.workflows.domain_routing_context import (
@@ -93,6 +94,7 @@ class DomainContextAttachmentHardeningTests(unittest.TestCase):
         resolver.assert_called_once_with(binding, message, locale="en")
         binding.close.assert_called_once_with()
 
+    @requires_domain_intelligence_store
     def test_result_cap_plus_one_fails_before_snapshot_scan(self) -> None:
         with TemporaryDirectory() as temporary:
             root = _repository(Path(temporary) / "bounded-resolution")

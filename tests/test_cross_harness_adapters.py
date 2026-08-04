@@ -27,6 +27,8 @@ from src.quality.cross_harness_adapters import (
     run_adapter,
 )
 
+from _platform_support import requires_secure_dir_io
+
 
 ROOT = Path(__file__).parents[1]
 FIXTURES = ROOT / "tests" / "fixtures" / "cross_harness_adapter"
@@ -128,6 +130,7 @@ class _RunnerMixin(unittest.TestCase):
         return outcome
 
 
+@requires_secure_dir_io
 class FailClosedAdapterRunnerTests(_RunnerMixin):
     def test_atomic_json_write_does_not_follow_predictable_temp_symlink(self) -> None:
         with TemporaryDirectory() as temporary:

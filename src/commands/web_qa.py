@@ -196,6 +196,11 @@ def _parse_criterion(value: str) -> JsonObject:
 
 def _parse_capture(value: str, *, redaction_status: str = "unknown", attachment: str = "eligible") -> JsonObject:
     head = value.split(":", 5)
+    # A Windows drive-letter path ("C:\...") contributes a colon of its own in
+    # the path field; re-join the drive letter with its path segment.
+    if len(head) == 6 and len(head[2].strip()) == 1 and head[2].strip().isalpha() and head[3][:1] in ("\\", "/"):
+        head = value.split(":", 6)
+        head[2:4] = [f"{head[2]}:{head[3]}"]
     if len(head) != 6:
         raise ValueError("--capture must contain at least 6 colon-separated fields")
     capture_id, role, path, mime_type, viewport = [part.strip() for part in head[:5]]

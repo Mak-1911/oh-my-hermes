@@ -124,7 +124,15 @@ class WorktreeObservationTests(unittest.TestCase):
             self.assertIn("workspace_policy", isolation_plan)
             commands = payload["launch"]["resolved_command_templates"]
             self.assertTrue(any(command.get("argv_template", [None, None])[1] == "--cd" for command in commands))
-            self.assertTrue(any(str(target.resolve()) in str(command) for command in commands))
+            # Check the raw argv/shell strings directly rather than str(command): stringifying
+            # the dict repr-escapes embedded backslashes (doubling them on Windows paths), which
+            # would never match the unescaped str(target.resolve()) on that platform.
+            command_values = [
+                str(value)
+                for command in commands
+                for value in [*command.get("argv_template", []), command.get("shell_command_template", "")]
+            ]
+            self.assertTrue(any(str(target.resolve()) in value for value in command_values))
             actions = {action["id"]: action for action in payload["wrapper_actions"]}
             self.assertTrue(actions["open_executor_session"]["enabled"])
             self.assertEqual(actions["open_executor_session"]["launch_command_template_id"], "codex_interactive_workspace")

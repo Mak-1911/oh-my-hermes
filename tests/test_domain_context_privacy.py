@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from _local_package import load_local_package
+from _platform_support import requires_domain_intelligence_store
 
 load_local_package()
 
@@ -164,6 +165,7 @@ class DomainContextPrivacyTestCase(unittest.TestCase):
         return binding
 
 
+@requires_domain_intelligence_store
 class DomainContextPrivacyTests(DomainContextPersistencePrivacyMixin, DomainContextPrivacyTestCase):
     def test_public_context_has_only_contract_fields_and_public_digest_inputs(self) -> None:
         interaction = self._applied_interaction()

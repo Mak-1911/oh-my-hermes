@@ -213,7 +213,9 @@ def _copy_resource_tree(root: Any, dest: Path) -> None:
         if item.is_dir():
             _copy_resource_tree(item, target)
         elif item.is_file():
-            target.write_text(item.read_text(encoding="utf-8"), encoding="utf-8")
+            # newline="" keeps disk bytes equal to the manifest's LF-normalized
+            # hashes; plugin freshness compares sha256_file against sha256_text.
+            target.write_text(item.read_text(encoding="utf-8"), encoding="utf-8", newline="")
 
 
 def _new_plugin_manifest(target: Path, file_records: list[dict[str, str]]) -> dict[str, Any]:

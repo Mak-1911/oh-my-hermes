@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+from _platform_support import requires_domain_intelligence_store
 from omh.skills import catalog
 from omh.system.local_store import FileLockTimeout
 from omh.workflows.domain_routing_context import (
@@ -20,6 +21,7 @@ from domain_context_diagnostics_support import (
 from test_domain_routing_context import _binding, _repository
 
 
+@requires_domain_intelligence_store
 class DomainContextResolutionDiagnosticTests(
     DomainDiagnosticResolverMixin,
     unittest.TestCase,

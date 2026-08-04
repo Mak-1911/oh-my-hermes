@@ -466,7 +466,7 @@ print(json.dumps(observed, ensure_ascii=False))
                 "    )\n",
                 "",
             )
-            init_py.write_text(stale_text, encoding="utf-8")
+            init_py.write_text(stale_text, encoding="utf-8", newline="")
             manifest_path = plugin_dir / ".omh-plugin-manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             for record in manifest["files"]:
@@ -1069,7 +1069,7 @@ class UpdateCarriesRegistrationTests(unittest.TestCase):
 
             config = self._config(root).read_text(encoding="utf-8")
             self.assertIn("provider: omh", config)
-            self.assertIn(str(root / ".omh" / "skills"), config)
+            self.assertIn((root / ".omh" / "skills").resolve().as_posix(), config)
             self.assertFalse(self._bundle_stray(root).exists())
 
     def _bundle_stray(self, root: Path) -> Path:

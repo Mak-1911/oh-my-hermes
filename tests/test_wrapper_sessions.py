@@ -9,6 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from _local_package import load_local_package
+from _platform_support import requires_domain_intelligence_store
 
 load_local_package()
 from omh.coding_lifecycle import record_codex_dispatch, record_codex_result, record_codex_verification, start_codex_delegation_lifecycle
@@ -57,6 +58,7 @@ from omh.wrapper_contract import build_chat_interaction_payload
 
 
 class DomainContextSessionBindingTests(unittest.TestCase):
+    @requires_domain_intelligence_store
     def test_each_turn_uses_a_fresh_host_binding_without_cross_project_reuse(self) -> None:
         from omh.workflows.domain_project_context import bind_plugin_project
         from domain_project_context_helpers import domain_store as _domain_store

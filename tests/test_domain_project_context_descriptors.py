@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from _local_package import load_local_package
+from _platform_support import requires_domain_intelligence_store
 
 load_local_package()
 
@@ -26,6 +27,7 @@ class DomainProjectContextDescriptorTests(unittest.TestCase):
         if binding is not None:
             binding.close()
 
+    @requires_domain_intelligence_store
     def test_same_named_repositories_keep_distinct_bound_stores(self) -> None:
         domain_context = self._module()
         with TemporaryDirectory() as tmp:
@@ -47,6 +49,7 @@ class DomainProjectContextDescriptorTests(unittest.TestCase):
             self.assertEqual(first_value, {"marker": "first"})
             self.assertEqual(second_value, {"marker": "second"})
 
+    @requires_domain_intelligence_store
     def test_bound_descriptor_survives_path_swap(self) -> None:
         domain_context = self._module()
         with TemporaryDirectory() as tmp:
@@ -72,6 +75,7 @@ class DomainProjectContextDescriptorTests(unittest.TestCase):
                 original_identity,
             )
 
+    @requires_domain_intelligence_store
     def test_session_binding_duplicates_trusted_descriptor_after_path_swap(self) -> None:
         domain_context = self._module()
         with TemporaryDirectory() as tmp:
@@ -131,6 +135,7 @@ class DomainProjectContextDescriptorTests(unittest.TestCase):
             with next_session_binding.open_directory("profiles") as directory_fd:
                 self.assertEqual(_read_marker(directory_fd), {"marker": "host-bound"})
 
+    @requires_domain_intelligence_store
     def test_session_binding_rejects_closed_or_changed_host_descriptor(self) -> None:
         domain_context = self._module()
         with TemporaryDirectory() as tmp:
@@ -155,6 +160,7 @@ class DomainProjectContextDescriptorTests(unittest.TestCase):
             )
             self.assertIsNone(domain_context.bind_session_project(changed_binding))
 
+    @requires_domain_intelligence_store
     def test_session_constructor_failure_closes_duplicated_descriptor(self) -> None:
         domain_context = self._module()
         with TemporaryDirectory() as tmp:
@@ -190,6 +196,7 @@ class DomainProjectContextDescriptorTests(unittest.TestCase):
 
             self.assertIsNone(domain_context.bind_cli_project(root))
 
+    @requires_domain_intelligence_store
     def test_binding_constructor_failure_closes_owned_descriptor(self) -> None:
         domain_context = self._module()
         with TemporaryDirectory() as tmp:

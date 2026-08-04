@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 import re
 import secrets
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Final, TypeAlias
 from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from omh.local_store import utc_now
 
@@ -427,11 +429,18 @@ def valid_path_or_uri(value: str) -> bool:
     if not value or "\x00" in value:
         return False
     parsed = urlparse(value)
-    if parsed.scheme:
+    # A single-letter "scheme" is a Windows drive letter ("C:\..."), not a URI.
+    if parsed.scheme and len(parsed.scheme) > 1:
         if parsed.scheme == "file":
-            return Path(parsed.path).is_absolute()
+            # url2pathname turns "/C:/x" into a drive path on Windows; identity on POSIX.
+            return Path(url2pathname(parsed.path)).is_absolute()
         return bool(parsed.netloc)
-    return Path(value).expanduser().is_absolute()
+    if Path(value).expanduser().is_absolute():
+        return True
+    # Contract payloads may be recorded on POSIX hosts; a Windows reader must
+    # still classify their POSIX-absolute paths as absolute. POSIX readers are
+    # unaffected: Path() already accepted every PurePosixPath absolute there.
+    return os.name == "nt" and PurePosixPath(value).is_absolute()
 
 
 def valid_id(value: str) -> bool:

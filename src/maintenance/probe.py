@@ -90,7 +90,7 @@ def _marker_capability(name: str, markers: list[Path], found_message: str, missi
 
 def _mcp_preference_capability(paths: OmhPaths) -> Capability:
     state, error = read_state_result(paths)
-    evidence = str(paths.runtime_state_path)
+    evidence = paths.runtime_state_path.as_posix()
     if error:
         return Capability(
             "mcp_preference",
@@ -408,7 +408,8 @@ def _dir_capability(name: str, path: Path, found_message: str, missing_message: 
 def probe_capabilities(paths: OmhPaths, *, include_parity: bool = False, include_roadmap: bool = False) -> dict:
     config_text = read_config(paths.hermes_config_path)
     configured_dirs = external_dirs(config_text)
-    skills_registered = str(paths.skills_dir) in configured_dirs
+    # config.yaml stores external_dirs in POSIX form (config_adapter._normalize).
+    skills_registered = paths.skills_dir.as_posix() in configured_dirs
     capabilities: list[Capability] = []
     managed_skill_path = paths.skills_dir / omh_skill_display_name("oh-my-hermes") / "SKILL.md"
 

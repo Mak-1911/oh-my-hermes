@@ -40,6 +40,7 @@ def _repository(path: Path) -> Path:
 def _command_environment(root: Path) -> dict[str, str]:
     environment = os.environ.copy()
     environment["HOME"] = str(root.parent / "isolated-home")
+    environment["USERPROFILE"] = str(root.parent / "isolated-home")
     environment["OMH_HOME"] = str(root.parent / "hostile-env" / ".omh")
     environment["HERMES_HOME"] = str(root.parent / "hostile-env" / ".hermes")
     environment["PYTHONPATH"] = os.pathsep.join(

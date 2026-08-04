@@ -111,9 +111,9 @@ def _tap_skills_check_payload(skills_root: Path) -> dict[str, object]:
     paths = {path.parent.name: path for path in skills_root.glob("*/SKILL.md")}
     reference_paths = {path.relative_to(skills_root): path for path in skills_root.glob("*/references/*.md")}
     missing = sorted(name for name in templates if name not in paths)
-    missing.extend(str(path) for path in sorted(reference_templates) if path not in reference_paths)
+    missing.extend(path.as_posix() for path in sorted(reference_templates) if path not in reference_paths)
     extra = sorted(name for name in paths if name not in templates)
-    extra.extend(str(path) for path in sorted(reference_paths) if path not in reference_templates)
+    extra.extend(path.as_posix() for path in sorted(reference_paths) if path not in reference_templates)
     stale: list[str] = []
     for name, path in sorted(paths.items()):
         if name in templates and path.read_text(encoding="utf-8") != templates[name].content:
@@ -121,7 +121,7 @@ def _tap_skills_check_payload(skills_root: Path) -> dict[str, object]:
     for rel_path, path in sorted(reference_paths.items()):
         template = reference_templates.get(rel_path)
         if template and path.read_text(encoding="utf-8") != template.content:
-            stale.append(str(rel_path))
+            stale.append(rel_path.as_posix())
     return {
         "ok": not missing and not stale and not extra,
         "root": str(skills_root.resolve()),

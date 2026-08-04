@@ -231,7 +231,7 @@ class ResidualIdentifierScanTests(unittest.TestCase):
 
         # test_memory_curation_review_removed legitimately references the literal
         # identifier to assert its absence, so exclude this test file itself.
-        self_rel = str(Path(__file__).resolve().relative_to(repo_root))
+        self_rel = Path(__file__).resolve().relative_to(repo_root).as_posix()
 
         offenders: list[str] = []
         for rel in tracked:

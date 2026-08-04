@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase
 
 from _local_package import load_local_package
+from _platform_support import requires_fcntl_locks
 
 load_local_package()
 from omh.paths import resolve_paths
@@ -182,6 +183,7 @@ class MemoryBatchTests(TestCase):
 
             self.assertEqual(item["replay_evaluation"]["reason_code"], "review_required_legacy")
 
+    @requires_fcntl_locks
     def test_two_process_apply_serializes_same_scope_and_preserves_different_scopes(self) -> None:
         for distinct_scopes in (False, True):
             with self.subTest(distinct_scopes=distinct_scopes), TemporaryDirectory() as home:

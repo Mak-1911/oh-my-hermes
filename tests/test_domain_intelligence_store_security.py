@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from _local_package import load_local_package
+from _platform_support import requires_domain_intelligence_store
 
 load_local_package()
 from omh.paths import resolve_paths
@@ -16,6 +17,7 @@ from omh.workflows import domain_intelligence_store_security as security
 from omh.workflows import domain_intelligence_store_writer as store_writer
 
 
+@requires_domain_intelligence_store
 class DomainIntelligenceStoreSecurityTests(unittest.TestCase):
     def test_domain_root_creation_stays_on_opened_parent_after_swap(self) -> None:
         with TemporaryDirectory() as tmp:

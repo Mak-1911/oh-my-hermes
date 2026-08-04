@@ -8,6 +8,7 @@ from unittest import mock
 
 from _local_package import load_local_package
 from _cli_harness import run_cli
+from _platform_support import requires_domain_intelligence_store
 
 load_local_package()
 from omh.context_safety import CONTEXT_ARTIFACT_REF_SCHEMA_VERSION
@@ -86,6 +87,7 @@ class DomainContextAttachmentTests(unittest.TestCase):
                     (0, 0, 0),
                 )
 
+    @requires_domain_intelligence_store
     def test_package_attachment_is_applied_only_and_byte_preserving(self) -> None:
         from test_domain_routing_context import _approve_profile, _binding, _repository
 
@@ -152,6 +154,7 @@ class DomainContextAttachmentTests(unittest.TestCase):
                 applied["chat_response"]["messenger_rendering"]["fallback_body_text"],
             )
 
+    @requires_domain_intelligence_store
     def test_protected_and_unhealthy_rows_omit_context(self) -> None:
         from test_domain_routing_context import _approve_profile, _binding, _repository
 
@@ -196,6 +199,7 @@ class DomainContextAttachmentTests(unittest.TestCase):
             binding_factory.assert_not_called()
             self.assertNotIn("domain_routing_context", protected_without_derivation)
 
+    @requires_domain_intelligence_store
     def test_cli_mints_binding_from_invocation_cwd(self) -> None:
         from test_domain_routing_context import _approve_profile, _repository
 
@@ -238,6 +242,7 @@ class DomainContextAttachmentTests(unittest.TestCase):
                 },
             )
 
+    @requires_domain_intelligence_store
     def test_cli_protected_clarifications_ignore_matching_domain_profiles(self) -> None:
         from test_domain_routing_context import _approve_profile, _repository
 
@@ -290,6 +295,7 @@ class DomainContextAttachmentTests(unittest.TestCase):
                         _canonical_bytes(baseline["chat_response"]),
                     )
 
+    @requires_domain_intelligence_store
     def test_explicit_delegate_mode_omits_unused_domain_context(self) -> None:
         from test_domain_routing_context import _approve_profile, _binding, _repository
 

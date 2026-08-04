@@ -213,7 +213,7 @@ def _refresh_hermes_registration(args: argparse.Namespace) -> dict[str, object] 
     put it back.
     """
     paths = _paths(args)
-    if str(paths.skills_dir) not in external_dirs(read_config(paths.hermes_config_path)):
+    if paths.skills_dir.as_posix() not in external_dirs(read_config(paths.hermes_config_path)):
         return None
     try:
         return _apply_result(args)
@@ -1493,7 +1493,7 @@ def _run_setup_wizard(args: argparse.Namespace, paths, language: str) -> None:
     print(f"{tr(language, 'hermes_home')}: {_color(str(paths.hermes_home), '36', use_color)}")
     if paths.hermes_config_path.exists():
         config_text = read_config(paths.hermes_config_path)
-        registered = str(paths.skills_dir) in external_dirs(config_text)
+        registered = paths.skills_dir.as_posix() in external_dirs(config_text)
         status = tr(language, "status_already_registered") if registered else tr(language, "status_will_register")
         print(f"{tr(language, 'hermes_config')}: {_color(str(paths.hermes_config_path), '36', use_color)} ({status})")
     else:

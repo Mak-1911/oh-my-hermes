@@ -12,8 +12,11 @@ from omh.skill_pack import builtin_definitions, builtin_harnesses
 from omh.wrapper.contract import VISIBLE_ACTIONS, build_chat_interaction_payload
 from omh.workflows.plugin_risk_audit import audit_plugin_risk
 
+from _platform_support import requires_secure_dir_io
+
 
 class PluginRiskAuditTests(unittest.TestCase):
+    @requires_secure_dir_io
     def test_audit_reports_static_risk_categories_without_exposing_plugin_source(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -55,6 +58,7 @@ class PluginRiskAuditTests(unittest.TestCase):
         self.assertNotIn(source_marker, json.dumps(payload))
         self.assertNotIn(str(root), json.dumps(payload))
 
+    @requires_secure_dir_io
     def test_audit_rejects_non_directory_and_symlinked_plugin_sources(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -78,6 +82,7 @@ class PluginRiskAuditTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "symlink"):
                 audit_plugin_risk(aliased_parent / "plugin")
 
+    @requires_secure_dir_io
     def test_audit_classifies_javascript_plugins_and_package_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -104,6 +109,7 @@ class PluginRiskAuditTests(unittest.TestCase):
             ],
         )
 
+    @requires_secure_dir_io
     def test_audit_does_not_treat_javascript_process_execution_as_dynamic_code(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -129,6 +135,7 @@ class PluginRiskAuditTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "regular files"):
                 audit_plugin_risk(root)
 
+    @requires_secure_dir_io
     def test_audit_bounds_directory_entries_and_uses_only_the_root_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
@@ -149,6 +156,7 @@ class PluginRiskAuditTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "at most 128 entries"):
                 audit_plugin_risk(root)
 
+    @requires_secure_dir_io
     def test_cli_audits_one_explicit_plugin_root_without_registering_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

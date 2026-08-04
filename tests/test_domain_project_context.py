@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from _local_package import load_local_package
+from _platform_support import requires_domain_intelligence_store
 
 load_local_package()
 
@@ -26,6 +27,7 @@ class DomainProjectContextTests(DomainProjectContextLockMixin, unittest.TestCase
         if binding is not None:
             binding.close()
 
+    @requires_domain_intelligence_store
     def test_host_binding_is_surface_specific(self) -> None:
         domain_context = self._module()
         with TemporaryDirectory() as tmp:
@@ -77,6 +79,7 @@ class DomainProjectContextTests(DomainProjectContextLockMixin, unittest.TestCase
             self.assertIsNone(domain_context.bind_session_project(None))
             self.assertIsNone(domain_context.bind_session_project(session_binding))
 
+    @requires_domain_intelligence_store
     def test_cli_binding_canonicalizes_nested_and_symlinked_cwd(self) -> None:
         domain_context = self._module()
         with TemporaryDirectory() as tmp:
@@ -95,6 +98,7 @@ class DomainProjectContextTests(DomainProjectContextLockMixin, unittest.TestCase
             self.assertEqual(binding.project_paths.omh_home, root / ".omh")
             self.assertFalse(binding.project_paths.omh_home_named)
 
+    @requires_domain_intelligence_store
     def test_linked_worktree_root_is_supported(self) -> None:
         domain_context = self._module()
         with TemporaryDirectory() as tmp:

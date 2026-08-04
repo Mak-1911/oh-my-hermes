@@ -211,14 +211,16 @@ def _bounded_lines(kind: str, count: int, limit: int) -> list[str]:
 def _write(path: Path, value: dict[str, object]) -> int:
     text = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    # newline="" keeps disk bytes equal to the returned byte count; the
+    # exact_persisted_bytes correctness gate compares the two.
+    path.write_text(text, encoding="utf-8", newline="")
     return len(text.encode("utf-8"))
 
 
 def _write_lines(path: Path, lines: list[str]) -> int:
     text = "".join(f"{line}\n" for line in lines)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="")
     return len(text.encode("utf-8"))
 
 

@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from _platform_support import requires_domain_intelligence_store
 from domain_context_lifecycle_support import (
     EN_SALES_QUESTION as EN_SALES_QUESTION,
     PUBLIC_CONTEXT_KEYS as PUBLIC_CONTEXT_KEYS,
@@ -22,6 +23,7 @@ from test_domain_context_lifecycle_journey import DomainContextLifecycleJourneyM
 from test_domain_context_store_isolation import DomainContextStoreIsolationMixin
 
 
+@requires_domain_intelligence_store
 class DomainContextLifecycleTests(
     DomainContextLifecycleJourneyMixin,
     DomainContextStoreIsolationMixin,

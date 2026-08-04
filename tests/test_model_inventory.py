@@ -321,7 +321,7 @@ class ModelInventoryCliTests(unittest.TestCase):
         )
         with TemporaryDirectory() as tmp:
             home = _write_home(tmp, omo_config=_OMO_FIXTURE)
-            with mock.patch.dict("os.environ", {"HOME": str(home)}):
+            with mock.patch.dict("os.environ", {"HOME": str(home), "USERPROFILE": str(home)}):
                 status, stdout, _stderr = run_cli(
                     ["coding", "fanout", "prepare", "--goal", "ship", "the", "feature", "--units", "-"],
                     stdin_text=units,
@@ -354,7 +354,7 @@ class ModelInventoryCliTests(unittest.TestCase):
         for config in (_OMO_FIXTURE, None):
             with TemporaryDirectory() as tmp:
                 home = _write_home(tmp, omo_config=config) if config else Path(tmp)
-                with mock.patch.dict("os.environ", {"HOME": str(home)}):
+                with mock.patch.dict("os.environ", {"HOME": str(home), "USERPROFILE": str(home)}):
                     status, stdout, _stderr = run_cli(
                         ["coding", "fanout", "prepare", "--goal", "ship", "it", "--units", "-"],
                         stdin_text=units,
@@ -366,7 +366,7 @@ class ModelInventoryCliTests(unittest.TestCase):
     def test_model_route_cli_from_inventory_flag(self) -> None:
         with TemporaryDirectory() as tmp:
             home = _write_home(tmp, omo_config=_OMO_FIXTURE)
-            with mock.patch.dict("os.environ", {"HOME": str(home)}):
+            with mock.patch.dict("os.environ", {"HOME": str(home), "USERPROFILE": str(home)}):
                 status, stdout, _stderr = run_cli(
                     [
                         "coding",
@@ -388,7 +388,7 @@ class ModelInventoryCliTests(unittest.TestCase):
     def test_cli_plain_text_default_and_json_optin(self) -> None:
         with TemporaryDirectory() as tmp:
             home = _write_home(tmp, omo_config=_OMO_FIXTURE)
-            with mock.patch.dict("os.environ", {"HOME": str(home)}):
+            with mock.patch.dict("os.environ", {"HOME": str(home), "USERPROFILE": str(home)}):
                 status, stdout, _stderr = run_cli(
                     ["coding", "model-inventory"], output_json=False
                 )

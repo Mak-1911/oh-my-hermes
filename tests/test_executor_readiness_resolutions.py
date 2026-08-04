@@ -22,6 +22,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from _local_package import load_local_package
+from _platform_support import requires_posix
 
 load_local_package()
 from omh.coding.executor_readiness import (
@@ -38,6 +39,7 @@ def _fake_binary(directory: str, name: str, version: str) -> Path:
     return path
 
 
+@requires_posix
 class PathResolutionReportTests(unittest.TestCase):
     def _probe(self, path_value: str) -> dict:
         with patch.dict(os.environ, {"PATH": path_value}):

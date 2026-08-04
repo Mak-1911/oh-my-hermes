@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fcntl
 import importlib
 import inspect
 import os
@@ -9,8 +8,16 @@ from tempfile import TemporaryDirectory
 import time
 from unittest.mock import patch
 
+from _platform_support import requires_domain_intelligence_store
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows; tests below are skipped there
+    fcntl = None  # type: ignore[assignment]
+
 
 class DomainProjectContextLockMixin:
+    @requires_domain_intelligence_store
     def test_shared_lock_is_descriptor_relative_nonblocking_and_fail_closed(
         self,
     ) -> None:
@@ -53,6 +60,7 @@ class DomainProjectContextLockMixin:
                 with binding.shared_store_lock():
                     pass
 
+    @requires_domain_intelligence_store
     def test_shared_lock_times_out_without_creating_or_reopening_lock(self) -> None:
         from domain_project_context_helpers import (
             domain_store as _domain_store,
@@ -77,6 +85,7 @@ class DomainProjectContextLockMixin:
                 fcntl.flock(contender, fcntl.LOCK_UN)
                 os.close(contender)
 
+    @requires_domain_intelligence_store
     def test_shared_lock_honors_configured_poll_interval(self) -> None:
         from domain_project_context_helpers import (
             domain_store as _domain_store,

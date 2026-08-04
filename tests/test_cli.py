@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from _cli_harness import run_cli
+from _platform_support import requires_posix
 from omh.cli import OmhError, cmd_runtime_merge
 from omh.commands import setup as setup_commands
 from omh.commands.main import build_parser
@@ -1456,7 +1457,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("OMH workflows:", stdout)
             self.assertIn("Install location:", stdout)
             self.assertIn("Status:", stdout)
-            self.assertIn("Terminal command: omh found at /usr/local/bin/omh", stdout)
+            self.assertIn(f"Terminal command: omh found at {Path('/usr/local/bin/omh').resolve()}", stdout)
             self.assertIn("Hermes connection:", stdout)
             self.assertIn("Coding requests:", stdout)
             self.assertIn("Coding requests: Ask every time", stdout)
@@ -1691,7 +1692,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(stderr, "")
             self.assertIn("OMH setup complete.", stdout)
             config_text = config_path.read_text(encoding="utf-8")
-            self.assertEqual(external_dirs(config_text), [str((omh_home / "skills").resolve())])
+            self.assertEqual(external_dirs(config_text), [(omh_home / "skills").resolve().as_posix()])
             self.assertIn("  external_dirs:\n    - ", config_text)
             self.assertNotIn("external_dirs: null", config_text)
 
@@ -2486,7 +2487,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("OMH status helper:", stdout)
             self.assertIn("coding preference saved: Ask every time", stdout)
             self.assertIn("omh setup --default-executor", stdout)
-            self.assertIn(str(omh_home / "skills"), (hermes_home / "config.yaml").read_text(encoding="utf-8"))
+            self.assertIn((omh_home / "skills").resolve().as_posix(), (hermes_home / "config.yaml").read_text(encoding="utf-8"))
             profile = json.loads((omh_home / "setup-profile.json").read_text(encoding="utf-8"))
             self.assertEqual(profile["selected_categories"], ["safety-first"])
             self.assertEqual(profile["default_executor"], "choose")
@@ -2596,7 +2597,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(payload["operator_summary"]["paths"]["hermes_home"], str((root / ".hermes").resolve()))
             self.assertTrue((root / ".omh" / "skills").exists())
             self.assertTrue((root / ".hermes" / "config.yaml").exists())
-            self.assertIn(str((root / ".omh" / "skills").resolve()), (root / ".hermes" / "config.yaml").read_text(encoding="utf-8"))
+            self.assertIn((root / ".omh" / "skills").resolve().as_posix(), (root / ".hermes" / "config.yaml").read_text(encoding="utf-8"))
 
             with patch("omh.paths.Path.cwd", return_value=root):
                 doctor_status, doctor_stdout, doctor_stderr = run_cli(["--scope", "project", "doctor"])
@@ -2724,7 +2725,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             probe = json.loads(stdout)
             capabilities = {item["name"]: item for item in probe["capabilities"]}
             self.assertEqual(capabilities["mcp_host_config"]["status"], "available")
-            self.assertIn(str(codex_config), capabilities["mcp_host_config"]["evidence"])
+            self.assertIn(str(codex_config.resolve()), capabilities["mcp_host_config"]["evidence"])
             self.assertEqual(probe["parity_matrix"]["probe_alignment"]["mcp_host_config"], "available")
 
             status, stdout, stderr = run_cli(base + ["setup", "--no-interactive"])
@@ -2739,7 +2740,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             preserved_probe = json.loads(stdout)
             preserved_capabilities = {item["name"]: item for item in preserved_probe["capabilities"]}
             self.assertEqual(preserved_capabilities["mcp_host_config"]["status"], "available")
-            self.assertIn(str(codex_config), preserved_capabilities["mcp_host_config"]["evidence"])
+            self.assertIn(str(codex_config.resolve()), preserved_capabilities["mcp_host_config"]["evidence"])
 
             codex_config.write_text("[profiles.default]\nmodel = \"gpt-5\"\n", encoding="utf-8")
             status, stdout, stderr = run_cli(base + ["probe", "--parity", "--json"], output_json=False)
@@ -2957,7 +2958,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(payload["release_update"]["status"], "refreshed")
             self.assertEqual(payload["release_update"]["display"]["source_ref_change"], "main -> main")
             self.assertEqual(payload["runtime_state_key"], "last_update")
-            self.assertTrue(str(payload["runtime_state_path"]).endswith("runtime/state.json"))
+            self.assertTrue(str(payload["runtime_state_path"]).endswith(os.path.join("runtime", "state.json")))
 
             state = json.loads((root / ".omh" / "runtime" / "state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["last_update"]["operation"], "update")
@@ -3573,6 +3574,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertFalse(payload["observed"])
             self.assertEqual(payload["install_script"], str(install_script.resolve()))
 
+    @requires_posix
     def test_release_hermes_smoke_cli_can_observe_installed_command_without_live_profile_mutation(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -10266,7 +10268,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("oh-my-hermes", names)
             self.assertIn("plan", names)
             self.assertIn("doctor", names)
-            self.assertIn(str(omh_home / "skills"), (hermes_home / "config.yaml").read_text(encoding="utf-8"))
+            self.assertIn((omh_home / "skills").resolve().as_posix(), (hermes_home / "config.yaml").read_text(encoding="utf-8"))
             state = json.loads((omh_home / "runtime" / "state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["installed_skills"], len(manifest["skills"]))
             self.assertEqual(state["last_applied_skills_dir"], str((omh_home / "skills").resolve()))
@@ -10328,7 +10330,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             )
             self.assertEqual(payload["hermes_native"]["hermes_config_key"], "skills.external_dirs")
             self.assertIn("not the normal chat UX", payload["hermes_native"]["wrapper_backend_surface"])
-            self.assertIn(str(omh_home / "skills"), (hermes_home / "config.yaml").read_text(encoding="utf-8"))
+            self.assertIn((omh_home / "skills").resolve().as_posix(), (hermes_home / "config.yaml").read_text(encoding="utf-8"))
             state = json.loads((omh_home / "runtime" / "state.json").read_text(encoding="utf-8"))
             self.assertTrue(state["last_setup"]["ok"])
             self.assertEqual(state["last_setup"]["hermes_native"]["schema_version"], "hermes_native_setup/v1")
@@ -10567,7 +10569,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             applied = json.loads(stdout)
             self.assertEqual(applied["target_notice"]["action"], "target_change_applied")
             self.assertEqual(applied["target_notice"]["persistence"], "persisted")
-            self.assertIn(str(omh_home / "skills"), (hermes_b / "config.yaml").read_text(encoding="utf-8"))
+            self.assertIn((omh_home / "skills").resolve().as_posix(), (hermes_b / "config.yaml").read_text(encoding="utf-8"))
             registry = json.loads((omh_home / "targets.json").read_text(encoding="utf-8"))
             self.assertEqual(registry["topology"]["mode"], "multi_agent_targets")
             self.assertEqual(len(registry["targets"]), 2)
