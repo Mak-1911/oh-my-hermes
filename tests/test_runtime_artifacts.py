@@ -10,6 +10,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from _local_package import load_local_package
+from _platform_support import requires_posix_permissions
 
 load_local_package()
 from omh.paths import resolve_paths
@@ -490,7 +491,7 @@ class RuntimeArtifactTests(unittest.TestCase):
             self.assertEqual([run["run_id"] for run in exported["runs"]], [runs[2]["run_id"]])
             self.assertNotIn("events", exported["runs"][0])
 
-    @unittest.skipUnless(hasattr(os, "umask"), "permission checks require POSIX-like mode bits")
+    @requires_posix_permissions
     def test_runtime_artifacts_are_private_even_with_permissive_umask(self) -> None:
         with TemporaryDirectory() as tmp:
             old_umask = os.umask(0o022)

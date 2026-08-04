@@ -11,6 +11,7 @@ from pathlib import Path
 
 from _cli_harness import run_cli
 from _local_package import load_local_package
+from _platform_support import requires_domain_intelligence_store
 
 load_local_package()
 
@@ -31,6 +32,7 @@ LEGACY_ROLE_ALIASES = {
 
 
 class DomainContextHostBindingTests(unittest.TestCase):
+    @requires_domain_intelligence_store
     def test_plugin_uses_only_host_injected_project_root(self) -> None:
         from omh.plugin_bundle.omh.tools.chat_tool import omh_interact_handler
         from test_domain_routing_context import _approve_profile, _repository

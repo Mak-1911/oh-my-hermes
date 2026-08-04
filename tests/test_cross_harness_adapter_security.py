@@ -18,6 +18,8 @@ from src.quality.cross_harness_adapter_sandbox import ChildContext, ProcessObser
 from src.quality.cross_harness_adapters import ExecutionSpec, _artifact_result, runner_receipt_payload
 from tests.test_cross_harness_adapters import ROOT, _RunnerMixin, _output, _request, _spec
 
+from _platform_support import requires_posix, requires_secure_dir_io
+
 
 def _kill_group(process_id: int) -> None:
     with suppress(ProcessLookupError):
@@ -44,6 +46,7 @@ def _fifo_call_completes(call: Callable[[], None], fifo: Path) -> bool:
 
 
 class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
+    @requires_posix
     def test_keyboard_interrupt_during_real_wait_cleans_exact_process_and_streams(self) -> None:
         created: list[subprocess.Popen[bytes]] = []
 
@@ -71,6 +74,7 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
             os.kill(process.pid, 0)
         self.assertEqual((process.stdout is not None and process.stdout.closed, process.stderr is not None and process.stderr.closed), (True, True))
 
+    @requires_posix
     def test_fifo_device_and_socket_artifacts_and_inventory_fail_without_blocking(self) -> None:
         observation = ProcessObservation("exit", 0, True, "0" * 64, 0, "0" * 64, 0, b"", b"", False)
         request = _request(("fake-adapter",))
@@ -128,6 +132,7 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
                 self.assertFalse(environment_is_safe((("OMH_LISTENER_VALUE", value),)))
         self.assertTrue(environment_is_safe((("OMH_NETWORK_PORT", "54321"),)))
 
+    @requires_secure_dir_io
     def test_ambient_credentials_are_stripped_and_requested_credentials_rejected(self) -> None:
         with patch.dict(os.environ, {"AWS_SECRET_ACCESS_KEY": "ambient-secret"}):
             outcome = self._run("environment-clean")
@@ -138,6 +143,7 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
             outcome = self._run_fake_adapter(request, spec, _output(Path(temporary)))
         self.assertEqual(outcome.reason_code, "credential_environment_rejected")
 
+    @requires_secure_dir_io
     def test_real_home_credentials_are_unreadable(self) -> None:
         with TemporaryDirectory() as temporary:
             sentinel = Path(temporary) / "credential.txt"
@@ -145,6 +151,7 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
             outcome = self._run("credential-read-denied", sandbox=True, environment=(("OMH_READ_PROBE", str(sentinel)),))
             self.assertEqual(outcome.status, "observed_success")
 
+    @requires_secure_dir_io
     def test_default_network_and_outside_scratch_write_are_denied(self) -> None:
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
@@ -160,6 +167,7 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
         outcome = self._run("session-escape-denied", sandbox=True)
         self.assertEqual(outcome.status, "observed_success")
 
+    @requires_secure_dir_io
     def test_dirty_worktree_is_not_observed_or_modified(self) -> None:
         dirty = ROOT / "task2-dirty-sentinel.txt"
         dirty.write_text("owned-by-test", encoding="utf-8")
@@ -168,6 +176,7 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
         self.assertEqual(outcome.status, "observed_success")
         self.assertEqual(dirty.read_text(encoding="utf-8"), "owned-by-test")
 
+    @requires_secure_dir_io
     def test_stdout_and_stderr_are_hash_only_and_bounded(self) -> None:
         outcome = self._run("noisy")
         repetition = outcome.repetitions[0]
@@ -184,6 +193,7 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
         self.assertGreater(receipt.stderr_bytes, 1_048_576)
         self.assertNotEqual(receipt.stdout_hash, receipt.stderr_hash)
 
+    @requires_secure_dir_io
     def test_scratch_write_fd_closure_and_literal_argv(self) -> None:
         written = self._run("scratch-write", sandbox=True)
         read_fd, write_fd = os.pipe()
@@ -195,6 +205,7 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
         self.assertEqual((written.status, closed.status, injected.status), ("observed_success",) * 3)
         self.assertEqual(written.repetitions[0].inventory[0].path, "work/product.bin")
 
+    @requires_secure_dir_io
     def test_symlink_escape_is_denied_and_symlinked_sensitive_root_rejected(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -213,6 +224,7 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
             rejected = self._run_fake_adapter(request, ExecutionSpec(spec.argv, (sensitive_link,), root, spec.backend), _output(root))
             self.assertEqual(rejected.reason_code, "unsafe_read_root")
 
+    @requires_posix
     def test_linux_command_is_strict_and_missing_backend_fails_closed(self) -> None:
         child = ChildContext(Path("/tmp/scratch"), Path("/tmp/scratch/home"), Path("/tmp/scratch/work"), Path("/tmp/scratch/tmp"), Path("/tmp/scratch/output"), Path("/tmp/scratch/request.json"), Path("/tmp/scratch/output/result.json"), "f" * 64)
         environment = {"HOME": "/tmp/scratch/home", "PATH": "/usr/bin:/bin", "PYTHONNOUSERSITE": "1"}
@@ -261,18 +273,21 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
             self.assertFalse(ready)
             self.assertFalse(sentinel.exists())
 
+    @requires_secure_dir_io
     def test_version_cleanup_verification_failure_fails_closed(self) -> None:
         with patch("src.quality.cross_harness_adapter_sandbox.terminate_process_group", return_value=False):
             outcome = self._run("passing")
         serialized = runner_receipt_payload(outcome)
         self.assertEqual((outcome.status, outcome.reason_code, outcome.cleanup_verified, serialized["cleanup_verified"]), ("unavailable", "process_cleanup_failed", False, False))
 
+    @requires_secure_dir_io
     def test_repetition_cleanup_verification_failure_blocks_success(self) -> None:
         with patch("src.quality.cross_harness_adapter_sandbox.terminate_process_group", side_effect=(True, False)):
             outcome = self._run("passing")
         serialized = runner_receipt_payload(outcome)
         self.assertEqual((outcome.status, outcome.reason_code, outcome.cleanup_verified, serialized["cleanup_verified"]), ("observed_failed", "process_cleanup_failed", False, False))
 
+    @requires_secure_dir_io
     def test_unsafe_read_roots_fail_before_launch(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)

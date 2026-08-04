@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from _platform_support import requires_domain_intelligence_store
 from domain_context_resolution_support import DomainContextResolverMixin
 from domain_routing_context_support import (
     CLAIM_BOUNDARY as CLAIM_BOUNDARY,
@@ -27,5 +28,6 @@ class DomainPhraseMatcherTests(DomainPhraseMatcherMixin, unittest.TestCase):
     pass
 
 
+@requires_domain_intelligence_store
 class DomainContextResolverTests(DomainContextResolverMixin, unittest.TestCase):
     pass

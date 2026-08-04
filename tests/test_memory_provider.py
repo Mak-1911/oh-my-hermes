@@ -26,6 +26,7 @@ from unittest.mock import patch
 
 from _cli_harness import run_cli
 from _local_package import load_local_package
+from _platform_support import requires_posix
 
 load_local_package()
 from omh.install.config_adapter import (
@@ -1553,6 +1554,7 @@ class ExpiryClassifierTests(unittest.TestCase):
         self.assertEqual(classify_record_expiry(self._record(include_ttl=False), now=_EXPIRY_NOW), "no_ttl")
         self.assertEqual(classify_record_expiry(self._record("not-a-date"), now=_EXPIRY_NOW), "malformed")
 
+    @requires_posix
     def test_naive_timestamps_read_as_utc_under_any_host_timezone(self) -> None:
         naive_expired = self._record("2026-07-28T11:00:00")
         naive_fresh = self._record("2026-09-01T00:00:00")

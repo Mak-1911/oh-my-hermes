@@ -7,12 +7,14 @@ import unittest
 from unittest.mock import patch
 
 from _local_package import load_local_package
+from _platform_support import requires_domain_intelligence_store
 
 load_local_package()
 from omh.paths import resolve_paths
 from omh.workflows import domain_intelligence_store as store
 
 
+@requires_domain_intelligence_store
 class DomainIntelligenceStoreOverflowTests(unittest.TestCase):
     def test_incomplete_identity_scan_exposes_no_records(self) -> None:
         with TemporaryDirectory() as tmp:

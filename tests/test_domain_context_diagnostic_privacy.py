@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+from _platform_support import requires_domain_intelligence_store
 from omh.coding_lifecycle import start_codex_delegation_lifecycle
 from omh.paths import resolve_paths
 from omh.workflows.domain_routing_context import (
@@ -26,6 +27,7 @@ from domain_context_diagnostics_support import (
 from test_domain_routing_context import _approve_profile, _binding, _repository
 
 
+@requires_domain_intelligence_store
 class DomainContextDiagnosticPrivacyTests(unittest.TestCase):
     def test_public_compatibility_projection_contains_no_diagnostics(self) -> None:
         with TemporaryDirectory() as temporary:

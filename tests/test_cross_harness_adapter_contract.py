@@ -26,6 +26,8 @@ from src.quality.cross_harness_adapter_model import (
 from src.quality.cross_harness_benchmark_values import JsonValue
 from src.quality.cross_harness_benchmark import evaluate_submission, parse_corpus, score_submission
 
+from _platform_support import requires_secure_dir_io
+
 
 ROOT = Path(__file__).parents[1]
 
@@ -39,6 +41,7 @@ class ExistingBenchmarkCharacterizationTests(unittest.TestCase):
             adapter_io.write_json(target, {"status": "ok"})
             self.assertTrue(target.is_file())
 
+    @requires_secure_dir_io
     def test_adapter_io_imports_without_required_flags_and_fails_closed_on_use(self) -> None:
         self.addCleanup(importlib.reload, adapter_io)
         for flag in ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC"):

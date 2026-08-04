@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 
 from _cli_harness import run_cli
 from _local_package import load_local_package
+from _platform_support import requires_posix_permissions
 
 load_local_package()
 
@@ -371,6 +372,7 @@ class DynamicWorkflowTests(unittest.TestCase):
 
             self.assertFalse((outside / "dynamic-workflows" / workflow["workflow_id"] / "workflow.json").exists())
 
+    @requires_posix_permissions
     def test_writer_stores_private_workflow_artifacts(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

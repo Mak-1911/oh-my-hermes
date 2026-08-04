@@ -5,6 +5,7 @@ from pathlib import Path
 import unittest
 
 from _local_package import load_local_package
+from _platform_support import requires_posix
 
 load_local_package()
 from omh.paths import default_hermes_home, default_omh_home, resolve_paths
@@ -17,6 +18,7 @@ def _under_real_user_home(path: Path) -> bool:
     return path.expanduser().resolve().is_relative_to(REAL_USER_HOME)
 
 
+@requires_posix
 class HomeIsolationTests(unittest.TestCase):
     """Guard the test process against writing into the developer's real home.
 

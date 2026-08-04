@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from _local_package import load_local_package
+from _platform_support import requires_secure_dir_io
 
 load_local_package()
 from omh.system.local_store import FileLockTimeout
@@ -133,6 +134,7 @@ class BoundStoreLockSecurityTests(unittest.TestCase):
                 os.close(descriptor)
 
 
+@requires_secure_dir_io
 class DomainProfileSnapshotEnumerationTests(unittest.TestCase):
     def test_json_enumeration_stops_immediately_after_the_artifact_limit(self) -> None:
         entries = _EndlessEntries(".json")

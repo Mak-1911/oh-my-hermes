@@ -107,7 +107,7 @@ class WrapperDeliveryObligationContractTests(unittest.TestCase):
         for path in SOURCE_ROOT.rglob("*.py"):
             text = path.read_text(encoding="utf-8")
             if callable_name in text:
-                referencing_files.append(str(path.relative_to(SOURCE_ROOT)))
+                referencing_files.append(path.relative_to(SOURCE_ROOT).as_posix())
 
         self.assertEqual(
             referencing_files,

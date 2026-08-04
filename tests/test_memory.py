@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from _local_package import load_local_package
+from _platform_support import requires_posix, requires_posix_permissions
 
 load_local_package()
 from omh.coding_delegation import build_coding_delegation_payload
@@ -164,6 +165,7 @@ class MemoryContractTests(unittest.TestCase):
             self.assertEqual(after["record_count"], 0)
             self.assertEqual(after["excluded_records"][0]["reason"], "expired_standard")
 
+    @requires_posix
     def test_recall_reads_naive_expiry_as_utc_under_any_host_timezone(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
@@ -970,6 +972,7 @@ class RetirementApplyTests(unittest.TestCase):
             return []
         return [json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines() if line.strip()]
 
+    @requires_posix_permissions
     def test_apply_moves_journals_and_updates_candidate_and_index(self) -> None:
         with TemporaryDirectory() as tmp:
             paths, record, expires = self._seed(tmp)

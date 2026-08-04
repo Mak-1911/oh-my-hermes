@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 from _local_package import load_local_package
+from _platform_support import requires_fcntl_locks
 
 load_local_package()
 from omh.local_store import atomic_write_json, ensure_dir, read_json_object_result
@@ -271,6 +272,7 @@ class MemoryOperationTests(unittest.TestCase):
                 run_memory_operation(paths, operation_id="op-bad", operation_type="write", steps=[{"name": "bad", "action": "copy", "source": "staging/a.json", "target": "records/a.json", "summary": "private"}], now=NOW)
             self.assertFalse(paths.memory_operations_dir.exists())
 
+    @requires_fcntl_locks
     def test_two_processes_serialize_same_target_without_lost_updates(self) -> None:
         with TemporaryDirectory() as tmp:
             context = multiprocessing.get_context("spawn")

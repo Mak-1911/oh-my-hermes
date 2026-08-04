@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from _local_package import load_local_package
+from _platform_support import requires_domain_intelligence_store
 
 load_local_package()
 from omh.paths import resolve_paths
@@ -45,6 +46,7 @@ def _operation_digest(operation: dict[str, object]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+@requires_domain_intelligence_store
 class DomainIntelligenceTransactionTests(unittest.TestCase):
     def _replacement(self, root: Path):
         paths = resolve_paths(root / ".omh", root / ".hermes")

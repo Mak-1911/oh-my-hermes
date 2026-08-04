@@ -9,6 +9,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from _platform_support import requires_posix
+
 import omh.maintenance.release as release_module
 from omh.paths import OmhPaths
 from omh.release import (
@@ -622,6 +624,7 @@ class ReleaseSmokeTests(unittest.TestCase):
             installed_commands,
         )
 
+    @requires_posix
     def test_install_script_smoke_plan_is_isolated_and_non_observed(self) -> None:
         payload = install_script_smoke_plan(repo_root="/tmp/omh-repo", install_script="/tmp/omh-repo/install.sh")
 
@@ -953,7 +956,12 @@ class ReleaseSmokeTests(unittest.TestCase):
         result = subprocess_runner(["/definitely/not/a/real/omh-command"], 1)
 
         self.assertEqual(result.returncode, 127)
-        self.assertIn("No such file", result.stderr)
+        # POSIX strerror says "No such file or directory"; Windows says
+        # "The system cannot find the file specified".
+        self.assertTrue(
+            "No such file" in result.stderr or "cannot find the file" in result.stderr,
+            msg=f"unexpected missing-executable stderr: {result.stderr!r}",
+        )
 
     def test_subprocess_runner_normalizes_timeout_bytes_output(self) -> None:
         result = subprocess_runner(

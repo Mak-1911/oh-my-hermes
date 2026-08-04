@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from _cli_harness import run_cli
 from _local_package import load_local_package
+from _platform_support import requires_domain_intelligence_store
 
 load_local_package()
 from omh.paths import OmhPaths, resolve_paths
@@ -57,6 +58,7 @@ def _assert_no_raw_prompt_fields(testcase: unittest.TestCase, value: object) -> 
 
 
 class DomainIntelligenceTests(unittest.TestCase):
+    @requires_domain_intelligence_store
     def test_capture_review_approve_list_and_retire_lifecycle(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -120,6 +122,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             self.assertEqual(list_domain_profiles(paths)["counts"]["profiles"], 0)
             self.assertEqual(len(_json_files(root, "history")), 1)
 
+    @requires_domain_intelligence_store
     def test_retired_profile_can_be_reactivated_by_a_reviewed_candidate(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -143,6 +146,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             self.assertEqual(status["counts"]["active_profiles"], 1)
             self.assertEqual(status["counts"]["malformed_artifacts"], 0)
 
+    @requires_domain_intelligence_store
     def test_reactivated_profile_rejects_tampered_retired_predecessor(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -173,6 +177,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             self.assertEqual(list_domain_profiles(paths)["profiles"], [])
             self.assertEqual(build_domain_status(paths)["counts"]["active_profiles"], 0)
 
+    @requires_domain_intelligence_store
     def test_profile_queries_read_each_artifact_at_most_once(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -220,6 +225,7 @@ class DomainIntelligenceTests(unittest.TestCase):
                         capture_domain_candidate(paths, **kwargs)
             self.assertFalse((root / ".omh" / "memory" / "domain-intelligence" / "candidates").exists())
 
+    @requires_domain_intelligence_store
     def test_stale_candidates_and_replacement_history(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -256,6 +262,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             self.assertEqual(len(_json_files(root, "profiles")), 1)
             self.assertEqual(len(_json_files(root, "history")), 1)
 
+    @requires_domain_intelligence_store
     def test_invalid_current_profile_blocks_capture_and_approve_without_archiving(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -292,6 +299,7 @@ class DomainIntelligenceTests(unittest.TestCase):
                 approve_domain_candidate(paths, str(second["candidate_id"]))
             self.assertEqual(_json_files(root, "history"), [])
 
+    @requires_domain_intelligence_store
     def test_tampered_current_review_metadata_blocks_writes_and_archiving(self) -> None:
         for field, value in (("reviewer_claim", "operator-2"), ("reason_code", "duplicate")):
             with self.subTest(field=field), TemporaryDirectory() as tmp:
@@ -333,6 +341,7 @@ class DomainIntelligenceTests(unittest.TestCase):
                 self.assertEqual(_store_snapshot(root), before)
                 self.assertEqual(_json_files(root, "history"), [])
 
+    @requires_domain_intelligence_store
     def test_boolean_candidate_base_revision_is_rejected(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -353,6 +362,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid_base_profile_revision"):
                 approve_domain_candidate(paths, str(candidate["candidate_id"]))
 
+    @requires_domain_intelligence_store
     def test_none_profile_base_revision_is_bounded_reader_diagnostic(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -378,6 +388,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             self.assertEqual(status["counts"]["active_profiles"], 0)
             self.assertEqual(status["diagnostics"][0]["reason"], "invalid_base_profile_revision")
 
+    @requires_domain_intelligence_store
     def test_malformed_nested_metadata_reports_diagnostics_without_traceback(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -449,6 +460,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             self.assertIn("confidence_out_of_range", stderr)
             self.assertFalse((root / ".omh" / "memory" / "domain-intelligence" / "candidates").exists())
 
+    @requires_domain_intelligence_store
     def test_fail_closed_for_malformed_and_review_mismatched_profiles(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -491,6 +503,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             status = build_domain_status(paths)
             self.assertGreaterEqual(status["counts"]["malformed_artifacts"], 1)
 
+    @requires_domain_intelligence_store
     def test_review_decision_must_match_profile_status(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -512,6 +525,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             self.assertEqual(listing["profiles"], [])
             self.assertEqual(listing["diagnostics"][0]["reason"], "matching_review_required")
 
+    @requires_domain_intelligence_store
     def test_status_counts_only_valid_review_artifacts(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -558,6 +572,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             self.assertEqual(reasons["bad_schema.json"], "unsupported_review_schema")
             self.assertEqual(reasons["bad_digest.json"], "invalid_review_digest")
 
+    @requires_domain_intelligence_store
     def test_noncanonical_confidence_and_provenance_tampering_fail_closed(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -590,6 +605,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             self.assertEqual(listing["profiles"], [])
             self.assertEqual(listing["diagnostics"][0]["reason"], "provenance_not_canonical")
 
+    @requires_domain_intelligence_store
     def test_tampered_candidate_profile_identity_cannot_approve(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -612,6 +628,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "candidate_profile_identity_mismatch"):
                 approve_domain_candidate(paths, str(candidate["candidate_id"]))
 
+    @requires_domain_intelligence_store
     def test_rejection_and_already_decided_approval(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
@@ -628,6 +645,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "candidate_not_pending_review"):
                 approve_domain_candidate(paths, str(candidate["candidate_id"]))
 
+    @requires_domain_intelligence_store
     def test_reviewer_reason_and_source_refs_are_strict_metadata(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -744,6 +762,7 @@ class DomainIntelligenceTests(unittest.TestCase):
             self.assertEqual((status, stderr), (0, ""))
             self.assertEqual(json.loads(stdout)["review"]["reason_code"], "duplicate")
 
+    @requires_domain_intelligence_store
     def test_cli_capture_review_approve_list_retire_and_reject(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
