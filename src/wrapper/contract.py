@@ -6192,7 +6192,19 @@ def _child_dir_fingerprints(root: Path, *, limit: int = 256) -> tuple[tuple[str,
         children = sorted(path for path in root.iterdir() if path.is_dir())
     except OSError:
         return ()
-    return tuple(_path_fingerprint(path) for path in children[:limit])
+    return tuple(_dir_entry_fingerprint(path) for path in children[:limit])
+
+
+def _dir_entry_fingerprint(path: Path) -> tuple[str, int, int, int]:
+    try:
+        stat = path.stat()
+        entry_count = sum(1 for _ in path.iterdir())
+    except OSError:
+        return (str(path), 0, 0, 0)
+    # Entry count stands in for st_size: NTFS updates a directory mtime on a
+    # coarse tick, so an entry added within the same tick would otherwise
+    # leave the fingerprint unchanged and serve a stale cached glob.
+    return (str(path), int(stat.st_mtime_ns), entry_count, int(stat.st_mode))
 
 
 def _path_fingerprint(path: Path) -> tuple[str, int, int, int]:
