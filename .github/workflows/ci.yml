@@ -97,7 +97,9 @@ jobs:
           exit /b 0
       - name: Failure summary
         shell: cmd
-        run: findstr /R "^FAIL: ^ERROR: ^Ran ^FAILED ^OK" windows-suite.log & exit /b 0
+        run: |
+          findstr /R "^FAIL: ^ERROR: ^Ran ^FAILED ^OK" windows-suite.log
+          exit /b 0
       - name: Upload full log
         if: always()
         uses: actions/upload-artifact@v4
