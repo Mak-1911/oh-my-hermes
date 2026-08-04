@@ -67,3 +67,29 @@ jobs:
           python -m omh.cli --omh-home /tmp/omh-smoke --hermes-home /tmp/hermes-smoke runtime export --redacted
           python -m omh.cli --omh-home /tmp/omh-smoke --hermes-home /tmp/hermes-smoke runtime show "$run_id"
           python -m omh.cli --omh-home /tmp/omh-smoke --hermes-home /tmp/hermes-smoke runtime runs
+
+  test-windows:
+    # Windows guards (POSIX-only test skips, symlink privilege probes) are
+    # test-only and invisible to the ubuntu-latest matrix above. Without a
+    # Windows job they can regress silently — the guards are what keep the
+    # suite green for non-elevated Windows contributors, so they must be
+    # load-bearing in CI.
+    #
+    # Scoped to the two guard-bearing modules: the full suite currently has
+    # ~120 failures + ~288 errors on Windows (path separators, POSIX shell
+    # assumptions). Making the whole suite Windows-green is tracked
+    # separately; this job exists to keep the guards from decaying.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: python -m pip install -e .
+      - name: Unit tests (Windows-guard modules)
+        env:
+          PYTHONPATH: tests
+        run: python -m unittest tests.test_awareness_delivery tests.test_codegraph
+      - name: Compile package
+        run: python -m compileall src
