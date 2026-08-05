@@ -287,10 +287,12 @@ DELEGATE_MODEL_LABEL_RULE = (
     "host does not expose a value, never empty parentheses, and carry token and elapsed figures the same way."
 )
 DELEGATE_RESUMABLE_SESSION_RULE = (
-    "Dispatch delegate runs in a resume-capable session mode with an explicit session or thread id the user "
-    "can resume or steer later (for example a recorded interactive Claude Code session id or a "
-    "`codex exec resume`-able thread); do not default to `--print`-style one-shot runs that leave no session "
-    "behind, and report that id in the status message."
+    "Capture a resumable session or thread id at dispatch and report it in the status message: for "
+    "non-interactive Claude Code pass `--output-format json` and read `session_id` from the result "
+    "(resume with `claude -p --resume <session-id>`); for Codex pass `--json` and read `thread_id` "
+    "(resume with `codex exec resume <thread-id>`, repeating `--skip-git-repo-check` outside a git "
+    "repo). Never leave a delegate run with no recorded way to resume or steer it — a plain-text "
+    "one-shot that hides its session id strands the work when the run stalls or times out."
 )
 DELEGATE_PERMISSION_PREFLIGHT_RULE = (
     "Before dispatch, grant the executor session every permission the task will need — file write/edit, "
