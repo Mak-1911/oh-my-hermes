@@ -129,7 +129,7 @@ LOOP_CORE_ROLES = (
     },
     {
         "id": "researcher",
-        "skill": "web-research",
+        "skill": "research",
         "adjacent_skills": ["source-finder", "best-practice-research"],
         "responsibility": "Gather current source, web, or repo evidence before planning or handoff when facts are missing.",
     },

@@ -51,7 +51,6 @@ OMH_SKILL_DISPLAY_NAME_OVERRIDES = {
     "ultraprocess": "ulw-process",
     "ultraqa": "ulw-qa",
     "ultrawork": "ulw-work",
-    "web-research": "ulw-research",
     # `ulw-performance` spells the domain out; `ulw-perf` is the label an
     # operator actually scans for in a status line, and the engine family
     # already abbreviates (`ulw-plan`, `ulw-qa`). Canonical name stays put.
@@ -94,13 +93,13 @@ ULW_ENGINE_SKILL_NAMES = frozenset(
         "loop",
         "ralph",
         "ralplan",
+        "research",
         "team",
         "ultragoal",
         "ultraprocess",
         "ultraperf",
         "ultraqa",
         "ultrawork",
-        "web-research",
     }
 )
 
@@ -931,7 +930,7 @@ _CODING_INTENT_BY_SKILL = {
     "loop": "planning",
     "ultraprocess": "planning",
     "best-practice-research": "planning",
-    "web-research": "planning",
+    "research": "planning",
     "ultraqa": "diagnostics",
     "doctor": "diagnostics",
     "wiki": "docs",

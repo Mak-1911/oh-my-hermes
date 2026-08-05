@@ -210,55 +210,70 @@ _CARD_COPY: dict[str, dict[str, ChatCopy]] = {
             ),
         ),
     },
+    # The card speaks for the whole `research` engine, not only its
+    # current-evidence half: source boundaries and declared depth, cited current
+    # evidence, reference-implementation study with pinned refs, and
+    # contested-claim gating before anything becomes a dossier, plan, report, or
+    # coding handoff. The `web_research` key stays as the wire identifier.
     "web_research": {
         "en": ChatCopy(
-            headline="I can gather source-backed current evidence for this.",
+            headline="I can ground this with source-backed research.",
             body=(
-                "I will keep this as Hermes-side research: define the source boundaries, freshness window, source diversity, "
-                "citation confidence, and retrieval gaps before turning findings into a plan, report, or coding handoff. "
+                "I will keep this as Hermes-side research: define the source boundaries, freshness window, and declared depth, "
+                "gather cited current evidence, study the most relevant reference implementations with pinned refs when the "
+                "decision needs them, and gate contested claims before findings become a dossier, plan, report, or coding handoff. "
                 "I will not claim sources were fetched or verified until observed."
             ),
         ),
         "ko": ChatCopy(
-            headline="최신 근거 조사를 Hermes 연구 흐름으로 정리할 수 있습니다.",
+            headline="출처 기반 리서치로 근거를 만들 수 있습니다.",
             body=(
-                "조사 범위, 최신성 기준, 출처 다양성, 인용 신뢰도, 검색 공백을 먼저 잡고 그 다음 "
-                "계획, 리포트, 코딩 handoff로 넘기겠습니다. 실제 출처 수집이나 검증은 관측되기 전까지 완료됐다고 말하지 않습니다."
+                "Hermes 측 리서치로 진행하겠습니다: 조사 범위, 최신성 기준, 선언된 깊이를 먼저 잡고, 인용 가능한 최신 근거를 수집하며, "
+                "판단에 필요하면 레퍼런스 구현을 버전 고정으로 깊게 확인하고, 쟁점 주장은 교차 검증을 거친 뒤 "
+                "dossier, 계획, 리포트, 코딩 handoff로 넘기겠습니다. 실제 출처 수집이나 검증은 관측되기 전까지 완료됐다고 말하지 않습니다."
             ),
         ),
         "ja": ChatCopy(
-            headline="最新根拠の調査として整理できます。",
+            headline="出典に基づく research で根拠を固められます。",
             body=(
-                "Hermes側の research として、出典範囲、鮮度、出典の多様性、引用信頼度、検索ギャップを先に定めます。"
-                "出典取得や検証は観測されるまで完了扱いせず、その後に計画、レポート、coding handoffへ渡します。"
+                "Hermes側の research として進めます。出典範囲、鮮度、宣言された深さを先に定め、引用可能な最新根拠を集め、"
+                "判断に必要なら最も関連する reference implementation を版を固定して読み込み、争点のある主張は交差検証を通してから "
+                "dossier、計画、レポート、coding handoffへ渡します。出典取得や検証は観測されるまで完了扱いにしません。"
             ),
         ),
         "zh": ChatCopy(
-            headline="我可以按有来源支撑的最新研究来整理。",
+            headline="我可以用有来源支撑的 research 打底。",
             body=(
-                "我会把它作为 Hermes 侧 research：先定义来源边界、时效窗口、来源多样性、引用可信度和检索缺口，"
-                "再把发现转成计划、报告或 coding handoff。来源抓取或验证在被观测前不会被说成已完成。"
+                "我会把它作为 Hermes 侧 research：先定义来源边界、时效窗口和声明的深度，收集可引用的最新证据，"
+                "在判断需要时以锁定版本深入研读最相关的 reference implementation，并在把发现转成 dossier、计划、报告或 coding handoff "
+                "之前对有争议的论断做交叉验证。来源抓取或验证在被观测前不会被说成已完成。"
             ),
         ),
         "es": ChatCopy(
-            headline="Puedo reunir evidencia actual con fuentes.",
+            headline="Puedo fundamentar esto con una research basada en fuentes.",
             body=(
-                "Lo trataré como research dentro de Hermes: límites de fuente, ventana de actualidad, diversidad, confianza de citas y huecos de búsqueda "
-                "antes de convertir hallazgos en plan, reporte o coding handoff. No afirmaré que las fuentes fueron obtenidas o verificadas hasta observarlo."
+                "Lo trataré como research dentro de Hermes: primero límites de fuente, ventana de actualidad y profundidad declarada; luego "
+                "evidencia actual citada, el estudio de las reference implementations más relevantes con refs fijadas cuando la decisión lo "
+                "exige, y verificación cruzada de las afirmaciones en disputa antes de convertir los hallazgos en dossier, plan, reporte o "
+                "coding handoff. No afirmaré que las fuentes fueron obtenidas o verificadas hasta observarlo."
             ),
         ),
         "fr": ChatCopy(
-            headline="Je peux rassembler des preuves actuelles sourcées.",
+            headline="Je peux étayer cela avec une research sourcée.",
             body=(
-                "Je garde cela comme research côté Hermes: périmètre des sources, fraîcheur, diversité, confiance des citations et trous de recherche "
-                "avant de transformer les résultats en plan, rapport ou coding handoff. Je ne dirai pas que les sources sont récupérées ou vérifiées avant observation."
+                "Je garde cela comme research côté Hermes: périmètre des sources, fraîcheur et profondeur déclarée d'abord, puis des preuves "
+                "actuelles citées, l'étude des reference implementations les plus pertinentes avec des refs figées quand la décision l'exige, "
+                "et une vérification croisée des affirmations contestées avant de transformer les résultats en dossier, plan, rapport ou "
+                "coding handoff. Je ne dirai pas que les sources sont récupérées ou vérifiées avant observation."
             ),
         ),
         "de": ChatCopy(
-            headline="Ich kann aktuelle, quellenbasierte Evidenz vorbereiten.",
+            headline="Ich kann das mit quellenbasierter research fundieren.",
             body=(
-                "Ich behandle das als Hermes-side research: Quellenrahmen, Aktualität, Quellenvielfalt, Zitiervertrauen und Suchlücken zuerst, "
-                "danach Plan, Bericht oder coding handoff. Quellenabruf oder Verifikation gelten erst nach Beobachtung."
+                "Ich behandle das als Hermes-side research: zuerst Quellenrahmen, Aktualität und deklarierte Tiefe, dann zitierte aktuelle "
+                "Evidenz, das Studium der relevantesten reference implementations mit fixierten Refs, wenn die Entscheidung es verlangt, und "
+                "Kreuzprüfung strittiger Aussagen, bevor Ergebnisse zu Dossier, Plan, Bericht oder coding handoff werden. "
+                "Quellenabruf oder Verifikation gelten erst nach Beobachtung."
             ),
         ),
     },

@@ -98,7 +98,7 @@
       "status": "prepared",
       "responsibility": "Collect source candidates and raw findings without claiming retrieval until observed.",
       "primary_skills": [
-        "web-research",
+        "research",
         "autoresearch-goal"
       ],
       "output_bucket": "raw_findings"
@@ -133,7 +133,7 @@
       "reason": "workflow pack owner"
     },
     {
-      "skill": "web-research",
+      "skill": "research",
       "reason": "Scout lane for current/source-backed collection"
     },
     {
@@ -155,7 +155,7 @@
       "owner": "scout",
       "status": "prepared",
       "skills": [
-        "web-research",
+        "research",
         "autoresearch-goal"
       ],
       "prepared_output": "source_inbox.raw_findings",
@@ -308,7 +308,7 @@
   },
   "prompt_outline": {
     "system_intent": "Hermes should prepare a research operations workflow, not claim the research has already run.",
-    "operator_prompt": "Prepare a research department workflow for: every morning check competitor news and send a Slack digest only if something changed. Use skills: research-department, web-research, research-brief, report-package, automation-blueprint. Map Scout to collection, Analyst to synthesis, and Briefer to reporting. Keep collected, synthesized, briefed, delivered, and verified states separate.",
+    "operator_prompt": "Prepare a research department workflow for: every morning check competitor news and send a Slack digest only if something changed. Use skills: research-department, research, research-brief, report-package, automation-blueprint. Map Scout to collection, Analyst to synthesis, and Briefer to reporting. Keep collected, synthesized, briefed, delivered, and verified states separate.",
     "missing_decisions": [
       "confirm topic and source boundaries",
       "confirm cadence and delivery target",

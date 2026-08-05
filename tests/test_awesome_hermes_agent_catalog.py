@@ -60,7 +60,7 @@ class AwesomeHermesAgentCatalogTests(unittest.TestCase):
         self.assertEqual(web_search.status, "partial")
         self.assertEqual(web_search.rule_set_version, "awesome_hermes_agent_rules/v1")
         self.assertEqual(web_search.matched_rule_id, "web_research")
-        self.assertIn("web-research", web_search.omh_surfaces)
+        self.assertIn("research", web_search.omh_surfaces)
         self.assertIn("source-finder", web_search.omh_surfaces)
 
         live_discord = awesome_hermes_item("hermes-live-discord-agent-plugin")
@@ -147,7 +147,7 @@ class AwesomeHermesAgentCatalogTests(unittest.TestCase):
             self.assertIn("external-connector-readiness", weather.omh_surfaces)
             self.assertIn("connector-operator", weather.omh_surfaces)
             self.assertIn("live-info-operator", weather.omh_surfaces)
-            self.assertNotIn("web-research", weather.omh_surfaces)
+            self.assertNotIn("research", weather.omh_surfaces)
             self.assertNotIn("source-finder", weather.omh_surfaces)
 
         analytics = awesome_hermes_item("agent-analytics-hermes-plugin")
@@ -444,7 +444,7 @@ class AwesomeHermesAgentCatalogTests(unittest.TestCase):
             "hermes-brave-search-plugin": (
                 "Brave Search plugin provider for Hermes Agent web search.",
                 "public_search_provider_plugin",
-                "web-research",
+                "research",
                 "external-connector-readiness",
             ),
             "hermes-kagi-plugin": (

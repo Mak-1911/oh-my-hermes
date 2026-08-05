@@ -572,7 +572,7 @@ class RuntimeArtifactTests(unittest.TestCase):
             self.assertEqual(
                 [(step["stage"], step["skill"]) for step in routing["workflow_route_plan"]["steps"]],
                 [
-                    ("research", "web-research"),
+                    ("research", "research"),
                     ("plan", "ralplan"),
                     ("deliver", "ultraprocess"),
                     ("review", "code-review"),

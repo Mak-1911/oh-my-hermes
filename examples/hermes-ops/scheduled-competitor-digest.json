@@ -59,8 +59,8 @@
       "reason": "scheduled ops blueprint owner"
     },
     {
-      "skill": "web-research",
-      "phase": "current-evidence",
+      "skill": "research",
+      "phase": "decision-grounding",
       "hermes_role": "researcher",
       "reason": "fresh source retrieval lane when observed browsing is needed"
     },
@@ -93,7 +93,7 @@
   },
   "prompt_outline": {
     "system_intent": "Hermes should prepare a scheduled operation blueprint, not execute the schedule.",
-    "operator_prompt": "Prepare scheduled ops for: every morning check competitor news and send a Slack digest only if something changed. Use skills: automation-blueprint, web-research, research-brief, report-package. Cadence: daily. Delivery: slack. Silence mode: only_report_changes. Keep prepared-vs-observed boundaries explicit.",
+    "operator_prompt": "Prepare scheduled ops for: every morning check competitor news and send a Slack digest only if something changed. Use skills: automation-blueprint, research, research-brief, report-package. Cadence: daily. Delivery: slack. Silence mode: only_report_changes. Keep prepared-vs-observed boundaries explicit.",
     "missing_decisions": [
       "confirm exact schedule/timezone",
       "confirm Hermes/gateway delivery target and evidence source"

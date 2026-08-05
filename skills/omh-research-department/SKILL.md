@@ -20,7 +20,7 @@ This is a Hermes-native `research-department` workflow skill.
 
 ## Do Not Use When
 
-- The user only needs a one-off current-source lookup; use `web-research`.
+- The user only needs a one-off current-source lookup; use `research`.
 - The user only needs a one-off business synthesis; use `research-brief`.
 - The request is pure scheduling with no source collection or synthesis; use `automation-blueprint`.
 - The user asks for coding implementation; prepare a selected executor/runtime handoff after the research plan is accepted.
@@ -52,7 +52,7 @@ Bad example:
 
 ## Workflow Lane
 
-- Current lane: **Research and company ops** (`source-finder`, `web-research`, `best-practice-research`, `autoresearch-goal`, `research-brief`, `strategy-brief`, `feedback-triage`, `research-department`, `+12 more`) - research, signals, ops, and briefings.
+- Current lane: **Research and company ops** (`source-finder`, `research`, `best-practice-research`, `autoresearch-goal`, `research-brief`, `strategy-brief`, `feedback-triage`, `research-department`, `+12 more`) - research, signals, ops, and briefings.
 - If intent belongs to another lane, hand back to `oh-my-hermes` or name the adjacent workflow.
 - Shared product, routing, compatibility, and evidence rules: `omh-routing/references/skill-common-rail.md`.
 
@@ -79,7 +79,7 @@ Quality bar:
 
 Handoff policy:
 
-Keep the research operating model in Hermes. Map Scout to `web-research`/`autoresearch-goal`, Analyst to `research-brief`/`best-practice-research`, and Briefer to `report-package` or meeting/report workflows. Record retrieval, synthesis-tool output, knowledge-store writes, delivery, and verification only from observed evidence.
+Keep the research operating model in Hermes. Map Scout to `research`/`autoresearch-goal`, Analyst to `research-brief`/`best-practice-research`, and Briefer to `report-package` or meeting/report workflows. Record retrieval, synthesis-tool output, knowledge-store writes, delivery, and verification only from observed evidence.
 
 Required inputs:
 

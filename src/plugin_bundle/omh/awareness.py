@@ -649,8 +649,8 @@ GENERIC_TOOL_CHECKPOINT_ROUTES = (
     {
         "tool_family": "search_tools",
         "applies_before": ("web search", "source lookup", "market/news/paper research"),
-        "primary_workflow": "web-research",
-        "preferred_workflows": ("source-finder", "web-research", "paper-learning", "research-department", "research-brief"),
+        "primary_workflow": "research",
+        "preferred_workflows": ("source-finder", "research", "paper-learning", "research-department", "research-brief"),
         "primary_next_action": "gather_source_backed_evidence",
         "fallback_action": "ask_for_scope_or_source_constraints",
         "not_evidence_yet": ("source retrieval", "source verification", "synthesis approval", "delivery"),
@@ -673,7 +673,7 @@ GENERIC_TOOL_CHECKPOINT_ROUTES = (
         "tool_family": "content_tools",
         "applies_before": ("release notes", "newsletter/customer copy", "email drafts", "style-guided rewrites"),
         "primary_workflow": "content-operator",
-        "preferred_workflows": ("content-operator", "web-research", "connector-operator", "materials-package"),
+        "preferred_workflows": ("content-operator", "research", "connector-operator", "materials-package"),
         "primary_next_action": "prepare_content_operator_card",
         "fallback_action": "confirm_source_audience_tone_review_and_output_boundary",
         "not_evidence_yet": ("source retrieval", "fact verification", "approval", "publish/send", "file export"),
@@ -739,7 +739,7 @@ GENERIC_TOOL_CHECKPOINT_ROUTES = (
             "live-info-operator",
             "external-connector-readiness",
             "toolbelt-readiness",
-            "web-research",
+            "research",
             "connector-operator",
         ),
         "primary_next_action": "prepare_live_info_operator_card",
@@ -871,7 +871,7 @@ ROUTER_KEYWORD_SKILLS = (
     "ultragoal",
     "loop",
     "ultraprocess",
-    "web-research",
+    "research",
     "research-department",
     "source-finder",
     "paper-learning",
@@ -935,7 +935,7 @@ LANE_CROSS_LANE_EXAMPLES = {
         "source discovery -> source-finder -> candidate set -> downstream workflow",
         "supplied CSV/logs -> data-analysis -> scope, schema, method, and evidence-limited findings",
         "supplied paper -> paper-learning -> level choice -> coverage ledger -> section walkthrough",
-        "market topic -> web-research -> research-brief -> strategy-brief -> operating-rhythm",
+        "market topic -> research -> research-brief -> strategy-brief -> operating-rhythm",
     ],
     "retained_knowledge": [
         "new durable context -> memory-new -> candidate/review/write boundary",
@@ -1002,7 +1002,7 @@ WORKFLOW_CONTEXT_CARDS = (
         "label": "Research and ops",
         "user_signal": "customer signal, meeting notes, supplied data/logs, source candidates, market question, strategy request, or operating record",
         "omh_pattern": "classify source acquisition versus supplied-data analysis, collect evidence, separate source notes from synthesis, then create a brief, decision, or status artifact",
-        "representative_workflows": ("source-finder", "web-research", "paper-learning", "data-analysis", "research-department", "feedback-triage", "meeting-brief", "strategy-brief"),
+        "representative_workflows": ("source-finder", "research", "paper-learning", "data-analysis", "research-department", "feedback-triage", "meeting-brief", "strategy-brief"),
         "user_examples": (
             "Find papers and datasets for this topic",
             "Payment failures keep coming up",
@@ -1130,7 +1130,7 @@ _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW = {
     "codebase-onboarding": "intent_to_plan",
     "codegraph-refresh": "intent_to_plan",
     "product-brief": "intent_to_plan",
-    "web-research": "research_and_ops",
+    "research": "research_and_ops",
     "research-department": "research_and_ops",
     "source-finder": "research_and_ops",
     "paper-learning": "research_and_ops",
@@ -1682,7 +1682,7 @@ _ROUTE_HINT_RULES = (
         "fallback_action": "ask_for_account_segment_buyer_evidence_or_sales_objective",
         "phrases": ("sales discovery", "account plan", "outbound messaging", "영업 발굴", "고객사 계획", "아웃바운드 메시지"),
         "tokens": (),
-        "adjacent_workflows": ("strategy-brief", "content-operator", "connector-operator", "web-research"),
+        "adjacent_workflows": ("strategy-brief", "content-operator", "connector-operator", "research"),
         "not_evidence_yet": ("company fact retrieval", "prospect contact", "CRM mutation", "meeting booking", "revenue progress"),
     },
     {
@@ -1752,7 +1752,7 @@ _ROUTE_HINT_RULES = (
             "소스 후보",
         ),
         "tokens": (),
-        "adjacent_workflows": ("web-research", "paper-learning", "research-department", "materials-package"),
+        "adjacent_workflows": ("research", "paper-learning", "research-department", "materials-package"),
     },
     {
         "id": "research_to_strategy_brief",
@@ -1774,7 +1774,7 @@ _ROUTE_HINT_RULES = (
             "전략 메모",
         ),
         "tokens": (),
-        "adjacent_workflows": ("web-research", "research-brief", "meeting-brief", "report-package"),
+        "adjacent_workflows": ("research", "research-brief", "meeting-brief", "report-package"),
     },
     {
         "id": "workflow_improvement_learning",
@@ -2841,7 +2841,7 @@ _ROUTE_HINT_RULES = (
             "notebooklm이랑 지식저장소",
         ),
         "tokens": (),
-        "adjacent_workflows": ("web-research", "report-package", "operating-rhythm"),
+        "adjacent_workflows": ("research", "report-package", "operating-rhythm"),
     },
     {
         "id": "github_event_ops_delivery",
@@ -3431,7 +3431,7 @@ _ROUTE_HINT_RULES = (
             "주변 식당",
         ),
         "tokens": (),
-        "adjacent_workflows": ("toolbelt-readiness", "web-research", "connector-operator"),
+        "adjacent_workflows": ("toolbelt-readiness", "research", "connector-operator"),
     },
     {
         "id": "content_operator",
@@ -3463,7 +3463,7 @@ _ROUTE_HINT_RULES = (
             "문체 가이드",
         ),
         "tokens": (),
-        "adjacent_workflows": ("web-research", "connector-operator", "materials-package", "deliverable-package"),
+        "adjacent_workflows": ("research", "connector-operator", "materials-package", "deliverable-package"),
     },
     {
         "id": "media_input_operator",
@@ -4327,7 +4327,7 @@ _ROUTE_HINT_RULES = (
             "피드백",
         ),
         "tokens": ("feedback", "bug", "issue", "triage"),
-        "adjacent_workflows": ("web-research", "github-event-ops", "coding handoff"),
+        "adjacent_workflows": ("research", "github-event-ops", "coding handoff"),
     },
     {
         "id": "scheduled_ops",
@@ -4441,7 +4441,7 @@ _ROUTE_HINT_RULES = (
             "저장소 찾아",
         ),
         "tokens": ("dataset", "datasets"),
-        "adjacent_workflows": ("web-research", "paper-learning", "research-department", "materials-package"),
+        "adjacent_workflows": ("research", "paper-learning", "research-department", "materials-package"),
     },
     {
         "id": "materials_package",
@@ -4530,11 +4530,11 @@ _ROUTE_HINT_RULES = (
             "논문을 풀어",
         ),
         "tokens": ("paper", "arxiv", "pdf", "explain", "expert", "논문", "설명", "해설"),
-        "adjacent_workflows": ("web-research", "research-department", "materials-package"),
+        "adjacent_workflows": ("research", "research-department", "materials-package"),
     },
     {
         "id": "source_research",
-        "workflow": "web-research",
+        "workflow": "research",
         "lane": "research_and_ops",
         "next_action": "run_hermes_research",
         "reason": "The user is asking for current, source-backed, market, competitor, paper, or news research.",
@@ -5347,7 +5347,7 @@ def awareness_primer_payload() -> dict[str, object]:
             "label": "Research and company ops",
             "skills": [
                 "source-finder",
-                "web-research",
+                "research",
                 "best-practice-research",
                 "autoresearch-goal",
                 "research-brief",
@@ -5503,7 +5503,7 @@ def awareness_primer_payload() -> dict[str, object]:
             },
             {
                 "cue": "current sources, market/news research, or evidence-backed answers",
-                "route": "web-research, research-brief, or research-department before unsupported recall",
+                "route": "research, research-brief, or research-department before unsupported recall",
             },
             {
                 "cue": "decks, PDFs, spreadsheets, docs, HWP, or upload-ready files",
@@ -5722,7 +5722,7 @@ def awareness_workflow_context_markdown(skill_name: str) -> str:
 def _compact_workflow_cue_line() -> str:
     return (
         "notes/retros -> operating-rhythm/meeting-brief; PR/issue/bug/feedback/release -> github-event-ops, "
-        "feedback-triage, report-package, or img-summary; papers -> paper-learning; sources/news -> web-research/research-department; "
+        "feedback-triage, report-package, or img-summary; papers -> paper-learning; sources/news -> research/research-department; "
         "premium visuals -> design-quality-gate; frontend -> frontend; accessibility/WCAG -> accessibility-audit; screenshots/render -> visual-qa; files/docs -> materials/report-package; image cards -> img-summary; "
         "failed checks -> build-failure-triage; code/CI/merge -> ultraprocess/code-review/verification-gate; "
         "agent failure/drift -> agent-debug; hidden failures -> failure-signal-audit; lessons -> instinct-ledger; regression -> workflow-learning"
@@ -5732,7 +5732,7 @@ def _compact_workflow_cue_line() -> str:
 def _compact_workflow_context_cards_line() -> str:
     return (
         "intent -> deep-interview/ralplan/codebase-onboarding/codegraph-refresh/loop; "
-        "signals -> web-research/research-department/feedback-triage; "
+        "signals -> research/research-department/feedback-triage; "
         "materials -> design-quality-gate/frontend/accessibility-audit/visual-qa/materials-package; "
         "ops -> automation/workspace/production/context-budget/agent-debug/failure-signal-audit/instinct-ledger/skill-health/learning/doctor; "
         "eval/rules -> agent-evaluation/rules-distill; "
@@ -5743,7 +5743,7 @@ def _compact_workflow_context_cards_line() -> str:
 def _compact_generic_tool_checkpoint_line() -> str:
     return (
         "image->img-summary; frontend->frontend/a11y/visual-qa; paper->paper-learning; content->content-operator; media->media-input-operator; file->materials-package; "
-        "search->web-research; live->live-info-operator; audit->workspace/production/security; "
+        "search->research; live->live-info-operator; audit->workspace/production/security; "
         "failures->build-failure; verify->verification-gate; code->codegraph/onboarding/ultraprocess"
     )
 
@@ -5902,13 +5902,13 @@ _ULW_ENGINE_WORKFLOWS = frozenset(
         "loop",
         "ralph",
         "ralplan",
+        "research",
         "team",
         "ultragoal",
         "ultraprocess",
         "ultraperf",
         "ultraqa",
         "ultrawork",
-        "web-research",
     }
 )
 
@@ -5935,7 +5935,6 @@ def _canonical_workflow_by_display_name() -> dict[str, str]:
         ("omh-decide", "strategy-brief"),
         ("ulw-interview", "deep-interview"),
         ("ulw-plan", "ralplan"),
-        ("ulw-research", "web-research"),
         ("ulw-goal", "ultragoal"),
         ("ulw-process", "ultraprocess"),
         ("ulw-qa", "ultraqa"),

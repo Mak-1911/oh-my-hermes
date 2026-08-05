@@ -320,7 +320,7 @@ _NAMED_WORKFLOW_MARKERS = (
     "ultragoal",
     "loop",
     "ultraprocess",
-    "web-research",
+    "research",
     "research-department",
     "source-finder",
     "paper-learning",

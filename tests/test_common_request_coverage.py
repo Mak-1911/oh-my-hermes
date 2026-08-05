@@ -52,7 +52,7 @@ class CommonRequestCoverageTests(unittest.TestCase):
         payload = build_common_request_coverage_demo(source="discord")
         cases = deepcopy(payload["cases"])
         for case in cases:
-            if case["id"] == "web-research":
+            if case["id"] == "research":
                 case["passed"] = False
                 case["issues"] = ["forced test failure"]
                 break

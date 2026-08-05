@@ -111,7 +111,7 @@ runtime run exists and the wrapper needs a compact progress card.
 3. Render `chat_response.headline`, `chat_response.body`,
    `chat_response.actions`, and `chat_response.claim_boundary` on rich or web
    surfaces that can handle the original Markdown body. The headline already
-   includes the visible OMH usage marker, such as `[omh] web-research`; use
+   includes the visible OMH usage marker, such as `[omh] research`; use
    `chat_response.plain_headline` only when a compact surface needs the
    unprefixed text.
 4. Apply `chat_response.messenger_rendering` according to the target surface's

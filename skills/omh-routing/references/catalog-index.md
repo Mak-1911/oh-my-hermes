@@ -80,6 +80,7 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `ulw-plan`: [omh] Hermes Ralplan workflow: consensus planning with review gates.
 - `omh-reliability-review`: [omh] Hermes Reliability Review workflow: postmortems, SLOs, error budgets, incident follow-ups, and service reliability evidence.
 - `omh-report-package`: [omh] Hermes Report Package workflow: weekly/monthly reports, executive briefs, PPT-ready outlines, and upload packages.
+- `ulw-research`: [omh] Deep research engine - grounding for specs and decisions: study open-source reference implementations with pinned refs, gather live web evidence with citation discipline, verify contested claims, and distill a decision-grounding dossier that planning consumes; for a decision brief use research-brief, for upstream guidance use best-practice-research.
 - `omh-research-brief`: [omh] Business research brief - turns a market, competitor, pricing, or customer question into a structured evidence-vs-inference brief; for raw link gathering use ulw-research, and for ongoing multi-role research use research-department.
 - `omh-research-department`: [omh] Research operations department - coordinate Scout, Analyst, and Briefer work with source-inbox and status boundaries; for one decision brief use research-brief, and for typed candidates before research starts use source-finder.
 - `omh-rules-distill`: [omh] Hermes Rules Distill workflow: extract repeated principles from skills, prompts, traces, reviews, and failures into reviewed rule candidates without auto-mutating guidance.
@@ -103,7 +104,6 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-verification-gate`: [omh] Hermes Verification Gate workflow: define and record build, lint, typecheck, test, security, docs, generated-output, and CI evidence before completion or merge.
 - `omh-visual-qa`: [omh] Hermes visual-qa workflow: prepare observed-only rendered QA gates for web, frontend, image, document, and TUI surfaces.
 - `omh-voice-input`: [omh] Terse voice and mobile-style requests - turn short spoken-style asks into clarify, plan, status, handoff, or confirmation actions.
-- `ulw-research`: [omh] Web research with citation discipline on top of native search - every claim carries a live URL and unfetched claims stay not observed; for a decision-ready brief use research-brief, and for ongoing Scout/Analyst/Briefer coordination use research-department.
 - `omh-websearch-setup`: [omh] Hermes Web Search Setup workflow: diagnose scraper and auxiliary extract-model configuration, guide account setup, and apply each change as its own diff approval.
 - `omh-wiki`: [omh] Hermes adaptation for wiki construction blueprints and retained knowledge capture with destination-aware external knowledge connection guidance.
 - `omh-workflow-learning`: [omh] Hermes workflow learning workflow: classify and review self-improvement store routes as an auxiliary review lane before durable writes, then record workflow attempts as metadata-only traces, evals, review queues, patch proposals, regression cases, audits, indexes, and exports.

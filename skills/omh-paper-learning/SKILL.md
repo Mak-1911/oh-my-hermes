@@ -22,7 +22,7 @@ This is a Hermes-native `paper-learning` workflow skill.
 
 - The request asks to export, convert, render, or package a file; use `materials-package`.
 - The request asks for daily/weekly paper monitoring, digest, source inbox, or Scout/Analyst/Briefer operations; use `research-department`.
-- The request asks to find current papers or sources when no supplied paper exists; use `web-research`.
+- The request asks to find current papers or sources when no supplied paper exists; use `research`.
 - The request asks for a visual/image card; use `img-summary`.
 - The request asks to implement or reproduce the paper's code; prepare a coding handoff only after a paper learning or reproduction plan is accepted.
 
@@ -57,7 +57,7 @@ Bad example:
 
 ## Workflow Lane
 
-- Current lane: **Research and company ops** (`source-finder`, `web-research`, `best-practice-research`, `autoresearch-goal`, `research-brief`, `strategy-brief`, `feedback-triage`, `research-department`, `+12 more`) - research, signals, ops, and briefings.
+- Current lane: **Research and company ops** (`source-finder`, `research`, `best-practice-research`, `autoresearch-goal`, `research-brief`, `strategy-brief`, `feedback-triage`, `research-department`, `+12 more`) - research, signals, ops, and briefings.
 - If intent belongs to another lane, hand back to `oh-my-hermes` or name the adjacent workflow.
 - Shared product, routing, compatibility, and evidence rules: `omh-routing/references/skill-common-rail.md`.
 
@@ -85,7 +85,7 @@ Quality bar:
 
 Handoff policy:
 
-Keep paper explanation in Hermes. Route file export to `materials-package`, current-source discovery to `web-research`, recurring monitoring to `research-department`, and reproduction or implementation to an accepted coding handoff only after the explanation plan is accepted.
+Keep paper explanation in Hermes. Route file export to `materials-package`, current-source discovery to `research`, recurring monitoring to `research-department`, and reproduction or implementation to an accepted coding handoff only after the explanation plan is accepted.
 
 Required inputs:
 

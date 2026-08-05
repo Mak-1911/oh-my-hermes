@@ -23,7 +23,7 @@ This is a Hermes-native `sales-development` workflow skill.
 - The user needs a company-level positioning, market-entry, or strategic-options decision rather than account-level discovery; use `strategy-brief`.
 - The user only wants a polished social post, newsletter, or one-off outbound-copy rewrite; use `content-operator`.
 - The user asks to send outreach, update Salesforce or HubSpot, create an opportunity, or book a meeting; use `connector-operator` with explicit recipient, object, and authority.
-- The request asks for current competitor or company evidence but supplies no source material; begin with `web-research` before presenting claims as observed.
+- The request asks for current competitor or company evidence but supplies no source material; begin with `research` before presenting claims as observed.
 
 ## Examples
 
@@ -52,7 +52,7 @@ Bad example:
 
 ## Workflow Lane
 
-- Current lane: **Research and company ops** (`source-finder`, `web-research`, `best-practice-research`, `autoresearch-goal`, `research-brief`, `strategy-brief`, `feedback-triage`, `research-department`, `+12 more`) - research, signals, ops, and briefings.
+- Current lane: **Research and company ops** (`source-finder`, `research`, `best-practice-research`, `autoresearch-goal`, `research-brief`, `strategy-brief`, `feedback-triage`, `research-department`, `+12 more`) - research, signals, ops, and briefings.
 - If intent belongs to another lane, hand back to `oh-my-hermes` or name the adjacent workflow.
 - Shared product, routing, compatibility, and evidence rules: `omh-routing/references/skill-common-rail.md`.
 

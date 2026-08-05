@@ -752,16 +752,16 @@ _SKILL_POLICIES = {
         evidence_boundary="A reliability review is not SLO pass, healthy error-budget, incident closure, remediation completion, verification, review, CI, or merge evidence.",
         wrapper_guidance="Collect service, SLO, incident, metric, and reference boundaries; create remediation handoffs only after an accepted fix direction exists.",
     ),
-    "web-research": RecommendationPolicy(
+    "research": RecommendationPolicy(
         next_action="run_hermes_research",
         evidence_boundary=(
-            "A web research route is not observed source retrieval, implementation, verification, "
-            "or coding handoff evidence."
+            "A research route is not observed source retrieval, repository reading, claim or license verification, "
+            "implementation, or coding handoff evidence; deep_research_dossier/v1 is prepared decision context."
         ),
         wrapper_guidance=(
-            "Keep this in Hermes as a source-backed research lane: ask for source boundaries, freshness, "
-            "jurisdiction or version scope, source diversity, and citation confidence; report retrieval gaps "
-            "before any later plan or handoff."
+            "Keep this in Hermes as a source-backed research lane: ask for source boundaries, freshness, version "
+            "scope, and declared depth; gather cited evidence, study reference implementations with pinned refs "
+            "when the decision needs them, gate contested claims, and report retrieval gaps before any handoff."
         ),
     ),
     "ultraqa": RecommendationPolicy(
@@ -1409,6 +1409,61 @@ def _recommend_skills_cached(query: str, apply_guardrails: bool) -> tuple[Recomm
         explicit_skill = None
     if explicit_skill == "skill" and _skill_scout_candidate_alias_intent_match(normalized_query):
         explicit_skill = None
+    return _scored_field(
+        query,
+        routing_query=routing_query,
+        routing_text=routing_text,
+        normalized_query=normalized_query,
+        query_tokens=query_tokens,
+        prepared_definitions=prepared_definitions,
+        definitions=definitions,
+        explicit_skill=explicit_skill,
+        apply_guardrails=apply_guardrails,
+    )
+
+
+def scored_field_winner_without_explicit_invocation(query: str) -> str:
+    """Return the top skill when the typed skill name earns no invocation bonus.
+
+    `explicit_skill_invocation()` uses this to decide whether a bare, sigil-free
+    first word that happens to be a catalog name (`research ...`) was an
+    invocation or just the sentence's verb. Scoring with `explicit_skill=None`
+    is what makes the answer meaningful: the invocation bonus is +12 AND it
+    suppresses the routing guards that would otherwise hand the message to its
+    real owner, so the unbiased field is the only view that shows the competing
+    lane. This never calls back into `explicit_skill_invocation()`, so there is
+    no recursion.
+    """
+    routing_query = scrub_diagnostic_status_text(query)
+    routing_text = prepare_routing_text(_strip_path_like_fragments(routing_query))
+    normalized_query = normalized_phrase(routing_text.scoring_text)
+    prepared_definitions = _prepared_routable_definitions()
+    field = _scored_field(
+        query,
+        routing_query=routing_query,
+        routing_text=routing_text,
+        normalized_query=normalized_query,
+        query_tokens=_tokens(normalized_query),
+        prepared_definitions=prepared_definitions,
+        definitions=[prepared.definition for prepared in prepared_definitions],
+        explicit_skill=None,
+        apply_guardrails=True,
+    )
+    return field[0].skill if field else ""
+
+
+def _scored_field(
+    query: str,
+    *,
+    routing_query: str,
+    routing_text: object,
+    normalized_query: str,
+    query_tokens: set[str],
+    prepared_definitions: tuple[_PreparedDefinition, ...],
+    definitions: list[SkillDefinition],
+    explicit_skill: str | None,
+    apply_guardrails: bool,
+) -> tuple[Recommendation, ...]:
     ecosystem_identity_connector_match = _ecosystem_identity_connector_explicit_match(normalized_query)
     domain_signal = specialist_domain_route_signal(routing_text.scoring_text)
     domain_operator_override = specialist_domain_operator_override(
@@ -1465,8 +1520,26 @@ def _prepared_routable_definitions() -> tuple[_PreparedDefinition, ...]:
     return tuple(_prepare_definition(definition) for definition in routable_definitions())
 
 
+# A description that ends "...for X use <sibling>" hands the sibling's own
+# vocabulary to the skill doing the pointing, because metadata tokens are derived
+# from the description text. For most skills the clause words are harmless; for
+# `research` they reverse the boundary the clause exists to state. "upstream
+# guidance for pinning Python dependencies" gave `research` +1 for `upstream` and
+# +1 for `guidance`, and with the web-research-before-process guard's +14 that
+# beat `best-practice-research`, the skill the sentence names. Same shape for
+# `brief`/`decision` against `research-brief`. Excluded per skill, in the same
+# spirit as the per-skill trigger-token exclusions in `_score_definition`; the
+# general derivation is untouched.
+_SIBLING_POINTER_METADATA_TOKENS = {
+    "research": frozenset({"upstream", "guidance", "brief", "decision"}),
+}
+
+
 def _prepare_definition(definition: SkillDefinition) -> _PreparedDefinition:
     trigger_phrases = tuple(normalized_phrase(trigger) for trigger in definition.triggers)
+    metadata_tokens = frozenset(
+        _tokens(" ".join((definition.name, definition.description, definition.use_when)))
+    ) - _SIBLING_POINTER_METADATA_TOKENS.get(definition.name, frozenset())
     return _PreparedDefinition(
         definition=definition,
         policy=_policy_for(definition),
@@ -1479,7 +1552,7 @@ def _prepare_definition(definition: SkillDefinition) -> _PreparedDefinition:
         use_when_phrase=normalized_phrase(definition.use_when),
         category_phrase=normalized_phrase(definition.category),
         phase_phrase=normalized_phrase(definition.phase),
-        metadata_tokens=frozenset(_tokens(" ".join((definition.name, definition.description, definition.use_when)))),
+        metadata_tokens=metadata_tokens,
     )
 
 

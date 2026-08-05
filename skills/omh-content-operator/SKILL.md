@@ -46,7 +46,7 @@ Bad example:
 
 ## Recovery Notes
 
-- If the request asks for citations, current facts, or source-backed evidence gathering, route to web-research or source-finder before drafting.
+- If the request asks for citations, current facts, or source-backed evidence gathering, route to research or source-finder before drafting.
 - If the request asks to send, post, invite, ticket, or mutate an external app, route to connector-operator before claiming delivery.
 - If the request asks for PDF, PPT, DOCX, HWP, spreadsheet, or attachment packaging, route to materials-package or deliverable-package.
 - If the request is a simple one-off sentence or paragraph transformation, answer directly instead of opening a workflow.

@@ -300,9 +300,22 @@ class RouterContentTests(unittest.TestCase):
         # the public payload path was unified with the direct router path: the
         # wrapper had been silently missing `input_language` and skill
         # governance, and gaining the fields every direct caller already had
-        # moved the measured payload 15,017 -> 15,963. A deliberate ceiling
-        # raise for a named parity fix, not room for silent growth.
-        self.assertLess(len(json.dumps(route_payload, sort_keys=True)), 16_500)
+        # moved the measured payload 15,017 -> 15,963 (537 B of headroom under
+        # the old 16,500 ceiling). Raised again to 18,500 when the research
+        # card's copy grew to cover the whole merged engine (declared depth,
+        # reference-implementation study, contested-claim gating) instead of
+        # only the current-evidence half: this probe uses the Korean message,
+        # whose body JSON-escapes Hangul at 6 bytes per character and is
+        # embedded 5 times across the body and messenger renderings, so the
+        # 117 -> 204 character body (+87) costs ~1.8KB of escaped text and
+        # ~2.0KB of payload (15,963 -> 17,974). Raised once more to 19,000 when
+        # the recommendation policy for the same skill took the merged identity:
+        # `evidence_boundary` is embedded 5 times and `wrapper_guidance` 3, so
+        # naming declared depth, reference-implementation study, contested-claim
+        # gating, and the deep_research_dossier/v1 boundary cost another ~0.7KB
+        # (17,974 -> 18,666, leaving 334 B of headroom). Two deliberate raises
+        # for two named content changes, not room for silent growth.
+        self.assertLess(len(json.dumps(route_payload, sort_keys=True)), 19_000)
         # Raised from 61,000 with the same public/direct path unification: the
         # context payload also gains input_language and skill governance
         # (measured 61,841). Deliberate, named, not room for silent growth.
@@ -341,7 +354,7 @@ class RouterContentTests(unittest.TestCase):
             "ultragoal",
             "ultrawork",
             "deep-interview",
-            "web-research",
+            "research",
             "research-brief",
             "research-department",
             "strategy-brief",
@@ -752,7 +765,7 @@ class RouterContentTests(unittest.TestCase):
         expected_fragments = {
             "memory-new": ("omh-memory-sync", "decision-recall"),
             "memory-sync": ("memory-new", "decision-recall"),
-            "web-research": ("native search", "research-brief", "research-department"),
+            "research": ("research-brief", "best-practice-research", "research-department"),
             "research-brief": ("ulw-research", "research-department"),
             "research-department": ("research-brief", "source-finder"),
             "source-finder": ("ulw-research", "research-brief"),
@@ -763,11 +776,17 @@ class RouterContentTests(unittest.TestCase):
             "toolbelt-readiness": ("external-connector-readiness", "executor-runtime-readiness"),
         }
 
+        # The boundary may be stated in the picker description or in
+        # `do_not_use_when`. `research` names three siblings and the description
+        # is capped by the catalog-index 400-byte line gate, so its
+        # research-department boundary lives in `do_not_use_when`, which the gate
+        # does not budget. Either surface counts; dropping the boundary from both
+        # does not.
         for name, fragments in expected_fragments.items():
-            description = definitions[name].description.casefold()
+            boundary_text = " ".join((definitions[name].description, *definitions[name].do_not_use_when)).casefold()
             for fragment in fragments:
                 with self.subTest(name=name, fragment=fragment):
-                    self.assertIn(fragment.casefold(), description)
+                    self.assertIn(fragment.casefold(), boundary_text)
 
         native_overlays = {
             "browser-operator": "native browser",
@@ -802,12 +821,15 @@ class RouterContentTests(unittest.TestCase):
                 'ultraqa': 'ulw-qa',
                 'ultrawork': 'ulw-work',
                 'voice-operator': 'omh-voice-input',
-                'web-research': 'ulw-research',
                 'workspace-file-operator': 'omh-files',
             },
         )
 
         self.assertEqual(omh_skill_display_name("oh-my-hermes"), "omh-routing")
+        # `research` keeps the `ulw-research` label the catalog shipped under
+        # `web-research`, but now derives it from the workflow-engine prefix
+        # rule instead of a hand-picked override.
+        self.assertEqual(omh_skill_display_name("research"), "ulw-research")
         self.assertEqual(omh_skill_display_name("ultrawork"), "ulw-work")
         self.assertEqual(omh_skill_display_name("browser-operator"), "omh-browser")
         self.assertEqual(omh_skill_display_name("voice-operator"), "omh-voice-input")
@@ -1008,7 +1030,7 @@ class RouterContentTests(unittest.TestCase):
                 for rule in DELEGATION_TRANSPARENCY_RULES:
                     self.assertIn(rule, content)
         # Non-delegating lanes must not pay the note's bytes.
-        for name in ("ralplan", "web-research", "deep-interview"):
+        for name in ("ralplan", "research", "deep-interview"):
             self.assertNotIn("Delegation transparency:", templates[name].content, name)
         # The harness contract and the rendered rules stay one maintained copy.
         contract = harness_quality_contract("coding-handling")
@@ -1901,7 +1923,7 @@ class RouterContentTests(unittest.TestCase):
     def test_cross_skill_product_evidence_card_stays_guidance_only(self) -> None:
         definitions = {definition.name: definition for definition in builtin_definitions()}
 
-        for name in ("web-research", "feedback-triage", "data-analysis"):
+        for name in ("research", "feedback-triage", "data-analysis"):
             with self.subTest(skill=name):
                 self.assertIn("product_evidence_loop/v1", " ".join(definitions[name].expected_outputs))
                 self.assertIn("prepared", " ".join(definitions[name].safety_rules).lower())
@@ -2558,7 +2580,7 @@ class RouterContentTests(unittest.TestCase):
     def test_g003_sibling_boundaries_are_reciprocal_and_outcome_shaped(self) -> None:
         definitions = {definition.name: definition for definition in builtin_definitions()}
         expected_outcomes = {
-            "web-research": (
+            "research": (
                 "typed candidate list or acquisition status",
                 "market, customer, or pricing decision brief",
                 "bounded, versioned official or upstream guidance",
@@ -2608,7 +2630,7 @@ class RouterContentTests(unittest.TestCase):
     def test_reasoning_demand_inherits_by_category_and_surfaces_in_catalog_outputs(self) -> None:
         definitions = {definition.name: definition for definition in builtin_definitions()}
         self.assertEqual(definitions["oh-my-hermes"].reasoning_demand, "light")
-        self.assertEqual(definitions["web-research"].reasoning_demand, "standard")
+        self.assertEqual(definitions["research"].reasoning_demand, "standard")
         self.assertEqual(definitions["ralph"].reasoning_demand, "heavy")
         self.assertTrue(all(definition.reasoning_demand in REASONING_DEMAND_VALUES for definition in definitions.values()))
 
@@ -2648,7 +2670,7 @@ class RouterContentTests(unittest.TestCase):
         payload = workflow_reference_payload()
         skills = {skill["name"]: skill for skill in payload["skills"]}
         self.assertEqual(skills["ralph"]["reasoning_demand"], "heavy")
-        self.assertEqual(skills["web-research"]["reasoning_demand"], "standard")
+        self.assertEqual(skills["research"]["reasoning_demand"], "standard")
 
     def test_default_examples_are_concrete_and_trigger_safe(self) -> None:
         definition = SkillDefinition(
@@ -2700,7 +2722,7 @@ class RouterContentTests(unittest.TestCase):
         catalog_intent_retained = set(catalog_intent_delegation_skill_names())
 
         self.assertEqual(definitions["deep-interview"].hermes_role, "planner")
-        self.assertEqual(definitions["web-research"].hermes_role, "researcher")
+        self.assertEqual(definitions["research"].hermes_role, "researcher")
         self.assertEqual(definitions["ralplan"].hermes_role, "planner")
         self.assertEqual(definitions["ultraprocess"].hermes_role, "handoff-guide")
         self.assertEqual(
@@ -2717,7 +2739,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("verification commands", definitions["ralplan"].expected_outputs)
         self.assertTrue(any("rejected options" in item for item in definitions["ralplan"].quality_bar))
         self.assertTrue(any("prepared_not_observed" in item for item in definitions["ralplan"].final_checklist))
-        self.assertEqual(primary_harness_for_skill("web-research"), "research")
+        self.assertEqual(primary_harness_for_skill("research"), "research")
         self.assertEqual(primary_harness_for_skill("research-brief"), "business-research")
         self.assertEqual(primary_harness_for_skill("research-department"), "research-department")
         self.assertEqual(primary_harness_for_skill("strategy-brief"), "strategy-synthesis")
@@ -2739,7 +2761,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertEqual(primary_harness_for_skill("best-practice-research"), "research")
         self.assertEqual(primary_harness_for_skill("autoresearch-goal"), "research")
         self.assertIn("deep-interview", retained)
-        self.assertIn("web-research", retained)
+        self.assertIn("research", retained)
         self.assertIn("ultraqa", retained)
         self.assertIn("skill", retained)
         self.assertIn("wiki", retained)
@@ -2832,7 +2854,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("goal_completion_gate/v1", skills["ultragoal"].content)
         self.assertIn("inspect .omh/goals", skills["ultragoal"].content)
         self.assertIn("Current lane: **Materials and visual summaries**", skills["img-summary"].content)
-        self.assertIn("Current lane: **Research and company ops**", skills["web-research"].content)
+        self.assertIn("Current lane: **Research and company ops**", skills["research"].content)
         self.assertIn("loop_cycle/v1", skills["loop"].content)
         self.assertIn("permission profile", skills["loop"].content)
         self.assertIn("verification_plan", skills["loop"].content)
@@ -2894,7 +2916,7 @@ class RouterContentTests(unittest.TestCase):
 
         self.assertGreaterEqual(len(completion_sets), 10)
         self.assertGreaterEqual(len(recovery_sets), 10)
-        self.assertIn("source boundaries", " ".join(definitions["web-research"].final_checklist))
+        self.assertIn("source boundaries", " ".join(definitions["research"].final_checklist))
         self.assertIn("agenda", " ".join(definitions["meeting-brief"].final_checklist).lower())
         self.assertIn("selected coding or runtime owner", " ".join(definitions["ralph"].final_checklist))
         self.assertIn("managed path", " ".join(definitions["skill"].final_checklist))

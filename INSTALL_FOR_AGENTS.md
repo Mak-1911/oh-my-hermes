@@ -97,7 +97,7 @@ Hermes skill choices:
 ```sh
 hermes skills install deep-interview
 hermes skills install ralplan
-hermes skills install web-research
+hermes skills install research
 hermes skills install feedback-triage
 hermes skills install ops-review
 hermes skills install code-review

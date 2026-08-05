@@ -28,7 +28,7 @@ status update.
    ```
 
    `chat_response.headline` already starts with a visible marker such as
-   `[omh] web-research`. Discord uses the `limited_markdown` render profile, so
+   `[omh] research`. Discord uses the `limited_markdown` render profile, so
    `chat_response.messenger_rendering.body_text` is the body to post; it keeps
    prose intact while converting supported Markdown tables into bullets. Rich
    Hermes TUI or web surfaces can render their own profile's `body_text` with

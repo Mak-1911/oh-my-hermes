@@ -52,7 +52,7 @@ class SpecialistWorkTests(unittest.TestCase):
         self.assertIsNone(recommend_specialist("not-an-installed-skill", task_phase="implementation"))
 
     def test_discovery_research_profile_covers_ai_usability_evidence_boundaries(self) -> None:
-        recommendation = recommend_specialist("web-research", task_phase="research")
+        recommendation = recommend_specialist("research", task_phase="research")
 
         assert recommendation is not None
         specialist = recommendation["specialist"]

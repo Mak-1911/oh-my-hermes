@@ -20,7 +20,7 @@ This is a Hermes-native `research-brief` workflow skill.
 
 ## Do Not Use When
 
-- The request is only fresh links, citations, or current facts without a business question or decision audience; use `web-research`.
+- The request is only fresh links, citations, or current facts without a business question or decision audience; use `research`.
 - Sources have not yet been selected and the user wants source types, candidates, or acquisition state; use `source-finder`.
 
 ## Examples
@@ -50,7 +50,7 @@ Bad example:
 
 ## Workflow Lane
 
-- Current lane: **Research and company ops** (`source-finder`, `web-research`, `best-practice-research`, `autoresearch-goal`, `research-brief`, `strategy-brief`, `feedback-triage`, `research-department`, `+12 more`) - research, signals, ops, and briefings.
+- Current lane: **Research and company ops** (`source-finder`, `research`, `best-practice-research`, `autoresearch-goal`, `research-brief`, `strategy-brief`, `feedback-triage`, `research-department`, `+12 more`) - research, signals, ops, and briefings.
 - If intent belongs to another lane, hand back to `oh-my-hermes` or name the adjacent workflow.
 - Shared product, routing, compatibility, and evidence rules: `omh-routing/references/skill-common-rail.md`.
 

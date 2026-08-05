@@ -328,7 +328,7 @@ class EfficiencyContractTests(unittest.TestCase):
         tool_routes = {route["tool_family"]: route for route in payload["generic_tool_checkpoint_routes"]}
         self.assertEqual(tool_routes["image_tools"]["primary_workflow"], "img-summary")
         self.assertEqual(tool_routes["file_tools"]["primary_workflow"], "materials-package")
-        self.assertEqual(tool_routes["search_tools"]["primary_workflow"], "web-research")
+        self.assertEqual(tool_routes["search_tools"]["primary_workflow"], "research")
         self.assertEqual(tool_routes["coding_tools"]["primary_workflow"], "ultraprocess")
         self.assertIn("visual QA", tool_routes["image_tools"]["not_evidence_yet"])
         self.assertEqual(
@@ -1300,8 +1300,8 @@ class EfficiencyContractTests(unittest.TestCase):
         second_hits = chat_module._specific_capability_named_hits("what can OMH do for paper-learning?")
         first_exact = chat_module._specific_capability_exact_id_hit("what can OMH do for paper-learning?")
         second_exact = chat_module._specific_capability_exact_id_hit("what can OMH do for paper-learning?")
-        first_broad = chat_module._is_broad_capability_catalog_question("paper-learning / web-research")
-        second_broad = chat_module._is_broad_capability_catalog_question("paper-learning / web-research")
+        first_broad = chat_module._is_broad_capability_catalog_question("paper-learning / research")
+        second_broad = chat_module._is_broad_capability_catalog_question("paper-learning / research")
         hits_cache = chat_module._specific_capability_named_hits.cache_info()
         exact_cache = chat_module._specific_capability_exact_id_hit.cache_info()
         broad_cache = chat_module._is_broad_capability_catalog_question.cache_info()
@@ -1462,7 +1462,7 @@ class EfficiencyContractTests(unittest.TestCase):
             ("논문 요약해줘", "paper-learning"),
             ("이 PDF 논문 초보자도 이해하게 풀어줘", "paper-learning"),
             ("첨부한 paper를 쉬운 난이도로 설명해줘", "paper-learning"),
-            ("웹서치해서 최신 자료 정리해줘", "web-research"),
+            ("웹서치해서 최신 자료 정리해줘", "research"),
             ("이미지 생성해줘. 회의록을 세로 카드로 요약해줘", "img-summary"),
             ("PPT 만들어줘", "materials-package"),
             ("codex로 열어줘", "executor-runtime-readiness"),
@@ -1644,7 +1644,7 @@ class EfficiencyContractTests(unittest.TestCase):
             ("회의록 정리해줘", "operating-rhythm", "operator_surface_fast_path:operating"),
             ("논문 링크 찾아줘", "source-finder", "operator_surface_fast_path:source"),
             ("paper pdf를 찾아서 쉽게 설명해줘", "source-finder", "operator_surface_fast_path:source"),
-            ("자료 찾아줘", "web-research", "operator_surface_fast_path:research"),
+            ("자료 찾아줘", "research", "operator_surface_fast_path:research"),
             ("성능 최적화해줘", "performance-goal", "operator_surface_fast_path:performance"),
             ("omh update 했는데 잘 된건지 모르겠어", "doctor", "operator_surface_fast_path:doctor"),
             ("PR 열렸는데 CI 실패했어 정리해줘", "github-event-ops", "operator_surface_fast_path:github_event"),

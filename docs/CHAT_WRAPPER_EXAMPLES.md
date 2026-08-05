@@ -380,7 +380,7 @@ The current OMH-first map is:
 
 - image tools -> `img-summary` / `prepare_visual_prompt_card`
 - file tools -> `materials-package` / `prepare_material_package`
-- search tools -> `web-research` / `gather_source_backed_evidence`
+- search tools -> `research` / `gather_source_backed_evidence`
 - coding tools -> `ultraprocess` first, with `ralplan`, `code-review`, and
   `agent-ops-review` as adjacent options
 
@@ -433,7 +433,7 @@ That returns `chat_route_hint/v1` with a `chat_response` card the adapter can
 render immediately:
 
 The same primary-action rule applies to normal routed workflow cards, not only
-catalog capability questions. For example, `web-research`,
+catalog capability questions. For example, `research`,
 `strategy-brief`, `code-review`, `gateway-intent-card`,
 `ops-observability-card`, and `report-package` responses should place the
 workflow `next_action` first, then a status action. A route such as
@@ -578,7 +578,7 @@ Every wrapper-facing `chat_response/v1` can render a first-line usage marker
 from `chat_response.usage_trace.visible_prefix`, for example:
 
 ```text
-[omh] web-research - I can gather source-backed current evidence for this.
+[omh] research - I can ground this with source-backed research.
 ```
 
 That marker is product status, not a command the user has to learn. The same

@@ -127,7 +127,7 @@ omh doctor
 
 OMH 将 **103 个**可安装的 workflow skill 组织为6个容易理解的能力族。
 
-其中 11 个是 workflow engine - `deep-interview`, `loop`, `ralph`, `ralplan`, `team`, `ultragoal`, `ultraperf`, `ultraprocess`, `ultraqa`, `ultrawork`, `web-research` - 它们渲染为 `ulw-` 标签，
+其中 11 个是 workflow engine - `deep-interview`, `loop`, `ralph`, `ralplan`, `research`, `team`, `ultragoal`, `ultraperf`, `ultraprocess`, `ultraqa`, `ultrawork` - 它们渲染为 `ulw-` 标签，
 只看状态行就能知道正在运行哪一类 skill。其余 90 个使用 `omh-`。
 两者的 canonical name 都保持不变。
 

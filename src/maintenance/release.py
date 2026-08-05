@@ -79,7 +79,7 @@ REPRESENTATIVE_CONTEXT_RAIL_SKILLS = (
     "visual-qa",
     "loop",
     "ultraprocess",
-    "web-research",
+    "research",
     "materials-package",
 )
 ROUTER_CONTENT_MARKERS = ("OMH Awareness Primer", "img-summary", "Normal users should talk to Hermes Agent")

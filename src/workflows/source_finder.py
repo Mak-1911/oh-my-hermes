@@ -47,7 +47,7 @@ SOURCE_FINDER_OBSERVATION_PROVENANCE = (
 )
 SOURCE_FINDER_DOWNSTREAM_WORKFLOWS = (
     "paper-learning",
-    "web-research",
+    "research",
     "research-brief",
     "research-department",
     "materials-package",
@@ -79,7 +79,7 @@ SOURCE_FINDER_ACTIONS = (
     "show_status",
 )
 SOURCE_FINDER_PRECEDENCE = {
-    "web-research": "Use for current evidence, citations, fact-finding, and source-backed synthesis.",
+    "research": "Use for current evidence, citations, fact-finding, and source-backed synthesis.",
     "paper-learning": "Use for explanation of a supplied or already-observed paper/PDF/arXiv/DOI/excerpt.",
     "research-department": "Use for recurring source inbox, monitoring, and Scout/Analyst/Briefer operations.",
     "materials-package": "Use for file export, package, and render QA requests.",
@@ -184,7 +184,7 @@ def infer_downstream_workflow(kind: str | None, *, intent: str = "") -> str:
     if source_kind == "paper":
         return "paper-learning"
     if source_kind in {"web_link", "docs_spec"}:
-        return "web-research"
+        return "research"
     if source_kind in {"dataset", "github_repo"}:
         return "research-brief"
     if source_kind == "presentation":

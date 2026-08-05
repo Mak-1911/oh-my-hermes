@@ -22,7 +22,7 @@ This is a Hermes-native `workspace-audit` workflow skill.
 
 - The user already named a concrete implementation task with files and acceptance criteria; use the coding handoff or delivery workflow.
 - The request is local OMH installation health only; use `doctor`.
-- The request is a source acquisition or current web lookup; use `source-finder` or `web-research`.
+- The request is a source acquisition or current web lookup; use `source-finder` or `research`.
 
 ## Examples
 

@@ -174,7 +174,7 @@ omh demo context-brief-coverage --json
 ```
 
 It should report representative visual-summary, catalog-picker, feedback,
-GitHub issue, paper-learning, source-finder, safe-feature, and web-research
+GitHub issue, paper-learning, source-finder, safe-feature, and research
 prompts with a metadata-only `omh_context_brief/v1`, matching route hint or
 picker hint, generic-tool checkpoint, bounded prompt context, and evidence
 boundary. It is local context-contract evidence only: it does not prove live

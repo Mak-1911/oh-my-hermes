@@ -340,9 +340,9 @@ class HookManifestTests(unittest.TestCase):
         cases = (
             ("image_generate", {}, "image_tools", "img-summary", "prepare_visual_prompt_card"),
             ("write_file", {}, "file_tools", "materials-package", "prepare_material_package"),
-            ("web_search", {}, "search_tools", "web-research", "gather_source_backed_evidence"),
+            ("web_search", {}, "search_tools", "research", "gather_source_backed_evidence"),
             ("codex_session_open", {}, "coding_tools", "ultraprocess", "prepare_one_cycle_delivery"),
-            ("python_runner", {"tool_family": "search"}, "search_tools", "web-research", "gather_source_backed_evidence"),
+            ("python_runner", {"tool_family": "search"}, "search_tools", "research", "gather_source_backed_evidence"),
         )
 
         for tool_name, extra_kwargs, tool_family, workflow, next_action in cases:
