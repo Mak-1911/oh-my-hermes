@@ -532,7 +532,7 @@ def _skill_suggestions(text: str) -> list[dict[str, str]]:
     if any(term in folded for term in ("source", "sources", "research", "competitor", "news", "market", "조사", "리서치", "경쟁")):
         candidates.extend(
             [
-                ("web-research", "fresh source retrieval lane when observed browsing is needed"),
+                ("research", "fresh source retrieval lane when observed browsing is needed"),
                 ("research-brief", "source-backed synthesis lane"),
             ]
         )
@@ -563,7 +563,7 @@ def _skill_suggestions(text: str) -> list[dict[str, str]]:
 def _context_chain(skill_suggestions: list[dict[str, str]]) -> list[str]:
     names = [str(item["skill"]) for item in skill_suggestions]
     chain = ["schedule_intent", "delivery_policy", "silence_policy"]
-    if "web-research" in names or "research-brief" in names:
+    if "research" in names or "research-brief" in names:
         chain.append("source_boundaries")
     if "report-package" in names:
         chain.append("report_outline")

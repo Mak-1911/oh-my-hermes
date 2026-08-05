@@ -51,7 +51,7 @@
   "owner_role": "researcher",
   "primary_workflows": [
    "source-finder",
-   "web-research",
+   "research",
    "paper-learning",
    "data-analysis",
    "research-department",

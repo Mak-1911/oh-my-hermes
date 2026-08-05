@@ -481,7 +481,7 @@ _SKILL_PICKER_ENTRIES = (
     ("loop", "Loop", "Iterate on a loopable long-horizon goal.", "./loop <goal>"),
     ("ultraprocess", "Ultra Process", "Run one research-plan-implement-review-sync cycle.", "./ultraprocess <request>"),
     ("feedback-triage", "Feedback Triage", "Turn customer or product signals into investigation.", "./feedback-triage <signal>"),
-    ("web-research", "Web Research", "Gather source-backed current evidence.", "./web-research <question>"),
+    ("research", "Research", "Gather source-backed evidence, from live citations to studied reference implementations.", "./research <question>"),
     ("source-finder", "Source Finder", "Prepare typed source candidates before downstream work.", "./source-finder <target>"),
     ("research-department", "Research Department", "Prepare Scout, Analyst, and Briefer research ops.", "./research-department <topic>"),
     ("paper-learning", "Paper Learning", "Explain a paper by level without dropping coverage.", "./paper-learning <paper>"),
@@ -503,7 +503,7 @@ _CONTEXT_PRIMER_GROUPS = (
     {
         "id": "company_product_ops",
         "label": "Company and product ops",
-        "workflows": ("feedback-triage", "research-department", "source-finder", "paper-learning", "web-research", "strategy-brief", "automation-blueprint"),
+        "workflows": ("feedback-triage", "research-department", "source-finder", "paper-learning", "research", "strategy-brief", "automation-blueprint"),
         "use_when": "The user needs customer-signal triage, source-backed research, recurring ops, meeting/report work, or strategy synthesis.",
     },
     {
@@ -531,7 +531,7 @@ _CONTEXT_PRIMER_GROUPS = (
 )
 _RETAINED_DELEGATION_SKILLS = set(retained_delegation_skill_names())
 _DIRECT_WORKFLOW_SKILLS = {
-    "web-research",
+    "research",
     "ultraqa",
     "code-review",
     "best-practice-research",
@@ -805,9 +805,10 @@ _HUMAN_ACK_BODY_BY_SKILL = {
         "I will map the MCP, CLI, API, credential, and connector pieces this workflow needs, show what is "
         "observed versus missing, and suggest the safest setup or handoff next step."
     ),
-    "web-research": (
+    "research": (
         "I will keep this in Hermes as a source-backed research lane: define source boundaries, freshness, "
-        "version or jurisdiction scope, citation confidence, and retrieval gaps before any later plan or handoff."
+        "version or jurisdiction scope, and declared depth, gather cited evidence, study reference implementations "
+        "with pinned refs when the decision needs them, and gate contested claims before any later plan or handoff."
     ),
     "strategy-brief": (
         "I will prepare strategy options, tradeoffs, decision notes, and open questions in Hermes. Implementation "
@@ -4993,7 +4994,7 @@ def build_chat_response_from_route(
                     ],
                 },
             )
-        if selected == "web-research" or policy_next_action == "run_hermes_research":
+        if selected == "research" or policy_next_action == "run_hermes_research":
             evidence_boundary = str(policy.get("evidence_boundary", "")) or "A web research card is not source retrieval evidence."
             copy = chat_copy("web_research", locale=copy_locale)
             return _chat_response(

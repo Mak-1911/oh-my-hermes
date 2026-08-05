@@ -141,7 +141,12 @@ FROZEN_HANGUL_TRIGGERS_BY_SKILL: dict[str, int] = {
     "verification-gate": 5,
     "visual-qa": 17,
     "voice-operator": 12,
-    "web-research": 15,
+    # 2026-08: `web-research` became `research`, the merged deep research
+    # engine. Five Korean deep-grounding cues joined the table (딥리서치,
+    # 딥 리서치, 심층 리서치, 레퍼런스 구현, 오픈소스 깊게 참고); the other Korean
+    # deep phrases were left out because they contain the existing `조사`
+    # trigger and route here already.
+    "research": 20,
     "websearch-setup": 4,
     "wiki": 7,
     "workflow-learning": 11,

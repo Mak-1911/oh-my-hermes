@@ -233,10 +233,10 @@ CHAT_CARD_COVERAGE_CASES: tuple[ChatCardCoverageCase, ...] = (
         "prepare_source_finder_plan",
     ),
     ChatCardCoverageCase(
-        "web-research",
-        "Web research",
+        "research",
+        "Research",
         "web research with citations about current AI agent market trends",
-        "web-research",
+        "research",
         "web_research",
         "run_hermes_research",
     ),

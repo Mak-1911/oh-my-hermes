@@ -429,12 +429,12 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         "direct_answer",
     ),
     # Overroute guard for the generic single-token triggers removed from
-    # `web-research`: `latest` and `investigate` are ordinary English words, so
+    # `research`: `latest` and `investigate` are ordinary English words, so
     # scoring them pulled version questions and debugging requests into
     # source-backed research. The multi-word intents they were standing in for
     # ("latest sources", "look up sources") stay as phrase triggers.
     #
-    # `investigate this crash` is also no longer captured by web-research, but it
+    # `investigate this crash` is also no longer captured by research, but it
     # settles on the clarification path rather than a direct answer, and this
     # negative-control corpus can only express cases that end in a direct-answer
     # lookup kind with a no-workflow claim boundary. It stays uncovered here
@@ -498,11 +498,11 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "paper_learning",
     ),
     RoutingInterventionCase(
-        "hindi-web-research",
-        "Hindi current-source request routes to web-research",
+        "hindi-research",
+        "Hindi current-source request routes to research",
         "वेब पर खोजकर ताज़ा स्रोतों के साथ सारांश दो",
         "dispatch",
-        "web-research",
+        "research",
         "run_hermes_research",
         "web_research",
     ),
@@ -1600,15 +1600,138 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "skill_picker",
     ),
     # The intents behind the removed generic tokens must still route: `look up`
-    # stays a web-research phrase after `lookup` was dropped, and a strategy
+    # stays a research phrase after `lookup` was dropped, and a strategy
     # request reaches `strategy-brief` instead of being captured by `plan`'s
     # former bare `strategy` token.
     RoutingInterventionCase(
-        "look-up-phrase-still-web-research",
-        "A look-up request still routes to web research without the bare lookup token",
+        "look-up-phrase-still-research",
+        "A look-up request still routes to research without the bare lookup token",
         "look up the pricing table",
         "dispatch",
-        "web-research",
+        "research",
+        "run_hermes_research",
+        "web_research",
+    ),
+    # `research` absorbed the deep-grounding intent when `web-research` was
+    # renamed, so the deep cues have to reach it. The rename also made the
+    # catalog name an ordinary English verb, so a sentence can open with it while
+    # naming a neighbour's whole job; the guards below pin every lane the bare
+    # first-word form was measured stealing from, plus one positive proving an
+    # otherwise-unclaimed bare form still reaches research.
+    RoutingInterventionCase(
+        "korean-deep-research-reaches-research",
+        "A Korean pre-spec reference-implementation request reaches the research engine",
+        "딥리서치로 다른 오픈소스 구현들을 깊게 보고 스펙 잡기 전에 근거를 만들어줘.",
+        "dispatch",
+        "research",
+        "run_hermes_research",
+        "web_research",
+    ),
+    RoutingInterventionCase(
+        "prior-art-study-reaches-research",
+        "An English prior-art study request reaches the research engine",
+        "study existing implementations and prior art before planning this",
+        "dispatch",
+        "research",
+        "run_hermes_research",
+        "web_research",
+    ),
+    RoutingInterventionCase(
+        "plain-web-search-still-reaches-research",
+        "A plain current-source request keeps reaching research after the deep cues joined it",
+        "웹서치해서 최신 자료 정리해줘",
+        "dispatch",
+        "research",
+        "run_hermes_research",
+        "web_research",
+    ),
+    RoutingInterventionCase(
+        "deep-interview-request-stays-clarification",
+        "A deep interview request keeps clarification instead of overrouting to research",
+        "deep interview로 요구사항 정리해줘",
+        "dispatch",
+        "deep-interview",
+        "answer_clarification",
+        "clarification",
+    ),
+    RoutingInterventionCase(
+        "verb-shaped-research-keeps-paper-learning",
+        "A sentence opening with the verb research keeps paper-learning for an attached paper",
+        "research this attached arxiv PDF and explain it",
+        "dispatch",
+        "paper-learning",
+        "prepare_paper_learning",
+        "paper_learning",
+    ),
+    RoutingInterventionCase(
+        "verb-shaped-research-keeps-research-department",
+        "A sentence opening with the verb research keeps research-department for a source inbox",
+        "research a source inbox for competitor sources",
+        "dispatch",
+        "research-department",
+        "prepare_research_department_plan",
+        "research_department",
+    ),
+    RoutingInterventionCase(
+        "korean-verb-shaped-research-keeps-research-department",
+        "A Korean research-operations request keeps research-department instead of the bare name",
+        "research 부서 운영 체계를 잡아줘",
+        "dispatch",
+        "research-department",
+        "prepare_research_department_plan",
+        "research_department",
+    ),
+    RoutingInterventionCase(
+        "verb-shaped-research-keeps-source-finder",
+        "A sentence opening with the verb research keeps source-finder for typed candidate acquisition",
+        "research candidates: find datasets and GitHub repos for agent memory",
+        "dispatch",
+        "source-finder",
+        "prepare_source_finder_plan",
+        "source_finder",
+    ),
+    RoutingInterventionCase(
+        "verb-shaped-research-keeps-feedback-triage",
+        "A sentence opening with the verb research keeps feedback-triage for customer signals",
+        "research our customer feedback tickets and cluster the bugs",
+        "dispatch",
+        "feedback-triage",
+        "triage_feedback",
+        "feedback_triage",
+    ),
+    RoutingInterventionCase(
+        "verb-shaped-research-keeps-research-brief",
+        "A sentence opening with the verb research keeps research-brief for a decision brief",
+        "research a pricing decision brief with evidence versus inference",
+        "dispatch",
+        "research-brief",
+        "run_hermes_research",
+        "web_research",
+    ),
+    RoutingInterventionCase(
+        "research-adverb-does-not-name-research-brief",
+        "An adverb after the verb research does not read as naming research-brief",
+        "research briefly what the options are for vector search",
+        "dispatch",
+        "research-brief",
+        "run_hermes_research",
+        "web_research",
+    ),
+    RoutingInterventionCase(
+        "sibling-pointer-words-stay-with-best-practice-research",
+        "The sibling-pointer words in the research description do not steal upstream guidance questions",
+        "upstream guidance for pinning Python dependencies",
+        "dispatch",
+        "best-practice-research",
+        "run_hermes_research",
+        "web_research",
+    ),
+    RoutingInterventionCase(
+        "unclaimed-bare-research-still-reaches-research",
+        "A bare research request no neighbour claims still reaches the research engine",
+        "research kubernetes operator patterns for this design",
+        "dispatch",
+        "research",
         "run_hermes_research",
         "web_research",
     ),

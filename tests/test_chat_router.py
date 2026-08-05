@@ -280,7 +280,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ),
             (
                 "웹서치해서 최신 자료 정리해줘",
-                "web-research",
+                "research",
                 "run_hermes_research",
                 None,
             ),
@@ -787,7 +787,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ("このテーマの論文PDFとデータセットを探して", "source-finder", "locale:ja:source_finder"),
             ("帮我找这个主题的论文PDF和数据集", "source-finder", "locale:zh:source_finder"),
             ("इस विषय के शोध पत्र PDF और डेटा सेट ढूंढो", "source-finder", "locale:hi:source_finder"),
-            ("वेब पर खोजकर ताज़ा स्रोतों के साथ सारांश दो", "web-research", "locale:hi:web_research"),
+            ("वेब पर खोजकर ताज़ा स्रोतों के साथ सारांश दो", "research", "locale:hi:web_research"),
             ("इस issue को PR के लिए तैयार करो", "github-event-ops", "locale:hi:issue_to_pr"),
             ("convierte este PDF en una presentación", "materials-package", "trigger:pdf"),
             ("transforme ce PDF en présentation", "materials-package", "trigger:pdf"),
@@ -1185,7 +1185,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         cases = (
             ("$ralplan risky refactor", "ralplan"),
             ("./loop improve first-run experience", "loop"),
-            ("Use OMH web-research for: research loop engineering", "web-research"),
+            ("Use OMH research for: research loop engineering", "research"),
             ("Use OMH paper-learning for: explain this PDF at beginner level", "paper-learning"),
             ("deep-interview onboarding feels vague", "deep-interview"),
             ("paper-learning: explain this arxiv paper", "paper-learning"),
@@ -1281,7 +1281,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ("논문 요약해줘", "paper-learning", "prepare_paper_learning", "operator_surface_fast_path:paper"),
             ("이 PDF 쉽게 설명해줘", "paper-learning", "prepare_paper_learning", "operator_surface_fast_path:paper"),
             ("첨부한 paper를 쉬운 난이도로 설명해줘", "paper-learning", "prepare_paper_learning", "operator_surface_fast_path:paper"),
-            ("웹서치해서 최신 자료 정리해줘", "web-research", "run_hermes_research", "operator_surface_fast_path:research"),
+            ("웹서치해서 최신 자료 정리해줘", "research", "run_hermes_research", "operator_surface_fast_path:research"),
             ("이미지 생성해줘. 회의록을 세로 카드로 요약해줘", "img-summary", "prepare_visual_prompt_card", "operator_surface_fast_path:visual"),
             ("PPT 만들어줘", "materials-package", "prepare_material_package", "operator_surface_fast_path:materials"),
             (
@@ -1464,7 +1464,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ),
             (
                 "리서치 요청했는데 OMH를 안 썼어",
-                "web-research",
+                "research",
                 "research",
             ),
             (
@@ -2714,7 +2714,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ),
             (
                 "자료 찾아줘",
-                "web-research",
+                "research",
                 "run_hermes_research",
                 "operator_surface_fast_path:research",
             ),
@@ -2895,7 +2895,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(recurring["selected_harness"], "research-department")
 
         citation_check = route_chat_message("explain this paper and verify citations", source="discord")
-        self.assertEqual(citation_check["selected_skill"], "web-research")
+        self.assertEqual(citation_check["selected_skill"], "research")
         self.assertEqual(citation_check["selected_harness"], "research")
 
         file_export = route_chat_message("PDF를 PPT로 바꿔줘", source="discord")
@@ -2955,7 +2955,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 self.assertEqual(decision["confidence"], "high")
 
         citation_check = route_chat_message("find current citations for this claim", source="discord")
-        self.assertEqual(citation_check["selected_skill"], "web-research")
+        self.assertEqual(citation_check["selected_skill"], "research")
         self.assertEqual(citation_check["selected_harness"], "research")
 
         paper_explanation = route_chat_message("explain this paper at expert level", source="discord")
@@ -3021,7 +3021,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         cases = (
             ("Hermes가 OMH 안 쓰고 그냥 이미지 만들었어", "img-summary", "img-summary"),
             ("이미지 생성 요청을 했는데 OMH를 안 썼어", "img-summary", "img-summary"),
-            ("리서치 요청했는데 OMH를 안 썼어", "web-research", "research"),
+            ("리서치 요청했는데 OMH를 안 썼어", "research", "research"),
             ("회의록 요약을 부탁했는데 OMH 안 쓰고 일반 답변했어", "operating-rhythm", "operating-rhythm"),
         )
 
@@ -3244,7 +3244,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
 
     def test_issue_251_representative_routes_stay_compact_and_correct(self) -> None:
         cases = (
-            ("웹서치해서 최신 자료 정리해줘", "web-research", None),
+            ("웹서치해서 최신 자료 정리해줘", "research", None),
             ("PDF를 PPT로 바꿔줘", "materials-package", None),
             ("이미지 요약 카드 만들어줘", "img-summary", None),
             ("OMH 업데이트해줘", "oh-my-hermes", "omh_cli_maintenance"),
@@ -3861,7 +3861,7 @@ selected_workflow=ultraprocess
         connector = route_chat_message("create a calendar event for tomorrow's weather review", source="discord")
         readiness = route_chat_message("weather plugin is missing, check provider setup", source="discord")
 
-        self.assertEqual(research["selected_skill"], "web-research")
+        self.assertEqual(research["selected_skill"], "research")
         self.assertEqual(connector["selected_skill"], "connector-operator")
         self.assertEqual(readiness["selected_skill"], "toolbelt-readiness")
         self.assertNotEqual(research["selected_skill"], "live-info-operator")
@@ -3873,7 +3873,7 @@ selected_workflow=ultraprocess
         connector = route_chat_message("send this customer update email after approval", source="discord")
         materials = route_chat_message("turn these notes into a PDF and PPT handout", source="discord")
 
-        self.assertEqual(research["selected_skill"], "web-research")
+        self.assertEqual(research["selected_skill"], "research")
         self.assertEqual(connector["selected_skill"], "connector-operator")
         self.assertEqual(materials["selected_skill"], "materials-package")
         self.assertNotEqual(research["selected_skill"], "content-operator")
@@ -3886,7 +3886,7 @@ selected_workflow=ultraprocess
             "search the web for current sources and citations",
             "Search the web for current best practices on Python packaging.",
             "查一下最新资料和来源",
-            "web-research로 Hermes Agent와 Oh My Codex/OpenCode 계열을 비교해서 OMHM 포지셔닝 근거를 찾아줘.",
+            "research로 Hermes Agent와 Oh My Codex/OpenCode 계열을 비교해서 OMHM 포지셔닝 근거를 찾아줘.",
         )
 
         for message in cases:
@@ -3894,7 +3894,7 @@ selected_workflow=ultraprocess
                 decision = route_chat_message(message, source="discord")
 
                 self.assertEqual(decision["action"], "dispatch")
-                self.assertEqual(decision["selected_skill"], "web-research")
+                self.assertEqual(decision["selected_skill"], "research")
                 self.assertEqual(decision["selected_harness"], "research")
                 self.assertEqual(decision["confidence"], "high")
                 top = decision["recommendations"][0]
@@ -3902,7 +3902,7 @@ selected_workflow=ultraprocess
                 self.assertIn("retrieval", str(top["evidence_boundary"]).lower())
 
         generic_status = route_chat_message("What is the current status?", source="discord")
-        self.assertNotEqual(generic_status["selected_skill"], "web-research")
+        self.assertNotEqual(generic_status["selected_skill"], "research")
 
     def test_ai_usability_research_fast_path_requires_all_cues_and_preserves_precedence(self) -> None:
         positives = (
@@ -3912,7 +3912,7 @@ selected_workflow=ultraprocess
         for message in positives:
             with self.subTest(message=message):
                 decision = route_chat_message(message, source="discord")
-                self.assertEqual(decision["selected_skill"], "web-research")
+                self.assertEqual(decision["selected_skill"], "research")
                 self.assertEqual(decision["selected_harness"], "research")
                 self.assertEqual(decision["confidence"], "high")
                 matched = decision["recommendations"][0]["matched"]
@@ -3951,8 +3951,8 @@ selected_workflow=ultraprocess
 
         for message in ("find paper PDF datasets", "research every morning with a briefing", "make a PR", "explain this paper PDF", "keep researching until gap closed", "create a research brief"):
             with self.subTest(message=message):
-                decision = route_chat_message(f"$web-research AI agent usability research with current sources and {message}", source="discord")
-                self.assertEqual(decision["selected_skill"], "web-research")
+                decision = route_chat_message(f"$research AI agent usability research with current sources and {message}", source="discord")
+                self.assertEqual(decision["selected_skill"], "research")
 
     def test_delivery_cycle_chat_beats_research_department_for_pr_requests(self) -> None:
         cases = (
@@ -4031,7 +4031,7 @@ selected_workflow=ultraprocess
         self.assertEqual(
             [(step["stage"], step["skill"]) for step in route_plan["steps"]],
             [
-                ("research", "web-research"),
+                ("research", "research"),
                 ("plan", "ralplan"),
                 ("deliver", "ultraprocess"),
                 ("review", "code-review"),
@@ -4089,7 +4089,7 @@ selected_workflow=ultraprocess
         self.assertEqual(
             [(step["stage"], step["skill"]) for step in route_plan["steps"]],
             [
-                ("research", "web-research"),
+                ("research", "research"),
                 ("plan", "ralplan"),
                 ("deliver", "ultraprocess"),
                 ("review", "code-review"),

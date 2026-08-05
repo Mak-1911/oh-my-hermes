@@ -730,7 +730,7 @@ The backend flow is:
    approve shell commands just to understand OMH health.
 9. The wrapper renders `chat_response.headline`, `body`, `state`, `actions`, and
    `status_card` when present in the original channel or thread. The headline
-   already starts with the visible OMH marker, such as `[omh] web-research`;
+   already starts with the visible OMH marker, such as `[omh] research`;
    adapters can read `chat_response.usage_trace` for the selected workflow,
    harness, executor, and evidence boundary without parsing prose.
    `chat_response.state.workflow_explanation` gives the same surface a compact

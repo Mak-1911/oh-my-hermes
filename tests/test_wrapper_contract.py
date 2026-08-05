@@ -499,7 +499,7 @@ class WrapperContractTests(unittest.TestCase):
         }
         self.assertEqual(checkpoint_routes["image_tools"]["primary_workflow"], "img-summary")
         self.assertEqual(checkpoint_routes["file_tools"]["primary_workflow"], "materials-package")
-        self.assertEqual(checkpoint_routes["search_tools"]["primary_workflow"], "web-research")
+        self.assertEqual(checkpoint_routes["search_tools"]["primary_workflow"], "research")
         self.assertIn("source-finder", checkpoint_routes["search_tools"]["preferred_workflows"])
         self.assertEqual(checkpoint_routes["coding_tools"]["primary_workflow"], "ultraprocess")
         self.assertIn("prep/status/learning", payload["chat_response"]["body"])
@@ -1419,7 +1419,7 @@ class WrapperContractTests(unittest.TestCase):
 
     def test_route_mode_exposes_visible_omh_usage_trace_for_web_research(self) -> None:
         payload = build_chat_interaction_payload(
-            "web-research로 Hermes Agent와 Oh My Codex/OpenCode 계열을 비교해서 OMHM 포지셔닝 근거를 찾아줘.",
+            "research로 Hermes Agent와 Oh My Codex/OpenCode 계열을 비교해서 OMHM 포지셔닝 근거를 찾아줘.",
             source="discord",
         )
 
@@ -1427,20 +1427,20 @@ class WrapperContractTests(unittest.TestCase):
         trace = response["usage_trace"]
         rendering = response["messenger_rendering"]
         self.assertEqual(payload["mode"], "route")
-        self.assertEqual(payload["route"]["selected_skill"], "web-research")
+        self.assertEqual(payload["route"]["selected_skill"], "research")
         self.assertEqual(trace["schema_version"], "omh_usage_trace/v1")
-        self.assertEqual(trace["visible_prefix"], "[omh] web-research")
+        self.assertEqual(trace["visible_prefix"], "[omh] research")
         self.assertEqual(trace["selected_harness"], "research")
         self.assertEqual(trace["evidence_state"], "prepared_not_observed")
         self.assertEqual(response["kind"], "web_research")
         explanation = response["state"]["workflow_explanation"]
         self.assertEqual(explanation["schema_version"], "omh_workflow_explanation/v1")
-        self.assertEqual(explanation["selected_workflow"], "web-research")
+        self.assertEqual(explanation["selected_workflow"], "research")
         self.assertEqual(explanation["selected_harness"], "research")
         self.assertEqual(explanation["workflow_context_id"], "research_and_ops")
         self.assertEqual(explanation["workflow_context_card"]["id"], "research_and_ops")
         self.assertEqual(explanation["workflow_context_card"]["label"], "Research and ops")
-        self.assertIn("web-research", explanation["workflow_context_card"]["representative_workflows"])
+        self.assertIn("research", explanation["workflow_context_card"]["representative_workflows"])
         self.assertIn("Payment failures keep coming up", explanation["workflow_context_card"]["user_examples"])
         self.assertIn("source/synthesis split", explanation["workflow_context_card"]["first_response_shape"])
         self.assertEqual(trace["workflow_context_id"], "research_and_ops")
@@ -1449,10 +1449,13 @@ class WrapperContractTests(unittest.TestCase):
         self.assertIn("source retrieval", explanation["not_evidence_yet"])
         self.assertIn("citation verification", explanation["not_evidence_yet"])
         self.assertNotIn("implementation", explanation["not_evidence_yet"])
-        self.assertTrue(response["headline"].startswith("[omh] web-research - "))
-        self.assertEqual(response["plain_headline"], "최신 근거 조사를 Hermes 연구 흐름으로 정리할 수 있습니다.")
+        self.assertTrue(response["headline"].startswith("[omh] research - "))
+        self.assertEqual(response["plain_headline"], "출처 기반 리서치로 근거를 만들 수 있습니다.")
         self.assertIn("조사 범위", response["body"])
-        self.assertIn("인용 신뢰도", response["body"])
+        # The card speaks for the whole research engine, so the Korean copy has
+        # to carry the deep half too, not only the current-evidence half.
+        self.assertIn("레퍼런스 구현", response["body"])
+        self.assertIn("교차 검증", response["body"])
         actions = {action["id"]: action for action in response["actions"]}
         self.assertTrue(actions["run_hermes_research"]["enabled"])
         self.assertTrue(actions["record_source_observation"]["enabled"])
@@ -1479,8 +1482,8 @@ class WrapperContractTests(unittest.TestCase):
         )
 
         rendering = messenger_rendering_contract(
-            visible_prefix="[omh] web-research",
-            first_line="[omh] web-research - 비교 결과입니다.",
+            visible_prefix="[omh] research",
+            first_line="[omh] research - 비교 결과입니다.",
             body=body,
             claim_boundary="Research summary is not execution evidence.",
         )
@@ -1504,8 +1507,8 @@ class WrapperContractTests(unittest.TestCase):
         )
 
         rendering = messenger_rendering_contract(
-            visible_prefix="[omh] web-research",
-            first_line="[omh] web-research - 비교 결과입니다.",
+            visible_prefix="[omh] research",
+            first_line="[omh] research - 비교 결과입니다.",
             body=body,
             claim_boundary="Research summary is not execution evidence.",
             render_profile="rich_markdown",
@@ -1563,8 +1566,8 @@ class WrapperContractTests(unittest.TestCase):
         )
 
         rendering = messenger_rendering_contract(
-            visible_prefix="[omh] web-research",
-            first_line="[omh] web-research - 비교 결과입니다.",
+            visible_prefix="[omh] research",
+            first_line="[omh] research - 비교 결과입니다.",
             body=body,
             claim_boundary="Research summary is not execution evidence.",
         )
@@ -1583,8 +1586,8 @@ class WrapperContractTests(unittest.TestCase):
         )
 
         rendering = messenger_rendering_contract(
-            visible_prefix="[omh] web-research",
-            first_line="[omh] web-research - 비교 결과입니다.",
+            visible_prefix="[omh] research",
+            first_line="[omh] research - 비교 결과입니다.",
             body=body,
             claim_boundary="Research summary is not execution evidence.",
         )
@@ -1607,8 +1610,8 @@ class WrapperContractTests(unittest.TestCase):
         )
 
         rendering = messenger_rendering_contract(
-            visible_prefix="[omh] web-research",
-            first_line="[omh] web-research - 예제입니다.",
+            visible_prefix="[omh] research",
+            first_line="[omh] research - 예제입니다.",
             body=body,
             claim_boundary="Research summary is not execution evidence.",
         )
@@ -1625,8 +1628,8 @@ class WrapperContractTests(unittest.TestCase):
             ]
         )
         rendering = messenger_rendering_contract(
-            visible_prefix="[omh] web-research",
-            first_line="[omh] web-research - 비교 결과입니다.",
+            visible_prefix="[omh] research",
+            first_line="[omh] research - 비교 결과입니다.",
             body=body,
             claim_boundary="Not execution evidence.",
         )
@@ -1635,7 +1638,7 @@ class WrapperContractTests(unittest.TestCase):
                 "thread_key": "discord:c1:m1",
                 "chat_response": {
                     "kind": "plan",
-                    "headline": "[omh] web-research - 비교 결과입니다.",
+                    "headline": "[omh] research - 비교 결과입니다.",
                     "body": body,
                     "state": {"phase": "planning"},
                     "messenger_rendering": rendering,
@@ -1663,7 +1666,7 @@ class WrapperContractTests(unittest.TestCase):
                 "thread_key": "discord:c1:m1",
                 "chat_response": {
                     "kind": "plan",
-                    "headline": "[omh] web-research - 비교 결과입니다.",
+                    "headline": "[omh] research - 비교 결과입니다.",
                     "body": body,
                     "state": {"phase": "planning"},
                     "messenger_rendering": {"schema_version": "omh_messenger_rendering/v1"},
@@ -1744,7 +1747,7 @@ class WrapperContractTests(unittest.TestCase):
                 "thread_key": "discord:c1:m1",
                 "chat_response": {
                     "kind": "plan",
-                    "headline": "[omh] web-research - 비교 결과입니다.",
+                    "headline": "[omh] research - 비교 결과입니다.",
                     "body": body,
                     "messenger_rendering": {
                         "schema_version": "omh_messenger_rendering/v1",
@@ -1771,8 +1774,8 @@ class WrapperContractTests(unittest.TestCase):
             ]
         )
         rendering = messenger_rendering_contract(
-            visible_prefix="[omh] web-research",
-            first_line="[omh] web-research - 비교 결과입니다.",
+            visible_prefix="[omh] research",
+            first_line="[omh] research - 비교 결과입니다.",
             body=body,
             claim_boundary="Not execution evidence.",
             render_profile="rich_markdown",
@@ -1783,7 +1786,7 @@ class WrapperContractTests(unittest.TestCase):
                 "thread_key": "hermes:c1:m1",
                 "chat_response": {
                     "kind": "plan",
-                    "headline": "[omh] web-research - 비교 결과입니다.",
+                    "headline": "[omh] research - 비교 결과입니다.",
                     "body": body,
                     "messenger_rendering": rendering,
                     "actions": [],

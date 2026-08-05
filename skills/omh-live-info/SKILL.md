@@ -47,7 +47,7 @@ Bad example:
 ## Recovery Notes
 
 - If the provider, plugin, API key, or connector is missing, route to toolbelt-readiness before preparing result claims.
-- If the request asks for citations, best practices, docs, or broad current-source synthesis, route to web-research instead.
+- If the request asks for citations, best practices, docs, or broad current-source synthesis, route to research instead.
 - If the request would create, update, invite, send, or mutate external provider state, route to connector-operator instead.
 
 ## Workflow Lane

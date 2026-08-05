@@ -24,8 +24,8 @@ class ImpactRouteCase:
 REPRESENTATIVE_ROUTE_CASES = (
     ImpactRouteCase("tdd-en", "Please write tests first and implement this with TDD", "ultraprocess"),
     ImpactRouteCase("tdd-ko", "이 기능 테스트부터 작성하고 TDD로 구현해줘", "ultraprocess"),
-    ImpactRouteCase("literature-en", "Do a literature review of recent agent memory papers", "web-research"),
-    ImpactRouteCase("literature-ko", "이 논문들 문헌 검토하고 근거를 정리해줘", "web-research"),
+    ImpactRouteCase("literature-en", "Do a literature review of recent agent memory papers", "research"),
+    ImpactRouteCase("literature-ko", "이 논문들 문헌 검토하고 근거를 정리해줘", "research"),
     ImpactRouteCase("visual-qa-en", "Analyze this screenshot for UI layout problems", "visual-qa"),
     ImpactRouteCase("visual-qa-ko", "이 스크린샷 UI 레이아웃 문제를 분석해줘", "visual-qa"),
     ImpactRouteCase("durable-goal-ko", "이 목표를 오래 실행하면서 완료조건까지 계속 진행해줘", "ultragoal"),

@@ -14,7 +14,7 @@ metadata:
 
 Reasoning demand: `light`
 
-Use this skill when the user mentions oh-my-hermes or a workflow keyword such as `deep-interview`, `ultraperf`, `ralplan`, `ultragoal`, `loop`, `ultraprocess`, `web-research`, `research-department`, `source-finder`, `paper-learning`, `data-analysis`, `command-operator`, `connector-operator`, `live-info-operator`, `external-connector-readiness`, `physical-device-readiness`, `content-operator`, `media-input-operator`, `feedback-triage`, `finance-analysis`, `people-ops`, `legal-compliance-review`, `support-operations`, `curriculum-design`, `localization-review`, `sales-development`, `product-brief`, `materials-package`, `img-summary`, `design-quality-gate`, `frontend`, `accessibility-audit`, `visual-qa`, `browser-operator`, `workspace-file-operator`, `automation-blueprint`, `harness-session-inventory`, `agent-debug`, `failure-signal-audit`, `instinct-ledger`, `skill-scout`, `skill-health`, `workflow-learning`, `codebase-onboarding`, `codegraph-refresh`, `context-budget-review`, `run-efficiency`, `provider-profile-posture`, `decision-recall`, `security-safety-review`, `code-review`, `build-failure-triage`, `team`, `ultrawork`, `ultraqa`, `doctor`.
+Use this skill when the user mentions oh-my-hermes or a workflow keyword such as `deep-interview`, `ultraperf`, `ralplan`, `ultragoal`, `loop`, `ultraprocess`, `research`, `research-department`, `source-finder`, `paper-learning`, `data-analysis`, `command-operator`, `connector-operator`, `live-info-operator`, `external-connector-readiness`, `physical-device-readiness`, `content-operator`, `media-input-operator`, `feedback-triage`, `finance-analysis`, `people-ops`, `legal-compliance-review`, `support-operations`, `curriculum-design`, `localization-review`, `sales-development`, `product-brief`, `materials-package`, `img-summary`, `design-quality-gate`, `frontend`, `accessibility-audit`, `visual-qa`, `browser-operator`, `workspace-file-operator`, `automation-blueprint`, `harness-session-inventory`, `agent-debug`, `failure-signal-audit`, `instinct-ledger`, `skill-scout`, `skill-health`, `workflow-learning`, `codebase-onboarding`, `codegraph-refresh`, `context-budget-review`, `run-efficiency`, `provider-profile-posture`, `decision-recall`, `security-safety-review`, `code-review`, `build-failure-triage`, `team`, `ultrawork`, `ultraqa`, `doctor`.
 
 ## Routing Contract
 
@@ -64,7 +64,7 @@ OMH is Hermes-native workflow guidance, not a hidden executor or core patch. Her
 Compact lane map:
 
 - Intent -> plan: `deep-interview`, `ralplan`, `plan`, `loop`, `ultraprocess`.
-- Research and company ops: `web-research`, `source-finder`, `research-department`, `paper-learning`, `feedback-triage`, `strategy-brief`, `meeting-brief`.
+- Research and company ops: `research`, `source-finder`, `research-department`, `paper-learning`, `feedback-triage`, `strategy-brief`, `meeting-brief`.
 - Retained knowledge: `wiki`.
 - Materials and visual summaries: `design-quality-gate`, `frontend`, `accessibility-audit`, `visual-qa`, `materials-package`, `img-summary`, `report-package`, `deliverable-package`.
 - Operations and evidence gates: `workspace-audit`, `production-audit`, `verification-gate`, `agent-evaluation`, `rules-distill`, `agent-ops-review`, `harness-session-inventory`, `ops-observability-card`, `instinct-ledger`, `workflow-learning`.

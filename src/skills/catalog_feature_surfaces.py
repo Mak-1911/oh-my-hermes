@@ -779,7 +779,7 @@ _FEATURE_SURFACE_SKILLS = (
         ),
         recovery_notes=(
             "If the provider, plugin, API key, or connector is missing, route to toolbelt-readiness before preparing result claims.",
-            "If the request asks for citations, best practices, docs, or broad current-source synthesis, route to web-research instead.",
+            "If the request asks for citations, best practices, docs, or broad current-source synthesis, route to research instead.",
             "If the request would create, update, invite, send, or mutate external provider state, route to connector-operator instead.",
         ),
     ),
@@ -1135,7 +1135,7 @@ _FEATURE_SURFACE_SKILLS = (
             "Published, sent, exported, approved, and fact-verified claims are reported only from observed evidence.",
         ),
         recovery_notes=(
-            "If the request asks for citations, current facts, or source-backed evidence gathering, route to web-research or source-finder before drafting.",
+            "If the request asks for citations, current facts, or source-backed evidence gathering, route to research or source-finder before drafting.",
             "If the request asks to send, post, invite, ticket, or mutate an external app, route to connector-operator before claiming delivery.",
             "If the request asks for PDF, PPT, DOCX, HWP, spreadsheet, or attachment packaging, route to materials-package or deliverable-package.",
             "If the request is a simple one-off sentence or paragraph transformation, answer directly instead of opening a workflow.",
@@ -1244,7 +1244,7 @@ _FEATURE_SURFACE_SKILLS = (
         ),
         recovery_notes=(
             "If the media or transcript is missing, ask for the smallest source, file, transcript, or provider result needed.",
-            "If the request is broad current-source research about a video topic, route to web-research or source-finder before summary.",
+            "If the request is broad current-source research about a video topic, route to research or source-finder before summary.",
             "If the user wants a PPT/PDF/report generated from the media summary, route to materials-package after media input evidence is clear.",
         ),
     ),

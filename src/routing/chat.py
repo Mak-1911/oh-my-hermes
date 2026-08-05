@@ -2896,7 +2896,7 @@ _OPERATOR_SURFACE_FAST_PATH_RULES: tuple[tuple[str, tuple[str, ...], str, str], 
         "Broad design-ownership request; prepare intent, direction, lane composition, executor-neutral handoff, and observed-only visual evidence requirements.",
     ),
     (
-        "web-research",
+        "research",
         (
             "web search",
             "web research",
@@ -3884,7 +3884,7 @@ def _operator_surface_fast_path_decision(
         return None
     if selected_skill == "ralplan" and _is_fast_plain_direct_answer_question(routing_message):
         return None
-    if selected_skill in ("web-research", "toolbelt-readiness") and _hermes_setup_guide_requested(
+    if selected_skill in ("research", "toolbelt-readiness") and _hermes_setup_guide_requested(
         normalized_phrase(prepare_routing_text(routing_message).scoring_text)
     ):
         return None
@@ -3910,7 +3910,7 @@ def _operator_surface_fast_path_decision(
         routing_message
     ) and not _is_skill_scout_candidate_alias_intent(routing_message):
         return None
-    preempting_skills = _web_research_preempting_skills(routing_message) if selected_skill == "web-research" else ("source-finder", "toolbelt-readiness")
+    preempting_skills = _web_research_preempting_skills(routing_message) if selected_skill == "research" else ("source-finder", "toolbelt-readiness")
     preempting_guard = _operator_surface_preempting_guard(
         selected_skill,
         routing_message,
@@ -3985,7 +3985,7 @@ def _ai_usability_research_fast_path_match(message: str) -> tuple[str, str, str,
     if not all(any(_ai_usability_research_cue_matches(cue, text, compact, tokens) for cue in cues) for cues in _AI_USABILITY_RESEARCH_CUE_GROUPS):
         return None
     return (
-        "web-research",
+        "research",
         "ai usability research",
         "operator_surface_fast_path:ai_usability_research",
         "Clear AI-agent usability research request; start Hermes-owned source-backed research with usability limits visible.",
@@ -4002,7 +4002,7 @@ def _web_research_preempting_skills(message: str) -> tuple[str, ...]:
     return tuple(
         guard.preferred_skills[0]
         for guard in active_routing_guard_rules(normalized_phrase(routing_text.scoring_text), routing_tokens(normalized_phrase(routing_text.scoring_text)))
-        if guard.preferred_skills and guard.preferred_skills[0] != "web-research"
+        if guard.preferred_skills and guard.preferred_skills[0] != "research"
     )
 
 

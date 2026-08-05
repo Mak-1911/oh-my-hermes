@@ -517,7 +517,7 @@ def _role_lanes() -> list[dict[str, object]]:
             "label": "Scout",
             "status": "prepared",
             "responsibility": "Collect source candidates and raw findings without claiming retrieval until observed.",
-            "primary_skills": ["web-research", "autoresearch-goal"],
+            "primary_skills": ["research", "autoresearch-goal"],
             "output_bucket": "raw_findings",
         },
         {
@@ -571,7 +571,7 @@ def _workflow_chain(roles: list[dict[str, object]]) -> list[dict[str, object]]:
 def _skill_chain(source_policy: dict[str, object]) -> list[dict[str, str]]:
     chain = [
         {"skill": "research-department", "reason": "workflow pack owner"},
-        {"skill": "web-research", "reason": "Scout lane for current/source-backed collection"},
+        {"skill": "research", "reason": "Scout lane for current/source-backed collection"},
         {"skill": "research-brief", "reason": "Analyst lane for source-backed synthesis"},
         {"skill": "report-package", "reason": "Briefer lane for digest/report output"},
         {"skill": "automation-blueprint", "reason": "cadence and delivery policy when recurring"},

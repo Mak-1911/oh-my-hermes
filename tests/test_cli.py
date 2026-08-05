@@ -3410,7 +3410,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("10/10 context brief cases passing", gates["context_brief_coverage"]["summary"])
             self.assertEqual(gates["routing_precision"]["status"], "passed")
             self.assertIn("57/57 negative-control cases", gates["routing_precision"]["summary"])
-            self.assertIn("138/138 interventions", gates["routing_precision"]["summary"])
+            self.assertIn("151/151 interventions", gates["routing_precision"]["summary"])
             self.assertIn("overroutes 0", gates["routing_precision"]["summary"])
             self.assertIn("missed interventions 0", gates["routing_precision"]["summary"])
             self.assertEqual(gates["localized_chat_copy"]["status"], "passed")
@@ -3464,7 +3464,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("Chat card coverage: 74/74 (generic ack 0)", stdout)
             self.assertIn("Context brief coverage: 10/10 (route hints 9, catalog hints 1)", stdout)
             self.assertIn(
-                "Routing precision: 57/57 negative controls, 138/138 interventions "
+                "Routing precision: 57/57 negative controls, 151/151 interventions "
                 "(overroutes 0, catalog pickers 0, generic ack 0, missed interventions 0)",
                 stdout,
             )
@@ -3501,8 +3501,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(payload["summary"]["routing_precision_passing"], 57)
             self.assertEqual(payload["summary"]["routing_precision_total"], 57)
             self.assertEqual(payload["summary"]["routing_precision_overroute_count"], 0)
-            self.assertEqual(payload["summary"]["routing_precision_intervention_passing"], 138)
-            self.assertEqual(payload["summary"]["routing_precision_intervention_total"], 138)
+            self.assertEqual(payload["summary"]["routing_precision_intervention_passing"], 151)
+            self.assertEqual(payload["summary"]["routing_precision_intervention_total"], 151)
             self.assertEqual(payload["summary"]["routing_precision_missed_intervention_count"], 0)
             self.assertEqual(payload["summary"]["localized_chat_copy_passing"], 8)
             self.assertEqual(payload["summary"]["localized_chat_copy_total"], 8)
@@ -4908,7 +4908,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(
             [(step["stage"], step["skill"]) for step in route_plan["steps"]],
             [
-                ("research", "web-research"),
+                ("research", "research"),
                 ("plan", "ralplan"),
                 ("deliver", "ultraprocess"),
                 ("review", "code-review"),
@@ -5036,7 +5036,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ("trouve le dépôt GitHub et le PDF public", "source-finder", "locale:fr:source_finder"),
             ("finde paper und dataset zu diesem thema", "source-finder", "locale:de:source_finder"),
             ("इस विषय के शोध पत्र PDF और डेटा सेट ढूंढो", "source-finder", "locale:hi:source_finder"),
-            ("वेब पर खोजकर ताज़ा स्रोतों के साथ सारांश दो", "web-research", "locale:hi:web_research"),
+            ("वेब पर खोजकर ताज़ा स्रोतों के साथ सारांश दो", "research", "locale:hi:web_research"),
         )
 
         for message, expected_skill, locale_match in cases:
@@ -5191,7 +5191,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 self.assertEqual(stderr, "")
                 self.assertEqual(status, 0)
                 recommendations = json.loads(stdout)["recommendations"]
-                self.assertEqual(recommendations[0]["skill"], "web-research")
+                self.assertEqual(recommendations[0]["skill"], "research")
                 self.assertEqual(recommendations[0]["hermes_role"], "researcher")
                 self.assertIn("citation discipline", recommendations[0]["description"].lower())
                 self.assertIn("retrieval", recommendations[0]["evidence_boundary"].lower())
@@ -6713,7 +6713,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ("what coding agents can OMH use?", "executor-runtime-readiness", "executor_runtime_readiness", "prepare_executor_runtime_readiness"),
             ("what can OMH do for research department?", "research-department", "research_department", "prepare_research_department_plan"),
             ("what can OMH do for research brief?", "research-brief", "web_research", "run_hermes_research"),
-            ("Use OMH web-research for: research loop engineering", "web-research", "web_research", "run_hermes_research"),
+            ("Use OMH research for: research loop engineering", "research", "web_research", "run_hermes_research"),
             ("what can OMH do for GitHub event ops?", "github-event-ops", "github_event_ops", "prepare_github_event_ops_card"),
             ("what can OMH do for coding agents?", "executor-runtime-readiness", "executor_runtime_readiness", "prepare_executor_runtime_readiness"),
             ("what can OMH do for reliability review?", "reliability-review", "reliability_review", "prepare_reliability_review"),
@@ -6733,7 +6733,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ("내가 말한 memory가 잘못 저장된 것 같아 정리해줘", "memory-sync", "memory_curation", "prepare_memory_sync"),
             ("GitHub issue 들어온 걸 PR 만들 수 있게 정리해줘", "github-event-ops", "github_event_ops", "prepare_github_event_ops_card"),
             ("새 이슈 들어오면 라벨링하고 PR 준비해줘", "github-event-ops", "github_event_ops", "prepare_github_event_ops_card"),
-            ("리서치 요청했는데 OMH를 안 썼어", "web-research", "web_research", "run_hermes_research"),
+            ("리서치 요청했는데 OMH를 안 썼어", "research", "web_research", "run_hermes_research"),
             ("회의록 요약을 부탁했는데 OMH 안 쓰고 일반 답변했어", "operating-rhythm", "operating_rhythm", "prepare_operating_record"),
             ("Hermes가 기억하고 있는 프로젝트 맥락이 오래된 것 같아 정리해줘", "memory-sync", "memory_curation", "prepare_memory_sync"),
             ("PPT 만들어줘", "materials-package", "materials_package", "prepare_material_package"),
@@ -11979,7 +11979,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(inspected["harness_quality"]["schema_version"], "harness_quality/v1")
         self.assertIn("primary_sources_checked", inspected["harness_quality"]["evidence_ladder"])
         research_profiles = {profile["name"]: profile for profile in inspected["primary_skill_profiles"]}
-        self.assertEqual(research_profiles["web-research"]["reasoning_demand"], "standard")
+        self.assertEqual(research_profiles["research"]["reasoning_demand"], "standard")
         self.assertTrue(inspected["validation"]["ok"])
 
         status, stdout, stderr = run_cli(["harness", "validate"])

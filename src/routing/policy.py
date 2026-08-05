@@ -4392,9 +4392,9 @@ OPS_OBSERVABILITY_GUARD = RoutingGuardRule(
 )
 WEB_RESEARCH_BEFORE_PROCESS_GUARD = RoutingGuardRule(
     id="web_research_before_process",
-    rule="Plain web/source/current-evidence requests should route to web research before one-cycle delivery.",
+    rule="Plain web/source/current-evidence requests should route to the research engine before one-cycle delivery.",
     matched_label="guard:web_research_before_process",
-    preferred_skills=("web-research",),
+    preferred_skills=("research",),
     score_boost=14,
     why="Matched guard/trigger metadata; web, source, or freshness requests should start with source-backed Hermes research.",
     activation_status="active",
@@ -4410,9 +4410,9 @@ SOURCE_FINDER_GUARD = RoutingGuardRule(
 )
 MISSED_WORKFLOW_WEB_RESEARCH_GUARD = RoutingGuardRule(
     id="missed_workflow_research_recovery",
-    rule="Missed-OMH feedback about research/source work should recover to web-research instead of broad router help.",
+    rule="Missed-OMH feedback about research/source work should recover to research instead of broad router help.",
     matched_label="guard:missed_workflow_research_recovery",
-    preferred_skills=("web-research",),
+    preferred_skills=("research",),
     score_boost=32,
     why="Matched guard/trigger metadata; missed OMH research feedback should recover to source-backed Hermes research.",
     activation_status="active",
@@ -4431,7 +4431,14 @@ DELIVERY_CYCLE_GUARD = RoutingGuardRule(
     rule="Requests that ask for PR or delivery-cycle completion should route to Ultraprocess before research-only lanes.",
     matched_label="guard:delivery_cycle_before_research_only",
     preferred_skills=("ultraprocess",),
-    score_boost=12,
+    # Raised from 12 when `web-research` was renamed to `research`: the research
+    # lane now also collects the +5 catalog-name phrase match on any message
+    # containing the word, which turned the recommend field for "web research
+    # and source scan, then prepare a PR" from a 5-point ultraprocess win into a
+    # 28-28 tie that the alphabetical tie-break handed to research. 14 restores
+    # the margin the guard had before the rename; it is not new precedence, and
+    # chat routing picked ultraprocess at either value.
+    score_boost=14,
     why="Matched guard/trigger metadata; PR or delivery-cycle requests need the one-cycle process lane rather than research-only routing.",
     activation_status="active",
 )
@@ -4823,7 +4830,11 @@ def explicit_skill_invocation(message: str, names: set[str]) -> str | None:
             first = first[len(prefix) :].strip(":,")
             used_prefix = True
             break
-    if first in names:
+    if (
+        first in names
+        and not _bare_first_word_reads_as_a_verb(stripped, first, used_prefix)
+        and not _bare_first_word_names_a_longer_skill(stripped, first, names, used_prefix)
+    ):
         return None if _explicit_skill_candidate_is_negated(stripped, first) else first
     alias = _EXPLICIT_SKILL_ALIASES.get(first)
     if alias in names:
@@ -4835,6 +4846,70 @@ def explicit_skill_invocation(message: str, names: set[str]) -> str | None:
         if alias in names:
             return None if _explicit_skill_candidate_is_negated(stripped, first, alias) else alias
     return _marker_scoped_skill_invocation(stripped, words, names)
+
+
+# `research` is the one routable name that is also a transitive English verb a
+# request naturally opens with. "research this attached arxiv PDF and explain it"
+# names paper-learning's whole job and only *starts* with the catalog name, but
+# the bare-first-word form promoted it to an explicit research invocation, which
+# both adds +12 and suppresses the guards that would have handed the message to
+# its real owner. `loop`, `plan`, `team`, and `ask` do not have this problem:
+# they open a sentence as nouns or as the thing being asked for, not as a verb
+# taking the rest of the request as its object.
+_VERB_SHAPED_BARE_INVOCATION_NAMES = frozenset({"research"})
+
+
+def _bare_first_word_reads_as_a_verb(stripped: str, candidate: str, used_prefix: bool) -> bool:
+    """Return True when an unprefixed first word is the verb, not an invocation.
+
+    Only the verb-shaped names are checked, and only without a sigil:
+    `./research`, `$research`, `/research`, `@research`, and `use omh research`
+    stay unconditional invocations. For the bare form the decision is handed to
+    the unbiased scored field: if another lane wins the message on its own
+    merits, the first word was the verb; if nothing outscores the named skill,
+    the invocation stands and `research kubernetes operator patterns for this
+    design` still reaches research.
+    """
+    if used_prefix or candidate not in _VERB_SHAPED_BARE_INVOCATION_NAMES:
+        return False
+    return _bare_invocation_is_outscored(stripped, candidate)
+
+
+@lru_cache(maxsize=512)
+def _bare_invocation_is_outscored(message: str, candidate: str) -> bool:
+    from .recommend import scored_field_winner_without_explicit_invocation
+
+    winner = scored_field_winner_without_explicit_invocation(message)
+    return bool(winner) and winner != candidate
+
+
+def _bare_first_word_names_a_longer_skill(
+    stripped: str,
+    candidate: str,
+    names: set[str],
+    used_prefix: bool,
+) -> bool:
+    """Return True when the first word only starts the skill the message names.
+
+    `research` is a prefix of `research-brief` and `research-department`, and
+    `skill` of `skill-scout` and `skill-health`, so "research brief가 뭐야?"
+    opened with a routable name while asking about a different skill entirely.
+    Matching is substring containment on the normalized message
+    (`_contains_phrase`), so an adverb continuation like "research briefly
+    what the options are" also matches `research brief`; that over-match is
+    harmless because the unbiased scored field routes such messages to the
+    longer skill on merit anyway. A sigil form (`$research ... create a
+    research brief`) stays an explicit invocation of the short name.
+    """
+    if used_prefix:
+        return False
+    normalized = normalized_phrase(stripped)
+    longer_names = tuple(
+        normalized_phrase(name.replace("-", " "))
+        for name in names
+        if name.startswith(f"{candidate}-")
+    )
+    return _contains_phrase(normalized, longer_names)
 
 
 def _marker_scoped_skill_invocation(stripped: str, words: list[str], names: set[str]) -> str | None:

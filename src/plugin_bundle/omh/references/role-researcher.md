@@ -24,7 +24,7 @@ Role selection is prepared guidance only. It is not worker dispatch, tool execut
 
 ## Primary Skills
 
-- `web-research`
+- `research`
 - `best-practice-research`
 - `research-brief`
 - `autoresearch-goal`

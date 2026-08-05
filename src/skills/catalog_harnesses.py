@@ -205,6 +205,7 @@ _HARNESSES = [
             "Scope the research question, source boundaries, recency, and jurisdiction or version assumptions before retrieval.",
             "Use official or primary sources first when they can answer the question.",
             "Record source quality, source diversity, conflicting evidence, and retrieval gaps before synthesis.",
+            "Run independent evidence lanes in parallel when delegation exists and merge them into a single lead ledger between waves.",
             "Separate source evidence, citation links, inference, confidence, and retrieval limits.",
             "Record dates or version boundaries for unstable facts.",
         ),
@@ -1735,7 +1736,7 @@ _HARNESSES = [
         overclaim_guards=(
             "A source_finder_plan/v1 artifact is not web search, download, clone, extraction, license check, source verification, or downstream processing evidence.",
             "A source candidate is not proof the source exists, is accessible, is licensed, or supports the user's claim until observed evidence exists.",
-            "A downstream workflow recommendation is not proof that paper-learning, web-research, materials-package, research-department, or ultraprocess ran.",
+            "A downstream workflow recommendation is not proof that paper-learning, research, materials-package, research-department, or ultraprocess ran.",
         ),
     ),
     HarnessDefinition(
@@ -3006,7 +3007,7 @@ _PRIMARY_HARNESSES = {
     "deep-interview": "deep-interview",
     "team": "goal-execution",
     "ultrawork": "goal-execution",
-    "web-research": "research",
+    "research": "research",
     "research-brief": "business-research",
     "strategy-brief": "strategy-synthesis",
     "meeting-brief": "meeting-facilitation",
