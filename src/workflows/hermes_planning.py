@@ -714,9 +714,9 @@ def _plan_for(task: str, top: dict[str, object]) -> HermesPlan:
     workflow = "ralplan" if reviewed_plan_shaped else "plan"
     harness = "planning"
     handoff = (
-        "Use `omh coding delegate --executor codex --record --from-plan <accepted-plan.md>` after this plan is accepted for a run-backed Codex handoff."
+        "After this plan is accepted and the user confirms the selected executor, use `omh coding delegate --executor <selected-executor> --record --from-plan <accepted-plan.md>` for a run-backed coding handoff."
         if coding_shaped
-        else "Use the selected Hermes workflow only after the plan is accepted."
+        else "Use the selected Hermes workflow only after the plan is accepted and the user confirms the recommended follow-on path."
     )
     return HermesPlan(
         status="draft",

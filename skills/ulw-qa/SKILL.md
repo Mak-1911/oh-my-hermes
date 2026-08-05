@@ -70,6 +70,7 @@ Reasoning demand: `standard`
 
 Quality bar:
 
+- Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
 - Generate hostile scenarios from changed behavior and known risk areas.
 - Report pass/fail evidence separately from proposed fixes.
 - Delegate code mutations discovered by QA to the selected coding executor.

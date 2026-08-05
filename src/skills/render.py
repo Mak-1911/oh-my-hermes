@@ -22,6 +22,7 @@ from .catalog import (
     surface_exposure_for_skill,
     workflow_reference_definitions,
 )
+from .catalog_types import DELEGATION_TRANSPARENCY_RULES
 from .expert_question_rendering import (
     copy_expert_question_payloads,
     expert_question_payloads,
@@ -401,7 +402,7 @@ Quality bar:
 
 Handoff policy:
 
-{definition.handoff_policy}{_executor_readiness_skill_note(definition)}
+{definition.handoff_policy}{_executor_readiness_skill_note(definition)}{_delegation_transparency_skill_note(definition)}
 
 Required inputs:
 
@@ -430,6 +431,17 @@ Executor readiness:
 - When accepted work mutates code, check `executor_readiness/v1` for the selected Codex, Claude Code, Hermes, or oh-my runtime path before first dispatch.
 - If readiness is `missing` or `blocked`, ask the user to choose another coding agent, configure PATH, continue in Hermes, or keep a prompt/runtime handoff; retry only after that state changes.
 - A readiness probe is not dispatch, implementation, verification, review, CI, merge-readiness, or merge evidence."""
+
+
+def _delegation_transparency_skill_note(definition: SkillDefinition) -> str:
+    if definition.hermes_role not in {"handoff-guide", "runtime-handoff-guidance"} and definition.quality_tier != "handoff-gated":
+        return ""
+    rules = _tuple_list(DELEGATION_TRANSPARENCY_RULES)
+    return f"""
+
+Delegation transparency:
+
+{rules}"""
 
 
 def router_reference_templates() -> list[SkillReferenceTemplate]:
@@ -486,6 +498,7 @@ def _router_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
 
 def _router_skill_common_rail_reference() -> str:
     harness_rules = "\n".join(f"- {rule}" for rule in HARNESS_DISCIPLINE_RULES)
+    delegation_transparency = "\n".join(f"- {rule}" for rule in DELEGATION_TRANSPARENCY_RULES)
     translations = "\n".join(f"- {item}," for item in RUNTIME_MECHANISM_TRANSLATIONS[:-1])
     translations = f"{translations}\n- {RUNTIME_MECHANISM_TRANSLATIONS[-1]}."
     execution_rules = "\n".join(f"{index}. {rule}" for index, rule in enumerate(EXECUTION_RULES, start=1))
@@ -529,6 +542,17 @@ The delegation result is generic:
 Record observed delegation results when Hermes or the wrapper exposes them. If delegation is
 unavailable, keep the result explicit as `not_available` or `not_observed`. A recorded run is
 preparation, not execution, review, CI, merge-readiness, or merge evidence.
+
+## Delegation Transparency
+
+{delegation_transparency}
+
+## Follow-On Engine Gate
+
+Finishing one workflow never authorizes starting the next one. An accepted plan, a clarified
+brief, or a routing recommendation is planning evidence, not permission: recommend the follow-on
+engine that fits the work's shape with a one-line reason, and start it only after the user's
+explicit go-ahead in this conversation.
 
 ## Multi-Agent Target Awareness
 
@@ -892,7 +916,7 @@ Treat OMH as the operating layer above individual Hermes-native skills. For a wo
 
 - On an unfamiliar or first-use pattern, briefly recommend the OMH-led route: explain that OMH can structure the problem, select the needed skills, and keep evidence boundaries clear.
 - After repeated accepted local patterns for the same user and workflow, continue OMH-led exploration, problem framing, skill composition, and prepared planning automatically. Keep the current workflow, next action, and prepared-versus-observed boundary visible.
-- Never let that autonomy bypass existing confirmation gates for destructive changes, credentials, external writes, deployment, or executor dispatch. Do not claim that a native skill, subagent, review, CI, or merge ran unless matching observation exists.
+- Never let that autonomy bypass existing confirmation gates for destructive changes, credentials, external writes, deployment, executor dispatch, or starting a follow-on workflow engine (`ultragoal`, `ultrawork`, `ralph`, `team`, `ultraprocess`, `ultraqa`) from another skill's output: an accepted plan or clarified brief is planning evidence, not permission — recommend the engine that fits the work's shape and wait for the user's explicit go-ahead. Do not claim that a native skill, subagent, review, CI, or merge ran unless matching observation exists.
 - If a native Hermes capability is relevant, present it as an optional subordinate capability under the selected OMH workflow. OMH policy remains responsible for selecting and governing the workflow.
 
 ## Priority Rules

@@ -22,7 +22,13 @@ from ..source_finder import (
     SOURCE_FINDER_PLAN_SCHEMA_VERSION,
 )
 
-from .catalog_types import HarnessDefinition
+from .catalog_types import (
+    DELEGATE_MODEL_LABEL_RULE,
+    DELEGATE_PERMISSION_PREFLIGHT_RULE,
+    DELEGATE_PROMPT_DISPLAY_RULE,
+    DELEGATE_RESUMABLE_SESSION_RULE,
+    HarnessDefinition,
+)
 
 def _feature_surface_harness(
     name: str,
@@ -81,9 +87,11 @@ _HARNESSES = [
             "When an explicit project root is supplied, attach only conflict-free project_governance_profile/v1 metadata; existing project rules override advisory defaults and a declined default stays non-blocking.",
             "Use product_family_template/v1 for prepared web, mobile, desktop, or API quality guidance without implying installed tools, execution, or observed QA.",
             "Report coding progress from lifecycle evidence, not from the existence of a prepared prompt.",
-            "Name every delegated or parallel lane's model and reasoning effort inline as `(model effort)` in status and briefing lines — including runtime-native subagents; write the literal `unknown` when the host does not expose a value, never empty parentheses, and carry token and elapsed figures the same way.",
+            DELEGATE_MODEL_LABEL_RULE,
             "When the user asks mid-run which models are working or how many tokens are spent, answer immediately with one line per lane in that same format plus a one-line total; a steering question never waits for lane completion.",
-            "When delegating, show the composed delegate prompt in a fenced code block in the status message; truncate a long prompt to a bounded preview ending with `... [truncated, N chars total]` — the user must see WHAT was asked, not just that something was.",
+            DELEGATE_PROMPT_DISPLAY_RULE,
+            DELEGATE_RESUMABLE_SESSION_RULE,
+            DELEGATE_PERMISSION_PREFLIGHT_RULE,
             "Embed the delegation protocol (omh coding composition-guide) into EVERY delegated or reviewer prompt — runtime-native spawns included: goal echo-back before tool use, numbered pre-declared done criteria, exactly one mandatory verification pass with a two fix-and-verify cycle cap, and a two-round re-review cap — after two review rounds, stop and report the criterion-cited blockers instead of starting another reviewer.",
         ),
         evidence_ladder=(

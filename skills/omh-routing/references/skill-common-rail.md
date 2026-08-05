@@ -52,6 +52,20 @@ Record observed delegation results when Hermes or the wrapper exposes them. If d
 unavailable, keep the result explicit as `not_available` or `not_observed`. A recorded run is
 preparation, not execution, review, CI, merge-readiness, or merge evidence.
 
+## Delegation Transparency
+
+- When delegating, show the composed delegate prompt in a fenced code block in the status message; truncate a long prompt to a bounded preview ending with `... [truncated, N chars total]` — the user must see WHAT was asked, not just that something was.
+- Name every delegated or parallel lane's model and reasoning effort inline as `(model effort)` in status and briefing lines — including runtime-native subagents; write the literal `unknown` when the host does not expose a value, never empty parentheses, and carry token and elapsed figures the same way.
+- Dispatch delegate runs in a resume-capable session mode with an explicit session or thread id the user can resume or steer later (for example a recorded interactive Claude Code session id or a `codex exec resume`-able thread); do not default to `--print`-style one-shot runs that leave no session behind, and report that id in the status message.
+- Before dispatch, give the executor session every permission the task will need — file write/edit, command/test execution, and the working directory; for Claude Code that means an interactive session or pre-approved tool permissions, and the equivalent sandbox/approval flags for other CLIs — so the run cannot stall mid-task on a permission prompt it cannot answer. A one-shot that hits a permission wall after minutes of silence is a dispatch defect: if a needed permission cannot be granted, surface the blocker before dispatch, not after.
+
+## Follow-On Engine Gate
+
+Finishing one workflow never authorizes starting the next one. An accepted plan, a clarified
+brief, or a routing recommendation is planning evidence, not permission: recommend the follow-on
+engine that fits the work's shape with a one-line reason, and start it only after the user's
+explicit go-ahead in this conversation.
+
 ## Multi-Agent Target Awareness
 
 Respect `omh_target_topology/v1` when a wrapper reports it: bind state to the current target/thread, adapt only the parts of this workflow that benefit from multiple Hermes agents, and fall back to single-target behavior when `active_agent_count` is one.
