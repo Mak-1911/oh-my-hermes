@@ -166,8 +166,47 @@ def install_skill_pack(
     manifest_data["relabelled_skills_removed"] = relabelled["removed"]
     manifest_data["relabelled_skills_retained"] = relabelled["retained"]
     manifest_data["skill_profile_state"] = skill_profile_state(paths.skills_dir, manifest_data)
+    manifest_data = _carry_installed_at_when_nothing_moved(manifest, manifest_data)
     write_manifest(paths.manifest_path, manifest_data)
     return manifest_data
+
+
+def _carry_installed_at_when_nothing_moved(previous: dict | None, current: dict) -> dict:
+    """Keep `installed_at` still when the install changed nothing.
+
+    Every other manifest field is derived from the catalog and from disk, so
+    `installed_at` is the only thing that can move on its own -- and `utc_now()`
+    truncates it to whole seconds. Two installs of identical content therefore
+    produced identical manifest BYTES only when both happened to land inside the
+    same wall-clock second.
+
+    That is a real product bug, not just a flaky test. `omh update` answers "did
+    the workflow pack actually move?" by comparing `sha256_file(manifest_path)`
+    against the recorded hash (`_workflow_content_status` in commands/setup.py),
+    because on the preview channel the version does not move between updates.
+    With a per-run timestamp in the hashed bytes, any rerun that crossed a
+    second boundary reported a content change that never happened -- which is
+    exactly the false claim that comparison exists to prevent. It reproduces on
+    any platform by sleeping 1s between two installs; Windows CI hit it first
+    only because the suite runs ~2.4x slower there, so the gap between the two
+    installs' timestamps regularly spans a second.
+
+    Recording when the installed content last changed, rather than when the
+    installer last ran, makes the answer true. A real content move still
+    refreshes the timestamp, because some other field moves with it.
+    """
+    if not previous:
+        return current
+    carried = previous.get("installed_at")
+    if not isinstance(carried, str) or not carried:
+        return current
+    if _without_installed_at(current) != _without_installed_at(previous):
+        return current
+    return {**current, "installed_at": carried}
+
+
+def _without_installed_at(manifest: dict) -> dict:
+    return {key: value for key, value in manifest.items() if key != "installed_at"}
 
 
 def _prune_relabelled_skill_directories(
