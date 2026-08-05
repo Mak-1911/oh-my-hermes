@@ -1700,6 +1700,15 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "feedback_triage",
     ),
     RoutingInterventionCase(
+        "verb-shaped-research-keeps-research-brief",
+        "A sentence opening with the verb research keeps research-brief for a decision brief",
+        "research a pricing decision brief with evidence versus inference",
+        "dispatch",
+        "research-brief",
+        "run_hermes_research",
+        "web_research",
+    ),
+    RoutingInterventionCase(
         "research-adverb-does-not-name-research-brief",
         "An adverb after the verb research does not read as naming research-brief",
         "research briefly what the options are for vector search",

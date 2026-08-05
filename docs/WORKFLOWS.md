@@ -670,6 +670,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Name retrieval gaps when Hermes or the wrapper cannot access the web.
   - For AI or usability research, separate target-user/task assumptions, measured or reported usability dimensions, and generalizability limits from the evidence.
   - Decompose the question into orthogonal research axes and disambiguate named entities before any deep reading.
+  - Fan out one research lane per axis in parallel when the runtime provides subagents or delegation - covering distinct evidence kinds such as web evidence, reference-implementation study, and claim verification - and merge every lane's leads into one shared ledger between waves; without parallel delegation, run the same lanes sequentially under the same contract.
   - Study reference implementations directly: read the core modules of the most relevant open-source repos, pin the exact version or commit, and record mechanism, tradeoffs, and license per reference.
   - Expand lead-by-lead: track open leads and dead ends, and continue until leads run dry or the declared budget is reached.
   - Mark every figure as measured, assumed, or derived, and carry retrieval dates for time-sensitive facts.
@@ -713,6 +714,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Assert contested claims only after cross-source verification; keep unresolved and refuted claims in an explicit annex - abstention is a correct outcome.
   - Separate quoted evidence from inference.
   - Separate measured, assumed, and derived figures in any estimate.
+  - Parallel lanes widen coverage, not authority: each lane's findings stay claims until merged and verified, and lane count or wave count never substitutes for the declared depth budget.
   - State retrieval limits, dates, and missing-source gaps for unstable facts.
   - product_evidence_loop/v1 is prepared-only opaque references, not observed evidence or execution.
   - deep_research_dossier/v1 is prepared decision context, not observed evidence, execution, review, CI, or merge evidence.
@@ -807,7 +809,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Do not use when:
   - The request is only fresh links, citations, or current facts without a business question or decision audience; use `research`.
   - Sources have not yet been selected and the user wants source types, candidates, or acquisition state; use `source-finder`.
-- Strong routing signals: `research-brief`, `business-research`, `business research`, `research brief`, `source-backed business research`, `customer feedback trends`, `feedback trends`, `market evidence`, `data search`, `source scan`, `자료 조사`, `데이터 서치`, `근거 조사`, `피드백 추세`, `고객 피드백 추세`
+- Strong routing signals: `research-brief`, `business-research`, `business research`, `research brief`, `decision brief`, `pricing decision brief`, `decision-ready brief`, `source-backed business research`, `customer feedback trends`, `feedback trends`, `market evidence`, `data search`, `source scan`, `자료 조사`, `데이터 서치`, `근거 조사`, `피드백 추세`, `고객 피드백 추세`
 - Good example:
   - Prompt: research-brief: compare three onboarding analytics vendors using customer notes and confidence gaps.
   - Expected behavior: Prepare a source-backed brief with evidence, inference, confidence, and retrieval gaps separated.
@@ -6758,6 +6760,7 @@ Gather current or source-backed evidence before planning or coding handoff.
   - Scope the research question, source boundaries, recency, and jurisdiction or version assumptions before retrieval.
   - Use official or primary sources first when they can answer the question.
   - Record source quality, source diversity, conflicting evidence, and retrieval gaps before synthesis.
+  - Run independent evidence lanes in parallel when delegation exists and merge them into a single lead ledger between waves.
   - Separate source evidence, citation links, inference, confidence, and retrieval limits.
   - Record dates or version boundaries for unstable facts.
 - Inputs:

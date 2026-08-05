@@ -3410,7 +3410,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("10/10 context brief cases passing", gates["context_brief_coverage"]["summary"])
             self.assertEqual(gates["routing_precision"]["status"], "passed")
             self.assertIn("57/57 negative-control cases", gates["routing_precision"]["summary"])
-            self.assertIn("150/150 interventions", gates["routing_precision"]["summary"])
+            self.assertIn("151/151 interventions", gates["routing_precision"]["summary"])
             self.assertIn("overroutes 0", gates["routing_precision"]["summary"])
             self.assertIn("missed interventions 0", gates["routing_precision"]["summary"])
             self.assertEqual(gates["localized_chat_copy"]["status"], "passed")
@@ -3464,7 +3464,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("Chat card coverage: 74/74 (generic ack 0)", stdout)
             self.assertIn("Context brief coverage: 10/10 (route hints 9, catalog hints 1)", stdout)
             self.assertIn(
-                "Routing precision: 57/57 negative controls, 150/150 interventions "
+                "Routing precision: 57/57 negative controls, 151/151 interventions "
                 "(overroutes 0, catalog pickers 0, generic ack 0, missed interventions 0)",
                 stdout,
             )
@@ -3501,8 +3501,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(payload["summary"]["routing_precision_passing"], 57)
             self.assertEqual(payload["summary"]["routing_precision_total"], 57)
             self.assertEqual(payload["summary"]["routing_precision_overroute_count"], 0)
-            self.assertEqual(payload["summary"]["routing_precision_intervention_passing"], 150)
-            self.assertEqual(payload["summary"]["routing_precision_intervention_total"], 150)
+            self.assertEqual(payload["summary"]["routing_precision_intervention_passing"], 151)
+            self.assertEqual(payload["summary"]["routing_precision_intervention_total"], 151)
             self.assertEqual(payload["summary"]["routing_precision_missed_intervention_count"], 0)
             self.assertEqual(payload["summary"]["localized_chat_copy_passing"], 8)
             self.assertEqual(payload["summary"]["localized_chat_copy_total"], 8)
