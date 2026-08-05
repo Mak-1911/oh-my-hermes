@@ -145,8 +145,63 @@ class CodeBlockIsPreferredEverywhereTests(unittest.TestCase):
                 self.assertEqual(code_blocks[0]["text"], _ALIGNED)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class FencePairingTests(unittest.TestCase):
+    """CommonMark-style pairing: only a closing fence of the same marker with
+    at least the opening run length (and no info string) closes a block, so a
+    fenced block that QUOTES another fence survives as one code block."""
+
+    def test_a_fence_containing_an_inner_backtick_fence_stays_one_block(self) -> None:
+        inner = "```python\nprint('hi')\n```"
+        body = f"Quoting a fence\n\n````markdown\n{inner}\n````\n\nAfter"
+        for profile in PROFILES:
+            with self.subTest(profile=profile):
+                blocks = _blocks_of_type(_contract(body, profile), "code_block")
+                self.assertEqual(len(blocks), 1)
+                self.assertEqual(blocks[0]["text"], inner)
+                self.assertEqual(blocks[0]["language"], "markdown")
+
+    def test_a_tilde_fence_contains_backtick_fence_lines_as_content(self) -> None:
+        inner = "```text\naligned  columns\n```"
+        body = f"Tilde\n\n~~~\n{inner}\n~~~"
+        for profile in PROFILES:
+            with self.subTest(profile=profile):
+                blocks = _blocks_of_type(_contract(body, profile), "code_block")
+                self.assertEqual(len(blocks), 1)
+                self.assertEqual(blocks[0]["text"], inner)
+
+    def test_a_shorter_run_does_not_close_a_longer_opening(self) -> None:
+        body = "Head\n\n````\n```\nstill inside\n````"
+        for profile in PROFILES:
+            with self.subTest(profile=profile):
+                blocks = _blocks_of_type(_contract(body, profile), "code_block")
+                self.assertEqual(len(blocks), 1)
+                self.assertEqual(blocks[0]["text"], "```\nstill inside")
+
+    def test_an_unterminated_outer_fence_keeps_inner_fence_lines(self) -> None:
+        body = "Truncated\n\n````python\n```\ninner  content"
+        for profile in PROFILES:
+            with self.subTest(profile=profile):
+                blocks = _blocks_of_type(_contract(body, profile), "code_block")
+                self.assertEqual(len(blocks), 1)
+                self.assertEqual(blocks[0]["text"], "```\ninner  content")
+                self.assertEqual(blocks[0]["language"], "python")
+
+    def test_a_backtick_fence_line_with_backtick_info_is_content(self) -> None:
+        # CommonMark: a backtick fence cannot carry a backtick in its info
+        # string, so such a line cannot open a fence and stays prose.
+        body = "Para\n``` a ` b\nmore prose"
+        for profile in PROFILES:
+            with self.subTest(profile=profile):
+                blocks = _blocks_of_type(_contract(body, profile), "code_block")
+                self.assertEqual(blocks, [])
+
+    def test_an_interior_fence_line_with_info_does_not_close_the_block(self) -> None:
+        body = "Head\n\n```\n``` a ` b\n```"
+        for profile in PROFILES:
+            with self.subTest(profile=profile):
+                blocks = _blocks_of_type(_contract(body, profile), "code_block")
+                self.assertEqual(len(blocks), 1)
+                self.assertEqual(blocks[0]["text"], "``` a ` b")
 
 
 class StatusBoardOnAMessengerScreenTests(unittest.TestCase):
@@ -254,3 +309,7 @@ class StatusBoardOnAMessengerScreenTests(unittest.TestCase):
         contract = self._board_contract("slack", "limited_markdown")
         for marker in ("**", "__", "###", "](", "~~"):
             self.assertNotIn(marker, contract["body_text"], marker)
+
+
+if __name__ == "__main__":
+    unittest.main()

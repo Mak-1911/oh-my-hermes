@@ -92,8 +92,12 @@ DISPATCH_COMMAND_TEMPLATES: dict[str, tuple[str, ...]] = {
 
 # Fixed detection order for the omo runtime's local host CLI: first on PATH
 # wins ("usually pi" — user-stated common case; senpi is a pi distribution;
-# opencode hosts omo as a plugin). Detection is presence-only and recorded
-# implicitly by argv[0]/probe command.
+# opencode hosts omo as a plugin). Both layouts — pi-family host CLI and
+# opencode plugin — are first-class dispatch hosts. Detection is
+# presence-only and recorded implicitly by argv[0]/probe command. Model
+# CONFIG, by contrast, is currently read only from the opencode config path
+# (see MODEL_INVENTORY_CATALOG_PROFILE in model_inventory): a pi-only
+# install still dispatches, but its routes degrade to `no_model_catalog`.
 OMO_RUNTIME_HOST_CANDIDATES: tuple[str, ...] = ("pi", "senpi", "opencode")
 
 _OMO_HOST_TEMPLATES: dict[str, dict[str, tuple[str, ...] | int | None]] = {
@@ -276,12 +280,17 @@ def _unit_role(unit: Mapping[str, Any]) -> str:
     return str(route.get("role", "") or "") if isinstance(route, Mapping) else ""
 
 
-def _owner_skill_discoveries(units: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+def _owner_skill_discoveries(
+    units: Iterable[Mapping[str, Any]],
+    project_root: Path | None = None,
+) -> dict[str, dict[str, Any]]:
     """Observe declared skills once per distinct spawnable owner in this contract.
 
     Only owners that actually spawn are probed — a prepared-prompt fallback
     owner never reaches `build_unit_prompt`, so scanning for it would be IO
-    nobody reads.
+    nobody reads. `project_root` is the dispatch target repo, so repo-local
+    `.claude/skills` definitions are discovered alongside the operator-level
+    ones.
     """
     from .executor_skill_discovery import discovered_executor_skills
 
@@ -291,7 +300,7 @@ def _owner_skill_discoveries(units: Iterable[Mapping[str, Any]]) -> dict[str, di
         if isinstance(unit.get("handoff"), Mapping)
     }
     return {
-        owner: discovered_executor_skills(owner)
+        owner: discovered_executor_skills(owner, project_root=project_root)
         for owner in sorted(owners)
         if owner and DISPATCH_COMMAND_TEMPLATES.get(owner) is not None
     }
@@ -341,7 +350,7 @@ def dispatch_fanout(
     # than inside the prompt builder: `build_unit_prompt` stays a pure function
     # of its arguments, so a prompt built without discovery is byte-identical
     # across machines.
-    discoveries = _owner_skill_discoveries(units.values())
+    discoveries = _owner_skill_discoveries(units.values(), project_root=repo_root)
     results: dict[str, dict[str, Any]] = {}
 
     for unit_id in order:
@@ -588,7 +597,7 @@ def _dispatch_unit(
     argv = build_dispatch_argv(owner, prompt, model_route)
     worktree = _worktree_path(repo_root, unit_id)
     if dry_run:
-        from .executor_skill_discovery import skill_selection_card
+        from .executor_skill_discovery import skill_selection_card, suggested_skill_sequence
 
         planned: dict[str, Any] = {
             "unit_id": unit_id,
@@ -616,7 +625,15 @@ def _dispatch_unit(
                 planned["skill_sequence_source"] = "auto_recommended"
                 planned["skill_selection"] = card
             else:
-                planned["skill_sequence_source"] = "auto" if unit_skill_lines(unit, discovery) else "none"
+                auto_steps = suggested_skill_sequence(discovery, _unit_role(unit))
+                if auto_steps:
+                    planned["skill_sequence_source"] = "auto"
+                    # Name the sequence that will actually ride the prompt:
+                    # "auto" alone told the operator a skill was chosen
+                    # without saying which one.
+                    planned["skill_sequence"] = [str(step["invocation"]) for step in auto_steps]
+                else:
+                    planned["skill_sequence_source"] = "none"
         return planned
     from .worktree_creator import ensure_fanout_unit_worktree
 

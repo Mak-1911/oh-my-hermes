@@ -54,6 +54,7 @@ from ..executor_readiness import (
 from .agentic_playbook import maybe_build_agentic_playbook
 from .context_safety import (
     MAX_VISIBLE_MESSAGE_CHARS,
+    bounded_prompt_preview,
     compact_visible_text,
     context_budget_payload,
     raw_output_artifact_ref,
@@ -63,6 +64,7 @@ from ..quality.specialist_work import build_specialist_work_quality_contract
 from ..ingress import CHAT_SOURCES, extract_message_text, extract_source_metadata
 from ..isolation import build_isolation_plan
 from ..memory import validate_handoff_context_blocked, validate_handoff_context_pack, validate_project_memory_recall_pack
+from ..routing.executor_cues import contains_boundary_phrase
 from ..routing.recommend import recommend_skills
 from ..skills.catalog import (
     CODING_INTENT_PRIORITY,
@@ -227,11 +229,33 @@ _CODING_STATUS_AGENT_TERMS = (
     "coding agent",
     "coding-agent",
     "hermes coding",
+    "senpi",
+    "opencode",
+    "omo runtime",
     "코덱스",
     "클로드 코드",
     "클로드",
     "코딩 에이전트",
     "코딩-agent",
+)
+# Bare "pi" hides inside "api" and "pipeline", so the omo host CLI only counts
+# through these right-bounded forms — and never when the message carries
+# Raspberry-Pi (or api) context, which names hardware, not the executor.
+# Right-bounding alone is not enough: "raspi status" and "spi status" contain
+# "pi status", so these terms are matched with `contains_boundary_phrase`
+# (word-boundary occurrence), never raw containment.
+_CODING_STATUS_PI_AGENT_TERMS = (
+    "pi 진행",
+    "pi 상태",
+    "pi 세션",
+    "pi session",
+    "pi progress",
+    "pi status",
+)
+_CODING_STATUS_PI_BLOCKER_TERMS = (
+    "raspberry",
+    "라즈베리",
+    "api",
 )
 _CODING_STATUS_REQUEST_TERMS = (
     "progress",
@@ -506,8 +530,14 @@ _VISIBLE_PROMPT_KEYS = (
 )
 
 
-def _attach_bounded_text(payload: dict[str, object], key: str, text: str) -> None:
-    payload[f"{key}_preview"] = compact_visible_text(text, max_chars=MAX_VISIBLE_MESSAGE_CHARS)
+def _attach_bounded_text(payload: dict[str, object], key: str, text: str, *, preserve_structure: bool = False) -> None:
+    if preserve_structure:
+        # Composed delegate prompts keep their newlines/indentation and the
+        # documented `... [truncated, N chars total]` marker, so the preview
+        # can sit inside a fenced code block (DELEGATE_PROMPT_DISPLAY_RULE).
+        payload[f"{key}_preview"] = bounded_prompt_preview(text)
+    else:
+        payload[f"{key}_preview"] = compact_visible_text(text, max_chars=MAX_VISIBLE_MESSAGE_CHARS)
     payload[f"{key}_artifact"] = raw_output_artifact_ref(text, source=f"coding_delegate:{key}")
 
 
@@ -544,7 +574,7 @@ def _attach_visible_message(
         }
         return
     for key, text in expansions:
-        _attach_bounded_text(payload, key, text)
+        _attach_bounded_text(payload, key, text, preserve_structure=key == "prompt_handoff_prompt")
     payload["message_context"] = {
         "schema_version": MESSAGE_CONTEXT_SCHEMA_VERSION,
         "mode": "bounded",
@@ -751,7 +781,13 @@ def _intent_for(message: str, workflow: str, score: int) -> str:
 def _coding_status_request_applies(lowered: str, workflow: str) -> bool:
     if workflow != "ultraprocess":
         return False
-    return _has_any(lowered, _CODING_STATUS_AGENT_TERMS) and _has_any(lowered, _CODING_STATUS_REQUEST_TERMS)
+    if not _has_any(lowered, _CODING_STATUS_REQUEST_TERMS):
+        return False
+    if _has_any(lowered, _CODING_STATUS_AGENT_TERMS):
+        return True
+    return contains_boundary_phrase(lowered, _CODING_STATUS_PI_AGENT_TERMS) and not _has_any(
+        lowered, _CODING_STATUS_PI_BLOCKER_TERMS
+    )
 
 
 def _action_for(intent: str, score: int, workflow: str) -> str:

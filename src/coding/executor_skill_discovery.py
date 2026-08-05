@@ -43,6 +43,7 @@ Boundaries, in order of importance:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Final, Iterator, Mapping
 
@@ -59,20 +60,30 @@ EXECUTOR_SKILL_DISCOVERY_CLAIM_BOUNDARY: Final[str] = (
     "authority on which skills resolve."
 )
 
-SOURCE_STATUSES: Final[tuple[str, ...]] = ("present", "absent", "unreadable")
+SOURCE_STATUSES: Final[tuple[str, ...]] = ("present", "absent", "unreadable", "unsupported")
 
 # Fixed probe table. Each entry declares where a source lives relative to the
 # operator's home and how a discovered entry is invoked, because the invocation
 # form is a property of the source, not of the skill.
 #
-# `omo-runtime` is deliberately absent: it is spawnable (see
-# DISPATCH_COMMAND_TEMPLATES) but its host CLIs (pi/senpi/opencode) have no
-# skill layout this repo can verify. Reporting "absent" is honest; guessing a
-# path would fabricate an environment.
+# `omo-runtime` has no probe: it is spawnable (see DISPATCH_COMMAND_TEMPLATES)
+# but its host CLIs (pi/senpi/opencode) have no skill layout this repo can
+# verify, and guessing a path would fabricate an environment. It still gets an
+# explicit `unsupported` sources entry so a dry run shows WHY no skills are
+# sequenced instead of an empty payload with no trace.
 _CLAUDE_USER_SKILLS: Final[str] = ".claude/skills"
-_CLAUDE_PLUGIN_MARKETPLACES: Final[str] = ".claude/plugins/marketplaces"
+_CLAUDE_PLUGINS: Final[str] = ".claude/plugins"
 _CODEX_PROMPTS: Final[str] = ".codex/prompts"
 _CODEX_SKILLS: Final[str] = ".codex/skills"
+
+_OMO_RUNTIME_SOURCE_REASON: Final[str] = (
+    "no skill probe exists for the omo runtime: its host CLIs (pi/senpi/opencode) declare no "
+    "skill layout this repo can verify, so none is scanned"
+)
+
+# A plugin's own manifest may live at either location depending on how it was
+# packaged; the first parseable candidate wins.
+_PLUGIN_MANIFEST_CANDIDATES: Final[tuple[str, ...]] = (".claude-plugin/plugin.json", "plugin.json")
 
 # Caps. Chosen so the discovery block stays small next to UNIT_PROMPT_MAX_BYTES
 # (8000) in unit_prompt_protocol; the chain that reaches a prompt is capped
@@ -80,6 +91,7 @@ _CODEX_SKILLS: Final[str] = ".codex/skills"
 _MAX_ENTRIES_PER_SOURCE: Final[int] = 200
 _MAX_MARKETPLACE_PACKS: Final[int] = 40
 _MAX_FRONTMATTER_BYTES: Final[int] = 4096
+_MAX_MANIFEST_BYTES: Final[int] = 16384
 
 # How much a hit in the skill's own name outweighs one in its description. A
 # name is the author's most compressed statement of purpose; a description
@@ -140,8 +152,11 @@ def discovered_executor_skills(
     sources: dict[str, object] = {}
     skills: list[dict[str, str]] = []
     rejected = 0
-    for source_id, entries, status in _probe_profile(profile, base, project_root):
-        sources[source_id] = {"status": status}
+    for source_id, entries, status, reason in _probe_profile(profile, base, project_root):
+        source: dict[str, str] = {"status": status}
+        if reason:
+            source["reason"] = reason
+        sources[source_id] = source
         for name, invocation, description in entries:
             safe = _safe_name(name)
             if safe is None:
@@ -398,20 +413,29 @@ def _probe_profile(
     profile: str,
     base: Path,
     project_root: Path | None,
-) -> Iterator[tuple[str, list[tuple[str, str, str]], str]]:
+) -> Iterator[tuple[str, list[tuple[str, str, str]], str, str]]:
     if profile == "claude-code":
-        yield _skill_dir_source("claude_user_skills", base / _CLAUDE_USER_SKILLS, f"/{_NAME_PLACEHOLDER}")
-        yield _plugin_skill_source("claude_plugin_skills", base / _CLAUDE_PLUGIN_MARKETPLACES)
+        yield (*_skill_dir_source("claude_user_skills", base / _CLAUDE_USER_SKILLS, f"/{_NAME_PLACEHOLDER}"), "")
+        yield (*_plugin_skill_source("claude_plugin_skills", base / _CLAUDE_PLUGINS), "")
         if project_root is not None:
-            yield _skill_dir_source(
-                "claude_project_skills", project_root / ".claude" / "skills", f"/{_NAME_PLACEHOLDER}"
+            yield (
+                *_skill_dir_source(
+                    "claude_project_skills", project_root / ".claude" / "skills", f"/{_NAME_PLACEHOLDER}"
+                ),
+                "",
             )
         return
     if profile == "codex":
         # Codex custom prompts are addressed by file stem; an OMX-style skill
         # pack installs skill directories alongside them and uses `$name`.
-        yield _prompt_file_source("codex_prompts", base / _CODEX_PROMPTS, f"/{_NAME_PLACEHOLDER}")
-        yield _skill_dir_source("codex_skills", base / _CODEX_SKILLS, f"${_NAME_PLACEHOLDER}")
+        yield (*_prompt_file_source("codex_prompts", base / _CODEX_PROMPTS, f"/{_NAME_PLACEHOLDER}"), "")
+        yield (*_skill_dir_source("codex_skills", base / _CODEX_SKILLS, f"${_NAME_PLACEHOLDER}"), "")
+        return
+    if profile == "omo-runtime":
+        # An explicit unsupported entry, not silence: without it a dry run
+        # shows `sources: {}` and the operator cannot tell "no skills
+        # installed" from "OMH never looked".
+        yield ("omo_runtime_skills", [], "unsupported", _OMO_RUNTIME_SOURCE_REASON)
         return
     return
 
@@ -456,31 +480,155 @@ def _prompt_file_source(
 
 
 def _plugin_skill_source(source_id: str, root: Path) -> tuple[str, list[tuple[str, str, str]], str]:
-    """Discover plugin-provided skills, which invoke as `/<pack>:<name>`.
+    """Discover plugin-provided skills, which invoke as `/<plugin>:<name>`.
 
-    A directory scan that ignored the pack prefix would emit a name the
-    receiving agent cannot resolve, so the pack is part of the invocation.
+    Two layouts, probed in preference order. Installed plugin skills live in
+    the cache layout (`cache/<marketplace>/<plugin>/<version>/skills/...`), so
+    it wins whenever it yields anything; the marketplace-clone layout
+    (`marketplaces/<dir>/plugins/<plugin>/skills/...`, plus the legacy
+    `marketplaces/<dir>/.claude/skills` shape) is the fallback. In both, the
+    namespace prefix is the plugin's own manifest name when readable — that is
+    the prefix the receiving agent resolves — and the directory name only as a
+    fallback: a cache dir `ui-ux-pro-max-skill` holding a plugin named
+    `ui-ux-pro-max` must emit `/ui-ux-pro-max:design`, not a prefix no
+    registry knows.
     """
+    cache = _plugin_cache_probe(source_id, root / "cache")
+    if cache[2] == "present":
+        return cache
+    marketplace = _marketplace_clone_probe(source_id, root / "marketplaces")
+    if marketplace[2] == "present":
+        return marketplace
+    if "unreadable" in (cache[2], marketplace[2]):
+        return (source_id, [], "unreadable")
+    return (source_id, [], "absent")
+
+
+def _plugin_cache_probe(source_id: str, root: Path) -> tuple[str, list[tuple[str, str, str]], str]:
+    """Probe `cache/<marketplace>/<plugin>/<version>/` plugin roots."""
     if not root.is_dir():
         return (source_id, [], "absent")
     try:
-        packs = sorted(pack for pack in root.iterdir() if pack.is_dir())
+        marketplaces = sorted(child for child in root.iterdir() if child.is_dir())
     except OSError:
         return (source_id, [], "unreadable")
     entries: list[tuple[str, str, str]] = []
-    for pack in packs[:_MAX_MARKETPLACE_PACKS]:
-        pack_name = _safe_name(pack.name)
-        if pack_name is None:
+    for marketplace in marketplaces[:_MAX_MARKETPLACE_PACKS]:
+        try:
+            plugins = sorted(child for child in marketplace.iterdir() if child.is_dir())
+        except OSError:
             continue
-        skills_root = pack / ".claude" / "skills"
-        _, pack_entries, status = _skill_dir_source(
-            source_id, skills_root, f"/{pack_name}:{_NAME_PLACEHOLDER}"
-        )
-        if status == "present":
-            entries.extend(pack_entries)
+        for plugin_dir in plugins[:_MAX_MARKETPLACE_PACKS]:
+            version_root = _plugin_version_root(plugin_dir)
+            if version_root is not None:
+                entries.extend(_plugin_dir_entries(source_id, version_root, plugin_dir.name))
     if not entries:
         return (source_id, [], "absent")
     return (source_id, entries[:_MAX_ENTRIES_PER_SOURCE], "present")
+
+
+def _marketplace_clone_probe(source_id: str, root: Path) -> tuple[str, list[tuple[str, str, str]], str]:
+    """Probe marketplace clones: `plugins/<plugin>/` roots first, then the
+    legacy `.claude/skills` shape namespaced by the marketplace directory name."""
+    if not root.is_dir():
+        return (source_id, [], "absent")
+    try:
+        clones = sorted(child for child in root.iterdir() if child.is_dir())
+    except OSError:
+        return (source_id, [], "unreadable")
+    entries: list[tuple[str, str, str]] = []
+    for clone in clones[:_MAX_MARKETPLACE_PACKS]:
+        plugins_dir = clone / "plugins"
+        if plugins_dir.is_dir():
+            try:
+                plugin_dirs = sorted(child for child in plugins_dir.iterdir() if child.is_dir())
+            except OSError:
+                plugin_dirs = []
+            for plugin_dir in plugin_dirs[:_MAX_MARKETPLACE_PACKS]:
+                entries.extend(_plugin_dir_entries(source_id, plugin_dir, plugin_dir.name))
+        pack_name = _safe_name(clone.name)
+        if pack_name is None:
+            continue
+        _, legacy_entries, status = _skill_dir_source(
+            source_id, clone / ".claude" / "skills", f"/{pack_name}:{_NAME_PLACEHOLDER}"
+        )
+        if status == "present":
+            entries.extend(legacy_entries)
+    if not entries:
+        return (source_id, [], "absent")
+    return (source_id, entries[:_MAX_ENTRIES_PER_SOURCE], "present")
+
+
+def _plugin_version_root(plugin_dir: Path) -> Path | None:
+    """Pick one version directory per cached plugin.
+
+    Sorted-last is a deterministic tiebreak, not semver comparison; the common
+    cache holds a single version dir (often literally named `unknown`), and a
+    wrong pick among several still names skills the operator has installed.
+    """
+    try:
+        versions = sorted(child for child in plugin_dir.iterdir() if child.is_dir())
+    except OSError:
+        return None
+    return versions[-1] if versions else None
+
+
+def _plugin_dir_entries(source_id: str, plugin_root: Path, fallback_name: str) -> list[tuple[str, str, str]]:
+    """Entries for one plugin root, namespaced by its manifest name."""
+    manifest = _plugin_manifest(plugin_root)
+    namespace: str | None = None
+    declared_name = manifest.get("name", "")
+    if isinstance(declared_name, str) and declared_name:
+        namespace = _safe_name(declared_name)
+    if namespace is None:
+        namespace = _safe_name(fallback_name)
+    if namespace is None:
+        return []
+    skills_root = plugin_root / _plugin_skills_dirname(manifest)
+    _, entries, status = _skill_dir_source(source_id, skills_root, f"/{namespace}:{_NAME_PLACEHOLDER}")
+    return entries if status == "present" else []
+
+
+def _plugin_manifest(plugin_root: Path) -> dict[str, object]:
+    """Return the plugin's parsed manifest, or `{}`.
+
+    Missing, unreadable, oversized, and malformed manifests all reduce to the
+    same `{}` — the caller then falls back to the directory name, which keeps
+    a broken manifest from hiding a plugin whose skills are really installed.
+    Only a bounded prefix is read, matching the frontmatter reader's IO bound.
+    """
+    for relative in _PLUGIN_MANIFEST_CANDIDATES:
+        path = plugin_root / relative
+        if not path.is_file():
+            continue
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                loaded = json.loads(handle.read(_MAX_MANIFEST_BYTES))
+        except (OSError, ValueError):
+            continue
+        if isinstance(loaded, dict):
+            return loaded
+    return {}
+
+
+def _plugin_skills_dirname(manifest: Mapping[str, object]) -> str:
+    """Return the manifest's optional `skills` directory, or the default.
+
+    The value is third-party text naming a path, so it is confined to the
+    plugin root: absolute paths, drive/scheme colons, and `..` segments all
+    fall back to the default rather than letting a manifest point discovery at
+    an arbitrary tree.
+    """
+    declared = manifest.get("skills", "")
+    if not isinstance(declared, str) or not declared.strip():
+        return "skills"
+    candidate = declared.strip()
+    if candidate.startswith(("/", "\\")) or ":" in candidate:
+        return "skills"
+    parts = [part for part in candidate.replace("\\", "/").split("/") if part not in ("", ".")]
+    if not parts or ".." in parts:
+        return "skills"
+    return "/".join(parts)
 
 
 def _frontmatter_description(path: Path) -> str:

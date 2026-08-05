@@ -34,6 +34,8 @@ from .policy import (
     MEMORY_CURATION_INTENT_PHRASES,
     MEMORY_NEW_CAPTURE_PHRASES,
     MEMORY_NEW_SCOPE_PHRASES,
+    OMH_INVOCATION_MARKERS,
+    SKILL_INVOCATION_MARKERS,
     SKILL_SCOUT_CANDIDATE_ALIAS_PHRASES,
     SKILL_SCOUT_CANDIDATE_BLOCKER_PHRASES,
     SKILL_SCOUT_CANDIDATE_INTENT_PHRASES,
@@ -43,7 +45,9 @@ from .policy import (
     meets_confidence_threshold,
 )
 from .policy import _doctor_health_guard_applies
+from .policy import _explicit_skill_candidate_is_negated
 from .policy import _hermes_setup_guide_requested
+from .policy import _invocation_token
 from .recommend import recommendation_for_definition, recommend_skills
 from .route_plan import build_workflow_route_plan, compact_workflow_route_plan
 from .task_cards import classify_task, task_card_recommendation
@@ -5750,7 +5754,76 @@ def route_explanation_payload(route: dict[str, object]) -> dict[str, object]:
 
 def explicit_skill_invocation(message: str, definitions: list[SkillDefinition] | None = None) -> str | None:
     definitions = definitions or routable_definitions()
-    return explicit_skill_name(message, {definition.name for definition in definitions})
+    names = {definition.name for definition in definitions}
+    return explicit_skill_name(message, names) or _verb_invoked_skill_name(message, names)
+
+
+# An invocation verb that introduces an explicit skill mention mid-message.
+# "use ulw-qa on the setup wizard" arrives here as "use ultraqa on the setup
+# wizard" after the display-name rewrite; only leading-position or sigil forms
+# counted as explicit before, so the guard fast paths won it instead.
+_VERB_INVOCATION_CUES = frozenset({"use", "run", "invoke", "apply"})
+# Politeness or sequencing openers that may precede the verb without changing
+# the imperative reading.
+_VERB_INVOCATION_LEADING_FILLERS = frozenset({"please", "pls", "kindly", "ok", "okay", "now", "first", "then"})
+
+
+def _verb_invoked_skill_name(message: str, names: set[str]) -> str | None:
+    """Resolve "use|run|invoke|apply <known-skill-name>" as an explicit invocation.
+
+    Four bounds keep descriptive mentions from stealing routes:
+
+    - The verb must open the message (politeness fillers aside), so a question
+      like "how do I use ultraqa?" stays a catalog question, not a dispatch.
+    - The skill name must sit immediately after the verb; "run a loop to fix
+      the router" never promotes `loop`.
+    - Marker words (`omh`, `skill`, ...) are not candidates, so "use skill
+      scout ..." keeps its marker-scoped resolution in the policy layer.
+    - Only distinctive names are candidates
+      (`_verb_invocation_name_is_distinctive`), so "use plan b for the
+      rollout" never promotes `plan`.
+    """
+    words = [_invocation_token(word) for word in message.strip().split()]
+    for index, word in enumerate(words[:-1]):
+        if word in _VERB_INVOCATION_LEADING_FILLERS:
+            continue
+        if word not in _VERB_INVOCATION_CUES:
+            return None
+        candidate = words[index + 1]
+        if (
+            candidate in names
+            and _verb_invocation_name_is_distinctive(candidate)
+            and candidate not in SKILL_INVOCATION_MARKERS
+            and candidate not in OMH_INVOCATION_MARKERS
+            and not _explicit_skill_candidate_is_negated(message, candidate)
+        ):
+            return candidate
+        return None
+    return None
+
+
+def _verb_invocation_name_is_distinctive(candidate: str) -> bool:
+    """True when a name after use|run|invoke|apply can only mean the skill.
+
+    Generic-word catalog names read as ordinary English in descriptive
+    sentences: "use plan b for the rollout", "apply team conventions to the
+    module", "use wiki style headings in the doc", "run ask before deciding",
+    "use research to fix the flaky test", "apply frontend fixes to the login
+    page". Promoting those to explicit invocations is doubly destructive --
+    the named skill steals the route from heuristic scoring, and
+    `explicit=True` makes `active_routing_guard_rules()` return `()`, silently
+    disabling every overroute guard. So verb invocation only accepts names
+    that cannot appear as ordinary prose: hyphenated names (`ulw-qa`,
+    `deep-interview`, `ai-slop-cleaner`) and the coined `ultra*`/`ral*`
+    families (`ultraqa`, `ultraperf`, `ralph`, `ralplan`). The token checked
+    here is the mention as it survives in the routing message, which after the
+    display-name rewrite is also the resolved canonical name (`ulw-qa` arrives
+    as `ultraqa`). This is the same generic-name caution policy.py applies to
+    bare-first-word invocations (`_bare_first_word_reads_as_a_verb`,
+    `_VERB_SHAPED_BARE_INVOCATION_NAMES`); generic names keep their explicit
+    paths through sigils, markers, and leading-position forms.
+    """
+    return "-" in candidate or candidate.startswith(("ultra", "ral"))
 
 
 def _explicit_loop_signal(message: str, recommendations: list[dict[str, object]]) -> bool:

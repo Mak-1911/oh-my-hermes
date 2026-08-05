@@ -95,11 +95,10 @@ _MODEL_DEFAULT_LABEL: Final[str] = "executor default"
 _MARKER_PRESENT: Final[str] = "present"
 
 # Column headers, in the same order `omh coding fanout brief` prints its parts.
-# `_render_fanout_brief_text` in src/commands/coding.py joins:
-#     unit_id — owner — (model_label) — status — elapsed — tokens — session … — summary
-# and builds `model_label` as:
-#     " ".join(part for part in (model_id, effort) if part) or "executor default"
-# Both are reproduced here so the board and the brief read identically.
+# `_fanout_brief_unit_line` in src/commands/coding.py joins:
+#     unit_id — owner (model_label) — status — elapsed — tokens — session … — summary
+# and builds `model_label` with `model_label_for` below, so the board and the
+# brief read identically by construction.
 _COLUMNS: Final[tuple[tuple[str, str], ...]] = (
     ("LABEL", "label"),
     ("RUNTIME", "runtime"),

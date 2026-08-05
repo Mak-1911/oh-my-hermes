@@ -84,6 +84,13 @@ class RunningWorkBoardReaderTests(unittest.TestCase):
                 self.assertEqual(unit["status"], "running")
                 self.assertEqual(unit["model_label"], "gpt-5-codex medium")
             self.assertEqual(board["sources"]["fanout_root"], "present")
+            # The RENDERED row pins the `runtime (model effort) — status`
+            # parenthesized shape, so drift in this plugin-bundle copy of the
+            # renderer fails the suite, not just the JSON fields.
+            text = render_running_work_block_text(board)
+            self.assertIn(f"- {_FANOUT_ID}/core: codex (gpt-5-codex medium) — running", text)
+            self.assertIn(f"- {_FANOUT_ID}/docs: codex (gpt-5-codex medium) — running", text)
+            self.assertNotIn(" — (", text)
 
     def test_more_units_than_the_limit_states_truncation(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -98,6 +105,25 @@ class RunningWorkBoardReaderTests(unittest.TestCase):
             self.assertEqual(board["omitted_count"], 3)
             text = render_running_work_block_text(board)
             self.assertIn("3 not shown because of the display limit", text)
+
+    def test_provider_prefixed_model_id_renders_parenthesized_label_intact(self) -> None:
+        # A unit routed from a local-inventory catalog carries a
+        # provider-prefixed model id ("provider/model_id", see
+        # `inventory_model_catalog`); the slash must not break the
+        # parenthesized label in the rendered block.
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            write_inflight_marker(
+                paths,
+                _FANOUT_ID,
+                "omo-core",
+                _fields(owner="omo", model="openrouter/qwen-3.5-coder", reasoning_effort="high"),
+            )
+            board = read_running_work_board(paths.omh_home)
+            self.assertEqual(board["units"][0]["model_label"], "openrouter/qwen-3.5-coder high")
+            text = render_running_work_block_text(board)
+            self.assertIn(f"- {_FANOUT_ID}/omo-core: omo (openrouter/qwen-3.5-coder high) — running", text)
+            self.assertNotIn(" — (", text)
 
     def test_a_malformed_marker_is_skipped_without_raising(self) -> None:
         with TemporaryDirectory() as tmp:

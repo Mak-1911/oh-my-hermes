@@ -8,7 +8,7 @@ from typing import Any
 
 from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_text, extract_source_metadata
 from ..routing.chat import CONFIDENCE_LEVELS
-from ..executors import CODING_EXECUTOR_TARGETS, executor_selection_for_target
+from ..executors import CODING_EXECUTOR_TARGETS, executor_label, executor_selection_for_target
 from .lifecycle import report_codex_delegation_lifecycle, start_codex_delegation_lifecycle
 from .session_handoff_projection import project_valid_session_handoffs
 from ..local_store import atomic_write_json, ensure_dir, ensure_file, file_lock, read_json_object, read_jsonl_objects, utc_now
@@ -31,6 +31,7 @@ from ..runtime.artifacts import (
 from .contract import (
     CHAT_RESPONSE_SCHEMA_VERSION,
     INTERACTION_MODES,
+    _prompt_handoff_show_body,
     build_chat_interaction_payload,
     build_chat_status_interaction,
     headline_with_usage_prefix,
@@ -1082,10 +1083,23 @@ def _session_chat_response(session: dict[str, Any]) -> dict[str, object]:
         )
     if status == "prompt_handoff_prepared":
         selected = str(session.get("selected_executor_profile") or "executor")
+        # Same label seam as the contract path's show-prompt body: the header
+        # must read "Prepared prompt for Codex:", never the raw profile id.
+        label = executor_label(selected)
+        raw_prompt_handoff = session.get("prompt_handoff")
+        prompt_handoff = raw_prompt_handoff if isinstance(raw_prompt_handoff, dict) else {}
         return response(
             kind="handoff",
             headline="A prompt handoff is ready.",
-            body=f"The {selected} prompt is prepared for copy/pass-through only; no runtime run or executor evidence exists yet.",
+            body=_prompt_handoff_show_body(
+                label,
+                first_line=(
+                    f"The {selected} prompt is prepared for copy/pass-through only; "
+                    "no runtime run or executor evidence exists yet."
+                ),
+                prompt_handoff=prompt_handoff,
+                delegation_payload={},
+            ),
             phase="prompt_handoff_prepared",
             next_action="show_prompt_handoff",
             thread_key=thread_key,

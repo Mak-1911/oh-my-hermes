@@ -206,8 +206,8 @@ family, skill, owner, next action, and what is still not evidence.
 **🤝 Better coding handoffs.** OMH can include repository constraints, accepted
 scope, worktree and session-isolation guidance, locally available skills,
 acceptance criteria, review expectations, and verification gates. Codex, Claude
-Code, Hermes, and generic executors remain explicit owners rather than hidden
-defaults.
+Code, Hermes, the OMO runtime (via its `pi`, `senpi`, or `opencode` host CLI),
+and generic executors remain explicit owners rather than hidden defaults.
 
 **🎨 Quality-aware creation.** Frontend, accessibility, image, report, slide,
 document, spreadsheet, PDF, poster, and shareable-package requests are routed

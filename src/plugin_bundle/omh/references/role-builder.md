@@ -41,6 +41,8 @@ Role selection is prepared guidance only. It is not worker dispatch, tool execut
 - `send_to_executor`
 - `show_status`
 
+When delegating, show the composed delegate prompt in a fenced code block in the status message; truncate a long prompt to a bounded preview ending with `... [truncated, N chars total]` — the user must see WHAT was asked, not just that something was.
+
 ## Evidence Boundary
 
 A builder role label is not hidden coding execution, executor/runtime dispatch, worker start, implementation result, verification, review, CI, merge readiness, or merge evidence. The selected executor/runtime owns implementation only after observed evidence exists.

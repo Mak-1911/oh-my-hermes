@@ -129,9 +129,15 @@ try:
         CODING_DELIVERY_REQUEST_PHRASES as _CODING_DELIVERY_REQUEST_PHRASES,
         CODING_DELIVERY_REQUEST_TOKENS as _CODING_DELIVERY_REQUEST_TOKENS,
         NAMED_CODING_AGENT_PHRASES as _NAMED_CODING_AGENT_PHRASES,
+        OMO_RUNTIME_CODING_AGENT_PHRASES as _OMO_RUNTIME_CODING_AGENT_PHRASES,
+        SUBSTRING_NAMED_CODING_AGENT_PHRASES as _SUBSTRING_NAMED_CODING_AGENT_PHRASES,
+        contains_boundary_phrase as _contains_boundary_phrase,
     )
 except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
-    _NAMED_CODING_AGENT_PHRASES = (
+    # Mirrors the split phrase groups and boundary matcher in
+    # `routing/executor_cues.py` exactly; the parity test in
+    # tests/test_coding_route_actions.py fails on any drift.
+    _SUBSTRING_NAMED_CODING_AGENT_PHRASES = (
         "codex",
         "코덱스",
         "claude code",
@@ -144,6 +150,41 @@ except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
         "헤르메스가 코딩",
         "헤르메스한테 코딩",
     )
+    _OMO_RUNTIME_CODING_AGENT_PHRASES = (
+        "senpi",
+        "opencode",
+        "omo runtime",
+        "have pi implement",
+        "ask pi to",
+        "tell pi to",
+        "delegate to pi",
+        "pi한테",
+        "pi에게",
+    )
+    _NAMED_CODING_AGENT_PHRASES = (
+        *_SUBSTRING_NAMED_CODING_AGENT_PHRASES,
+        *_OMO_RUNTIME_CODING_AGENT_PHRASES,
+    )
+
+    def _contains_boundary_phrase(text: str, phrases: tuple[str, ...]) -> bool:
+        # Vendored copy of `contains_boundary_phrase`: the omo-runtime phrases
+        # hide inside ordinary words as raw substrings ("api한테" contains
+        # "pi한테", "promo runtime" contains "omo runtime"). Before-char must be
+        # absent or non-alphanumeric (isalnum() is True for Hangul, rejecting
+        # "라즈베리pi한테"); after-char must be absent or not ASCII alphanumeric,
+        # so Korean particles attached to a Latin name ("opencode로") still count.
+        for phrase in phrases:
+            if not phrase:
+                continue
+            start = text.find(phrase)
+            while start != -1:
+                end = start + len(phrase)
+                before_is_boundary = start == 0 or not text[start - 1].isalnum()
+                after = text[end] if end < len(text) else ""
+                if before_is_boundary and not (after.isascii() and after.isalnum()):
+                    return True
+                start = text.find(phrase, start + 1)
+        return False
     _CODING_DELIVERY_REQUEST_PHRASES = (
         "open a pr",
         "open the pr",
@@ -5087,7 +5128,10 @@ def _named_coding_agent_delivery_signal(routing_normalized: str, tokens: set[str
     the coding handoff lane instead of the customer-signal lane. It selects a prepared lane
     only and never dispatches an executor.
     """
-    if not any(phrase in routing_normalized for phrase in _NAMED_CODING_AGENT_PHRASES):
+    named = any(
+        phrase in routing_normalized for phrase in _SUBSTRING_NAMED_CODING_AGENT_PHRASES
+    ) or _contains_boundary_phrase(routing_normalized, _OMO_RUNTIME_CODING_AGENT_PHRASES)
+    if not named:
         return False
     if any(phrase in routing_normalized for phrase in _CODING_DELIVERY_REQUEST_PHRASES):
         return True

@@ -346,9 +346,17 @@ _HARNESS_SESSION_INVENTORY_INTENT_PHRASES = (
     "control pane inventory",
     "codex session inventory",
     "claude code session inventory",
+    # omo-runtime hosts; bare "pi" belongs to Raspberry-Pi routing, so pi only
+    # appears inside longer phrases here.
+    "senpi session inventory",
+    "opencode session inventory",
+    "omo runtime session inventory",
+    "pi session inventory",
     "find previous coding session",
     "recover coding session",
     "previous codex coding session",
+    "previous senpi coding session",
+    "previous pi coding session",
     "coding session recall",
     "세션 인벤토리",
     "지난 코딩 세션",
@@ -379,6 +387,11 @@ _HARNESS_SESSION_INVENTORY_CONTEXT_TOKENS = frozenset(
         "codex",
         "claude",
         "hermes",
+        # omo-runtime hosts. Bare "pi" cannot appear here: routing tokens are
+        # three characters or longer, so it is unreachable as a token.
+        "senpi",
+        "opencode",
+        "omo",
         "wrapper",
         "하네스",
         "세션",

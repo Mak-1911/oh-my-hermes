@@ -25,14 +25,16 @@ AUTH_MARKER_STATES: Final[tuple[str, ...]] = ("present", "absent", "unknown")
 _CLAUDE_CONFIG_RELATIVE: Final[str] = ".claude.json"
 _CLAUDE_LOGIN_KEY: Final[str] = "oauthAccount"
 _CODEX_AUTH_RELATIVE: Final[str] = ".codex/auth.json"
-# A pi-family host CLI carries the omo runtime locally; its credential
-# store is a JSON object keyed by provider name. Presence of at least one
-# key in the first store found (fixed order: pi, then its senpi
-# distribution) is the marker — key names and values are never read into
-# state, and an absent marker never vetoes.
-_PI_FAMILY_AUTH_RELATIVES: Final[tuple[str, ...]] = (
+# An omo host CLI carries the omo runtime locally; its credential store is
+# a JSON object keyed by provider name. Presence of at least one key in the
+# first store found (fixed order mirroring OMO_RUNTIME_HOST_CANDIDATES: pi,
+# then its senpi distribution, then the opencode plugin host's store) is
+# the marker — key names and values are never read into state, and an
+# absent marker never vetoes.
+_OMO_HOST_AUTH_RELATIVES: Final[tuple[str, ...]] = (
     ".pi/agent/auth.json",
     ".senpi/agent/auth.json",
+    ".local/share/opencode/auth.json",
 )
 
 AUTH_SIGNAL_PROFILES: Final[tuple[str, ...]] = ("codex", "claude-code", "omo-runtime")
@@ -47,7 +49,7 @@ def executor_auth_signals(home: Path | None = None) -> dict[str, object]:
         "profiles": {
             "codex": _marker_payload(_codex_marker(base), marker_kind="local_auth_file"),
             "claude-code": _marker_payload(_claude_marker(base), marker_kind="local_config_login_key"),
-            "omo-runtime": _marker_payload(_senpi_marker(base), marker_kind="local_auth_file"),
+            "omo-runtime": _marker_payload(_omo_host_marker(base), marker_kind="local_auth_file"),
         },
         "claim_boundary": EXECUTOR_AUTH_SIGNALS_CLAIM_BOUNDARY,
     }
@@ -72,7 +74,7 @@ def auth_signal_for_profile(profile: str, home: Path | None = None) -> dict[str,
     if normalized == "codex":
         entry = _marker_payload(_codex_marker(base), marker_kind="local_auth_file")
     elif normalized == "omo-runtime":
-        entry = _marker_payload(_senpi_marker(base), marker_kind="local_auth_file")
+        entry = _marker_payload(_omo_host_marker(base), marker_kind="local_auth_file")
     else:
         entry = _marker_payload(_claude_marker(base), marker_kind="local_config_login_key")
     entry["claim_boundary"] = EXECUTOR_AUTH_SIGNALS_CLAIM_BOUNDARY
@@ -130,8 +132,8 @@ def _claude_marker(home: Path) -> str:
     return "present" if _CLAUDE_LOGIN_KEY in parsed else "absent"
 
 
-def _senpi_marker(home: Path) -> str:
-    for relative in _PI_FAMILY_AUTH_RELATIVES:
+def _omo_host_marker(home: Path) -> str:
+    for relative in _OMO_HOST_AUTH_RELATIVES:
         auth_path = home / relative
         if not auth_path.is_file():
             continue

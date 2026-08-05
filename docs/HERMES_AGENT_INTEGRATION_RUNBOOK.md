@@ -118,7 +118,22 @@ runtime run exists and the wrapper needs a compact progress card.
    `render_profile`. Discord, Slack, and Telegram default to
    `limited_markdown`; Hermes TUI, web, and generic rich Markdown surfaces
    default to `rich_markdown`. Render
-   `chat_response.messenger_rendering.body_text` for the selected profile. Use
+   `chat_response.messenger_rendering.body_text` for the selected profile;
+   when `chunked_body_texts` carries more than one element, post those chunks
+   in order as separate messages instead of splitting `body_text` yourself —
+   each chunk already fits the resolved platform's
+   `chunking.max_recommended_chars` and no chunk carries an unbalanced code
+   fence. `chunked_body_texts` exists on chat and session renderings only;
+   the route-hint rendering (`messenger_route_hint_rendering/v1`)
+   deliberately omits it because hint bodies are single-screen. On
+   `limited_markdown` surfaces `body_text` already has fence
+   language tags stripped, a resolved `slack` source arrives converted to
+   mrkdwn outside fences, and the `telegram` platform hint says to post plain
+   text without `parse_mode`. The dialect lands in the text fields only:
+   `body_blocks` stay canonical, dialect-neutral Markdown, and
+   `transforms_applied` describes `body_text`/`chunked_body_texts`, not the
+   blocks — an adapter that renders from `body_blocks` applies its own
+   dialect. Use
    `fallback_body_text` when relaying a rich response into a narrower chat
    surface, or pass `--render-profile limited_markdown` when calling
   plugin `omh_interact` or `omh chat interact`. Render the prefix once per response, not on every

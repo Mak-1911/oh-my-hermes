@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import importlib
+import importlib.util
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -12,6 +15,11 @@ from omh.paths import resolve_paths
 from omh.plugin_bundle.omh.awareness import awareness_route_hint
 from omh.profiles.setup import write_setup_profile
 from omh.routing.action_copy import NEXT_ACTION_LABELS
+from omh.routing.executor_cues import (
+    NAMED_CODING_AGENT_PHRASES,
+    OMO_RUNTIME_CODING_AGENT_PHRASES,
+    SUBSTRING_NAMED_CODING_AGENT_PHRASES,
+)
 from omh.routing.coding_route_actions import (
     CODING_ROUTE_LANE_NEXT_ACTION,
     CODING_ROUTE_NEXT_ACTIONS,
@@ -56,6 +64,33 @@ def _decision(message: str, **kwargs: str):
     return resolve_coding_route_decision(normalized_phrase(message), **kwargs)
 
 
+def _load_standalone_bundle_awareness():
+    """Load the vendored bundle's awareness module outside the omh package.
+
+    Standalone plugin hosts import the bundle without `omh.*` on the path, so
+    `from ...routing.executor_cues import ...` raises ImportError there and the
+    module runs on its vendored fallback tuples. Loading the bundle the same
+    way here makes those fallbacks — not the re-exported source constants —
+    the values under test.
+    """
+    module_name = "_test_omh_standalone_bundle"
+    for name in list(sys.modules):
+        if name == module_name or name.startswith(f"{module_name}."):
+            sys.modules.pop(name, None)
+    bundle_dir = Path(__file__).resolve().parents[1] / "src" / "plugin_bundle" / "omh"
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        bundle_dir / "__init__.py",
+        submodule_search_locations=[str(bundle_dir)],
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("failed to load the vendored plugin bundle standalone")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return importlib.import_module(f"{module_name}.awareness")
+
+
 class CodingRouteActionVocabularyTests(unittest.TestCase):
     def test_four_states_resolve_to_four_distinct_next_actions(self) -> None:
         named = _decision("use codex to fix the login bug")
@@ -81,6 +116,36 @@ class CodingRouteActionVocabularyTests(unittest.TestCase):
 
     def test_owner_phrase_groups_still_cover_the_policy_executor_names(self) -> None:
         self.assertTrue(named_coding_agent_phrase_parity())
+
+    def test_vendored_awareness_fallback_matches_the_executor_name_policy(self) -> None:
+        # The bundle's ImportError fallback is a copy, not a re-export, so it
+        # drifts silently when `NAMED_CODING_AGENT_PHRASES` gains a phrase.
+        # Tuple equality (order included) keeps the standalone plugin host and
+        # the source routing policy recognising exactly the same names.
+        awareness = _load_standalone_bundle_awareness()
+
+        self.assertEqual(awareness._NAMED_CODING_AGENT_PHRASES, NAMED_CODING_AGENT_PHRASES)
+        self.assertEqual(
+            awareness._SUBSTRING_NAMED_CODING_AGENT_PHRASES,
+            SUBSTRING_NAMED_CODING_AGENT_PHRASES,
+        )
+        self.assertEqual(
+            awareness._OMO_RUNTIME_CODING_AGENT_PHRASES,
+            OMO_RUNTIME_CODING_AGENT_PHRASES,
+        )
+
+    def test_vendored_awareness_delivery_signal_applies_the_boundary_rule(self) -> None:
+        # The vendored delivery signal must reject the same embedded-substring
+        # shapes the source surfaces reject, and keep the pi-family positives,
+        # in both the standalone (ImportError fallback) and in-repo modules.
+        from omh.plugin_bundle.omh import awareness as bundled
+
+        for awareness in (_load_standalone_bundle_awareness(), bundled):
+            signal = awareness._named_coding_agent_delivery_signal
+            self.assertTrue(signal("tell pi to fix the flaky test", {"fix"}))
+            self.assertTrue(signal("opencode로 이 버그 고쳐줘", set()))
+            self.assertFalse(signal("promo runtime 로그 확인하는 코드 짜줘", set()))
+            self.assertFalse(signal("api한테 요청 보내는 코드 짜줘", set()))
 
     def test_automatic_route_carries_source_reason_and_confidence(self) -> None:
         automatic = _decision("implement the dark mode toggle in a worktree with parallel workers")
@@ -111,6 +176,25 @@ class CodingRouteActionVocabularyTests(unittest.TestCase):
         self.assertEqual(decision.next_action, NAMED_EXECUTOR_NEXT_ACTION)
         self.assertEqual(decision.selected_owner, "claude-code")
         self.assertFalse(decision.choice_required)
+
+    def test_pi_family_cues_resolve_the_omo_runtime_owner(self) -> None:
+        for message in (
+            "have pi implement the retry fix",
+            "ask pi to fix the login bug",
+            "tell pi to fix the flaky test",
+            "delegate to pi: fix the login bug",
+            "pi한테 이 버그 고치라고 해줘",
+            "pi에게 이 이슈 맡겨서 고쳐줘",
+            "have senpi fix the login bug",
+            "opencode로 이 버그 고쳐줘",
+            "omo runtime으로 이 버그 고쳐줘",
+        ):
+            with self.subTest(message=message):
+                decision = _decision(message)
+
+                self.assertEqual(decision.next_action, NAMED_EXECUTOR_NEXT_ACTION)
+                self.assertEqual(decision.selected_owner, "omo-runtime")
+                self.assertFalse(decision.choice_required)
 
 
 class CodingRouteActionGuardTests(unittest.TestCase):
@@ -158,6 +242,35 @@ class CodingRouteActionGuardTests(unittest.TestCase):
 
         self.assertEqual(decision.next_action, USER_CHOICE_NEXT_ACTION)
         self.assertTrue(decision.choice_required)
+
+    def test_raspberry_pi_and_pip_context_never_name_the_omo_runtime_owner(self) -> None:
+        # Bare "pi" belongs to Raspberry-Pi physical-device routing, and "pi"
+        # is a substring of "pip"; neither may name the omo-runtime executor.
+        for message in (
+            "raspberry pi relay",
+            "deploy to my pi 5",
+            "raspberry pi에 배포",
+            "fix the build with pip install",
+        ):
+            with self.subTest(message=message):
+                decision = _decision(message)
+
+                self.assertNotEqual(decision.next_action, NAMED_EXECUTOR_NEXT_ACTION)
+                self.assertEqual(decision.selected_owner, "")
+
+    def test_embedded_pi_family_substrings_never_name_the_omo_runtime_owner(self) -> None:
+        # Word-boundary guard: as raw substrings "promo runtime" contains
+        # "omo runtime" and "api한테" contains "pi한테", so containment alone
+        # named an executor these messages never mention.
+        for message in (
+            "promo runtime 로그 확인하는 코드 짜줘",
+            "api한테 요청 보내는 코드 짜줘",
+        ):
+            with self.subTest(message=message):
+                decision = _decision(message)
+
+                self.assertNotEqual(decision.next_action, NAMED_EXECUTOR_NEXT_ACTION)
+                self.assertEqual(decision.selected_owner, "")
 
 
 class CodingRouteHintTests(unittest.TestCase):

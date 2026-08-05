@@ -6,7 +6,9 @@ from functools import lru_cache
 from .executor_cues import (
     CODING_DELIVERY_REQUEST_PHRASES,
     CODING_DELIVERY_REQUEST_TOKENS,
-    NAMED_CODING_AGENT_PHRASES,
+    OMO_RUNTIME_CODING_AGENT_PHRASES,
+    SUBSTRING_NAMED_CODING_AGENT_PHRASES,
+    contains_boundary_phrase,
 )
 from .intent import classify_omh_quality_intent
 from .localization import normalized_phrase, routing_tokens
@@ -7137,7 +7139,7 @@ def named_coding_agent_delivery_requested(normalized_query: str, query_tokens: s
     (`feedback-triage`) lanes. It never dispatches anything; it only selects the prepared
     coding lane.
     """
-    if not _contains_phrase(normalized_query, NAMED_CODING_AGENT_PHRASES):
+    if not _contains_named_coding_agent_phrase(normalized_query):
         return False
     delivery = _contains_phrase(normalized_query, CODING_DELIVERY_REQUEST_PHRASES) or bool(
         CODING_DELIVERY_REQUEST_TOKENS & query_tokens
@@ -7164,6 +7166,22 @@ def named_coding_agent_delivery_requested(normalized_query: str, query_tokens: s
     if _release_claim_review_guard_applies(normalized_query, query_tokens):
         return False
     return True
+
+
+def _contains_named_coding_agent_phrase(normalized_query: str) -> bool:
+    """Executor-name presence, with per-group matching rules.
+
+    The distinctive executor names keep plain containment. The omo-runtime
+    family needs word-boundary checks: "api한테" contains "pi한테" and "promo
+    runtime" contains "omo runtime", so raw containment named an executor the
+    message never mentioned (see `contains_boundary_phrase` in
+    `routing/executor_cues.py` for the boundary rule).
+    """
+    if _contains_phrase(normalized_query, SUBSTRING_NAMED_CODING_AGENT_PHRASES):
+        return True
+    return contains_boundary_phrase(
+        normalized_query, _normalized_phrase_options(OMO_RUNTIME_CODING_AGENT_PHRASES)
+    )
 
 
 def _executor_runtime_readiness_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:

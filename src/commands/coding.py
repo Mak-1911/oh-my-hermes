@@ -981,6 +981,12 @@ def cmd_coding_fanout_show(args: argparse.Namespace) -> int:
 
 
 _FANOUT_BRIEF_SUMMARY_LIMIT = 200
+# The generic messenger soft ceiling (`max_recommended_chars` in
+# `_MESSENGER_GENERIC_CEILING`, src/wrapper/contract.py). Mirrored as a local
+# constant because a command module must not reach into wrapper internals for
+# one integer. Past it, the plain-text brief keeps the first rows that fit and
+# states the omission instead of emitting output a messenger clips arbitrarily.
+_FANOUT_BRIEF_TEXT_SOFT_LIMIT = 1600
 _FANOUT_BRIEF_CLAIM_BOUNDARY = (
     "A fanout briefing joins the frozen contract with observed dispatch and journal metadata only. "
     "It is not verification, review, CI, merge-readiness, or merge evidence; unknown fields stay "
@@ -991,6 +997,7 @@ _FANOUT_BRIEF_CLAIM_BOUNDARY = (
 def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
     from ..coding.fanout_artifacts import fanout_dispatch_summary_path, read_fanout_contract
     from ..coding.fanout_contracts import PREPARED_NOT_OBSERVED
+    from ..coding.status_board import model_label_for
     from ..local_store import read_json_object_result
     from ..runtime.artifacts import show_run
     from ..system.metadata_safety import redact_metadata_text
@@ -1054,10 +1061,11 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
         effort = str(model_route.get("selected_reasoning_effort", "") or "")
         # One human-readable label per subagent, e.g. "gpt-5-codex xhigh" —
         # what a briefing renders next to the unit without joining two fields.
-        # The format is a stable part of fanout_briefing/v1; the chain
-        # alternative ships as the separate additive `model_alternative`
-        # field, never as a suffix here.
-        model_label = " ".join(part for part in (model_id, effort) if part) or "executor default"
+        # The format is a stable part of fanout_briefing/v1 and is built by
+        # the same `model_label_for` helper the status board uses, so the two
+        # surfaces cannot drift apart. The chain alternative ships as the
+        # separate additive `model_alternative` field, never as a suffix here.
+        model_label = model_label_for(model_id, effort)
         chain = model_route.get("chain", []) if isinstance(model_route.get("chain"), list) else []
         model_alternative = str(chain[1].get("model_id", "")) if len(chain) > 1 and isinstance(chain[1], dict) else ""
         route_version = str(model_route.get("schema_version", "") or "") if model_route else ""
@@ -1102,40 +1110,65 @@ from ..coding.model_routing import CODING_MODEL_ROUTE_V1_SCHEMA_VERSION as _MODE
 
 
 def _render_fanout_brief_text(payload: dict) -> str:
-    lines = [f"Fanout {payload.get('fanout_id')} briefing:"]
-    for unit in payload.get("units", []):
-        elapsed = unit.get("elapsed_seconds", "unknown")
-        elapsed_text = f"{elapsed}s" if isinstance(elapsed, (int, float)) else "elapsed unknown"
-        tokens = unit.get("tokens_total", "unknown")
-        tokens_text = f"{tokens} tokens" if isinstance(tokens, (int, float)) else "tokens unknown"
-        # The (alt: …) suffix lives in plain text only; a route without a
-        # second chain entry (including every v1 route) renders no suffix at
-        # all — a chain that does not exist is not an unknown value.
-        model_text = str(unit.get("model_label", "executor default"))
-        alternative = str(unit.get("model_alternative", "") or "")
-        if alternative:
-            model_text += f", alt: {alternative}"
-        route_version = str(unit.get("route_schema_version", "") or "")
-        if route_version == _MODEL_ROUTE_V1_VERSION:
-            model_text += " [schema v1]"
-        parts = [
-            str(unit.get("unit_id", "")),
-            str(unit.get("owner", "")),
-            f"({model_text})",
-            str(unit.get("status", "")),
-            elapsed_text,
-            tokens_text,
-            f"session {unit.get('session_ref', 'unknown')}",
-        ]
-        line = "- " + " — ".join(parts)
-        summary = str(unit.get("summary", "") or "")
-        if summary:
-            line += f" — {summary}"
-        lines.append(line)
+    header = f"Fanout {payload.get('fanout_id')} briefing:"
+    unit_lines = [_fanout_brief_unit_line(unit) for unit in payload.get("units", [])]
+    trailer_lines = []
     if payload.get("summary_error"):
-        lines.append(f"warning: dispatch summary unreadable ({payload['summary_error']})")
-    lines.append(str(payload.get("claim_boundary", "")))
-    return "\n".join(lines)
+        trailer_lines.append(f"warning: dispatch summary unreadable ({payload['summary_error']})")
+    trailer_lines.append(str(payload.get("claim_boundary", "")))
+    text = "\n".join([header, *unit_lines, *trailer_lines])
+    if len(text) <= _FANOUT_BRIEF_TEXT_SOFT_LIMIT:
+        return text
+    # Keep the longest row prefix that fits under the messenger soft ceiling
+    # together with the omission line; the omission is stated as its own line
+    # so a reader never mistakes a truncated brief for a complete one.
+    keep = len(unit_lines) - 1
+    while keep > 0:
+        candidate = "\n".join(
+            [header, *unit_lines[:keep], _fanout_brief_overflow_line(len(unit_lines) - keep), *trailer_lines]
+        )
+        if len(candidate) <= _FANOUT_BRIEF_TEXT_SOFT_LIMIT:
+            return candidate
+        keep -= 1
+    return "\n".join([header, _fanout_brief_overflow_line(len(unit_lines)), *trailer_lines])
+
+
+def _fanout_brief_unit_line(unit: dict) -> str:
+    elapsed = unit.get("elapsed_seconds", "unknown")
+    elapsed_text = f"{elapsed}s" if isinstance(elapsed, (int, float)) else "elapsed unknown"
+    tokens = unit.get("tokens_total", "unknown")
+    tokens_text = f"{tokens} tokens" if isinstance(tokens, (int, float)) else "tokens unknown"
+    # The (alt: …) suffix lives in plain text only; a route without a
+    # second chain entry (including every v1 route) renders no suffix at
+    # all — a chain that does not exist is not an unknown value.
+    model_text = str(unit.get("model_label", "executor default"))
+    alternative = str(unit.get("model_alternative", "") or "")
+    if alternative:
+        model_text += f", alt: {alternative}"
+    route_version = str(unit.get("route_schema_version", "") or "")
+    if route_version == _MODEL_ROUTE_V1_VERSION:
+        model_text += " [schema v1]"
+    parts = [
+        str(unit.get("unit_id", "")),
+        # Owner and model are ONE field visually: "codex (gpt-5-codex xhigh)".
+        # The status board's bullet renderer abandoned the standalone
+        # "— (model)" field because a dash around a parenthetical doubled the
+        # separator; the brief follows the same convention.
+        f"{unit.get('owner', '')} ({model_text})",
+        str(unit.get("status", "")),
+        elapsed_text,
+        tokens_text,
+        f"session {unit.get('session_ref', 'unknown')}",
+    ]
+    line = "- " + " — ".join(parts)
+    summary = str(unit.get("summary", "") or "")
+    if summary:
+        line += f" — {summary}"
+    return line
+
+
+def _fanout_brief_overflow_line(omitted: int) -> str:
+    return f"… +{omitted} more units — omh coding fanout brief --json"
 
 
 def _render_fanout_brief_listing_text(listing: dict) -> str:

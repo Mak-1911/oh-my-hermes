@@ -268,6 +268,7 @@ def role_file_markdown(role: RoleDefinition) -> str:
             "## Wrapper Actions",
             "",
             *[f"- `{item}`" for item in role.wrapper_actions],
+            *_prompt_display_rule_lines(role),
             "",
             "## Evidence Boundary",
             "",
@@ -275,6 +276,21 @@ def role_file_markdown(role: RoleDefinition) -> str:
             "",
         ]
     )
+
+
+def _prompt_display_rule_lines(role: RoleDefinition) -> list[str]:
+    """The fenced-prompt display rule, for roles that surface a prepared prompt.
+
+    One maintained copy: reuses `DELEGATE_PROMPT_DISPLAY_RULE` from the skills
+    catalog (imported at call time to keep this module import-light), so the
+    role guides and the skill bodies state the same discipline and cannot
+    drift apart.
+    """
+    if "show_prompt_handoff" not in role.wrapper_actions:
+        return []
+    from ..skills.catalog_types import DELEGATE_PROMPT_DISPLAY_RULE
+
+    return ["", DELEGATE_PROMPT_DISPLAY_RULE]
 
 
 def roles_reference_markdown() -> str:

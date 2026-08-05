@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 
-from .executor_cues import NAMED_CODING_AGENT_PHRASES
+from .executor_cues import (
+    NAMED_CODING_AGENT_PHRASES,
+    OMO_RUNTIME_CODING_AGENT_PHRASES,
+    contains_boundary_phrase,
+)
 from .localization import normalized_phrase
 
 
@@ -51,7 +55,19 @@ NAMED_EXECUTOR_OWNER_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
         "hermes",
         ("hermes coding", "헤르메스 코딩", "헤르메스가 코딩", "헤르메스한테 코딩"),
     ),
+    # One owner covers every omo host CLI (pi, senpi, opencode); the phrase
+    # policy for pi lives with `OMO_RUNTIME_CODING_AGENT_PHRASES` in
+    # `routing/executor_cues.py` (bare "pi" belongs to Raspberry-Pi routing).
+    # The tuple is shared, not copied, so this group and the policy-level
+    # executor names cannot drift apart.
+    ("omo-runtime", OMO_RUNTIME_CODING_AGENT_PHRASES),
 )
+
+# Owner groups whose phrases hide inside ordinary words as raw substrings
+# ("promo runtime" contains "omo runtime", "api한테" contains "pi한테"). These
+# groups are matched with `contains_boundary_phrase`; every other group keeps
+# plain containment.
+_BOUNDARY_MATCHED_OWNERS: frozenset[str] = frozenset({"omo-runtime"})
 
 # Request-led compatible routes. These cues name the *shape* of the coding owner the
 # request needs, never a vendor, so Hermes can pick a compatible route family without
@@ -225,7 +241,11 @@ def named_executor_owners(normalized_query: str) -> tuple[str, ...]:
     """Return the distinct executor profile ids named in an already-normalized request."""
     owners: list[str] = []
     for owner, phrases in NAMED_EXECUTOR_OWNER_PHRASES:
-        if _matched_phrases(normalized_query, phrases):
+        if owner in _BOUNDARY_MATCHED_OWNERS:
+            matched = contains_boundary_phrase(normalized_query, _normalized_options(phrases))
+        else:
+            matched = bool(_matched_phrases(normalized_query, phrases))
+        if matched:
             owners.append(owner)
     return tuple(owners)
 

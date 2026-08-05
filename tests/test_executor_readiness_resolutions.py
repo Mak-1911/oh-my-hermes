@@ -27,9 +27,12 @@ from _platform_support import requires_posix
 load_local_package()
 from omh.coding.executor_readiness import (
     EXECUTOR_VERSION_POLICY,
+    _COMMANDS,
+    _executor_readiness_contract_cached,
     _run_probe,
     executor_readiness_contract,
 )
+from omh.coding.fanout_dispatch import OMO_RUNTIME_HOST_CANDIDATES
 
 
 def _fake_binary(directory: str, name: str, version: str) -> Path:
@@ -108,6 +111,47 @@ class PathResolutionReportTests(unittest.TestCase):
         source = inspect.getsource(module)
         for literal in ("0.144", "0.145", "2.1.2"):
             self.assertNotIn(literal, source)
+
+
+class OmoRuntimeProbeCommandTests(unittest.TestCase):
+    """omo-runtime readiness probes the DETECTED host CLI, pi-first.
+
+    The static `_COMMANDS` entry is a mirror of the first host candidate,
+    never the resolution authority: `_resolved_command` always asks
+    `omo_runtime_host` which host is actually on PATH.
+    """
+
+    def setUp(self) -> None:
+        _executor_readiness_contract_cached.cache_clear()
+        self.addCleanup(_executor_readiness_contract_cached.cache_clear)
+
+    def test_contract_probes_the_detected_host_pi_first(self) -> None:
+        with patch(
+            "omh.coding.fanout_dispatch.shutil.which",
+            lambda name: f"/x/{name}" if name in ("pi", "senpi") else None,
+        ):
+            contract = executor_readiness_contract("omo-runtime")
+        self.assertEqual(contract["probe"]["command"], "pi")
+
+    def test_detected_senpi_host_overrides_the_static_entry(self) -> None:
+        with patch(
+            "omh.coding.fanout_dispatch.shutil.which",
+            lambda name: "/x/senpi" if name == "senpi" else None,
+        ):
+            contract = executor_readiness_contract("omo-runtime")
+        self.assertEqual(contract["probe"]["command"], "senpi")
+
+    def test_no_host_on_path_falls_back_to_the_first_candidate(self) -> None:
+        with patch("omh.coding.fanout_dispatch.shutil.which", lambda name: None):
+            contract = executor_readiness_contract("omo-runtime")
+        self.assertEqual(contract["probe"]["command"], OMO_RUNTIME_HOST_CANDIDATES[0])
+        self.assertEqual(contract["probe"]["command"], "pi")
+
+    def test_static_command_entry_mirrors_the_first_host_candidate(self) -> None:
+        # A future second consumer of `_COMMANDS` must see the same pi-first
+        # default the detector promises; repinning the entry to one
+        # distribution (the old senpi pin) fails here.
+        self.assertEqual(_COMMANDS["omo-runtime"][0], OMO_RUNTIME_HOST_CANDIDATES[0])
 
 
 if __name__ == "__main__":
