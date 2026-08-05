@@ -293,12 +293,17 @@ DELEGATE_RESUMABLE_SESSION_RULE = (
     "behind, and report that id in the status message."
 )
 DELEGATE_PERMISSION_PREFLIGHT_RULE = (
-    "Before dispatch, give the executor session every permission the task will need — file write/edit, "
-    "command/test execution, and the working directory; for Claude Code that means an interactive session or "
-    "pre-approved tool permissions, and the equivalent sandbox/approval flags for other CLIs — so the run "
-    "cannot stall mid-task on a permission prompt it cannot answer. A one-shot that hits a permission wall "
-    "after minutes of silence is a dispatch defect: if a needed permission cannot be granted, surface the "
-    "blocker before dispatch, not after."
+    "Before dispatch, grant the executor session every permission the task will need — file write/edit, "
+    "command/test execution, and the working directory — on the dispatch command itself, not through "
+    "settings-file guesses: for non-interactive Claude Code pass `--permission-mode acceptEdits` or an "
+    "explicit `--allowedTools` list (`--dangerously-skip-permissions` only inside an isolated worktree or "
+    "sandbox), and the equivalent sandbox/approval flags for other CLIs. `acceptEdits: true` is not a "
+    "settings key and `~/.claude/settings.local.json` is not a file Claude Code reads — user scope is "
+    "`~/.claude/settings.json` and project scope is `<dispatch cwd>/.claude/settings.local.json` with "
+    "rules under `permissions.allow`. Prove the grant with a bounded scratch-edit probe run before the "
+    "real dispatch: a permission denial in a non-interactive run recurs identically on retry, so never "
+    "redispatch until a changed grant is proven, and surface an ungrantable permission as a blocker "
+    "before dispatch, not after minutes of silence."
 )
 DELEGATION_TRANSPARENCY_RULES = (
     DELEGATE_PROMPT_DISPLAY_RULE,
