@@ -31,6 +31,8 @@ from ..source_finder import (
 
 from .catalog_types import (
     DEEP_INTERVIEW_MAX_ROUNDS,
+    ENGINE_ENTRY_CONFIRMATION_RULE,
+    ENGINE_FIT_RECOMMENDATION_RULE,
     ExpertQuestion,
     SkillDefinition,
     SkillExample,
@@ -198,6 +200,7 @@ _DEFINITIONS = [
         artifact_expectations=("goal-execution run record", "checkpoint or final evidence when available"),
         quality_tier="handoff-gated",
         quality_bar=(
+            ENGINE_ENTRY_CONFIRMATION_RULE,
             "Do not enter a finish-until-done loop until scope, acceptance criteria, and verification commands are concrete.",
             "For coding edits, prepare and track selected runtime evidence instead of implying unobserved work happened.",
             "Report completion only from observed execution and verification evidence.",
@@ -236,6 +239,7 @@ _DEFINITIONS = [
         artifact_expectations=("metadata-only .omh/goals ledger", "goal_status_card/v1 or goal_continuation/v1 wrapper payload", "runtime run record only for explicitly linked coding milestones"),
         quality_tier="checkpoint-gated",
         quality_bar=(
+            ENGINE_ENTRY_CONFIRMATION_RULE,
             "Keep goal state durable, inspectable, and separate from chat narration.",
             "Checkpoint every success, blocker, and final quality gate with fresh evidence.",
             "Reject completion with a summary-only goal_completion_gate/v1 result until required criteria, blockers, and explicitly linked runtime runs are satisfied.",
@@ -443,9 +447,10 @@ _DEFINITIONS = [
         ),
         quality_tier="process-gated",
         quality_bar=(
+            ENGINE_ENTRY_CONFIRMATION_RULE,
             "Complete exactly one plan-to-PR delivery cycle, then stop with status, evidence gaps, or a next recommended workflow.",
             "Start with codebase/source research and a ralplan-style decision record before implementation handoff.",
-            "Use ultragoal or the selected executor/runtime path for implementation, with acceptance criteria and verification commands attached.",
+            "For implementation, hand off to ultragoal or the selected executor/runtime path with acceptance criteria and verification commands attached, and start that follow-on engine only after the user confirms the recommended path.",
             "Run code-review as a gate after implementation evidence exists; review preparation alone is not review evidence.",
             "Add docs-specialist sync when public behavior, commands, setup, examples, or claims changed.",
             "End with a PR-ready or PR-observed report that separates prepared, executed, reviewed, verified, CI, and PR evidence.",
@@ -561,6 +566,7 @@ _DEFINITIONS = [
         ),
         quality_tier="coordination-gated",
         quality_bar=(
+            ENGINE_ENTRY_CONFIRMATION_RULE,
             "Split only independent lanes with explicit ownership and verification boundaries.",
             "Keep Hermes as coordinator and status narrator while coding lanes become runtime handoffs with explicit ownership.",
             "Integrate lane evidence before reporting combined progress.",
@@ -601,6 +607,7 @@ _DEFINITIONS = [
         ),
         quality_tier="handoff-gated",
         quality_bar=(
+            ENGINE_ENTRY_CONFIRMATION_RULE,
             "Require disjoint lane ownership before preparing multiple coding runtime handoffs.",
             "Attach acceptance criteria, verification commands, and review expectations to each lane.",
             "Keep dispatch, execution, review, CI, and merge status evidence separate.",
@@ -4051,6 +4058,7 @@ _DEFINITIONS = [
         artifact_expectations=("QA scenario evidence", "runtime verification summary"),
         quality_tier="scenario-gated",
         quality_bar=(
+            ENGINE_ENTRY_CONFIRMATION_RULE,
             "Generate hostile scenarios from changed behavior and known risk areas.",
             "Report pass/fail evidence separately from proposed fixes.",
             "Delegate code mutations discovered by QA to the selected coding executor.",
@@ -4091,7 +4099,7 @@ _DEFINITIONS = [
         category="planning",
         phase="plan",
         hermes_role="retained-cognition",
-        handoff_policy="Keep planning in Hermes; if the accepted plan requires code edits, prepare a selected executor/runtime handoff after acceptance.",
+        handoff_policy="Keep planning in Hermes; if the accepted plan requires code edits, prepare a selected executor/runtime handoff after acceptance, and start a follow-on workflow engine only after the user explicitly confirms the recommended path.",
         required_inputs=("requirements", "constraints", "known facts", "non-goals"),
         expected_outputs=("plan", "acceptance criteria", "verification strategy"),
         artifact_expectations=("plan artifact when durable execution will follow",),
@@ -4100,6 +4108,7 @@ _DEFINITIONS = [
             "Make goals, non-goals, risks, acceptance criteria, and verification shape explicit.",
             "Keep draft plans unapproved until a user or wrapper accepts them.",
             "Only prepare coding handoff guidance after the plan is accepted.",
+            ENGINE_FIT_RECOMMENDATION_RULE,
         ),
     ),
     SkillDefinition(
@@ -4134,7 +4143,7 @@ _DEFINITIONS = [
         category="planning",
         phase="reviewed-plan",
         hermes_role="retained-cognition",
-        handoff_policy="Keep consensus planning and review in Hermes; produce explicit selected executor/runtime handoff guidance only after the plan is accepted.",
+        handoff_policy="Keep consensus planning and review in Hermes; produce explicit selected executor/runtime handoff guidance only after the plan is accepted, and start a follow-on workflow engine only after the user explicitly confirms the recommended path.",
         required_inputs=("requirements", "codebase facts", "source or web evidence when needed", "options", "tradeoffs", "test shape"),
         expected_outputs=("reviewed plan", "acceptance criteria", "risk register", "verification commands", "handoff guidance"),
         # Naming the commands is the point. This used to read "plan and review
@@ -4159,6 +4168,7 @@ _DEFINITIONS = [
             "Produce testable acceptance criteria and exact verification commands or explain why they are not yet knowable.",
             "Record unresolved tradeoffs and evidence gaps instead of flattening uncertainty.",
             "End with a selected executor/runtime handoff shape only after the plan is accepted.",
+            ENGINE_FIT_RECOMMENDATION_RULE,
             "Do not implement directly from consensus planning.",
         ),
         why_this_exists="`ralplan` exists to make planning reviewable before execution: Hermes should gather codebase/source facts, compare options, expose risks, define acceptance criteria, and prepare a handoff without pretending implementation already happened.",
@@ -4184,11 +4194,12 @@ _DEFINITIONS = [
             "Risks, acceptance criteria, and verification commands are testable or explicitly blocked.",
             "The plan exists as a recorded file-backed artifact, not only as chat narration.",
             "The implementation handoff is prepared only after plan acceptance and remains prepared_not_observed.",
+            "The follow-on engine or executor path was started only after the user's explicit go-ahead in this conversation, never from plan acceptance alone.",
         ),
         recovery_notes=(
             "If requirements are still fuzzy, route back to deep-interview before planning.",
             "If current-source evidence is missing, route a web-research step before accepting the plan.",
-            "If the user asks for implementation, hand off through ultraprocess, ultragoal, or the selected executor path after the plan is accepted.",
+            "If the user asks for implementation after acceptance, recommend the follow-on path that fits the work's shape (`ultragoal`, `ultrawork`, `ralph`, `ultraprocess`, or a direct selected executor handoff) with a one-line fit reason, and start it only on the user's explicit go-ahead — never auto-start an engine from acceptance alone.",
         ),
     ),
     SkillDefinition(

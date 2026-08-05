@@ -926,6 +926,107 @@ class RouterContentTests(unittest.TestCase):
         )
         self.assertNotIn("codex", guard.lower(), "guard wording must stay executor-neutral")
 
+    def test_workflow_engines_carry_entry_confirmation_gate(self) -> None:
+        """An accepted plan or clarified brief must never auto-start a workflow engine:
+        every executing engine's quality bar leads with the entry-confirmation rule so a
+        chained start (for example ralplan -> ultragoal) still stops for the user's
+        go-ahead. The rule lives in catalog data so every generated install carries it.
+        """
+        from omh.skills.catalog import ENGINE_ENTRY_CONFIRMATION_RULE
+
+        engines = ("ralph", "ultragoal", "ultraprocess", "team", "ultrawork", "ultraqa")
+        definitions = {definition.name: definition for definition in installable_skill_definitions()}
+        for name in engines:
+            with self.subTest(engine=name):
+                self.assertEqual(
+                    definitions[name].quality_bar[0],
+                    ENGINE_ENTRY_CONFIRMATION_RULE,
+                    f"{name} must lead its quality bar with the engine entry-confirmation rule",
+                )
+        templates = {template.name: template for template in builtin_skill_templates()}
+        for name in engines:
+            self.assertIn("not permission", templates[name].content, name)
+        # Planning skills recommend an engine; they never gate their own entry on one.
+        for planning_name in ("ralplan", "plan", "deep-interview"):
+            self.assertNotIn(
+                ENGINE_ENTRY_CONFIRMATION_RULE,
+                definitions[planning_name].quality_bar,
+                f"{planning_name} is a planning lane, not an executing engine",
+            )
+
+    def test_planning_skills_recommend_engine_fit_and_require_go_ahead(self) -> None:
+        """Plan acceptance approves plan content, not execution: ralplan and plan must
+        recommend the follow-on engine that fits the work's shape and wait for the user's
+        explicit go-ahead instead of auto-invoking ultragoal (or any engine) on acceptance.
+        """
+        from omh.skills.catalog import ENGINE_FIT_RECOMMENDATION_RULE
+
+        definitions = {definition.name: definition for definition in installable_skill_definitions()}
+        for name in ("ralplan", "plan"):
+            with self.subTest(skill=name):
+                self.assertIn(ENGINE_FIT_RECOMMENDATION_RULE, definitions[name].quality_bar)
+                self.assertIn("explicitly confirms the recommended path", definitions[name].handoff_policy)
+        ralplan_recovery = " ".join(definitions["ralplan"].recovery_notes)
+        self.assertIn("only on the user's explicit go-ahead", ralplan_recovery)
+        self.assertIn("never auto-start an engine", ralplan_recovery)
+        # The old criteria-free three-way menu must not come back.
+        self.assertNotIn(
+            "hand off through ultraprocess, ultragoal, or the selected executor path",
+            ralplan_recovery,
+        )
+        checklist = " ".join(definitions["ralplan"].final_checklist)
+        self.assertIn("never from plan acceptance alone", checklist)
+
+    def test_handoff_skills_carry_delegation_transparency_note(self) -> None:
+        """The delegate-visibility rules (fenced prompt block, `(model effort)` lane labels,
+        resume-capable session ids) used to live only in the coding-handling harness contract,
+        which no SKILL.md renders — so agents reading skills never saw them. Every
+        handoff-guide/handoff-gated skill body must now carry the note, and the coding-handling
+        harness contract must stay in byte-sync with the same shared rules.
+        """
+        from omh.skills.catalog import (
+            DELEGATE_MODEL_LABEL_RULE,
+            DELEGATE_PERMISSION_PREFLIGHT_RULE,
+            DELEGATE_PROMPT_DISPLAY_RULE,
+            DELEGATE_RESUMABLE_SESSION_RULE,
+            DELEGATION_TRANSPARENCY_RULES,
+        )
+
+        definitions = {definition.name: definition for definition in installable_skill_definitions()}
+        templates = {template.name: template for template in builtin_skill_templates()}
+        handoff_shaped = {
+            name
+            for name, definition in definitions.items()
+            if definition.hermes_role in {"handoff-guide", "runtime-handoff-guidance"}
+            or definition.quality_tier == "handoff-gated"
+        }
+        self.assertLessEqual({"ralph", "ultragoal", "ultraprocess", "team", "ultrawork"}, handoff_shaped)
+        for name in sorted(handoff_shaped):
+            with self.subTest(skill=name):
+                content = templates[name].content
+                self.assertIn("Delegation transparency:", content)
+                for rule in DELEGATION_TRANSPARENCY_RULES:
+                    self.assertIn(rule, content)
+        # Non-delegating lanes must not pay the note's bytes.
+        for name in ("ralplan", "web-research", "deep-interview"):
+            self.assertNotIn("Delegation transparency:", templates[name].content, name)
+        # The harness contract and the rendered rules stay one maintained copy.
+        contract = harness_quality_contract("coding-handling")
+        quality_bar = tuple(contract["quality_bar"])
+        self.assertIn(DELEGATE_PROMPT_DISPLAY_RULE, quality_bar)
+        self.assertIn(DELEGATE_MODEL_LABEL_RULE, quality_bar)
+        self.assertIn(DELEGATE_RESUMABLE_SESSION_RULE, quality_bar)
+        self.assertIn(DELEGATE_PERMISSION_PREFLIGHT_RULE, quality_bar)
+        # The shared common rail carries the same rules plus the follow-on engine gate.
+        rail = {
+            (template.skill_name, template.relative_path): template.content
+            for template in builtin_skill_reference_templates()
+        }[("oh-my-hermes", "references/skill-common-rail.md")]
+        self.assertIn("## Delegation Transparency", rail)
+        self.assertIn("## Follow-On Engine Gate", rail)
+        for rule in DELEGATION_TRANSPARENCY_RULES:
+            self.assertIn(rule, rail)
+
     def test_wrapper_routing_reference_carries_settings_only_delegation_floor(self) -> None:
         """The Coding Delegation guidance needs a proportionality floor: implementation-shaped
         never includes settings-only configuration changes a wrapper or Hermes can apply directly.

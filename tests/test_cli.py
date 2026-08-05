@@ -9847,7 +9847,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(plan["deep_interview"]["after_answer_next_action"], "accept_or_revise_plan")
         self.assertTrue(plan["acceptance_criteria"])
         self.assertTrue(plan["verification_plan"])
-        self.assertIn("omh coding delegate --executor codex --record --from-plan <accepted-plan.md>", plan["execution_handoff"])
+        self.assertIn("omh coding delegate --executor <selected-executor> --record --from-plan <accepted-plan.md>", plan["execution_handoff"])
+        self.assertIn("the user confirms the selected executor", plan["execution_handoff"])
         contract = payload["wrapper_contract"]
         self.assertEqual(contract["schema_version"], "hermes_plan_wrapper/v1")
         self.assertEqual(contract["current_step"], "present_plan")

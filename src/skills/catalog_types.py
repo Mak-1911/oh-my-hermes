@@ -271,6 +271,62 @@ _HANDOFF_RECOVERY_NOTES = (
     "If dispatch or result evidence is missing, keep the handoff prepared_not_observed and expose the next observable action.",
 )
 
+# Delegation transparency: what the user must be able to see about every
+# delegated lane. One maintained copy: the coding-handling harness contract
+# composes these rules into its quality bar, and `render.py` renders them into
+# every handoff-guide skill body plus the shared common rail, so the discipline
+# reaches agents that only ever read `SKILL.md`.
+DELEGATE_PROMPT_DISPLAY_RULE = (
+    "When delegating, show the composed delegate prompt in a fenced code block in the status message; "
+    "truncate a long prompt to a bounded preview ending with `... [truncated, N chars total]` — the user "
+    "must see WHAT was asked, not just that something was."
+)
+DELEGATE_MODEL_LABEL_RULE = (
+    "Name every delegated or parallel lane's model and reasoning effort inline as `(model effort)` in "
+    "status and briefing lines — including runtime-native subagents; write the literal `unknown` when the "
+    "host does not expose a value, never empty parentheses, and carry token and elapsed figures the same way."
+)
+DELEGATE_RESUMABLE_SESSION_RULE = (
+    "Dispatch delegate runs in a resume-capable session mode with an explicit session or thread id the user "
+    "can resume or steer later (for example a recorded interactive Claude Code session id or a "
+    "`codex exec resume`-able thread); do not default to `--print`-style one-shot runs that leave no session "
+    "behind, and report that id in the status message."
+)
+DELEGATE_PERMISSION_PREFLIGHT_RULE = (
+    "Before dispatch, give the executor session every permission the task will need — file write/edit, "
+    "command/test execution, and the working directory; for Claude Code that means an interactive session or "
+    "pre-approved tool permissions, and the equivalent sandbox/approval flags for other CLIs — so the run "
+    "cannot stall mid-task on a permission prompt it cannot answer. A one-shot that hits a permission wall "
+    "after minutes of silence is a dispatch defect: if a needed permission cannot be granted, surface the "
+    "blocker before dispatch, not after."
+)
+DELEGATION_TRANSPARENCY_RULES = (
+    DELEGATE_PROMPT_DISPLAY_RULE,
+    DELEGATE_MODEL_LABEL_RULE,
+    DELEGATE_RESUMABLE_SESSION_RULE,
+    DELEGATE_PERMISSION_PREFLIGHT_RULE,
+)
+
+# Follow-on engine gate: finishing one workflow (an accepted plan, a clarified
+# brief, a routing recommendation) is planning evidence, never permission to
+# start the next engine. Planning-lane skills compose the fit-recommendation
+# rule; workflow engines compose the entry-confirmation rule into their quality
+# bars so a chained start still stops for the user's go-ahead.
+ENGINE_FIT_RECOMMENDATION_RULE = (
+    "Plan acceptance approves the plan content, not execution: after acceptance, recommend the follow-on "
+    "path that fits the work's shape — `ultragoal` for progress that must survive sessions as a "
+    "checkpointed ledger, `ultrawork` for an accepted plan split into disjoint parallel lanes, `ralph` "
+    "for one already-scoped task with a single owner, `ultraprocess` for one bounded delivery cycle, or "
+    "a direct selected executor/runtime handoff for a single prepared coding change — state the fit "
+    "reason in one line, and start it only after the user's explicit go-ahead."
+)
+ENGINE_ENTRY_CONFIRMATION_RULE = (
+    "Do not start this engine as an automatic continuation of another skill's output: an accepted plan, "
+    "a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user "
+    "explicitly invoked this engine themselves, restate in one line what will start (engine, scope, "
+    "selected executor) and wait for the user's explicit go-ahead first."
+)
+
 # Shared five-step contract for the Hermes setup-guide skills (model-setup,
 # parallel-tools, websearch-setup, morning-brief). Ordering is guaranteed by
 # tuple index: prerequisite check -> read-only diagnose -> guide -> diff-

@@ -87,6 +87,13 @@ Executor readiness:
 - If readiness is `missing` or `blocked`, ask the user to choose another coding agent, configure PATH, continue in Hermes, or keep a prompt/runtime handoff; retry only after that state changes.
 - A readiness probe is not dispatch, implementation, verification, review, CI, merge-readiness, or merge evidence.
 
+Delegation transparency:
+
+- When delegating, show the composed delegate prompt in a fenced code block in the status message; truncate a long prompt to a bounded preview ending with `... [truncated, N chars total]` — the user must see WHAT was asked, not just that something was.
+- Name every delegated or parallel lane's model and reasoning effort inline as `(model effort)` in status and briefing lines — including runtime-native subagents; write the literal `unknown` when the host does not expose a value, never empty parentheses, and carry token and elapsed figures the same way.
+- Dispatch delegate runs in a resume-capable session mode with an explicit session or thread id the user can resume or steer later (for example a recorded interactive Claude Code session id or a `codex exec resume`-able thread); do not default to `--print`-style one-shot runs that leave no session behind, and report that id in the status message.
+- Before dispatch, give the executor session every permission the task will need — file write/edit, command/test execution, and the working directory; for Claude Code that means an interactive session or pre-approved tool permissions, and the equivalent sandbox/approval flags for other CLIs — so the run cannot stall mid-task on a permission prompt it cannot answer. A one-shot that hits a permission wall after minutes of silence is a dispatch defect: if a needed permission cannot be granted, surface the blocker before dispatch, not after.
+
 Required inputs:
 
 - target smell

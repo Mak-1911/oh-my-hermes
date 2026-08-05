@@ -983,7 +983,7 @@ WORKFLOW_CONTEXT_CARDS = (
         "id": "intent_to_plan",
         "label": "Intent to plan",
         "user_signal": "fuzzy goal, ambitious target, safe feature, or one-cycle delivery request",
-        "omh_pattern": "clarify or plan first, then move to ultragoal, ultraprocess, loop, or handoff only when concrete",
+        "omh_pattern": "clarify or plan first, then move to ultragoal, ultraprocess, loop, or handoff only when concrete and only after the user confirms the recommended follow-on path",
         "representative_workflows": (
             "deep-interview",
             "ralplan",

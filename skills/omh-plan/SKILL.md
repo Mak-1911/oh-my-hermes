@@ -73,10 +73,11 @@ Quality bar:
 - Make goals, non-goals, risks, acceptance criteria, and verification shape explicit.
 - Keep draft plans unapproved until a user or wrapper accepts them.
 - Only prepare coding handoff guidance after the plan is accepted.
+- Plan acceptance approves the plan content, not execution: after acceptance, recommend the follow-on path that fits the work's shape — `ultragoal` for progress that must survive sessions as a checkpointed ledger, `ultrawork` for an accepted plan split into disjoint parallel lanes, `ralph` for one already-scoped task with a single owner, `ultraprocess` for one bounded delivery cycle, or a direct selected executor/runtime handoff for a single prepared coding change — state the fit reason in one line, and start it only after the user's explicit go-ahead.
 
 Handoff policy:
 
-Keep planning in Hermes; if the accepted plan requires code edits, prepare a selected executor/runtime handoff after acceptance.
+Keep planning in Hermes; if the accepted plan requires code edits, prepare a selected executor/runtime handoff after acceptance, and start a follow-on workflow engine only after the user explicitly confirms the recommended path.
 
 Required inputs:
 

@@ -78,9 +78,10 @@ Reasoning demand: `heavy`
 
 Quality bar:
 
+- Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
 - Complete exactly one plan-to-PR delivery cycle, then stop with status, evidence gaps, or a next recommended workflow.
 - Start with codebase/source research and a ralplan-style decision record before implementation handoff.
-- Use ultragoal or the selected executor/runtime path for implementation, with acceptance criteria and verification commands attached.
+- For implementation, hand off to ultragoal or the selected executor/runtime path with acceptance criteria and verification commands attached, and start that follow-on engine only after the user confirms the recommended path.
 - Run code-review as a gate after implementation evidence exists; review preparation alone is not review evidence.
 - Add docs-specialist sync when public behavior, commands, setup, examples, or claims changed.
 - End with a PR-ready or PR-observed report that separates prepared, executed, reviewed, verified, CI, and PR evidence.
@@ -94,6 +95,13 @@ Executor readiness:
 - When accepted work mutates code, check `executor_readiness/v1` for the selected Codex, Claude Code, Hermes, or oh-my runtime path before first dispatch.
 - If readiness is `missing` or `blocked`, ask the user to choose another coding agent, configure PATH, continue in Hermes, or keep a prompt/runtime handoff; retry only after that state changes.
 - A readiness probe is not dispatch, implementation, verification, review, CI, merge-readiness, or merge evidence.
+
+Delegation transparency:
+
+- When delegating, show the composed delegate prompt in a fenced code block in the status message; truncate a long prompt to a bounded preview ending with `... [truncated, N chars total]` — the user must see WHAT was asked, not just that something was.
+- Name every delegated or parallel lane's model and reasoning effort inline as `(model effort)` in status and briefing lines — including runtime-native subagents; write the literal `unknown` when the host does not expose a value, never empty parentheses, and carry token and elapsed figures the same way.
+- Dispatch delegate runs in a resume-capable session mode with an explicit session or thread id the user can resume or steer later (for example a recorded interactive Claude Code session id or a `codex exec resume`-able thread); do not default to `--print`-style one-shot runs that leave no session behind, and report that id in the status message.
+- Before dispatch, give the executor session every permission the task will need — file write/edit, command/test execution, and the working directory; for Claude Code that means an interactive session or pre-approved tool permissions, and the equivalent sandbox/approval flags for other CLIs — so the run cannot stall mid-task on a permission prompt it cannot answer. A one-shot that hits a permission wall after minutes of silence is a dispatch defect: if a needed permission cannot be granted, surface the blocker before dispatch, not after.
 
 Required inputs:
 

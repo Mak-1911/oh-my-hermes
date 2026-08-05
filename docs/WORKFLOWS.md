@@ -180,6 +180,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Expected behavior: Ask a clarification question or route to a narrower workflow instead of forcing `ralph`.
   - Why: The request lacks the required inputs or would overclaim work that Hermes did not observe.
 - Quality bar:
+  - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
   - Do not enter a finish-until-done loop until scope, acceptance criteria, and verification commands are concrete.
   - For coding edits, prepare and track selected runtime evidence instead of implying unobserved work happened.
   - Report completion only from observed execution and verification evidence.
@@ -241,6 +242,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Expected behavior: Route to diagnosis or a direct answer instead of creating a durable goal.
   - Why: A narrow explanation does not need checkpointed long-running state.
 - Quality bar:
+  - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
   - Keep goal state durable, inspectable, and separate from chat narration.
   - Checkpoint every success, blocker, and final quality gate with fresh evidence.
   - Reject completion with a summary-only goal_completion_gate/v1 result until required criteria, blockers, and explicitly linked runtime runs are satisfied.
@@ -407,9 +409,10 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Expected behavior: Route to `loop` or ask for a bounded goal rather than promise endless delivery.
   - Why: Popularity and indefinite improvement need long-horizon loop management, not one PR-ready cycle.
 - Quality bar:
+  - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
   - Complete exactly one plan-to-PR delivery cycle, then stop with status, evidence gaps, or a next recommended workflow.
   - Start with codebase/source research and a ralplan-style decision record before implementation handoff.
-  - Use ultragoal or the selected executor/runtime path for implementation, with acceptance criteria and verification commands attached.
+  - For implementation, hand off to ultragoal or the selected executor/runtime path with acceptance criteria and verification commands attached, and start that follow-on engine only after the user confirms the recommended path.
   - Run code-review as a gate after implementation evidence exists; review preparation alone is not review evidence.
   - Add docs-specialist sync when public behavior, commands, setup, examples, or claims changed.
   - End with a PR-ready or PR-observed report that separates prepared, executed, reviewed, verified, CI, and PR evidence.
@@ -532,6 +535,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Expected behavior: Ask a clarification question or route to a narrower workflow instead of forcing `team`.
   - Why: The request lacks the required inputs or would overclaim work that Hermes did not observe.
 - Quality bar:
+  - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
   - Split only independent lanes with explicit ownership and verification boundaries.
   - Keep Hermes as coordinator and status narrator while coding lanes become runtime handoffs with explicit ownership.
   - Integrate lane evidence before reporting combined progress.
@@ -592,6 +596,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Expected behavior: Keep one owner or re-plan boundaries before parallelization.
   - Why: Shared core logic makes parallel edits likely to conflict or hide regressions.
 - Quality bar:
+  - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
   - Require disjoint lane ownership before preparing multiple coding runtime handoffs.
   - Attach acceptance criteria, verification commands, and review expectations to each lane.
   - Keep dispatch, execution, review, CI, and merge status evidence separate.
@@ -3340,6 +3345,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Expected behavior: Ask a clarification question or route to a narrower workflow instead of forcing `ultraqa`.
   - Why: The request lacks the required inputs or would overclaim work that Hermes did not observe.
 - Quality bar:
+  - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
   - Generate hostile scenarios from changed behavior and known risk areas.
   - Report pass/fail evidence separately from proposed fixes.
   - Delegate code mutations discovered by QA to the selected coding executor.
@@ -3380,7 +3386,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
-- Handoff policy: Keep planning in Hermes; if the accepted plan requires code edits, prepare a selected executor/runtime handoff after acceptance.
+- Handoff policy: Keep planning in Hermes; if the accepted plan requires code edits, prepare a selected executor/runtime handoff after acceptance, and start a follow-on workflow engine only after the user explicitly confirms the recommended path.
 - Why this exists: `plan` exists to keep `planning` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use for structured planning when implementation is not ready to start safely, including feature work that needs a safe plan before handoff.
 - Do not use when:
@@ -3399,6 +3405,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Make goals, non-goals, risks, acceptance criteria, and verification shape explicit.
   - Keep draft plans unapproved until a user or wrapper accepts them.
   - Only prepare coding handoff guidance after the plan is accepted.
+  - Plan acceptance approves the plan content, not execution: after acceptance, recommend the follow-on path that fits the work's shape — `ultragoal` for progress that must survive sessions as a checkpointed ledger, `ultrawork` for an accepted plan split into disjoint parallel lanes, `ralph` for one already-scoped task with a single owner, `ultraprocess` for one bounded delivery cycle, or a direct selected executor/runtime handoff for a single prepared coding change — state the fit reason in one line, and start it only after the user's explicit go-ahead.
 - Completion checklist:
   - The plan names goals, non-goals, assumptions, acceptance criteria, and verification shape.
   - Draft recommendations, accepted decisions, and executor handoffs are separate states.
@@ -3435,7 +3442,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
-- Handoff policy: Keep consensus planning and review in Hermes; produce explicit selected executor/runtime handoff guidance only after the plan is accepted.
+- Handoff policy: Keep consensus planning and review in Hermes; produce explicit selected executor/runtime handoff guidance only after the plan is accepted, and start a follow-on workflow engine only after the user explicitly confirms the recommended path.
 - Why this exists: `ralplan` exists to make planning reviewable before execution: Hermes should gather codebase/source facts, compare options, expose risks, define acceptance criteria, and prepare a handoff without pretending implementation already happened.
 - Use when: Use when requirements are clear enough for planning but architecture, evidence, alternatives, risks, or tests need a reviewed plan before execution.
 - Do not use when:
@@ -3458,6 +3465,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Produce testable acceptance criteria and exact verification commands or explain why they are not yet knowable.
   - Record unresolved tradeoffs and evidence gaps instead of flattening uncertainty.
   - End with a selected executor/runtime handoff shape only after the plan is accepted.
+  - Plan acceptance approves the plan content, not execution: after acceptance, recommend the follow-on path that fits the work's shape — `ultragoal` for progress that must survive sessions as a checkpointed ledger, `ultrawork` for an accepted plan split into disjoint parallel lanes, `ralph` for one already-scoped task with a single owner, `ultraprocess` for one bounded delivery cycle, or a direct selected executor/runtime handoff for a single prepared coding change — state the fit reason in one line, and start it only after the user's explicit go-ahead.
   - Do not implement directly from consensus planning.
 - Completion checklist:
   - Observed repo facts and source/web evidence gaps are named.
@@ -3465,10 +3473,11 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Risks, acceptance criteria, and verification commands are testable or explicitly blocked.
   - The plan exists as a recorded file-backed artifact, not only as chat narration.
   - The implementation handoff is prepared only after plan acceptance and remains prepared_not_observed.
+  - The follow-on engine or executor path was started only after the user's explicit go-ahead in this conversation, never from plan acceptance alone.
 - Recovery notes:
   - If requirements are still fuzzy, route back to deep-interview before planning.
   - If current-source evidence is missing, route a web-research step before accepting the plan.
-  - If the user asks for implementation, hand off through ultraprocess, ultragoal, or the selected executor path after the plan is accepted.
+  - If the user asks for implementation after acceptance, recommend the follow-on path that fits the work's shape (`ultragoal`, `ultrawork`, `ralph`, `ultraprocess`, or a direct selected executor handoff) with a one-line fit reason, and start it only on the user's explicit go-ahead — never auto-start an engine from acceptance alone.
 - Required inputs:
   - requirements
   - codebase facts
@@ -6556,6 +6565,8 @@ Route implementation requests through scoped context, edit discipline, tests, re
   - Name every delegated or parallel lane's model and reasoning effort inline as `(model effort)` in status and briefing lines — including runtime-native subagents; write the literal `unknown` when the host does not expose a value, never empty parentheses, and carry token and elapsed figures the same way.
   - When the user asks mid-run which models are working or how many tokens are spent, answer immediately with one line per lane in that same format plus a one-line total; a steering question never waits for lane completion.
   - When delegating, show the composed delegate prompt in a fenced code block in the status message; truncate a long prompt to a bounded preview ending with `... [truncated, N chars total]` — the user must see WHAT was asked, not just that something was.
+  - Dispatch delegate runs in a resume-capable session mode with an explicit session or thread id the user can resume or steer later (for example a recorded interactive Claude Code session id or a `codex exec resume`-able thread); do not default to `--print`-style one-shot runs that leave no session behind, and report that id in the status message.
+  - Before dispatch, give the executor session every permission the task will need — file write/edit, command/test execution, and the working directory; for Claude Code that means an interactive session or pre-approved tool permissions, and the equivalent sandbox/approval flags for other CLIs — so the run cannot stall mid-task on a permission prompt it cannot answer. A one-shot that hits a permission wall after minutes of silence is a dispatch defect: if a needed permission cannot be granted, surface the blocker before dispatch, not after.
   - Embed the delegation protocol (omh coding composition-guide) into EVERY delegated or reviewer prompt — runtime-native spawns included: goal echo-back before tool use, numbered pre-declared done criteria, exactly one mandatory verification pass with a two fix-and-verify cycle cap, and a two-round re-review cap — after two review rounds, stop and report the criterion-cited blockers instead of starting another reviewer.
 - Inputs:
   - task statement
