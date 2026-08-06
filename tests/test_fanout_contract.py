@@ -131,6 +131,35 @@ class FanoutEngineTests(unittest.TestCase):
     def test_overlap_detector_returns_no_notes_for_disjoint_units(self) -> None:
         self.assertEqual(detect_boundary_overlaps(_UNITS), [])
 
+    def test_contract_freezes_the_live_safety_profile_revision(self) -> None:
+        """The revision frozen at build time is the live one at build time.
+
+        Without this the dispatch-boundary re-check has nothing to compare
+        against and never fires on a contract produced today.
+        """
+        from omh.quality.safety_preflight import safety_profile_revision
+
+        contract = build_fanout_contract("freeze the profile", _UNITS)
+
+        self.assertEqual(contract["safety_profile_revision"], safety_profile_revision())
+        # Additive under the frozen schema: no version bump, and the revision
+        # is a digest, so the contract stays deterministic.
+        self.assertEqual(contract["schema_version"], "fanout_contract/v1")
+        self.assertEqual(contract, build_fanout_contract("freeze the profile", _UNITS))
+
+    def test_a_contract_without_the_frozen_revision_still_round_trips(self) -> None:
+        """Contracts frozen before the field keep their exact shape on disk."""
+        with TemporaryDirectory() as tmp:
+            paths = OmhPaths(omh_home=Path(tmp) / ".omh", hermes_home=Path(tmp) / ".hermes")
+            contract = build_fanout_contract("older contract", _UNITS)
+            del contract["safety_profile_revision"]
+
+            write_fanout_contract(paths, contract)
+
+            stored = read_fanout_contract(paths, str(contract["fanout_id"]))
+            self.assertNotIn("safety_profile_revision", stored)
+            self.assertEqual(stored["schema_version"], "fanout_contract/v1")
+
 
 class FanoutArtifactTests(unittest.TestCase):
     def test_writer_persists_metadata_only_contract_under_omh_home(self) -> None:

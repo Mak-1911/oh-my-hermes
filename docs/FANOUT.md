@@ -58,6 +58,12 @@ goal to Hermes in chat; these commands are the backend surface.
   bridge is an operator-invoked command on a different surface.
 - **Goal integrity.** `--goal-file` must hash to the digest frozen in the
   contract; a diverged goal is refused.
+- **Safety-profile integrity.** The contract also freezes the
+  `safety_profile_revision` it was prepared under. Dispatch re-checks it beside
+  the goal digest, before discovery, readiness probing, any spawn, and any
+  write; a drifted or unprovable profile is refused and the contract must be
+  re-prepared. The field is optional under `fanout_contract/v1`: a contract
+  frozen before it existed carries no revision and is not gated.
 - **Worktrees.** One per unit at `<repo>-fanout-<unit>` on branch
   `agent/<unit>`, all branched from one SHA resolved at dispatch start
   (`--base-ref`, default HEAD). Pre-existing paths or branches are errors,

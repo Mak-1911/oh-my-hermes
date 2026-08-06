@@ -35,6 +35,7 @@ def build_fanout_contract(
     order = merge_order(normalized_units)
     digest = sha256(normalized_goal.encode("utf-8")).hexdigest()
     fanout_id = f"fanout-{digest[:12]}"
+    safety_revision = _frozen_safety_profile_revision()
     unit_ids = [str(unit["unit_id"]) for unit in normalized_units]
     contract_units = [
         _contract_unit(
@@ -58,6 +59,14 @@ def build_fanout_contract(
             "sha256": digest,
             "raw_prompt_stored": False,
         },
+        # Frozen beside the goal digest and for the same reason: the contract
+        # records what it was prepared under so a later boundary can re-prove
+        # it. `fanout_dispatch.verify_safety_profile_matches_contract` refuses
+        # dispatch when the live profile no longer matches this value.
+        # Optional and additive under `fanout_contract/v1`: an absent key means
+        # "not gated", which is what contracts frozen before this field carry
+        # and what the dispatch re-check already treats as a pass.
+        **({"safety_profile_revision": safety_revision} if safety_revision else {}),
         "units": contract_units,
         "merge_plan": {
             "merge_order": order,
@@ -74,6 +83,21 @@ def build_fanout_contract(
         ],
         "claim_boundary": FANOUT_CLAIM_BOUNDARY,
     }
+
+
+def _frozen_safety_profile_revision() -> str:
+    """The live safety-profile revision, or "" when that lane is not installed.
+
+    Bound lazily for the reason `fanout_dispatch._live_safety_profile_revision`
+    is: the contract builder must keep working in an install that does not ship
+    the preflight evaluator. An empty answer freezes no revision at all rather
+    than freezing a placeholder that would later read as drift.
+    """
+    try:
+        from ..quality.safety_preflight import safety_profile_revision
+    except ImportError:
+        return ""
+    return safety_profile_revision()
 
 
 def validate_fanout_units(units: Sequence[Mapping[str, object]]) -> None:

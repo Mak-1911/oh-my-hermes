@@ -22,7 +22,10 @@ from ..capabilities.toggles import (
     enabled_workflow_names,
     family_labels_by_id,
     normalize_family_id,
+    org_rule_source_enabled,
+    org_rule_source_path,
     read_capability_policy,
+    read_org_rule_source_policy,
     retained_core_skills,
     toggleable_family_ids,
     write_capability_policy,
@@ -58,6 +61,10 @@ def _policy_report(paths) -> dict[str, object]:
         }
         for family_id in toggleable_family_ids()
     ]
+    # The org safety rule source is the other setup-profile policy this group
+    # owns. It is reported, never changed here: turning it on is a deliberate
+    # local edit, and reporting it keeps the opt-in visible instead of hidden.
+    org_policy = read_org_rule_source_policy(paths)
     return {
         "schema_version": "omh_capability_policy_report/v1",
         "policy": policy,
@@ -66,6 +73,9 @@ def _policy_report(paths) -> dict[str, object]:
         "disabled_workflows": list(disabled_family_workflows(policy)),
         "enabled_workflow_count": len(enabled_workflow_names(policy)),
         "retained_core_skills": list(retained_core_skills()),
+        "org_rule_source_policy": org_policy,
+        "org_rule_source_enabled": org_rule_source_enabled(org_policy),
+        "org_rule_source_path": org_rule_source_path(org_policy),
         "setup_profile_path": str(paths.setup_profile_path),
     }
 
@@ -155,6 +165,10 @@ def _print_capability_policy_summary(payload: dict[str, object]) -> None:
     core = payload.get("retained_core_skills", [])
     if isinstance(core, list):
         print(f"  Always retained: {', '.join(str(item) for item in core)}")
+    if payload.get("org_rule_source_enabled"):
+        print(f"  Org safety rule source: on ({payload.get('org_rule_source_path', '')})")
+    else:
+        print("  Org safety rule source: off")
     print(_color("Next", "1;32", use_color))
     print("  Disable one with `omh capability-policy disable <family-id>`.")
     print(f"  Policy file: {payload.get('setup_profile_path', '')}")

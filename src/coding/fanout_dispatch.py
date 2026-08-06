@@ -11,6 +11,7 @@ from ..runtime.artifacts import append_journal_observation, create_run, show_run
 from ..system.local_store import atomic_write_json, locked_json_update, utc_now
 from ..system.metadata_safety import redact_metadata_text
 from ..system.paths import OmhPaths
+from .action_gate import recheck_safety_profile_revision
 from .executor_readiness import probe_executor_readiness
 from .fanout_contracts import FANOUT_CLAIM_BOUNDARY
 from .inflight import InflightMarkerError, clear_inflight_marker, write_inflight_marker
@@ -324,6 +325,39 @@ def verify_goal_matches_contract(contract: Mapping[str, Any], goal_text: str) ->
         )
 
 
+def _live_safety_profile_revision() -> str | None:
+    """The live safety-profile revision, or None when that lane is not installed."""
+    try:
+        from ..quality.safety_preflight import safety_profile_revision
+    except ImportError:
+        return None
+    return safety_profile_revision()
+
+
+def verify_safety_profile_matches_contract(contract: Mapping[str, Any], live_revision: str | None = None) -> None:
+    """Refuse dispatch when the safety profile moved after the contract froze.
+
+    The boundary re-check re-proves what the contract was prepared under; it does
+    not re-decide it. It runs beside the goal-digest check and *before* any
+    confirmation is requested, because a user who pays a prompt for work that
+    then hard-fails on drift pays a second prompt on the retry.
+
+    A contract that froze no revision is not gated at all. A contract that froze
+    one in an environment that can no longer produce one refuses: an
+    unprovable profile is drift, not a pass.
+    """
+    carried = str(contract.get("safety_profile_revision", "") or "")
+    if not carried:
+        return
+    observed = live_revision if live_revision is not None else _live_safety_profile_revision()
+    reason = recheck_safety_profile_revision(carried, observed)
+    if reason:
+        raise ValueError(
+            f"{reason}; dispatch refuses to run under a drifted safety profile "
+            "(re-run fanout prepare to refreeze the contract)"
+        )
+
+
 def dispatch_fanout(
     paths: OmhPaths,
     contract: Mapping[str, Any],
@@ -337,8 +371,13 @@ def dispatch_fanout(
     dry_run: bool = False,
     runner: Callable[..., Any] = subprocess.run,
     readiness: Callable[..., dict[str, object]] = probe_executor_readiness,
+    live_safety_profile_revision: str | None = None,
 ) -> dict[str, Any]:
+    # Both boundary re-checks run first, before discovery, readiness probing,
+    # any unit spawn, and any summary write: nothing downstream should observe a
+    # contract whose goal or safety profile no longer matches the live state.
     verify_goal_matches_contract(contract, goal_text)
+    verify_safety_profile_matches_contract(contract, live_safety_profile_revision)
     units = {str(unit["unit_id"]): unit for unit in contract.get("units", []) if isinstance(unit, Mapping)}
     order = [str(unit_id) for unit_id in contract.get("merge_plan", {}).get("merge_order", [])]
     current_catalog_digest = _current_catalog_digest(units.values())

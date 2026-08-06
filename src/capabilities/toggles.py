@@ -20,6 +20,11 @@ Boundaries, in order of importance:
 - Absent policy means all six families enabled. An install that predates this
   feature keeps working unchanged, and `build_capability_policy()` with no
   arguments is the same thing written down.
+
+The org safety rule source opt-in at the bottom of this module is a second,
+independent setup-profile policy that follows the same three rules: scalar
+values only, absent means off, and the read rebuilds rather than trusting the
+persisted file.
 """
 
 from __future__ import annotations
@@ -233,3 +238,65 @@ def _coerce_policy(policy: dict[str, Any]) -> dict[str, Any]:
         policy.get("disabled_families", []),
         files_removed=bool(policy.get("files_removed", False)),
     )
+
+
+# --- Org safety rule source opt-in (issue #802) ------------------------------
+#
+# Same file and same contract as the capability policy above: a scalar-only
+# payload inside setup-profile.json, absent meaning off, and a defensive read
+# that rebuilds rather than trusting a hand-edited value. It lives here and not
+# in `config.yaml` because that file is Hermes-owned; OMH policy belongs in the
+# OMH setup profile.
+#
+# Off is the default because the org level can only DENY. Turning it on is a
+# local decision to be bound by a local rule document, and an install that
+# predates this key keeps behaving exactly as it did.
+ORG_RULE_SOURCE_POLICY_SCHEMA_VERSION = "omh_org_rule_source_policy/v1"
+
+ORG_RULE_SOURCE_POLICY_CLAIM_BOUNDARY = (
+    "The org rule source policy records whether this install consults a local org safety rule "
+    "document; it is not compliance, execution, review, CI, or merge evidence."
+)
+
+
+def build_org_rule_source_policy(*, enabled: bool = False, source_path: str = "") -> dict[str, Any]:
+    """Build the opt-in payload persisted inside setup-profile.json."""
+    return {
+        "schema_version": ORG_RULE_SOURCE_POLICY_SCHEMA_VERSION,
+        "enabled": bool(enabled),
+        "source_path": str(source_path or "").strip(),
+        "claim_boundary": ORG_RULE_SOURCE_POLICY_CLAIM_BOUNDARY,
+    }
+
+
+def read_org_rule_source_policy(paths: OmhPaths) -> dict[str, Any]:
+    """Read the opt-in from setup-profile.json; absent means off."""
+    profile = read_json_object(paths.setup_profile_path) or {}
+    policy = profile.get("org_rule_source_policy")
+    if not isinstance(policy, dict):
+        return build_org_rule_source_policy()
+    return build_org_rule_source_policy(
+        enabled=bool(policy.get("enabled", False)),
+        source_path=str(policy.get("source_path", "") or ""),
+    )
+
+
+def write_org_rule_source_policy(
+    paths: OmhPaths, *, enabled: bool, source_path: str = ""
+) -> dict[str, Any]:
+    """Read-modify-write the opt-in, preserving every other profile field."""
+    policy = build_org_rule_source_policy(enabled=enabled, source_path=source_path)
+    profile = read_json_object(paths.setup_profile_path) or {}
+    profile["org_rule_source_policy"] = policy
+    atomic_write_json(paths.setup_profile_path, profile, private=True)
+    return policy
+
+
+def org_rule_source_enabled(policy: dict[str, Any] | None) -> bool:
+    return isinstance(policy, dict) and policy.get("enabled") is True
+
+
+def org_rule_source_path(policy: dict[str, Any] | None) -> str:
+    if not isinstance(policy, dict):
+        return ""
+    return str(policy.get("source_path", "") or "").strip()
