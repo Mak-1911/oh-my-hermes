@@ -22,7 +22,7 @@ from ..coding_contracts import (
     TASK_PROMPT_CONTRACT_SCHEMA_VERSION,
     TASK_PROMPT_REQUIRED_SECTIONS,
 )
-from .action_gate import evaluate_action_gate
+from .action_gate import evaluate_action_gate, split_handoff_safety_contract
 from .prompting import build_executor_prompting_contract, render_executor_prompt_sections
 from ..executors import (
     HERMES_CODING_TEAM_WRAPPER_ACTIONS,
@@ -427,7 +427,7 @@ def build_coding_delegation_payload(
     # The single decision path. Every downstream authority value — dispatchable,
     # choice_required, the executor selection status, and which confirmation
     # ladder is armed — is derived from this one verdict; nothing recomputes it.
-    action_gate = evaluate_action_gate(
+    gate_verdict = evaluate_action_gate(
         message=message,
         delegation_action=delegation.action,
         intent=delegation.intent,
@@ -457,6 +457,10 @@ def build_coding_delegation_payload(
         live_safety_profile_revision=live_safety_profile_revision,
         requested_actions=list(requested_authority_actions or []),
     )
+    # The #818 safety contract rides back on the verdict because the gate is the
+    # one place that runs per build; it is stored beside the gate, not inside
+    # it, so there is exactly one copy for a reader to trust.
+    action_gate, handoff_safety_contract = split_handoff_safety_contract(gate_verdict)
     authority_envelope = action_gate["authority_envelope"]
     if action_gate["outcome"] == "deny":
         # The deny flows through the same value the record validators read: the
@@ -487,6 +491,7 @@ def build_coding_delegation_payload(
                 ),
             },
             "action_gate": action_gate,
+            "handoff_safety_contract": handoff_safety_contract,
         }
     )
     if isolation_plan:
@@ -931,6 +936,8 @@ def coding_delegation_record_payload(
     }
     if isinstance(payload.get("action_gate"), dict):
         record["action_gate"] = payload["action_gate"]
+    if isinstance(payload.get("handoff_safety_contract"), dict):
+        record["handoff_safety_contract"] = payload["handoff_safety_contract"]
     for key in ("executor_handoff", "runtime_handoff", "prompt_handoff"):
         if isinstance(payload.get(key), dict):
             record[key] = payload[key]
