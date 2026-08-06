@@ -71,6 +71,14 @@ class OmhPaths:
         return self.runtime_journal_dir / "external_effect_receipts.jsonl"
 
     @property
+    def runtime_approval_receipts_path(self) -> Path:
+        # Runtime-wide, beside the external effect receipts, never inside a run
+        # directory: an approval is answered by a different actor at a different
+        # time from the delegation it approves, and it has to survive that
+        # delegation being rebuilt.
+        return self.runtime_journal_dir / "approval_receipts.jsonl"
+
+    @property
     def runtime_plan_context_dir(self) -> Path:
         return self.runtime_dir / "plan-context"
 

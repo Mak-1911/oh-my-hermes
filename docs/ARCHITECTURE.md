@@ -758,6 +758,8 @@ Runtime artifacts are local JSON/JSONL files under `.omh/runtime/`.
       events.jsonl
       external_effect_receipts.jsonl
       external_effect_mint_failures.jsonl
+      approval_receipts.jsonl
+      approval_mint_failures.jsonl
     wrapper_sessions/
       <session-id>/
         session.json
@@ -914,6 +916,131 @@ status means a handoff was prepared; the companion run envelope is also marked
 `prepared_coding_delegation`, not proof that Hermes executed the task.
 Executor-choice, runtime-handoff, clarify, fallback, and prompt-only handoffs
 return `runtime.recorded=false` and should stay in wrapper/session state.
+
+### Approval Receipts
+
+`runtime/journal/approval_receipts.jsonl` is an append-only store of
+`approval_receipt/v1` records: one per answer an operator gave to a confirmation
+ladder. It is the second store in the journal directory and follows the same
+mechanics as the first — JSONL appended under `local_store.file_lock`, an append
+that terminates a torn tail first, closed vocabularies everywhere including at
+render, idempotent minting, and supersession by link rather than by rewrite.
+
+**Why this is a record family and not a field group.** This repo refused a new
+family twice (#811, #818) because a family joins on run id and a join is where an
+artifact and its metadata desynchronize. Consent is the case that argument does
+not cover: it is created at a different time from the delegation (when the
+operator answers, not when the handoff is built), by a different actor, it has
+its own lifetime — it goes stale on a clock the delegation knows nothing about,
+and it can be revoked while the delegation is untouched — and it must survive a
+rebuild of the delegation it approves. Rebuilding a prepared handoff must
+neither silently re-grant consent nor silently destroy it. A field group is
+written by whoever writes the record, so it cannot express "written by someone
+else, before this record existed, and still true after this record is replaced".
+
+**What a receipt binds.** Exactly five things, and each is a separate refusal
+with its own code:
+
+| Dimension | Refusal code |
+| --- | --- |
+| `run_id` | `run_not_approved` |
+| `owner` | `owner_not_approved` |
+| `approved_action` | `action_not_approved` |
+| `scope_class` + `scope_ref` | `scope_not_approved` |
+| `safety_profile_revision` | `safety_revision_not_approved` |
+
+Matching is equality on every dimension, including the scope pair. There is no
+containment, prefix, or subsumption rule anywhere in the module, which is what
+makes widening structurally impossible rather than merely unimplemented: an
+approval for `src/omh/paths.py` satisfies a request for `src/omh/paths.py` and
+nothing else — not `src/omh`, not a sibling file, not the same path for another
+owner. `scope_class` is one of `filesystem_path`, `network_endpoint`, `tool`,
+`executor_profile`, `permission_profile`, and `scope_ref` stores the exact path,
+endpoint, or tool verbatim rather than a summary, because an approval nobody can
+read the target of is not a citable one.
+
+The lifecycle refusals are `approval_absent`, `approval_expired`,
+`approval_revoked`, `approval_superseded`, and `approval_denied`. Every refusal
+code carries a constant explanation line; nothing is interpolated into it, so a
+refusal rendered to an operator can never carry caller-controlled text.
+
+**Time bounding.** Freshness is derived at read time from `decided_at` against
+`APPROVAL_TTL_SECONDS` (one hour), the idiom `coding/executor_auth_signals.py`
+uses for limit signals, rather than stored as an `expires_at` the reader must
+trust. A stored deadline is a second independently writable field: a hand-edited
+store widens the window by editing one number, while a window that lives in code
+cannot be widened by anything on disk. The honest reason matters more — the
+`storage_retention` boundary of `handoff_safety_contract/v1` is
+`declared_not_enforced` (blocked by #835) because no retention or cleanup exists
+for run artifacts. Nothing deletes an approval receipt, so claiming one
+"expires" on disk would be a lie about a file that outlives every window it
+names. Expiry is a property every reader recomputes and never a property the
+artifact has. A decision stamped in the future returns `age_seconds = -1` and
+refuses rather than clamping to zero, which is the other half of "the window
+cannot be widened from disk".
+
+**Three separate things.** #800 requires approval, attempt, and observed outcome
+to be reported separately, which is exactly why this is not folded into the
+external effect receipt store. An approval receipt proves consent was given. It
+never proves the host applied the permission and it never proves anything ran.
+`CLAIM_BOUNDARY` says so on every record, and `validate_approval_receipt`
+refuses a record shaped to assert execution — `applied`, `executed`,
+`exit_code`, `observed_result`, `result` and their siblings are rejected by key
+name, before the closed key set would reject them as merely unsupported.
+
+**Revocation and supersession.** A revocation is a new record with
+`decision = "revoked"` linked to the grant through `supersedes_receipt_ref`; the
+grant's line on disk is untouched. Re-answering the same confirmation — after
+the safety profile moved, say — appends a new receipt that supersedes the
+earlier answer, and the earlier answer stops satisfying anything from that
+moment. `approval_id` is the identity of the *question* (run, owner, action,
+scope) and deliberately excludes the revision, so re-answering supersedes rather
+than opening a second chain that both claim to be current. The chain validator
+rejects the shapes a consent chain must never take: a self-cycle, a link to a
+receipt that does not exist, a duplicate receipt id, and a fork — two answers
+that both believe they replaced the same predecessor, which would make "the
+current answer" ambiguous.
+
+**Minting.** The confirmation flow calls `mint_approval_receipt`, which never
+raises into it: an unwritable store must not make an answer that *was* given
+look like one that was not. Refusals and write failures come back as an
+`approval_mint_result/v1` mapping and are appended to
+`runtime/journal/approval_mint_failures.jsonl`. Minting is idempotent by
+decision fingerprint while the answer is live, so one answer reported three
+times has one receipt; once a grant is past its window the identical answer
+mints again, because consent re-given after expiry is new consent rather than a
+duplicate report of the old.
+
+**Consumers.** `omh runtime approvals` is a read-only view with the usual
+plain-text default and `--json` opt-in. There is deliberately no command that
+mints an approval from operator input: whoever typed the flag would be granting
+themselves the permission the confirmation was supposed to ask about. A test
+asserts both halves — that today's parser refuses the obvious flags, and that no
+module under `src/commands/` references a writer at all.
+
+`omh runtime validate` is the store's third consumer, and the one that reaches
+the chain validator. `runtime/artifacts.py::validate_runtime` reports the store
+under an `approval_receipts` key beside `external_effect_receipts`, and
+`_validate_run_approval_receipts` applies the per-record validator
+`records.OPTIONAL_APPROVAL_STORE_VALIDATORS` names to the receipts belonging to
+each run. Without those two callers the registry validated nothing: an
+unparseable line, a duplicate receipt id, and a forked supersede chain — two
+answers that both believe they replaced the same predecessor, which makes "the
+current answer" ambiguous — all went unreported. Why each registry needs its own
+reader rather than one shared tuple is the design problem #846 tracks.
+
+The gate is the store's other consumer. `coding/action_gate.py::classify_action_risk`
+calls `approval_satisfies_request_in` with receipts the caller already read — the
+pure form, so the gate performs no I/O — and withholds the escalated authority
+when no live approval names exactly this action, scope, owner, run, and
+safety-profile revision. That refusal is real, and it is reachable only by a
+caller that supplies a run id: an approval binds to a run,
+`build_approval_receipt` refuses an empty one, and the delegation lane builds
+its payload before any runtime run exists. So the `confirmation_answered`
+boundary of `handoff_safety_contract/v1` is `declared_not_enforced`, blocked by
+`no_confirmation_answer_intake_mints_a_run_bound_approval`. "Consent is
+classified; on the shipped lane it is not enforced" below says why arming there
+would have been worse than not arming.
 
 ### Prepared Runtime Run Executor Matrix
 
@@ -1461,18 +1588,216 @@ handoff end up side by side in one record. The child-cannot-exceed-parent
 lattice is checked in the same pass: a handoff envelope may not allow an action
 its parent verdict's envelope does not.
 
-Three "ask the user" ladders used to live side by side without knowing about
-each other: executor selection (`choose_executor`), permission profile
-(`choose_permission_profile`), and the operator confirmation family
+Four "ask the user" ladders used to live side by side without knowing about each
+other: executor selection (`choose_executor`), permission profile
+(`choose_permission_profile`), the risky-action confirmation
+(`confirm_risky_action`), and the operator confirmation family
 (`send_to_executor`). Arbitration is now explicit and ordered — a denial asks
-nothing, because a denied request is corrected rather than confirmed; otherwise
-executor selection wins, because nothing downstream can be confirmed before the
-agent that owns the work is chosen; then permission profile, because widening
-authority routes through one profile choice; then operator confirmation, when
-the envelope already allows dispatch and only the act itself needs a go-ahead.
-At most one ladder is armed. Every ladder that could have fired is recorded in
-`confirmation.suppressed_ladders` with the winner named, so a surface that
-renders one prompt can still explain which questions were not asked and why.
+nothing, because a denied request is corrected rather than confirmed; a refused
+or revoked approval asks nothing either, because the operator already answered
+and asking again is asking until the answer changes; otherwise executor
+selection wins, because nothing downstream can be confirmed before the agent
+that owns the work is chosen; then permission profile, because widening
+authority routes through one profile choice; then risky action, because
+confirming one risky act inside the envelope is a smaller question than widening
+the envelope and a bigger one than confirming the dispatch that carries it; then
+operator confirmation, when the envelope already allows dispatch and only the act
+itself needs a go-ahead. At most one ladder is armed. Every ladder that could
+have fired is recorded in `confirmation.suppressed_ladders` with the winner
+named, so a surface that renders one prompt can still explain which questions
+were not asked and why.
+
+The risky-action rung carries one further precondition: it arms only when the
+confirmation can be answered, which means the gate was given a `run_id`. See
+"Consent is classified; on the shipped lane it is not enforced" below — arming a
+ladder whose answer nothing can record does not gate a request, it ends it.
+
+Registering the risky-action confirmation *as a ladder* is the point of #800,
+not an implementation convenience. `validate_action_gate_verdict` already
+asserts that at most one ladder is armed and that armed plus suppressed accounts
+for every candidate; a risky-action prompt built outside the arbitration would
+have satisfied that check while producing a second prompt on one intent, which
+is the failure mode. `wrapper/contract.py::_apply_action_gate_arbitration`
+renders the armed ladder and disables the rest, and its action-id list is now
+*derived* from `coding/action_gate.py::LADDER_ACTION_IDS` rather than retyped —
+the two hand-maintained copies had already drifted (`send_to_codex` was in one
+and not the other) without anything failing. The wrapper adds only what it
+genuinely owns: `send_to_codex`, the codex lane's rendering alias for
+`send_to_executor`, and the four operator-card `confirm_*` ids, which belong to
+the same confirmation family and must be disabled when another ladder wins.
+
+#### What action risk reads, and what that does not promise
+
+`coding/action_gate.py::classify_action_risk` answers "may this act proceed
+without asking". It reads the isolation plan's *strategy*, the authority
+envelope's granted actions, and the declared safety-preflight request's access
+intents and target paths. It has no parameter through which message text, a
+context pack, or a recall pack could arrive, so the same envelope and the same
+declared request always produce an identical verdict whatever the message said.
+
+**That bounds the classifier, not the pipeline, and the record says so.**
+`external_mutation` and `publication` are `policy_derived`: the envelope alone
+decides them and no phrasing can move them. `broad_write` is `request_declared`,
+and on the coding-delegation lane the `target_paths` it counts are regex-scraped
+out of the user's message by
+`coding_delegation.py::_safety_preflight_target_paths`. End to end that class is
+therefore message-sensitive: two phrasings of one intent classify differently, a
+pasted traceback naming files raises the count, and "rewrite everything under
+`src/`" declares zero targets and classifies as no risk at all.
+`action_risk.text_policy` states each of those in those words rather than
+claiming the classifier is not message-derived, because the earlier claim was
+true only at a boundary no user ever sees.
+
+Reusing `coding/isolation.py::_risk_level` is still refused. It computes from
+`message.lower()` against term tables, and `quality/safety_preflight.py`'s own
+docstring forbids making a safety decision depend on user text — which is why
+that module contains no `*_guard_applies` helper. The two levels carry different
+names on one record: `isolation_plan.risk_level` is advisory routing that
+answers "how much should this work be isolated"; `action_risk.level` answers the
+authority question. They can disagree without either being wrong,
+`action_risk.isolation_risk_relationship` says so on every verdict, and nothing
+reads one to compute the other.
+
+#800 names five risky kinds and the contract accounts for all five rather than
+shipping the three it can derive and dropping the rest. `broad_write` is a repo
+edit whose declared target set is larger than an operator can read from the
+request (`MAX_UNCONFIRMED_TARGET_PATHS`, well inside the bound at which the
+preflight denies outright); `external_mutation` is granted merge or
+pull-request authority; `publication` is granted `external_posting`. Every rule
+is anchored on the envelope's own `mutation_rights`, so a class is present only
+when the envelope grants an action that could perform it — a request that merely
+declares a destination or a share intent raises no class, because the handoff
+cannot reach one and the preflight's destination and access-intent rules are
+what refuse an undeclared reach. `deletion` and `identity_change` are
+`subsumed`, each naming the class that carries it and why: `ACCESS_INTENTS` is
+read, write, and share, so nothing declares a delete and a deletion is the write
+that performs it; and no request field names an account, an identity, or a
+credential rotation, so an identity change is the external mutation that
+performs it. The validator enforces that split in both directions — a subsumed
+class with no carrier and a derivable class claiming a carrier are both rejected
+— which is the anti-decoration rule applied to a vocabulary instead of to a
+boundary table.
+
+#### Consent is per risky class
+
+An armed ladder proves a question was asked. `workflows/approval_receipts.py`
+proves an operator answered it. There is deliberately **no single "the
+approvable action"**: for every class present, every action the envelope really
+grants that carries it becomes one `action_risk.consent` entry with its own
+five-dimension approval request and its own verdict. The aggregate is `deny` if
+any entry is refused, `ask` if any is unanswered, and `allow` only when every
+class present is approved on every action that carries it;
+`action_risk.withheld_actions` is exactly the set of actions whose entry is not
+allowed.
+
+Collapsing those into one question was a real defect and not a simplification.
+One receipt naming `merge` released `broad_write`, `external_mutation`, and
+`publication` together, `merge` was an action `required_actions_for` never
+yields and the envelope never grants — so the stored receipt read "operator
+approved merge" while a broad repo write proceeded — and a receipt for
+`repo_edit`, the action that actually performs the write, was refused as a
+sibling. Two validators now make each of those unconstructible.
+`validate_action_risk` rejects an `allow` while any present class is unapproved,
+and rejects a verdict that reports a present class no consent entry asks about.
+`validate_action_gate_verdict` rejects a consent entry naming an action the
+authority envelope neither allows nor withheld — an approval request for
+authority nobody was ever given, which no receipt could ever satisfy.
+
+The scope an approval binds to is the permission profile, uniformly. It is the
+only scope stable across a rebuild of the same delegation — target paths and
+destinations are re-derived from the request on every build, so an approval
+bound to them would either stop matching or silently cover a changed set. The
+other four dimensions are the run, the owner, the action, and the revision, and
+matching is equality on all five inside the receipt module, which is what makes
+widening structurally impossible rather than merely unimplemented. One
+consequence is deliberate and stated rather than papered over: inside one run,
+one hour, and one revision, a second delegation for the same owner and profile
+is covered by the first answer *for the same class and action*. That is what a
+run-bound approval means; it is not a per-delegation consent and is not claimed
+to be.
+
+#### Consent is classified; on the shipped lane it is not enforced
+
+The refusal above fires only when the confirmation can be answered, and on the
+coding-delegation lane it cannot. An approval binds to a run,
+`build_approval_receipt` refuses an empty `run_id`, and
+`evaluate_action_gate`'s only production caller —
+`coding_delegation.py::build_coding_delegation_payload` — runs before any
+runtime run exists (`wrapper/lifecycle.py` creates the run from the payload).
+Nothing anywhere in `src/` receives an operator's answer to a card action back
+as data, and there is deliberately no CLI verb that mints an approval. So on
+that lane no receipt that could release the work is constructible at all.
+
+Withholding there would not gate a request, it would end it: a user naming nine
+files would get a permanently non-dispatchable delegation with no route forward,
+and an armed `confirm_risky_action` button whose answer could never be recorded.
+`evaluate_action_gate` therefore withholds and arms **only when `run_id` is
+set**. Everywhere else the classification rides as a report:
+`action_risk.enforcement` is `declared_not_enforced`,
+`action_risk.blocked_by` is `no_confirmation_answer_intake_mints_a_run_bound_approval`,
+the envelope is untouched, and no ladder is armed. Given a run id — a caller
+holding a receipt store — the same block reports `enforced`, names its two
+enforcing symbols, and the refusal is real.
+
+A refusal is still honoured wherever it can exist.
+`wrapper/contract.py::_apply_refused_risky_action` disables every ladder action
+on the card when the verdict is an *enforced* `deny`, because an operator who
+answered no must not be offered "Open coding agent" as the enabled primary
+action; a report-only classification disables nothing.
+
+A "narrow" answer is a smaller requested action set fed back through
+`requested_authority_actions`. That parameter already existed as a seam with no
+production caller; #800 is its first one. One seam carries both directions and
+they are told apart by one question: anything asked for *outside* what the task
+required widens the envelope and routes through the permission-profile ladder,
+while a subset narrows it and is excluded with the `narrowed_by_request` reason
+code. `action_risk.narrowing_route` names the parameter and the exact action set
+that removes the question — *every* action carrying an unapproved class, not one
+of them, because a set that dropped one carrier and kept a sibling would ask the
+same question again and the explanation promises it will not.
+
+#### Account authorization (#799)
+
+`account_authorization/v1` rides on the same verdict and is honest about being
+roughly three quarters a projection over what already exists. Derived now: that
+a task needs account-backed access at all (the envelope allows — *or withheld
+pending approval* — `executor_dispatch`, `external_posting`, `merge`,
+`pr_creation`, or `pr_revision`; withholding an action because nobody approved
+it does not stop the task needing the account behind it, and reading
+`allowed_actions` alone made `required` report false exactly when a risky action
+was held back), the account and its minimum scopes, safe references only — an
+environment variable *name* matching the `provider_profile_posture` shape and
+screened through the credential boundary's own value detectors, or an opaque
+handle screened by the same admission check every other caller-supplied
+reference passes — and one of four states: `missing` (the readiness probe found
+no marker), `authorized-unverified` (a login marker is present, which is exactly
+what a marker means and what `executor_auth_signals`' claim boundary already
+says), `observed-ready` (a probe reported ready *and* exited 0), and `expired`
+(derived at read time from the signal's own timestamp against the same six-hour
+horizon `executor_auth_signals` uses for limit signals). Signals are handed in
+already read; the gate never probes.
+
+Declared and not enforced, with the gap written out rather than implied.
+`consent-required` is not an observable state: completing a provider's consent
+flow happens on that provider's site and nothing local reports it. The approval
+receipt closes the *adjacent* gap and is cited saying so — it proves the operator
+consented to this wrapper's own escalation, which is a different question from
+whether a provider granted a scope. And guiding an operator through a host-owned
+consent flow can only ever be rendered instructions, because launching a browser
+or running an auth CLI is something the enforcement tests make a test failure
+rather than a choice. The blocker is therefore
+`host_owned_consent_flow_is_not_observable_by_omh` rather than an issue number:
+nothing that could be filed would close it, and
+`safety_preflight.data_boundary_enforcement_facts` already set the precedent of
+a `blocked_by` that names the reason. No credential value is ever read, stored,
+or echoed; the credential boundary is cited, not restated. The name shape alone
+is not the whole screen — plenty of issued credentials are upper-case
+alphanumerics, and an AWS key id satisfies every character rule — so a reference
+is also run through `metadata_safety.is_secret_value_shaped`, the value half of
+the existing credential predicate. The *name* half is deliberately not used:
+`GITHUB_TOKEN` is a legitimate environment variable name. That bounds the guard
+to the detectors the tree already owns; a credential value none of them
+recognises still matches the shape.
 
 #### Dispatch-boundary revision re-check
 
@@ -1499,11 +1824,12 @@ evidence.
 ### Handoff Safety Contract
 
 `handoff_safety_contract/v1` is the task-scoped answer to "what will OMH
-actually do, and what stops it doing anything else". It declares seventeen
+actually do, and what stops it doing anything else". It declares twenty-four
 boundaries — workspace, file, network, credential, dispatch, storage content,
 storage retention, merge, confirmation arming, confirmation answered, untrusted
 input, prohibited actions, evidence separation, profile revision, recovery,
-start evidence, and review receipt — plus the six evidence stages #818 names:
+start evidence, review receipt, account authorization, and the six `data_*` rows
+the #801 data boundary contributes — plus the six evidence stages #818 names:
 start, execution, verification, review, CI, and merge.
 
 It is a field group on `coding_delegation/v1`, stored beside `action_gate`, for
@@ -1527,8 +1853,8 @@ delegation are byte-identical.
 
 #### The anti-decoration rule
 
-A contract that lists seventeen boundaries while guarding eleven is worse than
-no contract, because a reader infers a guard behind every line. Every boundary
+A contract that lists twenty-four boundaries while guarding fourteen is worse
+than no contract, because a reader infers a guard behind every line. Every boundary
 entry therefore carries an `enforcement` verdict of `enforced` or
 `declared_not_enforced`, and the validator refuses the two dishonest shapes: an
 `enforced` entry with no `enforced_by` symbol, and a `declared_not_enforced`
@@ -1559,7 +1885,39 @@ network (the same validator pinning `external_action_authority` to
 and secrets rules), confirmation arming (`validate_action_gate_verdict` and the
 at-most-one-armed-ladder check), storage content (the closed record key sets),
 evidence separation (the claim ladder, the journal prerequisites, and the
-external-effect receipts), and profile revision.
+external-effect receipts), profile revision, and the three
+`refused_before_handoff` data-boundary rows (`data_workspace_root_claim`,
+`data_prohibited_data_class`, `data_declared_destination`).
+
+`confirmation answered` is the one this contract most wanted to move and did
+not. #807's receipt store gained a reader, and the refusal behind it is real:
+an unapproved risky action loses every action carrying it and `executor_dispatch`
+from the envelope, and the verdict stops being dispatchable. But that refusal
+needs a run an approval can bind to, and the shipped delegation lane has none —
+`build_approval_receipt` refuses an empty `run_id`, and the payload is built
+before the runtime run exists. A boundary that refuses nothing on the path users
+travel is a declaration, so it is declared, blocked by
+`no_confirmation_answer_intake_mints_a_run_bound_approval`. Labelling it
+`enforced` because the code *could* refuse for some other caller is exactly the
+decoration this contract exists to prevent, and shipping an armed
+`confirm_risky_action` button whose answer nothing can record would have been
+worse than either: the request would have had no route forward at all.
+
+The six `data_*` rows are fed by
+`quality/safety_preflight.py::data_boundary_enforcement_facts` and mapped onto
+the existing `ENFORCEMENT_LEVELS` / `enforced_by` / `blocked_by` triple rather
+than onto a second label set. The facts function's `enforcement_kind` survives
+only inside the statement, where it explains *why* a limit is or is not enforced
+here; `enforced_here` is the whole mapping to `enforced` versus
+`declared_not_enforced`. Three of the rows are host-dependent by nature: a host
+with an OS confinement backend is blocked on #820, and a host without one is
+blocked on not having one, which is why the test compares those three against
+the same facts the contract read instead of pinning a string that would pass on
+macOS and fail on Windows. The facts are declared in
+`HANDOFF_CONTRACT_INPUT_SOURCES` and probed once per process behind
+`data_boundary_facts`, so `produced_offline` still means what it says — local
+stats, no socket, no process, no model — and a delegation build does not
+re-probe the host.
 
 The network boundary is the one that needs its scope read carefully. It governs
 the coding delegation lane, where no network client and no remote-mutation path
@@ -1573,16 +1931,24 @@ quietly widening what the sentence covers.
 
 Declared and not enforced, each naming what must land first: **workspace** —
 `allowed_targets` is derived from the isolation plan but nothing binds a running
-executor to it (#820); **confirmation answered** — the artifact proves a ladder
-was armed, never that consent was given (#807); **storage retention** — run
-artifacts are metadata-only, but no retention window, expiry, or cleanup exists,
-so they persist until the operator deletes them (#835); **recovery** — no
-recovery anchor is attached to risky work (#821); **start evidence** —
-`runtime_start` is recordable but is neither a claim rung nor a journal
-prerequisite, so a run can claim dispatch and execution with no observed start
-(#826); and **review receipt** — a review claim needs an observed review record
-but, unlike CI and merge, no external effect receipt, so a local record saying
-review passed is accepted as the evidence for itself (unfiled).
+executor to it (#820); **confirmation answered** — the gate classifies every
+risky class and names the approval each granted carrier action would need, but
+nothing on the shipped lane can record an answer, so nothing is withheld
+(`no_confirmation_answer_intake_mints_a_run_bound_approval`); **storage retention** — run artifacts are metadata-only,
+but no retention window, expiry, or cleanup exists, so they persist until the
+operator deletes them (#835); **recovery** — no recovery anchor is attached to
+risky work (#821); **start evidence** — `runtime_start` is recordable but is
+neither a claim rung nor a journal prerequisite, so a run can claim dispatch and
+execution with no observed start (#826); **review receipt** — a review claim
+needs an observed review record but, unlike CI and merge, no external effect
+receipt, so a local record saying review passed is accepted as the evidence for
+itself (#844); **account authorization** — the projection names the account,
+the minimum scopes, and a readiness state, but grants, verifies, and refuses
+nothing, because a consent flow owned by a provider's website is not observable
+from here (`host_owned_consent_flow_is_not_observable_by_omh`); and the three
+runtime `data_*` rows — the cross-harness adapter lane builds an OS confinement
+sandbox that no delegation or fanout lane places an executor under (#820 on a
+capable host, and the host's own missing backend elsewhere).
 
 The last two are known asymmetries rather than oversights. Closing either means
 adding a rung or a prerequisite to `runtime/claims.py` and

@@ -218,6 +218,23 @@ goal to Hermes in chat; these commands are the backend surface.
   first without ever removing an option. A later successful dispatch to
   the same executor clears its signal. Only the boolean and label persist
   — never the matched text, and stderr is matched in memory only.
+- **Data boundary.** The #801 limits split three ways and this lane sits on
+  the honest side of the split. `workspace_root_claim`,
+  `prohibited_data_class`, and `declared_destination` are
+  `refused_before_handoff`: omh declines to prepare the artifact at all, so
+  they hold identically on every host and a dispatched unit can never be handed
+  a target, a data class, or a destination that was refused upstream.
+  `runtime_filesystem_confinement` and `runtime_network_confinement` are
+  `host_confinement`, and dispatch does **not** provide them — the
+  cross-harness adapter lane builds an OS confinement sandbox (`sandbox-exec`
+  on macOS, a trusted `bwrap` on Linux) and no dispatched unit runs under it
+  (#820). `executor_honours_declared_targets` is advisory everywhere: a unit's
+  file boundary is frozen in the contract and checked for overlaps at prepare
+  time, but nothing constrains the spawned CLI to it at runtime.
+  `quality/safety_preflight.py::data_boundary_enforcement_facts` reports which
+  of these the current host *could* enforce, and the six rows ride on
+  `handoff_safety_contract/v1` as `data_*` boundaries so the answer is a fact
+  about this machine rather than a promise.
 - **Resume.** Re-running dispatch skips units whose runs already carry an
   observed successful result. `--unit <id>` selects subsets.
 - **Never**: auto-merge, default-on execution, network calls by omh itself,

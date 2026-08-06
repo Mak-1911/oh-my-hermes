@@ -29,15 +29,30 @@ the user named, so `token_store.py` is a filename and not a credential; a
 closed vocabulary already denies every value outside it. Only the body-shape
 bound is universal, because a body is a body in any field.
 
+The data boundary (issue #801) lives here rather than in a module of its own.
+`REQUEST_FIELDS` already carried the owner, the approved scope, the target
+paths, the remote targets, the persisted content refs, and the raw-content
+admission -- most of "which roots, which intent, which destinations, which
+prohibited content" was already a pre-expansion field on this request. A
+parallel data-boundary evaluator would have given the tree two answers to "what
+may this work touch" and only one of them would sit inside
+`safety_profile_revision`, so the boundary is expressed as four more closed
+fields and four more rules on the evaluator that already pins itself.
+
 No model, no network, no new dependency: the whole evaluator is stdlib
-`hashlib` plus `re` over caller-supplied metadata.
+`hashlib` plus `re` over caller-supplied metadata, plus the prohibited-content
+detectors this tree already owns. `data_boundary_enforcement_facts()` is the
+one host-dependent surface, it is not part of the profile, and no rule reads
+it.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 import hashlib
+import os
 import re
+import sys
 from typing import Final
 
 from ..coding.project_governance import ORG_SAFETY_RULE_SOURCE_REASON_CODES
@@ -46,10 +61,12 @@ from ..system.metadata_safety import (
     is_sensitive_metadata_text,
     require_opaque_metadata_ref,
 )
+from ..workflows.domain_intelligence_admission import ensure_safe_opaque_ref_content
 
 SAFETY_PROFILE_SCHEMA_VERSION: Final = "omh_safety_profile/v1"
 SAFETY_PREFLIGHT_VERDICT_SCHEMA_VERSION: Final = "omh_safety_preflight_verdict/v1"
 SAFETY_PREFLIGHT_RECHECK_SCHEMA_VERSION: Final = "omh_safety_preflight_recheck/v1"
+DATA_BOUNDARY_ENFORCEMENT_SCHEMA_VERSION: Final = "omh_data_boundary_enforcement/v1"
 
 SAFETY_PREFLIGHT_CLAIM_BOUNDARY: Final = (
     "Passing safety preflight is permission to prepare this work; it is not compliance, "
@@ -68,9 +85,36 @@ MAX_REMOTE_TARGETS: Final = 8
 MAX_PERSISTED_CONTENT_REFS: Final = 8
 MAX_EVIDENCE_CLAIMS: Final = 8
 MAX_OBSERVED_RECORD_REFS: Final = 8
+MAX_WORKSPACE_ROOTS: Final = 8
+MAX_APPROVED_DESTINATIONS: Final = 8
+MAX_DATA_CLASSES: Final = 8
 
 MESSAGE_CONTEXT_MODES: Final = ("bounded", "full")
 REMOTE_TARGET_KINDS: Final = ("git_remote", "issue_tracker", "package_registry", "public_internet")
+
+# Read, write, and share, the three intents issue #801 names. Kept to three on
+# purpose: an intent nothing can distinguish is a label, not a boundary.
+ACCESS_INTENTS: Final = ("read", "write", "share")
+MAX_ACCESS_INTENTS: Final = len(ACCESS_INTENTS)
+
+# The data classes a prepared coding handoff can actually name today, split by
+# whether the class may cross the handoff boundary at all.
+#
+# Each permitted class is something this lane really produces: the workspace
+# files the request names, the bounded references and digests a prepared
+# artifact stores instead of content, and -- only under the full message
+# context mode -- the user's own request text.
+#
+# Each prohibited class is something the tree already has a detector for, so
+# the vocabulary is a name for an existing refusal rather than a new taxonomy:
+# `metadata_safety.is_sensitive_metadata_text` for credential material, and
+# `domain_intelligence_admission.ensure_safe_opaque_ref_content` for the
+# personal-data (SSN, email) and transcript (role marker, sensitive
+# assignment, bidi/control unicode) shapes. Nothing here invents a regex.
+PERMITTED_DATA_CLASSES: Final = ("workspace_source", "workspace_metadata", "user_request_text")
+PROHIBITED_DATA_CLASSES: Final = ("credential_material", "personal_data", "conversation_transcript")
+DATA_CLASSES: Final = (*PERMITTED_DATA_CLASSES, *PROHIBITED_DATA_CLASSES)
+
 EVIDENCE_CLAIMS: Final = (
     "prepared_not_observed",
     "dispatch_observed",
@@ -88,12 +132,24 @@ REQUEST_FIELDS: Final = (
     "approved_scope",
     "message_context_mode",
     "raw_content_included",
+    "data_classes",
+    "workspace_roots",
     "target_paths",
     "remote_targets",
+    "approved_destinations",
+    "access_intents",
     "persisted_content_refs",
     "evidence_claims",
     "observed_record_refs",
 )
+
+# The boundary half of the request against the claim half. `workspace_roots`
+# and `approved_destinations` are what the approval covers; `target_paths`,
+# `remote_targets`, and `access_intents` are what the prepared action says it
+# will do. Every #801 rule is one comparison between the two halves, which is
+# why they are fields on this request and not a second artifact.
+BOUNDARY_FIELDS: Final = ("workspace_roots", "approved_destinations", "data_classes")
+CLAIM_FIELDS: Final = ("target_paths", "remote_targets", "access_intents")
 
 # The field classes. `opaque_ref` is free-form caller text carrying an
 # identifier, `path` is a source location the caller named, `vocabulary` is a
@@ -109,15 +165,32 @@ FIELD_CLASSES: Final = {
     "approved_scope": FIELD_CLASS_OPAQUE_REF,
     "message_context_mode": FIELD_CLASS_VOCABULARY,
     "raw_content_included": FIELD_CLASS_OPAQUE_REF,
+    # A declared data class and a declared access intent are closed value sets
+    # whose own rules deny every non-member, exactly like `evidence_claims`.
+    # Classing them as opaque refs would run credential shape over the literal
+    # word `credential_material` and deny the request that correctly declares
+    # what it must not carry.
+    "data_classes": FIELD_CLASS_VOCABULARY,
+    "access_intents": FIELD_CLASS_VOCABULARY,
+    # A workspace root is a source location the caller named, same as a target
+    # path: it takes the longer path bound and is exempt from credential shape,
+    # because `src/auth/` is a directory and not a secret.
+    "workspace_roots": FIELD_CLASS_PATH,
     "target_paths": FIELD_CLASS_PATH,
+    # Both destination lists are objects whose nested keys carry their own
+    # classes; the field-level class covers any other string in them.
     "remote_targets": FIELD_CLASS_OPAQUE_REF,
+    "approved_destinations": FIELD_CLASS_OPAQUE_REF,
     "persisted_content_refs": FIELD_CLASS_OPAQUE_REF,
     "evidence_claims": FIELD_CLASS_VOCABULARY,
     "observed_record_refs": FIELD_CLASS_OPAQUE_REF,
 }
-# `remote_targets` entries are objects: the kind is a closed vocabulary, the
-# ref is an opaque metadata ref. Any other key inherits the field's own class.
-REMOTE_TARGET_FIELD_CLASSES: Final = {
+# Destination entries are objects: the kind is a closed vocabulary, the ref is
+# an opaque metadata ref. Any other key inherits the field's own class. The two
+# destination fields share one shape so a declared destination and a claimed
+# one are compared like against like.
+DESTINATION_FIELDS: Final = ("remote_targets", "approved_destinations")
+DESTINATION_FIELD_CLASSES: Final = {
     "kind": FIELD_CLASS_VOCABULARY,
     "ref": FIELD_CLASS_OPAQUE_REF,
 }
@@ -127,6 +200,11 @@ REMOTE_TARGET_FIELD_CLASSES: Final = {
 # membership, so reading either as a possible credential denies ordinary work
 # without adding any protection.
 SECRET_SHAPE_FIELD_CLASSES: Final = (FIELD_CLASS_OPAQUE_REF,)
+# The wider prohibited-content scan reads the same class, and for the same
+# reason. SSN and email shapes over a user-named path would deny
+# `src/api/credentials_loader.py`-class work all over again; over a closed
+# vocabulary they can never fire. Only free-form caller text can carry them.
+PROHIBITED_CONTENT_FIELD_CLASSES: Final = (FIELD_CLASS_OPAQUE_REF,)
 
 RULE_INPUT_METADATA_BOUNDED: Final = "input_metadata_bounded"
 RULE_OWNER_DECLARED: Final = "owner_declared"
@@ -138,6 +216,10 @@ RULE_REMOTE_TARGETS_DECLARED: Final = "remote_targets_declared"
 RULE_PERSISTED_CONTENT_REFERENCED: Final = "persisted_content_referenced"
 RULE_EVIDENCE_CLAIM_BOUNDED: Final = "evidence_claim_bounded"
 RULE_ORG_RULE_SOURCE: Final = "org_rule_source"
+RULE_DATA_CLASSES_PERMITTED: Final = "data_classes_permitted"
+RULE_WORKSPACE_ROOTS_DECLARED: Final = "workspace_roots_declared"
+RULE_DESTINATIONS_APPROVED: Final = "destinations_approved"
+RULE_ACCESS_INTENT_DECLARED: Final = "access_intent_declared"
 
 # (rule id, axis, level, reason codes). Rule ids are stable strings and the
 # order is the denial precedence: the first rule that denies is the
@@ -150,6 +232,18 @@ _RULES: Final = (
         ("request_not_an_object", "unknown_request_field", "body_shaped_request_value"),
     ),
     (RULE_SECRETS_ABSENT, "secrets", "builtin_omh", ("secret_shaped_value",)),
+    (
+        RULE_DATA_CLASSES_PERMITTED,
+        "data_classes",
+        "builtin_omh",
+        (
+            "data_class_not_bounded",
+            "data_class_count_exceeded",
+            "data_class_unknown",
+            "data_class_prohibited",
+            "prohibited_data_class_content",
+        ),
+    ),
     (RULE_OWNER_DECLARED, "owner", "builtin_omh", ("owner_missing", "owner_not_opaque_ref")),
     (
         RULE_APPROVED_SCOPE_DECLARED,
@@ -164,6 +258,17 @@ _RULES: Final = (
         ("raw_context_mode_unknown", "raw_context_undeclared"),
     ),
     (
+        RULE_WORKSPACE_ROOTS_DECLARED,
+        "workspace_roots",
+        "builtin_omh",
+        (
+            "workspace_root_not_bounded",
+            "workspace_root_count_exceeded",
+            "workspace_root_absolute",
+            "workspace_root_escapes_project",
+        ),
+    ),
+    (
         RULE_TARGET_PATHS_BOUNDED,
         "paths",
         "builtin_omh",
@@ -172,6 +277,10 @@ _RULES: Final = (
             "target_path_count_exceeded",
             "target_path_absolute",
             "target_path_escapes_project",
+            # #801 extends this rule rather than adding a second path rule: an
+            # out-of-workspace path is one more way a target leaves the
+            # approved boundary, and one rule id keeps the answer single.
+            "target_path_outside_workspace_roots",
         ),
     ),
     (
@@ -183,6 +292,30 @@ _RULES: Final = (
             "remote_target_count_exceeded",
             "remote_target_kind_unknown",
             "remote_target_ref_missing",
+        ),
+    ),
+    (
+        RULE_DESTINATIONS_APPROVED,
+        "destinations",
+        "builtin_omh",
+        (
+            "approved_destination_not_bounded",
+            "approved_destination_count_exceeded",
+            "approved_destination_kind_unknown",
+            "approved_destination_ref_missing",
+            "destination_not_declared",
+        ),
+    ),
+    (
+        RULE_ACCESS_INTENT_DECLARED,
+        "access_intent",
+        "builtin_omh",
+        (
+            "access_intent_not_bounded",
+            "access_intent_count_exceeded",
+            "access_intent_unknown",
+            "access_intent_undeclared",
+            "access_intent_unapproved",
         ),
     ),
     (
@@ -227,10 +360,30 @@ _CORRECTIONS: Final = {
     "approved_scope_not_opaque_ref": "Use a short opaque approved-scope reference.",
     "raw_context_mode_unknown": f"Set message_context_mode to one of {', '.join(MESSAGE_CONTEXT_MODES)}.",
     "raw_context_undeclared": "Declare raw_content_included as a boolean, and declare it true only under the full message context mode.",
+    "data_class_not_bounded": "Pass data_classes as a list of declared data class names.",
+    "data_class_count_exceeded": f"Reduce data_classes to at most {MAX_DATA_CLASSES} entries.",
+    "data_class_unknown": f"Declare a data class from {', '.join(DATA_CLASSES)}.",
+    "data_class_prohibited": f"Remove the prohibited data class; {', '.join(PROHIBITED_DATA_CLASSES)} may not cross a prepared handoff.",
+    "prohibited_data_class_content": "Remove the prohibited-class content from the metadata value and pass an opaque reference instead.",
+    "workspace_root_not_bounded": f"Pass workspace roots as bounded strings of at most {MAX_PATH_CHARS} characters.",
+    "workspace_root_count_exceeded": f"Reduce workspace_roots to at most {MAX_WORKSPACE_ROOTS} entries.",
+    "workspace_root_absolute": "Use a project-relative workspace root instead of an absolute or home-anchored path.",
+    "workspace_root_escapes_project": "Remove the parent-directory segment so the workspace root stays inside the project.",
     "target_path_not_bounded": f"Pass target paths as bounded strings of at most {MAX_PATH_CHARS} characters.",
     "target_path_count_exceeded": f"Reduce target_paths to at most {MAX_TARGET_PATHS} entries.",
     "target_path_absolute": "Use a project-relative target path instead of an absolute or home-anchored path.",
     "target_path_escapes_project": "Remove the parent-directory segment so the path stays inside the project.",
+    "target_path_outside_workspace_roots": "Move the target inside a declared workspace root, or widen workspace_roots and get that approved.",
+    "approved_destination_not_bounded": "Pass each approved destination as an object with exactly a kind and a ref.",
+    "approved_destination_count_exceeded": f"Reduce approved_destinations to at most {MAX_APPROVED_DESTINATIONS} entries.",
+    "approved_destination_kind_unknown": f"Declare an approved destination kind from {', '.join(REMOTE_TARGET_KINDS)}.",
+    "approved_destination_ref_missing": "Give the approved destination a short opaque reference.",
+    "destination_not_declared": "Declare this destination in approved_destinations before the work may reach it.",
+    "access_intent_not_bounded": "Pass access_intents as a list of declared access intent names.",
+    "access_intent_count_exceeded": f"Reduce access_intents to at most {MAX_ACCESS_INTENTS} entries.",
+    "access_intent_unknown": f"Declare an access intent from {', '.join(ACCESS_INTENTS)}.",
+    "access_intent_undeclared": "Declare the share intent before naming a remote target, or drop the remote target.",
+    "access_intent_unapproved": "Declare the approved destination the share intent covers, or drop the share intent.",
     "remote_target_not_bounded": "Pass each remote target as an object with exactly a kind and a ref.",
     "remote_target_count_exceeded": f"Reduce remote_targets to at most {MAX_REMOTE_TARGETS} entries.",
     "remote_target_kind_unknown": f"Declare a remote target kind from {', '.join(REMOTE_TARGET_KINDS)}.",
@@ -257,6 +410,86 @@ _CORRECTIONS: Final = {
 }
 
 
+# How a data-boundary limit can be enforced at all.
+#
+# `refused_before_handoff` is omh refusing to prepare the artifact, so it holds
+# on every host and needs nothing from the executor. `host_confinement` is an
+# OS-level confinement the host either can or cannot provide. `advisory` is a
+# declaration the executor is trusted to honour and nothing checks. The three
+# are deliberately not interchangeable: only the middle one is host-dependent,
+# and that is the distinction issue #801 asks OMH to surface.
+DATA_BOUNDARY_ENFORCEMENT_KINDS: Final = ("refused_before_handoff", "host_confinement", "advisory")
+
+# (limit id, enforcement kind, enforcer symbols, blocker).
+#
+# The symbols are dotted import paths in `omh.coding.action_gate`'s
+# `enforced_by` format, so a boundary table can consume them directly instead
+# of restating them. A limit is only ever reported as enforced on a host where
+# something really refuses; see `data_boundary_enforcement_facts`.
+DATA_BOUNDARY_LIMITS: Final = (
+    (
+        "workspace_root_claim",
+        "refused_before_handoff",
+        (
+            "omh.quality.safety_preflight.RULE_TARGET_PATHS_BOUNDED",
+            "omh.quality.safety_preflight.evaluate_safety_preflight",
+        ),
+        "",
+    ),
+    (
+        "prohibited_data_class",
+        "refused_before_handoff",
+        (
+            "omh.quality.safety_preflight.RULE_DATA_CLASSES_PERMITTED",
+            "omh.system.metadata_safety.is_sensitive_metadata_text",
+            "omh.workflows.domain_intelligence_admission.ensure_safe_opaque_ref_content",
+        ),
+        "",
+    ),
+    (
+        "declared_destination",
+        "refused_before_handoff",
+        (
+            "omh.quality.safety_preflight.RULE_DESTINATIONS_APPROVED",
+            "omh.quality.safety_preflight.RULE_ACCESS_INTENT_DECLARED",
+        ),
+        "",
+    ),
+    (
+        "runtime_filesystem_confinement",
+        "host_confinement",
+        (
+            "omh.quality.cross_harness_adapter_sandbox.sandbox_command",
+            "omh.quality.cross_harness_adapter_sandbox.read_roots_are_safe",
+        ),
+        "#820",
+    ),
+    (
+        "runtime_network_confinement",
+        "host_confinement",
+        ("omh.quality.cross_harness_adapter_sandbox.sandbox_command",),
+        "#820",
+    ),
+    (
+        "executor_honours_declared_targets",
+        "advisory",
+        (),
+        "#820",
+    ),
+)
+DATA_BOUNDARY_LIMIT_NAMES: Final = tuple(entry[0] for entry in DATA_BOUNDARY_LIMITS)
+
+# The confinement tool each platform would use, and the reason a platform with
+# neither can never enforce a runtime limit no matter which issue lands.
+_MACOS_CONFINEMENT_TOOL: Final = "/usr/bin/sandbox-exec"
+_NO_HOST_BACKEND_REASON: Final = "no_os_confinement_backend_on_this_platform"
+# Every host_confinement limit is blocked on the same issue today, because no
+# delegation or fanout lane places an executor under the sandbox the adapter
+# lane already builds. A host that *could* confine still reports the limit as
+# unenforced; it reports a different blocker from a host that could not.
+_HOST_CONFINEMENT_BLOCKER: Final = "#820"
+
+
 def safety_rule_profile() -> dict[str, object]:
     """The full rule profile: the content the safety-profile revision pins."""
     return {
@@ -275,19 +508,41 @@ def safety_rule_profile() -> dict[str, object]:
             "max_persisted_content_refs": MAX_PERSISTED_CONTENT_REFS,
             "max_evidence_claims": MAX_EVIDENCE_CLAIMS,
             "max_observed_record_refs": MAX_OBSERVED_RECORD_REFS,
+            "max_workspace_roots": MAX_WORKSPACE_ROOTS,
+            "max_approved_destinations": MAX_APPROVED_DESTINATIONS,
+            "max_access_intents": MAX_ACCESS_INTENTS,
+            "max_data_classes": MAX_DATA_CLASSES,
         },
         "vocabularies": {
             "request_fields": list(REQUEST_FIELDS),
             "message_context_modes": list(MESSAGE_CONTEXT_MODES),
             "remote_target_kinds": list(REMOTE_TARGET_KINDS),
             "evidence_claims": list(EVIDENCE_CLAIMS),
+            "access_intents": list(ACCESS_INTENTS),
+            "data_classes": list(DATA_CLASSES),
+            "permitted_data_classes": list(PERMITTED_DATA_CLASSES),
+            "prohibited_data_classes": list(PROHIBITED_DATA_CLASSES),
+            "data_boundary_enforcement_kinds": list(DATA_BOUNDARY_ENFORCEMENT_KINDS),
         },
         # Pinned by the digest on purpose: which rule reads which field is part
         # of the profile a prepared artifact was cleared under, not an
         # implementation detail a later revision can change silently.
         "field_classes": dict(FIELD_CLASSES),
-        "remote_target_field_classes": dict(REMOTE_TARGET_FIELD_CLASSES),
+        "destination_fields": list(DESTINATION_FIELDS),
+        "destination_field_classes": dict(DESTINATION_FIELD_CLASSES),
         "secret_shape_field_classes": list(SECRET_SHAPE_FIELD_CLASSES),
+        "prohibited_content_field_classes": list(PROHIBITED_CONTENT_FIELD_CLASSES),
+        "boundary_fields": list(BOUNDARY_FIELDS),
+        "claim_fields": list(CLAIM_FIELDS),
+        # Which limits exist and how each one *can* be enforced is profile
+        # content. Whether a given host actually enforces one is not: a
+        # host-dependent digest would read as drift on every second machine and
+        # make `recheck_safety_preflight_revision` useless. The per-host answer
+        # lives in `data_boundary_enforcement_facts()` and never reaches here.
+        "data_boundary_limits": [
+            {"limit": limit, "enforcement_kind": kind, "enforced_by": list(symbols), "blocked_by": blocker}
+            for limit, kind, symbols, blocker in DATA_BOUNDARY_LIMITS
+        ],
         "claim_boundary": SAFETY_PREFLIGHT_CLAIM_BOUNDARY,
     }
 
@@ -367,6 +622,105 @@ def recheck_safety_preflight_revision(carried: object) -> dict[str, object]:
     }
 
 
+def data_boundary_enforcement_facts() -> dict[str, object]:
+    """Which data-boundary limits *this host* can enforce, as facts not prose.
+
+    Issue #801 asks OMH to label which limits the selected host can enforce.
+    This is the fact surface that labelling reads: for every limit in
+    `DATA_BOUNDARY_LIMITS` it reports whether the host is capable of enforcing
+    it at all, whether anything refuses today, the enforcing symbols when
+    something does, and the blocker when nothing does. `enforced_by` is empty
+    exactly when `enforced_here` is false, and `blocked_by` is non-empty
+    exactly then, which is the shape `action_gate`'s boundary validator already
+    requires -- a caller cannot build a decorated entry out of this.
+
+    Three genuine differences, and no others:
+
+    * `refused_before_handoff` limits hold identically on every host, because
+      the refusal is OMH declining to prepare the artifact. No executor and no
+      OS feature is involved, so there is nothing for a host to lack.
+    * `host_confinement` limits need an OS-level confinement backend. macOS has
+      `sandbox-exec` in the base system; Linux needs a root-owned, non
+      group/other-writable `bwrap` actually present on disk; every other
+      platform has neither. That probe is real: the Linux half asks the same
+      trust snapshot the sandbox lane spawns under, so a host that would be
+      refused there is not reported as capable here.
+    * `advisory` limits are enforced nowhere, on any host, and report the same
+      blocker on every host: no host fact bears on them, so a missing
+      confinement backend is not an explanation for one.
+
+    Today every `host_confinement` limit is still unenforced even where the
+    host is capable, because no delegation or fanout lane places an executor
+    under the sandbox the cross-harness adapter lane builds (#820). The
+    capability flag is what separates "the host could, once #820 lands" from
+    "this host never could", and that separation is the deliverable.
+
+    Deliberately not part of `safety_rule_profile()`: the answer differs per
+    machine, and a host-dependent digest would read as profile drift on every
+    second host. No rule reads this, and no verdict changes because of it.
+    """
+    backend, capable, unavailable_reason = _host_confinement_backend()
+    limits: list[dict[str, object]] = []
+    for limit, kind, symbols, blocker in DATA_BOUNDARY_LIMITS:
+        host_can_enforce = kind == "refused_before_handoff" or (kind == "host_confinement" and capable)
+        enforced_here = kind == "refused_before_handoff"
+        # A missing confinement backend explains a `host_confinement` limit and
+        # nothing else. Substituting it wherever `host_can_enforce` was false
+        # made the `advisory` row report an OS-confinement blocker for a limit
+        # no OS feature could ever enforce, and turned a host-independent answer
+        # into a host-dependent one.
+        if enforced_here:
+            blocked_by = ""
+        elif kind == "host_confinement" and not capable:
+            blocked_by = unavailable_reason or blocker
+        else:
+            blocked_by = blocker
+        limits.append(
+            {
+                "limit": limit,
+                "enforcement_kind": kind,
+                "host_can_enforce": host_can_enforce,
+                "enforced_here": enforced_here,
+                "enforced_by": list(symbols) if enforced_here else [],
+                "blocked_by": blocked_by,
+            }
+        )
+    return {
+        "schema_version": DATA_BOUNDARY_ENFORCEMENT_SCHEMA_VERSION,
+        "host_confinement_backend": backend,
+        "host_confinement_available": capable,
+        "host_confinement_unavailable_reason": unavailable_reason,
+        "limits": limits,
+        "claim_boundary": SAFETY_PREFLIGHT_CLAIM_BOUNDARY,
+    }
+
+
+def _host_confinement_backend() -> tuple[str, bool, str]:
+    """(backend name, usable here, reason it is not) -- probed, never assumed."""
+    if sys.platform == "darwin":
+        present = os.path.exists(_MACOS_CONFINEMENT_TOOL)
+        return "sandbox-exec", present, "" if present else "sandbox_exec_absent"
+    if sys.platform.startswith("linux"):
+        present = _trusted_bwrap_present()
+        return "bwrap", present, "" if present else "bwrap_absent_or_untrusted"
+    return "unsupported", False, _NO_HOST_BACKEND_REASON
+
+
+def _trusted_bwrap_present() -> bool:
+    """The sandbox lane's own trust snapshot, or False when that lane is absent.
+
+    Bound lazily and by relative import for the reason `coding_delegation`
+    binds the evaluator lazily: an install without the cross-harness lane must
+    still answer this question, and the honest answer there is "no confinement
+    backend I can vouch for". Nothing here spawns a process.
+    """
+    try:
+        from .cross_harness_adapter_backend import trusted_bwrap
+    except ImportError:
+        return False
+    return trusted_bwrap() is not None
+
+
 # (rule id, field, reason code, level)
 _Denial = tuple[str, str, str, str]
 
@@ -411,11 +765,15 @@ def _builtin_denial(request: object) -> _Denial | None:
     if admission is not None:
         return admission
     for check in (
+        _data_classes_denial,
         _owner_denial,
         _approved_scope_denial,
         _raw_context_denial,
+        _workspace_roots_denial,
         _target_paths_denial,
         _remote_targets_denial,
+        _destinations_denial,
+        _access_intents_denial,
         _persisted_content_denial,
         _evidence_claims_denial,
     ):
@@ -429,7 +787,13 @@ def _admission_denial(request: Mapping[str, object]) -> _Denial | None:
     """Refuse credentials and body-shaped values before any rule reads them.
 
     Credential shape is read on the opaque-ref class only. The body-shape bound
-    is read on every string, with the path class carrying the longer bound.
+    is read on every string, with the path class carrying the longer bound. The
+    prohibited-class scan is last of the three so the two older reason codes
+    keep naming the same values they always did, and it reuses the detectors
+    `domain_intelligence_admission` already owns rather than adding a pattern:
+    an SSN, an email address, a role marker, a `password=`-shaped assignment,
+    or a bidi/control character in an opaque ref is prohibited-class content
+    riding in as metadata.
     """
     for field, text, field_class in _bounded_strings(request):
         if field_class in SECRET_SHAPE_FIELD_CLASSES and is_sensitive_metadata_text(text):
@@ -437,7 +801,17 @@ def _admission_denial(request: Mapping[str, object]) -> _Denial | None:
         limit = MAX_PATH_CHARS if field_class == FIELD_CLASS_PATH else MAX_FIELD_CHARS
         if is_body_shaped_metadata_text(text, limit=limit):
             return (RULE_INPUT_METADATA_BOUNDED, field, "body_shaped_request_value", "builtin_omh")
+        if field_class in PROHIBITED_CONTENT_FIELD_CLASSES and _carries_prohibited_class_content(text):
+            return (RULE_DATA_CLASSES_PERMITTED, field, "prohibited_data_class_content", "builtin_omh")
     return None
+
+
+def _carries_prohibited_class_content(text: str) -> bool:
+    try:
+        ensure_safe_opaque_ref_content(text, "request_field")
+    except ValueError:
+        return True
+    return False
 
 
 def _bounded_strings(request: Mapping[str, object]) -> list[tuple[str, str, str]]:
@@ -457,8 +831,8 @@ def _bounded_strings(request: Mapping[str, object]) -> list[tuple[str, str, str]
                         (
                             f"{field}[{index}].{key}",
                             entry,
-                            REMOTE_TARGET_FIELD_CLASSES.get(str(key), field_class)
-                            if field == "remote_targets"
+                            DESTINATION_FIELD_CLASSES.get(str(key), field_class)
+                            if field in DESTINATION_FIELDS
                             else field_class,
                         )
                         for key, entry in sorted(item.items())
@@ -509,37 +883,177 @@ def _raw_context_denial(request: Mapping[str, object]) -> _Denial | None:
     return None
 
 
+def _data_classes_denial(request: Mapping[str, object]) -> _Denial | None:
+    """The declared half of the #801 prohibited-content rule.
+
+    A request states which data classes the work will touch. Naming a
+    prohibited class is refused here, before a handoff exists; carrying the
+    content of one is refused in the admission pass above. The two halves share
+    a rule id because they are one boundary: what may cross a prepared handoff.
+    """
+    classes = request.get("data_classes", ())
+    if not _is_str_sequence(classes):
+        return (RULE_DATA_CLASSES_PERMITTED, "data_classes", "data_class_not_bounded", "builtin_omh")
+    if len(classes) > MAX_DATA_CLASSES:
+        return (RULE_DATA_CLASSES_PERMITTED, "data_classes", "data_class_count_exceeded", "builtin_omh")
+    for index, item in enumerate(classes):
+        field = f"data_classes[{index}]"
+        if item not in DATA_CLASSES:
+            return (RULE_DATA_CLASSES_PERMITTED, field, "data_class_unknown", "builtin_omh")
+        if item in PROHIBITED_DATA_CLASSES:
+            return (RULE_DATA_CLASSES_PERMITTED, field, "data_class_prohibited", "builtin_omh")
+    return None
+
+
+def _workspace_roots_denial(request: Mapping[str, object]) -> _Denial | None:
+    """The declared boundary must itself be inside the project before it bounds anything."""
+    roots = request.get("workspace_roots", ())
+    if not _is_str_sequence(roots):
+        return (RULE_WORKSPACE_ROOTS_DECLARED, "workspace_roots", "workspace_root_not_bounded", "builtin_omh")
+    if len(roots) > MAX_WORKSPACE_ROOTS:
+        return (RULE_WORKSPACE_ROOTS_DECLARED, "workspace_roots", "workspace_root_count_exceeded", "builtin_omh")
+    for index, item in enumerate(roots):
+        field = f"workspace_roots[{index}]"
+        if not item.strip():
+            return (RULE_WORKSPACE_ROOTS_DECLARED, field, "workspace_root_not_bounded", "builtin_omh")
+        if _ABSOLUTE_PATH_RE.match(item):
+            return (RULE_WORKSPACE_ROOTS_DECLARED, field, "workspace_root_absolute", "builtin_omh")
+        if ".." in _path_parts(item):
+            return (RULE_WORKSPACE_ROOTS_DECLARED, field, "workspace_root_escapes_project", "builtin_omh")
+    return None
+
+
 def _target_paths_denial(request: Mapping[str, object]) -> _Denial | None:
+    """Every target is bounded, project-relative, contained -- and inside the approved roots.
+
+    The containment check runs last so an absolute or escaping path keeps
+    naming the reason code it always named; only a path that is already
+    project-relative can be outside a declared root. Declaring no root leaves
+    the project itself as the boundary, which is what the absolute and escape
+    checks above already enforce, so an undeclared boundary narrows nothing and
+    widens nothing.
+    """
     paths = request.get("target_paths", ())
     if not _is_str_sequence(paths):
         return (RULE_TARGET_PATHS_BOUNDED, "target_paths", "target_path_not_bounded", "builtin_omh")
     if len(paths) > MAX_TARGET_PATHS:
         return (RULE_TARGET_PATHS_BOUNDED, "target_paths", "target_path_count_exceeded", "builtin_omh")
+    roots = request.get("workspace_roots", ())
+    root_parts = [_path_parts(root) for root in roots] if _is_str_sequence(roots) else []
     for index, item in enumerate(paths):
         field = f"target_paths[{index}]"
         if not item.strip():
             return (RULE_TARGET_PATHS_BOUNDED, field, "target_path_not_bounded", "builtin_omh")
         if _ABSOLUTE_PATH_RE.match(item):
             return (RULE_TARGET_PATHS_BOUNDED, field, "target_path_absolute", "builtin_omh")
-        if ".." in item.replace("\\", "/").split("/"):
+        if ".." in _path_parts(item):
             return (RULE_TARGET_PATHS_BOUNDED, field, "target_path_escapes_project", "builtin_omh")
+        if root_parts and not _within_roots(item, root_parts):
+            return (RULE_TARGET_PATHS_BOUNDED, field, "target_path_outside_workspace_roots", "builtin_omh")
     return None
 
 
 def _remote_targets_denial(request: Mapping[str, object]) -> _Denial | None:
-    remotes = request.get("remote_targets", ())
-    if not _is_sequence(remotes):
-        return (RULE_REMOTE_TARGETS_DECLARED, "remote_targets", "remote_target_not_bounded", "builtin_omh")
-    if len(remotes) > MAX_REMOTE_TARGETS:
-        return (RULE_REMOTE_TARGETS_DECLARED, "remote_targets", "remote_target_count_exceeded", "builtin_omh")
-    for index, item in enumerate(remotes):
-        field = f"remote_targets[{index}]"
+    return _destination_shape_denial(
+        request,
+        field="remote_targets",
+        rule_id=RULE_REMOTE_TARGETS_DECLARED,
+        limit=MAX_REMOTE_TARGETS,
+        not_bounded="remote_target_not_bounded",
+        count_exceeded="remote_target_count_exceeded",
+        kind_unknown="remote_target_kind_unknown",
+        ref_missing="remote_target_ref_missing",
+    )
+
+
+def _destinations_denial(request: Mapping[str, object]) -> _Denial | None:
+    """A prepared action may only reach a destination the boundary declared.
+
+    Fail-closed by construction: an empty `approved_destinations` approves
+    nothing, so naming any remote target without declaring it is a denial
+    rather than a default-allow. The comparison is on the whole (kind, ref)
+    pair -- approving `git_remote` in the abstract would approve every git
+    remote, which is not a boundary.
+    """
+    shape = _destination_shape_denial(
+        request,
+        field="approved_destinations",
+        rule_id=RULE_DESTINATIONS_APPROVED,
+        limit=MAX_APPROVED_DESTINATIONS,
+        not_bounded="approved_destination_not_bounded",
+        count_exceeded="approved_destination_count_exceeded",
+        kind_unknown="approved_destination_kind_unknown",
+        ref_missing="approved_destination_ref_missing",
+    )
+    if shape is not None:
+        return shape
+    approved = {
+        (str(item["kind"]), str(item["ref"]))
+        for item in request.get("approved_destinations", ())
+        if isinstance(item, Mapping) and "kind" in item and "ref" in item
+    }
+    for index, item in enumerate(request.get("remote_targets", ())):
+        if not isinstance(item, Mapping):
+            continue
+        if (str(item.get("kind")), str(item.get("ref"))) not in approved:
+            return (RULE_DESTINATIONS_APPROVED, f"remote_targets[{index}]", "destination_not_declared", "builtin_omh")
+    return None
+
+
+def _destination_shape_denial(
+    request: Mapping[str, object],
+    *,
+    field: str,
+    rule_id: str,
+    limit: int,
+    not_bounded: str,
+    count_exceeded: str,
+    kind_unknown: str,
+    ref_missing: str,
+) -> _Denial | None:
+    """One shape check for both destination lists, so they cannot drift apart."""
+    entries = request.get(field, ())
+    if not _is_sequence(entries):
+        return (rule_id, field, not_bounded, "builtin_omh")
+    if len(entries) > limit:
+        return (rule_id, field, count_exceeded, "builtin_omh")
+    for index, item in enumerate(entries):
+        entry_field = f"{field}[{index}]"
         if not isinstance(item, Mapping) or set(item) != {"kind", "ref"}:
-            return (RULE_REMOTE_TARGETS_DECLARED, field, "remote_target_not_bounded", "builtin_omh")
+            return (rule_id, entry_field, not_bounded, "builtin_omh")
         if item["kind"] not in REMOTE_TARGET_KINDS:
-            return (RULE_REMOTE_TARGETS_DECLARED, f"{field}.kind", "remote_target_kind_unknown", "builtin_omh")
-        if not _is_opaque_ref(item["ref"], field=f"{field}.ref"):
-            return (RULE_REMOTE_TARGETS_DECLARED, f"{field}.ref", "remote_target_ref_missing", "builtin_omh")
+            return (rule_id, f"{entry_field}.kind", kind_unknown, "builtin_omh")
+        if not _is_opaque_ref(item["ref"], field=f"{entry_field}.ref"):
+            return (rule_id, f"{entry_field}.ref", ref_missing, "builtin_omh")
+    return None
+
+
+def _access_intents_denial(request: Mapping[str, object]) -> _Denial | None:
+    """Read, write, and share, checked against what the boundary actually approves.
+
+    Only the share axis carries a denial, and that is deliberate. `read` and
+    `write` stay inside the workspace, where `workspace_roots` and the path
+    rules above are the whole boundary, so a separate intent check there would
+    refuse nothing the path rules do not already refuse. Sharing is the axis
+    that leaves the workspace, so it is checked in both directions: reaching a
+    destination without declaring the intent, and declaring the intent with no
+    destination the boundary approved.
+    """
+    intents = request.get("access_intents", ())
+    if not _is_str_sequence(intents):
+        return (RULE_ACCESS_INTENT_DECLARED, "access_intents", "access_intent_not_bounded", "builtin_omh")
+    if len(intents) > MAX_ACCESS_INTENTS:
+        return (RULE_ACCESS_INTENT_DECLARED, "access_intents", "access_intent_count_exceeded", "builtin_omh")
+    for index, item in enumerate(intents):
+        if item not in ACCESS_INTENTS:
+            return (RULE_ACCESS_INTENT_DECLARED, f"access_intents[{index}]", "access_intent_unknown", "builtin_omh")
+    # Both destination lists are already shape-valid here: `_remote_targets_denial`
+    # and `_destinations_denial` run before this check.
+    shares = "share" in intents
+    if request.get("remote_targets", ()) and not shares:
+        return (RULE_ACCESS_INTENT_DECLARED, "access_intents", "access_intent_undeclared", "builtin_omh")
+    if shares and not request.get("approved_destinations", ()):
+        return (RULE_ACCESS_INTENT_DECLARED, "access_intents", "access_intent_unapproved", "builtin_omh")
     return None
 
 
@@ -651,6 +1165,26 @@ def _is_opaque_ref(value: object, *, field: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _path_parts(value: str) -> tuple[str, ...]:
+    """A declared path as comparable segments, on every host.
+
+    Both separators are folded and empty and `.` segments dropped, so
+    `src/quality`, `src\\quality`, and `./src/quality/` are the same boundary.
+    The comparison stays case-sensitive on purpose: a case-insensitive answer
+    would depend on which machine evaluated the request, and a verdict that
+    differs by host is not a verdict.
+    """
+    return tuple(part for part in value.replace("\\", "/").split("/") if part not in ("", "."))
+
+
+def _within_roots(path: str, root_parts: Sequence[tuple[str, ...]]) -> bool:
+    # A root that normalises to no segments is the project root, and an empty
+    # prefix matches every path, so declaring `.` is the same boundary as
+    # declaring none rather than a boundary nothing can satisfy.
+    parts = _path_parts(path)
+    return any(parts[: len(root)] == root for root in root_parts)
 
 
 def _is_sequence(value: object) -> bool:

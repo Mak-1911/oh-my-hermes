@@ -49,6 +49,7 @@ from omh.coding.action_gate import (  # noqa: E402
 )
 from omh.coding.coding_delegation import build_coding_delegation_payload  # noqa: E402
 from omh.commands import setup as setup_command  # noqa: E402
+from omh.quality.safety_preflight import data_boundary_enforcement_facts  # noqa: E402
 from omh.runtime.claims import (  # noqa: E402
     RUNTIME_CLAIM_LADDER,
     Claim,
@@ -79,10 +80,19 @@ _ALLOW_VERDICT = {
 # The boundaries that name a real enforcing symbol today. Hardcoded on purpose:
 # it has to be edited by hand, in the same commit, whenever a boundary gains or
 # loses an enforcer, so neither direction of drift can land quietly.
+#
+# `confirmation_answered` is deliberately *not* here. The gate really does
+# refuse a risky action with no live approval, but only for a caller that holds
+# a run an approval could bind to, and the shipped delegation lane has none —
+# see `action_gate.RISK_CONSENT_BLOCKER`. A boundary that refuses nothing on the
+# path users travel is a declaration, so it is declared.
 _ENFORCED_BOUNDARIES = frozenset(
     {
         "confirmation_arming",
         "credential",
+        "data_declared_destination",
+        "data_prohibited_data_class",
+        "data_workspace_root_claim",
         "dispatch",
         "evidence_separation",
         "file",
@@ -95,16 +105,40 @@ _ENFORCED_BOUNDARIES = frozenset(
     }
 )
 # The boundaries the contract declares but does not guard, each with the issue
-# that must land before it can move. `unfiled` means the gap is real and has no
-# issue yet; it is still stated rather than implied away.
+# that must land before it can move. A blocker is not always an issue number:
+# `account_authorization` names the reason instead, because nothing that could
+# be filed would close it — OMH cannot observe a consent flow owned by someone
+# else's website.
 _DECLARED_NOT_ENFORCED = {
-    "confirmation_answered": "#807",
+    "account_authorization": "host_owned_consent_flow_is_not_observable_by_omh",
+    "confirmation_answered": "no_confirmation_answer_intake_mints_a_run_bound_approval",
     "recovery": "#821",
     "review_receipt": "#844",
     "start_evidence": "#826",
     "storage_retention": "#835",
     "workspace": "#820",
 }
+# The three data-boundary rows whose blocker is a *host* fact rather than a
+# repository fact: a host with an OS confinement backend is blocked on #820,
+# and a host without one is blocked on not having one. Pinning either string
+# here would make this test pass on macOS and fail on Windows, so the expected
+# value is read from the same facts the contract read.
+_HOST_DEPENDENT_BOUNDARIES = frozenset(
+    {
+        "data_executor_honours_declared_targets",
+        "data_runtime_filesystem_confinement",
+        "data_runtime_network_confinement",
+    }
+)
+
+
+def _host_dependent_blockers() -> dict[str, str]:
+    facts = data_boundary_enforcement_facts()
+    return {
+        f"data_{limit['limit']}": str(limit["blocked_by"])
+        for limit in facts["limits"]  # type: ignore[index]
+        if f"data_{limit['limit']}" in _HOST_DEPENDENT_BOUNDARIES
+    }
 
 
 def _envelope(**overrides: object) -> dict[str, object]:
@@ -291,7 +325,7 @@ class AntiDecorationTests(unittest.TestCase):
             for entry in contract["boundaries"]
             if entry["enforcement"] == "declared_not_enforced"
         }
-        self.assertEqual(declared, _DECLARED_NOT_ENFORCED)
+        self.assertEqual(declared, {**_DECLARED_NOT_ENFORCED, **_host_dependent_blockers()})
         self.assertEqual(set(SAFETY_BOUNDARY_NAMES), enforced | set(declared))
 
     def test_every_cited_enforcer_resolves_to_a_real_symbol(self) -> None:
@@ -347,7 +381,7 @@ class AntiDecorationTests(unittest.TestCase):
     def test_unenforced_boundaries_state_the_gap_in_words(self) -> None:
         contract = _contract()
         self.assertIn("nothing binds a running executor", _boundary(contract, "workspace")["statement"])
-        self.assertIn("never be read as an approval", _boundary(contract, "confirmation_answered")["statement"])
+        self.assertIn("not a state OMH can observe", _boundary(contract, "account_authorization")["statement"])
         self.assertIn("persist until the operator deletes them", _boundary(contract, "storage_retention")["statement"])
         self.assertIn("no external effect", _boundary(contract, "review_receipt")["statement"])
         self.assertIn("no observed start", _boundary(contract, "start_evidence")["statement"])

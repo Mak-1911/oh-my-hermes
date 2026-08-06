@@ -23,6 +23,14 @@ from ..external_effect_receipts import (
     read_external_effect_receipts,
     validate_external_effect_receipt_store,
 )
+from ..workflows.approval_receipts import (
+    APPROVAL_TTL_SECONDS,
+    CLAIM_BOUNDARY as APPROVAL_CLAIM_BOUNDARY,
+    compact_approval_receipt,
+    read_approval_mint_failures,
+    read_approval_receipts,
+    validate_approval_receipt_store,
+)
 from ..goal_ledger import RUNTIME_COMPLETION_ACTIONS
 from ..installer import OmhError
 from ..runtime.artifacts import (
@@ -930,6 +938,90 @@ def _render_receipts_text(payload: dict) -> str:
     return "\n".join(line for line in lines if line)
 
 
+def cmd_runtime_approvals(args: argparse.Namespace) -> int:
+    """Read recorded approval receipts. There is deliberately no grant command.
+
+    An approval exists because an operator answered a confirmation. A CLI flag
+    that minted one would make this store exactly the kind of self-asserted
+    evidence it exists to replace -- whoever typed the flag would be granting
+    themselves the permission the confirmation was supposed to ask about.
+
+    Freshness is computed here, at read time, and never read off the record: the
+    store has no retention or cleanup, so an expired approval stays on disk
+    forever and only the reader can say whether it still means anything.
+    """
+    paths = _paths(args)
+    run_id = getattr(args, "run_id", None)
+    limit = _bounded_limit(args)
+    store_path = paths.runtime_approval_receipts_path
+    receipts = [
+        compact_approval_receipt(receipt)
+        for receipt in read_approval_receipts(paths, run_id=run_id, limit=limit)
+    ]
+    # Unscoped on purpose: this is the one surface that reports on the whole
+    # store, so a fault on a receipt belonging to another run is still visible
+    # here rather than nowhere.
+    store = validate_approval_receipt_store(store_path)
+    mint_failures = read_approval_mint_failures(store_path)
+    payload: dict[str, object] = {
+        "schema_version": "runtime_approval_receipts_view/v1",
+        "run_id": run_id or "",
+        "store_path": str(store_path),
+        "receipts": receipts,
+        "store_ok": store["ok"],
+        "store_errors": store["errors"],
+        "receipt_count": store["receipt_count"],
+        # An answered confirmation whose mint failed has no receipt at all,
+        # which is exactly what this view exists to make visible, so failures
+        # are never scoped away by --run.
+        "mint_failures": _bounded_tail(mint_failures, limit),
+        "mint_failure_count": len(mint_failures),
+        "expires_after_seconds": APPROVAL_TTL_SECONDS,
+        "claim_boundary": APPROVAL_CLAIM_BOUNDARY,
+    }
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        print(_render_approvals_text(payload))
+    return 0
+
+
+def _approval_row_line(row: dict) -> str:
+    # `or "unknown"` rather than a `.get` default: a closed-vocabulary field
+    # renders empty when the stored value is not in its vocabulary, and an empty
+    # cell would read as a dangling em-dash rather than as an unreadable record.
+    freshness = "expired" if row.get("expired") else "live"
+    return (
+        f"  {row.get('decision') or 'unknown'} — {row.get('approved_action') or 'unknown'} — "
+        f"{row.get('scope_class') or 'unknown'} {row.get('scope_ref') or 'unnamed'} — "
+        f"owner {row.get('owner') or 'unknown'} — {freshness} — {row.get('receipt_id', '')}"
+    )
+
+
+def _render_approvals_text(payload: dict) -> str:
+    receipts = [row for row in payload.get("receipts", []) or [] if isinstance(row, dict)]
+    lines = [f"Approval receipts ({len(receipts)} shown)"]
+    if not receipts:
+        lines.append("  No recorded approvals.")
+    lines.extend(_approval_row_line(row) for row in receipts)
+    lines.append(f"  Approval window: {payload.get('expires_after_seconds', 0)}s, evaluated at read time.")
+    failures = [row for row in payload.get("mint_failures", []) or [] if isinstance(row, dict)]
+    if payload.get("mint_failure_count"):
+        lines.append(f"  Unrecorded answers: {payload.get('mint_failure_count', 0)}")
+        for row in failures:
+            lines.append(
+                f"    {row.get('decision', 'unknown')} — {row.get('outcome', 'unknown')} — "
+                f"{row.get('approved_action', 'unknown')} — approval {row.get('approval_id', '')}"
+            )
+        lines.append("    These confirmations were answered and have no receipt.")
+    if not payload.get("store_ok", True):
+        errors = [str(error) for error in payload.get("store_errors", []) or []]
+        lines.append(f"  Store errors: {len(errors)}")
+        lines.extend(f"    {error}" for error in errors[:10])
+    lines.append(str(payload.get("claim_boundary", "")))
+    return "\n".join(line for line in lines if line)
+
+
 def cmd_runtime_validate(args: argparse.Namespace) -> int:
     result = validate_runtime(_paths(args), args.run_id)
     _print_json(result)
@@ -1135,6 +1227,26 @@ def _add_runtime_commands(sub) -> None:
     runtime_receipts.add_argument("--all", action="store_true", help="Return all receipts.")
     runtime_receipts.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
     runtime_receipts.set_defaults(func=cmd_runtime_receipts)
+
+    runtime_approvals = runtime_sub.add_parser(
+        "approvals",
+        help="Read recorded approval receipts. Read-only: approvals come only from the confirmation flow.",
+    )
+    runtime_approvals.add_argument(
+        "--run",
+        dest="run_id",
+        default=None,
+        help="Limit to one runtime run. Unrecorded answers are never scoped away.",
+    )
+    runtime_approvals.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Maximum recent approvals to return. Use --all for every approval.",
+    )
+    runtime_approvals.add_argument("--all", action="store_true", help="Return all approvals.")
+    runtime_approvals.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
+    runtime_approvals.set_defaults(func=cmd_runtime_approvals)
 
     runtime_validate = runtime_sub.add_parser("validate")
     runtime_validate.add_argument("--run", dest="run_id", default=None)

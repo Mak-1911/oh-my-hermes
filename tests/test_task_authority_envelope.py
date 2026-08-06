@@ -893,14 +893,16 @@ class WhatThePreflightStillDeniesTests(unittest.TestCase):
         no org failure mode can deny it. The org level is reachable only from a
         direct evaluator call today.
         """
-        from omh.coding.coding_delegation import _safety_preflight_verdict
+        from omh.coding.coding_delegation import _safety_preflight_request, _safety_preflight_verdict
 
         verdict = _safety_preflight_verdict(
-            _MESSAGE,
-            owner="codex",
-            workflow="plan",
-            message_context_mode="full",
-            raw_content_included=False,
+            _safety_preflight_request(
+                _MESSAGE,
+                owner="codex",
+                workflow="plan",
+                message_context_mode="full",
+                raw_content_included=False,
+            )
         )
         self.assertEqual(verdict["levels_applied"], ["builtin_omh"])
         self.assertEqual(verdict["org_reason_codes"], [])

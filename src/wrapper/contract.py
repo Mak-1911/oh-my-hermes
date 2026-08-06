@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..context_safety import MAX_SUMMARY_CHARS, bounded_prompt_preview, compact_progress_events
+from ..coding.action_gate import LADDER_ACTION_IDS
 from ..coding.agentic_playbook import maybe_build_agentic_playbook
 from ..coding.agentic_playbook_contract import chat_response_with_agentic_playbook
 from ..coding.executor_local_workflow import validate_executor_local_workflow
@@ -129,6 +130,7 @@ VISIBLE_ACTIONS = (
     "show_target_status",
     "apply_target_change",
     "choose_permission_profile",
+    "confirm_risky_action",
     "assess_loopability",
     "convert_to_loop_goal",
     "route_direct_task",
@@ -5631,12 +5633,79 @@ def build_chat_response_from_plan(plan_payload: dict[str, object], *, thread_key
     )
 
 
-_LADDER_ACTION_IDS = ("choose_executor", "choose_permission_profile", "send_to_codex", "send_to_executor")
+# The four operator-card confirmations. They ship `enabled: False` with no
+# arming path today, and they are named here so the arbitration disables them
+# for the same reason it disables every other confirmation action: they belong
+# to the same family, and a card that leaves one live beside an armed ladder is
+# a second authority question on one intent.
+_OPERATOR_CARD_CONFIRM_ACTION_IDS = (
+    "confirm_browser_action",
+    "confirm_command_execution",
+    "confirm_connector_action",
+    "confirm_file_operation",
+)
+# `send_to_codex` is the codex lane's rendering alias for the
+# `operator_confirmation` ladder's `send_to_executor`; it is a label on the same
+# question, not a ladder of its own, which is why it never appears in
+# `action_gate.LADDER_ACTION_IDS`.
+_LADDER_ACTION_ALIASES = {"send_to_codex": "send_to_executor"}
+# Derived, not retyped. This tuple and `action_gate.LADDER_ACTION_IDS` were two
+# hand-maintained copies of one list and they had already drifted apart —
+# `send_to_codex` was in this one and not in that one — so the gate's map is now
+# the source and the two additions this lane really owns are named beside it.
+_LADDER_ACTION_IDS = tuple(
+    sorted({*LADDER_ACTION_IDS.values(), *_LADDER_ACTION_ALIASES, *_OPERATOR_CARD_CONFIRM_ACTION_IDS})
+)
 _LADDER_ACTION_LABELS = {
     "choose_executor": "Choose coding agent",
     "choose_permission_profile": "Choose permission profile",
+    "confirm_risky_action": "Confirm risky action",
     "send_to_executor": "Open coding agent",
 }
+
+
+_RISKY_ACTION_REFUSED_REASON = (
+    "The operator refused or revoked the approval this risky action needs, so the authority it "
+    "carried stays withheld and this action is not offered."
+)
+
+
+def _apply_refused_risky_action(
+    actions: list[dict[str, object]],
+    next_action: str,
+    gate: dict[str, object],
+) -> tuple[list[dict[str, object]], str]:
+    """Take the refused action off the table when the gate refused a risky class.
+
+    Only on a real refusal: an enforced `deny` verdict. A report-only
+    classification withheld nothing and must not disable anything, and an
+    unarmed ladder with no refusal behind it is the ordinary quiet case.
+    """
+    risk = gate.get("action_risk")
+    if not isinstance(risk, dict):
+        return actions, next_action
+    if risk.get("decision") != "deny" or risk.get("enforcement") != "enforced":
+        return actions, next_action
+    adjusted = [
+        {
+            **entry,
+            "enabled": False,
+            "payload": {
+                **(entry.get("payload") if isinstance(entry.get("payload"), dict) else {}),
+                "disabled_reason": _RISKY_ACTION_REFUSED_REASON,
+            },
+        }
+        if entry.get("id") in _LADDER_ACTION_IDS
+        else entry
+        for entry in actions
+    ]
+    if next_action not in _LADDER_ACTION_IDS:
+        return adjusted, next_action
+    remaining = next(
+        (str(entry.get("id", "")) for entry in adjusted if entry.get("enabled") and entry.get("id")),
+        "",
+    )
+    return adjusted, remaining or next_action
 
 
 def _apply_action_gate_arbitration(
@@ -5649,10 +5718,18 @@ def _apply_action_gate_arbitration(
     When the gate armed a ladder other than the one this card leads with, the
     armed action becomes the card's next action and every other authority-ladder
     action is disabled, so one intent still produces one prompt.
+
+    A refusal arms nothing, and that is not the same as nothing having happened:
+    the operator answered no. Leaving "Open coding agent" on the card as its
+    enabled primary would offer the very action that was refused, so the ladder
+    actions are disabled there too and the card falls back to its first
+    remaining enabled action.
     """
     confirmation = gate.get("confirmation")
-    if not isinstance(confirmation, dict) or not confirmation.get("required"):
+    if not isinstance(confirmation, dict):
         return actions, next_action
+    if not confirmation.get("required"):
+        return _apply_refused_risky_action(actions, next_action, gate)
     armed = str(confirmation.get("action_id", ""))
     if not armed or armed == next_action:
         return actions, next_action
