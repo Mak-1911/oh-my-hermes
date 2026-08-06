@@ -60,8 +60,9 @@ class AuthSignalMarkerTests(unittest.TestCase):
         self.assertEqual(entry["login_marker"], "not_applicable")
 
     def test_senpi_marker_is_presence_only(self) -> None:
-        """omo-runtime's marker is the senpi credential store: present iff a
-        non-empty JSON object exists; provider names and values never read."""
+        """omo-runtime's marker is the first omo host credential store found
+        (pi, senpi, then opencode): present iff a non-empty JSON object
+        exists; provider names and values never read."""
         with TemporaryDirectory() as tmp:
             home = Path(tmp)
             self.assertEqual(executor_auth_signals(home=home)["profiles"]["omo-runtime"]["login_marker"], "absent")
@@ -78,6 +79,25 @@ class AuthSignalMarkerTests(unittest.TestCase):
             self.assertNotIn("kimi-coding", json.dumps(signals))
             (senpi_dir / "auth.json").write_text("not json {", encoding="utf-8")
             self.assertEqual(executor_auth_signals(home=home)["profiles"]["omo-runtime"]["login_marker"], "unknown")
+
+    def test_opencode_auth_store_marks_omo_runtime_present(self) -> None:
+        """An opencode-hosted omo login is a first-class marker: the opencode
+        auth store alone flips omo-runtime to present, so it no longer ranks
+        below logged-in codex/claude-code in executor_choice_context."""
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            auth_dir = home / ".local" / "share" / "opencode"
+            auth_dir.mkdir(parents=True)
+            (auth_dir / "auth.json").write_text(
+                json.dumps({"anthropic": {"type": "oauth", "access": "sk-SECRET-VALUE-12345"}}),
+                encoding="utf-8",
+            )
+            signals = executor_auth_signals(home=home)
+            self.assertEqual(signals["profiles"]["omo-runtime"]["login_marker"], "present")
+            self.assertNotIn("sk-SECRET-VALUE-12345", json.dumps(signals))
+            self.assertNotIn("anthropic", json.dumps(signals))
+            entry = auth_signal_for_profile("omo-runtime", home=home)
+            self.assertEqual(entry["login_marker"], "present")
 
 
 class LimitSignalReadTests(unittest.TestCase):

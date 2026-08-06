@@ -116,6 +116,46 @@ alignment the board is made of. On limited-markdown surfaces (Discord, Slack,
 Telegram) the board renders as one bullet per unit instead of a table, since
 all three render fences but none render tables well.
 
+The chat envelope's `messenger_rendering` block now does the platform-shaping
+work so adapters do not have to:
+
+- **Deterministic chunking.** `chunked_body_texts` is an adapter-ready split
+  of `body_text` under the resolved platform's
+  `chunking.max_recommended_chars`: paragraph boundaries first, then line
+  boundaries, then a hard character split as the last resort. A fenced block
+  that must span chunks is closed at the chunk end and reopened at the next
+  chunk start (same marker and run length, no language tag), so no chunk ever
+  carries an unbalanced fence. A single element means the body fits one
+  message.
+- **Fence language tags are stripped on limited bodies.** Only Discord
+  renders the language tag on a fence line; Slack and Telegram print it as
+  literal text, so every `limited_markdown` `body_text` (and every
+  `fallback_body_text`) drops fence info strings. Nothing is lost for
+  adapters that can highlight: `body_blocks` still carries each
+  `code_block.language`. Recorded as the `fence_language_tags_stripped`
+  transform.
+- **Slack gets its own dialect.** A resolved `slack` source converts Markdown
+  to mrkdwn *outside* fences — headings become `*bold*` lines, `**bold**`
+  becomes `*bold*`, `[text](url)` links become `<url|text>` — recorded as the
+  `slack_dialect_markdown` transform. Fenced code and inline `` `code` ``
+  spans stay byte-identical. The dialect applies to `body_text` and
+  `chunked_body_texts` only: `body_blocks` stay canonical, dialect-neutral
+  Markdown, and `transforms_applied` describes those text fields, not the
+  blocks.
+- **Telegram defaults to plain text.** The `telegram` platform hint says to
+  post `body_text` without `parse_mode`; opting into MarkdownV2 means
+  escaping every reserved character yourself.
+- **Per-platform ceilings remain the source of truth.** The `chunking` hint
+  carries `max_recommended_chars` / `hard_limit_chars` for the resolved
+  platform (Discord 1700/1900, Slack 2700/2900, Telegram 3700/3900, generic
+  1600/1800), and `chunked_body_texts` is computed against the recommended
+  ceiling.
+
+The plain-text `omh coding fanout brief` output respects the generic 1600
+soft ceiling too: past it, the brief keeps the longest row prefix that fits
+and states the omission as its own `… +N more units` line pointing at
+`--json`, so a truncated brief is never mistaken for a complete one.
+
 ## Boundary
 
 A status board is observed activity metadata. It is not result, verification,

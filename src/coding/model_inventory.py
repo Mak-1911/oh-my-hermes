@@ -84,9 +84,17 @@ MODEL_DOMAIN_AFFINITY_CLAIM_BOUNDARY: Final[str] = (
     "always wins."
 )
 
-# The executor profile a locally-derived catalog belongs to: omo ships as an
-# opencode plugin, so models named by its config run under the OMO runtime
-# surface, never under codex/claude-code (whose catalogs stay built-in).
+# The executor profile a locally-derived catalog belongs to: omo ships either
+# as an extension of a pi-family host CLI (pi, or its senpi distribution) or
+# as an opencode plugin — both layouts are first-class hosts (see
+# OMO_RUNTIME_HOST_CANDIDATES in fanout_dispatch). Models named by its config
+# run under the OMO runtime surface, never under codex/claude-code (whose
+# catalogs stay built-in). Capability boundary: model config is currently
+# read ONLY from the opencode config path
+# (`~/.config/opencode/oh-my-openagent.json`). A pi-only install has no
+# verified config layout to probe — inventing a pi-side path would be a
+# guess — so it degrades to an empty inventory and routes report
+# `no_model_catalog` instead of a fabricated catalog.
 MODEL_INVENTORY_CATALOG_PROFILE: Final[str] = "omo-runtime"
 
 LOCAL_MODEL_CATALOG_SCHEMA_VERSION: Final[str] = "local_model_catalog/v1"

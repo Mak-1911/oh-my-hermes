@@ -111,6 +111,21 @@ def compact_visible_text(value: Any, *, max_chars: int) -> str:
     return f"{text[: max_chars - 3]}..."
 
 
+def bounded_prompt_preview(value: Any, *, max_chars: int = MAX_VISIBLE_MESSAGE_CHARS) -> str:
+    """Structure-preserving bounded preview for composed delegate prompts.
+
+    Unlike `compact_visible_text`, newlines and indentation survive, so the
+    preview stays readable inside a fenced code block. A prompt over the bound
+    keeps its head and ends with the documented
+    ``... [truncated, N chars total]`` marker (N = original character count),
+    the exact shape `DELEGATE_PROMPT_DISPLAY_RULE` promises.
+    """
+    text = str(value)
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars].rstrip()}... [truncated, {len(text)} chars total]"
+
+
 def redact_absolute_paths(value: Any) -> str:
     """Reduce absolute filesystem paths to a bounded, account-free tail.
 

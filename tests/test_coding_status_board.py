@@ -175,6 +175,38 @@ class StatusBoardBuildTests(unittest.TestCase):
         self.assertIn("10,000,000", text)
         self.assertIn("35m", text)
 
+    def test_provider_prefixed_model_id_renders_intact(self) -> None:
+        # A unit routed from a local-inventory catalog carries a
+        # provider-prefixed model id ("provider/model_id", the shape
+        # `inventory_model_catalog` derives for the omo runtime); the slash
+        # must survive into the label on every render surface.
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_fanout(
+                paths,
+                _FANOUT_ID,
+                units=[
+                    {
+                        "unit_id": "omo-core",
+                        "owner": "omo",
+                        "model": "openrouter/qwen-3.5-coder",
+                        "reasoning_effort": "high",
+                        "status": "completed",
+                        "duration_seconds": 40,
+                    }
+                ],
+                titles={"omo-core": "omo work"},
+            )
+            with patch.object(status_board, "read_inflight_markers", return_value=[]):
+                payload = build_status_board(paths, now=_NOW)
+        unit = payload["units"][0]
+        self.assertEqual(unit["model_label"], "openrouter/qwen-3.5-coder high")
+        text = render_status_board_text(payload)
+        self.assertIn("openrouter/qwen-3.5-coder high", text)
+        bullets = status_board_messenger_body(payload, render_profile="limited_markdown")
+        self.assertIn("omo work — omo (openrouter/qwen-3.5-coder high) — completed", bullets)
+        self.assertNotIn(" — (", bullets)
+
     def test_mixed_running_and_completed_ordering_and_dedup(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = _paths(Path(tmp))
@@ -338,6 +370,28 @@ class FormattingTests(unittest.TestCase):
         self.assertEqual(model_label_for("gpt-5-codex", "xhigh"), "gpt-5-codex xhigh")
         self.assertEqual(model_label_for("fable-5", ""), "fable-5")
         self.assertEqual(model_label_for("", ""), "executor default")
+
+    def test_model_label_parity_with_the_plugin_bundle_copy(self) -> None:
+        # Two hand-synced builders render the `(model effort)` label:
+        # `model_label_for` here (also used by `omh coding fanout brief`) and
+        # the plugin bundle's `_model_label` (the bundle cannot import
+        # `omh.*`, so it carries a copy). This table keeps the copies equal;
+        # drift in either one fails the suite.
+        from omh.plugin_bundle.omh.status_board_reader import _model_label as plugin_model_label
+
+        table = (
+            # (model, reasoning_effort, expected label)
+            ("gpt-5-codex", "xhigh", "gpt-5-codex xhigh"),
+            ("fable-5", "", "fable-5"),
+            ("", "", "executor default"),
+            # Provider-prefixed omo id from a local-inventory catalog
+            # (`inventory_model_catalog` ids are "provider/model_id").
+            ("openrouter/qwen-3.5-coder", "high", "openrouter/qwen-3.5-coder high"),
+        )
+        for model, effort, expected in table:
+            with self.subTest(model=model, effort=effort):
+                self.assertEqual(model_label_for(model, effort), expected)
+                self.assertEqual(plugin_model_label(model, effort), expected)
 
     def test_status_vocabulary_is_closed(self) -> None:
         for status in ("running", "completed", "failed", "worktree_failed", "prepared_not_observed"):

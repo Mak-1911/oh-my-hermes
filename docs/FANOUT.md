@@ -219,6 +219,42 @@ goal to Hermes in chat; these commands are the backend surface.
   work that cannot resolve an executor becomes an explicit user choice, not
   retained Hermes implementation).
 
+## Installed-skill discovery
+
+Before building unit prompts, dispatch probes fixed executor-specific
+locations once per distinct spawnable owner and embeds the declared skills in
+the prompt. Probing is read-only observation of what is installed, never proof
+that a skill resolves at run time — the executor stays the authority. Each
+probed source reports a status: `present`, `absent`, `unreadable`, or
+`unsupported`.
+
+- **claude-code** probes three sources: personal skills at `~/.claude/skills`
+  (invoked `/<name>`), plugin skills under `~/.claude/plugins` (invoked
+  `/<plugin>:<name>`), and — because dispatch passes the target repo as
+  `project_root` — repo-local `.claude/skills` in the dispatch target. Plugin
+  probing prefers the installed-cache layout
+  (`cache/<marketplace>/<plugin>/<version>/skills/`) and falls back to
+  marketplace clones (`marketplaces/<dir>/plugins/<plugin>/skills/`, plus the
+  legacy `marketplaces/<dir>/.claude/skills` shape). The namespace prefix is
+  the plugin's own manifest `name` (`.claude-plugin/plugin.json` or
+  `plugin.json`, first parseable wins) when readable, with the directory name
+  only as a fallback: a cache directory `ui-ux-pro-max-skill` holding a
+  plugin named `ui-ux-pro-max` emits `/ui-ux-pro-max:design`, not a prefix no
+  registry knows.
+- **codex** probes custom prompts at `~/.codex/prompts` (addressed by file
+  stem, invoked `/<name>`) and OMX-style skill directories at
+  `~/.codex/skills` (invoked `$<name>`).
+- **omo-runtime** reports one explicit `unsupported` source with a reason
+  instead of silence: its host CLIs (pi/senpi/opencode) declare no skill
+  layout this repo can verify, so nothing is scanned — a dry run then shows
+  WHY no skills are sequenced rather than an empty payload with no trace.
+- **Dry-run surface.** Each planned unit carries `skill_sequence_source`:
+  `declared` / `declared_none` when the unit already answered,
+  `auto_recommended` plus a `skill_selection` question card when the
+  environment offers a genuine arrangement choice, `auto` plus the concrete
+  `skill_sequence` invocations that will ride the prompt, or `none`. Live
+  dispatch never blocks on the card — unanswered means option 1.
+
 ## Command reference
 
 ```sh

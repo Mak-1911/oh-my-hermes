@@ -7,7 +7,10 @@ from __future__ import annotations
 # names as often as executor names, and treating them as executor selection would
 # break advisor routing. Only unambiguous executor names belong here. Product names
 # stay in Latin script because ja/zh users write them that way too.
-NAMED_CODING_AGENT_PHRASES: tuple[str, ...] = (
+#
+# These names are distinctive enough for plain substring containment on the
+# folded message; the omo-runtime family below is not and gets its own group.
+SUBSTRING_NAMED_CODING_AGENT_PHRASES: tuple[str, ...] = (
     "codex",
     "코덱스",
     "claude code",
@@ -20,6 +23,69 @@ NAMED_CODING_AGENT_PHRASES: tuple[str, ...] = (
     "헤르메스가 코딩",
     "헤르메스한테 코딩",
 )
+
+# omo-runtime host CLIs. Bare "pi" stays out on purpose: the token is
+# claimed by Raspberry-Pi physical-device routing, and as a substring it
+# hides inside "api", "pip", and "pipeline". Pi is named only through
+# delegation phrasings or attached agent particles. "with pi" and "pi로"
+# are deliberately absent: "with pip install" and "api로" would both
+# match them as substrings.
+#
+# Even the bounded forms hide inside ordinary words as raw substrings:
+# "api한테" contains "pi한테", "promo runtime" contains "omo runtime". Every
+# consumer of this group must match it with `contains_boundary_phrase`,
+# never plain containment.
+OMO_RUNTIME_CODING_AGENT_PHRASES: tuple[str, ...] = (
+    "senpi",
+    "opencode",
+    "omo runtime",
+    "have pi implement",
+    "ask pi to",
+    "tell pi to",
+    "delegate to pi",
+    "pi한테",
+    "pi에게",
+)
+
+NAMED_CODING_AGENT_PHRASES: tuple[str, ...] = (
+    *SUBSTRING_NAMED_CODING_AGENT_PHRASES,
+    *OMO_RUNTIME_CODING_AGENT_PHRASES,
+)
+
+
+def contains_boundary_phrase(text: str, phrases: tuple[str, ...]) -> bool:
+    """True when any phrase occurs in `text` at a word boundary.
+
+    Plain containment is wrong for the omo-runtime phrase family: "api한테"
+    contains "pi한테", "promo runtime" contains "omo runtime", and "raspi
+    status" contains "pi status". An occurrence only counts here when the
+    character immediately before the match is absent or non-alphanumeric --
+    `str.isalnum()` is True for Hangul (and its NFKD jamo), so "라즈베리pi한테"
+    is rejected the same way "raspi" is -- and the character immediately after
+    the match is absent or not an ASCII alphanumeric. The trailing check is
+    deliberately ASCII-only: Korean particles attach directly to the right of a
+    Latin name ("opencode로", "omo runtime으로", "senpi가"), so a Hangul
+    continuation after the phrase is a particle naming the agent, while an
+    ASCII continuation ("opencodes") is a longer word that never named it.
+
+    Callers must pass `text` and `phrases` through the same fold
+    (`normalized_phrase` on routing surfaces, plain lowering in coding
+    delegation); this helper compares them verbatim.
+    """
+    return any(phrase and _occurs_at_boundary(text, phrase) for phrase in phrases)
+
+
+def _occurs_at_boundary(text: str, phrase: str) -> bool:
+    start = text.find(phrase)
+    while start != -1:
+        end = start + len(phrase)
+        before_is_boundary = start == 0 or not text[start - 1].isalnum()
+        after = text[end] if end < len(text) else ""
+        after_is_boundary = not (after.isascii() and after.isalnum())
+        if before_is_boundary and after_is_boundary:
+            return True
+        start = text.find(phrase, start + 1)
+    return False
 
 # Multi-word or non-tokenizable coding-delivery requests.
 #

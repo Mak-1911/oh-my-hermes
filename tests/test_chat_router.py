@@ -4453,3 +4453,125 @@ class UltraperfRoutingMatrixTests(unittest.TestCase):
                 decision = route_chat_message(message)
                 self.assertNotEqual(decision["selected_skill"], "ultraperf")
                 self.assertEqual(decision["action"], "fallback")
+
+
+class PiFamilyExecutorCueTests(unittest.TestCase):
+    """pi/senpi/opencode delivery requests reach the coding lane; Raspberry-Pi
+    hardware talk never becomes an executor handoff."""
+
+    POSITIVE = (
+        "have pi implement the retry fix",
+        "have senpi fix the login bug",
+        "delegate to pi: fix the login bug",
+        "tell pi to fix the flaky test",
+        "opencode로 이 버그 고쳐줘",
+        "omo runtime으로 이 버그 고쳐줘",
+    )
+    # Bare "pi" stays owned by Raspberry-Pi physical-device routing.
+    NEGATIVE = (
+        "raspberry pi relay setup",
+        "deploy to my pi 5",
+        "raspberry pi에 배포",
+    )
+
+    def test_pi_family_delivery_requests_route_to_the_coding_lane(self) -> None:
+        for message in self.POSITIVE:
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+
+                self.assertEqual(decision["selected_skill"], "ultraprocess")
+                self.assertEqual(decision["action"], "dispatch")
+
+    def test_raspberry_pi_messages_never_route_to_the_coding_handoff(self) -> None:
+        for message in self.NEGATIVE:
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+
+                self.assertNotEqual(decision["selected_skill"], "ultraprocess")
+
+    def test_pi_family_session_inventory_requests_open_harness_session_inventory(self) -> None:
+        for message in (
+            "show the senpi session inventory",
+            "show the opencode session inventory",
+            "recover the previous pi coding session",
+        ):
+            with self.subTest(message=message):
+                decision = route_chat_message(message, source="discord")
+
+                self.assertEqual(decision["selected_skill"], "harness-session-inventory")
+
+    def test_pi_family_names_alone_do_not_open_harness_session_inventory(self) -> None:
+        decision = route_chat_message("opencode 설치해줘", source="discord")
+
+        self.assertNotEqual(decision["selected_skill"], "harness-session-inventory")
+
+
+class VerbInvocationPrecedenceTests(unittest.TestCase):
+    """"use|run|invoke|apply <known-skill-name>" is an explicit invocation and
+    beats guard fast paths; guard-cue sentences without that form keep their
+    guards, and negated or descriptive mentions never promote."""
+
+    def test_verb_plus_skill_name_wins_over_guard_fast_paths(self) -> None:
+        for message, expected in (
+            ("use ulw-qa on the setup wizard", "ultraqa"),
+            ("use ultraperf on checkout latency", "ultraperf"),
+            ("use ulw-perf on checkout latency", "ultraperf"),
+            ("run ulw-qa on the checkout flow", "ultraqa"),
+        ):
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+
+                self.assertEqual(decision["selected_skill"], expected)
+                self.assertEqual(decision["action"], "dispatch")
+                self.assertTrue(decision["explicit"])
+
+    def test_guard_cues_without_an_invocation_verb_keep_their_guards(self) -> None:
+        for message, expected in (
+            ("is the setup wizard toolbelt ready", "toolbelt-readiness"),
+            ("이미지 생성 툴 연결 안됐으면 뭐 써?", "toolbelt-readiness"),
+            ("OMH가 너무 느려", "ops-observability-card"),
+        ):
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+
+                self.assertEqual(decision["selected_skill"], expected)
+                self.assertFalse(decision["explicit"])
+
+    def test_negated_and_descriptive_mentions_do_not_become_invocations(self) -> None:
+        negated = route_chat_message("don't use ultraqa on the setup wizard")
+        descriptive = route_chat_message("we could try ultraqa for the setup wizard later")
+
+        self.assertEqual(negated["selected_skill"], "toolbelt-readiness")
+        self.assertFalse(negated["explicit"])
+        self.assertEqual(descriptive["selected_skill"], "toolbelt-readiness")
+        self.assertFalse(descriptive["explicit"])
+
+    def test_generic_word_names_after_a_verb_are_never_explicit_invocations(self) -> None:
+        """Overroute guard: `plan`, `team`, `wiki`, `ask`, `research`, and
+        `frontend` read as ordinary English after use|run|apply, and a wrong
+        `explicit=True` also empties `active_routing_guard_rules()` -- so one
+        misfire silently disables every guard, not just one route."""
+        for message in (
+            "use plan b for the rollout",
+            "apply team conventions to the module",
+            "use wiki style headings in the doc",
+            "run ask before deciding",
+            "use research to fix the flaky test",
+            "apply frontend fixes to the login page",
+        ):
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+
+                self.assertFalse(decision["explicit"])
+
+    def test_generic_word_verb_sentences_keep_their_heuristic_rails(self) -> None:
+        # The two shapes that flipped rails when verb invocation promoted a
+        # generic name: `research` stole the direct-coding rail and `frontend`
+        # stole browser-operator.
+        coding = route_chat_message("use research to fix the flaky test")
+        browser = route_chat_message("apply frontend fixes to the login page")
+
+        self.assertEqual(coding["selected_skill"], "ultraprocess")
+        self.assertFalse(coding["explicit"])
+        self.assertEqual(browser["selected_skill"], "browser-operator")
+        self.assertFalse(browser["explicit"])

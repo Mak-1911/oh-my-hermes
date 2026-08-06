@@ -668,6 +668,21 @@ class WrapperSessionTests(unittest.TestCase):
             )
             self.assertEqual(len(self._session_events(paths, session_id)), events_before)
 
+    def test_session_restore_prompt_handoff_header_uses_the_executor_label(self) -> None:
+        # Parity with the contract path: the same prepared handoff must render
+        # "Prepared prompt for Claude Code:" (executor_label form) on the
+        # session-restore path too, never the raw profile id "claude-code".
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            message = "risky refactor of the observer summary"
+            session_id = self._prompt_only_prepared_session(paths, message)
+
+            status = build_wrapper_session_status(paths, session_id)
+
+            body = str(status["chat_response"]["body"])
+            self.assertIn("Prepared prompt for Claude Code:", body)
+            self.assertNotIn("Prepared prompt for claude-code:", body)
+
     def test_follow_up_message_reprepares_prompt_only_handoff(self) -> None:
         """Issue #754: a new message on a prepared session must not be dropped."""
         with TemporaryDirectory() as tmp:

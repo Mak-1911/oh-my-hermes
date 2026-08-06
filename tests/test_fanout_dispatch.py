@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 import unittest
+from unittest import mock
 
 from _local_package import load_local_package
 
@@ -15,7 +16,11 @@ from _cli_harness import run_cli  # noqa: E402
 from omh.coding.fanout import build_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import write_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import fanout_dispatch_summary_path  # noqa: E402
-from omh.coding.fanout_dispatch import dispatch_fanout, verify_goal_matches_contract  # noqa: E402
+from omh.coding.fanout_dispatch import (  # noqa: E402
+    _owner_skill_discoveries,
+    dispatch_fanout,
+    verify_goal_matches_contract,
+)
 from omh.runtime.artifacts import show_run  # noqa: E402
 from omh.system.paths import OmhPaths  # noqa: E402
 
@@ -658,6 +663,130 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             self.assertEqual(by_unit["ui"]["model"], "opus")
 
 
+def _write_skill(root: Path, name: str, description: str) -> None:
+    directory = root / name
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "SKILL.md").write_text(f"---\ndescription: {description}\n---\n", encoding="utf-8")
+
+
+class FanoutDispatchSkillDiscoveryTests(unittest.TestCase):
+    """Discovery wiring at the dispatch boundary: owner set, project root
+    threading, the dry-run surface fields, and the prompt units actually get.
+    `Path.home` is patched to a fixture home so the operator's real skill
+    library never leaks into the assertions."""
+
+    def _setup(self, tmp: str, units):
+        root = Path(tmp)
+        paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+        repo, sha = _make_repo(root)
+        contract = write_fanout_contract(paths, build_fanout_contract(_GOAL, units))
+        return paths, repo, sha, contract
+
+    def test_owner_set_skips_non_spawnable_owners_and_threads_project_root(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = root / "home"
+            home.mkdir()
+            repo = root / "repo"
+            _write_skill(repo / ".claude" / "skills", "repo-helper", "Implement the local fix")
+            units = [
+                {"handoff": {"executor_target": "claude-code"}},
+                {"handoff": {"executor_target": "codex"}},
+                {"handoff": {"executor_target": "hermes"}},
+                {"handoff": {"executor_target": ""}},
+                {"unit_id": "no-handoff"},
+            ]
+            with mock.patch("pathlib.Path.home", return_value=home):
+                discoveries = _owner_skill_discoveries(units, project_root=repo)
+        self.assertEqual(sorted(discoveries), ["claude-code", "codex"])
+        claude = discoveries["claude-code"]
+        self.assertEqual(claude["sources"]["claude_project_skills"]["status"], "present")
+        repo_entries = [entry for entry in claude["skills"] if entry["source"] == "claude_project_skills"]
+        self.assertEqual([entry["name"] for entry in repo_entries], ["repo-helper"])
+        self.assertEqual(repo_entries[0]["invocation"], "/repo-helper")
+
+    def test_dry_run_summary_carries_skill_selection_and_sequence_source(self) -> None:
+        with TemporaryDirectory() as tmp:
+            units = [
+                {"unit_id": "auto", "owner": "claude-code", "file_scope": ["src/a/"]},
+                {"unit_id": "declared", "owner": "claude-code", "file_scope": ["src/b/"], "skill_sequence": ["/my-flow"]},
+                {"unit_id": "silent", "owner": "claude-code", "file_scope": ["src/c/"], "skill_sequence": []},
+                {"unit_id": "bare", "owner": "codex", "file_scope": ["src/d/"]},
+            ]
+            paths, repo, sha, contract = self._setup(tmp, units)
+            home = Path(tmp) / "home"
+            skills = home / ".claude" / "skills"
+            _write_skill(skills, "omc-plan", "Plan and decompose work before implementation")
+            _write_skill(skills, "ultrawork", "Parallel implementation execution loop")
+            _write_skill(skills, "code-reviewer", "Expert code review with severity-rated findings")
+            with mock.patch("pathlib.Path.home", return_value=home):
+                summary = dispatch_fanout(
+                    paths, contract, goal_text=_GOAL, repo_root=repo, base_sha=sha,
+                    dry_run=True, runner=_agent_runner(), readiness=_ready,
+                )
+        by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+        auto = by_unit["auto"]
+        self.assertEqual(auto["skill_sequence_source"], "auto_recommended")
+        first_option = auto["skill_selection"]["options"][0]
+        self.assertEqual(
+            [step["invocation"] for step in first_option["sequence"]],
+            ["/omc-plan", "/ultrawork", "/code-reviewer"],
+        )
+        self.assertEqual(by_unit["declared"]["skill_sequence_source"], "declared")
+        self.assertNotIn("skill_selection", by_unit["declared"])
+        self.assertEqual(by_unit["silent"]["skill_sequence_source"], "declared_none")
+        # An empty codex environment offers nothing to sequence.
+        self.assertEqual(by_unit["bare"]["skill_sequence_source"], "none")
+        self.assertNotIn("skill_sequence", by_unit["bare"])
+
+    def test_dry_run_auto_source_names_the_riding_sequence(self) -> None:
+        # One classified skill: no genuine arrangement choice, so no card —
+        # but the summary must still name what will ride the prompt instead
+        # of the bare word "auto".
+        with TemporaryDirectory() as tmp:
+            units = [
+                {"unit_id": "auto", "owner": "claude-code", "file_scope": ["src/a/"]},
+                {"unit_id": "other", "owner": "codex", "file_scope": ["src/b/"]},
+            ]
+            paths, repo, sha, contract = self._setup(tmp, units)
+            home = Path(tmp) / "home"
+            _write_skill(home / ".claude" / "skills", "ultrawork", "Parallel implementation execution loop")
+            with mock.patch("pathlib.Path.home", return_value=home):
+                summary = dispatch_fanout(
+                    paths, contract, goal_text=_GOAL, repo_root=repo, base_sha=sha,
+                    dry_run=True, runner=_agent_runner(), readiness=_ready,
+                )
+        planned = {entry["unit_id"]: entry for entry in summary["units"]}["auto"]
+        self.assertEqual(planned["skill_sequence_source"], "auto")
+        self.assertEqual(planned["skill_sequence"], ["/ultrawork"])
+        self.assertNotIn("skill_selection", planned)
+
+    def test_dispatch_threads_discoveries_into_unit_prompts(self) -> None:
+        with TemporaryDirectory() as tmp:
+            units = [
+                {"unit_id": "work", "owner": "claude-code", "file_scope": ["src/"]},
+                {"unit_id": "side", "owner": "codex", "file_scope": ["docs/"]},
+            ]
+            paths, repo, sha, contract = self._setup(tmp, units)
+            home = Path(tmp) / "home"
+            _write_skill(home / ".claude" / "skills", "omc-plan", "Plan and decompose work before implementation")
+            _write_skill(repo / ".claude" / "skills", "repo-helper", "Implement the local fix")
+            runner = _agent_runner()
+            with mock.patch("pathlib.Path.home", return_value=home):
+                summary = dispatch_fanout(
+                    paths, contract, goal_text=_GOAL, repo_root=repo, base_sha=sha,
+                    runner=runner, readiness=_ready,
+                )
+        by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+        self.assertEqual(by_unit["work"]["status"], "completed")
+        claude_argv = next(argv for argv in runner.spawned if argv[0] == "claude")
+        prompt = claude_argv[2]
+        self.assertIn("Suggested skill sequence", prompt)
+        # Home-level and repo-local discoveries both ride the spawned prompt.
+        self.assertIn("`/omc-plan`", prompt)
+        self.assertIn("`/repo-helper`", prompt)
+
+
 class FanoutBriefCliTests(unittest.TestCase):
     def test_brief_joins_contract_journal_and_dispatch_summary(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -724,7 +853,11 @@ class FanoutBriefCliTests(unittest.TestCase):
                 base + ["coding", "fanout", "brief", str(contract["fanout_id"])], output_json=False
             )
             self.assertEqual(status, 0, stderr)
-            self.assertIn("(gpt-5-codex, alt: gpt-5)", stdout)
+            # Owner and model read as ONE field, matching the status board's
+            # bullet convention; a standalone "— (model)" field doubled the
+            # separator around a parenthetical.
+            self.assertIn("codex (gpt-5-codex, alt: gpt-5)", stdout)
+            self.assertNotIn(" — (", stdout)
             self.assertNotIn("(gpt-5, alt:", stdout)
 
     def test_brief_degrades_silently_for_v1_routes(self) -> None:
@@ -764,8 +897,53 @@ class FanoutBriefCliTests(unittest.TestCase):
                 base + ["coding", "fanout", "brief", str(contract["fanout_id"])], output_json=False
             )
             self.assertEqual(status, 0, stderr)
-            self.assertIn("(gpt-5-codex high [schema v1])", stdout)
+            self.assertIn("codex (gpt-5-codex high [schema v1])", stdout)
+            self.assertNotIn(" — (", stdout)
             self.assertNotIn("alt:", stdout.split("docs")[0].split("core")[-1])
+
+    def test_brief_renders_local_inventory_provider_model_intact(self) -> None:
+        # A route frozen from a local-inventory catalog (the omo runtime path,
+        # `inventory_model_catalog`) carries a provider-prefixed model id like
+        # "openrouter/qwen-3.5-coder"; the slash must survive into the
+        # parenthesized label unchanged in both JSON and plain text.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+            units = [
+                {"unit_id": "core", "title": "Core", "owner": "codex", "file_scope": ["src/core/"], "role": "brain"},
+                {"unit_id": "docs", "title": "Docs", "owner": "claude-code", "file_scope": ["docs/"]},
+            ]
+            contract = write_fanout_contract(paths, build_fanout_contract(_GOAL, units))
+            contract_path = paths.fanout_contracts_dir / str(contract["fanout_id"]) / "fanout_contract.json"
+            stored = json.loads(contract_path.read_text(encoding="utf-8"))
+            for unit in stored["units"]:
+                if unit["unit_id"] == "core":
+                    unit["handoff"]["model_route"] = {
+                        "schema_version": "coding_model_route/v2",
+                        "status": "resolved",
+                        "provenance": "role_chain_head",
+                        "catalog_kind": "local_inventory",
+                        "selected_model": "openrouter/qwen-3.5-coder",
+                        "selected_reasoning_effort": "high",
+                        "chain": [{"model_id": "openrouter/qwen-3.5-coder", "reasoning_effort": "high"}],
+                    }
+            contract_path.write_text(json.dumps(stored), encoding="utf-8")
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+
+            status, stdout, stderr = run_cli(base + ["coding", "fanout", "brief", str(contract["fanout_id"])])
+            self.assertEqual(status, 0, stderr)
+            brief = json.loads(stdout)
+            core = {entry["unit_id"]: entry for entry in brief["units"]}["core"]
+            self.assertEqual(core["model_label"], "openrouter/qwen-3.5-coder high")
+            self.assertEqual(core["model_alternative"], "")
+
+            status, stdout, stderr = run_cli(
+                base + ["coding", "fanout", "brief", str(contract["fanout_id"])], output_json=False
+            )
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("codex (openrouter/qwen-3.5-coder high)", stdout)
+            self.assertNotIn(" — (", stdout)
+            self.assertNotIn("[schema v1]", stdout)
 
     def test_brief_without_id_lists_known_fanouts(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -779,6 +957,61 @@ class FanoutBriefCliTests(unittest.TestCase):
             self.assertEqual(listing["schema_version"], "fanout_briefing_listing/v1")
             self.assertEqual(listing["fanouts"][0]["fanout_id"], contract["fanout_id"])
             self.assertEqual(listing["fanouts"][0]["unit_count"], 3)
+
+
+class FanoutBriefTextCeilingTests(unittest.TestCase):
+    """The plain-text brief stays under the generic messenger soft ceiling.
+
+    Past ~1600 chars a messenger clips the message at an arbitrary byte, so
+    `_render_fanout_brief_text` keeps the first rows that fit and states the
+    omission as its own line instead of emitting unbounded output.
+    """
+
+    @staticmethod
+    def _payload(unit_count: int) -> dict:
+        units = [
+            {
+                "unit_id": f"unit-{index:02d}",
+                "owner": "codex",
+                "model_label": "gpt-5-codex xhigh",
+                "model_alternative": "",
+                "route_schema_version": "coding_model_route/v2",
+                "status": "completed",
+                "elapsed_seconds": 35,
+                "tokens_total": 128400,
+                "session_ref": f"sess-{index:02d}",
+                "summary": "implemented the slice and ran the targeted tests",
+            }
+            for index in range(unit_count)
+        ]
+        return {
+            "fanout_id": "fanout-0123456789ab",
+            "units": units,
+            "claim_boundary": "Boundary text.",
+        }
+
+    def test_short_brief_renders_every_row_without_an_omission_line(self) -> None:
+        from omh.commands.coding import _render_fanout_brief_text
+
+        text = _render_fanout_brief_text(self._payload(3))
+        self.assertEqual(text.count("- unit-"), 3)
+        self.assertNotIn("more units", text)
+
+    def test_long_brief_keeps_first_rows_and_states_the_omission(self) -> None:
+        from omh.commands.coding import _FANOUT_BRIEF_TEXT_SOFT_LIMIT, _render_fanout_brief_text
+
+        text = _render_fanout_brief_text(self._payload(40))
+        self.assertLessEqual(len(text), _FANOUT_BRIEF_TEXT_SOFT_LIMIT)
+        shown = text.count("- unit-")
+        self.assertGreater(shown, 0)
+        self.assertLess(shown, 40)
+        # Merge order is preserved: what is shown is exactly the first rows.
+        for index in range(shown):
+            self.assertIn(f"- unit-{index:02d} —", text)
+        self.assertNotIn(f"- unit-{shown:02d} —", text)
+        self.assertIn(f"… +{40 - shown} more units — omh coding fanout brief --json", text)
+        # The claim boundary survives truncation as the last line.
+        self.assertTrue(text.endswith("Boundary text."))
 
 
 if __name__ == "__main__":

@@ -3,13 +3,15 @@ from __future__ import annotations
 from copy import deepcopy
 from functools import lru_cache
 import hashlib
+import re
 from pathlib import Path
 from typing import Any
 
-from ..context_safety import compact_progress_events
+from ..context_safety import MAX_SUMMARY_CHARS, bounded_prompt_preview, compact_progress_events
 from ..coding.agentic_playbook import maybe_build_agentic_playbook
 from ..coding.agentic_playbook_contract import chat_response_with_agentic_playbook
 from ..coding.executor_local_workflow import validate_executor_local_workflow
+from ..coding.status_board import model_label_for
 from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_text, extract_source_metadata
 from ..routing.catalog_questions import is_skill_catalog_question as _is_skill_catalog_question
 from ..routing.chat import public_chat_route_payload, route_explanation_payload
@@ -3738,6 +3740,7 @@ def _copy_messenger_rendering_payload(value: dict[str, object]) -> dict[str, obj
         "avoid_blocks",
         "transforms_applied",
         "fallback_transforms_applied",
+        "chunked_body_texts",
     ):
         items = value.get(key)
         if isinstance(items, list):
@@ -5698,6 +5701,12 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
         prompt_handoff = _nested(delegation_payload, "prompt_handoff")
         selected = str(prompt_handoff.get("selected_executor_profile") or "executor")
         label = executor_label(selected)
+        prompt_body = _prompt_handoff_show_body(
+            label,
+            first_line=f"I prepared a copyable {selected} prompt. This is not dispatch, execution, review, CI, or merge evidence.",
+            prompt_handoff=prompt_handoff,
+            delegation_payload=delegation_payload,
+        )
         status_request = _delegation_is_coding_status_request(delegation_payload)
         actions = []
         if status_request:
@@ -5739,7 +5748,7 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 f"I can show or copy the {label} prompt, then the wrapper can attach an observed {label} session. "
                 "Until dispatch, progress, result, or verification evidence is recorded, I cannot say what the coding agent has done."
                 if status_request
-                else f"I prepared a copyable {selected} prompt. This is not dispatch, execution, review, CI, or merge evidence."
+                else prompt_body
             ),
             phase="prompt_handoff_prepared",
             next_action="show_coding_handoff_status" if status_request else "show_prompt_handoff",
@@ -5939,6 +5948,77 @@ def _executor_local_workflow_state(handoff: dict[str, object], selected_profile:
     if validate_executor_local_workflow(binding):
         return {}
     return {"executor_local_workflow": deepcopy(binding)}
+
+
+def _fence_marker_for(text: str) -> str:
+    """Backtick fence for embedding ``text``: one longer than the longest
+    backtick run inside it, minimum three, so embedded ``` fences nest safely."""
+    longest = 0
+    run = 0
+    for character in text:
+        if character == "`":
+            run += 1
+            longest = max(longest, run)
+        else:
+            run = 0
+    return "`" * max(3, longest + 1)
+
+
+def _prompt_handoff_show_body(
+    label: str,
+    *,
+    first_line: str,
+    prompt_handoff: dict[str, Any],
+    delegation_payload: dict[str, Any],
+) -> str:
+    """The show-prompt chat body: boundary sentence, a one-line header naming
+    the executor (and model when the handoff carries a resolved route), then
+    the composed prompt inside a content-derived fence. A prompt over the
+    summary bound keeps its head plus the documented
+    ``... [truncated, N chars total]`` marker inside the fence
+    (DELEGATE_PROMPT_DISPLAY_RULE)."""
+    prompt_text, already_bounded = _composed_prompt_handoff_text(delegation_payload, prompt_handoff)
+    bounded = prompt_text if already_bounded else bounded_prompt_preview(prompt_text, max_chars=MAX_SUMMARY_CHARS)
+    header = f"Prepared prompt for {label}"
+    model = _handoff_model_label(prompt_handoff)
+    if model:
+        header = f"{header} — {model}"
+    fence = _fence_marker_for(bounded)
+    return "\n".join([first_line, "", f"{header}:", fence, bounded, fence])
+
+
+def _composed_prompt_handoff_text(
+    delegation_payload: dict[str, Any], prompt_handoff: dict[str, Any]
+) -> tuple[str, bool]:
+    """The composed prompt for display, plus whether it is already bounded.
+
+    Preference order: the fully expanded prompt (full message-context mode),
+    the template expanded with the raw message when both are present, the
+    structure-preserving bounded preview (already carrying the truncation
+    marker), and finally the raw template with its ``{message}`` placeholder —
+    OMH deliberately does not persist the raw task, so the placeholder form is
+    what a stored session can show."""
+    full = str(delegation_payload.get("prompt_handoff_prompt", "") or "")
+    if full:
+        return full, False
+    template = str(prompt_handoff.get("prompt_template", "") or "")
+    message = str(delegation_payload.get("message", "") or "")
+    if template and message:
+        return template.replace("{message}", message), False
+    preview = str(delegation_payload.get("prompt_handoff_prompt_preview", "") or "")
+    if preview:
+        return preview, True
+    return template, False
+
+
+def _handoff_model_label(handoff: dict[str, Any]) -> str:
+    route = handoff.get("model_route")
+    if not isinstance(route, dict):
+        return ""
+    model = str(route.get("selected_model") or "").strip()
+    if not model:
+        return ""
+    return model_label_for(model, str(route.get("selected_reasoning_effort") or "").strip())
 
 
 def _delegation_policy_state(delegation_payload: dict[str, Any]) -> dict[str, object]:
@@ -6417,7 +6497,7 @@ def _status_copy(status_payload: dict[str, Any], next_action: str) -> tuple[str,
     kind, headline, body, claim_boundary = _STATUS_COPY.get(next_action, fallback)
     if next_action == "wait_for_executor_evidence":
         label = _status_executor_label(status_payload)
-        suffix = f" ({label})" if label else ""
+        suffix = _status_executor_suffix(status_payload)
         return (
             kind,
             f"The coding handoff{suffix} was dispatched.",
@@ -6425,8 +6505,7 @@ def _status_copy(status_payload: dict[str, Any], next_action: str) -> tuple[str,
             claim_boundary,
         )
     if next_action == "dispatch_to_executor":
-        label = _status_executor_label(status_payload)
-        suffix = f" ({label})" if label else ""
+        suffix = _status_executor_suffix(status_payload)
         return (
             kind,
             f"The coding handoff{suffix} is ready.",
@@ -6434,10 +6513,21 @@ def _status_copy(status_payload: dict[str, Any], next_action: str) -> tuple[str,
             claim_boundary,
         )
     if next_action in {"show_prompt_handoff", "show_runtime_handoff"}:
-        label = _status_executor_label(status_payload)
-        suffix = f" ({label})" if label else ""
+        suffix = _status_executor_suffix(status_payload)
         return kind, f"{headline}{suffix}", body, claim_boundary
     return kind, headline, body, claim_boundary
+
+
+def _status_executor_suffix(status_payload: dict[str, Any]) -> str:
+    """`` (Codex)`` or, when the handoff carries a resolved model route,
+    `` (Codex — gpt-5-codex xhigh)`` — the status-board single-field label
+    convention (`model_label_for`); empty when nothing is known."""
+    display = " — ".join(
+        part
+        for part in (_status_executor_label(status_payload), _status_model_label(status_payload))
+        if part
+    )
+    return f" ({display})" if display else ""
 
 
 def _status_executor_label(status_payload: dict[str, Any]) -> str:
@@ -6450,6 +6540,21 @@ def _status_executor_label(status_payload: dict[str, Any]) -> str:
         profile = str(value or "").strip()
         if profile:
             return executor_label(profile)
+    return ""
+
+
+def _status_model_label(status_payload: dict[str, Any]) -> str:
+    for container in (
+        _nested(status_payload, "prepared"),
+        _nested(status_payload, "executor_session_status"),
+        status_payload,
+    ):
+        route = container.get("model_route")
+        if not isinstance(route, dict):
+            continue
+        model = str(route.get("selected_model") or "").strip()
+        if model:
+            return model_label_for(model, str(route.get("selected_reasoning_effort") or "").strip())
     return ""
 
 
@@ -7793,6 +7898,14 @@ def messenger_rendering_contract(
     render_profile: str = RENDER_PROFILE_LIMITED_MARKDOWN,
     source: str = "",
 ) -> dict[str, object]:
+    """The platform-shaping rendering payload for one chat/session response.
+
+    Dialect boundary: ``body_blocks`` (and ``fallback_body_blocks``) stay
+    canonical, dialect-neutral Markdown, while ``body_text`` and
+    ``chunked_body_texts`` may be platform-dialected (mrkdwn on a resolved
+    ``slack`` source). ``transforms_applied`` describes the TEXT fields only;
+    an adapter that consumes blocks applies its own dialect.
+    """
     resolved_profile = _normalize_render_profile(render_profile)
     safe_body_text, safe_transforms = _messenger_safe_body(body)
     if resolved_profile == RENDER_PROFILE_RICH_MARKDOWN:
@@ -7825,6 +7938,23 @@ def messenger_rendering_contract(
         avoid_blocks = ["markdown_table", "wide_table", "large_unbroken_block"]
         table_policy = "convert_tables_to_bullets_for_messenger"
         transforms = safe_transforms
+    # Blocks come from the pre-dialect text so `code_block.language` survives;
+    # the emitted body_text then loses fence language tags on every limited
+    # profile (Slack/Telegram print them as literal text) and, for a resolved
+    # slack source, converts headings/bold/links to mrkdwn outside fences —
+    # the same replace-in-place shape the table-to-bullets transform uses.
+    body_blocks = _render_body_blocks(body_text, render_profile=resolved_profile)
+    fallback_body_blocks = _messenger_body_blocks(safe_body_text)
+    fallback_body_text, fallback_strip_transforms = _strip_fence_language_tags(safe_body_text)
+    fallback_transforms = sorted({*safe_transforms, *fallback_strip_transforms})
+    if resolved_profile == RENDER_PROFILE_LIMITED_MARKDOWN:
+        body_text, strip_transforms = _strip_fence_language_tags(body_text)
+        transforms = [*transforms, *strip_transforms]
+        if source == "slack":
+            body_text, slack_transforms = _slack_dialect_body(body_text)
+            transforms = [*transforms, *slack_transforms]
+        transforms = sorted(set(transforms))
+    chunking = _messenger_chunking_hint(source)
     return {
         "schema_version": MESSENGER_RENDERING_SCHEMA_VERSION,
         "render_profile": resolved_profile,
@@ -7832,15 +7962,23 @@ def messenger_rendering_contract(
         "first_line": first_line,
         "body_format": body_format,
         "body_text": body_text,
-        "body_blocks": _render_body_blocks(body_text, render_profile=resolved_profile),
+        "body_blocks": body_blocks,
         "fallback_body_format": "messenger_safe_markdown",
-        "fallback_body_text": safe_body_text,
-        "fallback_body_blocks": _messenger_body_blocks(safe_body_text),
+        "fallback_body_text": fallback_body_text,
+        "fallback_body_blocks": fallback_body_blocks,
         "preferred_blocks": preferred_blocks,
         "avoid_blocks": avoid_blocks,
-        "chunking": _messenger_chunking_hint(source),
+        "chunking": chunking,
+        # Deterministic chunks for the RESOLVED platform so adapters stop
+        # guessing where to split: paragraph boundaries first, then lines,
+        # hard split last, fences closed/reopened across chunk boundaries.
+        # One element means the body fits a single message. Chat/session
+        # renderings only: the route-hint rendering
+        # (messenger_route_hint_rendering/v1) deliberately omits this key
+        # because hint bodies are single-screen.
+        "chunked_body_texts": _chunk_body_text(body_text, int(chunking["max_recommended_chars"])),
         "transforms_applied": transforms,
-        "fallback_transforms_applied": safe_transforms,
+        "fallback_transforms_applied": fallback_transforms,
         "prefix_policy": {
             "default": "once_per_response_first_line",
             "repeat_when": "adapter_splits_response_across_separate_messages_or_chunks",
@@ -7861,7 +7999,11 @@ def messenger_rendering_contract(
         "platform_hints": {
             "discord": "Start the first message with the visible prefix, prefer bullets or numbered lists over tables, and repeat the prefix only if the adapter splits a long response into separate messages.",
             "slack": "Start the response with the visible prefix, prefer blocks or bullets over wide Markdown tables, and keep claim boundaries visible.",
-            "telegram": "Start the response with the visible prefix, keep sections short, and avoid table layouts.",
+            "telegram": (
+                "Start the response with the visible prefix, keep sections short, avoid table layouts, and "
+                "post body_text as plain text WITHOUT parse_mode; if you opt into MarkdownV2 you must escape "
+                "every reserved character yourself."
+            ),
             "hermes": "Render body_text as rich Markdown when the Hermes surface supports it; use fallback_body_text when relaying to a narrow chat adapter.",
             "generic": "Use body_text for the declared render_profile; use fallback_body_text if the actual surface cannot render Markdown tables.",
         },
@@ -8011,6 +8153,127 @@ def _messenger_chunking_hint(source: str = "") -> dict[str, object]:
     }
 
 
+def _chunk_body_text(body_text: str, limit: int) -> list[str]:
+    """Deterministic adapter-ready chunks for a body over the soft ceiling.
+
+    Split preference order: blank-line paragraph boundaries, then line
+    boundaries, then a hard character split as the last resort. A fenced
+    block that must span chunks is closed at the chunk end and reopened
+    (same marker and run length, no language tag) at the next chunk start,
+    so no chunk ever carries an unbalanced fence. Every chunk fits within
+    ``limit``.
+    """
+    if limit <= 0 or len(body_text) <= limit:
+        return [body_text]
+    chunks: list[str] = []
+    current = ""
+    for segment_lines, fence_marker in _body_segments(body_text):
+        segment = "\n".join(segment_lines)
+        candidate = f"{current}\n\n{segment}" if current else segment
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+            current = ""
+        if len(segment) <= limit:
+            current = segment
+            continue
+        if fence_marker:
+            chunks.extend(_split_fenced_segment(segment_lines, fence_marker, limit))
+        else:
+            chunks.extend(_split_prose_segment(segment_lines, limit))
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _body_segments(body_text: str) -> list[tuple[list[str], str]]:
+    """Paragraphs and fenced blocks of ``body_text``, in order.
+
+    Each segment is ``(lines, fence_marker)``: the marker is empty for prose
+    paragraphs and the opening marker run for fenced blocks, which is what a
+    chunk split needs to close and reopen the fence.
+    """
+    segments: list[tuple[list[str], str]] = []
+    current: list[str] = []
+    tracker = _FenceState()
+    fence_marker = ""
+    for line in body_text.splitlines():
+        if fence_marker:
+            closed = tracker.toggles(line)
+            current.append(line)
+            if closed:
+                segments.append((current, fence_marker))
+                current = []
+                fence_marker = ""
+            continue
+        if tracker.toggles(line):
+            if current:
+                segments.append((current, ""))
+            current = [line]
+            fence_marker = tracker.marker
+            continue
+        if not line.strip():
+            if current:
+                segments.append((current, ""))
+                current = []
+            continue
+        current.append(line)
+    if current:
+        segments.append((current, fence_marker))
+    return segments
+
+
+def _split_prose_segment(lines: list[str], limit: int) -> list[str]:
+    chunks: list[str] = []
+    current = ""
+    for line in lines:
+        for piece in _hard_split(line, limit) if len(line) > limit else [line]:
+            candidate = f"{current}\n{piece}" if current else piece
+            if len(candidate) <= limit:
+                current = candidate
+                continue
+            if current:
+                chunks.append(current)
+            current = piece
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _split_fenced_segment(lines: list[str], marker: str, limit: int) -> list[str]:
+    """Split one oversize fenced block without ever leaving a fence unbalanced.
+
+    Every emitted chunk closes with the bare marker, and every continuation
+    chunk reopens with the bare marker (no language tag). An unterminated
+    source fence is closed too: balance beats byte-fidelity here.
+    """
+    opening = lines[0]
+    interior = list(lines[1:])
+    if interior and _fence_closes(interior[-1], marker):
+        interior = interior[:-1]
+    close_cost = len(marker) + 1  # "\n" plus the closing fence line
+    content_budget = max(1, limit - 2 * close_cost)
+    chunks: list[str] = []
+    current = opening
+    for line in interior:
+        for piece in _hard_split(line, content_budget) if len(line) > content_budget else [line]:
+            candidate = f"{current}\n{piece}"
+            if len(candidate) + close_cost <= limit:
+                current = candidate
+                continue
+            chunks.append(f"{current}\n{marker}")
+            current = f"{marker}\n{piece}"
+    chunks.append(f"{current}\n{marker}")
+    return chunks
+
+
+def _hard_split(text: str, size: int) -> list[str]:
+    step = max(1, size)
+    return [text[start : start + step] for start in range(0, len(text), step)] or [""]
+
+
 def _render_body_blocks(body: str, *, render_profile: str) -> list[dict[str, object]]:
     if render_profile == RENDER_PROFILE_RICH_MARKDOWN:
         return _rich_markdown_body_blocks(body)
@@ -8030,14 +8293,9 @@ def _messenger_safe_body_cached(body: str) -> tuple[str, tuple[str, ...]]:
     output: list[str] = []
     transforms: list[str] = []
     index = 0
-    in_code_fence = False
+    tracker = _FenceState()
     while index < len(lines):
-        if _is_code_fence_line(lines[index]):
-            in_code_fence = not in_code_fence
-            output.append(lines[index])
-            index += 1
-            continue
-        if in_code_fence:
+        if tracker.toggles(lines[index]) or tracker.in_fence:
             output.append(lines[index])
             index += 1
             continue
@@ -8060,9 +8318,152 @@ def _messenger_safe_body_cached(body: str) -> tuple[str, tuple[str, ...]]:
     return "\n".join(output), tuple(sorted(set(transforms)))
 
 
-def _is_code_fence_line(line: str) -> bool:
+def _fence_open(line: str) -> tuple[str, str]:
+    """Return ``(marker, info)`` when ``line`` can open a fenced code block.
+
+    CommonMark shape: three or more of the same marker character (backtick or
+    tilde), optionally followed by an info string. A backtick fence cannot
+    carry a backtick in its info string, so ````` a ` b``
+    is content, not a fence. The returned marker keeps its run length
+    (````````), which is what a closing line must match.
+    """
     stripped = line.strip()
-    return stripped.startswith("```") or stripped.startswith("~~~")
+    for character in ("`", "~"):
+        if stripped.startswith(character * 3):
+            length = len(stripped) - len(stripped.lstrip(character))
+            info = stripped[length:].strip()
+            if character == "`" and "`" in info:
+                return "", ""
+            return character * length, info
+    return "", ""
+
+
+def _fence_closes(line: str, open_marker: str) -> bool:
+    """True when ``line`` closes a fence opened by ``open_marker``: the same
+    marker character only, run length at least the opening length, and no
+    info string."""
+    stripped = line.strip()
+    character = open_marker[0]
+    return len(stripped) >= len(open_marker) and stripped == character * len(stripped)
+
+
+class _FenceState:
+    """CommonMark-style fence pairing for the messenger body parsers.
+
+    An opening fence records its marker character and run length; only a line
+    of the SAME character with a run at least that long (and no info string)
+    closes it. Interior shorter or other-marker fence lines are plain fence
+    content, so a body whose fenced block quotes another fence survives as one
+    code block instead of toggling on every fence-looking line.
+    """
+
+    def __init__(self) -> None:
+        self.marker = ""
+        self.info = ""
+
+    @property
+    def in_fence(self) -> bool:
+        return bool(self.marker)
+
+    def toggles(self, line: str) -> bool:
+        """Advance the state for ``line``; True when it opens or closes a fence."""
+        if self.marker:
+            if _fence_closes(line, self.marker):
+                self.marker = ""
+                self.info = ""
+                return True
+            return False
+        marker, info = _fence_open(line)
+        if marker:
+            self.marker = marker
+            self.info = info
+            return True
+        return False
+
+
+def _strip_fence_language_tags(body: str) -> tuple[str, list[str]]:
+    """Drop fence info strings (```` ```python ```` -> ```` ``` ````) from a
+    limited-profile body.
+
+    Discord is the only major messenger that renders the language tag; Slack
+    and Telegram print it as literal text on the fence line. `body_blocks`
+    already carries the language separately per code block, so nothing is
+    lost for adapters that can highlight.
+    """
+    tracker = _FenceState()
+    output: list[str] = []
+    stripped_any = False
+    for line in body.splitlines():
+        was_in_fence = tracker.in_fence
+        if tracker.toggles(line) and not was_in_fence and tracker.info:
+            prefix = line[: len(line) - len(line.lstrip())]
+            output.append(prefix + tracker.marker)
+            stripped_any = True
+            continue
+        output.append(line)
+    if not stripped_any:
+        return body, []
+    return "\n".join(output), ["fence_language_tags_stripped"]
+
+
+_SLACK_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
+_SLACK_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+# The URL group allows one level of balanced parens so a Wikipedia-style link
+# ("...Rust_(programming_language)") converts losslessly instead of truncating
+# at the first ")". Deeper nesting or whitespace leaves the link untouched.
+_SLACK_LINK_RE = re.compile(r"\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)")
+# An inline-code span: a backtick run closed by an equally long run, so
+# double-backtick spans hold too. Span content stays byte-identical.
+_SLACK_INLINE_CODE_RE = re.compile(r"(`+).+?\1")
+
+
+def _slack_dialect_body(body: str) -> tuple[str, list[str]]:
+    """Convert Markdown to Slack mrkdwn OUTSIDE fences, line by line.
+
+    Slack renders `# Heading` and `**bold**` as literal characters and links
+    only as `<url|text>`, so the resolved-slack body converts headings to
+    `*bold*` lines, `**b**` to `*b*`, and `[x](y)` to `<y|x>`. Fenced code is
+    left byte-identical (fence pairing reuses the CommonMark tracker), and so
+    are inline-code spans on prose lines.
+    """
+    tracker = _FenceState()
+    output: list[str] = []
+    changed = False
+    for line in body.splitlines():
+        was_in_fence = tracker.in_fence
+        if tracker.toggles(line) or was_in_fence:
+            output.append(line)
+            continue
+        converted = _slack_dialect_line(line)
+        changed = changed or converted != line
+        output.append(converted)
+    if not changed:
+        return body, []
+    return "\n".join(output), ["slack_dialect_markdown"]
+
+
+def _slack_dialect_line(line: str) -> str:
+    """One prose line to mrkdwn. Inline-code spans keep their bytes: the
+    bold/link conversions apply only to the prose between them, so
+    ``**kwargs`` inside backticks is never halved to ``*kwargs``."""
+    prefix = line[: len(line) - len(line.lstrip())]
+    text = line.strip()
+    heading = _SLACK_HEADING_RE.match(text)
+    if heading:
+        text = f"*{heading.group(2).strip()}*"
+    pieces: list[str] = []
+    cursor = 0
+    for match in _SLACK_INLINE_CODE_RE.finditer(text):
+        pieces.append(_slack_dialect_prose(text[cursor : match.start()]))
+        pieces.append(match.group(0))
+        cursor = match.end()
+    pieces.append(_slack_dialect_prose(text[cursor:]))
+    return prefix + "".join(pieces)
+
+
+def _slack_dialect_prose(segment: str) -> str:
+    segment = _SLACK_BOLD_RE.sub(r"*\1*", segment)
+    return _SLACK_LINK_RE.sub(r"<\2|\1>", segment)
 
 
 def _is_markdown_table_start(lines: list[str], index: int) -> bool:
@@ -8204,7 +8605,7 @@ def _messenger_body_blocks_cached(body: str) -> tuple[tuple[str, str, str], ...]
     current: list[str] = []
     fence: list[str] = []
     language = ""
-    in_code_fence = False
+    tracker = _FenceState()
 
     def flush_paragraph() -> None:
         nonlocal current
@@ -8214,19 +8615,17 @@ def _messenger_body_blocks_cached(body: str) -> tuple[tuple[str, str, str], ...]
 
     for line in body.splitlines():
         stripped = line.strip()
-        if _is_code_fence_line(line):
-            if in_code_fence:
+        if tracker.in_fence:
+            if tracker.toggles(line):
                 blocks.append(("code_block", "\n".join(fence), language))
                 fence = []
                 language = ""
-                in_code_fence = False
             else:
-                flush_paragraph()
-                language = stripped.lstrip("`~").strip()
-                in_code_fence = True
+                fence.append(line)
             continue
-        if in_code_fence:
-            fence.append(line)
+        if tracker.toggles(line):
+            flush_paragraph()
+            language = tracker.info
             continue
         if not stripped:
             flush_paragraph()
@@ -8241,7 +8640,7 @@ def _messenger_body_blocks_cached(body: str) -> tuple[tuple[str, str, str], ...]
             blocks.append(("numbered", numbered_text, ""))
             continue
         current.append(stripped)
-    if in_code_fence and fence:
+    if tracker.in_fence and fence:
         # An unterminated fence still keeps its shape; dropping back to prose
         # would silently reflow the very content the fence was protecting.
         blocks.append(("code_block", "\n".join(fence), language))
@@ -8256,16 +8655,22 @@ def _rich_markdown_body_blocks(body: str) -> list[dict[str, object]]:
     blocks: list[dict[str, object]] = []
     paragraph: list[str] = []
     index = 0
-    in_code_fence = False
+    tracker = _FenceState()
     while index < len(lines):
         line = lines[index]
         stripped = line.strip()
-        if _is_code_fence_line(line):
-            in_code_fence = not in_code_fence
+        if tracker.in_fence:
+            # Raw inside a fence: `stripped` would drop the leading whitespace
+            # that column alignment is made of, and a blank line belongs to the
+            # code. Interior shorter/other-marker fence lines are content too.
+            paragraph.append(stripped if tracker.toggles(line) else line)
+            index += 1
+            continue
+        if tracker.toggles(line):
             paragraph.append(stripped)
             index += 1
             continue
-        if not in_code_fence and _is_markdown_table_start(lines, index):
+        if _is_markdown_table_start(lines, index):
             if paragraph:
                 blocks.extend(_messenger_body_blocks("\n".join(paragraph)))
                 paragraph = []
@@ -8280,20 +8685,12 @@ def _rich_markdown_body_blocks(body: str) -> list[dict[str, object]]:
                 paragraph.extend(table_lines)
             continue
         if not stripped:
-            if in_code_fence:
-                # A blank line inside a fence belongs to the code. Flushing here
-                # would split one fenced block into two and reflow the halves.
-                paragraph.append(line)
-                index += 1
-                continue
             if paragraph:
                 blocks.extend(_messenger_body_blocks("\n".join(paragraph)))
                 paragraph = []
             index += 1
             continue
-        # Raw inside a fence: `stripped` would drop the leading whitespace that
-        # column alignment is made of.
-        paragraph.append(line if in_code_fence else stripped)
+        paragraph.append(stripped)
         index += 1
     if paragraph:
         blocks.extend(_messenger_body_blocks("\n".join(paragraph)))

@@ -40,12 +40,15 @@ _COMMANDS: dict[str, tuple[str, tuple[str, ...]]] = {
     "claude-code": ("claude", ("--version",)),
     "omx-runtime": ("omx", ("--version",)),
     # omo ships as an extension of a host agent CLI, not as its own binary.
-    # The probed command is the DETECTED host (usually `pi`; `senpi` is a pi
-    # distribution; opencode hosts omo as a plugin) — see
-    # `omo_runtime_host` in fanout_dispatch. No host on PATH probes the
-    # first candidate and truthfully reads `missing`; the runtime
-    # prompt-handoff path never needed a local CLI.
-    "omo-runtime": ("senpi", ("--version",)),
+    # This static entry is NEVER read for omo-runtime: `_resolved_command`
+    # always overrides it with the DETECTED host (`omo_runtime_host` in
+    # fanout_dispatch — pi first, then its senpi distribution, then the
+    # opencode plugin host). The entry mirrors OMO_RUNTIME_HOST_CANDIDATES[0]
+    # so a future second consumer of this table sees the same pi-first
+    # default the detector promises — do not repin it to one distribution.
+    # No host on PATH probes the first candidate and truthfully reads
+    # `missing`; the runtime prompt-handoff path never needed a local CLI.
+    "omo-runtime": ("pi", ("--version",)),
     "omc-runtime": ("omc", ("--version",)),
 }
 

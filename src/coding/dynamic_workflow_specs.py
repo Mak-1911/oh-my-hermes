@@ -29,8 +29,13 @@ _COST_TIERS: Final[dict[str, str]] = {
     "claude-code": "operator-selected",
     "glm": "medium",
     "codex": "operator-selected",
-    "pi": "low",
-    "omp-runtime": "runtime-variable",
+    # pi-family hosts (pi, its senpi distribution, opencode) route whatever
+    # model the operator selected — same tier as gpt/claude-code/codex; the
+    # host CLI itself carries no cost of its own.
+    "pi": "operator-selected",
+    "senpi": "operator-selected",
+    "opencode": "operator-selected",
+    "omo-runtime": "runtime-variable",
     "omx-runtime": "runtime-variable",
     "hermes": "wrapper",
 }
@@ -55,7 +60,9 @@ _TARGET_TYPES: Final[dict[str, str]] = {
     "codex": "runtime",
     "claude-code": "runtime",
     "pi": "runtime",
-    "omp-runtime": "runtime",
+    "senpi": "runtime",
+    "opencode": "runtime",
+    "omo-runtime": "runtime",
     "omx-runtime": "runtime",
     "generic-runtime": "runtime",
     "hermes": "wrapper",

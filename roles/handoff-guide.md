@@ -48,6 +48,8 @@ Role selection is prepared guidance only. It is not worker dispatch, tool execut
 - `send_to_executor`
 - `show_status`
 
+When delegating, show the composed delegate prompt in a fenced code block in the status message; truncate a long prompt to a bounded preview ending with `... [truncated, N chars total]` — the user must see WHAT was asked, not just that something was.
+
 ## Evidence Boundary
 
 A prepared coding handoff is not executor/runtime dispatch, worker start, worktree creation, result, verification, review, CI, merge readiness, or merge evidence. Hermes/OMX/OMO/OMC runtime handoffs must record separate `runtime_observation/v1` events before the status can move from prepared to observed.

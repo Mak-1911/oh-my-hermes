@@ -872,7 +872,9 @@ class WrapperGoldenExampleTests(unittest.TestCase):
         self.assertEqual(rendering["schema_version"], "omh_messenger_rendering/v1")
         self.assertEqual(
             rendering["platform_hints"]["telegram"],
-            "Start the response with the visible prefix, keep sections short, and avoid table layouts.",
+            "Start the response with the visible prefix, keep sections short, avoid table layouts, and "
+            "post body_text as plain text WITHOUT parse_mode; if you opt into MarkdownV2 you must escape "
+            "every reserved character yourself.",
         )
         self.assertLess(rendering["chunking"]["max_recommended_chars"], len(long_body))
         self.assertIn("paragraphs", rendering["chunking"]["split_on"])

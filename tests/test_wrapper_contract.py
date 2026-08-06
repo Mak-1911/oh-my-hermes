@@ -635,6 +635,28 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(rendering["chunking"]["max_recommended_chars"], 1700)
         self.assertEqual(rendering["chunking"]["hard_limit_chars"], 1900)
 
+    def test_cached_interaction_copy_carries_chunked_body_texts_without_aliasing(self) -> None:
+        # The cached interaction path hands each caller a copy built from a
+        # fixed key set; a set that misses `chunked_body_texts` gives
+        # cache-path consumers payloads without the field, and passing the
+        # lru-cached list through uncopied would alias it across callers.
+        message = "please review my pull request diff"
+        first = build_chat_interaction_payload(message, source="discord")
+        second = build_chat_interaction_payload(message, source="discord")
+
+        first_chunks = first["chat_response"]["messenger_rendering"]["chunked_body_texts"]
+        second_chunks = second["chat_response"]["messenger_rendering"]["chunked_body_texts"]
+        self.assertTrue(first_chunks)
+        self.assertEqual(first_chunks, second_chunks)
+        self.assertIsNot(first_chunks, second_chunks)
+        # Mutating one caller's copy must not leak into the shared cache.
+        expected = list(second_chunks)
+        first_chunks.append("mutated")
+        third = build_chat_interaction_payload(message, source="discord")
+        self.assertEqual(
+            third["chat_response"]["messenger_rendering"]["chunked_body_texts"], expected
+        )
+
     def test_route_hint_payload_rejects_sources_outside_the_chat_source_registry(self) -> None:
         with self.assertRaises(ValueError) as raised:
             build_chat_route_hint_payload("please review my pull request diff", source="whatsapp")
@@ -1090,6 +1112,32 @@ class WrapperContractTests(unittest.TestCase):
         self.assertNotIn("executor_handoff", payload["delegation"])
         self.assertIn("show_prompt_handoff", actions)
         self.assertIn("copy_prompt_handoff", actions)
+
+    def test_prompt_handoff_body_shows_the_composed_prompt_in_a_fence(self) -> None:
+        # DELEGATE_PROMPT_DISPLAY_RULE: the user must see WHAT was asked, not
+        # just that something was, and a long prompt truncates with the
+        # documented `... [truncated, N chars total]` marker inside the fence.
+        payload = build_chat_interaction_payload("risky refactor", mode="delegate", source="discord", executor_target="claude-code")
+
+        body = payload["chat_response"]["body"]
+        self.assertIn("I prepared a copyable claude-code prompt.", body)
+        self.assertIn("Prepared prompt for Claude Code:", body)
+        self.assertIn("```", body)
+        # Fence is balanced: opener plus closer.
+        fence_lines = [line for line in body.splitlines() if set(line.strip()) == {"`"}]
+        self.assertEqual(len(fence_lines), 2)
+        self.assertRegex(body, r"\.\.\. \[truncated, \d+ chars total\]")
+
+    def test_prompt_handoff_body_fence_outgrows_backticks_in_the_prompt(self) -> None:
+        payload = build_chat_interaction_payload(
+            "risky refactor with a ``` fence inside", mode="delegate", source="discord", executor_target="claude-code"
+        )
+
+        body = payload["chat_response"]["body"]
+        fence_lines = [line for line in body.splitlines() if set(line.strip()) == {"`"}]
+        self.assertEqual(len(fence_lines), 2)
+        self.assertGreaterEqual(len(fence_lines[0]), 3)
+        self.assertEqual(fence_lines[0], fence_lines[1])
 
     def test_delegate_mode_can_prepare_runtime_handoff(self) -> None:
         payload = build_chat_interaction_payload("risky refactor", mode="delegate", source="discord", executor_target="omx-runtime")
@@ -1616,8 +1664,15 @@ class WrapperContractTests(unittest.TestCase):
             claim_boundary="Research summary is not execution evidence.",
         )
 
-        self.assertEqual(rendering["transforms_applied"], [])
+        # The fenced table survives untouched; the only transform is the
+        # limited-profile fence-language strip (blocks still carry the
+        # language separately).
+        self.assertEqual(rendering["transforms_applied"], ["fence_language_tags_stripped"])
+        self.assertNotIn("markdown_table_to_bullets", rendering["transforms_applied"])
         self.assertIn("| --- | --- |", rendering["body_text"])
+        self.assertNotIn("```markdown", rendering["body_text"])
+        code_blocks = [block for block in rendering["body_blocks"] if block["type"] == "code_block"]
+        self.assertEqual(code_blocks[0]["language"], "markdown")
 
     def test_native_render_uses_messenger_safe_body_for_tables(self) -> None:
         body = "\n".join(
@@ -3567,6 +3622,53 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(response["plain_headline"], "The coding handoff (Codex) was dispatched.")
         self.assertEqual(response["status_card"]["headline"], "The coding handoff (Codex) was dispatched.")
         self.assertIn("waiting for Codex executor evidence", response["body"])
+
+    def test_status_copy_names_the_routed_model_next_to_the_coding_agent(self) -> None:
+        response = build_chat_response_from_status(
+            {
+                "run_id": "run-1",
+                "next_action": "wait_for_executor_evidence",
+                "prepared": {
+                    "executor_target": "codex",
+                    "model_route": {
+                        "selected_model": "gpt-5-codex",
+                        "selected_reasoning_effort": "xhigh",
+                    },
+                },
+                "execution": {"observed": False},
+                "verification": {"observed": False},
+                "review": {"required": False},
+            }
+        )
+
+        self.assertEqual(
+            response["plain_headline"],
+            "The coding handoff (Codex — gpt-5-codex xhigh) was dispatched.",
+        )
+        self.assertEqual(
+            response["status_card"]["headline"],
+            "The coding handoff (Codex — gpt-5-codex xhigh) was dispatched.",
+        )
+        # The status-board single-field convention: model and effort join with
+        # a space, never nested parentheses.
+        self.assertNotIn("Codex — (", response["plain_headline"])
+
+    def test_status_copy_model_label_omits_missing_effort(self) -> None:
+        response = build_chat_response_from_status(
+            {
+                "run_id": "run-1",
+                "next_action": "dispatch_to_executor",
+                "prepared": {
+                    "executor_target": "codex",
+                    "model_route": {"selected_model": "gpt-5-codex"},
+                },
+                "execution": {"observed": False},
+                "verification": {"observed": False},
+                "review": {"required": False},
+            }
+        )
+
+        self.assertEqual(response["plain_headline"], "The coding handoff (Codex — gpt-5-codex) is ready.")
 
     def test_status_card_exposes_platform_neutral_progress_steps(self) -> None:
         card = build_status_card_from_status(

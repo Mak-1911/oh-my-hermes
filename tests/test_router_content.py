@@ -313,13 +313,22 @@ class RouterContentTests(unittest.TestCase):
         # `evidence_boundary` is embedded 5 times and `wrapper_guidance` 3, so
         # naming declared depth, reference-implementation study, contested-claim
         # gating, and the deep_research_dossier/v1 boundary cost another ~0.7KB
-        # (17,974 -> 18,666, leaving 334 B of headroom). Two deliberate raises
-        # for two named content changes, not room for silent growth.
-        self.assertLess(len(json.dumps(route_payload, sort_keys=True)), 19_000)
+        # (17,974 -> 18,666, leaving 334 B of headroom). Raised to 20,000 when
+        # messenger_rendering gained `chunked_body_texts`, the always-present
+        # deterministic chunk list adapters post verbatim: when the body fits
+        # the platform ceiling the list holds the body once more, and the
+        # rendering block is embedded across the payload, so the duplicate
+        # costs ~1.0KB on this probe (18,666 -> 19,665, leaving 335 B of
+        # headroom). Deliberate raises for named content changes, not room
+        # for silent growth.
+        self.assertLess(len(json.dumps(route_payload, sort_keys=True)), 20_000)
         # Raised from 61,000 with the same public/direct path unification: the
         # context payload also gains input_language and skill governance
-        # (measured 61,841). Deliberate, named, not room for silent growth.
-        self.assertLess(len(json.dumps(context_payload, sort_keys=True)), 62_500)
+        # (measured 61,841). Raised to 64,000 alongside the route-payload
+        # raise above for the same `chunked_body_texts` duplicate in every
+        # embedded messenger rendering (measured 63,474). Deliberate, named,
+        # not room for silent growth.
+        self.assertLess(len(json.dumps(context_payload, sort_keys=True)), 64_000)
 
     def test_role_surface_docs_match_catalog_and_avoid_runtime_claims(self) -> None:
         roles_doc = Path("docs/ROLES.md").read_text(encoding="utf-8")
