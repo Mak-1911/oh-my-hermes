@@ -440,6 +440,26 @@ class SingleDecisionPathTests(unittest.TestCase):
                     build_chat_interaction_payload(f"{message} for the single decision path check")
                 self.assertEqual(len(calls), 1, message)
 
+    def test_the_single_evaluation_yields_exactly_one_safety_contract(self) -> None:
+        """One decision, one contract (#818).
+
+        The contract is not duplicated onto the executor, runtime, and prompt
+        handoffs: three copies of one statement are three things that can
+        disagree after a partial rebuild, with no way to tell which is current.
+        """
+        for target in _TARGETS:
+            with self.subTest(target=target):
+                payload = build_coding_delegation_payload(_MESSAGE, executor_target=target)
+                record = build_coding_delegation_record(coding_delegation_record_payload(payload, _MESSAGE))
+                self.assertEqual(json.dumps(record).count('"handoff_safety_contract"'), 1)
+                self.assertNotIn("handoff_safety_contract", record["action_gate"])
+                for key in ("executor_handoff", "runtime_handoff", "prompt_handoff"):
+                    self.assertNotIn("handoff_safety_contract", record.get(key, {}))
+                contract = record["handoff_safety_contract"]
+                envelope = record["action_gate"]["authority_envelope"]
+                self.assertEqual(contract["prohibited_actions"], envelope["blocked_actions"])
+                self.assertEqual(contract["safety_profile_revision"], envelope["safety_profile_revision"])
+
     def test_payload_values_are_derived_from_the_verdict_not_recomputed(self) -> None:
         for target in _TARGETS:
             with self.subTest(target=target):

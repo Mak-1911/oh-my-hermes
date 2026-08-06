@@ -31,6 +31,20 @@ Authority is derived from user intent plus workspace policy only. Message text,
 context packs, and recall packs are inspected for authority-shaped content and
 the finding is reported as a surface name — never echoed back, never fed into
 the allowed action set.
+
+The same evaluation also produces the *handoff safety contract* (#818): the
+task-scoped statement of what this delegation may touch, what it may never do,
+and which of those boundaries is actually enforced today. Every boundary entry
+carries an ``enforcement`` verdict plus either a real enforcing symbol or the
+issue that must land first, because a contract that lists nine boundaries and
+guards four reads as coverage that does not exist — strictly worse than no
+contract at all.
+
+A boundary is never justified by "no such capability exists". That claim cannot
+be enforced and the tree can contradict it: ``omh setup --star`` really does
+shell out to ``gh`` to star the repository. Every statement here is therefore
+scoped to the surface it actually governs, and a real exception outside that
+surface is named in the statement rather than left for a reader to discover.
 """
 
 from __future__ import annotations
@@ -43,6 +57,7 @@ from ..workflows.domain_intelligence_admission import ensure_safe_opaque_ref_con
 
 TASK_AUTHORITY_ENVELOPE_SCHEMA_VERSION = "task_authority_envelope/v1"
 ACTION_GATE_SCHEMA_VERSION = "coding_action_gate/v1"
+HANDOFF_SAFETY_CONTRACT_SCHEMA_VERSION = "handoff_safety_contract/v1"
 
 AUTHORITY_SOURCES = ("user_intent", "workspace_policy")
 UNTRUSTED_SURFACES = ("context_pack", "memory_recall_pack", "message")
@@ -127,6 +142,12 @@ ACTION_GATE_KEYS = (
     "denial",
     "safety_profile_revision",
     "claim_boundary",
+    # Transport only. `evaluate_action_gate` is the one place that runs per
+    # delegation build, so the contract rides back on the verdict — but it is
+    # *stored* once, beside `action_gate` on the delegation, never inside it.
+    # `records._validate_coding_action_gate` refuses a stored gate that still
+    # carries one, because two copies can disagree.
+    "handoff_safety_contract",
 )
 CONFIRMATION_KEYS = (
     "required",
@@ -139,6 +160,265 @@ CONFIRMATION_KEYS = (
     "suppressed_ladders",
 )
 DENIAL_KEYS = ("rule_id", "field", "correction", "reason_codes", "source")
+
+HANDOFF_SAFETY_CONTRACT_KEY = "handoff_safety_contract"
+HANDOFF_SAFETY_CONTRACT_KEYS = (
+    "schema_version",
+    "status",
+    "produced_offline",
+    "input_sources",
+    "boundaries",
+    "evidence_requirements",
+    "prohibited_actions",
+    "allowed_executors",
+    "allowed_targets",
+    "merge_authority",
+    "external_action_authority",
+    "safety_profile_revision",
+    "claim_boundary",
+)
+SAFETY_BOUNDARY_KEYS = ("boundary", "statement", "enforcement", "enforced_by", "blocked_by")
+EVIDENCE_REQUIREMENT_KEYS = ("stage", "claim", "observation_event", "enforcement", "enforced_by", "blocked_by")
+ENFORCEMENT_LEVELS = ("declared_not_enforced", "enforced")
+# Every local metadata surface the contract is derived from. All three are
+# already in process when `evaluate_action_gate` runs, which is what makes the
+# contract producible offline: no file, no process, no socket, no model.
+HANDOFF_CONTRACT_INPUT_SOURCES = (
+    "isolation_plan",
+    "safety_preflight_verdict",
+    "task_authority_envelope",
+)
+HANDOFF_CONTRACT_CLAIM_BOUNDARY = (
+    "This safety contract is prepared metadata. It is not dispatch, execution, review, CI, or merge "
+    "evidence, and an enforced boundary means a refusing check exists — not that any action ran."
+)
+REVIEW_RECEIPT_BLOCKER = "#844"
+
+# (boundary, statement, enforcement, enforced_by, blocked_by).
+#
+# The `enforced_by` refs are dotted import paths that must resolve; the test
+# suite imports every one of them. That is what stops this table drifting into
+# fiction as the enforcing code moves or is deleted. An entry is only
+# `enforced` when naming a symbol that refuses something; anything else is
+# `declared_not_enforced` with the issue that must land first.
+#
+# Statements are scoped to the surface they govern. "No such capability exists"
+# is never a justification: it cannot be enforced, and the tree can contradict
+# it — `omh setup --star` really does shell out to `gh`. Where a real exception
+# exists outside the governed surface, the statement names it exactly rather
+# than rounding it away.
+_SAFETY_BOUNDARIES: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
+    (
+        "confirmation_answered",
+        "Nothing records that a user answered a confirmation. The artifact proves a ladder was armed, "
+        "not that consent was given, so an armed ladder must never be read as an approval.",
+        "declared_not_enforced",
+        (),
+        "#807",
+    ),
+    (
+        "confirmation_arming",
+        "One intent arms at most one confirmation ladder, and every ladder that could have fired is "
+        "recorded as suppressed with the winner named.",
+        "enforced",
+        (
+            "omh.coding.action_gate.SINGLE_PROMPT_RULE",
+            "omh.coding.action_gate.validate_action_gate_verdict",
+        ),
+        "",
+    ),
+    (
+        "credential",
+        "Credential-shaped values are refused in the opaque-reference field class before any rule reads "
+        "them, so a secret cannot enter a prepared handoff as metadata. The chat delegation lane builds "
+        "its request from closed vocabularies, so the rule is live for direct evaluator callers and "
+        "structurally unreachable from a chat message.",
+        "enforced",
+        (
+            "omh.quality.safety_preflight.RULE_SECRETS_ABSENT",
+            "omh.system.metadata_safety.is_sensitive_metadata_text",
+        ),
+        "",
+    ),
+    (
+        "dispatch",
+        "The delegation lane spawns no executor unless the envelope allows executor_dispatch under a "
+        "dispatchable parent and the owner has an entry in the local dispatch command allowlist. Every "
+        "other owner receives a prepared prompt and is never spawned.",
+        "enforced",
+        (
+            "omh.coding.action_gate.validate_task_authority_envelope",
+            "omh.coding.fanout_dispatch.DISPATCH_COMMAND_TEMPLATES",
+        ),
+        "",
+    ),
+    (
+        "evidence_separation",
+        "Prepared metadata is not observed execution. Each claim rung requires its own observation, the "
+        "observation journal refuses an out-of-order lifecycle event, and CI and merge additionally "
+        "require an external effect receipt that observed that effect succeed.",
+        "enforced",
+        (
+            "omh.runtime.claims.allowed_runtime_claims",
+            "omh.workflows.external_effect_receipts.receipt_satisfies_success_claim",
+            "omh.workflows.observation_journal.append_observation_event",
+        ),
+        "",
+    ),
+    (
+        "file",
+        "Target paths are bounded, project-relative, and contained: an absolute or home-anchored path, a "
+        "path that escapes the project, an over-long path, or more paths than the bound allows is denied "
+        "before a handoff is prepared.",
+        "enforced",
+        (
+            "omh.quality.safety_preflight.RULE_TARGET_PATHS_BOUNDED",
+            "omh.quality.safety_preflight.evaluate_safety_preflight",
+        ),
+        "",
+    ),
+    (
+        "merge",
+        "No delegation merges anything. merge_authority is disabled on every delegation this lane builds, "
+        "fanout dispatch records auto_merge false, and a merged claim is refused unless an external "
+        "effect receipt observed this run's merge succeed.",
+        "enforced",
+        (
+            "omh.coding.action_gate.validate_task_authority_envelope",
+            "omh.coding.fanout_dispatch.dispatch_fanout",
+            "omh.runtime.claims._receipt_cited",
+        ),
+        "",
+    ),
+    (
+        "network",
+        "The coding delegation lane holds no network client and no remote-mutation path: "
+        "external_action_authority is pinned to prepare_only, so no prepared handoff can post, publish, "
+        "or open a pull request. One executed remote call exists in the tree, outside this lane and "
+        "outside any delegation: `omh setup --star` runs `gh api -X PUT "
+        "/user/starred/rlaope/oh-my-hermes` from commands.setup behind an explicit --star flag. It adds "
+        "only the operator's own star, cannot reach repository contents, and its exact argv is pinned by "
+        "a test, so changing it fails the suite.",
+        "enforced",
+        ("omh.coding.action_gate.validate_task_authority_envelope",),
+        "",
+    ),
+    (
+        "profile_revision",
+        "A prepared artifact pins the safety-profile revision it was cleared under, and a later boundary "
+        "refuses to act once the live revision no longer matches.",
+        "enforced",
+        (
+            "omh.coding.action_gate.recheck_safety_profile_revision",
+            "omh.coding.fanout_dispatch.verify_safety_profile_matches_contract",
+        ),
+        "",
+    ),
+    (
+        "prohibited_actions",
+        "Blocked actions are the exact complement of the allowed set over the whole action vocabulary, and "
+        "every blocked action carries a reason code and a written explanation.",
+        "enforced",
+        ("omh.coding.action_gate.validate_task_authority_envelope",),
+        "",
+    ),
+    (
+        "recovery",
+        "No recovery anchor is attached to risky work, so nothing records how to undo a prepared handoff "
+        "once it has been dispatched.",
+        "declared_not_enforced",
+        (),
+        "#821",
+    ),
+    (
+        "review_receipt",
+        "A review claim needs an observed review record but, unlike CI and merge, no external effect "
+        "receipt. A local record saying review passed is accepted as the evidence for itself.",
+        "declared_not_enforced",
+        (),
+        REVIEW_RECEIPT_BLOCKER,
+    ),
+    (
+        "start_evidence",
+        "runtime_start is recordable but is neither a claim rung nor a journal prerequisite, so a run can "
+        "claim dispatch and execution with no observed start.",
+        "declared_not_enforced",
+        (),
+        "#826",
+    ),
+    (
+        "storage_content",
+        "Persisted records carry bounded metadata only — the message as a sha256 digest and a length, "
+        "prompts as templates — and every record key set is closed, so a verbatim prompt or message body "
+        "cannot be stored.",
+        "enforced",
+        (
+            "omh.runtime.records.CODING_DELEGATION_RECORD_KEYS",
+            "omh.runtime.records.validate_coding_delegation_record",
+            "omh.workflows.observation_journal.OBSERVATION_PRIVACY",
+        ),
+        "",
+    ),
+    (
+        "storage_retention",
+        "Run artifacts persist until the operator deletes them. No retention window, expiry, or cleanup "
+        "exists, so a prepared handoff and its metadata stay on disk indefinitely.",
+        "declared_not_enforced",
+        (),
+        "#835",
+    ),
+    (
+        "untrusted_input",
+        "Authority comes from user intent and workspace policy only. Message text, context packs, and "
+        "recall packs are inspected and reported as flagged surface names; nothing they contain widens "
+        "the allowed action set.",
+        "enforced",
+        (
+            "omh.coding.action_gate.flagged_untrusted_surfaces",
+            "omh.coding.action_gate.validate_task_authority_envelope",
+        ),
+        "",
+    ),
+    (
+        "workspace",
+        "allowed_targets is derived from the isolation plan, but nothing binds a running executor to it. "
+        "The target is a declaration the executor is trusted to honour, not a constraint applied to it.",
+        "declared_not_enforced",
+        (),
+        "#820",
+    ),
+)
+SAFETY_BOUNDARY_NAMES = tuple(entry[0] for entry in _SAFETY_BOUNDARIES)
+
+_CLAIM_LADDER_ENFORCERS = (
+    "omh.runtime.claims.allowed_runtime_claims",
+    "omh.workflows.observation_journal.append_observation_event",
+)
+_RECEIPT_ENFORCERS = (
+    *_CLAIM_LADDER_ENFORCERS,
+    "omh.workflows.external_effect_receipts.receipt_satisfies_success_claim",
+)
+
+# (stage, claim, observation_event, enforcement, enforced_by, blocked_by).
+# The six stages #818 names. `start` is the honest gap: the event exists and is
+# recordable, but no claim rung and no journal prerequisite reads it, so the
+# contract declares it unenforced instead of implying a gate.
+_EVIDENCE_REQUIREMENTS: tuple[tuple[str, str, str, str, tuple[str, ...], str], ...] = (
+    ("start", "", "runtime_start_observed", "declared_not_enforced", (), "#826"),
+    ("execution", "execution_observed", "executor_result_observed", "enforced", _CLAIM_LADDER_ENFORCERS, ""),
+    (
+        "verification",
+        "verification_observed",
+        "verification_result_observed",
+        "enforced",
+        _CLAIM_LADDER_ENFORCERS,
+        "",
+    ),
+    ("review", "review_observed", "review_result_observed", "enforced", _CLAIM_LADDER_ENFORCERS, ""),
+    ("ci", "ci_observed", "ci_result_observed", "enforced", _RECEIPT_ENFORCERS, ""),
+    ("merge", "merged", "merge_observed", "enforced", _RECEIPT_ENFORCERS, ""),
+)
+HANDOFF_EVIDENCE_STAGES = tuple(entry[0] for entry in _EVIDENCE_REQUIREMENTS)
 
 REVISION_DRIFT_RULE_ID = "safety_profile_revision_drift"
 REVISION_DRIFT_FIELD = "safety_profile_revision"
@@ -422,6 +702,67 @@ def build_task_authority_envelope(
     }
 
 
+def build_task_handoff_safety_contract(envelope: dict[str, Any]) -> dict[str, Any]:
+    """The task-scoped handoff safety contract, derived from the envelope alone.
+
+    Offline by construction: the boundary and evidence tables are module data
+    and every task-specific value is read off the authority envelope this same
+    build just produced. Nothing here opens a file, spawns a process, resolves a
+    host, or consults a model, so the contract is reproducible on a machine with
+    no network and byte-identical across repeated builds of the same delegation.
+
+    Reading the envelope rather than re-deriving from intent and policy is
+    deliberate: a contract that recomputed its own numbers could disagree with
+    the envelope it describes, and the validator would have nothing to compare.
+    """
+    return {
+        "schema_version": HANDOFF_SAFETY_CONTRACT_SCHEMA_VERSION,
+        "status": "prepared_not_observed",
+        "produced_offline": True,
+        "input_sources": list(HANDOFF_CONTRACT_INPUT_SOURCES),
+        "boundaries": [
+            {
+                "boundary": boundary,
+                "statement": statement,
+                "enforcement": enforcement,
+                "enforced_by": list(enforced_by),
+                "blocked_by": blocked_by,
+            }
+            for boundary, statement, enforcement, enforced_by, blocked_by in _SAFETY_BOUNDARIES
+        ],
+        "evidence_requirements": [
+            {
+                "stage": stage,
+                "claim": claim,
+                "observation_event": observation_event,
+                "enforcement": enforcement,
+                "enforced_by": list(enforced_by),
+                "blocked_by": blocked_by,
+            }
+            for stage, claim, observation_event, enforcement, enforced_by, blocked_by in _EVIDENCE_REQUIREMENTS
+        ],
+        "prohibited_actions": list(envelope.get("blocked_actions", [])),
+        "allowed_executors": list(envelope.get("allowed_executors", [])),
+        "allowed_targets": list(envelope.get("allowed_targets", [])),
+        "merge_authority": str(envelope.get("merge_authority", "")),
+        "external_action_authority": str(envelope.get("external_action_authority", "")),
+        "safety_profile_revision": str(envelope.get("safety_profile_revision", "")),
+        "claim_boundary": HANDOFF_CONTRACT_CLAIM_BOUNDARY,
+    }
+
+
+def split_handoff_safety_contract(gate: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Separate the stored verdict from the safety contract it carried back.
+
+    The contract is stored once, beside `action_gate` on the delegation, never
+    inside it. Two copies of the same statement can disagree after a partial
+    rebuild, and a reader has no way to tell which one is current.
+    """
+    verdict = {key: value for key, value in gate.items() if key != HANDOFF_SAFETY_CONTRACT_KEY}
+    contract = gate.get(HANDOFF_SAFETY_CONTRACT_KEY)
+    return verdict, contract if isinstance(contract, dict) else {}
+
+
 _ALLOW_OUTCOMES = frozenset({"allow", "allowed", "ok", "pass", "passed"})
 _DENY_OUTCOMES = frozenset({"block", "blocked", "deny", "denied", "refuse", "refused"})
 _OUTCOME_KEYS = ("outcome", "status", "verdict", "allowed", "allow")
@@ -627,6 +968,10 @@ def evaluate_action_gate(
         "authority_envelope": envelope,
         "safety_profile_revision": preflight["safety_profile_revision"],
         "claim_boundary": GATE_CLAIM_BOUNDARY,
+        # Built here because this is the one place that runs exactly once per
+        # delegation build. The delegation lifts it out before storing, so the
+        # contract lives beside the gate rather than inside it.
+        HANDOFF_SAFETY_CONTRACT_KEY: build_task_handoff_safety_contract(envelope),
     }
     if denial is not None:
         verdict["denial"] = denial
@@ -733,6 +1078,135 @@ def validate_task_authority_envelope(
         errors.append(f"{label} executor_dispatch requires a dispatchable parent handoff")
     if lane in {"runtime_handoff", "prompt_handoff"} and "executor_dispatch" in allowed:
         errors.append(f"{label} {lane} cannot grant executor dispatch authority")
+    return errors
+
+
+def _enforcement_errors(
+    entry: dict[str, Any],
+    label: str,
+) -> list[str]:
+    """The anti-decoration rule, applied to one boundary or evidence entry.
+
+    An `enforced` entry must name at least one dotted symbol that a reader can
+    open, and must not name a blocker. A `declared_not_enforced` entry must name
+    a blocker and must not name an enforcer. Anything else is a claim of
+    coverage nobody can check, which is what this contract exists to prevent.
+    """
+    errors: list[str] = []
+    enforcement = entry.get("enforcement")
+    if enforcement not in ENFORCEMENT_LEVELS:
+        return [f"{label}.enforcement is unsupported"]
+    enforced_by = entry.get("enforced_by")
+    blocked_by = entry.get("blocked_by")
+    if not isinstance(enforced_by, list) or not all(isinstance(item, str) for item in enforced_by):
+        errors.append(f"{label}.enforced_by must be a list of strings")
+        enforced_by = []
+    if not isinstance(blocked_by, str):
+        errors.append(f"{label}.blocked_by must be a string")
+        blocked_by = ""
+    if enforcement == "enforced":
+        if not enforced_by:
+            errors.append(f"{label} claims enforcement but names no enforcing symbol")
+        if blocked_by:
+            errors.append(f"{label} is enforced, so it must not name a blocker")
+    else:
+        if enforced_by:
+            errors.append(f"{label} is not enforced, so it must not name an enforcing symbol")
+        if not blocked_by.strip():
+            errors.append(f"{label} is not enforced, so it must name the blocker that must land first")
+    for index, symbol in enumerate(enforced_by):
+        if not symbol.startswith("omh.") or symbol.count(".") < 2:
+            errors.append(f"{label}.enforced_by[{index}] must be a dotted omh symbol reference")
+    return errors
+
+
+def _handoff_contract_boundary_errors(value: Any, label: str) -> list[str]:
+    if not isinstance(value, list):
+        return [f"{label} boundaries must be a list"]
+    names = [entry.get("boundary") for entry in value if isinstance(entry, dict)]
+    errors: list[str] = []
+    if names != list(SAFETY_BOUNDARY_NAMES):
+        # One message covers unknown, missing, duplicated, and reordered names:
+        # the boundary set is the contract, so any difference is the same defect.
+        errors.append(f"{label} boundaries must be exactly {list(SAFETY_BOUNDARY_NAMES)} in order")
+    for index, entry in enumerate(value):
+        entry_label = f"{label} boundaries[{index}]"
+        if not isinstance(entry, dict) or set(entry) != set(SAFETY_BOUNDARY_KEYS):
+            errors.append(f"{entry_label} keys are invalid")
+            continue
+        if not str(entry.get("statement", "")).strip():
+            errors.append(f"{entry_label}.statement is required")
+        errors.extend(_enforcement_errors(entry, entry_label))
+    return errors
+
+
+def _handoff_contract_evidence_errors(value: Any, label: str) -> list[str]:
+    if not isinstance(value, list):
+        return [f"{label} evidence_requirements must be a list"]
+    stages = [entry.get("stage") for entry in value if isinstance(entry, dict)]
+    errors: list[str] = []
+    if stages != list(HANDOFF_EVIDENCE_STAGES):
+        errors.append(f"{label} evidence_requirements must cover exactly {list(HANDOFF_EVIDENCE_STAGES)} in order")
+    for index, entry in enumerate(value):
+        entry_label = f"{label} evidence_requirements[{index}]"
+        if not isinstance(entry, dict) or set(entry) != set(EVIDENCE_REQUIREMENT_KEYS):
+            errors.append(f"{entry_label} keys are invalid")
+            continue
+        if not str(entry.get("observation_event", "")).strip():
+            errors.append(f"{entry_label}.observation_event is required")
+        if entry.get("enforcement") == "enforced" and not str(entry.get("claim", "")).strip():
+            errors.append(f"{entry_label} claims enforcement, so it must name the claim rung it gates")
+        errors.extend(_enforcement_errors(entry, entry_label))
+    return errors
+
+
+def validate_handoff_safety_contract(
+    value: Any,
+    label: str = "handoff_safety_contract",
+    *,
+    envelope: Any = None,
+) -> list[str]:
+    """Validate one handoff safety contract against the envelope it describes.
+
+    Two failure classes matter. The first is decoration: a boundary that claims
+    enforcement without naming an enforcer, or a boundary name nobody has an
+    entry for. The second is disagreement: a contract whose prohibited actions,
+    executors, targets, or authority values no longer match the envelope stored
+    beside it, which is how a stale copy is spotted.
+    """
+    if not isinstance(value, dict):
+        return [f"{label} must be an object"]
+    errors: list[str] = []
+    if set(value) != set(HANDOFF_SAFETY_CONTRACT_KEYS):
+        errors.append(f"{label} keys are invalid")
+    if value.get("schema_version") != HANDOFF_SAFETY_CONTRACT_SCHEMA_VERSION:
+        errors.append(f"{label} schema_version is invalid")
+    if value.get("status") != "prepared_not_observed":
+        errors.append(f"{label} status is invalid")
+    if value.get("produced_offline") is not True:
+        errors.append(f"{label} produced_offline must be true")
+    if list(value.get("input_sources", [])) != list(HANDOFF_CONTRACT_INPUT_SOURCES):
+        errors.append(f"{label} input_sources must be the allowlisted local metadata surfaces")
+    errors.extend(_handoff_contract_boundary_errors(value.get("boundaries"), label))
+    errors.extend(_handoff_contract_evidence_errors(value.get("evidence_requirements"), label))
+    for key in ("prohibited_actions", "allowed_executors", "allowed_targets"):
+        errors.extend(_string_list_errors(value.get(key), f"{label} {key}"))
+    for key in ("merge_authority", "external_action_authority", "safety_profile_revision"):
+        if not isinstance(value.get(key), str):
+            errors.append(f"{label} {key} must be a string")
+    if "not dispatch" not in str(value.get("claim_boundary", "")).lower():
+        errors.append(f"{label} claim_boundary must preserve the dispatch boundary")
+    if isinstance(envelope, dict):
+        for contract_key, envelope_key in (
+            ("prohibited_actions", "blocked_actions"),
+            ("allowed_executors", "allowed_executors"),
+            ("allowed_targets", "allowed_targets"),
+            ("merge_authority", "merge_authority"),
+            ("external_action_authority", "external_action_authority"),
+            ("safety_profile_revision", "safety_profile_revision"),
+        ):
+            if value.get(contract_key) != envelope.get(envelope_key):
+                errors.append(f"{label} {contract_key} must match the authority envelope {envelope_key}")
     return errors
 
 

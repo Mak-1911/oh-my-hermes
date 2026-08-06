@@ -1495,3 +1495,97 @@ before the confirmation ladder is arbitrated, and a denial arms no ladder at
 all. A re-check re-proves what the artifact was prepared under; it never
 re-decides it, and it is not dispatch, execution, review, CI, or merge
 evidence.
+
+### Handoff Safety Contract
+
+`handoff_safety_contract/v1` is the task-scoped answer to "what will OMH
+actually do, and what stops it doing anything else". It declares seventeen
+boundaries — workspace, file, network, credential, dispatch, storage content,
+storage retention, merge, confirmation arming, confirmation answered, untrusted
+input, prohibited actions, evidence separation, profile revision, recovery,
+start evidence, and review receipt — plus the six evidence stages #818 names:
+start, execution, verification, review, CI, and merge.
+
+It is a field group on `coding_delegation/v1`, stored beside `action_gate`, for
+the same reason the authority envelope is not a record family: a separate family
+joins on run id, and a join can be read while the delegation is being rebuilt
+under a different revision. It is equally *not* duplicated onto the three
+handoffs — three copies of one statement are three things that can disagree
+after a partial rebuild, with no way for a reader to tell which is current. One
+copy, one place, validated against the envelope stored next to it.
+
+`coding/action_gate.py::build_task_handoff_safety_contract` is the only
+producer. It is called from `evaluate_action_gate`, which already runs exactly
+once per delegation build, and the contract rides back on the verdict under
+`handoff_safety_contract`; `split_handoff_safety_contract` lifts it out before
+the verdict is stored, and the record validator refuses a stored gate that still
+carries one. Production is offline by construction: the boundary and evidence
+tables are module data and every task-specific value is read off the authority
+envelope the same build just produced, so nothing opens a file, spawns a
+process, resolves a host, or consults a model. Repeated builds of the same
+delegation are byte-identical.
+
+#### The anti-decoration rule
+
+A contract that lists seventeen boundaries while guarding eleven is worse than
+no contract, because a reader infers a guard behind every line. Every boundary
+entry therefore carries an `enforcement` verdict of `enforced` or
+`declared_not_enforced`, and the validator refuses the two dishonest shapes: an
+`enforced` entry with no `enforced_by` symbol, and a `declared_not_enforced`
+entry with no `blocked_by` blocker. `enforced_by` entries are dotted import
+paths, and the test suite imports every one of them, so the table cannot drift
+into naming code that has moved or been deleted. The set of enforced boundaries
+is additionally asserted against a hardcoded set, which fails in both
+directions: declaring a boundary without an enforcer, and deleting an enforcer
+while leaving the declaration standing.
+
+A boundary is never justified by the absence of a capability. "No such thing
+exists in `src/`" cannot be enforced, it silently expires the moment someone
+adds the thing, and in this tree it is already false: `omh setup --star` shells
+out to `gh api -X PUT /user/starred/rlaope/oh-my-hermes`. Statements are
+therefore scoped to the surface they actually govern, and a real exception
+outside that surface is named exactly — endpoint included — rather than rounded
+away. An earlier draft of this contract carried an `absent_capability`
+enforcement mechanism; it was removed, both because the claim it encoded is
+unverifiable and because, once absence stops being a justification, the field
+becomes derivable from `enforcement` and turns into a rule that cannot fire.
+
+Enforced today, with the symbol that refuses: dispatch and prohibited actions
+and untrusted input (`validate_task_authority_envelope`, plus
+`DISPATCH_COMMAND_TEMPLATES` and `flagged_untrusted_surfaces`), merge (the same
+validator, `dispatch_fanout`'s `auto_merge: False`, and `claims._receipt_cited`),
+network (the same validator pinning `external_action_authority` to
+`prepare_only` on the delegation lane), file and credential (the preflight path
+and secrets rules), confirmation arming (`validate_action_gate_verdict` and the
+at-most-one-armed-ladder check), storage content (the closed record key sets),
+evidence separation (the claim ladder, the journal prerequisites, and the
+external-effect receipts), and profile revision.
+
+The network boundary is the one that needs its scope read carefully. It governs
+the coding delegation lane, where no network client and no remote-mutation path
+exist and no prepared handoff can post, publish, or open a pull request. It does
+not claim the process never reaches the network: `omh setup --star` does, from
+`commands/setup.py::_try_star_github_repo`, behind an explicit `--star` flag on
+an interactive command, with a dry-run branch and a 20s timeout, and it mutates
+only the operator's own starred list. The contract names that call, and the
+enforcement suite pins its exact argv, so changing it fails a test rather than
+quietly widening what the sentence covers.
+
+Declared and not enforced, each naming what must land first: **workspace** —
+`allowed_targets` is derived from the isolation plan but nothing binds a running
+executor to it (#820); **confirmation answered** — the artifact proves a ladder
+was armed, never that consent was given (#807); **storage retention** — run
+artifacts are metadata-only, but no retention window, expiry, or cleanup exists,
+so they persist until the operator deletes them (#835); **recovery** — no
+recovery anchor is attached to risky work (#821); **start evidence** —
+`runtime_start` is recordable but is neither a claim rung nor a journal
+prerequisite, so a run can claim dispatch and execution with no observed start
+(#826); and **review receipt** — a review claim needs an observed review record
+but, unlike CI and merge, no external effect receipt, so a local record saying
+review passed is accepted as the evidence for itself (unfiled).
+
+The last two are known asymmetries rather than oversights. Closing either means
+adding a rung or a prerequisite to `runtime/claims.py` and
+`workflows/observation_journal.py`, which changes what runs recorded before the
+gate existed may claim; that is a separate decision with its own regression
+surface, so the contract states the gap instead of implying a guard.

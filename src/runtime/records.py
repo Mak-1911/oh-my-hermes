@@ -53,7 +53,13 @@ from ..system.record_revision import (
     revision_field_errors,
 )
 from ..memory import validate_handoff_context_blocked, validate_handoff_context_pack, validate_project_memory_recall_pack
-from ..coding.action_gate import validate_action_gate_verdict, validate_task_authority_envelope
+from ..coding.action_gate import (
+    HANDOFF_SAFETY_CONTRACT_KEY,
+    split_handoff_safety_contract,
+    validate_action_gate_verdict,
+    validate_handoff_safety_contract,
+    validate_task_authority_envelope,
+)
 from ..coding.product_family_templates import validate_product_family_template
 from ..coding.product_quality_harnesses import validate_product_quality_harness
 from ..coding.project_governance import validate_project_governance_blocked, validate_project_governance_profile
@@ -169,6 +175,7 @@ CODING_DELEGATION_RECORD_KEYS = (
     "dispatchable",
     "executor_selection",
     "action_gate",
+    "handoff_safety_contract",
     "review_required",
     "review_workflow",
     "message_sha256",
@@ -818,8 +825,21 @@ def build_coding_delegation_record(delegation: dict[str, Any]) -> dict[str, Any]
     if harness_quality:
         record["harness_quality"] = harness_quality
     action_gate = delegation.get("action_gate")
-    if isinstance(action_gate, dict) and not validate_action_gate_verdict(action_gate, "action_gate"):
-        record["action_gate"] = deepcopy(action_gate)
+    handoff_safety_contract = delegation.get("handoff_safety_contract")
+    if isinstance(action_gate, dict):
+        # The split is done here as well as on the delegation lane so a caller
+        # that hands over a raw `evaluate_action_gate` verdict still stores one
+        # copy of the contract, beside the gate rather than inside it.
+        action_gate, carried_contract = split_handoff_safety_contract(action_gate)
+        if handoff_safety_contract is None and carried_contract:
+            handoff_safety_contract = carried_contract
+        if not validate_action_gate_verdict(action_gate, "action_gate"):
+            record["action_gate"] = deepcopy(action_gate)
+    if isinstance(handoff_safety_contract, dict) and not validate_handoff_safety_contract(
+        handoff_safety_contract,
+        "handoff_safety_contract",
+    ):
+        record["handoff_safety_contract"] = deepcopy(handoff_safety_contract)
     executor_handoff = _compact_executor_handoff(delegation.get("executor_handoff"))
     if executor_handoff:
         record["executor_handoff"] = executor_handoff
@@ -2273,13 +2293,39 @@ def _validate_coding_action_gate(delegation: dict[str, Any]) -> list[str]:
     ``dispatchable`` and ``executor_selection.choice_required`` are derived from
     the verdict, so a record whose stored values disagree with it means some
     caller re-decided; that is a validation failure, not a rendering detail.
+
+    The #818 handoff safety contract is validated here too, and only here: it is
+    a field group on this record, not a record family of its own. A separate
+    family would join on run id and could be read while the delegation is
+    rebuilt under a different revision — the staleness class #811 removed.
     """
     if "action_gate" not in delegation:
+        if "handoff_safety_contract" in delegation:
+            return ["coding_delegation handoff_safety_contract requires the action_gate that produced it"]
         return []
     gate = delegation["action_gate"]
     errors = validate_action_gate_verdict(gate, "coding_delegation action_gate")
     if not isinstance(gate, dict):
         return errors
+    envelope = gate.get("authority_envelope")
+    if HANDOFF_SAFETY_CONTRACT_KEY in gate:
+        errors.append(
+            "coding_delegation action_gate must not carry handoff_safety_contract; "
+            "the contract is stored once beside the gate"
+        )
+    if "handoff_safety_contract" not in delegation:
+        # A gate without its contract is a boundary statement dropped in
+        # transit, which is exactly the silent loss the key tuple and the
+        # compactor are supposed to make impossible.
+        errors.append("coding_delegation action_gate requires the handoff_safety_contract it produced")
+    else:
+        errors.extend(
+            validate_handoff_safety_contract(
+                delegation["handoff_safety_contract"],
+                "coding_delegation handoff_safety_contract",
+                envelope=envelope,
+            )
+        )
     if gate.get("dispatchable") != delegation.get("dispatchable"):
         errors.append("coding_delegation dispatchable must be derived from action_gate.dispatchable")
     selection = delegation.get("executor_selection")
@@ -2287,8 +2333,7 @@ def _validate_coding_action_gate(delegation: dict[str, Any]) -> list[str]:
         errors.append(
             "coding_delegation executor_selection.choice_required must be derived from action_gate.choice_required"
         )
-    parent = gate.get("authority_envelope")
-    parent_allowed = set(parent.get("allowed_actions", [])) if isinstance(parent, dict) else set()
+    parent_allowed = set(envelope.get("allowed_actions", [])) if isinstance(envelope, dict) else set()
     for key in ("executor_handoff", "runtime_handoff", "prompt_handoff"):
         handoff = delegation.get(key)
         if not isinstance(handoff, dict):
