@@ -163,6 +163,24 @@ class ExecutorHandoffMetadata:
     prepared_handoff_boundary: str
 
 
+def denied_executor_selection() -> ExecutorSelection:
+    """The selection a denied action gate collapses to.
+
+    A denial must flow through the same value the record validators read.
+    Leaving ``dispatchable`` true beside a denied verdict, or flipping it to
+    false while an executor handoff is still attached, makes the delegation
+    record unconstructible instead of cleanly denied — so the whole selection
+    collapses back to retained Hermes and no handoff is built.
+    """
+    return ExecutorSelection(
+        work_owner_mode="retained_hermes",
+        selected_executor_profile=None,
+        dispatch_policy="prepare_only",
+        dispatchable=False,
+        status="retained_hermes",
+    )
+
+
 def executor_selection_for_target(executor_target: str, *, action: str) -> ExecutorSelection:
     if action != "delegate":
         return ExecutorSelection(

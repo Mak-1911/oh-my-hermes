@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 import hashlib
 from pathlib import Path
 import re
@@ -21,9 +22,11 @@ from ..coding_contracts import (
     TASK_PROMPT_CONTRACT_SCHEMA_VERSION,
     TASK_PROMPT_REQUIRED_SECTIONS,
 )
+from .action_gate import evaluate_action_gate
 from .prompting import build_executor_prompting_contract, render_executor_prompt_sections
 from ..executors import (
     HERMES_CODING_TEAM_WRAPPER_ACTIONS,
+    denied_executor_selection,
     executor_label,
     executor_selection_for_target,
     hermes_coding_team_path_contract,
@@ -157,6 +160,11 @@ _CODE_REFERENCE_FILE_RE = re.compile(
     rf"(?<![\w@.-])(?:[\w.-]+[\\/])*[\w.-]+\.({'|'.join(_CODE_REFERENCE_EXTENSIONS)})(?![\w.-])",
     re.IGNORECASE,
 )
+_CODE_REFERENCE_TRIM_CHARS = "`'\"“”‘’.,;:!?()[]{}<>"
+# The same set without `.`, for trimming the *front* of a path token: a leading
+# dot is part of the path (`./src/a.py`, `../../etc/loader.py`), and stripping
+# it rewrites the path into a different one.
+_CODE_REFERENCE_OPENING_TRIM_CHARS = "`'\"“”‘’,;:!?()[]{}<>"
 _CODE_REFERENCE_CONTEXT_RE = re.compile(
     "|".join(
         (
@@ -318,6 +326,9 @@ def build_coding_delegation_payload(
     governance_default: str = "not_applicable",
     product_family: str | None = None,
     message_context_mode: str = "full",
+    safety_preflight: dict[str, object] | None = None,
+    live_safety_profile_revision: str | None = None,
+    requested_authority_actions: tuple[str, ...] | list[str] | None = None,
 ) -> dict[str, object]:
     message = message.strip()
     if not message:
@@ -384,7 +395,8 @@ def build_coding_delegation_payload(
         "model_naming_rule": MODEL_NAMING_RULE,
         "readiness_evidence_rule": READINESS_EVIDENCE_RULE,
     }
-    selection = executor_selection_for_target(executor_target, action=delegation.action)
+    proposed_selection = executor_selection_for_target(executor_target, action=delegation.action)
+    selection = proposed_selection
     selected_profile = selection.selected_executor_profile
     capability_snapshot = (
         _resolved_executor_capability_snapshot(selected_profile, capability_snapshot_directory)
@@ -412,27 +424,75 @@ def build_coding_delegation_payload(
         if delegation.action == "delegate"
         else {}
     )
+    # The single decision path. Every downstream authority value — dispatchable,
+    # choice_required, the executor selection status, and which confirmation
+    # ladder is armed — is derived from this one verdict; nothing recomputes it.
+    action_gate = evaluate_action_gate(
+        message=message,
+        delegation_action=delegation.action,
+        intent=delegation.intent,
+        review_required=delegation.review_required,
+        work_owner_mode=proposed_selection.work_owner_mode,
+        selected_executor_profile=proposed_selection.selected_executor_profile,
+        dispatch_policy=proposed_selection.dispatch_policy,
+        dispatchable=proposed_selection.dispatchable,
+        choice_required=proposed_selection.choice_required,
+        executor_selection_status=proposed_selection.status,
+        isolation_plan=isolation_plan,
+        context_pack=context_pack,
+        memory_recall_pack=memory_recall_pack,
+        safety_preflight=(
+            safety_preflight
+            if safety_preflight is not None
+            else _safety_preflight_verdict(
+                message,
+                owner=proposed_selection.selected_executor_profile or "hermes",
+                workflow=delegation.recommended_workflow,
+                message_context_mode=message_context_mode,
+                # The same condition `_attach_visible_message` is called under
+                # below, so the flag states what the artifact will carry.
+                raw_content_included=include_message and message_context_mode == "full",
+            )
+        ),
+        live_safety_profile_revision=live_safety_profile_revision,
+        requested_actions=list(requested_authority_actions or []),
+    )
+    authority_envelope = action_gate["authority_envelope"]
+    if action_gate["outcome"] == "deny":
+        # The deny flows through the same value the record validators read: the
+        # selection collapses to retained Hermes so no handoff is built and no
+        # ladder is armed, instead of a dispatchable handoff beside a denial.
+        selection = denied_executor_selection()
+        selected_profile = None
+        capability_snapshot = None
+        executor_local_workflow = None
+        isolation_plan = {}
     payload.update(
         {
             "work_owner_mode": selection.work_owner_mode,
             "selected_executor_profile": selection.selected_executor_profile,
             "dispatch_policy": selection.dispatch_policy,
-            "dispatchable": selection.dispatchable,
+            "dispatchable": bool(action_gate["dispatchable"]),
             "executor_readiness": executor_readiness_for_selection(
                 selection.selected_executor_profile,
-                choice_required=selection.choice_required,
+                choice_required=bool(action_gate["choice_required"]),
             ),
             "executor_selection": {
-                "status": selection.status,
-                "choice_required": selection.choice_required,
-                "options": with_executor_readiness_options(public_executor_options()) if selection.choice_required else [],
+                "status": str(action_gate["executor_selection_status"]),
+                "choice_required": bool(action_gate["choice_required"]),
+                "options": (
+                    with_executor_readiness_options(public_executor_options())
+                    if action_gate["choice_required"]
+                    else []
+                ),
             },
+            "action_gate": action_gate,
         }
     )
     if isolation_plan:
         payload["isolation_plan"] = isolation_plan
     if _inline_coding_policy_applies(
-        message.lower(), delegation.intent, delegation.action, selection.choice_required
+        message.lower(), delegation.intent, delegation.action, bool(action_gate["choice_required"])
     ):
         payload["delegation_policy"] = inline_coding_policy_payload()
     if selection.selected_executor_profile == "codex" and delegation.action == "delegate":
@@ -499,6 +559,7 @@ def build_coding_delegation_payload(
     )
     payload["specialist_work_quality"] = specialist_work_quality
     _attach_specialist_work_quality(payload, specialist_work_quality)
+    _attach_task_authority_envelope(payload, authority_envelope)
     _attach_governance_and_family(payload, governance, family_template, quality_harness)
     payload["harness_quality"] = _public_harness_quality(
         harness,
@@ -507,7 +568,7 @@ def build_coding_delegation_payload(
         has_executor_handoff="executor_handoff" in payload,
         has_runtime_handoff="runtime_handoff" in payload,
         has_prompt_handoff="prompt_handoff" in payload,
-        choice_required=selection.choice_required,
+        choice_required=bool(action_gate["choice_required"]),
         runtime_profile=selection.selected_executor_profile,
     )
     metadata = {key: value for key, value in (source_metadata or {}).items() if value}
@@ -603,6 +664,164 @@ def _attach_governance_and_family(
             handoff["product_family_template"] = family_template
         if quality_harness:
             handoff["product_quality_harness"] = quality_harness
+
+
+def _attach_task_authority_envelope(payload: dict[str, object], envelope: dict[str, object]) -> None:
+    """Authority travels with the artifact, not in a separate record family.
+
+    A separate family would introduce a join where the handoff and the authority
+    it was prepared under can desynchronize; attaching the envelope to whichever
+    handoff exists keeps them one object.
+    """
+    for key in ("executor_handoff", "runtime_handoff", "prompt_handoff"):
+        handoff = payload.get(key)
+        if isinstance(handoff, dict):
+            handoff["task_authority_envelope"] = envelope
+
+
+# One more than the evaluator's `MAX_TARGET_PATHS`, so a request naming more
+# targets than the bound allows reaches the count rule and denies instead of
+# being silently trimmed to an allowed 32. Mirrored rather than imported
+# because the evaluator is an optional lane resolved lazily below.
+_SAFETY_PREFLIGHT_TARGET_PATH_SCAN_LIMIT = 33
+
+
+@lru_cache(maxsize=1)
+def _safety_preflight_evaluator() -> Any:
+    """Resolve the #804/#802 safety preflight evaluator when it is installed.
+
+    Bound lazily so this module keeps working when the evaluator lane is not
+    present; the call itself uses the evaluator's real signature.
+    """
+    try:
+        from ..quality.safety_preflight import evaluate_safety_preflight
+    except ImportError:
+        return None
+    return evaluate_safety_preflight
+
+
+def _path_anchor_start(token: str, start: int) -> int:
+    """Extend a file match back over its filesystem anchor and nothing else.
+
+    The file regex stops at the first non-path character, which drops a leading
+    `/`, `\\`, or `~`. Re-attaching the anchor keeps an absolute path absolute:
+    laundering it into a relative one would hide it from the very rule that is
+    supposed to see it. A Windows drive prefix is part of the same anchor, so
+    `C:\\Windows\\loader.py` stays the path the caller wrote instead of
+    collapsing to `\\Windows\\loader.py`.
+    """
+    while start > 0 and token[start - 1] in "/\\~":
+        start -= 1
+    if start == 2 and token[1] == ":" and token[0].isalpha():
+        return 0
+    return start
+
+
+def _is_preflight_remote_location(lowered: str) -> bool:
+    """`_is_external_location_fragment`, minus its dot-segment false positive.
+
+    That predicate reads any first component containing a dot as a host, which
+    is right for `github.com/...` and wrong for `../../etc/loader.py`. A
+    relative path that leaves the project has to reach the containment rule
+    instead of being filtered out as a remote location, so leading dot segments
+    are excluded from the host test here. The routing predicate keeps its own
+    behaviour: widening it would change which messages count as code references.
+    """
+    if lowered.replace("\\", "/").split("/", 1)[0] in {".", ".."}:
+        return False
+    return _is_external_location_fragment(lowered)
+
+
+def _safety_preflight_target_paths(message: str) -> list[str]:
+    """Filesystem targets the user named in the message, and nothing else.
+
+    Scanning is per whitespace token so an anchor is only ever restored from
+    inside the token that carries the file reference. `_CODE_REFERENCE_FILE_RE`
+    cannot match a URL scheme, so on a pasted link the match starts after
+    `https://` and a message-wide backward walk would swallow the scheme's `//`
+    and hand the preflight `//github.com/.../chat.py` -- an absolute path that
+    denies. External locations are skipped outright, by the same predicate
+    `_has_code_reference` already uses, because a URL is not a filesystem
+    target and pasting one is a normal way to open a coding request.
+    """
+    paths: list[str] = []
+    for raw_token in message.split():
+        token = raw_token.rstrip(_CODE_REFERENCE_TRIM_CHARS).lstrip(_CODE_REFERENCE_OPENING_TRIM_CHARS)
+        if not token or _is_preflight_remote_location(token.lower()):
+            continue
+        for match in _CODE_REFERENCE_FILE_RE.finditer(token):
+            fragment = token[_path_anchor_start(token, match.start()) : match.end()]
+            if fragment not in paths:
+                paths.append(fragment)
+            if len(paths) >= _SAFETY_PREFLIGHT_TARGET_PATH_SCAN_LIMIT:
+                return paths
+    return paths
+
+
+def _safety_preflight_request(
+    message: str,
+    *,
+    owner: str,
+    workflow: str,
+    message_context_mode: str,
+    raw_content_included: bool,
+) -> dict[str, object]:
+    """The closed, bounded metadata request the preflight evaluates.
+
+    Target paths come from the *user message* only. Context packs and recall
+    packs are deliberately excluded: a path pasted into retrieved content is
+    not the user asking for that target, and letting it through would be the
+    exact widening #811 forbids.
+    """
+    return {
+        "owner": owner,
+        "approved_scope": f"coding/{workflow}",
+        "message_context_mode": message_context_mode,
+        # What this build will actually do with the raw message, not the mode
+        # written twice: `_attach_visible_message` emits the verbatim message
+        # and expanded prompts only when the caller asked for the message AND
+        # the mode is full, so the declaration is False on the default path
+        # even under full mode. Re-deriving it from the mode would make the
+        # rule unable to disagree with its own input.
+        "raw_content_included": raw_content_included,
+        "target_paths": _safety_preflight_target_paths(message),
+        "evidence_claims": ["prepared_not_observed"],
+    }
+
+
+def _safety_preflight_verdict(
+    message: str,
+    *,
+    owner: str,
+    workflow: str,
+    message_context_mode: str,
+    raw_content_included: bool,
+) -> dict[str, object] | None:
+    """The preflight verdict, or None when no evaluator is installed.
+
+    The two absences stay distinct, which is the distinction the action gate
+    then acts on. `None` means the lane is not present and delegation must keep
+    working. An installed evaluator that answers with anything other than a
+    verdict carrying a status has malfunctioned, and that returns an unreadable
+    status the gate denies on rather than the `None` the gate would read as
+    "no lane at all". The shape check belongs here because this is the caller
+    that knows what the evaluator returns.
+    """
+    evaluator = _safety_preflight_evaluator()
+    if evaluator is None:
+        return None
+    verdict = evaluator(
+        _safety_preflight_request(
+            message,
+            owner=owner,
+            workflow=workflow,
+            message_context_mode=message_context_mode,
+            raw_content_included=raw_content_included,
+        )
+    )
+    if isinstance(verdict, dict) and verdict.get("status"):
+        return verdict
+    return {"status": "unreadable"}
 
 
 def _attach_specialist_work_quality(payload: dict[str, object], contract: dict[str, object]) -> None:
@@ -710,6 +929,8 @@ def coding_delegation_record_payload(
         "verification": delegation.get("verification", []),
         "status": "prepared_not_observed",
     }
+    if isinstance(payload.get("action_gate"), dict):
+        record["action_gate"] = payload["action_gate"]
     for key in ("executor_handoff", "runtime_handoff", "prompt_handoff"):
         if isinstance(payload.get(key), dict):
             record[key] = payload[key]
@@ -803,7 +1024,7 @@ def _action_for(intent: str, score: int, workflow: str) -> str:
 def _has_code_reference(message: str) -> bool:
     has_code_context = _CODE_REFERENCE_CONTEXT_RE.search(message) is not None
     for raw_fragment in message.split():
-        fragment = raw_fragment.strip("`'\"“”‘’.,;:!?()[]{}<>")
+        fragment = raw_fragment.strip(_CODE_REFERENCE_TRIM_CHARS)
         lowered = fragment.lower()
         if not lowered or _is_external_location_fragment(lowered):
             continue

@@ -25,6 +25,10 @@ _PLATFORM_SECRET_PREFIX = re.compile(
 )
 _AWS_ACCESS_KEY = re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")
 _GOOGLE_API_KEY = re.compile(r"\bAIza[A-Za-z0-9_-]{20,}\b", re.IGNORECASE)
+# Bounded metadata is one short line. A line break, a tab, a NUL, or a fence
+# marker means the value is carrying a body -- a code block, a raw prompt, a
+# pasted log -- and a rule evaluation must never receive one of those.
+_BODY_SHAPED = re.compile(r"[\r\n\t\f\v\x00]|```")
 
 
 def is_sensitive_metadata_text(value: str) -> bool:
@@ -42,6 +46,11 @@ def redact_metadata_text(value: str, *, limit: int) -> str:
     if is_sensitive_metadata_text(value):
         return "[redacted]"
     return value[:limit]
+
+
+def is_body_shaped_metadata_text(value: str, *, limit: int) -> bool:
+    """True when the text is a body rather than one bounded metadata line."""
+    return len(value) > limit or _BODY_SHAPED.search(value) is not None
 
 
 def require_opaque_metadata_ref(value: object, *, field: str) -> str:

@@ -4163,6 +4163,8 @@ def _coding_route_decision_for_delegation(
 
 def _delegation_next_action(delegation: dict[str, object]) -> str:
     action = str(_nested(delegation, "delegation").get("action", "fallback"))
+    if _nested(delegation, "action_gate").get("outcome") == "deny":
+        return "route_coding_request"
     if action == "delegate" and _delegation_is_coding_status_request(delegation):
         return "show_coding_handoff_status"
     if action == "delegate" and delegation.get("executor_handoff"):
@@ -5629,10 +5631,93 @@ def build_chat_response_from_plan(plan_payload: dict[str, object], *, thread_key
     )
 
 
+_LADDER_ACTION_IDS = ("choose_executor", "choose_permission_profile", "send_to_codex", "send_to_executor")
+_LADDER_ACTION_LABELS = {
+    "choose_executor": "Choose coding agent",
+    "choose_permission_profile": "Choose permission profile",
+    "send_to_executor": "Open coding agent",
+}
+
+
+def _apply_action_gate_arbitration(
+    actions: list[dict[str, object]],
+    next_action: str,
+    gate: dict[str, object],
+) -> tuple[list[dict[str, object]], str]:
+    """Render the arbitrated ladder; never re-run the arbitration.
+
+    When the gate armed a ladder other than the one this card leads with, the
+    armed action becomes the card's next action and every other authority-ladder
+    action is disabled, so one intent still produces one prompt.
+    """
+    confirmation = gate.get("confirmation")
+    if not isinstance(confirmation, dict) or not confirmation.get("required"):
+        return actions, next_action
+    armed = str(confirmation.get("action_id", ""))
+    if not armed or armed == next_action:
+        return actions, next_action
+    adjusted = [
+        {**entry, "enabled": False} if entry.get("id") in _LADDER_ACTION_IDS and entry.get("id") != armed else entry
+        for entry in actions
+    ]
+    if all(entry.get("id") != armed for entry in adjusted):
+        adjusted.insert(0, _action(armed, _LADDER_ACTION_LABELS.get(armed, armed.replace("_", " ")), "primary"))
+    return adjusted, armed
+
+
+def _action_gate_state(delegation_payload: dict[str, object]) -> dict[str, object]:
+    """Render the action-gate verdict onto a card without re-deciding it.
+
+    Card builders read this block; none of them recompute ``dispatchable``,
+    ``choice_required``, or which confirmation ladder is armed. The single
+    decision path is ``coding.action_gate.evaluate_action_gate``, invoked once
+    per delegation build.
+    """
+    gate = _nested(delegation_payload, "action_gate")
+    if not gate:
+        return {}
+    state: dict[str, object] = {"action_gate": deepcopy(gate)}
+    envelope = gate.get("authority_envelope")
+    if isinstance(envelope, dict):
+        state["task_authority_envelope"] = deepcopy(envelope)
+    return state
+
+
 def build_chat_response_from_delegation(delegation_payload: dict[str, object], *, thread_key: str = "") -> dict[str, object]:
     delegation = _nested(delegation_payload, "delegation")
     executor_resolution = _nested(delegation_payload, "executor_resolution")
     action = str(delegation.get("action", "fallback"))
+    gate_state = _action_gate_state(delegation_payload)
+    gate = _nested(delegation_payload, "action_gate")
+    if gate.get("outcome") == "deny":
+        denial = _nested(gate, "denial")
+        rule_id = str(denial.get("rule_id", "")) or "safety_preflight_denied"
+        field = str(denial.get("field", "")) or "message"
+        correction = str(denial.get("correction", ""))
+        return _chat_response(
+            kind="clarification",
+            headline="I cannot prepare this handoff under the current safety policy.",
+            body=(
+                f"Rule `{rule_id}` blocked this on `{field}`. {correction} "
+                "No coding agent was chosen, no handoff was prepared, and no confirmation is being asked for."
+            ),
+            phase="clarifying",
+            next_action="route_coding_request",
+            thread_key=thread_key,
+            actions=[_action("show_status", "Show status", "primary"), _action("cancel", "Cancel", "secondary")],
+            claim_boundary="A denied request is not a prepared handoff, dispatch, or execution evidence.",
+            extra_state={
+                "delegation_action": action,
+                "intent": delegation.get("intent", "unknown"),
+                "selected_workflow": delegation.get("recommended_workflow", ""),
+                "work_owner_mode": delegation_payload.get("work_owner_mode", "retained_hermes"),
+                "selected_executor_profile": None,
+                "executor_choice_required": False,
+                "dispatchable": False,
+                "prepared_handoff_boundary": "A denied request is not a prepared handoff.",
+                **gate_state,
+            },
+        )
     if action == "delegate" and delegation_payload.get("executor_handoff"):
         handoff = _nested(delegation_payload, "executor_handoff")
         executor = str(handoff.get("selected_executor_profile") or handoff.get("executor_target") or "executor")
@@ -5665,6 +5750,8 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 )
             )
         actions.append(_action("show_status", "Show status", "secondary"))
+        next_action = "show_coding_handoff_status" if status_request else "send_to_executor"
+        actions, next_action = _apply_action_gate_arbitration(actions, next_action, gate)
         return _chat_response(
             kind="handoff",
             headline=(
@@ -5679,7 +5766,7 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 else f"I can open {label} with this prepared handoff, but I will not claim implementation until coding-agent evidence is observed."
             ),
             phase="handoff_prepared",
-            next_action="show_coding_handoff_status" if status_request else "send_to_executor",
+            next_action=next_action,
             thread_key=thread_key,
             actions=actions,
             claim_boundary="Prepared handoff is not execution evidence.",
@@ -5699,6 +5786,7 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 "coding_status_request": status_request,
                 "route_context": delegation_payload.get("route_context", {}),
                 **_executor_local_workflow_state(handoff, executor),
+                **gate_state,
             },
         )
     if action == "delegate" and delegation_payload.get("prompt_handoff"):
@@ -5741,6 +5829,8 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 )
             )
         actions.append(_action("show_status", "Show status", "secondary"))
+        next_action = "show_coding_handoff_status" if status_request else "show_prompt_handoff"
+        actions, next_action = _apply_action_gate_arbitration(actions, next_action, gate)
         return _chat_response(
             kind="handoff",
             headline=(
@@ -5755,7 +5845,7 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 else prompt_body
             ),
             phase="prompt_handoff_prepared",
-            next_action="show_coding_handoff_status" if status_request else "show_prompt_handoff",
+            next_action=next_action,
             thread_key=thread_key,
             actions=actions,
             claim_boundary="Prompt handoff is prepared only; OMH has not dispatched it to an executor.",
@@ -5775,6 +5865,7 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 "coding_status_request": status_request,
                 "route_context": delegation_payload.get("route_context", {}),
                 **_executor_local_workflow_state(prompt_handoff, selected),
+                **gate_state,
             },
         )
     if action == "delegate" and delegation_payload.get("runtime_handoff"):
@@ -5798,29 +5889,32 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 "This is not runtime start, implementation, review, CI, or merge evidence."
             )
         )
+        runtime_actions = [
+            *([_action("show_coding_handoff_status", "Show coding status", "primary")] if status_request else []),
+            _action(
+                "show_runtime_handoff",
+                "Show runtime",
+                "secondary" if status_request else "primary",
+                payload={"selected_executor_profile": selected},
+            ),
+            *extra_actions,
+            _action(primary_action, primary_label, "primary", enabled=False, payload={"selected_executor_profile": selected}),
+            _action("prepare_worktree", "Prepare worktree", "secondary", enabled=False, payload={"selected_executor_profile": selected}),
+            _action("start_team", "Start team", "secondary", enabled=False, payload={"selected_executor_profile": selected}),
+            _action("start_swarm", "Start swarm", "secondary", enabled=False, payload={"selected_executor_profile": selected}),
+            _action("choose_executor", "Change coding agent", "secondary"),
+            _action("show_status", "Show status", "secondary"),
+        ]
+        runtime_next_action = "show_coding_handoff_status" if status_request else "show_runtime_handoff"
+        runtime_actions, runtime_next_action = _apply_action_gate_arbitration(runtime_actions, runtime_next_action, gate)
         return _chat_response(
             kind="handoff",
             headline="A runtime handoff is ready.",
             body=body,
             phase="runtime_handoff_prepared",
-            next_action="show_coding_handoff_status" if status_request else "show_runtime_handoff",
+            next_action=runtime_next_action,
             thread_key=thread_key,
-            actions=[
-                *([_action("show_coding_handoff_status", "Show coding status", "primary")] if status_request else []),
-                _action(
-                    "show_runtime_handoff",
-                    "Show runtime",
-                    "secondary" if status_request else "primary",
-                    payload={"selected_executor_profile": selected},
-                ),
-                *extra_actions,
-                _action(primary_action, primary_label, "primary", enabled=False, payload={"selected_executor_profile": selected}),
-                _action("prepare_worktree", "Prepare worktree", "secondary", enabled=False, payload={"selected_executor_profile": selected}),
-                _action("start_team", "Start team", "secondary", enabled=False, payload={"selected_executor_profile": selected}),
-                _action("start_swarm", "Start swarm", "secondary", enabled=False, payload={"selected_executor_profile": selected}),
-                _action("choose_executor", "Change coding agent", "secondary"),
-                _action("show_status", "Show status", "secondary"),
-            ],
+            actions=runtime_actions,
             claim_boundary=(
                 hermes_coding_team_claim_boundary()
                 if selected == "hermes"
@@ -5847,6 +5941,7 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 "executor_resolution": executor_resolution,
                 "coding_status_request": status_request,
                 **_executor_local_workflow_state(runtime_handoff, selected),
+                **gate_state,
             },
         )
     if action == "delegate" and _nested(delegation_payload, "executor_selection").get("choice_required"):
@@ -5865,18 +5960,23 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 "work: Claude Code, Codex, an oh-my runtime path, or split it across several agents "
                 "in parallel. Main coding stays delegated."
             )
+        choice_actions, choice_next_action = _apply_action_gate_arbitration(
+            [
+                _action("choose_executor", "Choose coding agent", "primary"),
+                _action("prepare_agent_board_card", "Split across agents", "secondary"),
+                _action("show_status", "Show status", "secondary"),
+            ],
+            "choose_executor",
+            gate,
+        )
         return _chat_response(
             kind="handoff",
             headline="Choose the coding agent.",
             body=body,
             phase="executor_choice_required",
-            next_action="choose_executor",
+            next_action=choice_next_action,
             thread_key=thread_key,
-            actions=[
-                _action("choose_executor", "Choose coding agent", "primary"),
-                _action("prepare_agent_board_card", "Split across agents", "secondary"),
-                _action("show_status", "Show status", "secondary"),
-            ],
+            actions=choice_actions,
             claim_boundary="Coding-agent choice is not dispatch or implementation evidence.",
             extra_state={
                 "delegation_action": action,
@@ -5892,6 +5992,7 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 "executor_choice_context": delegation_payload.get("executor_choice_context", {}),
                 "executor_resolution": executor_resolution,
                 **policy_state,
+                **gate_state,
             },
         )
     if action == "clarify":

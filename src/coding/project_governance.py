@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from ..system.metadata_safety import is_body_shaped_metadata_text, is_sensitive_metadata_text
+from ..workflows.domain_intelligence_bounded_json import decode_bounded_json_object
 
 
 PROJECT_GOVERNANCE_DISCOVERY_SCHEMA_VERSION = "project_governance_discovery/v1"
@@ -27,6 +32,44 @@ _SENSITIVE_RE = re.compile(
     r"(?:\bsk-[A-Za-z0-9_-]{8,}|(?:api[_-]?key|aws_secret_access_key|password|token|secret)\s*[:=]\s*[^\s]+|-----BEGIN(?: [A-Z]+)? PRIVATE KEY-----)",
     re.IGNORECASE,
 )
+
+# --- Org safety rule source (issue #802) ------------------------------------
+#
+# A second bounded local reader in the same idiom as `_read_sources`: closed
+# field set, byte cap, per-source sha256, symlink rejection, closed reason-code
+# vocabulary. Two things are new. It is bounded in TIME as well as size, and it
+# is fail-closed on every failure mode -- there is no "unavailable therefore
+# fine" branch, because an org rule that cannot be read must never be read as
+# permission. The caller (`quality/safety_preflight.py`) turns any
+# `status != "available"` into a denial.
+ORG_SAFETY_RULE_SOURCE_SCHEMA_VERSION = "omh_org_safety_rules/v1"
+ORG_SAFETY_RULE_SOURCE_RESULT_SCHEMA_VERSION = "omh_org_safety_rule_source/v1"
+ORG_SAFETY_RULE_SOURCE_MAX_BYTES = 16_384
+ORG_SAFETY_RULE_SOURCE_TIME_BUDGET_SECONDS = 0.5
+ORG_SAFETY_RULE_SOURCE_CLAIM_BOUNDARY = (
+    "An org safety rule source is bounded local metadata; it is not compliance, execution, "
+    "review, CI, or merge evidence."
+)
+ORG_SAFETY_RULE_SOURCE_REASON_CODES = (
+    "org_source_available",
+    "org_source_missing",
+    "org_source_unsafe",
+    "org_source_unreadable",
+    "org_source_oversized",
+    "org_source_timed_out",
+    "org_source_malformed",
+    "org_source_unknown_version",
+    "org_source_unknown_fields",
+    "org_source_unsafe_metadata",
+)
+_ORG_SOURCE_FIELDS = frozenset({"schema_version", "revision", "denied_remote_target_kinds", "max_target_paths"})
+_ORG_SOURCE_CHUNK_BYTES = 4_096
+_ORG_SOURCE_MAX_DEPTH = 4
+_ORG_SOURCE_MAX_NODES = 128
+_ORG_SOURCE_MAX_TOKENS = 16
+_ORG_SOURCE_MAX_TOKEN_CHARS = 120
+_ORG_SOURCE_MAX_TARGET_PATHS = 1_024
+_ORG_SOURCE_PATH_FIELD = "org_rule_source.source_path"
 
 
 def discover_project_governance(project_root: str | Path, *, decision: str = "not_applicable") -> dict[str, object]:
@@ -97,6 +140,121 @@ def validate_project_governance_blocked(value: Any) -> list[str]:
     if not _claim_boundary_valid(value.get("claim_boundary")):
         return ["project governance blocked marker claim boundary is invalid"]
     return []
+
+
+def read_org_safety_rule_source(
+    source_path: str | Path,
+    *,
+    time_budget_seconds: float = ORG_SAFETY_RULE_SOURCE_TIME_BUDGET_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
+) -> dict[str, object]:
+    """Read the opt-in org safety rule source under a size and a time bound.
+
+    Local file only: no network, no new dependency, no model. Every failure
+    mode returns `status: "unavailable"` with its own reason code and the
+    offending field, so the caller can deny and say why. There is no branch
+    that reports an unreadable source as permission.
+    """
+    identity = hashlib.sha256(str(source_path).encode("utf-8")).hexdigest()
+    if not str(source_path).strip():
+        # Opted in without a configured path: still a denial, never an
+        # implicit "off". Turning the org level off is a separate decision.
+        return _org_source_unavailable(identity, "org_source_missing", _ORG_SOURCE_PATH_FIELD)
+    path = Path(source_path)
+    started = clock()
+    if path.is_symlink():
+        return _org_source_unavailable(identity, "org_source_unsafe", _ORG_SOURCE_PATH_FIELD)
+    if not path.exists():
+        return _org_source_unavailable(identity, "org_source_missing", _ORG_SOURCE_PATH_FIELD)
+    if not path.is_file():
+        return _org_source_unavailable(identity, "org_source_unsafe", _ORG_SOURCE_PATH_FIELD)
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        with path.open("rb") as handle:
+            while True:
+                if clock() - started > time_budget_seconds:
+                    return _org_source_unavailable(identity, "org_source_timed_out", _ORG_SOURCE_PATH_FIELD)
+                chunk = handle.read(_ORG_SOURCE_CHUNK_BYTES)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > ORG_SAFETY_RULE_SOURCE_MAX_BYTES:
+                    return _org_source_unavailable(identity, "org_source_oversized", _ORG_SOURCE_PATH_FIELD)
+                chunks.append(chunk)
+    except FileNotFoundError:
+        return _org_source_unavailable(identity, "org_source_missing", _ORG_SOURCE_PATH_FIELD)
+    except OSError:
+        return _org_source_unavailable(identity, "org_source_unreadable", _ORG_SOURCE_PATH_FIELD)
+    if clock() - started > time_budget_seconds:
+        return _org_source_unavailable(identity, "org_source_timed_out", _ORG_SOURCE_PATH_FIELD)
+    return _org_source_document(identity, b"".join(chunks))
+
+
+def _org_source_document(identity: str, raw: bytes) -> dict[str, object]:
+    try:
+        document = decode_bounded_json_object(raw, max_depth=_ORG_SOURCE_MAX_DEPTH, max_nodes=_ORG_SOURCE_MAX_NODES)
+    except ValueError:
+        return _org_source_unavailable(identity, "org_source_malformed", "org_rule_source.document")
+    if document.get("schema_version") != ORG_SAFETY_RULE_SOURCE_SCHEMA_VERSION:
+        return _org_source_unavailable(identity, "org_source_unknown_version", "org_rule_source.schema_version")
+    unknown = sorted(set(document) - _ORG_SOURCE_FIELDS)
+    if unknown:
+        return _org_source_unavailable(identity, "org_source_unknown_fields", f"org_rule_source.{unknown[0]}")
+    revision = document.get("revision")
+    if not isinstance(revision, str) or not revision.strip():
+        return _org_source_unavailable(identity, "org_source_malformed", "org_rule_source.revision")
+    kinds = document.get("denied_remote_target_kinds", [])
+    if not _org_bounded_tokens(kinds):
+        return _org_source_unavailable(identity, "org_source_malformed", "org_rule_source.denied_remote_target_kinds")
+    cap = document.get("max_target_paths")
+    if cap is not None and (not isinstance(cap, int) or isinstance(cap, bool) or not 0 <= cap <= _ORG_SOURCE_MAX_TARGET_PATHS):
+        return _org_source_unavailable(identity, "org_source_malformed", "org_rule_source.max_target_paths")
+    unsafe_field = _org_unsafe_metadata_field(revision, kinds)
+    if unsafe_field:
+        return _org_source_unavailable(identity, "org_source_unsafe_metadata", unsafe_field)
+    return {
+        "schema_version": ORG_SAFETY_RULE_SOURCE_RESULT_SCHEMA_VERSION,
+        "status": "available",
+        "reason_code": "org_source_available",
+        "field": "",
+        "source_identity_sha256": identity,
+        "content_sha256": hashlib.sha256(raw).hexdigest(),
+        "revision": revision,
+        "rules": {"denied_remote_target_kinds": sorted(set(kinds)), "max_target_paths": cap},
+        "claim_boundary": ORG_SAFETY_RULE_SOURCE_CLAIM_BOUNDARY,
+    }
+
+
+def _org_bounded_tokens(value: Any) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) <= _ORG_SOURCE_MAX_TOKENS
+        and all(isinstance(item, str) and item.strip() and len(item) <= _ORG_SOURCE_MAX_TOKEN_CHARS for item in value)
+    )
+
+
+def _org_unsafe_metadata_field(revision: str, kinds: list[str]) -> str:
+    candidates = [("revision", revision)]
+    candidates.extend((f"denied_remote_target_kinds[{index}]", item) for index, item in enumerate(kinds))
+    for name, text in candidates:
+        if is_sensitive_metadata_text(text) or is_body_shaped_metadata_text(text, limit=_ORG_SOURCE_MAX_TOKEN_CHARS):
+            return f"org_rule_source.{name}"
+    return ""
+
+
+def _org_source_unavailable(identity: str, reason_code: str, field: str) -> dict[str, object]:
+    return {
+        "schema_version": ORG_SAFETY_RULE_SOURCE_RESULT_SCHEMA_VERSION,
+        "status": "unavailable",
+        "reason_code": reason_code,
+        "field": field,
+        "source_identity_sha256": identity,
+        "content_sha256": "",
+        "revision": "",
+        "rules": {},
+        "claim_boundary": ORG_SAFETY_RULE_SOURCE_CLAIM_BOUNDARY,
+    }
 
 
 def _read_sources(root: Path) -> tuple[list[dict[str, object]], list[tuple[str, str, str, str, str]], list[str]]:

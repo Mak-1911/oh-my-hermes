@@ -1100,7 +1100,13 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(payload["next_action"], "answer_clarification")
         self.assertNotIn("prepare_handoff", actions)
         self.assertNotIn("send_to_codex", actions)
-        self.assertNotIn("executor_handoff", json.dumps(payload))
+        # Keyed, not substring: the task authority envelope names
+        # `executor_handoff` as a *blocked* loop action with its exclusion
+        # reason, so a bare substring check now matches the very text that
+        # proves no handoff was prepared. The artifact is always a JSON object
+        # key; the vocabulary only ever appears as a value.
+        self.assertNotIn('"executor_handoff":', json.dumps(payload))
+        self.assertNotIn("executor_handoff", payload["delegation"])
 
     def test_delegate_mode_exposes_executor_neutral_action_for_codex_handoff(self) -> None:
         payload = build_chat_interaction_payload("risky refactor", mode="delegate", source="discord", executor_target="codex")

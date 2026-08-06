@@ -955,6 +955,13 @@ None of this changes evidence semantics. Accepting a run-backed profile keeps
 `observation_status: prepared_not_observed`; rejecting a non-run-backed profile
 is a schema error, never a downgrade or upgrade of observed evidence.
 
+All three handoff contracts in that matrix carry a `task_authority_envelope/v1`
+field group naming the authority the handoff was prepared under, and the
+`coding_delegation/v1` record they ride on carries the `coding_action_gate/v1`
+verdict that produced it. Neither is a record family of its own. See
+[Task Authority Envelope](#task-authority-envelope) for the shape and for the
+rules that keep authority and artifact from drifting apart.
+
 Bot wrappers can still call `omh runtime delegate` after the response if
 delegation metadata is available. If not, they should record `not_observed`
 rather than guessing.
@@ -1295,3 +1302,196 @@ behaves normally.
 - Workspace guidance is printed by `omh snippet`; it is not applied by default.
 - Runtime artifacts are local metadata by default and do not capture prompt or
   response bodies unless a future explicit opt-in is added.
+
+### Safety Preflight
+
+`quality/safety_preflight.py` is the deterministic rule evaluator a prepared
+artifact passes through before it can be treated as dispatchable. It is a
+sibling of `quality/skill_governance.py` and reuses its idiom — ordered
+precedence levels, a closed reason-code vocabulary, and a content digest that
+pins the decision — with the direction inverted. `skill_governance` resolves
+what a policy selects, so a later level overrides an earlier one. Safety
+preflight resolves what a request is permitted to prepare, so no level may
+widen what `builtin_omh` denies.
+
+Precedence, strongest first: `builtin_omh` is the floor and the only level that
+can allow; `org` is opt-in and deny-only; `native_hermes` is a recommendation
+surface that never decides. `project` and `user`, which `skill_governance`
+resolves, are deliberately absent here — nothing supplies safety rules at those
+levels today, and an unfed deny path is a liability rather than a feature.
+
+Rules are named by stable ids, never by position, across nine axes: input
+integrity, secrets, owner, approved scope, raw-context admission, target paths,
+remote targets, persisted content, and evidence claims. A denial names the
+responsible rule, the offending field (down to `remote_targets[0].kind`), the
+reason code, and the correction. An allow carries an empty rule id, field, and
+correction, so a caller that renders denials is quiet on pass.
+
+The whole evaluator runs on `hashlib` and `re` over caller-supplied metadata:
+no model, no network, no new dependency. `safety_profile_revision()` is the
+sha256 of the rule profile content, so a prepared artifact can pin the exact
+revision it was cleared under and `recheck_safety_preflight_revision()` lets a
+later boundary such as dispatch detect drift without re-running any rule.
+
+Inputs are pre-expansion by construction. `coding/coding_delegation.py`'s
+`message_context_mode="full"` path can interpolate the raw user message
+verbatim into the prompt template, and the request declares that as
+`raw_content_included`; a check that read the emitted `*_preview` fields would
+be blind exactly there. The mode and the admission flag are therefore inputs,
+and the raw text never is — the request shape has a closed field list, so a
+message body, a code body, or a credential is denied before any rule reads it.
+
+Every request field belongs to exactly one **field class**, and each rule reads
+the class it means rather than every string. `opaque_ref` is free-form caller
+text carrying an identifier, so credential-shape detection reads it. `path` is
+a source location the caller named, so it gets the anchor, containment, count,
+and length rules and *not* the credential rule: `token_store.py`,
+`test_authorization_headers.py`, and `credentials_loader.py` are filenames, and
+reading a marker substring inside one as a secret denies ordinary coding work
+while adding no protection. `vocabulary` is a closed value set whose own
+membership rule already denies everything outside it. Only the body-shape bound
+is universal, because a body is a body in any field. The map is published in
+the rule profile and pinned by the profile digest, so which rule reads which
+field is part of the revision an artifact was cleared under.
+
+`raw_content_included` is one-directional for the same reason. `full` is a
+ceiling, not an obligation: the flag states what the build will actually carry,
+so a full-mode build that attaches no verbatim message declares `false`, and
+that is narrower rather than wrong. Declaring verbatim raw content under a
+`bounded` mode is the contradiction that denies. A flag re-derived from the
+mode could never disagree with a rule comparing it to the mode, which is a rule
+that cannot fire — worse than no rule, because it reads as coverage that does
+not exist.
+
+Target paths are scanned per whitespace token, so a filesystem anchor is only
+ever restored from inside the token that carries the file reference. The file
+pattern cannot match a URL scheme, so on a pasted repository link the match
+starts after `https://`; a message-wide backward walk would swallow the `//`
+and hand the evaluator an absolute path. Remote locations are skipped outright
+— a URL is not a filesystem target, and pasting one is a normal way to open a
+coding request — while `./` and `../` tokens stay in, because a relative path
+that leaves the project has to reach the containment rule. Scanning stops one
+past the target-path bound rather than at it, so naming more targets than the
+bound allows denies on the count rule instead of being silently trimmed to an
+allowed set.
+
+On the coding delegation lane the reachable denials are therefore the path
+ones: an absolute or home-anchored target, a target that escapes the project, a
+target longer than the path bound, and more targets than the bound allows. The
+lane builds the rest of the request from closed vocabularies — owner from the
+executor profiles, approved scope from the routed workflow, evidence claims
+always `prepared_not_observed`, and no remote targets, persisted content refs,
+or observed record refs at all — so the owner, scope, secrets, remote-target,
+persisted-content, and evidence-claim rules are live for direct callers of the
+evaluator and structurally unreachable from a chat message. The org level is
+likewise not wired into this lane: nothing in `src/` passes an
+`org_rule_source`, so it is reachable only from a direct evaluator call today.
+
+An installed evaluator that answers with anything other than a verdict carrying
+a status has malfunctioned, and the lane turns that into a denial rather than
+the "no evaluator installed" absence, which is the one case that allows so a
+missing lane cannot brick delegation.
+
+Passing safety preflight is permission to prepare work. It is not compliance,
+execution, review, CI, or merge evidence, and the verdict says so.
+
+### Org Safety Rule Source
+
+`coding/project_governance.py` gains a second bounded local reader,
+`read_org_safety_rule_source()`, in the same idiom as the project governance
+reader: closed field set, byte cap, per-source sha256, symlink rejection, and a
+closed reason-code vocabulary. Two things are new. It is bounded in time as
+well as in size, and it is fail-closed on every failure mode — missing, blank
+path, non-file, symlink, unreadable, oversized, timed out, malformed, unknown
+version, unknown field, and unsafe metadata each return
+`status: "unavailable"` with their own reason code, and the evaluator turns any
+of them into a denial. There is no branch that reads an unavailable source as
+permission.
+
+The document carries bounded metadata only, and the two rules it can express
+narrow rather than widen: `denied_remote_target_kinds` adds denials, and
+`max_target_paths` is clamped to the built-in bound, with a wider value
+recorded as `org_widening_ignored` and discarded.
+
+The source is opt-in and locally configured. `capabilities/toggles.py` stores
+the flag in `setup-profile.json` next to the capability policy, with the same
+contract: scalar values only, absent means off, and the read rebuilds rather
+than trusting the persisted file. OMH policy stays out of `config.yaml`, which
+is Hermes-owned. `omh capability-policy status` reports the opt-in state; it
+does not change it.
+
+### Task Authority Envelope
+
+`task_authority_envelope/v1` is the task-scoped authority a prepared coding
+handoff was built under: permission profile, allowed and blocked actions, the
+exclusions that explain each withheld action, allowed executors and targets,
+mutation rights, merge and external-action authority, the expansion policy, the
+untrusted-input policy, and the safety-profile revision the whole thing was
+cleared against.
+
+It is a field group on the three coding handoff records — `executor_handoff`,
+`runtime_handoff`, and `prompt_handoff` inside `coding_delegation/v1` — and
+deliberately not a record family of its own. A separate family would introduce
+a join, and a join is a place where the handoff and the authority it was
+prepared under can desynchronize: the artifact could be read, rendered, or
+dispatched while its authority row is stale, missing, or from another decision.
+Attaching the envelope to whichever handoff exists keeps the artifact and its
+authority one object that moves, is validated, and is redacted together.
+`coding_delegation` also carries the `coding_action_gate/v1` verdict that
+produced the envelope, so the decision and its result stay in the same record.
+
+#### One decision path
+
+`coding/action_gate.py::evaluate_action_gate` is the only place authority is
+decided. It runs exactly once per delegation build, from
+`coding/coding_delegation.py::build_coding_delegation_payload`, and returns one
+verdict carrying the safety-preflight outcome, the derived envelope, and the
+single confirmation ladder that is armed. Everything downstream is *derived
+from* that verdict rather than recomputed: `dispatchable`,
+`executor_selection.choice_required`, the executor selection status, the work
+owner mode, and the dispatch policy all read the verdict's values.
+
+Card builders, chat contracts, and wrapper projections render the verdict; they
+never re-decide it. The rule is enforced, not just documented — the record
+validator rejects a `coding_delegation` record whose stored `dispatchable` or
+`executor_selection.choice_required` disagrees with its `action_gate` verdict.
+Disagreement means some caller re-decided, which is a validation failure rather
+than a rendering detail, because it is exactly how a denial and a dispatchable
+handoff end up side by side in one record. The child-cannot-exceed-parent
+lattice is checked in the same pass: a handoff envelope may not allow an action
+its parent verdict's envelope does not.
+
+Three "ask the user" ladders used to live side by side without knowing about
+each other: executor selection (`choose_executor`), permission profile
+(`choose_permission_profile`), and the operator confirmation family
+(`send_to_executor`). Arbitration is now explicit and ordered — a denial asks
+nothing, because a denied request is corrected rather than confirmed; otherwise
+executor selection wins, because nothing downstream can be confirmed before the
+agent that owns the work is chosen; then permission profile, because widening
+authority routes through one profile choice; then operator confirmation, when
+the envelope already allows dispatch and only the act itself needs a go-ahead.
+At most one ladder is armed. Every ladder that could have fired is recorded in
+`confirmation.suppressed_ladders` with the winner named, so a surface that
+renders one prompt can still explain which questions were not asked and why.
+
+#### Dispatch-boundary revision re-check
+
+The revision the envelope pins is re-proved at the boundary that acts. On the
+fanout lane, `coding/fanout.py::build_fanout_contract` freezes
+`safety_profile_revision` into the contract beside the goal digest, and
+`coding/fanout_dispatch.py::verify_safety_profile_matches_contract` re-checks it
+next to `verify_goal_matches_contract` before discovery, readiness probing, any
+unit spawn, and any state write. The field is additive under
+`fanout_contract/v1`: an absent frozen revision means "not gated", so contracts
+frozen before the field keep dispatching, while a contract that froze a revision
+in an environment that can no longer produce one is refused — an unprovable
+profile is drift, not a pass.
+
+The ordering is the guarantee, not an implementation detail. Both re-checks run
+before any confirmation is requested, so a user is never asked to approve work
+that then hard-fails on a profile that moved after the artifact was prepared.
+Inside `evaluate_action_gate` the same ordering holds: drift becomes a denial
+before the confirmation ladder is arbitrated, and a denial arms no ladder at
+all. A re-check re-proves what the artifact was prepared under; it never
+re-decides it, and it is not dispatch, execution, review, CI, or merge
+evidence.

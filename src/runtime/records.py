@@ -53,6 +53,7 @@ from ..system.record_revision import (
     revision_field_errors,
 )
 from ..memory import validate_handoff_context_blocked, validate_handoff_context_pack, validate_project_memory_recall_pack
+from ..coding.action_gate import validate_action_gate_verdict, validate_task_authority_envelope
 from ..coding.product_family_templates import validate_product_family_template
 from ..coding.product_quality_harnesses import validate_product_quality_harness
 from ..coding.project_governance import validate_project_governance_blocked, validate_project_governance_profile
@@ -167,6 +168,7 @@ CODING_DELEGATION_RECORD_KEYS = (
     "dispatch_policy",
     "dispatchable",
     "executor_selection",
+    "action_gate",
     "review_required",
     "review_workflow",
     "message_sha256",
@@ -253,6 +255,7 @@ CODING_EXECUTOR_HANDOFF_KEYS = (
     "memory_recall_pack",
     "project_governance_profile",
     "project_governance_blocked",
+    "task_authority_envelope",
     "product_family_template",
     "product_quality_harness",
     "specialist_work_quality",
@@ -288,6 +291,7 @@ CODING_PROMPT_HANDOFF_KEYS = (
     "memory_recall_pack",
     "project_governance_profile",
     "project_governance_blocked",
+    "task_authority_envelope",
     "product_family_template",
     "product_quality_harness",
     "specialist_work_quality",
@@ -330,6 +334,7 @@ CODING_RUNTIME_HANDOFF_KEYS = (
     "memory_recall_pack",
     "project_governance_profile",
     "project_governance_blocked",
+    "task_authority_envelope",
     "product_family_template",
     "product_quality_harness",
     "specialist_work_quality",
@@ -812,6 +817,9 @@ def build_coding_delegation_record(delegation: dict[str, Any]) -> dict[str, Any]
     harness_quality = _compact_harness_quality(delegation.get("harness_quality", {}))
     if harness_quality:
         record["harness_quality"] = harness_quality
+    action_gate = delegation.get("action_gate")
+    if isinstance(action_gate, dict) and not validate_action_gate_verdict(action_gate, "action_gate"):
+        record["action_gate"] = deepcopy(action_gate)
     executor_handoff = _compact_executor_handoff(delegation.get("executor_handoff"))
     if executor_handoff:
         record["executor_handoff"] = executor_handoff
@@ -1121,6 +1129,7 @@ def _compact_executor_handoff(value: Any) -> dict[str, Any]:
     if memory_recall_pack:
         compact["memory_recall_pack"] = memory_recall_pack
     _compact_governance_and_family(value, compact)
+    _compact_task_authority_envelope(value, compact, "executor_handoff")
     return compact
 
 
@@ -1185,6 +1194,7 @@ def _compact_prompt_handoff(value: Any) -> dict[str, Any]:
     if memory_recall_pack:
         compact["memory_recall_pack"] = memory_recall_pack
     _compact_governance_and_family(value, compact)
+    _compact_task_authority_envelope(value, compact, "prompt_handoff")
     return compact
 
 
@@ -1258,7 +1268,22 @@ def _compact_runtime_handoff(value: Any) -> dict[str, Any]:
     if hermes_harness:
         compact["hermes_coding_harness"] = hermes_harness
     _compact_governance_and_family(value, compact)
+    _compact_task_authority_envelope(value, compact, "runtime_handoff")
     return compact
+
+
+def _compact_task_authority_envelope(value: dict[str, Any], compact: dict[str, Any], lane: str) -> None:
+    envelope = value.get("task_authority_envelope")
+    if not isinstance(envelope, dict):
+        return
+    errors = validate_task_authority_envelope(
+        envelope,
+        "task_authority_envelope",
+        lane=lane,
+        parent_dispatchable=value.get("dispatchable"),
+    )
+    if not errors:
+        compact["task_authority_envelope"] = deepcopy(envelope)
 
 
 def _compact_governance_and_family(value: dict[str, Any], compact: dict[str, Any]) -> None:
@@ -2186,6 +2211,7 @@ def validate_coding_delegation_record(delegation: dict[str, Any]) -> list[str]:
         f"coding_delegation selected_executor_profile is invalid: {selected!r}",
     )
     errors.extend(validate_executor_selection(delegation.get("executor_selection", {}), "coding_delegation executor_selection"))
+    errors.extend(_validate_coding_action_gate(delegation))
     _require(isinstance(delegation.get("review_required"), bool), errors, "coding_delegation review_required must be boolean")
     _require(
         delegation.get("review_workflow") is None or isinstance(delegation.get("review_workflow"), str),
@@ -2238,6 +2264,41 @@ def validate_coding_delegation_record(delegation: dict[str, Any]) -> list[str]:
     if "plan_artifact" in delegation:
         errors.extend(validate_coding_plan_artifact(delegation["plan_artifact"]))
     errors.extend(validate_coding_handoff_combination(delegation, "coding_delegation"))
+    return errors
+
+
+def _validate_coding_action_gate(delegation: dict[str, Any]) -> list[str]:
+    """Validate the single-decision-path verdict and the parent/child authority lattice.
+
+    ``dispatchable`` and ``executor_selection.choice_required`` are derived from
+    the verdict, so a record whose stored values disagree with it means some
+    caller re-decided; that is a validation failure, not a rendering detail.
+    """
+    if "action_gate" not in delegation:
+        return []
+    gate = delegation["action_gate"]
+    errors = validate_action_gate_verdict(gate, "coding_delegation action_gate")
+    if not isinstance(gate, dict):
+        return errors
+    if gate.get("dispatchable") != delegation.get("dispatchable"):
+        errors.append("coding_delegation dispatchable must be derived from action_gate.dispatchable")
+    selection = delegation.get("executor_selection")
+    if isinstance(selection, dict) and gate.get("choice_required") != selection.get("choice_required"):
+        errors.append(
+            "coding_delegation executor_selection.choice_required must be derived from action_gate.choice_required"
+        )
+    parent = gate.get("authority_envelope")
+    parent_allowed = set(parent.get("allowed_actions", [])) if isinstance(parent, dict) else set()
+    for key in ("executor_handoff", "runtime_handoff", "prompt_handoff"):
+        handoff = delegation.get(key)
+        if not isinstance(handoff, dict):
+            continue
+        child = handoff.get("task_authority_envelope")
+        if not isinstance(child, dict):
+            continue
+        extra = sorted(set(child.get("allowed_actions", [])) - parent_allowed)
+        if extra:
+            errors.append(f"coding_delegation {key} task_authority_envelope grants more than its parent: {extra}")
     return errors
 
 
@@ -2897,6 +2958,7 @@ def validate_coding_executor_handoff(handoff: Any) -> list[str]:
     errors.extend(validate_isolation_plan(handoff.get("isolation_plan"), "coding_delegation executor_handoff isolation_plan"))
     errors.extend(validate_handoff_context_pack_fields(handoff, "coding_delegation executor_handoff"))
     errors.extend(validate_optional_governance_and_family(handoff, "coding_delegation executor_handoff"))
+    errors.extend(validate_optional_task_authority_envelope(handoff, "coding_delegation executor_handoff", "executor_handoff"))
     return errors
 
 
@@ -3319,6 +3381,7 @@ def validate_coding_runtime_handoff(handoff: Any) -> list[str]:
     errors.extend(validate_isolation_plan(handoff.get("isolation_plan"), "coding_delegation runtime_handoff isolation_plan"))
     errors.extend(validate_handoff_context_pack_fields(handoff, "coding_delegation runtime_handoff"))
     errors.extend(validate_optional_governance_and_family(handoff, "coding_delegation runtime_handoff"))
+    errors.extend(validate_optional_task_authority_envelope(handoff, "coding_delegation runtime_handoff", "runtime_handoff"))
     return errors
 
 
@@ -3538,7 +3601,25 @@ def validate_coding_prompt_handoff(handoff: Any) -> list[str]:
     errors.extend(validate_isolation_plan(handoff.get("isolation_plan"), "coding_delegation prompt_handoff isolation_plan"))
     errors.extend(validate_handoff_context_pack_fields(handoff, "coding_delegation prompt_handoff"))
     errors.extend(validate_optional_governance_and_family(handoff, "coding_delegation prompt_handoff"))
+    errors.extend(validate_optional_task_authority_envelope(handoff, "coding_delegation prompt_handoff", "prompt_handoff"))
     return errors
+
+
+def validate_optional_task_authority_envelope(handoff: dict[str, Any], label: str, lane: str) -> list[str]:
+    """Validate the authority envelope a handoff carries, against its own parent.
+
+    The lattice rule is the same one ``executor_local_workflow`` already
+    enforces: a child cannot hold more authority than the handoff it rides on,
+    and the prompt/runtime lanes cannot grant dispatch authority at all.
+    """
+    if "task_authority_envelope" not in handoff:
+        return []
+    return validate_task_authority_envelope(
+        handoff["task_authority_envelope"],
+        f"{label} task_authority_envelope",
+        lane=lane,
+        parent_dispatchable=handoff.get("dispatchable"),
+    )
 
 
 def validate_optional_governance_and_family(handoff: dict[str, Any], label: str) -> list[str]:
