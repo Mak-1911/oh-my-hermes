@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 from _local_package import load_local_package
 
@@ -17,7 +18,13 @@ from omh.adapter_quality import (
     record_adapter_quality_delivery,
     write_adapter_quality_observation,
 )
-from omh.paths import resolve_paths
+import omh.workflows.external_effect_receipts as receipts_module
+from omh.external_effect_receipts import (
+    read_external_effect_mint_failures,
+    read_external_effect_receipts,
+)
+from omh.local_store import FileLockTimeout
+from omh.paths import OmhPaths, resolve_paths
 
 
 class AdapterQualityTests(unittest.TestCase):
@@ -114,6 +121,132 @@ class AdapterQualityTests(unittest.TestCase):
                 layout_checks=[],
                 metrics=[{"metric_id": "startup", "name": "Startup", "value": 120.0, "unit": "ms", "threshold": 1_000_000_001.0, "comparison": "lte", "status": "pass", "evidence_refs": ["adapter:metric-1"]}],
             )
+
+
+class AdapterDeliveryReceiptRobustnessTests(unittest.TestCase):
+    """A receipt store failure must not cost the delivery, or the receipt (#836).
+
+    The defect: the receipt was minted only on the *fresh* write of the delivery
+    JSON, by a call that raised. A store that could not be written therefore
+    raised `FileExistsError` out of `record_adapter_quality_delivery` after the
+    delivery record was already on disk, and the retry -- no longer fresh --
+    returned the stored record without ever minting. The observed delivery
+    stayed un-receipted forever.
+    """
+
+    def _prepared(self, paths: OmhPaths, *, renderer_target: str = "slack") -> dict[str, object]:
+        observation = build_adapter_quality_observation(
+            observation_id="web-quality",
+            subject_id="checkout",
+            surface_kind="web",
+            adapter_id="hermes-adapter",
+            source_revision="build-42",
+            checks=[],
+            layout_checks=[],
+            metrics=[],
+        )
+        card = build_adapter_quality_delivery_card(observation, renderer_target=renderer_target)
+        return prepare_adapter_quality_delivery(paths, session_id="ws-quality", card=card)
+
+    def _deliver(self, paths: OmhPaths, preparation: dict[str, object]) -> dict[str, object]:
+        return record_adapter_quality_delivery(
+            paths,
+            preparation=preparation,
+            adapter="slack-adapter",
+            delivery_result="delivered",
+            external_message_ref="slack:message-1",
+        )
+
+    def test_an_unwritable_store_neither_raises_nor_loses_the_delivery(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            preparation = self._prepared(paths)
+            # The exact obstruction the review reproduced: the journal
+            # directory the store lives in is occupied by a regular file.
+            journal = paths.runtime_journal_dir
+            journal.parent.mkdir(parents=True, exist_ok=True)
+            journal.write_text("not a directory", encoding="utf-8")
+
+            delivery = self._deliver(paths, preparation)
+
+            self.assertEqual(delivery["observation_status"], "observed")
+            self.assertEqual(delivery["delivery_result"], "delivered")
+            self.assertTrue(journal.is_file(), "the obstruction is still there; nothing was written")
+
+            # Clearing the obstruction and re-reporting the same delivery mints
+            # exactly one receipt -- the retry is not fresh, so a fresh-only
+            # mint would leave this delivery permanently un-receipted.
+            journal.unlink()
+            replayed = self._deliver(paths, preparation)
+            self.assertEqual(replayed, delivery)
+
+            receipts = read_external_effect_receipts(paths)
+            self.assertEqual(len(receipts), 1)
+            self.assertEqual(receipts[0]["action"], "message_sent")
+            self.assertEqual(receipts[0]["acting_surface"], "adapter_quality_delivery")
+            self.assertEqual(receipts[0]["observed_result"], "succeeded")
+
+    def test_a_busy_store_lock_records_the_unminted_effect_instead_of_raising(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            preparation = self._prepared(paths)
+            store_path = paths.runtime_external_effect_receipts_path
+
+            # Only the receipt store's own lock is busy. The mint-failure log is
+            # a separate file behind a separate sidecar lock, and it is exactly
+            # the record that has to survive the store being unwritable, so
+            # timing out every lock in the module would obstruct the thing under
+            # test as well as the obstruction.
+            real_file_lock = receipts_module.file_lock
+
+            def busy_store_lock(path: Path, **kwargs: object):
+                if path == store_path:
+                    raise FileLockTimeout("could not acquire lock")
+                return real_file_lock(path, **kwargs)
+
+            with mock.patch(
+                "omh.workflows.external_effect_receipts.file_lock",
+                side_effect=busy_store_lock,
+            ):
+                delivery = self._deliver(paths, preparation)
+
+            self.assertEqual(delivery["observation_status"], "observed")
+            self.assertEqual(read_external_effect_receipts(paths), [])
+
+            # Observable: the effect that went unreceipted is on record beside
+            # the store, and `omh runtime receipts` reports it.
+            failures = read_external_effect_mint_failures(store_path)
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(failures[0]["outcome"], "not_written")
+            self.assertEqual(failures[0]["acting_surface"], "adapter_quality_delivery")
+            self.assertEqual(failures[0]["effect_id"], f"delivery:{preparation['preparation_id']}")
+
+            replayed = self._deliver(paths, preparation)
+
+            self.assertEqual(replayed, delivery)
+            self.assertEqual(len(read_external_effect_receipts(paths)), 1)
+
+    def test_repeated_reports_of_one_delivery_mint_exactly_one_receipt(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            preparation = self._prepared(paths)
+
+            for _ in range(4):
+                self._deliver(paths, preparation)
+
+            self.assertEqual(len(read_external_effect_receipts(paths)), 1)
+            self.assertEqual(read_external_effect_mint_failures(paths.runtime_external_effect_receipts_path), [])
+
+    def test_a_delivery_receipt_carries_no_run_and_is_listed_as_run_less(self) -> None:
+        """A delivery belongs to a session, not to whatever run that session
+        happens to be working on, so binding one would be an invented
+        relationship. Visibility comes from being listed as run-less."""
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            self._deliver(paths, self._prepared(paths))
+
+            self.assertEqual(read_external_effect_receipts(paths)[0]["run_id"], "")
+            self.assertEqual(len(read_external_effect_receipts(paths, run_id="")), 1)
 
 
 if __name__ == "__main__":

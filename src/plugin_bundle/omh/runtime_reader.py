@@ -37,6 +37,13 @@ JOURNAL_EVENT_ALIASES = {
     "merge_readiness": "merge_gate_observed",
     "merge": "merge_observed",
 }
+# Hand-copied from `omh.coding.owner_progress_normalization`
+# (`NORMALIZED_PROGRESS_EVENT_TYPES`) and `omh.coding.executor_progress`
+# (`ALLOWED_EXECUTOR_PROFILES`); the bundle cannot import from src. Parity is
+# gated by `tests/test_executor_progress_quality_floor.py` -- an event type
+# added in one place and not the other is silently dropped at this read
+# boundary, which is how `omo_runtime` bindings were rejected here long after
+# the lane accepted them.
 EXECUTOR_PROGRESS_EVENT_TYPES = {
     "executor_dispatched",
     "repo_exploration",
@@ -50,9 +57,38 @@ EXECUTOR_PROGRESS_EVENT_TYPES = {
     "executor_failed",
     "reported_change_not_observed",
     "progress_observed",
+    "unmapped_source_event",
 }
-EXECUTOR_PROGRESS_PROFILES = {"codex", "claude_code", "hermes_local"}
+EXECUTOR_PROGRESS_PROFILES = {"codex", "claude_code", "hermes_local", "omo_runtime"}
 EXECUTOR_PROGRESS_BINDING_STATES = {"active", "stale", "expired", "closed"}
+# Hand-copied from `omh.workflows.external_effect_receipts` and
+# `omh.runtime.artifacts` (`external_effect_id`, which composes an effect id as
+# `<kind>:<run_id>`); the bundle cannot import from src. Parity is gated by
+# `tests/test_runtime_reader_external_effect_receipts.py` -- a store renamed or
+# a schema version bumped in one place and not the other would silently return
+# this reader to claiming CI and merge success from a local record alone.
+EXTERNAL_EFFECT_RECEIPT_STORE_NAME = "external_effect_receipts.jsonl"
+EXTERNAL_EFFECT_RECEIPT_SCHEMA_VERSION = "external_effect_receipt/v1"
+EXTERNAL_EFFECT_CLAIM_BOUNDARY = (
+    "An external effect receipt is one acting surface's observation of one external effect. "
+    "It is not execution, verification, review, CI, merge-readiness, or merge evidence for any other effect."
+)
+# The run-summary claims that assert an external effect, and the effect kind
+# whose receipt has to back each one.
+RECEIPT_BACKED_RUN_CLAIMS = {"ci_observed": "ci", "merge_observed": "merge"}
+OBSERVATION_STATUS_ORDER = (
+    "unknown",
+    "prepared_not_observed",
+    "runtime_start_observed",
+    "worktree_creation_observed",
+    "dispatch_observed",
+    "execution_observed",
+    "verification_observed",
+    "review_observed",
+    "ci_observed",
+    "merge_gate_observed",
+    "merge_observed",
+)
 RAW_OR_HIDDEN_KEYS = {
     "analysis",
     "chain_of_thought",
@@ -166,10 +202,91 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
     }
     lifecycle = _journal_projection_for_run(run_dir, legacy)
     _apply_lifecycle_to_run_summary(legacy, lifecycle)
+    _apply_external_effect_receipts_to_run_summary(run_dir, legacy, lifecycle)
     legacy["lifecycle"] = lifecycle
     legacy["journal_event_count"] = lifecycle["journal_event_count"]
     legacy["latest_event"] = lifecycle["latest_event"]
     return legacy
+
+
+def _apply_external_effect_receipts_to_run_summary(
+    run_dir: Path,
+    summary: dict[str, Any],
+    lifecycle: dict[str, Any],
+) -> None:
+    """Withdraw a CI or merge success claim that no receipt backs.
+
+    CI and merge are the two rungs that assert something happened outside this
+    machine. A local `ci.json` or `merge.json` is the claim, not the evidence
+    for it, and the journal event beside it is written by the same call, so
+    neither can promote itself. Before the receipt store existed this reader
+    reported `ci_observed: True` from a local record alone -- which is the state
+    of every pre-#836 store on disk today, and why the default here is to
+    withdraw the claim rather than to trust the record.
+
+    The rule is the same one `omh.runtime.claims._receipt_cited` applies on the
+    CLI side, so the Hermes-facing surface cannot contradict it.
+    """
+    backed = _receipt_backed_effect_kinds(run_dir, str(summary.get("run_id", run_dir.name)))
+    for key, kind in RECEIPT_BACKED_RUN_CLAIMS.items():
+        if kind in backed:
+            continue
+        summary[key] = False
+        lifecycle[key] = False
+    demoted = _demote_observation_status(str(summary.get("observation_status", "unknown")), backed)
+    summary["observation_status"] = demoted
+    lifecycle["observation_status"] = _demote_observation_status(
+        str(lifecycle.get("observation_status", "unknown")), backed
+    )
+    summary["external_effect_claims"] = {
+        "receipt_backed": sorted(kind for kind in RECEIPT_BACKED_RUN_CLAIMS.values() if kind in backed),
+        "unreceipted": sorted(kind for kind in RECEIPT_BACKED_RUN_CLAIMS.values() if kind not in backed),
+        "claim_boundary": EXTERNAL_EFFECT_CLAIM_BOUNDARY,
+    }
+
+
+def _receipt_backed_effect_kinds(run_dir: Path, run_id: str) -> set[str]:
+    """Effect kinds whose latest receipt for this run succeeded and named an actor.
+
+    Latest-wins, not any-wins: a run whose CI succeeded and was then re-run to a
+    failure has a `succeeded` receipt on disk that no longer describes the
+    current state, because the store is append-only and supersedes by link.
+    """
+    runtime_dir = run_dir.parents[1]
+    latest: dict[str, dict[str, Any]] = {}
+    for receipt in _read_jsonl(runtime_dir / "journal" / EXTERNAL_EFFECT_RECEIPT_STORE_NAME):
+        if receipt.get("schema_version") != EXTERNAL_EFFECT_RECEIPT_SCHEMA_VERSION:
+            continue
+        if str(receipt.get("run_id", "")) != run_id:
+            continue
+        effect_id = str(receipt.get("effect_id", ""))
+        kind, separator, effect_run = effect_id.partition(":")
+        if not separator or effect_run != run_id or kind not in RECEIPT_BACKED_RUN_CLAIMS.values():
+            continue
+        latest[kind] = receipt
+    return {
+        kind
+        for kind, receipt in latest.items()
+        if str(receipt.get("observed_result", "")) == "succeeded"
+        and str(receipt.get("acting_surface", ""))
+        and str(receipt.get("receipt_id", ""))
+    }
+
+
+def _demote_observation_status(status: str, backed: set[str]) -> str:
+    """Walk an observation status down to the highest rung it can still claim."""
+    if status in {"blocked", "failed", "cancelled"}:
+        return status
+    try:
+        index = OBSERVATION_STATUS_ORDER.index(status)
+    except ValueError:
+        return status
+    while index > 0:
+        kind = RECEIPT_BACKED_RUN_CLAIMS.get(OBSERVATION_STATUS_ORDER[index])
+        if kind is None or kind in backed:
+            break
+        index -= 1
+    return OBSERVATION_STATUS_ORDER[index]
 
 
 def _executor_target_from_coding(coding: dict[str, Any]) -> str:
@@ -292,19 +409,7 @@ def _apply_lifecycle_to_run_summary(summary: dict[str, Any], lifecycle: dict[str
 
 
 def _later_status(current: str, candidate: str) -> str:
-    order = [
-        "unknown",
-        "prepared_not_observed",
-        "runtime_start_observed",
-        "worktree_creation_observed",
-        "dispatch_observed",
-        "execution_observed",
-        "verification_observed",
-        "review_observed",
-        "ci_observed",
-        "merge_gate_observed",
-        "merge_observed",
-    ]
+    order = list(OBSERVATION_STATUS_ORDER)
     if current in {"blocked", "failed", "cancelled"}:
         return current
     try:
@@ -813,8 +918,8 @@ def read_omh_status(omh_home: str | Path | None = None, limit: int = 5) -> dict[
             "execution": "requires observed delegation result",
             "verification": "requires observed wrapper verification",
             "review": "requires separate review record",
-            "ci": "requires separate CI record",
-            "merge": "requires separate merge record",
+            "ci": "requires separate CI record and an external effect receipt naming the surface that ran it",
+            "merge": "requires separate merge record and an external effect receipt naming the surface that merged it",
         },
         "privacy": "metadata_only",
     }

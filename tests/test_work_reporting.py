@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from _local_package import load_local_package
 
 load_local_package()
+from omh.external_effect_receipts import read_external_effect_receipts
+from omh.paths import resolve_paths
 from omh.work_reporting import (
     build_background_completion_report,
     build_markdown_export,
@@ -21,7 +25,23 @@ from omh.work_reporting import (
 )
 
 
-class WorkReportingTests(unittest.TestCase):
+class CheckRollupCitationHonestyMixin:
+    """A check row may print no link, and may not imply a citation it lacks.
+
+    Check rows are scraped from an executor's `gh pr checks` transcript. Nothing
+    observed them, so no receipt exists for them: rendering a raw URL breaks
+    AC3, and rendering a `ref-<digest>` handle under a receipt-sounding name
+    claims a citation `omh runtime receipts` would never list.
+    """
+
+    def assertNoLinkOrFakeCitation(self, rendered: str) -> None:
+        self.assertNotIn("https://", rendered)
+        self.assertNotIn("http://", rendered)
+        self.assertNotIn("receipt", rendered.casefold())
+        self.assertNotRegex(rendered, r"\bref-[0-9a-f]{6,}")
+
+
+class WorkReportingTests(CheckRollupCitationHonestyMixin, unittest.TestCase):
     def test_plain_text_reports_are_default_and_not_json_or_code_fences(self) -> None:
         summary = build_work_observation_summary(
             work_id="run-123",
@@ -718,9 +738,10 @@ class WorkReportingTests(unittest.TestCase):
         self.assertIsNotNone(rendered)
         assert rendered is not None
         self.assertIn("Checks: 1 pending, 2 pass.", rendered)
-        self.assertIn("- DCO: pass (4s) https://github.example/checks/dco.", rendered)
-        self.assertIn("- unit tests: pass (2m10s) https://github.example/checks/tests.", rendered)
-        self.assertIn("- Codex review: pending https://github.example/checks/review.", rendered)
+        self.assertIn("- DCO: pass (4s).", rendered)
+        self.assertIn("- unit tests: pass (2m10s).", rendered)
+        self.assertIn("- Codex review: pending.", rendered)
+        self.assertNoLinkOrFakeCitation(rendered)
         self.assertNotIn("Refreshing checks status", rendered)
         self.assertNotIn("Press Ctrl+C", rendered)
         self.assertNotIn("Background process", rendered)
@@ -740,8 +761,9 @@ class WorkReportingTests(unittest.TestCase):
 
         self.assertIsNotNone(rendered)
         assert rendered is not None
-        self.assertIn("- compass: pending https://github.example/checks/compass.", rendered)
-        self.assertIn("- failover tests: pass https://github.example/checks/failover.", rendered)
+        self.assertIn("- compass: pending.", rendered)
+        self.assertIn("- failover tests: pass.", rendered)
+        self.assertNoLinkOrFakeCitation(rendered)
         self.assertNotIn("- com: pass", rendered)
         self.assertNotIn("- over tests: fail", rendered)
 
@@ -756,9 +778,10 @@ class WorkReportingTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("- xcodebuild: pass (1m) https://github.example/checks/xcodebuild.", rendered)
-        self.assertIn("- x86 tests: pass (2m) https://github.example/checks/x86.", rendered)
-        self.assertIn("- legacy marker: fail (3m) https://github.example/checks/legacy.", rendered)
+        self.assertIn("- xcodebuild: pass (1m).", rendered)
+        self.assertIn("- x86 tests: pass (2m).", rendered)
+        self.assertIn("- legacy marker: fail (3m).", rendered)
+        self.assertNoLinkOrFakeCitation(rendered)
         self.assertNotIn("- codebuild", rendered)
         self.assertNotIn("- 86 tests", rendered)
 
@@ -778,7 +801,8 @@ class WorkReportingTests(unittest.TestCase):
         self.assertIsNotNone(rendered)
         assert rendered is not None
         self.assertIn("Checks: 1 fail.", rendered)
-        self.assertIn("- unit tests: fail (2m10s) https://github.example/checks/tests.", rendered)
+        self.assertIn("- unit tests: fail (2m10s).", rendered)
+        self.assertNoLinkOrFakeCitation(rendered)
         self.assertNotIn("Some checks were not: pass", rendered)
         self.assertNotIn("1: fail", rendered)
 
@@ -805,9 +829,10 @@ class WorkReportingTests(unittest.TestCase):
         self.assertIsNotNone(rendered)
         assert rendered is not None
         self.assertIn("Checks: 1 pass.", rendered)
-        self.assertIn("- DCO: pass (4s) https://github.example/checks/dco.", rendered)
+        self.assertIn("- DCO: pass (4s).", rendered)
+        self.assertNoLinkOrFakeCitation(rendered)
 
-    def test_structured_check_rollup_keeps_status_duration_and_links(self) -> None:
+    def test_structured_check_rollup_keeps_status_and_duration_without_a_citation(self) -> None:
         rendered = format_check_rollup(
             [
                 {
@@ -827,8 +852,9 @@ class WorkReportingTests(unittest.TestCase):
         )
 
         self.assertIn("Checks: 1 pending, 1 pass.", rendered)
-        self.assertIn("- DCO: pass (3s) https://github.example/checks/dco.", rendered)
-        self.assertIn("- integration tests: pending (1m) https://github.example/checks/integration.", rendered)
+        self.assertIn("- DCO: pass (3s).", rendered)
+        self.assertIn("- integration tests: pending (1m).", rendered)
+        self.assertNoLinkOrFakeCitation(rendered)
 
     def test_structured_check_completed_without_success_conclusion_is_unknown(self) -> None:
         rendered = format_check_rollup(
@@ -843,9 +869,43 @@ class WorkReportingTests(unittest.TestCase):
         )
 
         self.assertIn("Checks: 1 unknown.", rendered)
-        self.assertIn("- lint: unknown (5s) https://github.example/checks/lint.", rendered)
+        self.assertIn("- lint: unknown (5s).", rendered)
+        self.assertNoLinkOrFakeCitation(rendered)
         self.assertNotIn("1 pass", rendered)
         self.assertNotIn("lint: pass", rendered)
+
+    def test_a_check_rollup_cites_nothing_because_it_mints_nothing(self) -> None:
+        """The defect this replaces: rows printed `ref-<digest>` under a key
+        named `receipt_ref` while `omh runtime receipts` listed nothing. A
+        rollup is scraped text -- it observes no external effect, so it mints no
+        receipt and must claim no citation."""
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+
+            rendered = format_check_rollup(
+                "DCO\tpass\t4s\thttps://github.example/checks/dco\n"
+                "unit tests\tfail\t2m\thttps://github.example/checks/tests"
+            )
+
+            self.assertIn("- DCO: pass (4s).", rendered)
+            self.assertIn("- unit tests: fail (2m).", rendered)
+            self.assertNoLinkOrFakeCitation(rendered)
+            self.assertEqual(read_external_effect_receipts(paths), [])
+
+    def test_same_named_checks_with_different_links_stay_separate_rows(self) -> None:
+        """Dropping the rendered handle must not collapse distinct matrix jobs:
+        the folded link survives as an internal dedupe key only."""
+        rendered = format_check_rollup(
+            [
+                {"name": "build", "status": "completed", "conclusion": "success", "url": "https://ci.example/1"},
+                {"name": "build", "status": "completed", "conclusion": "failure", "url": "https://ci.example/2"},
+            ]
+        )
+
+        self.assertIn("Checks: 1 fail, 1 pass.", rendered)
+        self.assertIn("- build: pass.", rendered)
+        self.assertIn("- build: fail.", rendered)
+        self.assertNoLinkOrFakeCitation(rendered)
 
     def test_friendly_korean_progress_report_uses_channel_voice(self) -> None:
         summary = build_work_observation_summary(
@@ -924,7 +984,8 @@ class WorkReportingTests(unittest.TestCase):
         self.assertIsNotNone(rendered)
         assert rendered is not None
         self.assertIn("Checks: 1 fail.", rendered)
-        self.assertIn("- unit tests: fail (2m10s) https://github.example/checks/tests.", rendered)
+        self.assertIn("- unit tests: fail (2m10s).", rendered)
+        self.assertNoLinkOrFakeCitation(rendered)
         self.assertNotIn("OMH Awareness", rendered)
         self.assertNotIn("internal route hint", rendered)
 

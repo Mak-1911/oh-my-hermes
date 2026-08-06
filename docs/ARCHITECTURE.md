@@ -754,6 +754,10 @@ Runtime artifacts are local JSON/JSONL files under `.omh/runtime/`.
         delegation.json
         wrapper.json
         evidence/
+    journal/
+      events.jsonl
+      external_effect_receipts.jsonl
+      external_effect_mint_failures.jsonl
     wrapper_sessions/
       <session-id>/
         session.json
@@ -784,6 +788,118 @@ The runtime artifact layer is intentionally small:
   `omh runtime show <run-id>`
 - schema validation through `omh runtime validate`
 - redacted export through `omh runtime export`
+
+### External Effect Receipts
+
+`runtime/journal/external_effect_receipts.jsonl` is an append-only store of
+`external_effect_receipt/v1` records: one per external effect an acting surface
+observed. An external effect is something OMH cannot do — a message reaching a
+chat platform, a review landing on a change, a CI run executing, a branch
+moving. OMH only records that a surface which does act reported one.
+
+The store is mint-restricted, in the same shape as the adapter-quality
+prepared-vs-observed handshake:
+
+- `action` is one of `message_sent`, `review_submitted`, `ci_run`, `merge`, and
+  `acting_surface` is one of `adapter_quality_delivery`,
+  `runtime_review_record`, `runtime_ci_record`, `runtime_merge_record`. Both are
+  closed vocabularies with a real producer; there is no free-text surface.
+- A receipt is minted only from a record whose own `observed` flag is true. An
+  unobserved record is an intent, whatever its status says.
+- `observed_result` is `attempted`, `succeeded`, `failed`, or `unknown`.
+  `requested` and `attempted` are also reportable *projected* states: they come
+  from the run's own records when the effect has no receipt at all, so a
+  prepared or requested record can never become evidence.
+- `succeeded` requires a non-empty `external_ref`. An observed success nobody
+  can name is recorded as `unknown`.
+- Retries and reversals append a new receipt linked through
+  `supersedes_receipt_ref`. Nothing is rewritten, so history is structural. The
+  chain is a line: a receipt cannot supersede itself, cannot supersede a receipt
+  that does not already exist, and cannot supersede one something else already
+  superseded.
+- Minting is idempotent by effect identity. Recording the same observation of
+  the same effect again appends nothing, so a record written three times has one
+  receipt.
+- An append terminates a torn tail first, so a short write cannot concatenate
+  the next record onto a partial line and lose both.
+
+Every field is metadata, and every string field is guarded by its class rather
+than by name — the classes are declared in one place in
+`workflows/external_effect_receipts.py` and enforced in all three places a
+receipt is handled: `build_external_effect_receipt`,
+`validate_external_effect_receipt`, and `compact_external_effect_receipt`.
+
+- Identifiers — `receipt_id`, `effect_id`, `run_id`, `observed_at`,
+  `external_ref`, `supersedes_receipt_ref`, and each `evidence_ref` — are opaque
+  references validated through `require_opaque_metadata_ref`: bounded,
+  non-navigable, never URLs, and free of control characters. `receipt_id` is in
+  the class because it is what every success citation is built from. Rendering
+  folds anything that is not opaque to a stable `ref-<digest>` handle, and
+  `omh runtime export` redacts `external_ref`.
+- `action`, `target_class`, `acting_surface`, and `observed_result` are closed
+  vocabularies, enforced at render as well as at validate: a value outside the
+  vocabulary is not a new state, so it renders empty and projects as `unknown`.
+- `summary` goes through the same bounded free-text guard as every other summary
+  in this repo: a link, a filesystem path, a secret, or a control character
+  makes it `[redacted]` on the way in and a violation on the way back.
+
+Producers call `mint_external_effect_receipt`, which never raises into them: a
+receipt that cannot be stored must not fail the record that produced it.
+Refusals and write failures come back as an `external_effect_mint_result/v1`
+mapping and are appended to
+`runtime/journal/external_effect_mint_failures.jsonl`, so an unreceipted effect
+is visible rather than silent.
+
+Consumers:
+
+- `omh runtime show <run-id>` carries the run's receipts, tail-bounded like the
+  rest of the run history.
+- `omh runtime delegation-status` carries an `external_effects` projection
+  splitting the run's effects into requested / attempted / succeeded / failed /
+  unknown, and each of `review`, `ci`, and `merge` carries the receipt that
+  backs it.
+- The `ci_observed` and `merged` claim rungs require a `succeeded` receipt whose
+  effect, action, and acting surface all match the gate being claimed. A
+  `failed` or `attempted` receipt satisfies neither.
+- `omh runtime receipts` is a read-only view, and its per-run roll-up is the
+  same projection `omh runtime delegation-status` reports, so the two surfaces
+  cannot print different effect counts for one run at one instant. There is
+  deliberately no command that mints a receipt from operator input.
+
+Both gate call sites — runtime validation and the projection the claim ladder
+reads — name a run's effect through one run-identity resolver
+(`external_effect_run_id`) and select its receipt through one ordering rule
+(`select_effect_receipt`, latest in append order). The shared predicate could
+never disagree with itself, but two call sites handing it different receipts
+would have been the same divergence one step earlier.
+
+What `omh runtime validate` does and does not say about receipts:
+
+- The store is runtime-wide, so its own faults are reported once, at store
+  level, under the `external_effect_receipts` key. A line that does not parse
+  carries no `run_id` and therefore belongs to no run; it can never fault a run
+  that had nothing to do with it. Validating one run considers only that run's
+  receipts.
+- A `ci passed` or `merge merged` record is faulted when a receipt for that
+  effect *contradicts* it: the receipt observed the effect fail, or it names a
+  different action or acting surface. A receipt that observed less (`attempted`,
+  `unknown`) withholds the claim without condemning the record.
+- The *absence* of a receipt is not a violation. Runs recorded before this store
+  existed have none, and validation describes whether the records on disk are
+  internally consistent, not whether a newer artifact was written for them.
+  Those runs stay valid and keep every claim rung through `review_observed`;
+  what they cannot do is claim `ci_observed` or `merged`, because those two
+  assert something happened outside this machine and nothing on record names the
+  surface that saw it. The way forward is to record the gate again — `omh
+  runtime ci` then `omh runtime merge`, each with the result the run already
+  recorded — which mints the receipt and restores the claim. Those commands
+  still refuse a status the run has not reached; a run that has already passed
+  the gate sits at one of the completion `next_action`s (`report_merged`,
+  `report_merge_ready`, `report_completion_with_evidence`), and from there the
+  same record is a restatement rather than a transition, so the preflight admits
+  it and no false intermediate record is needed. The exact sequence is in
+  `docs/CODING-OBSERVABILITY.md`. Nothing mints a receipt for a past effect from
+  operator input.
 
 Bot wrappers can call `omh chat route --record` before invoking Hermes. The
 record stores the selected skill, confidence, score, message length, and message

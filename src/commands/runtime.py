@@ -15,6 +15,15 @@ from ..executor_progress import (
     read_progress_binding,
     write_progress_binding,
 )
+from ..external_effect_receipts import (
+    CLAIM_BOUNDARY as EXTERNAL_EFFECT_CLAIM_BOUNDARY,
+    compact_external_effect_receipt,
+    project_external_effects,
+    read_external_effect_mint_failures,
+    read_external_effect_receipts,
+    validate_external_effect_receipt_store,
+)
+from ..goal_ledger import RUNTIME_COMPLETION_ACTIONS
 from ..installer import OmhError
 from ..runtime.artifacts import (
     append_journal_observation,
@@ -55,9 +64,30 @@ from ..runtime.context_budget import (
 )
 from ..executors import CODING_RUNTIME_HANDOFF_TARGETS
 from ..local_store import read_json_object
+from ..paths import OmhPaths
 from ..skill_pack import builtin_harnesses, routable_definitions
 from ..team_readiness import DEFAULT_RUNTIME_TARGET_SCAN_LIMIT, build_team_worker_readiness
 from .common import _paths, _print_json, _wants_json
+
+
+# The next_actions that mean the run has already passed the gate a record
+# command writes. Recording that gate again from one of these re-states what the
+# run's own records already say; it is not a transition to something they do not
+# support, so the preflight admits it.
+#
+# This is what makes the upgrade path for a run written before external effect
+# receipts existed a supported one. Such a run sits at `report_merged` (or
+# `report_merge_ready`) with no receipt for its CI or its merge, and re-recording
+# the observed result is the only way to mint one -- there is deliberately no
+# command that mints a receipt from operator input. Without this the operator
+# could not re-record at all, or could only reach the CI half by first writing a
+# `not_observed` CI record that was not true.
+#
+# It does not weaken the guard below it: a run short of the gate still has a
+# next_action naming the evidence it is missing, and recording a higher gate from
+# there stays refused, because that would contradict the record rather than
+# restate it.
+RECORDED_GATE_PREFLIGHT_ACTIONS = frozenset(RUNTIME_COMPLETION_ACTIONS)
 
 
 def _valid_skill_names() -> set[str]:
@@ -239,7 +269,8 @@ def cmd_runtime_review(args: argparse.Namespace) -> int:
     if not (run_dir / "run.json").exists():
         raise OmhError(f"runtime run not found: {args.run_id}")
     preflight = summarize_delegated_coding_status(paths, args.run_id)
-    if args.status in {"passed", "not_required"} and preflight.get("next_action") != "record_review_evidence":
+    allowed_preflight = {"record_review_evidence"} | RECORDED_GATE_PREFLIGHT_ACTIONS
+    if args.status in {"passed", "not_required"} and preflight.get("next_action") not in allowed_preflight:
         raise OmhError(f"cannot record review {args.status} while next_action is {preflight.get('next_action')}")
     review_status = preflight.get("review", {})
     if args.status == "not_required" and isinstance(review_status, dict) and review_status.get("required"):
@@ -267,7 +298,8 @@ def cmd_runtime_ci(args: argparse.Namespace) -> int:
     if not (run_dir / "run.json").exists():
         raise OmhError(f"runtime run not found: {args.run_id}")
     preflight = summarize_delegated_coding_status(paths, args.run_id)
-    if args.status == "passed" and preflight.get("next_action") != "record_ci_evidence":
+    allowed_preflight = {"record_ci_evidence"} | RECORDED_GATE_PREFLIGHT_ACTIONS
+    if args.status == "passed" and preflight.get("next_action") not in allowed_preflight:
         raise OmhError(f"cannot record passed CI while next_action is {preflight.get('next_action')}")
     ci_status = preflight.get("ci", {})
     if args.status == "not_required" and isinstance(ci_status, dict) and ci_status.get("required"):
@@ -312,11 +344,14 @@ def cmd_runtime_merge(args: argparse.Namespace) -> int:
         raise OmhError("runtime merge requires --ready, --merged, --blocked, or --status")
     preflight = summarize_delegated_coding_status(paths, args.run_id)
     allowed_preflight = {
-        "ready": {"record_merge_readiness", "report_merge_ready"},
-        "merged": {"report_merge_ready"},
-        "blocked": {"record_merge_readiness", "report_merge_ready"},
-        "not_ready": {"record_merge_readiness", "report_merge_ready", "report_completion_with_evidence"},
-        "not_observed": {"record_merge_readiness", "report_merge_ready", "report_completion_with_evidence"},
+        status: gates | RECORDED_GATE_PREFLIGHT_ACTIONS
+        for status, gates in (
+            ("ready", {"record_merge_readiness"}),
+            ("merged", set()),
+            ("blocked", {"record_merge_readiness"}),
+            ("not_ready", {"record_merge_readiness"}),
+            ("not_observed", {"record_merge_readiness"}),
+        )
     }
     if status in allowed_preflight and preflight.get("next_action") not in allowed_preflight[status]:
         raise OmhError(f"cannot record merge {status} while next_action is {preflight.get('next_action')}")
@@ -654,6 +689,22 @@ def _reject_ignored_progress_inputs(
 
 
 def _profile_progress_summary(args: argparse.Namespace) -> dict[str, object] | None:
+    """The non-codex progress summary: every field is the caller's own sentence.
+
+    Nothing here is observed by omh. `status` is `--profile-status` verbatim,
+    the latest event is `--profile-latest-event` verbatim, and
+    `observable_activity` is empty because there is no stream to read activity
+    out of. The codex path is the contrast: `summarize_codex_jsonl_file` derives
+    its summary from a log this repo parsed, counted, and hashed.
+
+    `build_safe_progress_signal` stamps that difference onto the signal
+    (`progress_summary_source`), and the lane refuses to let anything built here
+    corroborate an end state the same caller narrated -- otherwise one
+    `omh runtime progress observe` call closes its own binding by passing
+    `--profile-status completed_or_passed_observed` next to
+    `--profile-latest-event workflow_completed`. Reporting an end state stays
+    possible; it needs `--process-status`, git flags, or an explicit `--event`.
+    """
     if not (args.profile_status or args.profile_event_count is not None or args.profile_latest_event or args.profile_summary):
         return None
     return {
@@ -707,10 +758,31 @@ def _add_progress_observe_args(parser: argparse.ArgumentParser) -> None:
     # change. Omitting the flag means nobody looked and contradicts nothing.
     parser.add_argument("--git-status-short", default=None)
     parser.add_argument("--git-diff-stat", default=None)
-    parser.add_argument("--event", choices=PROGRESS_EVENT_TYPES, default="")
+    # Choices are the shared progress vocabulary, so the CLI and the record
+    # validator cannot disagree. `unmapped_source_event` is deliberately
+    # offered: it is the visible answer for an owner word this vocabulary does
+    # not map, and hiding it would leave a caller observing one with no way to
+    # say so.
+    parser.add_argument(
+        "--event",
+        choices=PROGRESS_EVENT_TYPES,
+        default="",
+        help=(
+            "Declare the observed progress event. Use unmapped_source_event when the executor reported an "
+            "event this vocabulary does not map; the source event name is retained and no activity is claimed."
+        ),
+    )
     parser.add_argument("--summary", default="")
     parser.add_argument("--codex-log-jsonl", default=None)
-    parser.add_argument("--profile-status", default="")
+    parser.add_argument(
+        "--profile-status",
+        default="",
+        help=(
+            "What the executor reported about itself. Recorded as caller-reported narration: it cannot "
+            "corroborate an end state it also narrated. Use --process-status, the git flags, or --event "
+            "to report an observation."
+        ),
+    )
     parser.add_argument("--profile-event-count", type=int, default=None)
     parser.add_argument("--profile-latest-event", default="")
     parser.add_argument("--profile-summary", default="")
@@ -729,6 +801,133 @@ def _add_progress_status_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
     parser.set_defaults(func=cmd_runtime_progress_status)
+
+
+def cmd_runtime_receipts(args: argparse.Namespace) -> int:
+    """Read observed external effect receipts. There is deliberately no mint command.
+
+    A receipt exists because an acting surface observed an external effect.
+    Letting an operator type one in would make this store exactly the kind of
+    self-reported evidence it exists to replace.
+    """
+    paths = _paths(args)
+    run_id = getattr(args, "run_id", None)
+    limit = _bounded_limit(args)
+    store_path = paths.runtime_external_effect_receipts_path
+    receipts = [
+        compact_external_effect_receipt(receipt)
+        for receipt in read_external_effect_receipts(paths, run_id=run_id, limit=limit)
+    ]
+    # Unscoped on purpose: this is the one surface that reports on the whole
+    # store, so a run-less receipt -- every adapter delivery is one -- is
+    # validated here or nowhere. `validate_run_dir` only ever sees the records
+    # carrying its own run id.
+    store = validate_external_effect_receipt_store(store_path)
+    mint_failures = read_external_effect_mint_failures(store_path)
+    payload: dict[str, object] = {
+        "schema_version": "runtime_external_effect_receipts_view/v1",
+        "run_id": run_id or "",
+        "store_path": str(store_path),
+        "receipts": receipts,
+        "store_ok": store["ok"],
+        "store_errors": store["errors"],
+        "receipt_count": store["receipt_count"],
+        # An effect whose mint failed has no receipt at all, which is exactly
+        # what this view exists to make visible, so failures are never scoped
+        # away by --run.
+        "mint_failures": _bounded_tail(mint_failures, limit),
+        "mint_failure_count": len(mint_failures),
+        "claim_boundary": EXTERNAL_EFFECT_CLAIM_BOUNDARY,
+    }
+    if run_id:
+        payload["projection"] = _run_external_effect_projection(paths, run_id)
+        # A run-scoped read would otherwise omit every run-less effect in
+        # silence, so the same call reports them as their own class rather than
+        # leaving `message_sent` looking like something that never happened.
+        unbound = read_external_effect_receipts(paths, run_id="")
+        payload["unbound_receipts"] = [
+            compact_external_effect_receipt(receipt) for receipt in _bounded_tail(unbound, limit)
+        ]
+        payload["unbound_receipt_count"] = len(unbound)
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        print(_render_receipts_text(payload))
+    return 0
+
+
+def _run_external_effect_projection(paths: OmhPaths, run_id: str) -> dict:
+    """One run's effect projection, the same one `delegation-status` reports.
+
+    `requested` and `attempted` are projected from what the run's own records
+    ask for, so a projection built from the receipt store alone structurally
+    cannot reach either: it would print `requested 0` for a run
+    `omh runtime delegation-status` reports as `requested 1` at the same
+    instant, and a human comparing the two surfaces would be looking at a
+    contradiction that is not in the data.
+
+    A run with no `run.json` has no records to project from -- `--run` accepts
+    any string -- so the store-only projection is the honest answer there.
+    """
+    try:
+        status = summarize_delegated_coding_status(paths, run_id)
+    except FileNotFoundError:
+        return project_external_effects(paths, run_id)
+    projection = status.get("external_effects")
+    return projection if isinstance(projection, dict) else project_external_effects(paths, run_id)
+
+
+def _bounded_tail(rows: list, limit: int | None) -> list:
+    if limit is None:
+        return list(rows)
+    return list(rows[-limit:]) if limit > 0 else []
+
+
+def _receipt_row_line(row: dict) -> str:
+    # `or "unknown"` rather than a `.get` default: a closed-vocabulary field
+    # renders empty when the stored value is not in its vocabulary, and an empty
+    # cell would read as a dangling em-dash rather than as an unreadable record.
+    return (
+        f"  {row.get('action') or 'unknown'} — {row.get('observed_result') or 'unknown'} — "
+        f"{row.get('acting_surface') or 'unknown'} — ref {row.get('external_ref') or 'unnamed'} — "
+        f"{row.get('receipt_id', '')}"
+    )
+
+
+def _render_receipts_text(payload: dict) -> str:
+    receipts = [row for row in payload.get("receipts", []) or [] if isinstance(row, dict)]
+    lines = [f"External effect receipts ({len(receipts)} shown)"]
+    if not receipts:
+        lines.append("  No observed external effect receipts.")
+    lines.extend(_receipt_row_line(row) for row in receipts)
+    if "unbound_receipts" in payload:
+        unbound = [row for row in payload.get("unbound_receipts", []) or [] if isinstance(row, dict)]
+        lines.append(f"  Run-less effects ({len(unbound)} of {payload.get('unbound_receipt_count', 0)} shown)")
+        if not unbound:
+            lines.append("    None. Adapter deliveries and other session-scoped effects would appear here.")
+        lines.extend(f"  {_receipt_row_line(row)}" for row in unbound)
+    projection = payload.get("projection")
+    if isinstance(projection, dict):
+        states = ", ".join(
+            f"{state} {len(projection.get(state, []) or [])}"
+            for state in ("requested", "attempted", "succeeded", "failed", "unknown")
+        )
+        lines.append(f"  Effects: {states}")
+    failures = [row for row in payload.get("mint_failures", []) or [] if isinstance(row, dict)]
+    if payload.get("mint_failure_count"):
+        lines.append(f"  Unrecorded mints: {payload.get('mint_failure_count', 0)}")
+        for row in failures:
+            lines.append(
+                f"    {row.get('action', 'unknown')} — {row.get('outcome', 'unknown')} — "
+                f"{row.get('acting_surface', 'unknown')} — effect {row.get('effect_id', '')}"
+            )
+        lines.append("    These external effects were observed and have no receipt.")
+    if not payload.get("store_ok", True):
+        errors = [str(error) for error in payload.get("store_errors", []) or []]
+        lines.append(f"  Store errors: {len(errors)}")
+        lines.extend(f"    {error}" for error in errors[:10])
+    lines.append(str(payload.get("claim_boundary", "")))
+    return "\n".join(line for line in lines if line)
 
 
 def cmd_runtime_validate(args: argparse.Namespace) -> int:
@@ -918,6 +1117,24 @@ def _add_runtime_commands(sub) -> None:
         help="Project active/stale executor progress from persisted artifacts only.",
     )
     _add_progress_status_args(progress_status_nested)
+
+    runtime_receipts = runtime_sub.add_parser(
+        "receipts",
+        help="Read observed external effect receipts. Read-only: receipts come only from acting surfaces.",
+    )
+    runtime_receipts.add_argument(
+        "--run",
+        dest="run_id",
+        default=None,
+        help=(
+            "Limit to one runtime run. Run-less effects, such as adapter deliveries, are still listed "
+            "separately, and unrecorded mints are never scoped away."
+        ),
+    )
+    runtime_receipts.add_argument("--limit", type=int, default=50, help="Maximum recent receipts to return. Use --all for every receipt.")
+    runtime_receipts.add_argument("--all", action="store_true", help="Return all receipts.")
+    runtime_receipts.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
+    runtime_receipts.set_defaults(func=cmd_runtime_receipts)
 
     runtime_validate = runtime_sub.add_parser("validate")
     runtime_validate.add_argument("--run", dest="run_id", default=None)

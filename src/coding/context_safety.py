@@ -17,6 +17,10 @@ MAX_SOURCE_REF_CHARS = 240
 MAX_EVIDENCE_REFS = 8
 MAX_EVIDENCE_REF_CHARS = 160
 MAX_ARTIFACT_REFS = 4
+# Bound for an event name this closed vocabulary could not accept. It is a word,
+# not a message; the cap only exists so a pathological value cannot ride into a
+# chat-facing record through the omitted bag.
+MAX_UNMAPPED_SOURCE_EVENT_CHARS = 120
 # Observe-surface budgets. Run history only grows, so status checks emit a
 # bounded tail, and each run has a cumulative emission budget after which the
 # observe surfaces degrade to summary-only output plus artifact pointers.
@@ -230,6 +234,26 @@ def build_progress_event(
     compact_files, omitted_files = compact_context_refs(file_refs or [])
     compact_evidence, omitted_evidence = compact_context_refs(evidence_refs or [])
     compact_artifacts, omitted_artifacts = _compact_artifact_refs(artifact_refs or [])
+    omitted: dict[str, object] = {
+        "file_ref_count": omitted_files,
+        "artifact_ref_count": omitted_artifacts,
+        "evidence_ref_count": omitted_evidence,
+        "max_summary_chars": MAX_PROGRESS_EVENT_SUMMARY_CHARS,
+        "max_artifact_refs": MAX_ARTIFACT_REFS,
+        "max_evidence_refs": MAX_EVIDENCE_REFS,
+    }
+    # The omitted bag already records what this builder dropped, so the words it
+    # refused belong here too. Present only when a value was actually discarded:
+    # an absent key means nothing was lost, never that nothing was checked.
+    #
+    # All THREE closed vocabularies are recorded, not just the event type. An
+    # owner reporting `status: "cancelled"` collapses to `observed` and an owner
+    # reporting nothing also collapses to `observed`, so without this the two
+    # are indistinguishable -- the same silent collapse the event type was fixed
+    # for, in the same function, one line further down.
+    omitted.update(
+        unmapped_progress_event_sources(event_type=event_type, status=status, severity=severity)
+    )
     return {
         "schema_version": PROGRESS_EVENT_SCHEMA_VERSION,
         "event_type": _normalize_progress_event_type(event_type),
@@ -243,14 +267,7 @@ def build_progress_event(
         "file_refs": compact_files,
         "artifact_refs": compact_artifacts,
         "evidence_refs": compact_evidence,
-        "omitted": {
-            "file_ref_count": omitted_files,
-            "artifact_ref_count": omitted_artifacts,
-            "evidence_ref_count": omitted_evidence,
-            "max_summary_chars": MAX_PROGRESS_EVENT_SUMMARY_CHARS,
-            "max_artifact_refs": MAX_ARTIFACT_REFS,
-            "max_evidence_refs": MAX_EVIDENCE_REFS,
-        },
+        "omitted": omitted,
         "context_policy": "event_triggered_summary_only",
         "raw_content_included": False,
         "claim_boundary": (
@@ -396,18 +413,48 @@ def compact_progress_events(
         if len(compacted) >= max_items:
             omitted += 1
             continue
-        compacted.append(
-            build_progress_event(
-                str(event.get("event_type", "status_update")),
-                event.get("summary", ""),
-                status=str(event.get("status", "observed")),
-                severity=str(event.get("severity", "info")),
-                file_refs=event.get("file_refs", []) if isinstance(event.get("file_refs", []), list) else [],
-                artifact_refs=event.get("artifact_refs", []) if isinstance(event.get("artifact_refs", []), list) else [],
-                evidence_refs=event.get("evidence_refs", []) if isinstance(event.get("evidence_refs", []), list) else [],
-            )
+        built = build_progress_event(
+            str(event.get("event_type", "status_update")),
+            event.get("summary", ""),
+            status=str(event.get("status", "observed")),
+            severity=str(event.get("severity", "info")),
+            file_refs=event.get("file_refs", []) if isinstance(event.get("file_refs", []), list) else [],
+            artifact_refs=event.get("artifact_refs", []) if isinstance(event.get("artifact_refs", []), list) else [],
+            evidence_refs=event.get("evidence_refs", []) if isinstance(event.get("evidence_refs", []), list) else [],
         )
+        # A second pass over an ALREADY-built event re-runs the vocabulary
+        # checks against values that were already downgraded, so it finds
+        # nothing to report and the note the first pass recorded disappears on
+        # the way into a wrapper card. Carrying the recorded notes forward is
+        # what keeps the first refusal visible after the rebuild.
+        carried = _carried_unmapped_sources(event.get("omitted"))
+        if carried:
+            omitted_bag = built["omitted"]
+            if isinstance(omitted_bag, dict):
+                omitted_bag.update({key: value for key, value in carried.items() if key not in omitted_bag})
+        compacted.append(built)
     return compacted, omitted
+
+
+# The `omitted.unmapped_source_*` notes a previous `build_progress_event` may
+# already have recorded. Named as a tuple rather than matched by prefix so a
+# future omitted key cannot join this carry-forward by accident.
+_CARRIED_UNMAPPED_SOURCE_KEYS = (
+    "unmapped_source_event",
+    "unmapped_source_status",
+    "unmapped_source_severity",
+)
+
+
+def _carried_unmapped_sources(omitted: Any) -> dict[str, object]:
+    if not isinstance(omitted, dict):
+        return {}
+    carried: dict[str, object] = {}
+    for key in _CARRIED_UNMAPPED_SOURCE_KEYS:
+        text = compact_visible_text(omitted.get(key, ""), max_chars=MAX_UNMAPPED_SOURCE_EVENT_CHARS)
+        if text:
+            carried[key] = text
+    return carried
 
 
 def context_budget_payload() -> dict[str, object]:
@@ -450,6 +497,51 @@ def raw_output_artifact_ref(
 def _normalize_progress_event_type(value: str) -> str:
     normalized = _normalize_token(value)
     return normalized if normalized in _PROGRESS_EVENT_TYPES else "status_update"
+
+
+def progress_event_type_vocabulary() -> tuple[str, ...]:
+    """The closed chat/workflow progress vocabulary, sorted.
+
+    Public so a containment gate can prove every value here is a source word the
+    executor normalizer knows. A value added here and not there makes every
+    executor signal carrying it normalize to `unmapped_source_event` -- silently,
+    and only on the surfaces a person reads.
+    """
+    return tuple(sorted(_PROGRESS_EVENT_TYPES))
+
+
+def unmapped_progress_event_source(value: Any) -> str:
+    """The event name `_normalize_progress_event_type` discarded, or "" when it kept it.
+
+    The collapse to `status_update` is the right DOWNGRADE -- this vocabulary
+    is closed, and an unknown word must not be promoted into it. What was wrong
+    was that the word then vanished, so a caller reading the event could not
+    tell "the executor reported a status update" from "the executor reported
+    something we do not understand". This returns the discarded word so
+    `build_progress_event` can record it as omitted rather than lose it.
+    """
+    return _unmapped_choice_source(value, _PROGRESS_EVENT_TYPES)
+
+
+def unmapped_progress_event_sources(*, event_type: Any, status: Any, severity: Any) -> dict[str, object]:
+    """Every closed-vocabulary value `build_progress_event` refused, keyed by field.
+
+    Empty when all three were accepted, and each key is absent individually, so
+    a reader never has to tell "kept" from "not checked".
+    """
+    refused = {
+        "unmapped_source_event": _unmapped_choice_source(event_type, _PROGRESS_EVENT_TYPES),
+        "unmapped_source_status": _unmapped_choice_source(status, _PROGRESS_EVENT_STATUSES),
+        "unmapped_source_severity": _unmapped_choice_source(severity, _PROGRESS_EVENT_SEVERITIES),
+    }
+    return {key: value for key, value in refused.items() if value}
+
+
+def _unmapped_choice_source(value: Any, allowed: set[str]) -> str:
+    normalized = _normalize_token(value)
+    if not normalized or normalized in allowed:
+        return ""
+    return compact_visible_text(value, max_chars=MAX_UNMAPPED_SOURCE_EVENT_CHARS)
 
 
 def _normalize_choice(value: str, allowed: set[str], fallback: str) -> str:

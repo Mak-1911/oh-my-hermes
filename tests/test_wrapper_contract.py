@@ -352,6 +352,115 @@ class DomainContextAttachmentTests(unittest.TestCase):
             self.assertNotIn("domain_routing_context", json.loads(stdout))
 
 
+class MergeStatusCopyCitesReceiptsTests(unittest.TestCase):
+    """AC2 for user-facing chat copy (issue #836).
+
+    `safe_summary` already carried the receipt citations while this copy
+    asserted "This has been merged." and "CI ... evidence are observed" with
+    nothing naming who acted. A rendered success sentence now names the receipt
+    and the acting surface, or does not assert the success.
+    """
+
+    def _copy(self, next_action: str, *, ci: dict[str, object], merge: dict[str, object]) -> tuple[str, str]:
+        card = build_status_card_from_status(
+            {
+                "run_id": "run-1",
+                "next_action": next_action,
+                "ci": {"status": "passed", "receipt": ci},
+                "merge": {"status": "merged", "receipt": merge},
+            }
+        )
+        return str(card["headline"]), str(card["summary"])
+
+    @staticmethod
+    def _receipt(surface: str, *, observed_result: str = "succeeded") -> dict[str, object]:
+        return {
+            "observed": observed_result != "requested",
+            "effect_id": f"{surface}:run-1",
+            "receipt_id": f"receipt-{surface}-1",
+            "acting_surface": surface,
+            "observed_result": observed_result,
+            "external_ref": "github-actions",
+            "receipt_count": 1,
+        }
+
+    def test_merged_copy_names_the_receipt_and_the_acting_surface(self) -> None:
+        headline, body = self._copy(
+            "report_merged",
+            ci=self._receipt("runtime_ci_record"),
+            merge=self._receipt("runtime_merge_record"),
+        )
+
+        self.assertEqual(headline, "This has been merged.")
+        self.assertIn("receipt-runtime_merge_record-1", body)
+        self.assertIn("runtime_merge_record", body)
+        self.assertIn("receipt-runtime_ci_record-1", body)
+        self.assertIn("runtime_ci_record", body)
+
+    def test_merged_copy_without_a_receipt_does_not_assert_the_merge(self) -> None:
+        headline, body = self._copy(
+            "report_merged",
+            ci=self._receipt("runtime_ci_record"),
+            merge={},
+        )
+
+        self.assertNotIn("has been merged", headline)
+        self.assertNotIn("merge evidence are observed", body)
+        self.assertIn("No external effect receipt names the surface that merged this", body)
+
+    def test_merged_copy_with_an_unnamed_merge_receipt_does_not_assert_the_merge(self) -> None:
+        headline, body = self._copy(
+            "report_merged",
+            ci=self._receipt("runtime_ci_record"),
+            merge=self._receipt("runtime_merge_record", observed_result="unknown"),
+        )
+
+        self.assertNotIn("has been merged", headline)
+        self.assertIn("No external effect receipt names the surface that merged this", body)
+
+    def test_merge_ready_copy_does_not_claim_ci_passed_without_a_ci_receipt(self) -> None:
+        headline, body = self._copy("report_merge_ready", ci={}, merge={})
+
+        # Merge readiness is a local decision, so its own headline still stands.
+        self.assertEqual(headline, "This is ready to merge.")
+        self.assertNotIn("CI, and", body)
+        self.assertIn("No external effect receipt names the surface that ran CI", body)
+
+    def test_merge_ready_copy_cites_the_ci_receipt_when_one_exists(self) -> None:
+        headline, body = self._copy(
+            "report_merge_ready",
+            ci=self._receipt("runtime_ci_record"),
+            merge={},
+        )
+
+        self.assertEqual(headline, "This is ready to merge.")
+        self.assertIn("CI receipt receipt-runtime_ci_record-1 via runtime_ci_record", body)
+        self.assertNotIn("is not reported as passed", body)
+
+    def test_localized_chat_copy_carries_no_parallel_merge_or_ci_success_string(self) -> None:
+        """The localized copy surfaces have no merge/CI success sentence to keep
+        consistent; this pins that, so a future translation cannot reintroduce an
+        uncited one outside `_merge_status_copy`."""
+        from omh.quality.localized_chat_copy import LOCALIZED_CHAT_COPY_CASES
+        from omh.wrapper.localized_copy import _CARD_COPY
+
+        localized_strings = [
+            str(value)
+            for by_locale in _CARD_COPY.values()
+            for copy in by_locale.values()
+            for value in (copy.headline, copy.body)
+        ]
+        localized_strings.extend(
+            marker for case in LOCALIZED_CHAT_COPY_CASES for marker in (*case.body_markers, case.headline_marker)
+        )
+
+        for text in localized_strings:
+            lowered = text.casefold()
+            self.assertNotIn("has been merged", lowered)
+            self.assertNotIn("ready to merge", lowered)
+            self.assertNotIn("ci passed", lowered)
+
+
 class WrapperContractTests(unittest.TestCase):
     def test_omh_orchestration_guidance_is_optional_for_first_use(self) -> None:
         route = {

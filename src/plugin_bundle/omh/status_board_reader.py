@@ -84,6 +84,12 @@ _STATUS_VOCABULARY: Final[tuple[str, ...]] = (
     "prepared_not_observed",
 )
 
+# Bound for a status word the vocabulary above refused. Mirrors
+# `omh.coding.status_board._STATUS_SOURCE_LIMIT`; the word rides in the rendered
+# STATUS cell, so dropping it here would make this reader the one surface where
+# "an executor said something we do not know" still reads as "nobody watched".
+_STATUS_SOURCE_LIMIT: Final[int] = 80
+
 _MODEL_DEFAULT_LABEL: Final[str] = "executor default"
 
 # `omh.runtime.context_budget` owns this ledger file and schema; repeated here
@@ -154,7 +160,7 @@ def render_running_work_block_text(board: dict[str, Any]) -> str:
         lines.append(
             f"- {unit.get('fanout_id', 'unknown')}/{unit.get('unit_id', 'unknown')}: "
             f"{unit.get('runtime', 'unknown')} ({unit.get('model_label', _MODEL_DEFAULT_LABEL)}) "
-            f"— {unit.get('status', 'unknown')}"
+            f"— {_status_text(unit)}"
         )
     if board.get("truncated"):
         omitted = int(board.get("omitted_count", 0) or 0)
@@ -344,14 +350,23 @@ def _merge_dispatch_summary(
             model=str(entry.get("model", "") or ""),
             reasoning_effort=str(entry.get("reasoning_effort", "") or ""),
             status=_normalize_status(entry.get("status")),
+            unmapped_source_status=_unmapped_status_source(entry.get("status")),
         )
     return 0
 
 
 def _unit_row(
-    *, fanout_id: str, unit_id: str, label: str, runtime: str, model: str, reasoning_effort: str, status: str
+    *,
+    fanout_id: str,
+    unit_id: str,
+    label: str,
+    runtime: str,
+    model: str,
+    reasoning_effort: str,
+    status: str,
+    unmapped_source_status: str = "",
 ) -> dict[str, Any]:
-    return {
+    row = {
         "fanout_id": fanout_id,
         "unit_id": unit_id,
         "label": label or unit_id or "unknown",
@@ -359,6 +374,11 @@ def _unit_row(
         "model_label": _model_label(model, reasoning_effort),
         "status": status,
     }
+    # Absent unless a word was actually discarded, so an absent key means the
+    # status was accepted verbatim -- never that nothing was checked.
+    if unmapped_source_status:
+        row["unmapped_source_status"] = unmapped_source_status
+    return row
 
 
 def _model_label(model: str, reasoning_effort: str) -> str:
@@ -368,6 +388,34 @@ def _model_label(model: str, reasoning_effort: str) -> str:
 def _normalize_status(value: Any) -> str:
     status = str(value or "").strip()
     return status if status in _STATUS_VOCABULARY else "prepared_not_observed"
+
+
+def _unmapped_status_source(value: Any) -> str:
+    """The status word `_normalize_status` discarded, or "" when it kept it.
+
+    Mirrors `omh.coding.status_board.unmapped_status_source`. That one runs the
+    full chat-progress sanitizer, which this file cannot import; a status is an
+    identifier-shaped word, so collapsing whitespace and bounding it agrees with
+    the sanitizer on every value a status field can hold. Gated by the parity
+    table in `tests/test_coding_status_board.py`.
+    """
+    status = str(value or "").strip()
+    if not status or status in _STATUS_VOCABULARY:
+        return ""
+    collapsed = " ".join(status.split())
+    if len(collapsed) <= _STATUS_SOURCE_LIMIT:
+        return collapsed
+    return collapsed[: _STATUS_SOURCE_LIMIT - 3] + "..."
+
+
+def _status_text(unit: dict[str, Any]) -> str:
+    """The status a person reads, with any refused source word attached.
+
+    Mirrors `omh.coding.status_board.status_text_for`.
+    """
+    status = str(unit.get("status", "") or "unknown")
+    source = str(unit.get("unmapped_source_status", "") or "")
+    return f"{status} (reported {source})" if source else status
 
 
 def _sort_key(unit: dict[str, Any]) -> tuple[int, str, str]:

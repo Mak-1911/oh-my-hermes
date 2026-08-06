@@ -503,5 +503,147 @@ class LocaleTests(unittest.TestCase):
         self.assertIn("RUNTIME", text)
 
 
+class UnmappedStatusIsVisibleTests(unittest.TestCase):
+    """A refused status word has to reach the surfaces a person actually reads.
+
+    Recording it in the payload alone answers an auditor reading `--json` and
+    nobody reading the board -- and the board is where "an executor reported
+    something this vocabulary does not know" is meant to be noticed, because
+    `prepared_not_observed` on its own reads as "nobody ever watched this run".
+    """
+
+    def _payload(self, status: str) -> dict:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_fanout(
+                paths,
+                _FANOUT_ID,
+                units=[
+                    {"unit_id": "odd", "owner": "codex", "status": status, "duration_seconds": 12},
+                    {"unit_id": "known", "owner": "codex", "status": "completed", "duration_seconds": 12},
+                ],
+                titles={"odd": "odd unit", "known": "known unit"},
+            )
+            with patch.object(status_board, "read_inflight_markers", return_value=[]):
+                return build_status_board(paths, now=_NOW)
+
+    def test_the_aligned_board_shows_the_word_beside_the_downgrade(self) -> None:
+        text = render_status_board_text(self._payload("quiesced"))
+        self.assertIn("prepared_not_observed (reported quiesced)", text)
+        # The accepted row is untouched, so a board with nothing refused reads
+        # exactly as it did before.
+        self.assertIn("completed", text)
+        self.assertNotIn("completed (reported", text)
+
+    def test_the_column_stays_aligned_when_the_word_widens_it(self) -> None:
+        text = render_status_board_text(self._payload("quiesced"))
+        rows = [line for line in text.splitlines() if "codex" in line or line.startswith("LABEL")]
+        self.assertEqual(len({len(line.split("codex")[0]) for line in rows if "codex" in line}), 1)
+        self.assertIn("STATUS", text)
+
+    def test_both_messenger_profiles_carry_the_word(self) -> None:
+        payload = self._payload("quiesced")
+        for profile in ("rich_markdown", "limited_markdown"):
+            with self.subTest(profile=profile):
+                body = status_board_messenger_body(payload, render_profile=profile)
+                self.assertIn("prepared_not_observed (reported quiesced)", body)
+
+    def test_an_accepted_status_renders_exactly_as_before(self) -> None:
+        text = render_status_board_text(self._payload("running"))
+        self.assertNotIn("(reported", text)
+
+    def test_the_payload_still_carries_the_field_on_its_own(self) -> None:
+        rows = {str(unit["unit_id"]): unit for unit in self._payload("quiesced")["units"]}
+        self.assertEqual(rows["odd"]["unmapped_source_status"], "quiesced")
+        self.assertEqual(rows["odd"]["status"], "prepared_not_observed")
+        self.assertNotIn("unmapped_source_status", rows["known"])
+
+
+class UnmappedStatusPluginParityTests(unittest.TestCase):
+    """The vendored reader discarded the word entirely, with no gate to notice.
+
+    `status_board_reader` is hand-mirrored and cannot import `omh.coding.*`, so
+    the only thing keeping the two honest is a differential over the same
+    on-disk fixture.
+    """
+
+    def _boards(self, status: str) -> tuple[dict, dict]:
+        from omh.plugin_bundle.omh.status_board_reader import read_running_work_board
+
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_fanout(
+                paths,
+                _FANOUT_ID,
+                units=[{"unit_id": "odd", "owner": "codex", "status": status}],
+                titles={"odd": "odd unit"},
+            )
+            with patch.object(status_board, "read_inflight_markers", return_value=[]):
+                source = build_status_board(paths, now=_NOW)
+            plugin = read_running_work_board(paths.omh_home)
+        return source, plugin
+
+    def test_both_readers_keep_the_same_refused_word(self) -> None:
+        source, plugin = self._boards("quiesced")
+        self.assertEqual(source["units"][0]["unmapped_source_status"], "quiesced")
+        self.assertEqual(plugin["units"][0]["unmapped_source_status"], "quiesced")
+        self.assertEqual(source["units"][0]["status"], plugin["units"][0]["status"])
+
+    def test_both_readers_render_the_same_status_text(self) -> None:
+        from omh.plugin_bundle.omh.status_board_reader import render_running_work_block_text
+
+        source, plugin = self._boards("quiesced")
+        self.assertIn("prepared_not_observed (reported quiesced)", render_status_board_text(source))
+        self.assertIn("prepared_not_observed (reported quiesced)", render_running_work_block_text(plugin))
+
+    def test_neither_reader_invents_a_word_for_an_accepted_status(self) -> None:
+        from omh.plugin_bundle.omh.status_board_reader import render_running_work_block_text
+
+        source, plugin = self._boards("completed")
+        self.assertNotIn("unmapped_source_status", source["units"][0])
+        self.assertNotIn("unmapped_source_status", plugin["units"][0])
+        self.assertNotIn("(reported", render_status_board_text(source))
+        self.assertNotIn("(reported", render_running_work_block_text(plugin))
+
+    def test_the_two_status_helpers_agree_value_by_value(self) -> None:
+        from omh.coding.status_board import status_text_for, unmapped_status_source
+        from omh.plugin_bundle.omh.status_board_reader import (
+            _status_text as plugin_status_text,
+            _unmapped_status_source as plugin_unmapped_status_source,
+        )
+
+        # Status-word-shaped values only. The source helper runs the full
+        # chat-progress sanitizer (absolute-path redaction included) that the
+        # bundle cannot import; a status field holds an identifier, so the two
+        # agree on everything a status can be.
+        table = (
+            "quiesced",
+            "skipped",
+            "cancelled",
+            "  spaced  out  ",
+            "x" * 200,
+            "completed",
+            "running",
+            "",
+            None,
+        )
+        for value in table:
+            with self.subTest(value=value):
+                self.assertEqual(unmapped_status_source(value), plugin_unmapped_status_source(value))
+        for value in table:
+            with self.subTest(value=value):
+                unit = {
+                    "status": normalize_status(value),
+                    "unmapped_source_status": unmapped_status_source(value),
+                }
+                self.assertEqual(status_text_for(unit), plugin_status_text(unit))
+
+    def test_the_two_status_vocabularies_are_the_same_closed_set(self) -> None:
+        from omh.coding.status_board import STATUS_VOCABULARY
+        from omh.plugin_bundle.omh.status_board_reader import _STATUS_VOCABULARY as plugin_vocabulary
+
+        self.assertEqual(STATUS_VOCABULARY, plugin_vocabulary)
+
+
 if __name__ == "__main__":
     unittest.main()

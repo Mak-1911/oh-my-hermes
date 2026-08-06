@@ -89,6 +89,11 @@ SOURCE_ORDER: Final[tuple[str, ...]] = (
 )
 
 _SUMMARY_LIMIT: Final[int] = 120
+# Bound for a status word the closed vocabulary refused. It is a word, not a
+# message. It reaches the STATUS column too: a payload-only field answers an
+# auditor reading `--json` and nobody reading the board, and the board is where
+# the collapse is actually noticed.
+_STATUS_SOURCE_LIMIT: Final[int] = 80
 _MODEL_DEFAULT_LABEL: Final[str] = "executor default"
 # `inflight.INFLIGHT_MARKER_STATUSES` value that means the marker was read and
 # carries observed fields; the other two mean it carries nothing.
@@ -232,6 +237,40 @@ def normalize_status(value: Any) -> str:
     return status if status in STATUS_VOCABULARY else "prepared_not_observed"
 
 
+def unmapped_status_source(value: Any) -> str:
+    """The status word `normalize_status` discarded, or "" when it kept it.
+
+    The downgrade itself is correct and stays: an unknown status word must not
+    be read as an observation, and `prepared_not_observed` is the honest floor.
+    What was wrong is that the word then vanished, so a board could not
+    distinguish "nothing was ever written down" from "an executor reported
+    something this vocabulary does not know". A row carries the discarded word
+    beside the downgraded status instead of losing it.
+    """
+    status = str(value or "").strip()
+    if not status or status in STATUS_VOCABULARY:
+        return ""
+    return sanitize_user_facing_progress_text(status, max_chars=_STATUS_SOURCE_LIMIT)
+
+
+def status_text_for(unit: Mapping[str, Any]) -> str:
+    """The STATUS column as a person reads it: the vocabulary word, plus what was refused.
+
+    `prepared_not_observed` alone cannot distinguish "nobody ever watched this
+    run" from "an executor said something this vocabulary does not know", and
+    those call for different actions. The refused word rides in parentheses on
+    the same cell rather than in a column of its own, so a board with nothing
+    refused is byte-identical to the one this repo already renders.
+
+    Hand-mirrored by `plugin_bundle/omh/status_board_reader._status_text`, which
+    cannot import this module; `tests/test_coding_status_board.py` gates the two
+    against each other.
+    """
+    status = str(unit.get("status", "") or UNKNOWN)
+    source = str(unit.get("unmapped_source_status", "") or "")
+    return f"{status} (reported {source})" if source else status
+
+
 def _merge_unit(
     merged: dict[tuple[str, str], dict[str, Any]],
     unit: dict[str, Any],
@@ -321,6 +360,7 @@ def _dispatch_summary_units(paths: OmhPaths) -> list[dict[str, Any]]:
                     model=str(entry.get("model", "") or ""),
                     reasoning_effort=str(entry.get("reasoning_effort", "") or ""),
                     status=normalize_status(entry.get("status")),
+                    unmapped_source_status=unmapped_status_source(entry.get("status")),
                     elapsed_seconds=_finished_seconds(entry.get("duration_seconds")),
                     tokens_total=_reported_tokens(entry),
                     session_ref=str(entry.get("session_ref", "") or ""),
@@ -379,8 +419,9 @@ def _unit_row(
     tokens_total: Any,
     session_ref: str,
     summary: str,
+    unmapped_source_status: str = "",
 ) -> dict[str, Any]:
-    return {
+    row = {
         "fanout_id": fanout_id,
         "label": label or unit_id or UNKNOWN,
         "unit_id": unit_id,
@@ -398,6 +439,11 @@ def _unit_row(
         "session_ref": session_ref or UNKNOWN,
         "summary": sanitize_user_facing_progress_text(summary, max_chars=_SUMMARY_LIMIT),
     }
+    # Absent unless a word was actually discarded, so an absent key means the
+    # status was accepted verbatim -- never that nothing was checked.
+    if unmapped_source_status:
+        row["unmapped_source_status"] = unmapped_source_status
+    return row
 
 
 def _unit_titles(fanout_dir: Path) -> dict[str, str]:
@@ -476,6 +522,12 @@ def _payload_units(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _cell(unit: dict[str, Any], field: str) -> str:
+    # The STATUS column is the one cell that is not a plain field read: it
+    # carries the refused source word when there was one. Doing it here rather
+    # than as a precomputed row field keeps `_column_widths`, the aligned table,
+    # and the fenced messenger profile in agreement by construction.
+    if field == "status":
+        return status_text_for(unit)
     return str(unit.get(field, "") or UNKNOWN)
 
 
@@ -503,7 +555,7 @@ def _bullet_line(unit: dict[str, Any]) -> str:
         # Separating them with a dash as well produced "codex — (gpt-5.6-sol
         # xhigh)", a doubled separator around a parenthetical.
         f"{unit.get('runtime', UNKNOWN)} ({unit.get('model_label', _MODEL_DEFAULT_LABEL)})",
-        str(unit.get("status", "")),
+        status_text_for(unit),
         elapsed_phrase,
         tokens_phrase,
         f"session {unit.get('session_ref', UNKNOWN)}",

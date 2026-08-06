@@ -4,6 +4,8 @@ from collections.abc import Mapping, Sequence
 from enum import StrEnum, unique
 from typing import Final, TypeAlias, TypedDict, assert_never
 
+from ..workflows.external_effect_receipts import receipt_satisfies_success_claim
+
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
@@ -60,9 +62,17 @@ RUNTIME_CLAIM_BLOCK_REASONS: Final = {
     Claim.EXECUTION_OBSERVED: "executor result evidence is not observed",
     Claim.VERIFICATION_OBSERVED: "verification evidence is not observed",
     Claim.REVIEW_OBSERVED: "review evidence is not observed",
-    Claim.CI_OBSERVED: "CI evidence is not observed",
+    Claim.CI_OBSERVED: (
+        "CI evidence is not observed, or no external effect receipt from runtime_ci_record "
+        "records this run's CI as succeeded; a run recorded before external effect receipts "
+        "existed has none and cannot make this claim"
+    ),
     Claim.MERGE_READY: "merge-readiness evidence is not observed",
-    Claim.MERGED: "merge evidence is not observed",
+    Claim.MERGED: (
+        "merge evidence is not observed, or no external effect receipt from runtime_merge_record "
+        "records this run's merge as succeeded; a run recorded before external effect receipts "
+        "existed has none and cannot make this claim"
+    ),
 }
 
 RUNTIME_VALIDATION_BLOCK_REASON: Final = "runtime validation failed; fix violations before higher claims are safe"
@@ -112,17 +122,44 @@ def _claim_allowed(claim: Claim, status: Mapping[str, JsonValue]) -> bool:
             return _bool_value(review, "observed") and _string_value(review, "status") == "passed"
         case Claim.CI_OBSERVED:
             ci = _mapping_value(status, "ci")
-            return _bool_value(ci, "observed") and _string_value(ci, "status") == "passed"
+            return (
+                _bool_value(ci, "observed")
+                and _string_value(ci, "status") == "passed"
+                and _receipt_cited(status, ci, kind="ci")
+            )
         case Claim.MERGE_READY:
             readiness = _mapping_value(status, "merge_readiness")
             return _bool_value(readiness, "observed") and _string_value(readiness, "status") == "ready"
         case Claim.MERGED:
             merge = _mapping_value(status, "merge")
-            return _bool_value(merge, "observed") and _string_value(merge, "status") == "merged"
+            return (
+                _bool_value(merge, "observed")
+                and _string_value(merge, "status") == "merged"
+                and _receipt_cited(status, merge, kind="merge")
+            )
         case Claim.METADATA_AVAILABLE:
             return True
         case _ as unreachable:
             assert_never(unreachable)
+
+
+def _receipt_cited(status: Mapping[str, JsonValue], section: Mapping[str, JsonValue], *, kind: str) -> bool:
+    """Whether a gate's success is backed by a receipt that names who acted.
+
+    CI and merge are the two rungs that assert something happened outside this
+    machine. A local record saying "passed" or "merged" is the claim, not the
+    evidence for it, so both rungs additionally require a receipt that observed
+    *that* effect *succeed* from the surface that gate is observed by. A
+    `failed`, `attempted`, or unrelated receipt refuses the claim.
+
+    This is the same `receipt_satisfies_success_claim` that runtime validation
+    uses, called on the same receipt, so the ladder and the validator can never
+    disagree about what a receipt proves. A run with no receipt at all -- an
+    older store, or a store that could not be written -- simply does not reach
+    these rungs; that is a refused claim, not invalid data.
+    """
+    run_id = _string_value(_mapping_value(status, "external_effects"), "run_id")
+    return receipt_satisfies_success_claim(_mapping(section.get("receipt")), kind=kind, run_id=run_id)
 
 
 def _mapping_value(payload: Mapping[str, JsonValue], key: str) -> Mapping[str, JsonValue]:

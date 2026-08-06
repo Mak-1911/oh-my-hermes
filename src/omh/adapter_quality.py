@@ -6,6 +6,7 @@ from pathlib import Path
 from .adapter_quality_codec import canonical as _canonical
 from .adapter_quality_codec import fingerprint as _fingerprint
 from .adapter_quality_codec import semantic as _semantic
+from .external_effect_receipts import mint_external_effect_receipt, redacted_external_effect_ref
 from .local_store import atomic_write_json, ensure_dir, read_json_object_result, utc_now
 from .paths import OmhPaths
 
@@ -214,10 +215,53 @@ def record_adapter_quality_delivery(
     if existing:
         if _semantic(existing, {"observed_at"}) != _semantic(record, {"observed_at"}):
             raise ValueError("delivery observation already exists with different content")
+        # A replay mints too. The first report may have observed the delivery,
+        # written this file, and then failed to reach the receipt store; if only
+        # a fresh write minted, that delivery would stay un-receipted forever
+        # because no later call is ever fresh again.
+        _record_delivery_external_effect(paths, existing)
         return existing
     ensure_dir(path.parent, private=True)
     atomic_write_json(path, record, private=True)
+    _record_delivery_external_effect(paths, record)
     return record
+
+
+def _record_delivery_external_effect(paths: OmhPaths, record: dict[str, object]) -> dict[str, object]:
+    """Record the delivery an adapter observed, without ever failing the delivery.
+
+    Minted only from an observed delivery: `prepare_adapter_quality_delivery`
+    stays `prepared_not_observed` and has no path here.
+
+    `mint_external_effect_receipt` returns its refusals and write failures
+    rather than raising them, and logs them beside the store, so an unwritable
+    store -- a lock held past its timeout, a `runtime/journal` path occupied by
+    a regular file -- leaves the observed delivery reported and visibly
+    un-receipted instead of raising out of a call whose own record is already on
+    disk. It is idempotent by effect identity, so calling it again for the same
+    observed delivery records one receipt in total however many times the
+    adapter reports it.
+
+    The receipt carries no run id, and that is the honest shape rather than a
+    gap: a delivery is asked for inside a wrapper session, and that session's
+    run is whatever it happens to be working on, which is not what the delivery
+    is about. `omh runtime receipts` lists run-less effects as their own class
+    so they are visible rather than silently absent.
+    """
+    results = {"delivered": "succeeded", "failed": "failed", "blocked": "failed"}
+    external_ref = redacted_external_effect_ref(str(record.get("external_message_ref", "")))
+    result = results[str(record["delivery_result"])]
+    return mint_external_effect_receipt(
+        paths,
+        effect_id=f"delivery:{record['preparation_id']}",
+        action="message_sent",
+        acting_surface="adapter_quality_delivery",
+        # A delivered message with no platform handle is a success nobody can
+        # cite, so the receipt records it as unknown rather than succeeded.
+        observed_result=result if external_ref or result != "succeeded" else "unknown",
+        external_ref=external_ref,
+        summary=f"{record['renderer_target']} delivery {record['delivery_result']} by {record['adapter']}",
+    )
 
 
 def _signal(value: dict[str, object]) -> dict[str, object]:

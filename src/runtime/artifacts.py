@@ -29,6 +29,22 @@ from ..local_store import (
     read_jsonl_objects,
     utc_now,
 )
+from ..external_effect_receipts import (
+    EXTERNAL_EFFECT_CLAIM_SURFACES,
+    EXTERNAL_EFFECT_RECEIPT_STORE_NAME,
+    compact_external_effect_receipt,
+    external_effect_id,
+    index_external_effect_receipts_by_run,
+    mint_external_effect_receipt_at,
+    project_external_effects,
+    read_external_effect_receipts,
+    receipt_claim_for_effect,
+    receipt_contradicts_success_claim,
+    redacted_external_effect_ref,
+    select_effect_receipt,
+    success_claim_citation,
+    validate_external_effect_receipt_store,
+)
 from ..observation_journal import (
     append_observation_event,
     merge_lifecycle_projection,
@@ -42,6 +58,7 @@ from .records import (
     EVENT_LEVELS,
     OBSERVED_RESULTS,
     OPTIONAL_RECORD_VALIDATORS,
+    OPTIONAL_RUNTIME_STORE_VALIDATORS,
     PRIVACY_MODES,
     RUNTIME_OBSERVATION_EVENTS,
     RUNTIME_OBSERVATION_SCHEMA_VERSION,
@@ -284,6 +301,121 @@ def _run_id_for_dir(run_dir: Path) -> str:
     return str(run.get("run_id", run_dir.name)) if isinstance(run, dict) else run_dir.name
 
 
+def external_effect_run_id(run: dict[str, Any], fallback: str) -> str:
+    """The run identity every receipt surface keys on.
+
+    A receipt is minted with the run id from `run.json`, because that is what
+    `_run_id_for_dir` stamps on the record that produced it. A surface that
+    keyed on the directory name instead would agree with the store only while
+    the two happen to match, and would select a different receipt -- or none --
+    for the same effect the moment they did not. One resolver, so the validator,
+    the projection, and the claim ladder cannot diverge.
+    """
+    value = run.get("run_id") if isinstance(run, dict) else None
+    return str(value) if isinstance(value, str) and value else fallback
+
+
+# Which external effect each observed record witnesses, and which surface
+# witnessed it. The same mapping the claim gate uses, under the producer-facing
+# name, so a record can never be minted against one surface and then judged
+# against another.
+EXTERNAL_EFFECT_RECORD_SURFACES = EXTERNAL_EFFECT_CLAIM_SURFACES
+
+
+def runtime_store_path_for_run_dir(run_dir: Path, name: str) -> Path | None:
+    """A runtime-wide append-only store, derived only from the run directory.
+
+    Every segment comes from `run_dir` itself, so validating a run inside an
+    isolated home can never reach the developer's real one. A directory that is
+    not shaped like `<omh-home>/runtime/runs/<id>` belongs to no runtime tree
+    and therefore has no store.
+    """
+    runs_dir = run_dir.parent
+    runtime_dir = runs_dir.parent
+    if runs_dir.name != "runs" or runtime_dir.name != "runtime":
+        return None
+    return runtime_dir / "journal" / name
+
+
+def _external_effect_result(*, observed: bool, status: str, external_ref: str) -> str:
+    """Map one observed record's status onto the receipt result vocabulary.
+
+    An unobserved record maps to "" whatever it says. A receipt is one acting
+    surface's observation, so a record whose own `observed` flag is false has
+    nothing to mint from -- `requested` and `attempted` for such a record are
+    projected in `_requested_external_effects` instead.
+
+    "" is also the answer for records that witness no external effect at all: a
+    not-required gate and merge readiness are local decisions, not things that
+    happened outside this machine.
+    """
+    if not observed:
+        return ""
+    if status in {"passed", "merged"}:
+        # Observed success nobody can name is not a citable success.
+        return "succeeded" if external_ref else "unknown"
+    if status in {"failed", "blocked"}:
+        return "failed"
+    if status == "pending":
+        # A surface that observed the effect start and no outcome yet.
+        return "attempted"
+    return ""
+
+
+def _record_external_effect_for_run(
+    run_dir: Path,
+    kind: str,
+    record: dict[str, Any],
+    *,
+    external_ref: str,
+    evidence_refs: list[Any],
+) -> None:
+    store_path = runtime_store_path_for_run_dir(run_dir, EXTERNAL_EFFECT_RECEIPT_STORE_NAME)
+    if store_path is None:
+        return
+    action, acting_surface = EXTERNAL_EFFECT_RECORD_SURFACES[kind]
+    safe_ref = redacted_external_effect_ref(external_ref)
+    result = _external_effect_result(
+        observed=bool(record.get("observed", False)),
+        status=str(record.get("status", "")),
+        external_ref=safe_ref,
+    )
+    if not result:
+        return
+    run_id = str(record.get("run_id", ""))
+    mint = mint_external_effect_receipt_at(
+        store_path,
+        effect_id=external_effect_id(kind, run_id),
+        action=action,
+        acting_surface=acting_surface,
+        observed_result=result,
+        run_id=run_id,
+        external_ref=safe_ref,
+        evidence_refs=[redacted_external_effect_ref(str(ref)) for ref in evidence_refs if str(ref)],
+        summary=str(record.get("summary", "")),
+    )
+    if mint["outcome"] in {"recorded", "already_recorded"}:
+        return
+    # Surfaced, not swallowed: the run's own event log says the effect went
+    # unreceipted, and every claim gate keeps treating it as unobserved. The
+    # record itself is already written, so the write that produced it is not
+    # failed by a receipt that could not be stored.
+    append_event(
+        run_dir,
+        {
+            "event": "external_effect_receipt_not_recorded",
+            "level": "warning",
+            "message": f"{kind} external effect receipt could not be recorded",
+            "data": {
+                "kind": kind,
+                "status": str(record.get("status", "")),
+                "outcome": str(mint["outcome"]),
+                "error": str(mint["error"]),
+            },
+        },
+    )
+
+
 def write_review_record(run_dir: Path, review: dict[str, Any]) -> dict[str, Any]:
     record = build_review_record({"run_id": _run_id_for_dir(run_dir), **review})
     atomic_write_json(run_dir / "review.json", record, private=True)
@@ -295,6 +427,14 @@ def write_review_record(run_dir: Path, review: dict[str, Any]) -> dict[str, Any]
             "message": f"review {record['status']}",
             "data": {"status": record["status"], "observed": record["observed"], "required": record["required"]},
         },
+    )
+    evidence_refs = record.get("evidence_refs", []) if isinstance(record.get("evidence_refs"), list) else []
+    _record_external_effect_for_run(
+        run_dir,
+        "review",
+        record,
+        external_ref=str(evidence_refs[0]) if evidence_refs else str(record.get("reviewer", "")),
+        evidence_refs=evidence_refs,
     )
     return record
 
@@ -311,6 +451,14 @@ def write_ci_record(run_dir: Path, ci: dict[str, Any]) -> dict[str, Any]:
             "data": {"status": record["status"], "observed": record["observed"], "required": record["required"]},
         },
     )
+    evidence_refs = record.get("evidence_refs", []) if isinstance(record.get("evidence_refs"), list) else []
+    _record_external_effect_for_run(
+        run_dir,
+        "ci",
+        record,
+        external_ref=str(evidence_refs[0]) if evidence_refs else str(record.get("provider", "")),
+        evidence_refs=evidence_refs,
+    )
     return record
 
 
@@ -325,6 +473,14 @@ def write_merge_record(run_dir: Path, merge: dict[str, Any]) -> dict[str, Any]:
             "message": f"merge {record['status']}",
             "data": {"status": record["status"], "observed": record["observed"], "ready": record["ready"], "merged": record["merged"]},
         },
+    )
+    evidence_refs = record.get("evidence_refs", []) if isinstance(record.get("evidence_refs"), list) else []
+    _record_external_effect_for_run(
+        run_dir,
+        "merge",
+        record,
+        external_ref=str(record.get("merge_commit", "")) or (str(evidence_refs[0]) if evidence_refs else ""),
+        evidence_refs=evidence_refs,
     )
     return record
 
@@ -506,7 +662,13 @@ def _history_bounds(records: list[dict[str, Any]], limit: int | None) -> dict[st
     return {"total": len(records), "shown": shown, "omitted": max(0, len(records) - shown)}
 
 
-def show_run(paths: OmhPaths, run_id: str, *, history_limit: int | None = DEFAULT_RUN_HISTORY_LIMIT) -> dict[str, Any]:
+def show_run(
+    paths: OmhPaths,
+    run_id: str,
+    *,
+    history_limit: int | None = DEFAULT_RUN_HISTORY_LIMIT,
+    external_effect_receipts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Project one run.
 
     `events`, `runtime_observations`, and `journal_events` are tail-bounded by
@@ -515,6 +677,10 @@ def show_run(paths: OmhPaths, run_id: str, *, history_limit: int | None = DEFAUL
     bounding output never changes observed-evidence conclusions. Pass
     `history_limit=None` for the full record (export, learning traces, status
     summaries that must read every event).
+
+    The receipt store is runtime-wide. A caller that projects many runs reads it
+    once and passes this run's slice as `external_effect_receipts`, so walking N
+    runs costs one parse of the store rather than N.
     """
     run_dir = paths.runtime_runs_dir / run_id
     run = read_json_object(run_dir / "run.json")
@@ -524,14 +690,21 @@ def show_run(paths: OmhPaths, run_id: str, *, history_limit: int | None = DEFAUL
     all_events, event_errors = read_events_result(run_dir)
     all_observations, observation_errors = read_runtime_observations_result(run_dir)
     all_journal_events, journal_errors = _journal_events_for_run_result(paths, run_id)
+    all_receipts = (
+        read_external_effect_receipts(paths, run_id=external_effect_run_id(run, run_id))
+        if external_effect_receipts is None
+        else external_effect_receipts
+    )
     events = _apply_limit(all_events, history_limit)
     observations = _apply_limit(all_observations, history_limit)
     journal_events = _apply_limit(all_journal_events, history_limit)
+    receipts = [compact_external_effect_receipt(receipt) for receipt in _apply_limit(all_receipts, history_limit)]
     result = {
         "run": run,
         "events": events,
         "runtime_observations": observations,
         "journal_events": journal_events,
+        "external_effect_receipts": receipts,
         "history": {
             "schema_version": RUN_HISTORY_BOUNDS_SCHEMA_VERSION,
             "limit": history_limit,
@@ -539,15 +712,18 @@ def show_run(paths: OmhPaths, run_id: str, *, history_limit: int | None = DEFAUL
                 len(events) != len(all_events)
                 or len(observations) != len(all_observations)
                 or len(journal_events) != len(all_journal_events)
+                or len(receipts) != len(all_receipts)
             ),
             "order": "oldest_to_newest_tail",
             "events": _history_bounds(all_events, history_limit),
             "runtime_observations": _history_bounds(all_observations, history_limit),
             "journal_events": _history_bounds(all_journal_events, history_limit),
+            "external_effect_receipts": _history_bounds(all_receipts, history_limit),
             "full_history_artifacts": {
                 "events": str(run_dir / "events.jsonl"),
                 "runtime_observations": str(run_dir / "runtime_observations.jsonl"),
                 "journal_events": str(paths.runtime_journal_events_path),
+                "external_effect_receipts": str(paths.runtime_external_effect_receipts_path),
             },
             "full_history_command": f"omh runtime show {run_id} --full",
         },
@@ -728,6 +904,29 @@ def summarize_delegated_coding_status(paths: OmhPaths, run_id: str) -> dict[str,
     merge_required = bool(merge_record) or ci_status["status"] == "passed"
     merge_status = _merge_status_summary(merge_required, merge_record)
     merge_status = _apply_lifecycle_merge_status(merge_status, lifecycle)
+    # The identity the store is keyed by, not the directory this run was looked
+    # up under. Runtime validation resolves the same way, so both gate call
+    # sites name the same effect and select the same receipt for it.
+    effect_run_id = external_effect_run_id(run, run_id)
+    external_effects = project_external_effects(
+        paths,
+        effect_run_id,
+        requested_effects=_requested_external_effects(
+            effect_run_id,
+            review_status=review_status,
+            ci_status=ci_status,
+            merge_status=merge_status,
+        ),
+    )
+    review_status = {
+        **review_status,
+        "receipt": receipt_claim_for_effect(external_effects, external_effect_id("review", effect_run_id)),
+    }
+    ci_status = {**ci_status, "receipt": receipt_claim_for_effect(external_effects, external_effect_id("ci", effect_run_id))}
+    merge_status = {
+        **merge_status,
+        "receipt": receipt_claim_for_effect(external_effects, external_effect_id("merge", effect_run_id)),
+    }
     harness_quality = _object_or_empty(coding.get("harness_quality") or handoff.get("harness_quality"))
     harness_progress = _delegated_harness_progress(
         harness_quality,
@@ -816,6 +1015,7 @@ def summarize_delegated_coding_status(paths: OmhPaths, run_id: str) -> dict[str,
             "summary": merge_status["summary"],
         },
         "merge": merge_status,
+        "external_effects": external_effects,
         "runtime_observation": runtime_observation_status,
         "lifecycle": lifecycle,
         "next_action": next_action,
@@ -831,6 +1031,7 @@ def summarize_delegated_coding_status(paths: OmhPaths, run_id: str) -> dict[str,
             review_status=review_status,
             ci_status=ci_status,
             merge_status=merge_status,
+            receipt_citation=success_claim_citation(external_effects),
         ),
         "integrity": {
             "ok": not integrity_warnings,
@@ -840,8 +1041,52 @@ def summarize_delegated_coding_status(paths: OmhPaths, run_id: str) -> dict[str,
             "Prepared coding delegation is not execution evidence.",
             "Hermes should not claim it implemented code from this record.",
             "Review, verification, CI, and merge status require separate observed evidence.",
+            "An external effect is only succeeded when a receipt names it and the surface that acted.",
         ],
     }
+
+
+def _requested_external_effects(
+    run_id: str,
+    *,
+    review_status: dict[str, Any],
+    ci_status: dict[str, Any],
+    merge_status: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """External effects this run's own records say are needed, and how far they got.
+
+    These are the two states a status report can reach with no receipt at all.
+    `requested` means the run asked for the effect and nothing has started;
+    `attempted` means the run's own record says the effect is in flight --
+    `pending` is the only status in the record vocabulary that means started
+    with no outcome -- and no acting surface has reported how it ended.
+
+    Neither is evidence. Both are projected over the *absence* of a receipt, and
+    `project_external_effects` drops them the moment one exists, so an intent
+    can never be read as an observation.
+    """
+    requested: list[dict[str, Any]] = []
+    for kind, action, status in (
+        ("review", "review_submitted", review_status),
+        ("ci", "ci_run", ci_status),
+        ("merge", "merge", merge_status),
+    ):
+        if not bool(status.get("required", False)):
+            continue
+        started = str(status.get("status", "")) == "pending"
+        requested.append(
+            {
+                "effect_id": external_effect_id(kind, run_id),
+                "action": action,
+                "state": "attempted" if started else "requested",
+                "summary": (
+                    f"{kind} is required for this run and has started with no acting surface reporting an outcome"
+                    if started
+                    else f"{kind} is required for this run and no acting surface has reported it"
+                ),
+            }
+        )
+    return requested
 
 
 def summarize_runtime_observation_status(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1492,7 +1737,12 @@ def _delegated_status_summary(
     review_status: dict[str, Any],
     ci_status: dict[str, Any],
     merge_status: dict[str, Any],
+    receipt_citation: str = "",
 ) -> str:
+    # Every sentence below that asserts an external success carries the
+    # citation, so no rendered success claim exists without a named receipt and
+    # a named acting surface.
+    cited = f" Observed external effect receipts: {receipt_citation}." if receipt_citation else ""
     if not prepared:
         return "No prepared coding delegation was found for this run."
     if action == "clarify":
@@ -1518,14 +1768,14 @@ def _delegated_status_summary(
             return f"The {executor_target} executor is reviewed, but CI is {ci_status['status']}."
         return f"The {executor_target} executor is reviewed, but CI evidence is still required."
     if merge_status["status"] == "blocked":
-        return f"The {executor_target} executor is reviewed and CI passed, but merge is blocked."
+        return f"The {executor_target} executor is reviewed and CI passed, but merge is blocked.{cited}"
     if merge_status["status"] == "merged" and merge_status["satisfied"]:
-        return f"The {executor_target} executor is reviewed, CI passed, and merge evidence is observed."
+        return f"The {executor_target} executor is reviewed, CI passed, and merge evidence is observed.{cited}"
     if merge_status["status"] == "ready" and merge_status["satisfied"]:
-        return f"The {executor_target} executor is reviewed, CI passed, and the run is ready to merge."
+        return f"The {executor_target} executor is reviewed, CI passed, and the run is ready to merge.{cited}"
     if merge_status["required"]:
-        return f"The {executor_target} executor is reviewed and CI passed, but merge readiness is not observed yet."
-    return f"The {executor_target} executor is observed as {execution_status} with wrapper verification evidence."
+        return f"The {executor_target} executor is reviewed and CI passed, but merge readiness is not observed yet.{cited}"
+    return f"The {executor_target} executor is observed as {execution_status} with wrapper verification evidence.{cited}"
 
 
 def _delegated_status_integrity_warnings(
@@ -1571,9 +1821,23 @@ def _prepared_runtime_run_executor_rejection(coding: dict[str, Any]) -> str:
     return f"prepared runtime run rejected because {reason}; {PREPARED_RUNTIME_RUN_EXECUTOR_MATRIX}"
 
 
-def validate_run_dir(run_dir: Path) -> dict[str, Any]:
+def validate_run_dir(
+    run_dir: Path,
+    *,
+    external_effect_receipts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Validate one run directory.
+
+    `external_effect_receipts` is this run's slice of the runtime-wide receipt
+    store. It is read from disk when not supplied; `validate_runtime` reads the
+    store once and hands each run its own slice so validating N runs does not
+    parse the store N times.
+    """
     errors: list[str] = []
     coding_for_observation: dict[str, Any] | None = None
+    receipts = (
+        _run_external_effect_receipts(run_dir) if external_effect_receipts is None else external_effect_receipts
+    )
     run_path = run_dir / "run.json"
     try:
         run = read_json_object(run_path)
@@ -1659,11 +1923,50 @@ def validate_run_dir(run_dir: Path) -> dict[str, Any]:
             errors.append(f"{path}: {exc}")
         if record:
             errors.extend(f"{path}: {error}" for error in validator(record))
-    errors.extend(_validate_run_status_gate_consistency(run_dir))
+    errors.extend(_validate_run_external_effect_receipts(run_dir, receipts))
+    errors.extend(_validate_run_status_gate_consistency(run_dir, receipts))
     return {"run_id": run_dir.name, "ok": not errors, "errors": errors}
 
 
-def _validate_run_status_gate_consistency(run_dir: Path) -> list[str]:
+def _safe_run_id_for_dir(run_dir: Path) -> str:
+    """Run id for validation paths, which must survive an unreadable run.json."""
+    run, error = read_json_object_result(run_dir / "run.json")
+    if error or not isinstance(run, dict):
+        return run_dir.name
+    return external_effect_run_id(run, run_dir.name)
+
+
+def _run_external_effect_receipts(run_dir: Path) -> list[dict[str, Any]]:
+    """This run's receipts, read from the store the run directory itself names.
+
+    Parse errors are dropped on purpose. A line that does not parse carries no
+    `run_id`, so it belongs to the store rather than to any run;
+    `validate_runtime` reports it once, at store level, instead of failing every
+    run that happens to be validated while it sits there.
+    """
+    store_path = runtime_store_path_for_run_dir(run_dir, EXTERNAL_EFFECT_RECEIPT_STORE_NAME)
+    if store_path is None:
+        return []
+    records, _ = read_jsonl_objects(store_path)
+    run_id = _safe_run_id_for_dir(run_dir)
+    return [record for record in records if str(record.get("run_id", "")) == run_id]
+
+
+def _validate_run_external_effect_receipts(run_dir: Path, receipts: list[dict[str, Any]]) -> list[str]:
+    """Schema-validate only the receipts that belong to this run."""
+    errors: list[str] = []
+    for name, validator in OPTIONAL_RUNTIME_STORE_VALIDATORS:
+        store_path = runtime_store_path_for_run_dir(run_dir, name)
+        if store_path is None:
+            continue
+        for record in receipts:
+            errors.extend(
+                f"{store_path}[{record.get('receipt_id', '')}]: {error}" for error in validator(record)
+            )
+    return errors
+
+
+def _validate_run_status_gate_consistency(run_dir: Path, receipts: list[dict[str, Any]]) -> list[str]:
     errors: list[str] = []
     run = _read_json_object_or_empty(run_dir / "run.json")
     coding = _read_json_object_or_empty(run_dir / "coding_delegation.json")
@@ -1709,6 +2012,59 @@ def _validate_run_status_gate_consistency(run_dir: Path) -> list[str]:
             errors.append(f"{merge_path}: merge {merge_record.get('status')} requires review passed or not_required")
         if not ci_status["satisfied"]:
             errors.append(f"{merge_path}: merge {merge_record.get('status')} requires CI passed or not_required")
+    errors.extend(
+        _validate_external_effect_citations(
+            run_dir,
+            ci_record=ci_record,
+            merge_record=merge_record,
+            receipts=receipts,
+        )
+    )
+    return errors
+
+
+def _validate_external_effect_citations(
+    run_dir: Path,
+    *,
+    ci_record: dict[str, Any],
+    merge_record: dict[str, Any],
+    receipts: list[dict[str, Any]],
+) -> list[str]:
+    """A ci-passed or merged record must not contradict the receipt it has.
+
+    Validation says whether the records on disk are internally consistent, and
+    a run whose `ci.json` says `passed` while the only receipt for that effect
+    says `failed` is describing two different worlds.
+
+    The *absence* of a receipt is deliberately not a violation, and neither is a
+    receipt that observed less than a classified success. A store written before
+    receipts existed has no receipts at all, and calling that a fault would make
+    every older run invalid and collapse its whole claim ladder with no way back
+    -- there is no command that mints a receipt for a past effect. The
+    requirement that a success claim name a receipt lives on the claim ladder
+    instead (`omh.runtime.claims`), where the answer is to refuse the claim
+    rather than to condemn the data. `receipt_contradicts_success_claim` is
+    defined against the same `receipt_satisfies_success_claim` the ladder calls,
+    so neither side can accept what the other refuses.
+    """
+    if runtime_store_path_for_run_dir(run_dir, EXTERNAL_EFFECT_RECEIPT_STORE_NAME) is None:
+        return []
+    run_id = _safe_run_id_for_dir(run_dir)
+    errors: list[str] = []
+    for kind, record, expected, path in (
+        ("ci", ci_record, "passed", run_dir / "ci.json"),
+        ("merge", merge_record, "merged", run_dir / "merge.json"),
+    ):
+        if record.get("status") != expected:
+            continue
+        latest = select_effect_receipt(receipts, kind=kind, run_id=run_id)
+        if not receipt_contradicts_success_claim(latest, kind=kind, run_id=run_id):
+            continue
+        errors.append(
+            f"{path}: {kind} {expected} contradicts external effect receipt "
+            f"{latest.get('receipt_id', '')} from {latest.get('acting_surface', '')}, "
+            f"which observed {latest.get('observed_result', '')}"
+        )
     return errors
 
 
@@ -1720,6 +2076,13 @@ def _read_json_object_or_empty(path: Path) -> dict[str, Any]:
 
 
 def validate_runtime(paths: OmhPaths, run_id: str | None = None) -> dict[str, Any]:
+    """Validate the runtime tree, or one run of it.
+
+    The receipt store is runtime-wide, so it is read once here and each run gets
+    its own slice. Its own report is scoped the same way `journal` is: with
+    `run_id` set it covers only that run's receipts, so a corrupt line written
+    for some other run -- or for no run at all -- can never fault this one.
+    """
     if run_id:
         run_dirs = [paths.runtime_runs_dir / run_id]
         session_dirs = _wrapper_session_dirs_for_run(paths, run_id)
@@ -1730,17 +2093,30 @@ def validate_runtime(paths: OmhPaths, run_id: str | None = None) -> dict[str, An
             if paths.runtime_wrapper_sessions_dir.exists()
             else []
         )
-    results = [validate_run_dir(run_dir) for run_dir in run_dirs]
+    receipts_by_run = index_external_effect_receipts_by_run(paths)
+    results = [
+        validate_run_dir(
+            run_dir,
+            external_effect_receipts=receipts_by_run.get(_safe_run_id_for_dir(run_dir), []),
+        )
+        for run_dir in run_dirs
+    ]
     session_results = [validate_wrapper_session_dir(session_dir) for session_dir in session_dirs]
     journal_result = validate_observation_journal(paths, run_id=run_id)
+    receipt_store_result = validate_external_effect_receipt_store(
+        paths.runtime_external_effect_receipts_path,
+        run_id=run_id,
+    )
     _add_duplicate_wrapper_run_link_errors(session_results, session_dirs)
     return {
         "ok": all(result["ok"] for result in results)
         and all(result["ok"] for result in session_results)
-        and bool(journal_result["ok"]),
+        and bool(journal_result["ok"])
+        and bool(receipt_store_result["ok"]),
         "runs": results,
         "wrapper_sessions": session_results,
         "journal": journal_result,
+        "external_effect_receipts": receipt_store_result,
     }
 
 
@@ -1800,6 +2176,7 @@ SENSITIVE_TEXT_KEYS = (
     "raw_message",
     "task_statement",
     "external_session_ref",
+    "external_ref",
     "summary",
     "correlation_root",
     "process",
@@ -1865,6 +2242,7 @@ def export_runtime(
     journal_events, journal_errors = read_observation_events_result(paths)
     if run_id:
         journal_events = [event for event in journal_events if str(event.get("run_id", "")) == run_id]
+    receipts_by_run = index_external_effect_receipts_by_run(paths) if full else {}
     payload = {
         "schema_version": SCHEMA_VERSION,
         "runtime_dir": str(paths.runtime_dir),
@@ -1877,7 +2255,21 @@ def export_runtime(
             "wrapper_session_count": len(wrapper_sessions),
             "journal_event_count": len(journal_events),
         },
-        "runs": [show_run(paths, run["run_id"], history_limit=None) for run in runs] if full else runs,
+        "runs": (
+            [
+                show_run(
+                    paths,
+                    run["run_id"],
+                    history_limit=None,
+                    # One parse of the runtime-wide store for the whole export,
+                    # not one per run.
+                    external_effect_receipts=receipts_by_run.get(str(run["run_id"]), []),
+                )
+                for run in runs
+            ]
+            if full
+            else runs
+        ),
         "wrapper_sessions": (
             [show_wrapper_session_record(paths, session["session_id"]) for session in wrapper_sessions] if full else wrapper_sessions
         ),
