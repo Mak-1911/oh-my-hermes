@@ -50,6 +50,7 @@ from .common import (
     _print_json,
     _resolved_executor,
     _wants_json,
+    add_revision_guard_arguments,
 )
 from .runtime import _validate_runtime_names
 
@@ -208,12 +209,28 @@ def cmd_chat_session_start(args: argparse.Namespace) -> int:
     return 0
 
 
+def _revision_guard(args: argparse.Namespace) -> dict[str, object]:
+    """The guard arguments a chat session mutation forwards to the record write.
+
+    Read through getattr so subcommands that do not reach a guarded write stay
+    unaffected, and normalized the same way the goal CLI does: an absent
+    --mutation-id is None ("no id supplied"), never the empty string.
+    """
+    return {
+        "expected_revision": getattr(args, "expected_revision", None),
+        "mutation_id": getattr(args, "mutation_id", "") or None,
+    }
+
+
 def cmd_chat_session_decision(args: argparse.Namespace) -> int:
     try:
-        _print_json(record_plan_decision(_paths(args), args.session_id, args.decision))
+        _print_json(record_plan_decision(_paths(args), args.session_id, args.decision, **_revision_guard(args)))
     except FileNotFoundError as exc:
         raise OmhError(f"wrapper session not found: {args.session_id}") from exc
-    except WrapperSessionError as exc:
+    # StaleRecordMutation / MutationHistoryEvicted / ConflictingMutationReplay
+    # are ValueErrors raised by the guarded write, and reach the user as
+    # "omh: <message>" rather than a traceback.
+    except (ValueError, WrapperSessionError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
 
@@ -230,6 +247,7 @@ def cmd_chat_session_prepare_handoff(args: argparse.Namespace) -> int:
             source_metadata=source_metadata,
             executor_target=args.executor,
             context_pack=_context_pack(args),
+            **_revision_guard(args),
         )
     except FileNotFoundError as exc:
         raise OmhError(f"wrapper session not found: {args.session_id}") from exc
@@ -673,10 +691,12 @@ def _add_codex_observation_options(parser: argparse.ArgumentParser) -> None:
 
 def cmd_chat_session_select_executor(args: argparse.Namespace) -> int:
     try:
-        _print_json(select_wrapper_session_executor(_paths(args), args.session_id, args.executor))
+        _print_json(
+            select_wrapper_session_executor(_paths(args), args.session_id, args.executor, **_revision_guard(args))
+        )
     except FileNotFoundError as exc:
         raise OmhError(f"wrapper session not found: {args.session_id}") from exc
-    except WrapperSessionError as exc:
+    except (ValueError, WrapperSessionError) as exc:
         raise OmhError(str(exc)) from exc
     return 0
 
@@ -1170,21 +1190,29 @@ def _add_chat_commands(sub) -> None:
     _add_target_metadata_options(session_start)
     session_start.set_defaults(func=cmd_chat_session_start)
 
+    # Every chat session subcommand below reaches a guarded session.json write,
+    # so each carries the same two guard flags: the guarantee is "the wrapper
+    # submits the revision it rendered", and it is unreachable from a surface
+    # that cannot pass one.
     session_accept = session_sub.add_parser("accept-plan")
     session_accept.add_argument("session_id")
+    add_revision_guard_arguments(session_accept)
     session_accept.set_defaults(func=cmd_chat_session_decision, decision="accept")
 
     session_revise = session_sub.add_parser("revise-plan")
     session_revise.add_argument("session_id")
+    add_revision_guard_arguments(session_revise)
     session_revise.set_defaults(func=cmd_chat_session_decision, decision="revise")
 
     session_cancel = session_sub.add_parser("cancel")
     session_cancel.add_argument("session_id")
+    add_revision_guard_arguments(session_cancel)
     session_cancel.set_defaults(func=cmd_chat_session_decision, decision="cancel")
 
     session_select = session_sub.add_parser("select-executor")
     session_select.add_argument("session_id")
     session_select.add_argument("executor", choices=tuple(value for value in CODING_EXECUTOR_TARGETS if value != "choose"))
+    add_revision_guard_arguments(session_select)
     session_select.set_defaults(func=cmd_chat_session_select_executor)
 
     session_prepare = session_sub.add_parser("prepare-handoff")
@@ -1203,6 +1231,7 @@ def _add_chat_commands(sub) -> None:
         default=None,
         help="Optional handoff_context_pack/v1 JSON to attach to the prepared executor prompt when conflict-free.",
     )
+    add_revision_guard_arguments(session_prepare)
     session_prepare.set_defaults(func=cmd_chat_session_prepare_handoff)
 
     session_status = session_sub.add_parser("status")

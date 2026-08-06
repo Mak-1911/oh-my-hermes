@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import secrets
 from datetime import datetime, timezone
@@ -7,7 +8,13 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..hashutil import sha256_text
-from ..local_store import atomic_write_json, ensure_dir, read_json_object, utc_now
+from ..local_store import ensure_dir, read_json_object, utc_now
+from ..system.record_revision import (
+    DuplicateMutationReplay,
+    guarded_record_update,
+    require_not_terminal,
+    revision_field_errors,
+)
 from ..paths import OmhPaths
 from ..runtime.artifacts import summarize_delegated_coding_status
 
@@ -17,7 +24,8 @@ GOAL_COMPLETION_GATE_SCHEMA = "goal_completion_gate/v1"
 GOAL_CONTINUATION_SCHEMA = "goal_continuation/v1"
 GOAL_STATUS_CARD_SCHEMA = "goal_status_card/v1"
 
-GOAL_STATUSES = {"active", "blocked", "failed", "complete"}
+GOAL_STATUSES = {"active", "blocked", "failed", "complete", "cancelled"}
+GOAL_TERMINAL_STATUSES = ("complete", "cancelled")
 CRITERION_STATUSES = {"pending", "satisfied"}
 CHECKPOINT_STATUSES = {"pending", "in_progress", "done", "blocked", "failed"}
 BLOCKER_STATUSES = {"active", "resolved"}
@@ -170,10 +178,126 @@ def _read_goal(paths: OmhPaths, goal_id: str) -> dict[str, Any]:
     return data
 
 
-def _write_goal(paths: OmhPaths, goal: dict[str, Any]) -> dict[str, Any]:
-    goal["updated_at"] = utc_now()
-    atomic_write_json(goal_ledger_path(paths, str(goal["goal_id"])), goal, private=True)
-    return goal
+def _guarded_goal_update(
+    paths: OmhPaths,
+    goal_id: str,
+    mutate,
+    *,
+    operation: str,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
+    mutation_digest: str | None = None,
+    default: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], bool]:
+    """One locked read-check-write transaction on goal.json.
+
+    Returns (goal_record, replayed). A replayed mutation_id returns the
+    current goal without a write or revision bump, so a retried CLI call
+    cannot append a duplicate item; replay is keyed on
+    (operation, mutation_id), so the same client id reused for a different
+    logical operation still applies.
+    """
+    path = goal_ledger_path(paths, goal_id)
+
+    def _mutate(current: dict[str, Any]) -> dict[str, Any] | None:
+        if default is None:
+            _raise_goal_validation_errors(current)
+        updated = mutate(current)
+        if updated is None:
+            return None
+        updated["updated_at"] = utc_now()
+        return updated
+
+    result = guarded_record_update(
+        path,
+        mutate=_mutate,
+        operation=operation,
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=mutation_digest,
+        lock_name="goal.json",
+        validate=_raise_goal_validation_errors,
+        default=default,
+    )
+    if isinstance(result, DuplicateMutationReplay):
+        return result.record, True
+    return result, False
+
+
+def _mutation_digest(*parts: object) -> str:
+    """Digest of one operation's own arguments, for replay-conflict detection.
+
+    The core helper compares this against the digest stored for the same
+    (operation, mutation_id); a retry that carries different content is then
+    refused instead of silently replaying somebody else's result.
+    """
+    return sha256_text(json.dumps(list(parts), sort_keys=True, separators=(",", ":"), default=str))
+
+
+def _record_goal_outcome(
+    outcome: dict[str, Any] | None,
+    goal: dict[str, Any],
+    *,
+    replayed: bool,
+    applied: bool,
+) -> None:
+    """Re-derive what actually landed in the persisted record for the caller.
+
+    A replayed or refused mutation still returns a goal, so surfaces that
+    report success must read `applied` here instead of assuming the call did
+    what it asked for.
+    """
+    if outcome is None:
+        return
+    outcome.update({"replayed": replayed, "applied": applied, "goal_status": str(goal.get("status", ""))})
+
+
+def _raise_goal_validation_errors(goal: dict[str, Any]) -> None:
+    validation = validate_goal_ledger(goal)
+    if not validation["ok"]:
+        raise ValueError("; ".join(validation["errors"]))
+
+
+def _mutation_item_id(mutation_id: str | None, prefix: str) -> str:
+    """Derive the ledger item id a mutation_id owns, for any mutation_id.
+
+    A mutation_id is a client-chosen retry token, not a storage id: wrapper
+    sessions and loop cycles accept arbitrary strings, so connectors that
+    derive ids from upstream message ids (snowflakes carrying ':' or '/')
+    must not fail on goals alone. Filesystem-safe ids stay verbatim so the
+    item id remains readable; anything else is hashed, which keeps the
+    derivation deterministic - the same mutation_id always maps to the same
+    item id - without ever putting caller text in a path segment.
+    """
+    item = str(mutation_id or "").strip()
+    if not item:
+        return _new_item_id(prefix)
+    if _is_storage_id(item):
+        return item
+    return f"{prefix}-{sha256_text(item)[:24]}"
+
+
+def _item_id_already_present(items: Any, id_key: str, item_id: str) -> bool:
+    """True when the list already holds the item this mutation would append.
+
+    The bounded applied_mutations map forgets an id after 128 later mutations,
+    and the eviction floor only refuses a retry that also carried an
+    expected_revision. A retry carrying nothing but --mutation-id therefore
+    reached mutate() with no replay proof and appended a second item under the
+    same derived id (issue #828). Because the id here is *materialized* from
+    the mutation_id, the record itself is the proof: if the item is already
+    there, the mutation already applied. This scan runs inside the lock, so it
+    cannot race a concurrent append.
+    """
+    if not item_id or not isinstance(items, list):
+        return False
+    return any(isinstance(item, dict) and str(item.get(id_key, "")) == item_id for item in items)
+
+
+def _is_storage_id(value: str) -> bool:
+    if not STORAGE_ID_RE.fullmatch(value):
+        return False
+    return value not in {".", ".."} and ".." not in value and "/" not in value and "\\" not in value
 
 
 def create_goal_ledger(
@@ -212,8 +336,9 @@ def create_goal_ledger(
         raise ValueError("; ".join(validation["errors"]))
     ensure_dir(_goal_dir(paths, goal_id), private=True)
     ensure_dir(_goal_dir(paths, goal_id) / "evidence", private=True)
-    atomic_write_json(goal_ledger_path(paths, goal_id), goal, private=True)
-    return goal
+    return _guarded_goal_update(
+        paths, goal_id, lambda current: dict(goal), operation="create_goal_ledger", default={}
+    )[0]
 
 
 def read_goal_ledger(paths: OmhPaths, goal_id: str) -> dict[str, Any]:
@@ -245,45 +370,82 @@ def record_goal_checkpoint(
     evidence_refs: Iterable[str] | None = None,
     notes_summary: str = "",
     linked_runtime_run_id: str = "",
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
+    outcome: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if status not in CHECKPOINT_STATUSES:
         raise ValueError(f"unsupported checkpoint status: {status}")
     if not summary.strip():
         raise ValueError("checkpoint summary is required")
-    goal = read_goal_ledger(paths, goal_id)
-    criterion_ids = {str(criterion["id"]) for criterion in goal["acceptance_criteria"]}
+    checkpoint_id = _mutation_item_id(mutation_id, "checkpoint")
     refs = [str(ref).strip() for ref in criteria_refs or [] if str(ref).strip()]
-    unknown_refs = [ref for ref in refs if ref not in criterion_ids]
-    if unknown_refs:
-        raise ValueError(f"unknown acceptance criteria: {', '.join(unknown_refs)}")
     evidence = _evidence_refs(evidence_refs)
     linked_runtime_ref = (
         _storage_id(linked_runtime_run_id, "linked_runtime_run_id") if linked_runtime_run_id.strip() else ""
     )
-    checkpoint = {
-        "checkpoint_id": _new_item_id("checkpoint"),
-        "created_at": utc_now(),
-        "status": status,
-        "summary": _safe_summary(summary),
-        "criteria_refs": refs,
-        "evidence_refs": evidence,
-        "notes_summary": _safe_summary(notes_summary) if notes_summary.strip() else "",
-        "linked_runtime_run_id": linked_runtime_ref,
-    }
-    goal["checkpoints"].append(checkpoint)
-    goal["current_checkpoint"] = checkpoint["checkpoint_id"]
-    if status == "done":
-        if refs and not evidence:
+
+    replay = {"deduped": False}
+
+    def mutate(goal: dict[str, Any]) -> dict[str, Any] | None:
+        # The materialized-id dedupe runs before every other check, exactly
+        # like the applied_mutations replay path it backstops: that path
+        # returns the record without running preconditions either, so a retry
+        # must not start failing them once its id has been evicted.
+        if _item_id_already_present(goal.get("checkpoints"), "checkpoint_id", checkpoint_id):
+            replay["deduped"] = True
+            return None
+        # Every precondition runs inside the locked transaction and in the
+        # original order: an unknown criterion ref is reported before the
+        # missing-evidence rule, and a raise here leaves the record untouched.
+        require_not_terminal(goal, "status", GOAL_TERMINAL_STATUSES, "record a checkpoint on this goal")
+        criterion_ids = {str(criterion["id"]) for criterion in goal["acceptance_criteria"]}
+        unknown_refs = [ref for ref in refs if ref not in criterion_ids]
+        if unknown_refs:
+            raise ValueError(f"unknown acceptance criteria: {', '.join(unknown_refs)}")
+        if status == "done" and refs and not evidence:
             raise ValueError("done checkpoints that satisfy criteria require evidence_refs")
-        for criterion in goal["acceptance_criteria"]:
-            if criterion["id"] in refs:
-                criterion["status"] = "satisfied"
-                criterion["evidence_refs"] = sorted(set(criterion["evidence_refs"] + evidence))
-    if linked_runtime_ref:
-        runs = set(goal.get("linked_runtime_runs", []))
-        runs.add(linked_runtime_ref)
-        goal["linked_runtime_runs"] = sorted(runs)
-    return _write_goal(paths, goal)
+        checkpoint = {
+            "checkpoint_id": checkpoint_id,
+            "created_at": utc_now(),
+            "status": status,
+            "summary": _safe_summary(summary),
+            "criteria_refs": refs,
+            "evidence_refs": evidence,
+            "notes_summary": _safe_summary(notes_summary) if notes_summary.strip() else "",
+            "linked_runtime_run_id": linked_runtime_ref,
+        }
+        goal["checkpoints"].append(checkpoint)
+        goal["current_checkpoint"] = checkpoint["checkpoint_id"]
+        if status == "done":
+            for criterion in goal["acceptance_criteria"]:
+                if criterion["id"] in refs:
+                    criterion["status"] = "satisfied"
+                    criterion["evidence_refs"] = sorted(set(criterion["evidence_refs"] + evidence))
+        if linked_runtime_ref:
+            runs = set(goal.get("linked_runtime_runs", []))
+            runs.add(linked_runtime_ref)
+            goal["linked_runtime_runs"] = sorted(runs)
+        return goal
+
+    goal, replayed = _guarded_goal_update(
+        paths,
+        goal_id,
+        mutate,
+        operation="record_goal_checkpoint",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest(
+            "record_goal_checkpoint", summary, status, refs, evidence, notes_summary, linked_runtime_ref
+        ),
+    )
+    _record_goal_outcome(
+        outcome,
+        goal,
+        replayed=replayed or replay["deduped"],
+        applied=_item_id_already_present(goal.get("checkpoints"), "checkpoint_id", checkpoint_id),
+    )
+    return goal
 
 
 def record_goal_blocker(
@@ -295,24 +457,60 @@ def record_goal_blocker(
     missing_authority: str = "",
     evidence_refs: Iterable[str] | None = None,
     mark_goal_blocked: bool = False,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
+    outcome: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not summary.strip():
         raise ValueError("blocker summary is required")
-    goal = read_goal_ledger(paths, goal_id)
-    goal["blockers"].append(
-        {
-            "blocker_id": _new_item_id("blocker"),
-            "created_at": utc_now(),
-            "status": "active",
-            "summary": _safe_summary(summary),
-            "attempted_recovery": _safe_summary(attempted_recovery) if attempted_recovery.strip() else "",
-            "missing_authority": _safe_summary(missing_authority) if missing_authority.strip() else "",
-            "evidence_refs": _evidence_refs(evidence_refs),
-        }
+    blocker_id = _mutation_item_id(mutation_id, "blocker")
+    replay = {"deduped": False}
+
+    def mutate(goal: dict[str, Any]) -> dict[str, Any] | None:
+        # See _item_id_already_present: this is the retry proof the bounded
+        # applied_mutations map can no longer give once the id was evicted.
+        if _item_id_already_present(goal.get("blockers"), "blocker_id", blocker_id):
+            replay["deduped"] = True
+            return None
+        require_not_terminal(goal, "status", GOAL_TERMINAL_STATUSES, "record a blocker on this goal")
+        goal["blockers"].append(
+            {
+                "blocker_id": blocker_id,
+                "created_at": utc_now(),
+                "status": "active",
+                "summary": _safe_summary(summary),
+                "attempted_recovery": _safe_summary(attempted_recovery) if attempted_recovery.strip() else "",
+                "missing_authority": _safe_summary(missing_authority) if missing_authority.strip() else "",
+                "evidence_refs": _evidence_refs(evidence_refs),
+            }
+        )
+        if mark_goal_blocked:
+            goal["status"] = "blocked"
+        return goal
+
+    goal, replayed = _guarded_goal_update(
+        paths,
+        goal_id,
+        mutate,
+        operation="record_goal_blocker",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest(
+            "record_goal_blocker",
+            summary,
+            attempted_recovery,
+            missing_authority,
+            _evidence_refs(evidence_refs),
+            mark_goal_blocked,
+        ),
     )
-    if mark_goal_blocked:
-        goal["status"] = "blocked"
-    return _write_goal(paths, goal)
+    _record_goal_outcome(
+        outcome,
+        goal,
+        replayed=replayed or replay["deduped"],
+        applied=_item_id_already_present(goal.get("blockers"), "blocker_id", blocker_id),
+    )
+    return goal
 
 
 def record_goal_quality_gate(
@@ -322,22 +520,87 @@ def record_goal_quality_gate(
     *,
     status: str = "passed",
     evidence_refs: Iterable[str] | None = None,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
+    outcome: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if status not in QUALITY_GATE_STATUSES:
         raise ValueError(f"unsupported quality gate status: {status}")
     if not summary.strip():
         raise ValueError("quality gate summary is required")
-    goal = read_goal_ledger(paths, goal_id)
-    goal["quality_gates"].append(
-        {
-            "quality_gate_id": _new_item_id("quality-gate"),
-            "created_at": utc_now(),
-            "status": status,
-            "summary": _safe_summary(summary),
-            "evidence_refs": _evidence_refs(evidence_refs),
-        }
+    quality_gate_id = _mutation_item_id(mutation_id, "quality-gate")
+    replay = {"deduped": False}
+
+    def mutate(goal: dict[str, Any]) -> dict[str, Any] | None:
+        # See _item_id_already_present: this is the retry proof the bounded
+        # applied_mutations map can no longer give once the id was evicted.
+        if _item_id_already_present(goal.get("quality_gates"), "quality_gate_id", quality_gate_id):
+            replay["deduped"] = True
+            return None
+        require_not_terminal(goal, "status", GOAL_TERMINAL_STATUSES, "record a quality gate on this goal")
+        goal["quality_gates"].append(
+            {
+                "quality_gate_id": quality_gate_id,
+                "created_at": utc_now(),
+                "status": status,
+                "summary": _safe_summary(summary),
+                "evidence_refs": _evidence_refs(evidence_refs),
+            }
+        )
+        return goal
+
+    goal, replayed = _guarded_goal_update(
+        paths,
+        goal_id,
+        mutate,
+        operation="record_goal_quality_gate",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest(
+            "record_goal_quality_gate", summary, status, _evidence_refs(evidence_refs)
+        ),
     )
-    return _write_goal(paths, goal)
+    _record_goal_outcome(
+        outcome,
+        goal,
+        replayed=replayed or replay["deduped"],
+        applied=_item_id_already_present(goal.get("quality_gates"), "quality_gate_id", quality_gate_id),
+    )
+    return goal
+
+
+def cancel_goal_ledger(
+    paths: OmhPaths,
+    goal_id: str,
+    *,
+    reason: str = "",
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
+    outcome: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Terminally cancel a goal; later checkpoints, blockers, and gates refuse."""
+
+    def mutate(goal: dict[str, Any]) -> dict[str, Any]:
+        require_not_terminal(goal, "status", GOAL_TERMINAL_STATUSES, "cancel this goal")
+        goal["status"] = "cancelled"
+        if reason.strip():
+            goal["cancel_reason"] = _safe_summary(reason)
+        return goal
+
+    goal, replayed = _guarded_goal_update(
+        paths,
+        goal_id,
+        mutate,
+        operation="cancel_goal_ledger",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest("cancel_goal_ledger", reason),
+    )
+    # Re-derived from the persisted status, never from "the call returned":
+    # a mutation replayed away leaves an uncancelled goal, and reporting that
+    # as success is how a discarded cancel looks like a cancelled goal.
+    _record_goal_outcome(outcome, goal, replayed=replayed, applied=goal.get("status") == "cancelled")
+    return goal
 
 
 def validate_goal_ledger(goal: dict[str, Any]) -> dict[str, Any]:
@@ -354,7 +617,9 @@ def validate_goal_ledger(goal: dict[str, Any]) -> dict[str, Any]:
         except ValueError as exc:
             errors.append(str(exc))
     if goal.get("status") not in GOAL_STATUSES:
-        errors.append("status must be active, blocked, failed, or complete")
+        errors.append("status must be active, blocked, failed, complete, or cancelled")
+    if "cancel_reason" in goal and not isinstance(goal.get("cancel_reason"), str):
+        errors.append("cancel_reason must be a string")
     objective_hash = str(goal.get("objective_hash", ""))
     if len(objective_hash) != 64 or not re.fullmatch(r"[0-9a-f]+", objective_hash):
         errors.append("objective_hash must be a sha256 hex digest")
@@ -372,6 +637,7 @@ def validate_goal_ledger(goal: dict[str, Any]) -> dict[str, Any]:
                 _storage_id(str(run_id), "linked_runtime_run_id")
             except ValueError as exc:
                 errors.append(f"linked_runtime_runs[{index}]: {exc}")
+    errors.extend(revision_field_errors(goal, "goal_ledger"))
     return {"ok": not errors, "errors": errors}
 
 
@@ -400,7 +666,19 @@ def build_goal_completion_gate(paths: OmhPaths, goal_id: str) -> dict[str, Any]:
         status_gaps.append("goal status is blocked")
     if goal["status"] == "failed":
         status_gaps.append("goal status is failed")
+    if goal["status"] == "cancelled":
+        status_gaps.append("goal status is cancelled")
     ready = not missing_required and not active_blockers and not runtime_gaps and not status_gaps
+    next_action = _completion_next_action(
+        missing_required=missing_required,
+        active_blockers=active_blockers,
+        runtime_gaps=runtime_gaps,
+        status_gaps=status_gaps,
+    )
+    if goal["status"] == "cancelled":
+        # A cancelled goal is terminal: recording blockers or checkpoints is
+        # refused, so the only safe next action is showing status.
+        next_action = "show_status"
     return {
         "schema_version": GOAL_COMPLETION_GATE_SCHEMA,
         "goal_id": goal_id,
@@ -415,12 +693,7 @@ def build_goal_completion_gate(paths: OmhPaths, goal_id: str) -> dict[str, Any]:
         "missing_required_criteria": missing_required,
         "active_blockers": active_blockers,
         "linked_runtime_checks": runtime_checks,
-        "next_action": _completion_next_action(
-            missing_required=missing_required,
-            active_blockers=active_blockers,
-            runtime_gaps=runtime_gaps,
-            status_gaps=status_gaps,
-        ),
+        "next_action": next_action,
     }
 
 
@@ -429,33 +702,82 @@ def complete_goal_ledger(
     goal_id: str,
     *,
     evidence_refs: Iterable[str] | None = None,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
 ) -> dict[str, Any]:
-    gate = build_goal_completion_gate(paths, goal_id)
-    goal = read_goal_ledger(paths, goal_id)
-    if not gate["ready"]:
-        return {"completed": False, "goal": goal, "completion_gate": gate}
     evidence = _evidence_refs(evidence_refs)
-    if not evidence:
-        gate = {
-            **gate,
-            "ready": False,
-            "summary": "Completion requires final evidence_refs.",
-            "next_action": "record_completion",
-        }
-        return {"completed": False, "goal": goal, "completion_gate": gate}
-    if goal["status"] != "complete":
+    quality_gate_id = _mutation_item_id(mutation_id, "quality-gate")
+    outcome: dict[str, Any] = {}
+    replay = {"deduped": False}
+
+    def mutate(goal: dict[str, Any]) -> dict[str, Any] | None:
+        # See _item_id_already_present: the completion quality gate is
+        # materialized from the mutation_id too, so the gate itself proves the
+        # retry even after the applied_mutations entry was evicted.
+        if _item_id_already_present(goal.get("quality_gates"), "quality_gate_id", quality_gate_id):
+            replay["deduped"] = True
+            return None
+        # The gate is evaluated inside the locked transaction so a concurrent
+        # blocker or cancellation cannot slip in between the check and the
+        # completion write.
+        gate = build_goal_completion_gate(paths, goal_id)
+        if not gate["ready"]:
+            outcome.update({"completed": False, "goal": goal, "completion_gate": gate})
+            return None
+        if not evidence:
+            adjusted = {
+                **gate,
+                "ready": False,
+                "summary": "Completion requires final evidence_refs.",
+                "next_action": "record_completion",
+            }
+            outcome.update({"completed": False, "goal": goal, "completion_gate": adjusted})
+            return None
+        outcome["completed"] = True
+        if goal["status"] == "complete":
+            outcome["goal"] = goal
+            return None
         goal["status"] = "complete"
         goal["quality_gates"].append(
             {
-                "quality_gate_id": _new_item_id("quality-gate"),
+                "quality_gate_id": quality_gate_id,
                 "created_at": utc_now(),
                 "status": "passed",
                 "summary": "Completion gate passed.",
                 "evidence_refs": evidence,
             }
         )
-        goal = _write_goal(paths, goal)
-    return {"completed": True, "goal": goal, "completion_gate": build_goal_completion_gate(paths, goal_id)}
+        outcome["goal"] = goal
+        return goal
+
+    goal, replayed = _guarded_goal_update(
+        paths,
+        goal_id,
+        mutate,
+        operation="complete_goal_ledger",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest("complete_goal_ledger", evidence),
+    )
+    replayed = replayed or replay["deduped"]
+    if not outcome:
+        # Replayed mutation_id: the completion already applied.
+        return {
+            "completed": goal.get("status") == "complete",
+            "replayed": replayed,
+            "goal": goal,
+            "completion_gate": build_goal_completion_gate(paths, goal_id),
+        }
+    if outcome["completed"]:
+        # Re-derived from the persisted status, not from the gate verdict the
+        # mutate callable computed before the write.
+        return {
+            "completed": goal.get("status") == "complete",
+            "replayed": replayed,
+            "goal": goal,
+            "completion_gate": build_goal_completion_gate(paths, goal_id),
+        }
+    return {**outcome, "replayed": replayed}
 
 
 def build_goal_continuation(paths: OmhPaths, goal_id: str) -> dict[str, Any]:
@@ -609,6 +931,9 @@ def _goal_progress(goal: dict[str, Any]) -> dict[str, Any]:
 
 
 def _allowed_goal_actions(gate: dict[str, Any]) -> list[str]:
+    if gate.get("goal_status") == "cancelled":
+        # Terminal cancellation: checkpoints, blockers, and completion refuse.
+        return ["show_status"]
     actions = ["continue_goal", "show_status"]
     if gate["missing_required_criteria"]:
         actions.append("record_checkpoint")
@@ -683,10 +1008,32 @@ def _validate_criteria(criteria: Any, errors: list[str]) -> None:
             errors.append(f"acceptance_criteria[{index}].evidence_refs must be a list")
 
 
+def _validate_unique_item_ids(items: list[Any], id_key: str, label: str, errors: list[str]) -> None:
+    """Reject two items in one list sharing an id.
+
+    Item ids are materialized from mutation_id, so a duplicate is the exact
+    shape of a retry that applied twice after its applied_mutations entry was
+    evicted (issue #828). The validator runs inside the guarded write, so this
+    refuses the duplicate before it is persisted rather than reporting a
+    ledger that already lost the invariant as ok.
+    """
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get(id_key, "")).strip()
+        if not item_id:
+            continue
+        if item_id in seen:
+            errors.append(f"duplicate {label} {id_key}: {item_id}")
+        seen.add(item_id)
+
+
 def _validate_checkpoints(checkpoints: Any, errors: list[str]) -> None:
     if not isinstance(checkpoints, list):
         errors.append("checkpoints must be a list")
         return
+    _validate_unique_item_ids(checkpoints, "checkpoint_id", "checkpoint", errors)
     for index, checkpoint in enumerate(checkpoints, start=1):
         if not isinstance(checkpoint, dict):
             errors.append(f"checkpoints[{index}] must be an object")
@@ -705,6 +1052,7 @@ def _validate_blockers(blockers: Any, errors: list[str]) -> None:
     if not isinstance(blockers, list):
         errors.append("blockers must be a list")
         return
+    _validate_unique_item_ids(blockers, "blocker_id", "blocker", errors)
     for index, blocker in enumerate(blockers, start=1):
         if not isinstance(blocker, dict):
             errors.append(f"blockers[{index}] must be an object")
@@ -721,6 +1069,7 @@ def _validate_quality_gates(quality_gates: Any, errors: list[str]) -> None:
     if not isinstance(quality_gates, list):
         errors.append("quality_gates must be a list")
         return
+    _validate_unique_item_ids(quality_gates, "quality_gate_id", "quality gate", errors)
     for index, gate in enumerate(quality_gates, start=1):
         if not isinstance(gate, dict):
             errors.append(f"quality_gates[{index}] must be an object")

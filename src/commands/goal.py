@@ -7,6 +7,7 @@ from ..goal_ledger import (
     build_goal_completion_gate,
     build_goal_continuation,
     build_goal_status_card,
+    cancel_goal_ledger,
     complete_goal_ledger,
     create_goal_ledger,
     list_goal_ledgers,
@@ -15,7 +16,7 @@ from ..goal_ledger import (
     record_goal_checkpoint,
 )
 from ..installer import OmhError
-from .common import _paths, _print_json
+from .common import _paths, _print_json, add_revision_guard_arguments
 
 
 def cmd_goal_create(args: argparse.Namespace) -> int:
@@ -36,8 +37,25 @@ def cmd_goal_create(args: argparse.Namespace) -> int:
     return 0
 
 
+def _mutation_payload(paths, goal_id: str, goal: dict, outcome: dict) -> dict:
+    """CLI payload that reports what the persisted record actually says.
+
+    `applied` is re-derived from the stored goal, not from "the call
+    returned": a mutation replayed away by a reused mutation_id leaves the
+    goal untouched, and printing it as success is how a discarded change
+    looks like a successful one.
+    """
+    return {
+        "goal": goal,
+        "completion_gate": build_goal_completion_gate(paths, goal_id),
+        "applied": bool(outcome.get("applied")),
+        "replayed": bool(outcome.get("replayed")),
+    }
+
+
 def cmd_goal_checkpoint(args: argparse.Namespace) -> int:
     paths = _paths(args)
+    outcome: dict = {}
     try:
         goal = record_goal_checkpoint(
             paths,
@@ -48,15 +66,19 @@ def cmd_goal_checkpoint(args: argparse.Namespace) -> int:
             evidence_refs=args.evidence_ref or [],
             notes_summary=args.notes_summary or "",
             linked_runtime_run_id=args.linked_runtime_run or "",
+            expected_revision=args.expected_revision,
+            mutation_id=args.mutation_id or None,
+            outcome=outcome,
         )
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
-    _print_json({"goal": goal, "completion_gate": build_goal_completion_gate(paths, args.goal_id)})
-    return 0
+    _print_json(_mutation_payload(paths, args.goal_id, goal, outcome))
+    return 0 if outcome.get("applied") else 1
 
 
 def cmd_goal_blocker(args: argparse.Namespace) -> int:
     paths = _paths(args)
+    outcome: dict = {}
     try:
         goal = record_goal_blocker(
             paths,
@@ -66,20 +88,49 @@ def cmd_goal_blocker(args: argparse.Namespace) -> int:
             missing_authority=args.missing_authority or "",
             evidence_refs=args.evidence_ref or [],
             mark_goal_blocked=args.mark_goal_blocked,
+            expected_revision=args.expected_revision,
+            mutation_id=args.mutation_id or None,
+            outcome=outcome,
         )
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
-    _print_json({"goal": goal, "completion_gate": build_goal_completion_gate(paths, args.goal_id)})
-    return 0
+    _print_json(_mutation_payload(paths, args.goal_id, goal, outcome))
+    return 0 if outcome.get("applied") else 1
 
 
 def cmd_goal_complete(args: argparse.Namespace) -> int:
     try:
-        result = complete_goal_ledger(_paths(args), args.goal_id, evidence_refs=args.evidence_ref or [])
+        result = complete_goal_ledger(
+            _paths(args),
+            args.goal_id,
+            evidence_refs=args.evidence_ref or [],
+            expected_revision=args.expected_revision,
+            mutation_id=args.mutation_id or None,
+        )
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     _print_json(result)
     return 0 if result["completed"] else 1
+
+
+def cmd_goal_cancel(args: argparse.Namespace) -> int:
+    paths = _paths(args)
+    outcome: dict = {}
+    try:
+        goal = cancel_goal_ledger(
+            paths,
+            args.goal_id,
+            reason=args.reason or "",
+            expected_revision=args.expected_revision,
+            mutation_id=args.mutation_id or None,
+            outcome=outcome,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    payload = _mutation_payload(paths, args.goal_id, goal, outcome)
+    payload["cancelled"] = bool(outcome.get("applied"))
+    _print_json(payload)
+    return 0 if outcome.get("applied") else 1
 
 
 def cmd_goal_status(args: argparse.Namespace) -> int:
@@ -143,6 +194,7 @@ def _add_goal_commands(sub) -> None:
     goal_checkpoint.add_argument("--evidence-ref", action="append")
     goal_checkpoint.add_argument("--notes-summary", default="")
     goal_checkpoint.add_argument("--linked-runtime-run", default="")
+    add_revision_guard_arguments(goal_checkpoint)
     goal_checkpoint.set_defaults(func=cmd_goal_checkpoint)
 
     goal_blocker = goal_sub.add_parser("blocker")
@@ -152,12 +204,20 @@ def _add_goal_commands(sub) -> None:
     goal_blocker.add_argument("--missing-authority", default="")
     goal_blocker.add_argument("--evidence-ref", action="append")
     goal_blocker.add_argument("--mark-goal-blocked", action="store_true")
+    add_revision_guard_arguments(goal_blocker)
     goal_blocker.set_defaults(func=cmd_goal_blocker)
 
     goal_complete = goal_sub.add_parser("complete")
     goal_complete.add_argument("--goal", dest="goal_id", required=True)
     goal_complete.add_argument("--evidence-ref", action="append")
+    add_revision_guard_arguments(goal_complete)
     goal_complete.set_defaults(func=cmd_goal_complete)
+
+    goal_cancel = goal_sub.add_parser("cancel")
+    goal_cancel.add_argument("--goal", dest="goal_id", required=True)
+    goal_cancel.add_argument("--reason", default="")
+    add_revision_guard_arguments(goal_cancel)
+    goal_cancel.set_defaults(func=cmd_goal_cancel)
 
     goal_status = goal_sub.add_parser("status")
     goal_status.add_argument("--goal", dest="goal_id", default="")

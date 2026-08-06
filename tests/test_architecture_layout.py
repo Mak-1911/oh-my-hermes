@@ -181,6 +181,7 @@ class ArchitectureLayoutTests(unittest.TestCase):
             "src/omh/local_store.py": "from .system.local_store import *  # noqa: F401,F403",
             "src/omh/hashutil.py": "from .system.hashutil import *  # noqa: F401,F403",
             "src/omh/workflow_state.py": "from .system.workflow_state import *  # noqa: F401,F403",
+            "src/omh/record_revision.py": "from .system.record_revision import *  # noqa: F401,F403",
             "src/omh/targets.py": "from .system.targets import *  # noqa: F401,F403",
             "src/omh/ingress.py": "from .system.ingress import *  # noqa: F401,F403",
             "src/omh/capability_roadmap.py": "from .quality.capability_roadmap import *  # noqa: F401,F403",

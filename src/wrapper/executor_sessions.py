@@ -20,7 +20,13 @@ from ..executor_progress import (
 from ..executors import CODING_EXECUTOR_TARGETS, executor_label
 from ..coding.hermes_harness import build_hermes_coding_harness
 from ..coding.executor_capability_snapshots import validate_executor_capability_snapshot
-from ..local_store import atomic_write_json, ensure_dir, ensure_file, read_json_object, utc_now
+from ..local_store import ensure_dir, ensure_file, read_json_object, utc_now
+from ..system.record_revision import (
+    DuplicateMutationReplay,
+    guarded_record_update,
+    require_not_terminal,
+    revision_field_errors,
+)
 from ..paths import OmhPaths
 from ..runtime.artifacts import (
     read_runtime_observations_result,
@@ -352,6 +358,13 @@ def open_executor_session(
     if external_session_ref.strip() and not observed:
         raise ExecutorSessionError("open-executor --external-session-ref requires --observed")
     session = _existing_session(paths, session_id)
+    require_not_terminal(
+        session,
+        "status",
+        ("cancelled",),
+        "open an executor session for this wrapper session",
+        error_type=ExecutorSessionError,
+    )
     _require_prepared_handoff(session)
     _require_no_observed_result(paths, session)
     patch = {
@@ -407,6 +420,13 @@ def attach_executor_session(
     if not external_session_ref.strip():
         raise ExecutorSessionError("attach-executor requires --external-session-ref")
     session = _existing_session(paths, session_id)
+    require_not_terminal(
+        session,
+        "status",
+        ("cancelled",),
+        "attach an executor session to this wrapper session",
+        error_type=ExecutorSessionError,
+    )
     _require_prepared_handoff(session)
     _require_no_observed_result(paths, session)
     patch = {
@@ -462,6 +482,13 @@ def record_executor_session_result(
     if result not in {"completed", "blocked", "failed"}:
         raise ExecutorSessionError("executor result must be completed, blocked, or failed")
     session = _existing_session(paths, session_id)
+    require_not_terminal(
+        session,
+        "status",
+        ("cancelled",),
+        "record an executor result for this wrapper session",
+        error_type=ExecutorSessionError,
+    )
     _require_prepared_handoff(session)
     current = read_executor_session(paths, session_id) or _default_executor_session(session)
     linked_status, linked_status_error = _linked_status_result(paths, session)
@@ -797,8 +824,31 @@ def _codex_observation_patch(
 
 
 def _write_executor_session(paths: OmhPaths, record: dict[str, Any]) -> dict[str, Any]:
-    atomic_write_json(_executor_session_path(paths, str(record["session_id"])), record, private=True)
-    return record
+    path = _executor_session_path(paths, str(record["session_id"]))
+
+    def _validate(final: dict[str, Any]) -> None:
+        errors = validate_executor_session_record(final)
+        if errors:
+            raise ExecutorSessionError(errors[0])
+
+    result = guarded_record_update(
+        path,
+        mutate=lambda current: {
+            **record,
+            "record_revision": current.get("record_revision", 0),
+            "applied_mutations": current.get("applied_mutations", {}),
+            **(
+                {"applied_mutations_floor_revision": current["applied_mutations_floor_revision"]}
+                if "applied_mutations_floor_revision" in current
+                else {}
+            ),
+        },
+        operation="write_executor_session",
+        lock_name="executor_session.json",
+        validate=_validate,
+        default={},
+    )
+    return result.record if isinstance(result, DuplicateMutationReplay) else result
 
 
 def validate_executor_session_record(record: dict[str, Any]) -> list[str]:
@@ -824,6 +874,10 @@ def validate_executor_session_record(record: dict[str, Any]) -> list[str]:
         "codex_session",
         "codex_progress",
         "claim_boundary",
+        "record_revision",
+        "applied_mutations",
+        # Present only once applied_mutations eviction has moved the floor.
+        "applied_mutations_floor_revision",
     }
     extra = sorted(set(record) - allowed)
     if extra:
@@ -873,6 +927,7 @@ def validate_executor_session_record(record: dict[str, Any]) -> list[str]:
         errors.append("executor_session observed result requires result_observed=true")
     if record.get("verification") == "requested" and record.get("verification_requested") is not True:
         errors.append("executor_session requested verification requires verification_requested=true")
+    errors.extend(revision_field_errors(record, "executor_session"))
     return errors
 
 

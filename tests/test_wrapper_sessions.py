@@ -33,6 +33,7 @@ from omh.runtime_artifacts import (
     write_review_record,
     write_runtime_observation,
 )
+from omh.record_revision import StaleRecordMutation
 from omh.runtime_records import validate_wrapper_session_record
 from omh.wrapper.executor_sessions import (
     ExecutorSessionError,
@@ -42,6 +43,7 @@ from omh.wrapper.executor_sessions import (
     open_executor_session,
     record_executor_session_result,
     request_executor_session_verification,
+    validate_executor_session_record,
 )
 from omh.wrapper_sessions import (
     WrapperSessionError,
@@ -2041,6 +2043,186 @@ class WrapperSessionTests(unittest.TestCase):
             errors = validate_wrapper_session_record(session)
 
             self.assertIn("wrapper_session authority.session_owns must match the wrapper session authority contract", errors)
+
+    def test_prepare_handoff_threads_expected_revision_into_the_writes_it_authorizes(self) -> None:
+        # Two prepares rendered at the same revision both used to commit,
+        # leaving two run directories: the pre-flight compare never reached
+        # the write that actually linked the run.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            started = create_or_resume_wrapper_session(paths, "risky refactor", source="discord")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            selected = select_wrapper_session_executor(paths, session_id, "codex")
+            rendered_revision = int(selected["session"]["record_revision"])
+
+            first = prepare_wrapper_session_handoff(
+                paths, session_id, "risky refactor one", expected_revision=rendered_revision
+            )
+
+            with self.assertRaises(StaleRecordMutation) as caught:
+                prepare_wrapper_session_handoff(
+                    paths, session_id, "risky refactor two", expected_revision=rendered_revision
+                )
+
+            self.assertEqual(caught.exception.expected_revision, rendered_revision)
+            runs = sorted(path for path in paths.runtime_runs_dir.glob("*") if path.is_dir())
+            self.assertEqual(len(runs), 1)
+            self.assertEqual(str(first["session"]["current_run_id"]), runs[0].name)
+
+    def test_prepare_handoff_threads_the_revision_through_the_executor_selection_it_makes(self) -> None:
+        # prepare --executor writes twice: the selection and the handoff. The
+        # second write must compare against the revision the first produced,
+        # not against the one the wrapper rendered, or the guard is dropped
+        # exactly where the multi-write path needs it.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            started = create_or_resume_wrapper_session(paths, "risky refactor", source="discord")
+            session_id = str(started["session"]["session_id"])
+            accepted = record_plan_decision(paths, session_id, "accept")
+            rendered_revision = int(accepted["session"]["record_revision"])
+
+            prepared = prepare_wrapper_session_handoff(
+                paths,
+                session_id,
+                "risky refactor",
+                executor_target="codex",
+                expected_revision=rendered_revision,
+            )
+
+            self.assertEqual(prepared["session"]["status"], "handoff_prepared")
+            self.assertEqual(int(prepared["session"]["record_revision"]), rendered_revision + 2)
+
+    @staticmethod
+    def _file_digests(root: Path) -> dict[str, str]:
+        return {
+            str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+        }
+
+    def test_prepare_refused_by_a_concurrent_cancel_writes_nothing_at_all(self) -> None:
+        # AC1: a rejected prepare used to leave two new session events and a
+        # runtime run directory behind, because the artifacts were created
+        # before the guard that refuses ran. Every prepare path is covered:
+        # the codex lifecycle path, the runtime-handoff path, and the
+        # prompt-only path each create their own side effects.
+        for executor_target in ("codex", "hermes", "claude-code"):
+            with self.subTest(executor_target=executor_target), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                started = create_or_resume_wrapper_session(paths, "risky refactor", source="discord")
+                session_id = str(started["session"]["session_id"])
+                record_plan_decision(paths, session_id, "accept")
+                selected = select_wrapper_session_executor(paths, session_id, executor_target)
+                stale_revision = int(selected["session"]["record_revision"])
+                record_plan_decision(paths, session_id, "cancel")
+                before = self._file_digests(root)
+
+                with self.assertRaises(WrapperSessionError):
+                    prepare_wrapper_session_handoff(
+                        paths, session_id, "risky refactor", expected_revision=stale_revision
+                    )
+
+                self.assertEqual(self._file_digests(root), before)
+
+    def test_prepare_refused_by_the_in_lock_revision_compare_writes_nothing_at_all(self) -> None:
+        # The same guarantee when the guard that refuses is the revision
+        # compare rather than the terminal-status pre-check.
+        for executor_target in ("codex", "hermes", "claude-code"):
+            with self.subTest(executor_target=executor_target), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                started = create_or_resume_wrapper_session(paths, "risky refactor", source="discord")
+                session_id = str(started["session"]["session_id"])
+                record_plan_decision(paths, session_id, "accept")
+                selected = select_wrapper_session_executor(paths, session_id, executor_target)
+                stale_revision = int(selected["session"]["record_revision"])
+                select_wrapper_session_executor(paths, session_id, executor_target)
+                before = self._file_digests(root)
+
+                with self.assertRaises(StaleRecordMutation):
+                    prepare_wrapper_session_handoff(
+                        paths, session_id, "risky refactor", expected_revision=stale_revision
+                    )
+
+                self.assertEqual(self._file_digests(root), before)
+
+    def test_retry_with_the_original_revision_and_mutation_id_replays_instead_of_going_stale(self) -> None:
+        # The canonical retry: the client timed out, never saw the result, and
+        # resends the request it built - original expected_revision, same
+        # mutation_id. Checking staleness before replay turned that into a
+        # StaleRecordMutation the client could never recover from.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            started = create_or_resume_wrapper_session(paths, "risky refactor", source="discord")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            selected = select_wrapper_session_executor(paths, session_id, "codex")
+            rendered_revision = int(selected["session"]["record_revision"])
+
+            first = prepare_wrapper_session_handoff(
+                paths,
+                session_id,
+                "risky refactor",
+                expected_revision=rendered_revision,
+                mutation_id="prepare-turn-1",
+            )
+            retry = prepare_wrapper_session_handoff(
+                paths,
+                session_id,
+                "risky refactor",
+                expected_revision=rendered_revision,
+                mutation_id="prepare-turn-1",
+            )
+
+            self.assertFalse(first["replayed"])
+            self.assertEqual(
+                int(first["session"]["record_revision"]), int(retry["session"]["record_revision"])
+            )
+            runs = sorted(path for path in paths.runtime_runs_dir.glob("*") if path.is_dir())
+            self.assertEqual(len(runs), 1)
+
+    def test_wrapper_session_mutation_ids_accept_connector_style_ids(self) -> None:
+        # Same charset rule as goal ledgers and loop cycles: an id derived from
+        # an upstream message id must work on every surface, not just this one.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            started = create_or_resume_wrapper_session(paths, "risky refactor", source="discord")
+            session_id = str(started["session"]["session_id"])
+
+            first = record_plan_decision(paths, session_id, "accept", mutation_id="slack:C123/p1700000000.000100")
+            second = record_plan_decision(paths, session_id, "accept", mutation_id="slack:C123/p1700000000.000100")
+
+            self.assertFalse(first["replayed"])
+            self.assertTrue(second["replayed"])
+            self.assertEqual(first["session"]["record_revision"], second["session"]["record_revision"])
+
+    def test_wrapper_session_validator_rejects_bad_revision_fields(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            started = create_or_resume_wrapper_session(paths, "risky refactor", source="discord")
+
+            errors = validate_wrapper_session_record({**started["session"], "record_revision": -1})
+            applied_errors = validate_wrapper_session_record({**started["session"], "applied_mutations": []})
+
+            self.assertIn("wrapper_session record_revision must be a non-negative integer", errors)
+            self.assertIn("wrapper_session applied_mutations must be an object", applied_errors)
+
+    def test_executor_session_validator_rejects_bad_revision_fields(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            started = create_or_resume_wrapper_session(paths, "risky refactor", source="discord")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            prepare_wrapper_session_handoff(paths, session_id, "risky refactor", executor_target="codex")
+            record = open_executor_session(paths, session_id)["executor_session"]
+
+            errors = validate_executor_session_record({**record, "record_revision": -1})
+            applied_errors = validate_executor_session_record({**record, "applied_mutations": []})
+
+            self.assertIn("executor_session record_revision must be a non-negative integer", errors)
+            self.assertIn("executor_session applied_mutations must be an object", applied_errors)
 
     def test_src_does_not_add_network_or_platform_sdk_imports(self) -> None:
         banned = (

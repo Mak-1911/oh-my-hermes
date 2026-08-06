@@ -4,14 +4,20 @@ import hashlib
 import json
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_text, extract_source_metadata
 from ..routing.chat import CONFIDENCE_LEVELS
 from ..executors import CODING_EXECUTOR_TARGETS, executor_label, executor_selection_for_target
 from .lifecycle import report_codex_delegation_lifecycle, start_codex_delegation_lifecycle
 from .session_handoff_projection import project_valid_session_handoffs
-from ..local_store import atomic_write_json, ensure_dir, ensure_file, file_lock, read_json_object, read_jsonl_objects, utc_now
+from ..local_store import ensure_dir, ensure_file, read_json_object, read_jsonl_objects, utc_now
+from ..system.record_revision import (
+    DuplicateMutationReplay,
+    guarded_record_update,
+    record_revision_of,
+    require_not_terminal,
+)
 from ..memory import memory_recall_pack_for_handoff, record_attached_recall_usage
 from ..paths import OmhPaths
 from ..runtime.records import (
@@ -79,6 +85,17 @@ class WrapperSessionError(ValueError):
     pass
 
 
+def _mutation_digest(*parts: object) -> str:
+    """Digest of one operation's own arguments, for replay-conflict detection.
+
+    The core helper compares this against the digest stored for the same
+    (operation, mutation_id); a retry that carries different content is then
+    refused instead of silently replaying somebody else's result.
+    """
+    payload = json.dumps(list(parts), sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def session_id_for_thread_key(thread_key: str) -> str:
     if not thread_key:
         raise WrapperSessionError("wrapper session requires a thread_key")
@@ -137,7 +154,10 @@ def create_or_resume_wrapper_session(
         resumed = True
     else:
         session = _session_from_interaction(session_id, interaction, record_provenance=record_provenance)
-        write_wrapper_session(paths, session)
+        # Keep the persisted record, not the pre-write draft: the wrapper echoes
+        # session["record_revision"] back on the next mutation, so returning the
+        # unbumped draft would make every first mutation look stale.
+        session = write_wrapper_session(paths, session)
         append_wrapper_session_event(
             session_dir,
             {
@@ -156,34 +176,53 @@ def create_or_resume_wrapper_session(
     }
 
 
-def record_plan_decision(paths: OmhPaths, session_id: str, decision: str) -> dict[str, object]:
+def record_plan_decision(
+    paths: OmhPaths,
+    session_id: str,
+    decision: str,
+    *,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
+) -> dict[str, object]:
     if decision not in {"accept", "revise", "cancel"}:
         raise WrapperSessionError("plan decision must be accept, revise, or cancel")
-    session = _existing_session(paths, session_id)
-    current_status = str(session["status"])
-    allowed = PLAN_DECISION_TRANSITIONS.get(current_status, set())
-    if decision not in allowed:
-        raise WrapperSessionError(f"cannot {decision.replace('_', ' ')} a wrapper session while status is {current_status}")
-    accept_status = _accepted_status_for_session(session)
-    updates = {
-        "accept": {"status": accept_status, "decision": "plan_accepted"},
-        "revise": {"status": "revision_requested", "decision": "plan_revision_requested"},
-        "cancel": {"status": "cancelled", "decision": "plan_cancelled"},
-    }[decision]
-    session = {**session, **updates, "updated_at": utc_now()}
-    write_wrapper_session(paths, session)
-    append_wrapper_session_event(
-        _session_dir(paths, session_id),
-        {
-            "event": f"plan_{updates['decision']}",
-            "message": f"wrapper recorded {updates['decision']}",
-            "data": {"status": session["status"], "decision": session["decision"]},
-        },
+
+    def mutate(current: dict[str, Any]) -> dict[str, Any]:
+        current_status = str(current.get("status", ""))
+        allowed = PLAN_DECISION_TRANSITIONS.get(current_status, set())
+        if decision not in allowed:
+            raise WrapperSessionError(f"cannot {decision.replace('_', ' ')} a wrapper session while status is {current_status}")
+        accept_status = _accepted_status_for_session(current)
+        updates = {
+            "accept": {"status": accept_status, "decision": "plan_accepted"},
+            "revise": {"status": "revision_requested", "decision": "plan_revision_requested"},
+            "cancel": {"status": "cancelled", "decision": "plan_cancelled"},
+        }[decision]
+        return build_wrapper_session_record({**current, **updates, "updated_at": utc_now()})
+
+    session, replayed = _guarded_session_update(
+        paths,
+        session_id,
+        mutate,
+        operation="record_plan_decision",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest("record_plan_decision", decision),
     )
+    if not replayed:
+        append_wrapper_session_event(
+            _session_dir(paths, session_id),
+            {
+                "event": f"plan_{session['decision']}",
+                "message": f"wrapper recorded {session['decision']}",
+                "data": {"status": session["status"], "decision": session["decision"]},
+            },
+        )
     return {
         "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,
         "session": session,
         "status": build_wrapper_session_status(paths, session_id),
+        "replayed": replayed,
     }
 
 
@@ -193,42 +232,65 @@ def select_wrapper_session_executor(
     executor_target: str,
     *,
     dispatch_policy: str | None = None,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
 ) -> dict[str, object]:
     if executor_target not in CODING_EXECUTOR_TARGETS:
         raise WrapperSessionError(f"unsupported wrapper session executor: {executor_target}")
-    session = _existing_session(paths, session_id)
-    if session["status"] not in {"plan_accepted", "executor_choice_required", "executor_selected"}:
-        raise WrapperSessionError(f"cannot select executor while status is {session['status']}")
     selection = executor_selection_for_target(executor_target, action="delegate")
     if selection.choice_required:
         raise WrapperSessionError("select-executor requires a concrete executor profile, not choose")
     policy = dispatch_policy or selection.dispatch_policy
-    session = {
-        **session,
-        "status": "executor_selected",
-        "work_owner_mode": selection.work_owner_mode,
-        "selected_executor_profile": selection.selected_executor_profile,
-        "dispatch_policy": policy,
-        "updated_at": utc_now(),
-    }
-    write_wrapper_session(paths, session)
-    append_wrapper_session_event(
-        _session_dir(paths, session_id),
-        {
-            "event": "executor_selected",
-            "message": "wrapper session selected executor/runtime profile",
-            "data": {
+
+    def mutate(current: dict[str, Any]) -> dict[str, Any]:
+        require_not_terminal(
+            current,
+            "status",
+            ("cancelled",),
+            "select an executor for this wrapper session",
+            error_type=WrapperSessionError,
+        )
+        if current.get("status") not in {"plan_accepted", "executor_choice_required", "executor_selected"}:
+            raise WrapperSessionError(f"cannot select executor while status is {current.get('status')}")
+        return build_wrapper_session_record(
+            {
+                **current,
+                "status": "executor_selected",
                 "work_owner_mode": selection.work_owner_mode,
                 "selected_executor_profile": selection.selected_executor_profile,
                 "dispatch_policy": policy,
-                "dispatchable": selection.dispatchable,
-            },
-        },
+                "updated_at": utc_now(),
+            }
+        )
+
+    session, replayed = _guarded_session_update(
+        paths,
+        session_id,
+        mutate,
+        operation="select_wrapper_session_executor",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest("select_wrapper_session_executor", executor_target, policy),
     )
+    if not replayed:
+        append_wrapper_session_event(
+            _session_dir(paths, session_id),
+            {
+                "event": "executor_selected",
+                "message": "wrapper session selected executor/runtime profile",
+                "data": {
+                    "work_owner_mode": selection.work_owner_mode,
+                    "selected_executor_profile": selection.selected_executor_profile,
+                    "dispatch_policy": policy,
+                    "dispatchable": selection.dispatchable,
+                },
+            },
+        )
     return {
         "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,
         "session": session,
         "status": build_wrapper_session_status(paths, session_id),
+        "replayed": replayed,
     }
 
 
@@ -242,10 +304,24 @@ def prepare_wrapper_session_handoff(
     source_metadata: dict[str, str] | None = None,
     executor_target: str | None = None,
     context_pack: dict[str, object] | None = None,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
 ) -> dict[str, object]:
     session = _existing_session(paths, session_id)
-    if session["status"] == "cancelled":
-        raise WrapperSessionError("cannot prepare a handoff for a cancelled wrapper session")
+    # expected_revision is threaded into every write this call authorizes
+    # instead of being compared once against this unlocked read: the in-lock
+    # compare is the guard, and it runs after the replay check, so a client
+    # that timed out and retried with the ORIGINAL revision and the SAME
+    # mutation_id replays idempotently rather than being refused as stale.
+    # `guard_revision` advances when a write here moves the record on.
+    guard_revision = expected_revision
+    require_not_terminal(
+        session,
+        "status",
+        ("cancelled",),
+        "prepare a handoff for this wrapper session",
+        error_type=WrapperSessionError,
+    )
     # A prepared session re-serves its handoff only for a retry of the SAME
     # message (or an empty show call). A different non-empty message is a
     # follow-up instruction; silently re-serving the old handoff dropped it
@@ -266,6 +342,7 @@ def prepare_wrapper_session_handoff(
                 "session": session,
                 "status": build_wrapper_session_status(paths, session_id),
                 "handoff": report_codex_delegation_lifecycle(paths, run_id),
+                "replayed": False,
             }
         follow_up = True
     elif session["status"] == "prompt_handoff_prepared":
@@ -275,6 +352,7 @@ def prepare_wrapper_session_handoff(
                 "session": session,
                 "status": build_wrapper_session_status(paths, session_id),
                 "handoff": {"prompt_handoff": session.get("prompt_handoff", {})},
+                "replayed": False,
             }
         follow_up = True
     elif session["status"] == "runtime_handoff_prepared":
@@ -284,6 +362,7 @@ def prepare_wrapper_session_handoff(
                 "session": session,
                 "status": build_wrapper_session_status(paths, session_id),
                 "handoff": _runtime_session_handoff_envelope(session.get("runtime_handoff", {})),
+                "replayed": False,
             }
         follow_up = True
     if session["status"] == "executor_choice_required" and not executor_target:
@@ -292,8 +371,19 @@ def prepare_wrapper_session_handoff(
         if executor_target != str(session.get("selected_executor_profile") or ""):
             raise WrapperSessionError("a follow-up handoff keeps the selected executor; start a new session to switch executors")
     elif executor_target:
-        select_wrapper_session_executor(paths, session_id, executor_target)
-        session = _existing_session(paths, session_id)
+        selected = select_wrapper_session_executor(
+            paths,
+            session_id,
+            executor_target,
+            expected_revision=guard_revision,
+            mutation_id=mutation_id,
+        )
+        session = dict(selected["session"])
+        if guard_revision is not None:
+            # This call authorized the selection write, so the handoff write
+            # that follows must compare against the revision that write
+            # produced, not the one the wrapper originally rendered.
+            guard_revision = record_revision_of(session)
     if not follow_up and session["status"] not in {"plan_accepted", "executor_selected"}:
         raise WrapperSessionError("wrapper session plan must be accepted before preparing a handoff")
     selected_executor = str(session.get("selected_executor_profile") or "codex")
@@ -308,6 +398,8 @@ def prepare_wrapper_session_handoff(
             executor_target=selected_executor,
             context_pack=context_pack,
             follow_up=follow_up,
+            expected_revision=guard_revision,
+            mutation_id=mutation_id,
         )
     if selected_executor and selected_executor != "codex":
         return _prepare_prompt_only_session_handoff(
@@ -320,6 +412,8 @@ def prepare_wrapper_session_handoff(
             executor_target=selected_executor,
             context_pack=context_pack,
             follow_up=follow_up,
+            expected_revision=guard_revision,
+            mutation_id=mutation_id,
         )
     message = extract_message_text(event_or_message)
     metadata = _source_metadata(event_or_message)
@@ -327,34 +421,64 @@ def prepare_wrapper_session_handoff(
     metadata.update({str(key): str(value) for key, value in session.get("source_metadata", {}).items() if str(value)})
     metadata = _compact_coding_source_metadata(metadata)
     message_sha256 = hashlib.sha256(message.encode("utf-8")).hexdigest()
+    digest = _mutation_digest("link_prepared_handoff_run", message_sha256, "codex", metadata)
     recovered_run_id = _find_recoverable_prepared_handoff_run(paths, session, message_sha256, metadata)
     if recovered_run_id:
-        return _link_prepared_handoff_run(paths, session, recovered_run_id, recovered=True)
-    append_wrapper_session_event(
-        _session_dir(paths, session_id),
-        {
-            "event": "handoff_prepare_started",
-            "message": "wrapper session started preparing coding handoff",
-            "data": {"message_sha256": message_sha256, "message_length": len(message)},
-        },
-    )
+        return _link_prepared_handoff_run(
+            paths,
+            session,
+            recovered_run_id,
+            recovered=True,
+            expected_revision=guard_revision,
+            mutation_id=mutation_id,
+            mutation_digest=digest,
+        )
     follow_up_workflow, follow_up_score = _session_route_preference(session) if follow_up else (None, None)
-    lifecycle = start_codex_delegation_lifecycle(
+    lifecycle: dict[str, object] = {}
+
+    def prepare_run() -> str:
+        # Runs inside the session lock, after the terminal, replay, and
+        # revision guards have passed: a rejected prepare must leave no
+        # prepare-started event, no runtime run directory, and no run ledger
+        # entry behind (issue #828 AC1).
+        append_wrapper_session_event(
+            _session_dir(paths, session_id),
+            {
+                "event": "handoff_prepare_started",
+                "message": "wrapper session started preparing coding handoff",
+                "data": {"message_sha256": message_sha256, "message_length": len(message)},
+            },
+        )
+        lifecycle.update(
+            start_codex_delegation_lifecycle(
+                paths,
+                message,
+                source=str(session["source"]),
+                source_metadata=metadata,
+                limit=limit,
+                include_message=include_message,
+                context_pack=context_pack,
+                preferred_workflow=follow_up_workflow,
+                preferred_workflow_score=follow_up_score,
+                force_coding_handoff=follow_up,
+            )
+        )
+        run = lifecycle["run"]
+        return str(run["run_id"]) if isinstance(run, dict) else ""
+
+    linked = _link_prepared_handoff_run(
         paths,
-        message,
-        source=str(session["source"]),
-        source_metadata=metadata,
-        limit=limit,
-        include_message=include_message,
-        context_pack=context_pack,
-        preferred_workflow=follow_up_workflow,
-        preferred_workflow_score=follow_up_score,
-        force_coding_handoff=follow_up,
+        session,
+        recovered=False,
+        expected_revision=guard_revision,
+        mutation_id=mutation_id,
+        mutation_digest=digest,
+        prepare_run=prepare_run,
     )
-    run_id = str(lifecycle["run"]["run_id"])
-    linked = _link_prepared_handoff_run(paths, session, run_id, recovered=False)
-    lifecycle["status"] = report_codex_delegation_lifecycle(paths, run_id)
-    linked["handoff"] = lifecycle
+    if lifecycle:
+        run = lifecycle["run"]
+        lifecycle["status"] = report_codex_delegation_lifecycle(paths, str(run["run_id"]) if isinstance(run, dict) else "")
+        linked["handoff"] = lifecycle
     return linked
 
 
@@ -388,6 +512,8 @@ def _prepare_prompt_only_session_handoff(
     executor_target: str,
     context_pack: dict[str, object] | None,
     follow_up: bool = False,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
 ) -> dict[str, object]:
     message = extract_message_text(event_or_message)
     metadata = _source_metadata(event_or_message)
@@ -416,32 +542,60 @@ def _prepare_prompt_only_session_handoff(
     prompt_handoff = payload.get("prompt_handoff")
     if not isinstance(prompt_handoff, dict):
         raise WrapperSessionError("selected executor produced no prompt handoff")
-    record_attached_recall_usage(paths, payload)
     session_id = str(session["session_id"])
-    session = {
-        **session,
-        "status": "prompt_handoff_prepared",
-        "work_owner_mode": "prompt_only_handoff",
-        "selected_executor_profile": executor_target,
-        "dispatch_policy": "prepare_only",
-        "prompt_handoff": prompt_handoff,
-        "current_run_id": "",
-        "updated_at": utc_now(),
-    }
-    write_wrapper_session(paths, session)
-    append_wrapper_session_event(
-        _session_dir(paths, session_id),
-        {
-            "event": "prompt_handoff_prepared",
-            "message": "wrapper session prepared prompt-only coding handoff",
-            "data": {
+
+    def mutate(current: dict[str, Any]) -> dict[str, Any]:
+        require_not_terminal(
+            current,
+            "status",
+            ("cancelled",),
+            "prepare a handoff for this wrapper session",
+            error_type=WrapperSessionError,
+        )
+        # Recall-usage counters are a persisted side effect, so they are
+        # recorded only after the guards that can reject have passed.
+        record_attached_recall_usage(paths, payload)
+        return build_wrapper_session_record(
+            {
+                **current,
+                "status": "prompt_handoff_prepared",
+                "work_owner_mode": "prompt_only_handoff",
                 "selected_executor_profile": executor_target,
-                "dispatchable": False,
-                "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
-                "message_length": len(message),
-            },
-        },
+                "dispatch_policy": "prepare_only",
+                "prompt_handoff": prompt_handoff,
+                "current_run_id": "",
+                "updated_at": utc_now(),
+            }
+        )
+
+    session, replayed = _guarded_session_update(
+        paths,
+        session_id,
+        mutate,
+        operation="prepare_prompt_only_session_handoff",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest(
+            "prepare_prompt_only_session_handoff",
+            hashlib.sha256(message.encode("utf-8")).hexdigest(),
+            executor_target,
+            metadata,
+        ),
     )
+    if not replayed:
+        append_wrapper_session_event(
+            _session_dir(paths, session_id),
+            {
+                "event": "prompt_handoff_prepared",
+                "message": "wrapper session prepared prompt-only coding handoff",
+                "data": {
+                    "selected_executor_profile": executor_target,
+                    "dispatchable": False,
+                    "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+                    "message_length": len(message),
+                },
+            },
+        )
     result: dict[str, object] = {
         "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,
         "session": session,
@@ -454,6 +608,7 @@ def _prepare_prompt_only_session_handoff(
                 "reason": "prompt_only_handoff_is_not_lifecycle_backed",
             },
         },
+        "replayed": replayed,
     }
     if include_message and "prompt_handoff_prompt" in payload:
         result["prompt_handoff_prompt"] = payload["prompt_handoff_prompt"]
@@ -471,6 +626,8 @@ def _prepare_runtime_session_handoff(
     executor_target: str,
     context_pack: dict[str, object] | None,
     follow_up: bool = False,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
 ) -> dict[str, object]:
     message = extract_message_text(event_or_message)
     metadata = _source_metadata(event_or_message)
@@ -499,40 +656,69 @@ def _prepare_runtime_session_handoff(
     runtime_handoff = payload.get("runtime_handoff")
     if not isinstance(runtime_handoff, dict):
         raise WrapperSessionError("selected runtime produced no runtime handoff")
-    record_attached_recall_usage(paths, payload)
     session_id = str(session["session_id"])
-    session = {
-        **session,
-        "status": "runtime_handoff_prepared",
-        "work_owner_mode": "runtime_handoff",
-        "selected_executor_profile": executor_target,
-        "dispatch_policy": "prepare_only",
-        "prompt_handoff": {},
-        "runtime_handoff": runtime_handoff,
-        "current_run_id": "",
-        "updated_at": utc_now(),
-    }
-    write_wrapper_session(paths, session)
-    append_wrapper_session_event(
-        _session_dir(paths, session_id),
-        {
-            "event": "runtime_handoff_prepared",
-            "message": "wrapper session prepared runtime coding handoff",
-            "data": {
+
+    def mutate(current: dict[str, Any]) -> dict[str, Any]:
+        require_not_terminal(
+            current,
+            "status",
+            ("cancelled",),
+            "prepare a handoff for this wrapper session",
+            error_type=WrapperSessionError,
+        )
+        # Recall-usage counters are a persisted side effect, so they are
+        # recorded only after the guards that can reject have passed.
+        record_attached_recall_usage(paths, payload)
+        return build_wrapper_session_record(
+            {
+                **current,
+                "status": "runtime_handoff_prepared",
+                "work_owner_mode": "runtime_handoff",
                 "selected_executor_profile": executor_target,
-                "dispatchable": False,
-                "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
-                "message_length": len(message),
-                "team_swarm_guidance": True,
-                "worktree_guidance": True,
-            },
-        },
+                "dispatch_policy": "prepare_only",
+                "prompt_handoff": {},
+                "runtime_handoff": runtime_handoff,
+                "current_run_id": "",
+                "updated_at": utc_now(),
+            }
+        )
+
+    session, replayed = _guarded_session_update(
+        paths,
+        session_id,
+        mutate,
+        operation="prepare_runtime_session_handoff",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest(
+            "prepare_runtime_session_handoff",
+            hashlib.sha256(message.encode("utf-8")).hexdigest(),
+            executor_target,
+            metadata,
+        ),
     )
+    if not replayed:
+        append_wrapper_session_event(
+            _session_dir(paths, session_id),
+            {
+                "event": "runtime_handoff_prepared",
+                "message": "wrapper session prepared runtime coding handoff",
+                "data": {
+                    "selected_executor_profile": executor_target,
+                    "dispatchable": False,
+                    "message_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest(),
+                    "message_length": len(message),
+                    "team_swarm_guidance": True,
+                    "worktree_guidance": True,
+                },
+            },
+        )
     result: dict[str, object] = {
         "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,
         "session": session,
         "status": build_wrapper_session_status(paths, session_id),
         "handoff": _runtime_session_handoff_envelope(runtime_handoff),
+        "replayed": replayed,
     }
     if include_message and "runtime_handoff_prompt" in payload:
         result["runtime_handoff_prompt"] = payload["runtime_handoff_prompt"]
@@ -581,6 +767,7 @@ def build_wrapper_session_status(paths: OmhPaths, session_id: str) -> dict[str, 
             "thread_key": session["thread_key"],
             "current_run_id": run_id,
             "session_status": session["status"],
+            "record_revision": record_revision_of(session),
             "runtime_status": runtime_status,
             "executor_session_status": executor_status,
             "coding_briefing": coding_briefing,
@@ -620,6 +807,7 @@ def build_wrapper_session_status(paths: OmhPaths, session_id: str) -> dict[str, 
         "thread_key": session["thread_key"],
         "current_run_id": "",
         "session_status": session["status"],
+        "record_revision": record_revision_of(session),
         "work_owner_mode": session.get("work_owner_mode", "external_executor"),
         "selected_executor_profile": session.get("selected_executor_profile"),
         "dispatch_policy": session.get("dispatch_policy", "ask_before_dispatch"),
@@ -678,9 +866,54 @@ def read_wrapper_session(paths: OmhPaths, session_id: str) -> dict[str, Any] | N
 def write_wrapper_session(paths: OmhPaths, session: dict[str, Any]) -> dict[str, Any]:
     record = build_wrapper_session_record(session)
     session_path = _session_dir(paths, str(record["session_id"])) / "session.json"
-    with file_lock(session_path, private=True):
-        atomic_write_json(session_path, record, private=True)
-    return record
+    result = guarded_record_update(
+        session_path,
+        mutate=lambda current: build_wrapper_session_record({**record, "record_revision": current.get("record_revision", 0), "applied_mutations": current.get("applied_mutations", {})}),
+        operation="write_wrapper_session",
+        lock_name="session.json",
+        validate=_validated_session_record,
+        default={},
+    )
+    return result.record if isinstance(result, DuplicateMutationReplay) else result
+
+
+def _validated_session_record(record: dict[str, Any]) -> None:
+    errors = validate_wrapper_session_record(record)
+    if errors:
+        raise WrapperSessionError(errors[0])
+
+
+def _guarded_session_update(
+    paths: OmhPaths,
+    session_id: str,
+    mutate,
+    *,
+    operation: str,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
+    mutation_digest: str | None = None,
+) -> tuple[dict[str, Any], bool]:
+    """Run one locked read-check-write transaction on session.json.
+
+    Returns (session_record, replayed). A replayed mutation_id returns the
+    current record without a write, revision bump, or session event. Replay is
+    keyed on (operation, mutation_id), so the same client id reused for a
+    different logical operation still applies.
+    """
+    session_path = _session_dir(paths, session_id) / "session.json"
+    result = guarded_record_update(
+        session_path,
+        mutate=mutate,
+        operation=operation,
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=mutation_digest,
+        lock_name="session.json",
+        validate=_validated_session_record,
+    )
+    if isinstance(result, DuplicateMutationReplay):
+        return result.record, True
+    return result, False
 
 
 def append_wrapper_session_event(session_dir: Path, event: dict[str, Any]) -> dict[str, Any]:
@@ -717,25 +950,71 @@ def validate_wrapper_sessions(paths: OmhPaths, session_id: str | None = None) ->
     return {"ok": all(result["ok"] for result in results), "sessions": results}
 
 
-def _link_prepared_handoff_run(paths: OmhPaths, session: dict[str, Any], run_id: str, *, recovered: bool) -> dict[str, object]:
-    session = {
-        **session,
-        "status": "handoff_prepared",
-        "work_owner_mode": "external_executor",
-        "selected_executor_profile": "codex",
-        "dispatch_policy": "ask_before_dispatch",
-        "prompt_handoff": {},
-        "runtime_handoff": {},
-        "current_run_id": run_id,
-        "updated_at": utc_now(),
-    }
-    _ensure_handoff_prepared_event(paths, session, run_id, recovered=recovered)
-    write_wrapper_session(paths, session)
+def _link_prepared_handoff_run(
+    paths: OmhPaths,
+    session: dict[str, Any],
+    run_id: str = "",
+    *,
+    recovered: bool,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
+    mutation_digest: str | None = None,
+    prepare_run: Callable[[], str] | None = None,
+) -> dict[str, object]:
+    """Link a prepared coding run to the session inside one locked transaction.
+
+    ``prepare_run`` is invoked only after the guards that can reject have
+    passed, so the run it creates is never an orphan left behind by a refused
+    prepare; ``run_id`` is passed directly instead when an existing run is
+    being recovered.
+    """
+    session_id = str(session["session_id"])
+    prepared: dict[str, str] = {"run_id": run_id}
+
+    def mutate(current: dict[str, Any]) -> dict[str, Any]:
+        require_not_terminal(
+            current,
+            "status",
+            ("cancelled",),
+            "link a prepared handoff run to this wrapper session",
+            error_type=WrapperSessionError,
+        )
+        if not prepared["run_id"] and prepare_run is not None:
+            prepared["run_id"] = prepare_run()
+        if not prepared["run_id"]:
+            raise WrapperSessionError("wrapper session handoff preparation produced no runtime run")
+        return build_wrapper_session_record(
+            {
+                **current,
+                "status": "handoff_prepared",
+                "work_owner_mode": "external_executor",
+                "selected_executor_profile": "codex",
+                "dispatch_policy": "ask_before_dispatch",
+                "prompt_handoff": {},
+                "runtime_handoff": {},
+                "current_run_id": prepared["run_id"],
+                "updated_at": utc_now(),
+            }
+        )
+
+    session, replayed = _guarded_session_update(
+        paths,
+        session_id,
+        mutate,
+        operation="link_prepared_handoff_run",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=mutation_digest,
+    )
+    linked_run_id = prepared["run_id"] or str(session.get("current_run_id", ""))
+    if not replayed and linked_run_id:
+        _ensure_handoff_prepared_event(paths, session, linked_run_id, recovered=recovered)
     return {
         "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,
         "session": session,
-        "status": build_wrapper_session_status(paths, str(session["session_id"])),
-        "handoff": _existing_lifecycle_payload(paths, run_id),
+        "status": build_wrapper_session_status(paths, session_id),
+        "handoff": _existing_lifecycle_payload(paths, linked_run_id) if linked_run_id else {},
+        "replayed": replayed,
     }
 
 

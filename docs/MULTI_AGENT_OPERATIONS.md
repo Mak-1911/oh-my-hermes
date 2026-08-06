@@ -30,12 +30,21 @@ contract every read-modify-write caller under `~/.omh` should use, not an
 implementation walkthrough — see `src/system/local_store.py` for the actual
 lock and atomic-write primitives.
 
-One capability boundary inside the contract itself: the advisory lock is
-POSIX `flock`-based. On platforms without `fcntl` the locked update path
-degrades to plain atomic writes — torn files are still prevented, but mutual
-exclusion between concurrent processes is not, so multi-agent lost-update
-protection only holds on POSIX hosts. The degradation is signaled by the
-lock primitive rather than silent, and single-agent behavior is unaffected.
+One capability boundary inside the contract itself: the advisory lock is a
+real OS file lock on the platforms OMH supports, taken on a `.<name>.lock`
+sidecar rather than on the record. POSIX locks through `fcntl.flock`, Windows
+through `msvcrt.locking` on one byte of the sidecar, and both are polled
+until the caller's timeout, so mutual exclusion between concurrent processes
+holds on both. Only when *neither* module is importable does the locked
+update path degrade to best-effort: torn files are still prevented by the
+atomic replace, but concurrent writers can interleave, so multi-agent
+lost-update protection does not hold. That degradation is signaled rather
+than silent — the lock primitive reports `enforced: False` with reason
+`no_os_file_lock`, and `guarded_record_update()` surfaces it as
+`lock_enforced=False` so a caller can say the guarantee was downgraded
+instead of claiming it held. Single-agent behavior is unaffected either way.
+See "What the lock actually guarantees" in
+[Architecture](ARCHITECTURE.md) for the per-platform detail.
 
 Practical implications for a wrapper or operator running more than one agent
 against the same OMH home:

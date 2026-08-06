@@ -4,9 +4,10 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
-from ..local_store import atomic_write_json, read_json_object, utc_now
+from ..local_store import file_lock, read_json_object, utc_now
 from ..paths import OmhPaths
 from ..skill_pack import routable_skill_names
+from .record_revision import DuplicateMutationReplay, guarded_record_update
 
 SCHEMA_VERSION = 1
 LIFECYCLE_OUTCOMES = ("finished", "blocked", "failed", "user_interlude", "question_pending")
@@ -94,11 +95,37 @@ def _terminal_state(workflow: str, state: dict[str, Any] | None, outcome: str, n
     return result
 
 
+def _workflow_state_lock_anchor(paths: OmhPaths) -> Path:
+    """Anchor for the one lock that serializes all workflow-state transitions.
+
+    The active-workflow invariant spans every ``*-state.json`` in the
+    directory, so a per-file lock is not enough: the transition check and all
+    of the writes it authorizes have to run under this single directory-level
+    lock. ``file_lock`` derives ``.workflow-state.lock`` beside this anchor,
+    so the anchor path itself is never created or written.
+    """
+    return paths.workflow_state_dir / "workflow-state"
+
+
+def _write_workflow_state(paths: OmhPaths, workflow: str, record: dict[str, Any]) -> dict[str, Any]:
+    """Write one state file, bumping its record_revision, under its own lock."""
+    result = guarded_record_update(
+        workflow_state_path(paths, workflow),
+        mutate=lambda current: dict(record),
+        operation="write_workflow_state",
+        lock_name=f"{workflow}-state.json",
+        default={},
+        private=True,
+    )
+    return result.record if isinstance(result, DuplicateMutationReplay) else result
+
+
 def finish_workflow_state(paths: OmhPaths, workflow: str, outcome: str = "finished", note: str = "") -> dict[str, Any]:
-    state = read_workflow_state(paths, workflow)
-    result = _terminal_state(workflow, state, outcome, note)
-    atomic_write_json(workflow_state_path(paths, workflow), result, private=True)
-    return result
+    validate_workflow_name(workflow)
+    with file_lock(_workflow_state_lock_anchor(paths), private=True):
+        state = read_workflow_state(paths, workflow)
+        result = _terminal_state(workflow, state, outcome, note)
+        return _write_workflow_state(paths, workflow, result)
 
 
 def _transition_allowed(source: str, destination: str) -> bool:
@@ -107,37 +134,40 @@ def _transition_allowed(source: str, destination: str) -> bool:
 
 def start_workflow_state(paths: OmhPaths, workflow: str, note: str = "") -> dict[str, Any]:
     validate_workflow_name(workflow)
-    active, errors = active_workflow_states(paths)
-    if errors:
-        first = errors[0]
-        raise WorkflowStateError(f"cannot start workflow while state is unreadable: {first['path']}: {first['error']}")
-    now = utc_now()
-    for current in active:
-        source = str(current.get("workflow", ""))
-        if source == workflow:
-            updated = {**current, "schema_version": SCHEMA_VERSION, "active": True, "updated_at": now}
-            if note:
-                updated["note"] = note
-            atomic_write_json(workflow_state_path(paths, workflow), updated, private=True)
-            return updated
-        if not _transition_allowed(source, workflow):
-            raise WorkflowStateError(f"cannot start {workflow}; active workflow {source} must finish or be cleared first")
-    for current in active:
-        source = str(current["workflow"])
-        completed = _terminal_state(source, current, "finished", f"auto-completed before starting {workflow}", workflow)
-        atomic_write_json(workflow_state_path(paths, source), completed, private=True)
-    state = {
-        "schema_version": SCHEMA_VERSION,
-        "workflow": workflow,
-        "active": True,
-        "lifecycle_outcome": None,
-        "started_at": now,
-        "updated_at": now,
-    }
-    if note:
-        state["note"] = note
-    atomic_write_json(workflow_state_path(paths, workflow), state, private=True)
-    return state
+    # Read the active set and write every state file it authorizes inside one
+    # lock. Reading outside the lock let two concurrent starts each observe an
+    # empty active set and both become active, or let one overwrite the
+    # auto-completion the other had just written.
+    with file_lock(_workflow_state_lock_anchor(paths), private=True):
+        active, errors = active_workflow_states(paths)
+        if errors:
+            first = errors[0]
+            raise WorkflowStateError(f"cannot start workflow while state is unreadable: {first['path']}: {first['error']}")
+        now = utc_now()
+        for current in active:
+            source = str(current.get("workflow", ""))
+            if source == workflow:
+                updated = {**current, "schema_version": SCHEMA_VERSION, "active": True, "updated_at": now}
+                if note:
+                    updated["note"] = note
+                return _write_workflow_state(paths, workflow, updated)
+            if not _transition_allowed(source, workflow):
+                raise WorkflowStateError(f"cannot start {workflow}; active workflow {source} must finish or be cleared first")
+        for current in active:
+            source = str(current["workflow"])
+            completed = _terminal_state(source, current, "finished", f"auto-completed before starting {workflow}", workflow)
+            _write_workflow_state(paths, source, completed)
+        state = {
+            "schema_version": SCHEMA_VERSION,
+            "workflow": workflow,
+            "active": True,
+            "lifecycle_outcome": None,
+            "started_at": now,
+            "updated_at": now,
+        }
+        if note:
+            state["note"] = note
+        return _write_workflow_state(paths, workflow, state)
 
 
 def clear_workflow_state(paths: OmhPaths, workflow: str) -> bool:

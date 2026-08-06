@@ -18,6 +18,29 @@ def _paths(args: argparse.Namespace):
     return resolve_paths(args.omh_home, args.hermes_home, scope=getattr(args, "scope", None))
 
 
+def add_revision_guard_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the two optional stale-mutation guard flags to one mutation parser.
+
+    Shared by every CLI surface that reaches a guarded record write, so the
+    flags are spelled and defaulted identically: the guarantee the guard
+    offers is "the wrapper submits the revision it rendered", and a surface
+    that reaches a guarded write without these flags cannot arm it at all.
+    Absent flags stay None / "" so they mean "no guard requested" rather than
+    revision 0 or an empty mutation id.
+    """
+    parser.add_argument(
+        "--expected-revision",
+        type=int,
+        default=None,
+        help="Reject this mutation when the record_revision no longer matches the rendered state.",
+    )
+    parser.add_argument(
+        "--mutation-id",
+        default="",
+        help="Client-chosen id that makes a retried mutation replay the original result instead of duplicating it.",
+    )
+
+
 JSON_PRETTY_ENV = "OMH_JSON_PRETTY"
 _JSON_PRETTY_TRUE = {"1", "true", "yes", "on"}
 _json_pretty_requested = False

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import threading
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from _local_package import load_local_package
+from _platform_support import requires_fcntl_locks
 
 load_local_package()
 from omh.goal_loop import (
@@ -21,9 +23,11 @@ from omh.goal_loop import (
     dispatch_loop_queue_item,
     inspect_loop_queue_item,
     list_loop_queue,
+    loop_cycle_path,
     loop_executor_capability,
     observe_codex_loop_queue_item,
     observe_loop_queue_item,
+    read_loop_cycle,
     record_loop_feedback,
     run_loop_once_result,
     tick_loop_runtime,
@@ -31,6 +35,7 @@ from omh.goal_loop import (
     validate_loop_cycle,
 )
 from omh.paths import resolve_paths
+from omh.record_revision import StaleRecordMutation
 
 
 class GoalLoopTests(unittest.TestCase):
@@ -701,6 +706,120 @@ class GoalLoopTests(unittest.TestCase):
 
         self.assertFalse(validation["ok"])
         self.assertIn("runtime.queue[0].subagent_plan.result_contract must be an object", validation["errors"])
+
+
+class LoopCycleMutationGuardTests(unittest.TestCase):
+    def _cycle(self, paths) -> dict:
+        return create_loop_cycle(
+            paths,
+            goal_summary="Ship the stale mutation guard",
+            goal_reframe="Implement the guard, verify it, and prepare the handoff material.",
+            success_criteria=["Guard is verified by tests"],
+            permission_profile="handoff_only",
+        )
+
+    def test_every_cycle_mutator_rejects_a_stale_expected_revision_without_writing(self) -> None:
+        # Only the queue mutators were guarded first; feedback, permission,
+        # and tick still read outside the lock and wrote the whole cycle back,
+        # so a stale caller silently reverted whatever landed in between.
+        mutators = {
+            "record_loop_feedback": lambda paths, loop_id, revision: record_loop_feedback(
+                paths, loop_id, observed_artifacts=["artifact:1"], expected_revision=revision
+            ),
+            "update_loop_permission": lambda paths, loop_id, revision: update_loop_permission(
+                paths, loop_id, allow_actions=["merge"], expected_revision=revision
+            ),
+            "tick_loop_runtime": lambda paths, loop_id, revision: tick_loop_runtime(
+                paths, loop_id, expected_revision=revision
+            ),
+        }
+        for name, call in mutators.items():
+            with self.subTest(mutator=name), TemporaryDirectory() as tmp:
+                paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+                cycle = self._cycle(paths)
+                loop_id = str(cycle["loop_id"])
+                stale_revision = int(cycle["record_revision"])
+                # Another writer moves the cycle on while the call is in flight.
+                tick_loop_runtime(paths, loop_id)
+                path = loop_cycle_path(paths, loop_id)
+                before = path.read_bytes()
+
+                with self.assertRaises(StaleRecordMutation):
+                    call(paths, loop_id, stale_revision)
+
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_loop_mutation_ids_accept_connector_style_ids_and_replay(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            cycle = self._cycle(paths)
+            loop_id = str(cycle["loop_id"])
+            mutation_id = "slack:C123/p1700000000.000100"
+
+            first = record_loop_feedback(
+                paths, loop_id, observed_artifacts=["artifact:1"], mutation_id=mutation_id
+            )
+            second = record_loop_feedback(
+                paths, loop_id, observed_artifacts=["artifact:1"], mutation_id=mutation_id
+            )
+
+            self.assertEqual(first["record_revision"], second["record_revision"])
+            self.assertEqual(len(read_loop_cycle(paths, loop_id)["cycles"]), 1)
+
+    def test_loop_cycle_validator_rejects_bad_revision_fields(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            cycle = self._cycle(paths)
+
+            revision_errors = validate_loop_cycle({**cycle, "record_revision": -1})["errors"]
+            applied_errors = validate_loop_cycle({**cycle, "applied_mutations": []})["errors"]
+
+            self.assertIn("loop_cycle record_revision must be a non-negative integer", revision_errors)
+            self.assertIn("loop_cycle applied_mutations must be an object", applied_errors)
+
+    @requires_fcntl_locks
+    def test_concurrent_feedback_does_not_revert_a_guarded_queue_observation(self) -> None:
+        # The confirmed probe: a guarded observation was reverted by a stale
+        # record_loop_feedback write, after which the observation's own
+        # mutation_id replayed it away and the queue item stayed unobserved.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            cycle = self._cycle(paths)
+            loop_id = str(cycle["loop_id"])
+            ticked = tick_loop_runtime(paths, loop_id)
+            queue_id = str(ticked["runtime"]["queue"][0]["queue_id"])
+            barrier = threading.Barrier(2)
+            failures: list[BaseException] = []
+
+            def observe() -> None:
+                barrier.wait()
+                try:
+                    observe_loop_queue_item(
+                        paths, loop_id, queue_id, evidence_refs=["wrapper:queue-observation:1"]
+                    )
+                except BaseException as exc:  # noqa: BLE001
+                    failures.append(exc)
+
+            def feedback() -> None:
+                barrier.wait()
+                try:
+                    record_loop_feedback(paths, loop_id, observed_artifacts=["artifact:1"])
+                except BaseException as exc:  # noqa: BLE001
+                    failures.append(exc)
+
+            threads = [threading.Thread(target=observe), threading.Thread(target=feedback)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            self.assertEqual(failures, [])
+            stored = read_loop_cycle(paths, loop_id)
+            # Both writes survived: the observation is not reverted and the
+            # feedback cycle entry is not lost.
+            self.assertEqual(stored["runtime"]["queue"][0]["status"], "observed")
+            self.assertEqual(len(stored["cycles"]), 1)
+            self.assertEqual(stored["record_revision"], int(ticked["record_revision"]) + 2)
 
 
 if __name__ == "__main__":
