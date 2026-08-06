@@ -87,7 +87,15 @@ class DomainContextPersistencePrivacyMixin:
         self.assertTrue(second["resumed"])
         self.assertNotIn("domain_routing_context", second["interaction"])
         self.assertEqual(calls, 2)
-        self.assertEqual(set(second["session"]), set(WRAPPER_SESSION_RECORD_KEYS))
+        # The privacy property is that the record carries no key outside the
+        # canonical set. `applied_mutations_floor_revision` is written only once
+        # mutation history has actually been evicted, so it is the one key the
+        # canonical set allows and a fresh session legitimately omits.
+        self.assertLessEqual(set(second["session"]), set(WRAPPER_SESSION_RECORD_KEYS))
+        self.assertEqual(
+            set(WRAPPER_SESSION_RECORD_KEYS) - set(second["session"]),
+            {"applied_mutations_floor_revision"},
+        )
         self.assertEqual(validate_wrapper_session_record(second["session"]), [])
         _assert_no_private_material(
             self,

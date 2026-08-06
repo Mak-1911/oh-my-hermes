@@ -17,6 +17,20 @@ try:
 except ImportError:
     fcntl = None
 
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
+
+LOCK_MECHANISM_FCNTL = "fcntl"
+LOCK_MECHANISM_MSVCRT = "msvcrt"
+LOCK_MECHANISM_NONE = "none"
+LOCK_UNENFORCED_REASON = "no_os_file_lock"
+# Both backends report "the region is already held" through errno rather than a
+# dedicated exception: fcntl.flock uses EACCES/EAGAIN, msvcrt.locking uses
+# EACCES for LK_NBLCK and EDEADLK when a blocking attempt gives up.
+_LOCK_BUSY_ERRNOS = frozenset({errno.EACCES, errno.EAGAIN, errno.EDEADLK, getattr(errno, "EDEADLOCK", errno.EDEADLK)})
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -131,6 +145,46 @@ class FileLockTimeout(TimeoutError):
     """Raised when an advisory file lock cannot be acquired within the timeout."""
 
 
+def _acquire_os_file_lock(
+    handle: Any,
+    path: Path,
+    *,
+    deadline: float,
+    poll_interval: float,
+    timeout_seconds: float,
+) -> str:
+    """Take an exclusive OS lock on the already-open sidecar handle.
+
+    Returns the mechanism that granted it. Both backends are polled through
+    their non-blocking flag so one shared timeout covers either platform.
+    """
+    while True:
+        try:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return LOCK_MECHANISM_FCNTL
+            # msvcrt.locking locks a byte range starting at the current file
+            # position, so the region has to be pinned to byte 0 on both the
+            # acquire and the release for the two calls to describe one region.
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            return LOCK_MECHANISM_MSVCRT
+        except OSError as exc:
+            if exc.errno not in _LOCK_BUSY_ERRNOS:
+                raise
+            if time.monotonic() >= deadline:
+                raise FileLockTimeout(f"could not acquire lock on {path} within {timeout_seconds}s") from exc
+            time.sleep(poll_interval)
+
+
+def _release_os_file_lock(handle: Any, mechanism: str) -> None:
+    if mechanism == LOCK_MECHANISM_FCNTL:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        return
+    handle.seek(0)
+    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
 @contextmanager
 def file_lock(
     path: Path,
@@ -139,29 +193,44 @@ def file_lock(
     poll_interval: float = 0.05,
     private: bool = False,
 ) -> Iterator[dict[str, Any]]:
+    """Hold an exclusive advisory lock on the ``.<name>.lock`` sidecar of path.
+
+    ``path`` itself is never opened, created, or written here; only the sidecar
+    is. POSIX locks through ``fcntl.flock`` and Windows through
+    ``msvcrt.locking``, so mutual exclusion is a real OS lock on both and the
+    yielded mapping reports ``enforced: True``.
+
+    On a platform with neither module the lock cannot be taken at all. The
+    block still runs - refusing to run would break every caller - but the
+    yielded mapping reports ``locked: False``, ``enforced: False`` and a
+    ``reason``, so a caller can surface that the mutual-exclusion guarantee did
+    not hold instead of assuming it did.
+    """
     lock_path = path.with_name(f".{path.name}.lock")
     ensure_dir(lock_path.parent, private=private)
-    if fcntl is None:
-        yield {"locked": False, "reason": "fcntl_unavailable"}
+    if fcntl is None and msvcrt is None:
+        yield {
+            "locked": False,
+            "enforced": False,
+            "mechanism": LOCK_MECHANISM_NONE,
+            "reason": LOCK_UNENFORCED_REASON,
+        }
         return
     ensure_file(lock_path, private=private)
     deadline = time.monotonic() + max(timeout_seconds, 0.0)
     handle = lock_path.open("a+")
     try:
-        while True:
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except OSError as exc:
-                if exc.errno not in (errno.EACCES, errno.EAGAIN):
-                    raise
-                if time.monotonic() >= deadline:
-                    raise FileLockTimeout(f"could not acquire lock on {path} within {timeout_seconds}s") from exc
-                time.sleep(poll_interval)
+        mechanism = _acquire_os_file_lock(
+            handle,
+            path,
+            deadline=deadline,
+            poll_interval=poll_interval,
+            timeout_seconds=timeout_seconds,
+        )
         try:
-            yield {"locked": True, "reason": ""}
+            yield {"locked": True, "enforced": True, "mechanism": mechanism, "reason": ""}
         finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            _release_os_file_lock(handle, mechanism)
     finally:
         handle.close()
 

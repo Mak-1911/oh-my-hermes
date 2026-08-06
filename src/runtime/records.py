@@ -45,6 +45,13 @@ from ..harness_quality import HARNESS_QUALITY_KEYS, HARNESS_QUALITY_SCHEMA_VERSI
 from ..quality.specialist_work_validation import validate_prepared_specialist_work_quality
 from ..isolation import ISOLATION_SCHEMA_VERSION
 from ..local_store import utc_now
+from ..system.record_revision import (
+    APPLIED_MUTATIONS_FLOOR_KEY,
+    applied_mutations_floor_of,
+    bounded_applied_mutations,
+    record_revision_of,
+    revision_field_errors,
+)
 from ..memory import validate_handoff_context_blocked, validate_handoff_context_pack, validate_project_memory_recall_pack
 from ..coding.product_family_templates import validate_product_family_template
 from ..coding.product_quality_harnesses import validate_product_quality_harness
@@ -528,6 +535,9 @@ WRAPPER_SESSION_RECORD_KEYS = (
     "record_provenance",
     "redaction_policy",
     "authority",
+    "record_revision",
+    "applied_mutations",
+    "applied_mutations_floor_revision",
 )
 
 
@@ -856,7 +866,14 @@ def build_wrapper_session_record(session: dict[str, Any]) -> dict[str, Any]:
             "session_owns": list(WRAPPER_SESSION_AUTHORITY_SESSION_OWNS),
             "run_ledger_owns": list(WRAPPER_SESSION_AUTHORITY_RUN_LEDGER_OWNS),
         },
+        "record_revision": record_revision_of(session),
+        "applied_mutations": _compact_applied_mutations(session.get("applied_mutations")),
     }
+    # Only present once applied_mutations eviction has moved the floor; keeping
+    # it out otherwise leaves untouched sessions byte-identical.
+    floor_revision = applied_mutations_floor_of(session)
+    if floor_revision >= 1:
+        record[APPLIED_MUTATIONS_FLOOR_KEY] = floor_revision
     errors = validate_wrapper_session_record(record)
     if errors:
         raise ValueError(errors[0])
@@ -907,6 +924,27 @@ def _compact_source_metadata(metadata: Any) -> dict[str, str]:
     if not isinstance(metadata, dict):
         return {}
     return {key: str(metadata[key]) for key in CODING_SOURCE_METADATA_KEYS if key in metadata and str(metadata[key])}
+
+
+def _compact_applied_mutations(applied: Any) -> dict[str, Any]:
+    if not isinstance(applied, dict):
+        return {}
+    compact: dict[str, Any] = {}
+    for mutation_id, entry in applied.items():
+        if not isinstance(entry, dict) or not str(mutation_id).strip():
+            continue
+        revision = entry.get("record_revision")
+        if isinstance(revision, bool) or not isinstance(revision, int):
+            continue
+        compact_entry: dict[str, Any] = {
+            "record_revision": revision,
+            "result_digest": str(entry.get("result_digest", "")),
+        }
+        operation = entry.get("operation")
+        if isinstance(operation, str) and operation.strip():
+            compact_entry["operation"] = operation
+        compact[str(mutation_id)] = compact_entry
+    return bounded_applied_mutations(compact)
 
 
 def _compact_wrapper_session_source_metadata(metadata: Any) -> dict[str, str]:
@@ -2357,6 +2395,7 @@ def validate_wrapper_session_record(session: dict[str, Any]) -> list[str]:
             errors,
             "wrapper_session authority.run_ledger_owns must match the run ledger authority contract",
         )
+    errors.extend(revision_field_errors(session, "wrapper_session"))
     return errors
 
 

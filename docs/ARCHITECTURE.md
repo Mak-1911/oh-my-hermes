@@ -942,6 +942,235 @@ Initial transition policy is intentionally conservative: clarification can hand
 off to planning, and planning can hand off to execution or QA. Other active
 workflow conflicts must be finished or cleared explicitly.
 
+## Record Revisions and Idempotent Mutations
+
+Wrapper sessions, goal ledgers, loop cycles, executor sessions, and workflow
+state are shared local records: a chat wrapper, a CLI call, and an automation
+tick can all reach the same JSON file. `src/system/record_revision.py` gives
+those records one optimistic-concurrency contract.
+
+Every guarded record carries up to three bookkeeping fields:
+
+- `record_revision` — an integer that starts at `1` on the first write and
+  increases by exactly one per applied mutation.
+- `applied_mutations` — a bounded map of `"<operation>:<mutation_id>"` to
+  `{"record_revision", "operation", "result_digest"}`, keeping at most
+  `APPLIED_MUTATIONS_LIMIT` (128) of the most recent entries so records cannot
+  grow without limit.
+- `applied_mutations_floor_revision` — written only once eviction has actually
+  dropped entries, and equal to the highest `record_revision` whose mutation id
+  is no longer retained.
+
+`guarded_record_update()` runs the whole read-modify-write inside one advisory
+file lock: it reads the record inside the lock, replays an already-applied
+mutation, compares `expected_revision`, applies the mutation, bumps
+`record_revision`, validates, and only then writes atomically. Status
+preconditions — a queue item still being `prepared_not_observed`, a session
+still being in a decidable status — run inside that same transaction, so two
+concurrent callers cannot both pass the same check.
+
+Callers name the mutation and may guard it two ways:
+
+- `operation` (**required**) — a short stable name for the logical mutation,
+  such as `record_goal_checkpoint` or `record_plan_decision`. It scopes
+  `mutation_id`, so it must not contain `:`.
+- `expected_revision` — the `record_revision` the caller last rendered. When it
+  no longer matches, the mutation raises `StaleRecordMutation` and **nothing is
+  written**: the rejection is total, never partial.
+- `mutation_id` — a client-chosen id for one logical intent. Retrying the same
+  `(operation, mutation_id)` pair replays the original outcome instead of
+  applying it twice, so a retried call creates no duplicate checkpoint,
+  blocker, quality gate, queue observation, or session event, and does not bump
+  the revision again.
+- `mutation_digest` — optional; a digest the caller computes from its own
+  arguments so a retry can be proven to mean the same thing.
+
+Terminal records refuse new child work. `require_not_terminal()` backs the
+refusal for cancelled wrapper sessions (executor selection, handoff
+preparation, and every executor-session entrypoint) and for terminal goals —
+`complete` and `cancelled` refuse checkpoints, blockers, and quality gates. The
+refusal message names the terminal state so a wrapper can explain it.
+
+### What the lock actually guarantees
+
+The guarantees below hold **only while an OS file lock is held**:
+
+- The read, every precondition check, the mutation, and the write happen as one
+  transaction, so no concurrent writer can interleave between the
+  `expected_revision` compare and the write it authorizes.
+- No update is lost: each applied mutation bumps `record_revision` by exactly
+  one.
+- A `(operation, mutation_id)` pair applies at most once, even under concurrent
+  retries of the same id.
+
+The lock is taken on a `.<name>.lock` sidecar, never on the record itself:
+
+- **POSIX** — `fcntl.flock` with `LOCK_EX | LOCK_NB`, polled until the timeout.
+- **Windows** — `msvcrt.locking` with `LK_NBLCK` on one byte of the sidecar,
+  released with `LK_UNLCK`, polled the same way. This is a real OS lock, so
+  Windows gets the same guarantees as POSIX.
+- **Neither module importable** — no OS lock exists. The transaction still
+  runs, protected only by the `expected_revision` compare and the atomic
+  replace, so concurrent writers can interleave and the "applies at most once"
+  and "no lost update" properties **do not hold**. This is surfaced, not
+  assumed away: `file_lock()` yields `{"locked": False, "enforced": False,
+  "reason": "no_os_file_lock"}`, and `guarded_record_update()` returns a
+  `GuardedRecord` whose `lock_enforced` attribute is `False` so a caller can
+  say the guarantee was downgraded to best-effort instead of claiming it held.
+  `lock_enforced` is an attribute of the returned dict and is never persisted
+  into the record.
+
+### Operation-scoped mutation ids
+
+`mutation_id` is scoped by `operation`, and the pair is the replay key:
+
+- **Same `operation`, same `mutation_id`** — replay. No write, no revision
+  bump, no duplicate child item. The result is a `DuplicateMutationReplay`
+  carrying the unchanged record and `replayed=True`.
+- **Same `mutation_id`, different `operation`** — **not** a replay. A client
+  turn id reused by a different operation is different logical intent and
+  applies normally. Without this scoping a `goal cancel` that reused the id of
+  an earlier `goal blocker` would be swallowed and exit successfully while the
+  goal stayed active.
+- **Same `(operation, mutation_id)`, divergent payload** — refused. When the
+  caller supplies `mutation_digest` and it does not match the digest stored
+  with the applied entry, the retry is different work sharing one id, and
+  `ConflictingMutationReplay` is raised naming the operation and the id.
+  `mutation_digest` must be used consistently within one operation: a retry
+  that supplies a digest where the original call did not is treated as
+  divergent rather than replayed, because silently dropping work is the worse
+  failure.
+
+### Eviction floor
+
+`applied_mutations` is bounded at 128 entries, so a long-lived record does
+eventually forget an old id. Forgetting is not silent. When entries are
+evicted, `applied_mutations_floor_revision` moves up to the highest evicted
+`record_revision`, and the retry rule becomes:
+
+- id present in the map → replay, as above.
+- id absent, `expected_revision` supplied and **at or below** the floor → the
+  record cannot prove whether that mutation already applied. Applying it risks
+  a duplicate and replaying it risks losing it, so `MutationHistoryEvicted` is
+  raised, telling the caller to re-render the current record and retry against
+  its current revision.
+- id absent, no `expected_revision` or one above the floor → applies normally.
+
+The consequence for callers: a retry is only guaranteed to be recognized while
+its mutation is still within the most recent 128 applied mutations of that
+record. Beyond that a retry carrying a stale `expected_revision` is refused,
+never duplicated.
+
+### Materialized mutation ids
+
+The eviction floor only fires when the caller supplied an `expected_revision`,
+and that asymmetry is deliberate: without one there is nothing to compare
+against the floor, and refusing every id absent from the map would refuse every
+legitimately new `mutation_id` once any eviction had happened. So a retry that
+carries **only** a `mutation_id` gets no eviction protection from the map — and
+the CLI accepts `--mutation-id` independently of `--expected-revision`.
+
+The rule that closes that gap: **a surface that materializes a `mutation_id`
+into a persisted item id must dedupe on that derived id inside its own locked
+`mutate`, before appending.** The goal ledger does exactly this. It derives
+`checkpoint_id`, `blocker_id`, and `quality_gate_id` from the `mutation_id`
+(verbatim when the id is filesystem-safe, otherwise a stable hash), so the
+record itself is the proof a retry needs: if an item with that id is already in
+the target list, the mutation already applied. The mutator returns "no change",
+the caller reports `replayed=true`, and `applied` stays re-derived from the
+persisted record. This is exact, survives eviction, and costs one list scan.
+The dedupe check runs before the mutator's other preconditions, matching the
+`applied_mutations` replay path it backstops — that path never runs them
+either, so a retry must not start failing preconditions once its id is evicted.
+
+Two things this rule is not:
+
+- It is **not** a widening of the floor rule. Refusing every id absent from the
+  map after eviction would break normal operation on any long-lived record.
+- It is **not** a substitute for the bounded map. The map still short-circuits
+  the common retry before `mutate` runs; the id scan is the backstop for the
+  window the map has forgotten.
+
+`validate_goal_ledger()` enforces the invariant from the other side: two items
+in one list sharing an id is a validation error, and the validator runs inside
+the guarded write, so a duplicate is refused before it is persisted.
+
+One consequence is worth naming. `record_goal_quality_gate` and
+`complete_goal_ledger` are different operations that write into the *same*
+`quality_gates` list, so one `mutation_id` reused across the two is a genuine
+id collision, not two independent intents. The second call is refused as a
+replay — visibly: `completed` stays `false`, `replayed` is `true`, and the CLI
+exits non-zero. That is the conservative direction; the alternative was a
+duplicate id the validator now rejects anyway. A distinct `mutation_id`
+applies normally.
+
+Surfaces that do **not** materialize the id need nothing extra, but the reason
+has to be checked rather than assumed. Loop cycles
+(`src/workflows/goal_loop.py`) mint `cycle_id` and `queue_id` from
+`_new_item_id()`, never from the `mutation_id`; their queue mutators are
+additionally guarded by status preconditions — `observe` and `dispatch` require
+`prepared_not_observed`, `block` refuses an already-observed item — so a
+replayed queue mutation is refused rather than applied twice. Wrapper sessions
+(`src/wrapper/sessions.py`) mutate in place — status transitions and a single
+`current_run_id` — instead of appending id-bearing items, so a repeat write is
+idempotent by shape.
+
+### Bounded mutation ids
+
+`mutation_id` is caller-supplied text that is persisted into the bounded map,
+so an unbounded id multiplies straight into the record: 128 retained entries of
+a 100k-character id is a multi-megabyte record written by one buggy connector.
+`mutation_id` is therefore bounded at 200 characters and `operation` at 64,
+both validated in `guarded_record_update()` *before* the lock is taken, so an
+oversized id is refused with a readable message and no file — record, lock
+sidecar, or temp file — is touched. 200 is sized against the ids connectors
+actually send (UUID 36, ULID 26, Discord snowflake 20, git sha 40, composite
+Slack reference ~36), leaving roughly five times the widest observed id.
+Validating in the one shared helper is the point: goal, wrapper-session, and
+loop writes reject identically instead of each inventing a limit.
+
+### Stale-rejection UX
+
+A stale rejection is a conversation, not a crash. On `StaleRecordMutation` the
+wrapper should tell the user the work changed under them, summarize the record
+at its current `record_revision`, and offer to retry against that revision. The
+exception carries `expected_revision` and `current_revision` for exactly this
+message. `MutationHistoryEvicted` and `ConflictingMutationReplay` deserve the
+same treatment: both name what could not be proven and both leave the record
+untouched. Auto-resolving two conflicting decisions is deliberately out of
+scope: the user picks.
+
+### CLI surfaces that can arm the guard
+
+A guarantee a wrapper cannot reach is not a guarantee. `--expected-revision`
+and `--mutation-id` are therefore defined once, in
+`add_revision_guard_arguments()` (`src/commands/common.py`), and attached to
+every CLI subcommand that reaches a guarded write:
+
+- `omh goal checkpoint | blocker | complete | cancel`
+- `omh chat session accept-plan | revise-plan | cancel | select-executor |
+  prepare-handoff`
+
+Both flags stay optional, and absent means "no guard requested" — `None` and
+`""`, never revision `0`. A rejection reaches the user as a plain
+`omh: <message>` line on stderr with a non-zero exit and nothing on stdout.
+
+Chat session subcommands that write the *executor* session record
+(`open-executor`, `attach-executor`, `record-executor`,
+`request-verification`) do not take the flags: those writes go through
+`executor_sessions.py`, which does not yet accept a `mutation_id`. That is a
+known boundary, not an oversight.
+
+### Adoption boundary
+
+This contract covers record-level staleness only. Cross-record binding — such as
+a session pinned to a workspace — is tracked separately as issue #820 and is not
+enforced here. Distributed locks across machines are also out of scope: the
+guard is a single-host advisory lock plus a revision compare. Records written
+before operation scoping keep un-prefixed `applied_mutations` keys; those keys
+are never matched again, so one legacy id can apply a second time and then
+behaves normally.
+
 ## Safety Model
 
 - Managed files are tracked by manifest hashes.

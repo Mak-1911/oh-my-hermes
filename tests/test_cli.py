@@ -22,6 +22,7 @@ from omh.config_adapter import ensure_external_dir, external_dirs
 from omh.maintenance.doctor import _skill_shadowing_check
 from omh.paths import resolve_paths
 from omh.plugin_bundle.omh.memory_governance import canonical_payload_digest
+from omh.record_revision import MAX_MUTATION_ID_CHARS
 from omh.routing.intent import classify_omh_quality_intent
 from omh.skill_pack import CORE_PROFILE_SKILLS, builtin_skill_reference_templates, builtin_skill_templates
 from omh.skills.catalog import builtin_harnesses, installable_skill_names
@@ -29,6 +30,7 @@ from omh.wrapper.localized_copy import detect_copy_locale
 from omh.wrapper_sessions import (
     create_or_resume_wrapper_session,
     prepare_wrapper_session_handoff,
+    read_wrapper_session,
     record_plan_decision,
     select_wrapper_session_executor,
 )
@@ -12197,6 +12199,164 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(status, 1)
             checks = {check["name"]: check for check in json.loads(stdout)["checks"]}
             self.assertFalse(checks["runtime_state"]["ok"])
+
+
+class ChatSessionRevisionGuardCliTests(unittest.TestCase):
+    """The stale-mutation guard has to be reachable from the wrapper surface.
+
+    `omh chat session` is where a wrapper submits the revision it rendered, so
+    every session subcommand that reaches a guarded session.json write carries
+    --expected-revision and --mutation-id. Before issue #828 the flags existed
+    only on `omh goal`, which left the guarantee unreachable from the surface
+    the contract is actually about.
+    """
+
+    GUARDED_SUBCOMMANDS = (
+        ("accept-plan", ["ws-1"]),
+        ("revise-plan", ["ws-1"]),
+        ("cancel", ["ws-1"]),
+        ("select-executor", ["ws-1", "codex"]),
+        ("prepare-handoff", ["ws-1"]),
+    )
+
+    def _base(self, root: Path) -> list[str]:
+        return ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+
+    def _started(self, base: list[str]) -> dict:
+        status, stdout, stderr = run_cli(
+            base
+            + [
+                "chat",
+                "session",
+                "start",
+                "--source",
+                "discord",
+                "--source-event-id",
+                "m1",
+                "--channel-ref",
+                "c1",
+                "risky refactor with private-token-123",
+            ]
+        )
+        self.assertEqual(status, 0, stderr)
+        return json.loads(stdout)["session"]
+
+    def test_revision_guard_flag_names_are_pinned_on_every_session_mutation(self) -> None:
+        parser = build_parser()
+
+        for subcommand, positional in self.GUARDED_SUBCOMMANDS:
+            with self.subTest(subcommand=subcommand):
+                args = parser.parse_args(
+                    ["chat", "session", subcommand, *positional, "--expected-revision", "4", "--mutation-id", "m-1"]
+                )
+                self.assertEqual(args.expected_revision, 4)
+                self.assertEqual(args.mutation_id, "m-1")
+                # Absent flags must stay "no guard requested", not 0 / "0".
+                defaults = parser.parse_args(["chat", "session", subcommand, *positional])
+                self.assertIsNone(defaults.expected_revision)
+                self.assertEqual(defaults.mutation_id, "")
+
+    def test_a_stale_revision_through_the_chat_cli_exits_non_zero_and_writes_nothing(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = self._base(root)
+            session_id = str(self._started(base)["session_id"])
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            before = read_wrapper_session(paths, session_id)
+
+            status, stdout, stderr = run_cli(
+                base + ["chat", "session", "accept-plan", session_id, "--expected-revision", "99"]
+            )
+
+            self.assertEqual(status, 2)
+            self.assertEqual(stdout, "")
+            self.assertTrue(stderr.startswith("omh: "), stderr)
+            self.assertIn("record_revision", stderr)
+            self.assertNotIn("Traceback", stderr)
+            self.assertEqual(read_wrapper_session(paths, session_id), before)
+
+    def test_the_rendered_revision_is_accepted_and_moves_the_record_on(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = self._base(root)
+            session = self._started(base)
+            session_id = str(session["session_id"])
+
+            status, stdout, stderr = run_cli(
+                base
+                + [
+                    "chat",
+                    "session",
+                    "accept-plan",
+                    session_id,
+                    "--expected-revision",
+                    str(session["record_revision"]),
+                ]
+            )
+
+            self.assertEqual(status, 0, stderr)
+            accepted = json.loads(stdout)["session"]
+            self.assertEqual(accepted["status"], "executor_choice_required")
+            self.assertEqual(int(accepted["record_revision"]), int(session["record_revision"]) + 1)
+
+    def test_a_retried_mutation_id_replays_instead_of_transitioning_twice(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = self._base(root)
+            session_id = str(self._started(base)["session_id"])
+            command = base + ["chat", "session", "accept-plan", session_id, "--mutation-id", "accept-retry"]
+
+            first_status, first_stdout, first_stderr = run_cli(command)
+            second_status, second_stdout, second_stderr = run_cli(command)
+
+            self.assertEqual(first_status, 0, first_stderr)
+            self.assertEqual(second_status, 0, second_stderr)
+            first = json.loads(first_stdout)
+            second = json.loads(second_stdout)
+            self.assertFalse(first["replayed"])
+            self.assertTrue(second["replayed"])
+            self.assertEqual(first["session"]["record_revision"], second["session"]["record_revision"])
+
+    def test_a_stale_revision_on_prepare_handoff_is_refused_readably(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = self._base(root)
+            message = "risky refactor with private-token-123"
+            session_id = str(self._started(base)["session_id"])
+            self.assertEqual(run_cli(base + ["chat", "session", "accept-plan", session_id])[0], 0)
+            self.assertEqual(run_cli(base + ["chat", "session", "select-executor", session_id, "codex"])[0], 0)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            before = read_wrapper_session(paths, session_id)
+
+            status, stdout, stderr = run_cli(
+                base + ["chat", "session", "prepare-handoff", session_id, message, "--expected-revision", "1"]
+            )
+
+            self.assertEqual(status, 2)
+            self.assertEqual(stdout, "")
+            self.assertTrue(stderr.startswith("omh: "), stderr)
+            self.assertIn("record_revision", stderr)
+            self.assertNotIn("Traceback", stderr)
+            self.assertEqual(read_wrapper_session(paths, session_id), before)
+
+    def test_an_over_long_mutation_id_is_rejected_with_nothing_written(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = self._base(root)
+            session_id = str(self._started(base)["session_id"])
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            before = read_wrapper_session(paths, session_id)
+
+            status, stdout, stderr = run_cli(
+                base + ["chat", "session", "accept-plan", session_id, "--mutation-id", "x" * 100_000]
+            )
+
+            self.assertEqual(status, 2)
+            self.assertEqual(stdout, "")
+            self.assertTrue(stderr.startswith("omh: "), stderr)
+            self.assertIn(f"at most {MAX_MUTATION_ID_CHARS} characters", stderr)
+            self.assertNotIn("Traceback", stderr)
+            self.assertEqual(read_wrapper_session(paths, session_id), before)
 
 
 if __name__ == "__main__":

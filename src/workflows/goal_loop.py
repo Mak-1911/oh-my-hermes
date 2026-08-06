@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import secrets
 from datetime import datetime, timezone
@@ -9,7 +10,8 @@ from typing import Any, Iterable
 from ..codex_progress import summarize_codex_jsonl_text
 from ..goal_ledger import build_goal_completion_gate, read_goal_ledger
 from ..hashutil import sha256_text
-from ..local_store import atomic_write_json, ensure_dir, read_json_object, utc_now
+from ..local_store import ensure_dir, read_json_object, utc_now
+from ..system.record_revision import DuplicateMutationReplay, guarded_record_update, revision_field_errors
 from ..loopability import LOOPABILITY_ASSESSMENT_SCHEMA, assess_loopability, validate_loopability_assessment
 from ..paths import OmhPaths
 
@@ -260,8 +262,9 @@ def create_loop_cycle(
     if not validation["ok"]:
         raise ValueError("; ".join(validation["errors"]))
     ensure_dir(_loop_dir(paths, loop_id), private=True)
-    atomic_write_json(loop_cycle_path(paths, loop_id), cycle, private=True)
-    return cycle
+    return _guarded_cycle_update(
+        paths, loop_id, lambda current: dict(cycle), operation="create_loop_cycle", default={}
+    )
 
 
 def loop_executor_capability(executor: str) -> dict[str, Any]:
@@ -562,8 +565,9 @@ def record_loop_feedback(
     external_wait: str = "",
     context_exhausted: bool = False,
     budget_exhausted: bool = False,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
 ) -> dict[str, Any]:
-    cycle = read_loop_cycle(paths, loop_id)
     artifacts = [_safe_summary(value, limit=320) for value in observed_artifacts or [] if str(value).strip()]
     feedback_gate = _feedback_gate(
         observed_artifacts=artifacts,
@@ -590,22 +594,37 @@ def record_loop_feedback(
         phase = "feedback"
         wait_reason = "none"
         next_action = "record_feedback"
-    cycle["phase"] = phase
-    cycle["wait_reason"] = wait_reason
-    cycle["feedback_gate"] = feedback_gate
-    cycle["next_action"] = next_action
-    cycle["cycles"].append(
-        {
-            "cycle_id": _new_item_id("cycle"),
-            "created_at": utc_now(),
-            "phase": phase,
-            "wait_reason": wait_reason,
-            "observed_artifacts": artifacts,
-            "internal_actionable_gap": _safe_summary(internal_gap) if internal_gap.strip() else "",
-            "external_wait": _safe_summary(external_wait) if external_wait.strip() else "",
-        }
+
+    def mutate(cycle: dict[str, Any]) -> dict[str, Any]:
+        cycle["phase"] = phase
+        cycle["wait_reason"] = wait_reason
+        cycle["feedback_gate"] = feedback_gate
+        cycle["next_action"] = next_action
+        cycle["cycles"].append(
+            {
+                "cycle_id": _new_item_id("cycle"),
+                "created_at": utc_now(),
+                "phase": phase,
+                "wait_reason": wait_reason,
+                "observed_artifacts": artifacts,
+                "internal_actionable_gap": _safe_summary(internal_gap) if internal_gap.strip() else "",
+                "external_wait": _safe_summary(external_wait) if external_wait.strip() else "",
+            }
+        )
+        cycle["updated_at"] = utc_now()
+        return cycle
+
+    return _guarded_cycle_update(
+        paths,
+        loop_id,
+        mutate,
+        operation="record_loop_feedback",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest(
+            "record_loop_feedback", artifacts, internal_gap, external_wait, context_exhausted, budget_exhausted
+        ),
     )
-    return _write_loop(paths, cycle)
 
 
 def update_loop_permission(
@@ -615,25 +634,43 @@ def update_loop_permission(
     allow_actions: Iterable[str] | None = None,
     forbid_actions: Iterable[str] | None = None,
     allowed_executors: Iterable[str] | None = None,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
 ) -> dict[str, Any]:
-    cycle = read_loop_cycle(paths, loop_id)
-    current = _dict_value(cycle, "authority_envelope")
-    existing_allowed = _string_set(current.get("allowed_actions", []))
-    existing_forbidden = _string_set(current.get("forbidden_actions", []))
     requested_allow = _valid_actions(allow_actions or [])
     requested_forbid = _valid_actions(forbid_actions or [])
-    forbidden = sorted(existing_forbidden | requested_forbid)
-    allowed = sorted((existing_allowed | requested_allow) - set(forbidden))
-    existing_executors = _string_set(current.get("allowed_executors", []))
     requested_executors = _safe_list(allowed_executors or [], limit=120)
-    cycle["authority_envelope"] = build_authority_envelope(
-        permission_profile="custom",
-        allowed_executors=sorted(existing_executors | set(requested_executors)),
-        allow_actions=allowed,
-        forbid_actions=forbidden,
+
+    def mutate(cycle: dict[str, Any]) -> dict[str, Any]:
+        # The merge reads the envelope that is current inside the lock, so a
+        # concurrent grant is extended rather than reverted.
+        current = _dict_value(cycle, "authority_envelope")
+        existing_allowed = _string_set(current.get("allowed_actions", []))
+        existing_forbidden = _string_set(current.get("forbidden_actions", []))
+        forbidden = sorted(existing_forbidden | requested_forbid)
+        allowed = sorted((existing_allowed | requested_allow) - set(forbidden))
+        existing_executors = _string_set(current.get("allowed_executors", []))
+        cycle["authority_envelope"] = build_authority_envelope(
+            permission_profile="custom",
+            allowed_executors=sorted(existing_executors | set(requested_executors)),
+            allow_actions=allowed,
+            forbid_actions=forbidden,
+        )
+        _normalize_permission_state(cycle)
+        cycle["updated_at"] = utc_now()
+        return cycle
+
+    return _guarded_cycle_update(
+        paths,
+        loop_id,
+        mutate,
+        operation="update_loop_permission",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest(
+            "update_loop_permission", sorted(requested_allow), sorted(requested_forbid), requested_executors
+        ),
     )
-    _normalize_permission_state(cycle)
-    return _write_loop(paths, cycle)
 
 
 def tick_loop_runtime(
@@ -649,53 +686,90 @@ def tick_loop_runtime(
     connector_action: str = "",
     workflow_pattern: str = "single_step",
     note: str = "",
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
 ) -> dict[str, Any]:
-    cycle = read_loop_cycle(paths, loop_id)
-    envelope = _dict_value(cycle, "authority_envelope")
-    plan = _next_runtime_plan(cycle, envelope)
-    queue_item = _runtime_queue_item(
-        cycle,
-        envelope,
-        plan,
-        trigger=trigger,
-        cadence=cadence,
-        worktree_base=worktree_base,
-        worktree_branch=worktree_branch,
-        subagent_role=subagent_role,
-        connector=connector,
-        connector_action=connector_action,
-        workflow_pattern=workflow_pattern,
-        note=note,
+    def mutate(cycle: dict[str, Any]) -> dict[str, Any]:
+        # The plan and the queue item are derived from the cycle read inside
+        # the lock: deriving them from an unlocked read appended a queue item
+        # computed against permissions or a queue that had already moved on.
+        envelope = _dict_value(cycle, "authority_envelope")
+        plan = _next_runtime_plan(cycle, envelope)
+        queue_item = _runtime_queue_item(
+            cycle,
+            envelope,
+            plan,
+            trigger=trigger,
+            cadence=cadence,
+            worktree_base=worktree_base,
+            worktree_branch=worktree_branch,
+            subagent_role=subagent_role,
+            connector=connector,
+            connector_action=connector_action,
+            workflow_pattern=workflow_pattern,
+            note=note,
+        )
+        runtime = _runtime_state(cycle.get("runtime"))
+        runtime["heartbeat_count"] = int(runtime.get("heartbeat_count", 0)) + 1
+        runtime["last_tick_at"] = queue_item["created_at"]
+        runtime["last_trigger"] = queue_item["trigger"]
+        runtime["last_planned_action"] = queue_item["planned_action"]
+        runtime["last_queue_id"] = queue_item["queue_id"]
+        runtime.setdefault("queue", []).append(queue_item)
+        cycle["runtime"] = runtime
+        if queue_item["status"] == "prepared_not_observed":
+            cycle["phase"] = str(plan["phase"])
+            cycle["wait_reason"] = "none"
+            cycle["next_action"] = "observe_runtime_queue"
+        else:
+            cycle["next_action"] = str(plan["next_action"])
+        cycle["updated_at"] = utc_now()
+        return cycle
+
+    return _guarded_cycle_update(
+        paths,
+        loop_id,
+        mutate,
+        operation="tick_loop_runtime",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest(
+            "tick_loop_runtime",
+            trigger,
+            cadence,
+            worktree_base,
+            worktree_branch,
+            subagent_role,
+            connector,
+            connector_action,
+            workflow_pattern,
+            note,
+        ),
     )
-    runtime = _runtime_state(cycle.get("runtime"))
-    runtime["heartbeat_count"] = int(runtime.get("heartbeat_count", 0)) + 1
-    runtime["last_tick_at"] = queue_item["created_at"]
-    runtime["last_trigger"] = queue_item["trigger"]
-    runtime["last_planned_action"] = queue_item["planned_action"]
-    runtime["last_queue_id"] = queue_item["queue_id"]
-    runtime.setdefault("queue", []).append(queue_item)
-    cycle["runtime"] = runtime
-    if queue_item["status"] == "prepared_not_observed":
-        cycle["phase"] = str(plan["phase"])
-        cycle["wait_reason"] = "none"
-        cycle["next_action"] = "observe_runtime_queue"
-    else:
-        cycle["next_action"] = str(plan["next_action"])
-    return _write_loop(paths, cycle)
 
 
 def run_loop_once(paths: OmhPaths, loop_id: str) -> dict[str, Any]:
-    cycle = read_loop_cycle(paths, loop_id)
-    runtime = _runtime_state(cycle.get("runtime"))
-    pending = [
-        item
-        for item in runtime.get("queue", [])
-        if isinstance(item, dict) and item.get("status") == "prepared_not_observed"
-    ]
-    if pending:
+    needs_tick: dict[str, bool] = {}
+
+    def mutate(cycle: dict[str, Any]) -> dict[str, Any] | None:
+        runtime = _runtime_state(cycle.get("runtime"))
+        pending = [
+            item
+            for item in runtime.get("queue", [])
+            if isinstance(item, dict) and item.get("status") == "prepared_not_observed"
+        ]
+        if not pending:
+            # No write here: the tick below takes the lock again on its own.
+            needs_tick["tick"] = True
+            return None
         cycle["phase"] = str(pending[-1].get("phase", cycle.get("phase", "handoff")))
         cycle["next_action"] = "observe_runtime_queue"
-        return _write_loop(paths, cycle)
+        cycle["updated_at"] = utc_now()
+        return cycle
+
+    cycle = _guarded_cycle_update(paths, loop_id, mutate, operation="run_loop_once")
+    if not needs_tick:
+        return cycle
     return tick_loop_runtime(
         paths,
         loop_id,
@@ -808,30 +882,46 @@ def dispatch_loop_queue_item(
     thread_ref: str = "",
     evidence_refs: Iterable[str] | None = None,
     summary: str = "",
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
 ) -> dict[str, Any]:
     refs = _safe_list(evidence_refs or [], limit=320)
-    cycle = read_loop_cycle(paths, loop_id)
-    runtime, item = _queue_item_ref(cycle, queue_id)
-    if item.get("status") != "prepared_not_observed":
-        raise ValueError("only prepared_not_observed loop queue items can record executor dispatch")
     capability = loop_executor_capability(executor)
-    item["executor_session"] = {
-        **_empty_executor_session(str(capability["executor"])),
-        "executor": capability["executor"],
-        "loop_mode": capability["loop_mode"],
-        "dispatch_owner": capability["dispatch_owner"],
-        "dispatch_status": "dispatched" if refs or session_ref.strip() or thread_ref.strip() else "prepared",
-        "session_ref": _safe_summary(session_ref, limit=220) if session_ref.strip() else "",
-        "thread_ref": _safe_summary(thread_ref, limit=220) if thread_ref.strip() else "",
-        "dispatch_evidence_refs": refs,
-        "summary": _safe_summary(summary, limit=320) if summary.strip() else "Executor dispatch metadata recorded for this loop queue item.",
-        "capability": capability,
-    }
-    runtime["last_queue_id"] = str(item["queue_id"])
-    runtime["last_queue_status"] = str(item["status"])
-    cycle["runtime"] = runtime
-    cycle["next_action"] = "observe_runtime_queue"
-    return _write_loop(paths, cycle)
+
+    def mutate(cycle: dict[str, Any]) -> dict[str, Any]:
+        runtime, item = _queue_item_ref(cycle, queue_id)
+        if item.get("status") != "prepared_not_observed":
+            raise ValueError("only prepared_not_observed loop queue items can record executor dispatch")
+        item["executor_session"] = {
+            **_empty_executor_session(str(capability["executor"])),
+            "executor": capability["executor"],
+            "loop_mode": capability["loop_mode"],
+            "dispatch_owner": capability["dispatch_owner"],
+            "dispatch_status": "dispatched" if refs or session_ref.strip() or thread_ref.strip() else "prepared",
+            "session_ref": _safe_summary(session_ref, limit=220) if session_ref.strip() else "",
+            "thread_ref": _safe_summary(thread_ref, limit=220) if thread_ref.strip() else "",
+            "dispatch_evidence_refs": refs,
+            "summary": _safe_summary(summary, limit=320) if summary.strip() else "Executor dispatch metadata recorded for this loop queue item.",
+            "capability": capability,
+        }
+        runtime["last_queue_id"] = str(item["queue_id"])
+        runtime["last_queue_status"] = str(item["status"])
+        cycle["runtime"] = runtime
+        cycle["next_action"] = "observe_runtime_queue"
+        cycle["updated_at"] = utc_now()
+        return cycle
+
+    return _guarded_cycle_update(
+        paths,
+        loop_id,
+        mutate,
+        operation="dispatch_loop_queue_item",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest(
+            "dispatch_loop_queue_item", queue_id, executor, session_ref, thread_ref, refs, summary
+        ),
+    )
 
 
 def observe_codex_loop_queue_item(
@@ -843,47 +933,61 @@ def observe_codex_loop_queue_item(
     evidence_refs: Iterable[str] | None = None,
     codex_log_ref: str = "",
     summary: str = "",
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
 ) -> dict[str, Any]:
     refs = _safe_list(evidence_refs or [], limit=320)
     log_ref = _safe_summary(codex_log_ref, limit=320) if codex_log_ref.strip() else ""
     all_refs = _safe_list([*refs, *([log_ref] if log_ref else [])], limit=320)
     if not all_refs:
         raise ValueError("Codex loop queue observation requires at least one evidence ref")
-    cycle = read_loop_cycle(paths, loop_id)
-    runtime, item = _queue_item_ref(cycle, queue_id)
-    if item.get("status") != "prepared_not_observed":
-        raise ValueError("only prepared_not_observed loop queue items can observe Codex progress")
     progress = summarize_codex_jsonl_text(
         codex_log_text,
         evidence_refs=all_refs,
         source=log_ref or "codex-loop-observation",
     )
-    existing = _dict_value(item, "executor_session")
-    executor_session = {
-        **_empty_executor_session("codex"),
-        **existing,
-        "executor": "codex",
-        "loop_mode": "omh_managed",
-        "dispatch_owner": "omh_wrapper",
-        "dispatch_status": "progress_observed",
-        "progress_summary": progress,
-        "summary": _safe_summary(summary, limit=320) if summary.strip() else str(progress.get("chat_summary", "")),
-        "progress_evidence_refs": all_refs,
-        "capability": loop_executor_capability("codex"),
-    }
-    item["executor_session"] = executor_session
-    item["status"] = "observed"
-    item["observed"] = True
-    item["observed_at"] = utc_now()
-    item["observed_evidence_refs"] = _safe_list([*_string_list(item.get("observed_evidence_refs", [])), *all_refs], limit=320)
-    item["observation_summary"] = executor_session["summary"] or "Codex progress observed for this loop queue item."
-    runtime["last_queue_id"] = str(item["queue_id"])
-    runtime["last_queue_status"] = "observed"
-    cycle["runtime"] = runtime
-    cycle["phase"] = "feedback"
-    cycle["wait_reason"] = "none"
-    cycle["next_action"] = "record_feedback"
-    return _write_loop(paths, cycle)
+
+    def mutate(cycle: dict[str, Any]) -> dict[str, Any]:
+        runtime, item = _queue_item_ref(cycle, queue_id)
+        if item.get("status") != "prepared_not_observed":
+            raise ValueError("only prepared_not_observed loop queue items can observe Codex progress")
+        existing = _dict_value(item, "executor_session")
+        executor_session = {
+            **_empty_executor_session("codex"),
+            **existing,
+            "executor": "codex",
+            "loop_mode": "omh_managed",
+            "dispatch_owner": "omh_wrapper",
+            "dispatch_status": "progress_observed",
+            "progress_summary": progress,
+            "summary": _safe_summary(summary, limit=320) if summary.strip() else str(progress.get("chat_summary", "")),
+            "progress_evidence_refs": all_refs,
+            "capability": loop_executor_capability("codex"),
+        }
+        item["executor_session"] = executor_session
+        item["status"] = "observed"
+        item["observed"] = True
+        item["observed_at"] = utc_now()
+        item["observed_evidence_refs"] = _safe_list([*_string_list(item.get("observed_evidence_refs", [])), *all_refs], limit=320)
+        item["observation_summary"] = executor_session["summary"] or "Codex progress observed for this loop queue item."
+        runtime["last_queue_id"] = str(item["queue_id"])
+        runtime["last_queue_status"] = "observed"
+        cycle["runtime"] = runtime
+        cycle["phase"] = "feedback"
+        cycle["wait_reason"] = "none"
+        cycle["next_action"] = "record_feedback"
+        cycle["updated_at"] = utc_now()
+        return cycle
+
+    return _guarded_cycle_update(
+        paths,
+        loop_id,
+        mutate,
+        operation="observe_codex_loop_queue_item",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest("observe_codex_loop_queue_item", queue_id, all_refs, summary),
+    )
 
 
 def build_loop_cycle_narration(paths: OmhPaths, loop_id: str, queue_id: str = "") -> dict[str, Any]:
@@ -929,6 +1033,8 @@ def observe_loop_queue_item(
     subagent_evidence_refs: Iterable[str] | None = None,
     connector_evidence_refs: Iterable[str] | None = None,
     summary: str = "",
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
 ) -> dict[str, Any]:
     refs = _safe_list(evidence_refs, limit=320)
     worktree_refs = _safe_list(worktree_evidence_refs or [], limit=320)
@@ -937,28 +1043,40 @@ def observe_loop_queue_item(
     aggregate_refs = _safe_list([*refs, *worktree_refs, *subagent_refs, *connector_refs], limit=320)
     if not aggregate_refs:
         raise ValueError("loop queue observation requires at least one evidence ref")
-    cycle = read_loop_cycle(paths, loop_id)
-    runtime, item = _queue_item_ref(cycle, queue_id)
-    if item.get("status") != "prepared_not_observed":
-        raise ValueError("only prepared_not_observed loop queue items can be observed")
-    item["status"] = "observed"
-    item["observed"] = True
-    item["observed_at"] = utc_now()
-    item["observed_evidence_refs"] = aggregate_refs
-    item["observation_summary"] = _safe_summary(summary, limit=320) if summary.strip() else "Queue item observed by wrapper or operator evidence."
-    _mark_queue_plans_observed(
-        item,
-        worktree_evidence_refs=worktree_refs,
-        subagent_evidence_refs=subagent_refs,
-        connector_evidence_refs=connector_refs,
+
+    def mutate(cycle: dict[str, Any]) -> dict[str, Any]:
+        runtime, item = _queue_item_ref(cycle, queue_id)
+        if item.get("status") != "prepared_not_observed":
+            raise ValueError("only prepared_not_observed loop queue items can be observed")
+        item["status"] = "observed"
+        item["observed"] = True
+        item["observed_at"] = utc_now()
+        item["observed_evidence_refs"] = aggregate_refs
+        item["observation_summary"] = _safe_summary(summary, limit=320) if summary.strip() else "Queue item observed by wrapper or operator evidence."
+        _mark_queue_plans_observed(
+            item,
+            worktree_evidence_refs=worktree_refs,
+            subagent_evidence_refs=subagent_refs,
+            connector_evidence_refs=connector_refs,
+        )
+        runtime["last_queue_id"] = str(item["queue_id"])
+        runtime["last_queue_status"] = "observed"
+        cycle["runtime"] = runtime
+        cycle["phase"] = "feedback"
+        cycle["wait_reason"] = "none"
+        cycle["next_action"] = "record_feedback"
+        cycle["updated_at"] = utc_now()
+        return cycle
+
+    return _guarded_cycle_update(
+        paths,
+        loop_id,
+        mutate,
+        operation="observe_loop_queue_item",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest("observe_loop_queue_item", queue_id, aggregate_refs, summary),
     )
-    runtime["last_queue_id"] = str(item["queue_id"])
-    runtime["last_queue_status"] = "observed"
-    cycle["runtime"] = runtime
-    cycle["phase"] = "feedback"
-    cycle["wait_reason"] = "none"
-    cycle["next_action"] = "record_feedback"
-    return _write_loop(paths, cycle)
 
 
 def block_loop_queue_item(
@@ -967,25 +1085,39 @@ def block_loop_queue_item(
     queue_id: str,
     *,
     reason: str,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
 ) -> dict[str, Any]:
     blocker = _safe_summary(reason, limit=320)
     if not blocker:
         raise ValueError("loop queue blocker reason is required")
-    cycle = read_loop_cycle(paths, loop_id)
-    runtime, item = _queue_item_ref(cycle, queue_id)
-    if item.get("status") == "observed" or item.get("observed") is True:
-        raise ValueError("observed loop queue items cannot be blocked")
-    item["status"] = "blocked"
-    item["observed"] = False
-    item["blocked_at"] = utc_now()
-    item["blocker_reason"] = blocker
-    runtime["last_queue_id"] = str(item["queue_id"])
-    runtime["last_queue_status"] = "blocked"
-    cycle["runtime"] = runtime
-    cycle["phase"] = "blocked"
-    cycle["wait_reason"] = "none"
-    cycle["next_action"] = "resolve_runtime_queue_blocker"
-    return _write_loop(paths, cycle)
+
+    def mutate(cycle: dict[str, Any]) -> dict[str, Any]:
+        runtime, item = _queue_item_ref(cycle, queue_id)
+        if item.get("status") == "observed" or item.get("observed") is True:
+            raise ValueError("observed loop queue items cannot be blocked")
+        item["status"] = "blocked"
+        item["observed"] = False
+        item["blocked_at"] = utc_now()
+        item["blocker_reason"] = blocker
+        runtime["last_queue_id"] = str(item["queue_id"])
+        runtime["last_queue_status"] = "blocked"
+        cycle["runtime"] = runtime
+        cycle["phase"] = "blocked"
+        cycle["wait_reason"] = "none"
+        cycle["next_action"] = "resolve_runtime_queue_blocker"
+        cycle["updated_at"] = utc_now()
+        return cycle
+
+    return _guarded_cycle_update(
+        paths,
+        loop_id,
+        mutate,
+        operation="block_loop_queue_item",
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=_mutation_digest("block_loop_queue_item", queue_id, blocker),
+    )
 
 
 def build_loop_status_card(paths: OmhPaths, loop_id: str) -> dict[str, Any]:
@@ -1105,6 +1237,7 @@ def validate_loop_cycle(cycle: dict[str, Any]) -> dict[str, Any]:
     assessment = cycle.get("loopability_assessment")
     if assessment is not None:
         errors.extend(validate_loopability_assessment(assessment))
+    errors.extend(revision_field_errors(cycle, "loop_cycle"))
     return {"ok": not errors, "errors": errors}
 
 
@@ -1116,13 +1249,56 @@ def loop_cycle_path(paths: OmhPaths, loop_id: str) -> Path:
     return _loop_dir(paths, loop_id) / "cycle.json"
 
 
-def _write_loop(paths: OmhPaths, cycle: dict[str, Any]) -> dict[str, Any]:
-    cycle["updated_at"] = utc_now()
+def _raise_loop_validation_errors(cycle: dict[str, Any]) -> None:
     validation = validate_loop_cycle(cycle)
     if not validation["ok"]:
         raise ValueError("; ".join(validation["errors"]))
-    atomic_write_json(loop_cycle_path(paths, str(cycle["loop_id"])), cycle, private=True)
-    return cycle
+
+
+def _mutation_digest(*parts: object) -> str:
+    """Digest of one operation's own arguments, for replay-conflict detection."""
+    return sha256_text(json.dumps(list(parts), sort_keys=True, separators=(",", ":"), default=str))
+
+
+def _guarded_cycle_update(
+    paths: OmhPaths,
+    loop_id: str,
+    mutate,
+    *,
+    operation: str,
+    expected_revision: int | None = None,
+    mutation_id: str | None = None,
+    mutation_digest: str | None = None,
+    default: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """One locked read-check-write transaction on cycle.json.
+
+    Every cycle mutator goes through here: reading the cycle outside the lock
+    and writing the whole record back blind-overwrote whatever a concurrent
+    writer had already committed, including guarded queue observations.
+    Queue-item and permission preconditions therefore run inside this
+    transaction, and a replayed mutation_id returns the current cycle without
+    a write or revision bump. Replay is keyed on (operation, mutation_id).
+    """
+    path = loop_cycle_path(paths, loop_id)
+
+    def _mutate(current: dict[str, Any]) -> dict[str, Any] | None:
+        if default is None:
+            _raise_loop_validation_errors(current)
+        return mutate(current)
+
+    result = guarded_record_update(
+        path,
+        mutate=_mutate,
+        operation=operation,
+        expected_revision=expected_revision,
+        mutation_id=mutation_id,
+        mutation_digest=mutation_digest,
+        lock_name="cycle.json",
+        validate=_raise_loop_validation_errors,
+        default=default,
+    )
+    return result.record if isinstance(result, DuplicateMutationReplay) else result
 
 
 def _loop_dir(paths: OmhPaths, loop_id: str) -> Path:

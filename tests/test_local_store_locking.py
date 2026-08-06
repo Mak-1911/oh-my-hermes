@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import errno
+import os
 import threading
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 from _local_package import load_local_package
 
@@ -22,6 +25,42 @@ try:
     HAS_FCNTL = True
 except ImportError:
     HAS_FCNTL = False
+
+
+class FakeMsvcrt:
+    """Stand-in for the Windows locking API, exercised on every platform.
+
+    Real ``msvcrt.locking`` locks a byte region per open handle, so a second
+    handle on the same file - even inside the same process - fails with
+    ``EACCES``. The fake keys its registry by (device, inode) so two handles on
+    one file collide exactly that way, which is the property ``file_lock``
+    relies on for mutual exclusion.
+    """
+
+    LK_NBLCK = 2
+    LK_UNLCK = 0
+
+    def __init__(self) -> None:
+        self._guard = threading.Lock()
+        self._held: dict[tuple[int, int], int] = {}
+        self.modes: list[str] = []
+
+    def locking(self, fd: int, mode: int, nbytes: int) -> None:
+        info = os.fstat(fd)
+        key = (info.st_dev, info.st_ino)
+        with self._guard:
+            if mode == self.LK_NBLCK:
+                if key in self._held:
+                    raise OSError(errno.EACCES, "region already locked")
+                self._held[key] = fd
+                self.modes.append("lock")
+                return
+            if mode == self.LK_UNLCK:
+                if self._held.get(key) == fd:
+                    del self._held[key]
+                self.modes.append("unlock")
+                return
+            raise ValueError(f"unsupported msvcrt mode: {mode}")
 
 
 class LocalStoreLockingTests(unittest.TestCase):
@@ -83,13 +122,100 @@ class LocalStoreLockingTests(unittest.TestCase):
                     with file_lock(path, timeout_seconds=0.2, poll_interval=0.01):
                         pass
 
-    @unittest.skipIf(HAS_FCNTL, "degraded no-op path only applies without fcntl")
-    def test_file_lock_degrades_gracefully_without_fcntl(self) -> None:
+    @unittest.skipUnless(HAS_FCNTL, "fcntl advisory locking is POSIX-only")
+    def test_fcntl_lock_reports_itself_as_enforced(self) -> None:
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "state.json"
-            with file_lock(path, timeout_seconds=0.2) as acquired:
-                self.assertFalse(acquired["locked"])
-                self.assertEqual(acquired["reason"], "fcntl_unavailable")
+            with file_lock(path) as acquired:
+                self.assertTrue(acquired["locked"])
+                self.assertTrue(acquired["enforced"])
+                self.assertEqual(acquired["mechanism"], "fcntl")
+
+
+class WindowsFileLockTests(unittest.TestCase):
+    """The Windows lock path, exercised through a fake on every platform.
+
+    windows-latest is an enforcing CI target, so the msvcrt branch cannot be
+    left to run only there.
+    """
+
+    def test_msvcrt_takes_the_lock_when_fcntl_is_unavailable(self) -> None:
+        fake = FakeMsvcrt()
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            with (
+                mock.patch("omh.system.local_store.fcntl", None),
+                mock.patch("omh.system.local_store.msvcrt", fake),
+            ):
+                with file_lock(path) as acquired:
+                    self.assertTrue(acquired["locked"])
+                    self.assertTrue(acquired["enforced"])
+                    self.assertEqual(acquired["mechanism"], "msvcrt")
+                    self.assertEqual(fake.modes, ["lock"])
+
+            self.assertEqual(fake.modes, ["lock", "unlock"])
+            self.assertTrue((Path(tmp) / ".state.json.lock").exists())
+
+    def test_msvcrt_lock_is_exclusive_and_times_out(self) -> None:
+        fake = FakeMsvcrt()
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "contended.json"
+            with (
+                mock.patch("omh.system.local_store.fcntl", None),
+                mock.patch("omh.system.local_store.msvcrt", fake),
+            ):
+                with file_lock(path, timeout_seconds=5.0) as acquired:
+                    self.assertTrue(acquired["enforced"])
+                    with self.assertRaises(FileLockTimeout):
+                        with file_lock(path, timeout_seconds=0.2, poll_interval=0.01):
+                            pass
+
+    def test_msvcrt_lock_serializes_concurrent_updates(self) -> None:
+        fake = FakeMsvcrt()
+        worker_count = 16
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            barrier = threading.Barrier(worker_count)
+
+            def worker(index: int) -> None:
+                barrier.wait()
+                locked_json_update(
+                    path,
+                    lambda current: {**current, f"key-{index}": index},
+                    default={},
+                    timeout_seconds=30.0,
+                )
+
+            with (
+                mock.patch("omh.system.local_store.fcntl", None),
+                mock.patch("omh.system.local_store.msvcrt", fake),
+            ):
+                threads = [threading.Thread(target=worker, args=(index,)) for index in range(worker_count)]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+
+            final = read_json_object(path)
+            assert final is not None
+            for index in range(worker_count):
+                self.assertEqual(final.get(f"key-{index}"), index)
+
+    def test_lock_reports_not_enforced_without_fcntl_or_msvcrt(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            with (
+                mock.patch("omh.system.local_store.fcntl", None),
+                mock.patch("omh.system.local_store.msvcrt", None),
+            ):
+                with file_lock(path, timeout_seconds=0.2) as acquired:
+                    self.assertFalse(acquired["locked"])
+                    self.assertFalse(acquired["enforced"])
+                    self.assertEqual(acquired["mechanism"], "none")
+                    self.assertEqual(acquired["reason"], "no_os_file_lock")
+
+            # A lock that was never taken leaves no sidecar behind either.
+            self.assertFalse((Path(tmp) / ".state.json.lock").exists())
 
 
 if __name__ == "__main__":

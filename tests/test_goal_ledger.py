@@ -16,6 +16,7 @@ from omh.goal_ledger import (
     build_goal_completion_gate,
     build_goal_continuation,
     build_goal_status_card,
+    cancel_goal_ledger,
     complete_goal_ledger,
     create_goal_ledger,
     goal_ledger_path,
@@ -26,6 +27,7 @@ from omh.goal_ledger import (
     validate_goal_ledger,
 )
 from omh.paths import resolve_paths
+from omh.record_revision import APPLIED_MUTATIONS_LIMIT, applied_mutation_key
 
 
 class GoalLedgerTests(unittest.TestCase):
@@ -321,6 +323,340 @@ class GoalStatusCardCheckpointRenderingTests(unittest.TestCase):
                 status_card["safe_copy"]["checkpoint_format"],
                 "- cpN: summary — status, evidence",
             )
+
+
+class GoalLedgerMutationIdTests(unittest.TestCase):
+    def _goal(self, paths, goal_id: str = "goal-mutation-id") -> dict:
+        return create_goal_ledger(
+            paths,
+            "Finish the durable goal",
+            [{"id": "AC-guard", "summary": "Guard is verified"}],
+            goal_id=goal_id,
+        )
+
+    def test_connector_style_mutation_ids_are_accepted_and_replay_once(self) -> None:
+        # Goals used to be the one surface that restricted mutation_id to the
+        # storage-id charset, so a connector deriving ids from upstream
+        # message ids (snowflakes carrying ':' or '/') failed only here.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            self._goal(paths)
+            mutation_id = "slack:C123/p1700000000.000100"
+
+            first = record_goal_checkpoint(
+                paths, "goal-mutation-id", "Snowflake", status="in_progress", mutation_id=mutation_id
+            )
+            second = record_goal_checkpoint(
+                paths, "goal-mutation-id", "Snowflake", status="in_progress", mutation_id=mutation_id
+            )
+
+            stored = read_goal_ledger(paths, "goal-mutation-id")
+            self.assertEqual(len(stored["checkpoints"]), 1)
+            self.assertEqual(first["record_revision"], second["record_revision"])
+            # The item id is derived from the mutation id, never taken from it
+            # verbatim when it is not filesystem-safe.
+            checkpoint_id = stored["checkpoints"][0]["checkpoint_id"]
+            self.assertTrue(checkpoint_id.startswith("checkpoint-"))
+            self.assertNotIn("/", checkpoint_id)
+            self.assertNotIn(":", checkpoint_id)
+
+    def test_item_id_derivation_from_a_mutation_id_is_deterministic(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            self._goal(paths, "goal-a")
+            self._goal(paths, "goal-b")
+
+            first = record_goal_blocker(paths, "goal-a", "Needs approval", mutation_id="slack:C1/p1.2")
+            second = record_goal_blocker(paths, "goal-b", "Needs approval", mutation_id="slack:C1/p1.2")
+
+            self.assertEqual(first["blockers"][0]["blocker_id"], second["blockers"][0]["blocker_id"])
+
+    def test_filesystem_safe_mutation_ids_stay_verbatim_in_the_item_id(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            self._goal(paths)
+
+            goal = record_goal_checkpoint(
+                paths, "goal-mutation-id", "Readable", status="in_progress", mutation_id="cp-retry-1"
+            )
+
+            self.assertEqual(goal["checkpoints"][0]["checkpoint_id"], "cp-retry-1")
+
+    def test_mutation_outcome_reports_replay_and_what_the_record_actually_says(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            self._goal(paths)
+            first_outcome: dict = {}
+            replay_outcome: dict = {}
+
+            cancel_goal_ledger(paths, "goal-mutation-id", mutation_id="cancel-1", outcome=first_outcome)
+            cancel_goal_ledger(paths, "goal-mutation-id", mutation_id="cancel-1", outcome=replay_outcome)
+
+            self.assertEqual(first_outcome, {"replayed": False, "applied": True, "goal_status": "cancelled"})
+            self.assertEqual(replay_outcome, {"replayed": True, "applied": True, "goal_status": "cancelled"})
+
+    def test_goal_ledger_validator_rejects_bad_revision_fields(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            goal = self._goal(paths)
+
+            revision_errors = validate_goal_ledger({**goal, "record_revision": -1})["errors"]
+            applied_errors = validate_goal_ledger({**goal, "applied_mutations": []})["errors"]
+
+            self.assertIn("goal_ledger record_revision must be a non-negative integer", revision_errors)
+            self.assertIn("goal_ledger applied_mutations must be an object", applied_errors)
+
+
+class GoalLedgerEvictedRetryTests(unittest.TestCase):
+    """The retry proof left after the bounded applied_mutations map forgot an id.
+
+    The eviction floor only refuses a retry that also carried an
+    expected_revision, and every CLI accepts --mutation-id on its own. Before
+    issue #828 such a retry applied a second time and appended a duplicate item
+    under the same derived id. The item id is materialized from the mutation
+    id, so the record itself is the proof the map can no longer give.
+    """
+
+    def _goal(self, paths, goal_id: str = "goal-evicted") -> dict:
+        return create_goal_ledger(
+            paths,
+            "Survive applied_mutations eviction",
+            [{"id": "AC-evict", "summary": "Retries survive eviction"}],
+            goal_id=goal_id,
+        )
+
+    def _evict(self, paths, goal_id: str = "goal-evicted") -> dict:
+        """Push the goal past the bound so the seeded id is no longer retained."""
+        for index in range(APPLIED_MUTATIONS_LIMIT + 10):
+            record_goal_checkpoint(
+                paths,
+                goal_id,
+                f"filler {index}",
+                status="in_progress",
+                mutation_id=f"filler-{index:04d}",
+            )
+        stored = read_goal_ledger(paths, goal_id)
+        self.assertGreaterEqual(int(stored["applied_mutations_floor_revision"]), 1)
+        return stored
+
+    def test_a_retry_carrying_only_a_mutation_id_leaves_one_blocker_after_eviction(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            self._goal(paths)
+            record_goal_blocker(paths, "goal-evicted", "the original blocker", mutation_id="turn-EVICT-ME")
+            stored = self._evict(paths)
+            self.assertNotIn(
+                applied_mutation_key("record_goal_blocker", "turn-EVICT-ME"), stored["applied_mutations"]
+            )
+            outcome: dict = {}
+
+            goal = record_goal_blocker(
+                paths, "goal-evicted", "the original blocker", mutation_id="turn-EVICT-ME", outcome=outcome
+            )
+
+            self.assertEqual(outcome, {"replayed": True, "applied": True, "goal_status": "active"})
+            blockers = read_goal_ledger(paths, "goal-evicted")["blockers"]
+            self.assertEqual([item["blocker_id"] for item in blockers], ["turn-EVICT-ME"])
+            self.assertEqual(blockers[0]["summary"], "the original blocker")
+            # A replay is not a write: the revision did not move.
+            self.assertEqual(goal["record_revision"], int(stored["record_revision"]))
+
+    def test_a_retried_checkpoint_after_eviction_neither_duplicates_nor_bumps(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            self._goal(paths)
+            record_goal_checkpoint(
+                paths, "goal-evicted", "the original checkpoint", status="in_progress", mutation_id="cp-EVICT-ME"
+            )
+            stored = self._evict(paths)
+            before = len(stored["checkpoints"])
+            outcome: dict = {}
+
+            record_goal_checkpoint(
+                paths,
+                "goal-evicted",
+                "the original checkpoint",
+                status="in_progress",
+                mutation_id="cp-EVICT-ME",
+                outcome=outcome,
+            )
+
+            after = read_goal_ledger(paths, "goal-evicted")
+            self.assertEqual(len(after["checkpoints"]), before)
+            self.assertEqual(int(after["record_revision"]), int(stored["record_revision"]))
+            self.assertTrue(outcome["replayed"])
+            self.assertTrue(outcome["applied"])
+
+    def test_a_retried_quality_gate_after_eviction_leaves_one_gate(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            self._goal(paths)
+            record_goal_quality_gate(paths, "goal-evicted", "suite green", mutation_id="qg-EVICT-ME")
+            self._evict(paths)
+            outcome: dict = {}
+
+            record_goal_quality_gate(
+                paths, "goal-evicted", "suite green", mutation_id="qg-EVICT-ME", outcome=outcome
+            )
+
+            gates = read_goal_ledger(paths, "goal-evicted")["quality_gates"]
+            self.assertEqual([item["quality_gate_id"] for item in gates], ["qg-EVICT-ME"])
+            self.assertTrue(outcome["replayed"])
+            self.assertTrue(outcome["applied"])
+
+    def test_a_new_mutation_id_still_applies_after_eviction_has_happened(self) -> None:
+        # The dedupe must not be a disguised widening of the floor rule: once
+        # any eviction has happened, an id the record has never seen still has
+        # to apply normally.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            self._goal(paths)
+            stored = self._evict(paths)
+            outcome: dict = {}
+
+            goal = record_goal_blocker(
+                paths, "goal-evicted", "brand new blocker", mutation_id="turn-BRAND-NEW", outcome=outcome
+            )
+
+            self.assertEqual(outcome, {"replayed": False, "applied": True, "goal_status": "active"})
+            self.assertEqual(int(goal["record_revision"]), int(stored["record_revision"]) + 1)
+            self.assertEqual(
+                [item["blocker_id"] for item in read_goal_ledger(paths, "goal-evicted")["blockers"]],
+                ["turn-BRAND-NEW"],
+            )
+
+    def test_a_retried_completion_after_eviction_reports_a_replay(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            self._goal(paths)
+            record_goal_checkpoint(
+                paths,
+                "goal-evicted",
+                "Criterion satisfied",
+                criteria_refs=["AC-evict"],
+                evidence_refs=["observed:suite-green"],
+            )
+            first = complete_goal_ledger(
+                paths, "goal-evicted", evidence_refs=["observed:suite-green"], mutation_id="done-EVICT-ME"
+            )
+            self.assertTrue(first["completed"])
+            # A complete goal refuses further checkpoints, so eviction is
+            # forced by clearing the map directly rather than by more writes.
+            path = goal_ledger_path(paths, "goal-evicted")
+            stored = json.loads(path.read_text(encoding="utf-8"))
+            stored["applied_mutations"] = {}
+            stored["applied_mutations_floor_revision"] = int(stored["record_revision"])
+            path.write_text(json.dumps(stored, sort_keys=True), encoding="utf-8")
+
+            second = complete_goal_ledger(
+                paths, "goal-evicted", evidence_refs=["observed:suite-green"], mutation_id="done-EVICT-ME"
+            )
+
+            self.assertTrue(second["completed"])
+            self.assertTrue(second["replayed"])
+            gates = read_goal_ledger(paths, "goal-evicted")["quality_gates"]
+            self.assertEqual([item["quality_gate_id"] for item in gates], ["done-EVICT-ME"])
+
+
+class GoalLedgerDuplicateItemIdValidationTests(unittest.TestCase):
+    def _goal(self, paths) -> dict:
+        return create_goal_ledger(
+            paths,
+            "Reject duplicate item ids",
+            [{"id": "AC-dup", "summary": "Duplicates are rejected"}],
+            goal_id="goal-duplicate",
+        )
+
+    def test_duplicate_item_ids_in_one_list_are_a_validation_error(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            goal = self._goal(paths)
+            for id_key, label, list_key, item in (
+                (
+                    "checkpoint_id",
+                    "checkpoint",
+                    "checkpoints",
+                    {"status": "done", "summary": "s", "criteria_refs": [], "evidence_refs": []},
+                ),
+                ("blocker_id", "blocker", "blockers", {"status": "active", "summary": "s", "evidence_refs": []}),
+                (
+                    "quality_gate_id",
+                    "quality gate",
+                    "quality_gates",
+                    {"status": "passed", "summary": "s", "evidence_refs": []},
+                ),
+            ):
+                with self.subTest(list_key=list_key):
+                    duplicated = {
+                        **goal,
+                        list_key: [{**item, id_key: "shared-id"}, {**item, id_key: "shared-id"}],
+                    }
+
+                    validation = validate_goal_ledger(duplicated)
+
+                    self.assertFalse(validation["ok"])
+                    self.assertIn(f"duplicate {label} {id_key}: shared-id", validation["errors"])
+
+    def test_distinct_item_ids_in_one_list_stay_valid(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            self._goal(paths)
+            record_goal_blocker(paths, "goal-duplicate", "First", mutation_id="b-1")
+            record_goal_blocker(paths, "goal-duplicate", "Second", mutation_id="b-2")
+
+            stored = read_goal_ledger(paths, "goal-duplicate")
+
+            self.assertEqual([item["blocker_id"] for item in stored["blockers"]], ["b-1", "b-2"])
+            self.assertEqual(validate_goal_ledger(stored), {"ok": True, "errors": []})
+
+    def test_a_duplicate_planted_by_hand_is_refused_by_the_guarded_write(self) -> None:
+        # The validator runs inside guarded_record_update, so a record that
+        # already lost the invariant cannot be extended by a further mutation.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            self._goal(paths)
+            record_goal_blocker(paths, "goal-duplicate", "First", mutation_id="b-1")
+            path = goal_ledger_path(paths, "goal-duplicate")
+            stored = json.loads(path.read_text(encoding="utf-8"))
+            stored["blockers"] = stored["blockers"] + [dict(stored["blockers"][0])]
+            path.write_text(json.dumps(stored, sort_keys=True), encoding="utf-8")
+
+            with self.assertRaises(ValueError) as caught:
+                record_goal_blocker(paths, "goal-duplicate", "Second", mutation_id="b-2")
+
+            self.assertIn("duplicate blocker blocker_id: b-1", str(caught.exception))
+
+    def test_one_mutation_id_shared_across_both_quality_gate_writers_is_refused(self) -> None:
+        # record_goal_quality_gate and complete_goal_ledger are different
+        # operations writing into the SAME list, so one id reused across them
+        # is a genuine collision. It is refused visibly - completed stays
+        # false and replayed is true - rather than persisting a duplicate id.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            self._goal(paths)
+            record_goal_checkpoint(
+                paths,
+                "goal-duplicate",
+                "Criterion satisfied",
+                criteria_refs=["AC-dup"],
+                evidence_refs=["observed:suite-green"],
+            )
+            record_goal_quality_gate(paths, "goal-duplicate", "suite green", mutation_id="turn-1")
+
+            collided = complete_goal_ledger(
+                paths, "goal-duplicate", evidence_refs=["observed:suite-green"], mutation_id="turn-1"
+            )
+            distinct = complete_goal_ledger(
+                paths, "goal-duplicate", evidence_refs=["observed:suite-green"], mutation_id="turn-2"
+            )
+
+            self.assertFalse(collided["completed"])
+            self.assertTrue(collided["replayed"])
+            self.assertTrue(distinct["completed"])
+            self.assertFalse(distinct["replayed"])
+            stored = read_goal_ledger(paths, "goal-duplicate")
+            self.assertEqual([item["quality_gate_id"] for item in stored["quality_gates"]], ["turn-1", "turn-2"])
+            self.assertEqual(validate_goal_ledger(stored), {"ok": True, "errors": []})
 
 
 if __name__ == "__main__":
