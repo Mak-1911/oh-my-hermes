@@ -10,6 +10,14 @@ from typing import Any
 from ..local_store import atomic_write_json, ensure_dir, ensure_file, read_json_object, read_jsonl_objects, utc_now
 from ..paths import OmhPaths
 from .context_safety import sanitize_user_facing_progress_text
+from .owner_progress_normalization import (
+    NORMALIZED_PROGRESS_EVENT_TYPES,
+    UNMAPPED_NORMALIZED_EVENT,
+    is_known_owner,
+    normalize_owner_progress_event,
+    normalize_shared_progress_event,
+    progress_evidence_tier,
+)
 
 
 EXECUTOR_PROGRESS_BINDING_SCHEMA_VERSION = "omh_executor_progress_binding/v1"
@@ -23,20 +31,12 @@ EXECUTOR_PROGRESS_REPORT_SCHEMA_VERSION = "omh_progress_report/v1"
 ALLOWED_EXECUTOR_PROFILES = ("codex", "claude_code", "hermes_local", "omo_runtime")
 TARGET_TYPES = ("run", "wrapper_session")
 BINDING_STATES = ("active", "stale", "expired", "closed")
-PROGRESS_EVENT_TYPES = (
-    "executor_dispatched",
-    "repo_exploration",
-    "running_no_diff_observed",
-    "diff_started",
-    "tests_started",
-    "tests_failed",
-    "tests_passed",
-    "executor_completed",
-    "executor_blocked",
-    "executor_failed",
-    "reported_change_not_observed",
-    "progress_observed",
-)
+# One definition, two names. The vocabulary now lives with the normalizer that
+# translates owner words into it (`owner_progress_normalization`), because a
+# second copy is exactly the drift the plugin-bundle mirror already had to be
+# gated against. `PROGRESS_EVENT_TYPES` stays the public name every caller,
+# validator, and CLI `--event` choice list already imports from here.
+PROGRESS_EVENT_TYPES = NORMALIZED_PROGRESS_EVENT_TYPES
 # Exempt from the volume rules -- an exact duplicate transition is still
 # deduplicated. `reported_change_not_observed` belongs here because it only
 # fires on a finished run whose claim the working tree contradicts, which is the
@@ -59,6 +59,13 @@ CLOSING_EVENT_TYPES = {
     "executor_failed",
     "reported_change_not_observed",
 }
+# Where a progress summary came from. Only a summary this repo derived itself,
+# by parsing an executor stream it also hashed, can corroborate that executor's
+# own end-state narration; a summary assembled from the caller's arguments is
+# the same act of narration in a second field and corroborates nothing.
+PARSED_STREAM_SUMMARY = "parsed_stream"
+CALLER_REPORTED_SUMMARY = "caller_reported"
+PROGRESS_SUMMARY_SOURCES = (PARSED_STREAM_SUMMARY, CALLER_REPORTED_SUMMARY)
 DEFAULT_FRESHNESS_SECONDS = 900
 DEFAULT_EXPIRY_SECONDS = 86400
 DEFAULT_MINIMUM_REPEAT_INTERVAL_SECONDS = 120
@@ -127,7 +134,18 @@ def normalize_executor_profile(value: str, *, observed_hermes_execution: bool = 
         raise ExecutorProgressError("hermes_local requires explicit observed local execution evidence")
     profile = aliases.get(normalized, "")
     if profile not in ALLOWED_EXECUTOR_PROFILES:
-        raise ExecutorProgressError(f"unsupported executor profile for progress: {value}")
+        # The rejection says WHICH kind of unsupported this is. A known fanout
+        # owner without a progress lane (omx-runtime, omc-runtime, generic) and
+        # a name this repo has never heard of both stop here, but only the
+        # first is answerable today, and only `owner_progress_normalization`
+        # can answer it -- with a visible record instead of this exception.
+        detail = (
+            " (a known fanout owner with no progress lane; owner_progress_normalization returns a visible"
+            " unmapped record for it)"
+            if is_known_owner(value)
+            else ""
+        )
+        raise ExecutorProgressError(f"unsupported executor profile for progress: {value}{detail}")
     return profile
 
 
@@ -384,13 +402,18 @@ def build_safe_progress_signal(
     elapsed_seconds: int | None = None,
 ) -> dict[str, Any]:
     profile = normalize_executor_profile(executor_profile, observed_hermes_execution=observed_hermes_execution)
-    progress = _safe_progress_summary(
-        codex_progress_summary if profile == "codex" else profile_progress_summary,
-        codex_profile=profile == "codex",
-    )
-    explicit = explicit_event_type.strip()
-    if explicit and explicit not in PROGRESS_EVENT_TYPES:
-        raise ExecutorProgressError(f"unsupported explicit event type: {explicit}")
+    codex_profile = profile == "codex"
+    summary_input = codex_progress_summary if codex_profile else profile_progress_summary
+    progress = _safe_progress_summary(summary_input, codex_profile=codex_profile)
+    # A caller-declared event is an owner word like any other, so it goes
+    # through the same normalizer rather than a hand-rolled membership test.
+    # The old test RAISED, which dropped the whole observation: the caller was
+    # told nothing, and no record survived to say a word had been refused.
+    # Normalizing keeps the observation and keeps the word -- an unrecognized
+    # one becomes `unmapped_source_event` with the raw retained beside it.
+    explicit_source = explicit_event_type.strip()
+    explicit_normalization = normalize_owner_progress_event(profile, explicit_source)
+    explicit = str(explicit_normalization["normalized_event"]) if explicit_source else ""
     signal = {
         "executor_profile": profile,
         "process_status": _compact_text(process_status, 80),
@@ -400,6 +423,13 @@ def build_safe_progress_signal(
         # git and seen nothing, or may never have looked. Only the first case
         # can contradict a reported change, so record which one it was.
         "git_observed": git_status_short is not None or git_diff_stat is not None,
+        # WHERE the summary block below came from, recorded because the ladder's
+        # answer depends on it. A codex summary is derived by `codex_progress`
+        # from a stream this repo parsed and hashed; every other profile's
+        # summary is built verbatim from the caller's own `--profile-*`
+        # arguments. Without this key the two are indistinguishable once
+        # written, and the caller's word reads as an observation.
+        "progress_summary_source": _progress_summary_source(summary_input, codex_profile=codex_profile),
         "progress_status": progress.get("status", ""),
         "progress_event_count": progress.get("event_count", 0),
         "latest_progress_event_type": progress.get("latest_progress_event_type", ""),
@@ -410,6 +440,25 @@ def build_safe_progress_signal(
         "codex_artifact_byte_count": progress.get("artifact_byte_count", 0) if profile == "codex" else 0,
         "codex_malformed_event_count": progress.get("malformed_event_count", 0) if profile == "codex" else 0,
         "explicit_event_type": explicit,
+        # The word the caller actually said, kept only when the vocabulary
+        # could not map it. Without this the signal would record
+        # `unmapped_source_event` and nothing else, which names the failure but
+        # not the input that caused it. `_safe_signal` drops it when empty, so
+        # a mapped event carries no extra key.
+        "unmapped_source_event": str(explicit_normalization["source_event"])
+        if explicit == UNMAPPED_NORMALIZED_EVENT
+        else "",
+        # The raw explicit word when the normalizer TRANSLATED it -- an owner
+        # word (`workflow_completed`, `result`, `turn.completed`) that the
+        # caller passed as its own declared event. `--event` is bounded to this
+        # repo's vocabulary, so only a library caller can arrive here, and the
+        # translated word is owner narration wearing the caller's hat: the lane
+        # has to be able to tell it apart from a caller that stated the OMH
+        # word itself. Empty (and dropped) when the caller's word already WAS
+        # the normalized event.
+        "explicit_source_event": explicit_source
+        if explicit and explicit != UNMAPPED_NORMALIZED_EVENT and explicit != explicit_source
+        else "",
         "explicit_summary": _compact_text(_sanitize_progress_copy(explicit_summary), 280),
         "evidence_ref_count": len(evidence_refs or []),
         # The routed model is what a live row needs to answer "which model is
@@ -431,6 +480,26 @@ _CHANGE_CLAIM_ACTIVITY = {"Codex applied a file change."}
 # An explicit `--event diff_started` is the caller stating the claim outright.
 _CHANGE_CLAIM_EVENT_TYPES = {"diff_started"}
 _SUCCESS_PROCESS_STATUSES = {"completed", "complete", "done", "success", "succeeded", "exited_zero"}
+_FAILURE_PROCESS_STATUSES = {"failed", "failure", "error", "errored", "exited_nonzero"}
+_BLOCKED_PROCESS_STATUSES = {"blocked", "blocker"}
+
+# Everything that can corroborate an owner's own end-state narration, and
+# nothing that IS that narration. `process_status` is the state of the process
+# the wrapper spawned; `progress_status` is the verdict a progress summary
+# reached about the stream and the activity lines are past-tense observations,
+# but both of those only corroborate when THIS repo derived them from a parsed
+# stream (`PARSED_STREAM_SUMMARY`) rather than being handed them by the caller.
+# `latest_progress_event_type` is deliberately absent: it is the word being
+# corroborated.
+_END_STATE_PROGRESS_STATUSES = {"completed_or_passed_observed", "failed_or_error_observed", "blocked"}
+_END_STATE_PROCESS_STATUSES = {
+    *_SUCCESS_PROCESS_STATUSES,
+    *_FAILURE_PROCESS_STATUSES,
+    *_BLOCKED_PROCESS_STATUSES,
+}
+# Past tense only. "Codex is running tests." says a run started, which cannot
+# corroborate that one finished.
+_END_STATE_ACTIVITY = {"Codex ran tests."}
 
 
 def _change_reported_but_not_observed(
@@ -453,7 +522,9 @@ def _change_reported_but_not_observed(
     it from any log line containing `patch`, `write`, `edit`, or `diff`, so a
     mid-flight "let me run git diff to see the state" reads as a change claim
     against a tree that is legitimately still clean. Only a run that has stopped
-    can actually contradict itself.
+    can actually contradict itself, and `progress_status` arrives here already
+    blanked when it was the caller's own claim that the run had stopped: this
+    label closes a binding, so its "finished" leg has to be observed too.
 
     An empty tree -- both hashes absent.
     """
@@ -467,21 +538,204 @@ def _change_reported_but_not_observed(
     return not signal.get("git_status_hash") and not signal.get("git_diff_stat_hash")
 
 
+def _normalize_signal_source_event(signal: dict[str, Any], source_event: str) -> dict[str, object]:
+    """The normalization record for one owner word carried by this signal.
+
+    The owner comes from the signal itself, so the same word is allowed to mean
+    different things for different owners. A signal that names no owner falls
+    back to the dialect every lane-carrying owner SHARES: that is not a guess,
+    because a shared word means the same thing whichever of them said it, and
+    the shared resolver caps it at the strictest ceiling any of them carries.
+    Refusing to answer instead would silently weaken re-inference over a stored
+    signal whose profile did not survive the round trip.
+    """
+    owner = str(signal.get("executor_profile", "")).strip()
+    if not owner:
+        return normalize_shared_progress_event(source_event)
+    return normalize_owner_progress_event(owner, source_event)
+
+
+def _normalized_source_event(signal: dict[str, Any], source_event: str) -> str:
+    """Just the normalized event name for one owner word carried by this signal."""
+    return str(_normalize_signal_source_event(signal, source_event)["normalized_event"])
+
+
+def _progress_summary_source(summary: dict[str, Any] | None, *, codex_profile: bool) -> str:
+    """Which kind of progress summary this signal carries, or "" when it carries none.
+
+    The codex path is the one that earns `parsed_stream`: its summary is built
+    by `codex_progress` from a JSONL stream this repo read, counted, and hashed
+    (`codex_artifact_sha256`), and `_safe_progress_summary` refuses anything not
+    stamped `codex_progress_summary/v1`. Every other profile's summary is
+    assembled in `commands.runtime._profile_progress_summary` out of the
+    caller's own `--profile-*` arguments, so it is `caller_reported` no matter
+    how confident its wording is.
+    """
+    if not isinstance(summary, dict):
+        return ""
+    return PARSED_STREAM_SUMMARY if codex_profile else CALLER_REPORTED_SUMMARY
+
+
+def _summary_parsed_by_omh(signal: dict[str, Any]) -> bool:
+    """True only when this repo derived the summary itself.
+
+    Fail-closed on absence: a signal without the marker -- hand-built, or
+    written before the marker existed -- is treated as caller-reported, because
+    the alternative is to grant corroborating standing to a field whose
+    provenance nobody recorded.
+    """
+    return str(signal.get("progress_summary_source", "")) == PARSED_STREAM_SUMMARY
+
+
+def _signal_activity(signal: dict[str, Any]) -> set[str]:
+    activity = signal.get("observable_activity")
+    return set(activity) if isinstance(activity, list) else set()
+
+
+def _end_state_corroborated(
+    *,
+    progress_status: str,
+    process_status: str,
+    activity: set[str],
+    summary_parsed_by_omh: bool,
+) -> bool:
+    """True when something the LANE observed says the run reached an end state.
+
+    The rule this enforces is narrower than "not the narrated event type", which
+    was the previous reading and left the leak this closes: for every profile
+    whose summary is built from the caller's arguments, the same
+    `omh runtime progress observe` invocation supplied both the narration word
+    and the `progress_status` that corroborated it, so the caller corroborated
+    itself and closed its own binding.
+
+    What survives as corroboration is what OMH observes rather than is told:
+    the state of the process (`process_status`), and -- only when this repo
+    parsed the stream itself -- the summary's own verdict and its past-tense
+    activity lines. Git facts corroborate elsewhere (`_change_reported_but_not
+    _observed`), where a clean tree CONTRADICTS a claim rather than granting it.
+    """
+    if summary_parsed_by_omh and (
+        progress_status in _END_STATE_PROGRESS_STATUSES or bool(activity.intersection(_END_STATE_ACTIVITY))
+    ):
+        return True
+    return process_status in _END_STATE_PROCESS_STATUSES
+
+
+def _claims_an_end_state(signal: dict[str, Any], *, normalized_latest: str) -> bool:
+    """Everything in one observation that asserts the run ended, in the caller's own words.
+
+    Three fields, one act. The narrated event type is the obvious one; the
+    summary's `status` is the same claim one field down; and an explicit event
+    the normalizer TRANSLATED out of an owner word is that word again, declared
+    through `--event`. A caller that states this repo's own vocabulary
+    (`--event executor_completed`) is deliberately absent -- see
+    `infer_progress_event_type`.
+    """
+    return (
+        normalized_latest in TERMINAL_EVENT_TYPES
+        or str(signal.get("progress_status", "")) in _END_STATE_PROGRESS_STATUSES
+        or (
+            bool(str(signal.get("explicit_source_event", "")))
+            and str(signal.get("explicit_event_type", "")) in TERMINAL_EVENT_TYPES
+        )
+    )
+
+
+def _self_reported_end_state(signal: dict[str, Any]) -> bool:
+    """True when the only support for an end state is what the caller said.
+
+    Shared by the ladder, which withholds the end state, and by
+    `progress_event_normalization`, which has to say why, so the verdict and its
+    stated reason cannot drift apart.
+    """
+    normalized_latest = _normalized_source_event(signal, str(signal.get("latest_progress_event_type", "")))
+    if not _claims_an_end_state(signal, normalized_latest=normalized_latest):
+        return False
+    return not _end_state_corroborated(
+        progress_status=str(signal.get("progress_status", "")),
+        process_status=str(signal.get("process_status", "")).casefold(),
+        activity=_signal_activity(signal),
+        summary_parsed_by_omh=_summary_parsed_by_omh(signal),
+    )
+
+
 def infer_progress_event_type(signal: dict[str, Any]) -> str:
-    explicit = str(signal.get("explicit_event_type", ""))
-    if explicit:
-        return explicit
+    """Classify a safe progress signal into one normalized event type.
+
+    A thin adapter over `owner_progress_normalization` for everything that is
+    an owner WORD, plus the ordering that only this module can own: liveness
+    and claim/observation conflicts are read from process status, observable
+    activity, and git hashes, which are not vocabulary at all. The order is
+    load-bearing -- blocked and failed outrank the claim mismatch, which
+    outranks the benign completion reading.
+
+    One rule sits above the ladder: an END STATE is the lane's verdict, never
+    the owner's, and the owner does not get to be its own witness. Everything in
+    one observation that ASSERTS an end state -- the narrated event type, the
+    summary's own `status`, and an explicit event the normalizer translated out
+    of an owner word -- is admitted only when `_end_state_corroborated` finds
+    something the lane OBSERVED agreeing; otherwise all of it is held back and
+    the observation lands on `unmapped_source_event`, which is visible, keeps
+    the raw word readable in `latest_progress_event_type`, and -- unlike
+    `executor_completed` -- neither ends nor closes anything. Without that rule
+    a wrapper that merely narrated `workflow_completed` (or a codex
+    `turn.completed`, or a claude-code `result` envelope) closed its own
+    binding while the executor was still running; and with the rule applied to
+    the event type alone, the same single `omh runtime progress observe` call
+    still closed it by passing `--profile-status completed_or_passed_observed`
+    beside the word, because that status was read as an independent witness
+    when it is the caller's own sentence in a second field. Rounding any of it
+    to `progress_observed` instead would hide the word, which is the collapse
+    this whole lane exists to stop.
+
+    One caller statement is deliberately still authoritative: an explicit
+    `--event` naming this repo's own vocabulary. That is the caller declaring
+    the observation in OMH's terms and standing behind it -- the same standing
+    `_CHANGE_CLAIM_EVENT_TYPES` gives an explicit `diff_started`, and the
+    standing the wrapper's observed-result path (`record_codex_result`, behind
+    `omh coding lifecycle result`) depends on. `--event` choices are
+    bounded to `PROGRESS_EVENT_TYPES`, so an executor's own end-state word
+    cannot be relayed through it verbatim; when a library caller passes one
+    anyway, `explicit_source_event` records the translation and the rule above
+    applies to it.
+    """
     progress_status = str(signal.get("progress_status", ""))
     latest = str(signal.get("latest_progress_event_type", ""))
-    activity = set(signal.get("observable_activity", []) if isinstance(signal.get("observable_activity"), list) else [])
+    normalized_latest = _normalized_source_event(signal, latest)
+    activity = _signal_activity(signal)
     process_status = str(signal.get("process_status", "")).casefold()
     test_activity = bool(activity.intersection({"Codex ran tests.", "Codex is running tests."}))
     inspect_activity = bool(activity.intersection({"Codex inspected the repo.", "Codex is inspecting files/tests."}))
-    if latest == "blocker_encountered" or progress_status == "blocked" or process_status in {"blocked", "blocker"}:
+    end_state_observed = _end_state_corroborated(
+        progress_status=progress_status,
+        process_status=process_status,
+        activity=activity,
+        summary_parsed_by_omh=_summary_parsed_by_omh(signal),
+    )
+    self_reported_end_state = not end_state_observed and _claims_an_end_state(
+        signal,
+        normalized_latest=normalized_latest,
+    )
+    explicit = str(signal.get("explicit_event_type", ""))
+    if explicit:
+        if self_reported_end_state and str(signal.get("explicit_source_event", "")):
+            # An owner word declared through `--event`. It is the executor's
+            # sentence either way, so it gets the executor's treatment.
+            return UNMAPPED_NORMALIZED_EVENT
+        # `build_safe_progress_signal` already normalized it, so the common path
+        # is a membership check; a hand-built signal is normalized here.
+        return explicit if explicit in PROGRESS_EVENT_TYPES else _normalized_source_event(signal, explicit)
+    # The owner's word as the ladder is allowed to read it, and the summary's
+    # own verdict beside it. Both are blanked only when they would end something
+    # on the caller's say-so; a non-terminal word is never withheld, because
+    # nothing about it needs corroborating.
+    narrated = "" if self_reported_end_state else normalized_latest
+    verdict = "" if self_reported_end_state and progress_status in _END_STATE_PROGRESS_STATUSES else progress_status
+    if narrated == "executor_blocked" or verdict == "blocked" or process_status in _BLOCKED_PROCESS_STATUSES:
         return "executor_blocked"
-    if progress_status == "failed_or_error_observed" or latest in {"targeted_tests_failed", "full_tests_failed", "tests_failed"}:
-        return "tests_failed" if test_activity or latest in {"targeted_tests_failed", "full_tests_failed", "tests_failed"} else "executor_failed"
-    if latest == "failure_discovered" or process_status in {"failed", "failure", "error", "errored", "exited_nonzero"}:
+    if verdict == "failed_or_error_observed" or narrated == "tests_failed":
+        return "tests_failed" if test_activity or narrated == "tests_failed" else "executor_failed"
+    if narrated == "executor_failed" or process_status in _FAILURE_PROCESS_STATUSES:
         return "executor_failed"
     # After blocked/failed, before completed. A blocker whose text also mentions
     # a patch is a blocker, not a contradiction, and blocked/failed carry the
@@ -492,16 +746,16 @@ def infer_progress_event_type(signal: dict[str, Any]) -> str:
         latest=latest,
         activity=activity,
         process_status=process_status,
-        progress_status=progress_status,
+        progress_status=verdict,
     ):
         return "reported_change_not_observed"
-    if progress_status == "completed_or_passed_observed":
-        return "tests_passed" if (test_activity or latest in {"targeted_tests_passed", "full_tests_passed", "tests_passed"}) else "executor_completed"
-    if latest in {"targeted_tests_passed", "full_tests_passed", "tests_passed"}:
+    if verdict == "completed_or_passed_observed":
+        return "tests_passed" if (test_activity or narrated == "tests_passed") else "executor_completed"
+    if narrated == "tests_passed":
         return "tests_passed"
-    if latest in {"targeted_tests_started", "full_tests_started", "tests_started"} or test_activity:
+    if narrated == "tests_started" or test_activity:
         return "tests_started"
-    if latest in {"diff_started", "file_changed"} or signal.get("git_diff_stat_hash") or signal.get("git_status_hash"):
+    if narrated == "diff_started" or signal.get("git_diff_stat_hash") or signal.get("git_status_hash"):
         return "diff_started"
     if "Codex changed files." in activity:
         return "diff_started"
@@ -513,7 +767,75 @@ def infer_progress_event_type(signal: dict[str, Any]) -> str:
         return "executor_dispatched"
     if process_status in {"running", "active", "in_progress", "working"}:
         return "running_no_diff_observed"
+    # The owner said something and nothing above read anything more specific
+    # from liveness, activity, or git. Falling through to `progress_observed`
+    # here used to discard the word silently -- including a word this
+    # vocabulary does not know, which then read as ordinary observed progress.
+    # Deferring to the normalized word keeps a mapped one (and can never
+    # outrank what it declared) and surfaces an unmapped one as itself; the raw
+    # value stays readable in the signal's `latest_progress_event_type`.
+    if self_reported_end_state:
+        # The claim DOES map -- to an end state nothing observed supports.
+        # Emitting it would let the caller close its own binding, so the
+        # observation is reported as the one event type that ends nothing. This
+        # also catches the shape that carries no word at all, a bare
+        # `--profile-status completed_or_passed_observed`: reporting that as
+        # `progress_observed` would drop the caller's claim silently.
+        return UNMAPPED_NORMALIZED_EVENT
+    if latest:
+        return normalized_latest
     return "progress_observed"
+
+
+def progress_event_normalization(event: dict[str, Any]) -> dict[str, object]:
+    """Read-only: the normalization record behind one stored progress event.
+
+    Returns `{}` for every event type other than `unmapped_source_event`,
+    because for those the event type IS the answer and a record restating it
+    would be noise on every row. For an unmapped one it recovers what an
+    operator otherwise cannot get: the raw word, the confidence, the closed
+    note that says WHY, and the two evidence tiers the decision compared.
+
+    Pure: it re-derives from the stored signal rather than reading anything the
+    event does not already carry, so an event read back off disk explains itself
+    the same way it did when it was written.
+
+    Two different refusals reach the same event type and must not read the same.
+    The pure normalizer answers the first (the word is not in this owner's
+    dialect, or its stream cannot carry the tier). The second belongs to the
+    lane: the word maps perfectly well, and `infer_progress_event_type` refused
+    it because nothing the lane observed corroborated the end state it claims.
+    Only the signal can tell those apart, so the lane stamps its own note here,
+    from the same `_self_reported_end_state` predicate that produced the verdict
+    -- including the shape that carried no word at all and claimed the end state
+    through the summary's `status` alone, where the pure normalizer can only
+    report that nothing was said.
+    """
+    if str(event.get("event_type", "")) != UNMAPPED_NORMALIZED_EVENT:
+        return {}
+    signal = event.get("signal")
+    signal = signal if isinstance(signal, dict) else {}
+    source_event = str(
+        signal.get("unmapped_source_event", "")
+        or signal.get("latest_progress_event_type", "")
+        or signal.get("explicit_source_event", "")
+        or signal.get("explicit_event_type", "")
+    )
+    record = dict(_normalize_signal_source_event(signal, source_event))
+    # The pure refusal wins when there was a word and the normalizer refused it
+    # on its own terms: "this word is not in the owner's dialect" is the more
+    # precise answer, and the end-state rule would have refused it anyway. The
+    # lane's note is stamped when the word mapped perfectly well, and when the
+    # claim arrived with no word at all -- a bare caller-reported end-state
+    # `status`, which the pure normalizer can only describe as nothing said.
+    if str(record.get("normalized_event", "")) != UNMAPPED_NORMALIZED_EVENT or (
+        not source_event and _self_reported_end_state(signal)
+    ):
+        record["normalized_event"] = UNMAPPED_NORMALIZED_EVENT
+        record["normalized_evidence_tier"] = progress_evidence_tier(UNMAPPED_NORMALIZED_EVENT)
+        record["mapping_confidence"] = "unmapped"
+        record["mapping_note"] = "self_reported_end_state_not_corroborated"
+    return record
 
 
 def summary_for_signal(signal: dict[str, Any], event_type: str) -> str:
@@ -1056,6 +1378,13 @@ def _compact_event_projection(event: dict[str, Any], binding: dict[str, Any]) ->
         "claim_boundary": event.get("claim_boundary", CLAIM_BOUNDARY),
     }
     projection.update(_observed_routing_metrics(event.get("signal")))
+    # Present only on an event whose owner word was refused. An operator seeing
+    # `unmapped_source_event` on `omh runtime progress-status` otherwise has the
+    # verdict and none of the reasoning: not the raw word, not the confidence,
+    # not the note that says which refusal it was.
+    normalization = progress_event_normalization(event)
+    if normalization:
+        projection["normalization"] = normalization
     return projection
 
 
@@ -1109,28 +1438,46 @@ def _correlation_aliases(
     return aliases
 
 
+# A TUPLE, not a set. `_safe_signal` iterates it to build the persisted signal,
+# so a set literal put the keys of every written record in string-hash order --
+# which changes with `PYTHONHASHSEED`, i.e. per process. The record round-trips
+# fine either way, but any byte comparison or golden file over a stored signal
+# would flake between runs on nothing. The order here is the order a reader
+# meets the fields in.
+_SAFE_SIGNAL_KEYS = (
+    "executor_profile",
+    "process_status",
+    "git_status_hash",
+    "git_diff_stat_hash",
+    "git_observed",
+    "progress_summary_source",
+    "progress_status",
+    "progress_event_count",
+    "latest_progress_event_type",
+    "observable_activity",
+    "assistant_visible_summary",
+    "progress_snapshot_hash",
+    "codex_artifact_sha256",
+    "codex_artifact_byte_count",
+    "codex_malformed_event_count",
+    "evidence_ref_count",
+    "explicit_event_type",
+    "explicit_summary",
+    # Bounded, single-line, printable owner word that the shared vocabulary
+    # could not map. It keeps `unmapped_source_event` events auditable
+    # without widening the omh_progress_event/v1 record itself.
+    "unmapped_source_event",
+    # The owner word behind a caller-declared event the normalizer translated.
+    # Same purpose one field over: without it, a stored signal cannot say
+    # whether `explicit_event_type: executor_completed` was the caller's own
+    # sentence or an executor's `workflow_completed` wearing it.
+    "explicit_source_event",
+    *ROUTING_METRIC_SIGNAL_KEYS,
+)
+
+
 def _safe_signal(signal: dict[str, Any]) -> dict[str, Any]:
-    allowed = {
-        "executor_profile",
-        "process_status",
-        "git_status_hash",
-        "git_diff_stat_hash",
-        "git_observed",
-        "progress_status",
-        "progress_event_count",
-        "latest_progress_event_type",
-        "observable_activity",
-        "assistant_visible_summary",
-        "progress_snapshot_hash",
-        "codex_artifact_sha256",
-        "codex_artifact_byte_count",
-        "codex_malformed_event_count",
-        "evidence_ref_count",
-        "explicit_event_type",
-        "explicit_summary",
-        *ROUTING_METRIC_SIGNAL_KEYS,
-    }
-    cleaned = {key: signal.get(key) for key in allowed if signal.get(key) not in (None, "", [], {})}
+    cleaned = {key: signal.get(key) for key in _SAFE_SIGNAL_KEYS if signal.get(key) not in (None, "", [], {})}
     _require_valid("signal", _raw_or_hidden_errors(cleaned))
     return cleaned
 
@@ -1202,6 +1549,10 @@ def _status_for_event_type(event_type: str) -> str:
         return "failed"
     if event_type == "tests_passed":
         return "passed"
+    if event_type == UNMAPPED_NORMALIZED_EVENT:
+        # Not "running": an unrecognized word says nothing about liveness, and
+        # the default would assert an executor is working on this owner's say-so.
+        return "observed"
     return "running"
 
 
@@ -1309,6 +1660,11 @@ def _summary_for_event_type(event_type: str) -> str:
             "The coding executor reported applying a change, but no file change was observed."
         ),
         "progress_observed": "The coding executor emitted a safe progress signal.",
+        UNMAPPED_NORMALIZED_EVENT: (
+            "The coding executor reported a progress event this lane did not accept as observed; "
+            "the source event name is retained unchanged and no activity, completion, or "
+            "verification is claimed from it."
+        ),
     }
     return summaries.get(event_type, "Executor progress was observed.")
 

@@ -64,6 +64,13 @@ class OmhPaths:
         return self.runtime_journal_dir / "events.jsonl"
 
     @property
+    def runtime_external_effect_receipts_path(self) -> Path:
+        # Runtime-wide, next to the observation journal, not per run: an
+        # external effect belongs to the surface that acted, and adapter
+        # deliveries have a session but no run.
+        return self.runtime_journal_dir / "external_effect_receipts.jsonl"
+
+    @property
     def runtime_plan_context_dir(self) -> Path:
         return self.runtime_dir / "plan-context"
 

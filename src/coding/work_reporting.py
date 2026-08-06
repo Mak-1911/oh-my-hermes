@@ -12,6 +12,7 @@ from ..context_safety import (
     compact_progress_events,
     compact_visible_text,
 )
+from ..external_effect_receipts import redacted_external_effect_ref
 
 
 WORK_OBSERVATION_SUMMARY_SCHEMA_VERSION = "work_observation_summary/v1"
@@ -998,7 +999,7 @@ def _check_row_from_dict(value: dict[str, Any]) -> dict[str, str]:
         return {}
     duration = str(value.get("duration") or value.get("elapsed") or value.get("time") or "").strip()
     url = str(value.get("url") or value.get("link") or value.get("details_url") or value.get("target_url") or "").strip()
-    return {"name": name, "status": status, "duration": duration, "url": url}
+    return {"name": name, "status": status, "duration": duration, "check_ref": _check_ref(url)}
 
 
 def _check_rows_from_text(output: str) -> list[dict[str, str]]:
@@ -1047,7 +1048,7 @@ def _check_row_from_line(line: str) -> dict[str, str]:
     duration = _first_duration([piece for index, piece in enumerate(pieces[status_index + 1 :]) if piece != url])
     if not name:
         return {}
-    return {"name": name, "status": status, "duration": duration, "url": url}
+    return {"name": name, "status": status, "duration": duration, "check_ref": _check_ref(url)}
 
 
 def _check_row_from_loose_line(line: str) -> dict[str, str]:
@@ -1065,7 +1066,7 @@ def _check_row_from_loose_line(line: str) -> dict[str, str]:
     duration = _first_duration([without_url])
     if not name or not status:
         return {}
-    return {"name": name, "status": status, "duration": duration, "url": url}
+    return {"name": name, "status": status, "duration": duration, "check_ref": _check_ref(url)}
 
 
 def _dedupe_check_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -1075,7 +1076,7 @@ def _dedupe_check_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
         name = row.get("name", "").strip()
         if not name:
             continue
-        key = (name.casefold(), row.get("url", "").strip())
+        key = (name.casefold(), row.get("check_ref", "").strip())
         if key not in deduped:
             order.append(key)
         deduped[key] = row
@@ -1154,11 +1155,14 @@ def _ko_check_line(row: dict[str, str]) -> str:
 
 
 def _check_suffix(row: dict[str, str]) -> str:
+    # Name, status, and duration only. The row's `check_ref` is a local dedupe
+    # handle, not a citation: nothing mints a receipt for a scraped check line,
+    # so rendering the handle would name evidence that does not exist. The raw
+    # link is not rendered either -- a status report correlates rows, it does
+    # not republish someone else's URLs.
     parts = []
     if row.get("duration"):
         parts.append(f"({row['duration']})")
-    if row.get("url"):
-        parts.append(row["url"])
     return f" {' '.join(parts)}." if parts else "."
 
 
@@ -1171,6 +1175,22 @@ def _clean_check_name(value: str) -> str:
     cleaned = re.sub(r"^[✓✔✗✘!•*\-\s]+", "", value).strip(" :-—–")
     cleaned = re.sub(r"^(?i:x)\s+", "", cleaned).strip(" :-—–")
     return cleaned
+
+
+def _check_ref(url: str) -> str:
+    """A stable, non-navigable handle for one parsed check row.
+
+    Only `_dedupe_check_rows` reads it: two matrix jobs can share a name and are
+    told apart by the link they carried. The link itself is folded away with the
+    receipt module's redaction helper so a check row structurally cannot hold a
+    navigable URL, whatever a future renderer decides to print.
+
+    This is deliberately not a receipt reference. Nothing here observed the
+    check -- these rows are scraped from an executor's `gh pr checks` transcript
+    -- so no receipt is minted and no citation is claimed. The CI receipt for a
+    run is minted where CI is actually observed, by `write_ci_record`.
+    """
+    return redacted_external_effect_ref(url)
 
 
 def _first_url(values: list[str]) -> str:

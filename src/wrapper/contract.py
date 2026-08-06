@@ -673,17 +673,21 @@ _STATUS_COPY = {
         "Execution and verification evidence are observed.",
         "Completion is backed by observed wrapper evidence.",
     ),
+    # These two rungs assert external effects, so their body is not a constant:
+    # `_merge_status_copy` rebuilds it from the run's external effect receipts
+    # and only names a gate it can cite. The strings below are the kind,
+    # headline, and boundary that survive that rebuild.
     "report_merge_ready": (
         "status",
         "This is ready to merge.",
-        "Execution, verification, review, CI, and merge-readiness evidence are observed.",
+        "Execution, verification, review, and merge-readiness evidence are observed.",
         "Ready to merge is not the same as merged.",
     ),
     "report_merged": (
         "status",
         "This has been merged.",
-        "Execution, verification, review, CI, and merge evidence are observed.",
-        "Merged status is backed by runtime ledger evidence.",
+        "Execution, verification, review, and merge evidence are observed.",
+        "Merged status is backed by runtime ledger evidence and an external effect receipt.",
     ),
 }
 _HUMAN_ACK_BODY_BY_SKILL = {
@@ -6515,7 +6519,80 @@ def _status_copy(status_payload: dict[str, Any], next_action: str) -> tuple[str,
     if next_action in {"show_prompt_handoff", "show_runtime_handoff"}:
         suffix = _status_executor_suffix(status_payload)
         return kind, f"{headline}{suffix}", body, claim_boundary
+    if next_action in {"report_merge_ready", "report_merged"}:
+        return _merge_status_copy(status_payload, next_action, kind, headline, claim_boundary)
     return kind, headline, body, claim_boundary
+
+
+def _merge_status_copy(
+    status_payload: dict[str, Any],
+    next_action: str,
+    kind: str,
+    headline: str,
+    claim_boundary: str,
+) -> tuple[str, str, str, str]:
+    """AC2 for the two rungs that assert something happened outside this machine.
+
+    The static copy for these actions asserted CI and merge success outright,
+    while `safe_summary` for the same run already carried the citations. A
+    sentence here now either names the receipt and the acting surface behind the
+    success it asserts, or does not assert it. CI and merge are external
+    effects; merge readiness is a local decision, so its own headline stands.
+    """
+    ci = _receipt_citation_clause("CI", _status_gate_receipt(status_payload, "ci"))
+    merge = _receipt_citation_clause("Merge", _status_gate_receipt(status_payload, "merge"))
+    if next_action == "report_merged" and not merge:
+        return (
+            kind,
+            "The runtime ledger records a merge that nothing observed.",
+            "No external effect receipt names the surface that merged this, so I am not reporting it as merged.",
+            "A merge with no receipt naming the acting surface is not merge evidence.",
+        )
+    gates = ["Execution", "verification", "review"]
+    citations: list[str] = []
+    if ci:
+        gates.append("CI")
+        citations.append(ci)
+    if next_action == "report_merged":
+        gates.append("merge")
+        citations.append(merge)
+    else:
+        gates.append("merge-readiness")
+    sentences = [f"{_english_series(gates)} evidence are observed."]
+    if citations:
+        sentences.append(f"Cited by {'; '.join(citations)}.")
+    if not ci:
+        sentences.append(
+            "No external effect receipt names the surface that ran CI, so CI is not reported as passed."
+        )
+    return kind, headline, " ".join(sentences), claim_boundary
+
+
+def _status_gate_receipt(status_payload: dict[str, Any], gate: str) -> dict[str, Any]:
+    receipt = _nested(status_payload, gate).get("receipt")
+    return receipt if isinstance(receipt, dict) else {}
+
+
+def _receipt_citation_clause(label: str, receipt: dict[str, Any]) -> str:
+    """``CI receipt receipt-… via runtime_ci_record``, or "" when nothing observed it.
+
+    Only a `succeeded` receipt that names both itself and an acting surface can
+    back a success sentence; every other receipt state describes an effect that
+    did not succeed, or one nobody could name.
+    """
+    if str(receipt.get("observed_result", "")) != "succeeded":
+        return ""
+    receipt_id = str(receipt.get("receipt_id", ""))
+    acting_surface = str(receipt.get("acting_surface", ""))
+    if not receipt_id or not acting_surface:
+        return ""
+    return f"{label} receipt {receipt_id} via {acting_surface}"
+
+
+def _english_series(items: list[str]) -> str:
+    if len(items) < 3:
+        return " and ".join(items)
+    return f"{', '.join(items[:-1])}, and {items[-1]}"
 
 
 def _status_executor_suffix(status_payload: dict[str, Any]) -> str:

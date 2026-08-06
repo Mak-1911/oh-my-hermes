@@ -58,6 +58,10 @@ from ..coding.product_quality_harnesses import validate_product_quality_harness
 from ..coding.project_governance import validate_project_governance_blocked, validate_project_governance_profile
 from ..routing.route_plan import compact_workflow_route_plan
 from ..skills.catalog_types import REASONING_DEMAND_VALUES
+from ..workflows.external_effect_receipts import (
+    EXTERNAL_EFFECT_RECEIPT_KEYS,
+    validate_external_effect_receipt,
+)
 
 
 SCHEMA_VERSION = 1
@@ -3774,4 +3778,13 @@ OPTIONAL_RECORD_VALIDATORS = (
     ("review.json", validate_review_record),
     ("ci.json", validate_ci_record),
     ("merge.json", validate_merge_record),
+)
+
+# Same registry shape for the append-only stores that live beside runs rather
+# than inside one. The exact-key tuple is re-exported here so a store record's
+# contract is discoverable next to every other runtime record contract.
+EXTERNAL_EFFECT_RECEIPT_RECORD_KEYS = EXTERNAL_EFFECT_RECEIPT_KEYS
+
+OPTIONAL_RUNTIME_STORE_VALIDATORS = (
+    ("external_effect_receipts.jsonl", validate_external_effect_receipt),
 )

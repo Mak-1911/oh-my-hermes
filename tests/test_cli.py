@@ -9505,11 +9505,33 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(chat["chat_response"]["plain_headline"], "This is ready to merge.")
             self.assertTrue(chat["chat_response"]["headline"].startswith("[omh] status - "))
             self.assertNotIn("omh ", json.dumps(chat["chat_response"]).lower())
+            # This run recorded `ci passed` with nothing naming the system that
+            # ran it, so the copy must not report CI as passed (issue #836 AC2).
+            self.assertIn(
+                "No external effect receipt names the surface that ran CI",
+                chat["chat_response"]["body"],
+            )
 
             status, stdout, stderr = run_cli(base + ["runtime", "merge", "--run", run_id, "--merged", "--merge-commit", "abc123"])
             self.assertEqual(stderr, "")
             self.assertEqual(status, 0)
             self.assertEqual(json.loads(stdout)["status"]["next_action"], "report_merged")
+
+            status, stdout, stderr = run_cli(base + ["chat", "interact", "--run", run_id])
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            merged_chat = json.loads(stdout)
+            status, stdout, stderr = run_cli(base + ["runtime", "receipts", "--run", run_id, "--json"])
+            self.assertEqual(status, 0)
+            merge_receipt = next(
+                row
+                for row in json.loads(stdout)["projection"]["succeeded"]
+                if row["action"] == "merge"
+            )
+            # The merged sentence names the receipt and the surface that acted.
+            self.assertEqual(merged_chat["chat_response"]["plain_headline"], "This has been merged.")
+            self.assertIn(merge_receipt["receipt_id"], merged_chat["chat_response"]["body"])
+            self.assertIn("runtime_merge_record", merged_chat["chat_response"]["body"])
 
             status, stdout, stderr = run_cli(base + ["coding", "lifecycle", "report", "--run", run_id])
             self.assertEqual(stderr, "")
@@ -12357,6 +12379,184 @@ class ChatSessionRevisionGuardCliTests(unittest.TestCase):
             self.assertIn(f"at most {MAX_MUTATION_ID_CHARS} characters", stderr)
             self.assertNotIn("Traceback", stderr)
             self.assertEqual(read_wrapper_session(paths, session_id), before)
+
+
+class RuntimeReceiptsViewCliTests(unittest.TestCase):
+    """`omh runtime receipts` must show what the projection distinguishes (#836).
+
+    Two things were invisible. A run-scoped read dropped every run-less effect,
+    so an adapter delivery -- the only `message_sent` producer there is -- was
+    silently absent from `--run`; and an effect whose mint failed appeared
+    nowhere at all, which is the state the store is in exactly when a report
+    most needs to say so.
+
+    The command stays read-only: no argument here writes a receipt.
+    """
+
+    def _delivered(self, paths) -> str:
+        from omh.adapter_quality import (
+            build_adapter_quality_delivery_card,
+            build_adapter_quality_observation,
+            prepare_adapter_quality_delivery,
+            record_adapter_quality_delivery,
+        )
+
+        observation = build_adapter_quality_observation(
+            observation_id="web-quality",
+            subject_id="checkout",
+            surface_kind="web",
+            adapter_id="hermes-adapter",
+            source_revision="build-42",
+            checks=[],
+            layout_checks=[],
+            metrics=[],
+        )
+        card = build_adapter_quality_delivery_card(observation, renderer_target="slack")
+        preparation = prepare_adapter_quality_delivery(paths, session_id="ws-quality", card=card)
+        record_adapter_quality_delivery(
+            paths,
+            preparation=preparation,
+            adapter="slack-adapter",
+            delivery_result="delivered",
+            external_message_ref="slack:message-1",
+        )
+        return f"delivery:{preparation['preparation_id']}"
+
+    def _run_with_ci(self, paths) -> str:
+        from omh.coding_delegation import build_coding_delegation_payload, coding_delegation_record_payload
+        from omh.runtime_artifacts import (
+            create_prepared_coding_delegation_run,
+            write_ci_record,
+            write_coding_delegation,
+        )
+
+        run = create_prepared_coding_delegation_run(paths, {"skill": "coding", "harness": "delegate"})
+        run_id = str(run["run_id"])
+        run_dir = paths.runtime_runs_dir / run_id
+        message = "implement safe conformance adapter without overclaiming"
+        write_coding_delegation(
+            run_dir,
+            coding_delegation_record_payload(
+                build_coding_delegation_payload(message, source="discord", executor_target="codex"),
+                message,
+            ),
+        )
+        write_ci_record(run_dir, {"status": "failed", "provider": "github-actions", "checks": ["unit:failed"]})
+        return run_id
+
+    def test_run_scoped_view_still_lists_run_less_effects(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            base = ["--omh-home", str(paths.omh_home), "--hermes-home", str(paths.hermes_home)]
+            effect_id = self._delivered(paths)
+            run_id = self._run_with_ci(paths)
+
+            status, stdout, stderr = run_cli(base + ["runtime", "receipts", "--run", run_id], output_json=False)
+
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            self.assertNotIn("{", stdout)
+            self.assertIn("External effect receipts (1 shown)", stdout)
+            self.assertIn("ci_run — failed — runtime_ci_record", stdout)
+            self.assertIn("Run-less effects (1 of 1 shown)", stdout)
+            self.assertIn("message_sent — succeeded — adapter_quality_delivery", stdout)
+
+            status, stdout, stderr = run_cli(base + ["runtime", "receipts", "--run", run_id, "--json"])
+
+            self.assertEqual(status, 0)
+            payload = json.loads(stdout)
+            self.assertEqual([row["effect_id"] for row in payload["unbound_receipts"]], [effect_id])
+            self.assertEqual(payload["unbound_receipt_count"], 1)
+            # The run-scoped list stays run-scoped; the run-less ones are a
+            # separate class, not a silent merge into this run's effects.
+            self.assertNotIn(effect_id, [row["effect_id"] for row in payload["receipts"]])
+
+    def test_run_less_receipts_are_validated_by_the_store_report(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            base = ["--omh-home", str(paths.omh_home), "--hermes-home", str(paths.hermes_home)]
+            self._delivered(paths)
+            run_id = self._run_with_ci(paths)
+            store_path = paths.runtime_external_effect_receipts_path
+            kept = [
+                line
+                for line in store_path.read_text(encoding="utf-8").splitlines()
+                if line.strip() and json.loads(line).get("run_id")
+            ]
+            # Corrupt only the run-less record. `omh runtime validate` walks
+            # runs, so nothing else in the tree would ever look at it.
+            store_path.write_text(
+                "\n".join([*kept, json.dumps({"schema_version": "external_effect_receipt/v1"})]) + "\n",
+                encoding="utf-8",
+            )
+
+            status, stdout, stderr = run_cli(base + ["runtime", "receipts", "--run", run_id, "--json"])
+
+            self.assertEqual(status, 0)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["store_ok"])
+            self.assertTrue(payload["store_errors"])
+
+            status, stdout, stderr = run_cli(base + ["runtime", "receipts", "--run", run_id], output_json=False)
+            self.assertEqual(status, 0)
+            self.assertIn("Store errors:", stdout)
+
+    def test_an_unrecorded_mint_is_reported_and_never_scoped_away(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            base = ["--omh-home", str(paths.omh_home), "--hermes-home", str(paths.hermes_home)]
+            run_id = self._run_with_ci(paths)
+            from omh.external_effect_receipts import external_effect_mint_failures_path
+
+            external_effect_mint_failures_path(paths.runtime_external_effect_receipts_path).write_text(
+                json.dumps(
+                    {
+                        "schema_version": "external_effect_mint_failure/v1",
+                        "observed_at": "2026-01-01T00:00:00Z",
+                        "outcome": "not_written",
+                        "effect_id": "delivery:prep-1",
+                        "action": "message_sent",
+                        "acting_surface": "adapter_quality_delivery",
+                        "observed_result": "succeeded",
+                        "run_id": "",
+                        "error": "could not acquire lock",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            status, stdout, stderr = run_cli(base + ["runtime", "receipts", "--run", run_id], output_json=False)
+
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            self.assertIn("Unrecorded mints: 1", stdout)
+            self.assertIn("message_sent — not_written — adapter_quality_delivery", stdout)
+            self.assertIn("These external effects were observed and have no receipt.", stdout)
+
+            status, stdout, _ = run_cli(base + ["runtime", "receipts", "--run", run_id, "--json"])
+            payload = json.loads(stdout)
+            self.assertEqual(payload["mint_failure_count"], 1)
+            self.assertEqual(payload["mint_failures"][0]["outcome"], "not_written")
+
+    def test_the_receipts_command_stays_read_only(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            base = ["--omh-home", str(paths.omh_home), "--hermes-home", str(paths.hermes_home)]
+            from omh.external_effect_receipts import read_external_effect_receipts
+
+            for attempt in (
+                ["runtime", "receipts", "--record"],
+                ["runtime", "receipts", "--unbound", "--result", "succeeded"],
+                ["runtime", "receipts", "--mint-failure", "x"],
+            ):
+                with self.subTest(attempt=attempt), self.assertRaises(SystemExit):
+                    run_cli(base + attempt, output_json=False)
+            self.assertEqual(read_external_effect_receipts(paths), [])
 
 
 if __name__ == "__main__":

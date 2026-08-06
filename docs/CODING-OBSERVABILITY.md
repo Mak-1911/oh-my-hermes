@@ -156,8 +156,109 @@ soft ceiling too: past it, the brief keeps the longest row prefix that fits
 and states the omission as its own `… +N more units` line pointing at
 `--json`, so a truncated brief is never mistaken for a complete one.
 
+## External effects, and why a check row no longer prints a link
+
+Everything above is activity *inside* this machine. The moment a status report
+says something happened outside it — a message was sent, a review landed, CI
+ran, a branch moved — the report is describing an effect OMH cannot perform and
+therefore cannot vouch for on its own.
+
+Those effects are tracked separately, as `external_effect_receipt/v1` records in
+`~/.omh/runtime/journal/external_effect_receipts.jsonl`. A status report splits
+them five ways:
+
+| State | Means |
+| --- | --- |
+| `requested` | the run's own records say the effect is needed; nothing has started |
+| `attempted` | the effect has started; no acting surface has reported an outcome |
+| `succeeded` | a surface observed the effect complete, and named it |
+| `failed` | a surface observed the effect not happen |
+| `unknown` | a surface observed a terminal state it cannot classify, or a success it cannot name |
+
+`requested` and `attempted` are the two states that matter most here, because
+they are the ones a status board used to render as silence. Both are projected
+from the *absence* of a receipt — from what the run's own records asked for and
+how far they say it got — and neither is ever minted from a record nothing
+observed. A gate recorded as `pending` writes `observed: false`, so it mints
+nothing and shows as `attempted` because the run asked for it, not because
+anyone saw it. Only `succeeded`, `failed`, and `unknown` come from a receipt.
+
+A success claim carries its citation. `omh runtime delegation-status` names the
+receipt id and the acting surface behind every `succeeded` effect, and
+`safe_summary` prints the citation in the sentence that makes the claim. The
+`ci_observed` and `merged` rungs need a receipt that observed *that* effect
+*succeed* from the surface that gate is observed by: a `failed` or `attempted`
+receipt satisfies neither, and one rung's receipt never satisfies another's.
+
+### Runs recorded before receipts existed
+
+A run written by an earlier version has no receipts, and that is not a fault.
+`omh runtime validate` stays green for it, and it keeps every claim rung through
+`review_observed` — handoff prepared, executor dispatched, execution observed,
+verification observed, review observed all still hold, because none of them
+describes anything outside this machine.
+
+What such a run cannot do is claim `ci_observed` or `merged`. Both assert an
+external effect, and nothing on record names the surface that saw it, so
+`omh conformance check` blocks them with a reason that says exactly that. The
+data is intact; the claim is refused.
+
+#### The supported upgrade path
+
+Record each already-observed gate again, in ladder order, with the result you
+observed. Writing the record is what mints the receipt:
+
+```sh
+omh runtime ci    --run <id> --status passed --provider <provider> --check <name>:passed
+omh runtime merge --run <id> --merged --target-branch <branch> --merge-commit <sha>
+```
+
+Nothing else is needed and nothing else is supported. Two properties make this
+honest:
+
+- **Every status you type is one the run already recorded.** The commands
+  re-state `ci passed` and `merge merged`, which is what the run's own
+  `ci.json` and `merge.json` already say. You never have to write a status you
+  did not observe to get back to one you did.
+- **Re-recording is allowed only from a completed gate.** These commands
+  normally refuse a status the run has not reached — recording `merge merged`
+  on a run still awaiting its executor stays refused, and says so. A run that
+  has already passed the gate sits at `next_action: report_merged`,
+  `report_merge_ready`, or `report_completion_with_evidence`, and from there
+  recording the same gate again is a restatement rather than a transition, so
+  the preflight admits it.
+
+Recording the same observation twice still mints once, so running the sequence
+again is harmless. Run `omh runtime delegation-status --run <id>` afterwards:
+`merge.receipt.receipt_id` and `merge.receipt.acting_surface` are the citation,
+and `safe_summary` carries it in the sentence that makes the claim.
+
+There is deliberately no command that mints a receipt directly: a receipt an
+operator can type is exactly the self-reported evidence this store exists to
+replace.
+
+Receipts are metadata-only, which is why `format_check_rollup` stopped printing
+the URL from `gh pr checks` output. A check row now ends in a redacted receipt
+reference (`ref-<digest>`) instead: stable, so rows still deduplicate and
+correlate, and non-navigable, so a status report never republishes a link, a
+credential embedded in one, or anything else the check output happened to
+carry. The same guard covers every string field on a receipt, by class rather
+than by name. Identifiers — `receipt_id`, `effect_id`, `run_id`, `observed_at`,
+`external_ref`, `supersedes_receipt_ref`, and each `evidence_ref` — must be
+opaque metadata references: bounded, non-navigable, and free of control
+characters. `action`, `target_class`, `acting_surface`, and `observed_result`
+are closed vocabularies. `summary` is bounded free text. Each class is enforced
+in all three places a receipt is handled — when it is built, when it is
+validated, and when it is rendered — so a hand-edited store line cannot reach a
+citation: a link, a path, a secret, or anything with a newline or an ANSI escape
+in it becomes `[redacted]` in free text and a `ref-<digest>` handle in an
+identifier, and a value outside a closed vocabulary renders empty.
+
 ## Boundary
 
 A status board is observed activity metadata. It is not result, verification,
 review, CI, merge-readiness, or merge evidence, and a unit appearing as
 `running` is not proof that it will finish.
+
+A receipt is narrower still: it is one acting surface's observation of one
+external effect, and it proves nothing about any other effect.
