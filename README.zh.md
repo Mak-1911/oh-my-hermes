@@ -78,6 +78,10 @@
 > OMH 保留 Hermes 作为自然语言入口，并增加具有明确证据边界的专业工作层。
 >
 > <p align="center">
+>   <img src="assets/omh-terminal-boot-banner.png" alt="OH-MY-HERMES terminal banner listing available tools, grouped skills, OMH specialists, infrastructure, and the model pool on Hermes Agent" width="1080">
+> </p>
+>
+> <p align="center">
 >   <img src="assets/hermes-omh-terminal-orchestration.png" alt="Hermes Agent and OH-MY-HERMES working side by side" width="1080">
 > </p>
 >

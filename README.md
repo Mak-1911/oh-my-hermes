@@ -87,6 +87,10 @@
 > operating layer with explicit evidence boundaries.
 >
 > <p align="center">
+>   <img src="assets/omh-terminal-boot-banner.png" alt="OH-MY-HERMES terminal banner listing available tools, grouped skills, OMH specialists, infrastructure, and the model pool on Hermes Agent" width="1080">
+> </p>
+>
+> <p align="center">
 >   <img src="assets/hermes-omh-terminal-orchestration.png" alt="Hermes Agent and OH-MY-HERMES working side by side" width="1080">
 > </p>
 >
@@ -115,10 +119,6 @@
 >     <td>Thank you to <a href="https://nousresearch.com/">Nous Research</a> for creating Hermes Agent.</td>
 >   </tr>
 > </table>
->
-> <p align="center">
->   <img src="assets/omh-goal-post.png" alt="Post from @rlaope: the goal of oh-my-hermes is a single entry point for Hermes Agent that eliminates plugin fatigue and turns anyone into a power user" width="680">
-> </p>
 
 <br>
 
@@ -245,6 +245,10 @@ claim rules are deterministic local surfaces. External calls and provider
 access stay explicit integrations rather than hidden behavior inside the core.
 
 <br>
+
+<p align="center">
+  <img src="assets/omh-goal-post.png" alt="Post from @rlaope: the goal of oh-my-hermes is a single entry point for Hermes Agent that eliminates plugin fatigue and turns anyone into a power user" width="680">
+</p>
 
 ## Evidence Before Claims
 
