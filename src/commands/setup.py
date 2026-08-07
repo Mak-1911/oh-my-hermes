@@ -361,14 +361,6 @@ def _managed_command_runtime() -> dict[str, object]:
     return {"managed": True, "reason": "", "python": str(executable), "venv_dir": str(venv_dir)}
 
 
-def _is_relative_to(path: Path, parent: Path) -> bool:
-    try:
-        path.resolve().relative_to(parent.resolve())
-    except ValueError:
-        return False
-    return True
-
-
 def _is_relative_to_without_resolving_symlinks(path: Path, parent: Path) -> bool:
     try:
         _normalize_without_final_symlink(path).relative_to(_normalize_without_final_symlink(parent))

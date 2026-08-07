@@ -16,6 +16,27 @@ import os
 import re
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
+def _as_windows() -> object:
+    """Force the Windows branches of omh.paths on any host.
+
+    `os.name` itself cannot be patched: `pathlib` reads it to choose a flavour
+    and raises `NotImplementedError` when the two disagree.
+    """
+    # The defining module, not the `omh.paths` re-export shim: the functions
+    # under test resolve `_is_windows` in their own module globals.
+    from omh.system import paths
+
+    return patch.object(paths, "_is_windows", lambda: True)
+
+
+def _as_posix() -> object:
+    from omh.system import paths
+
+    return patch.object(paths, "_is_windows", lambda: False)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_SH = REPO_ROOT / "install.sh"
@@ -152,7 +173,18 @@ class WindowsInstallerDocumentationTests(unittest.TestCase):
 
 
 class ManagedCommandResolutionTests(unittest.TestCase):
-    """`omh update` / `omh remove` must find what the installers wrote."""
+    """`omh update` / `omh remove` must find what the installers wrote.
+
+    The shim shape only exists on Windows, so these patch `os.name` rather than
+    skipping: the branch would otherwise have zero coverage on the ubuntu job
+    and be first exercised on a user's machine. What the caller does with a True
+    here is delete the file, so every negative case below is load-bearing.
+    """
+
+    def _shim(self, directory: Path, target: Path) -> Path:
+        shim = directory / "omh.cmd"
+        shim.write_text(f'@echo off\r\n"{target}" %*\r\n', encoding="utf-8", newline="")
+        return shim
 
     def test_managed_command_helpers_follow_the_host_convention(self) -> None:
         from omh.paths import managed_command_filenames, managed_command_venv_scripts_dir
@@ -165,75 +197,104 @@ class ManagedCommandResolutionTests(unittest.TestCase):
             self.assertEqual(names, ("omh",))
             self.assertEqual(managed_command_venv_scripts_dir(Path("v")).name, "bin")
 
-    def test_a_cmd_shim_naming_the_venv_is_recognized_as_installer_managed(self) -> None:
+    def test_a_cmd_shim_naming_the_venv_executable_is_recognized(self) -> None:
         from omh.paths import command_entry_belongs_to_venv, managed_command_venv_scripts_dir
 
-        from tempfile import TemporaryDirectory
-
-        with TemporaryDirectory() as tmp:
+        with TemporaryDirectory() as tmp, _as_windows():
             root = Path(tmp)
             venv_dir = root / "venv"
             scripts = managed_command_venv_scripts_dir(venv_dir)
             scripts.mkdir(parents=True)
-            shim = root / "omh.cmd"
-            shim.write_text(f'@echo off\r\n"{scripts / "omh.exe"}" %*\r\n', encoding="utf-8", newline="")
+            shim = self._shim(root, scripts / "omh.exe")
 
             self.assertTrue(command_entry_belongs_to_venv(shim, venv_dir))
 
-    def test_a_sibling_venv_shim_is_not_treated_as_ours(self) -> None:
-        # `...\venv2\Scripts` must not read as inside `...\venv`. Matching on
-        # the Scripts directory rather than the venv root is what prevents it.
+    def test_a_wrapper_that_merely_mentions_the_venv_is_not_ours(self) -> None:
+        # A user's own wrapper that puts the venv on PATH and then runs
+        # something else names the directory without being installer-managed.
+        # Substring-matching the directory would classify it as ours and
+        # delete it.
         from omh.paths import command_entry_belongs_to_venv, managed_command_venv_scripts_dir
 
-        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as tmp, _as_windows():
+            root = Path(tmp)
+            venv_dir = root / "venv"
+            scripts = managed_command_venv_scripts_dir(venv_dir)
+            scripts.mkdir(parents=True)
+            wrapper = root / "omh.cmd"
+            wrapper.write_text(
+                f"@echo off\r\nset PATH={scripts};%PATH%\r\npython -m my_tool %*\r\n",
+                encoding="utf-8",
+                newline="",
+            )
 
-        with TemporaryDirectory() as tmp:
+            self.assertFalse(command_entry_belongs_to_venv(wrapper, venv_dir))
+
+    def test_a_sibling_venv_shim_is_not_ours(self) -> None:
+        from omh.paths import command_entry_belongs_to_venv, managed_command_venv_scripts_dir
+
+        with TemporaryDirectory() as tmp, _as_windows():
             root = Path(tmp)
             (root / "venv").mkdir()
-            sibling_scripts = managed_command_venv_scripts_dir(root / "venv2")
-            sibling_scripts.mkdir(parents=True)
-            shim = root / "omh.cmd"
-            shim.write_text(f'@echo off\r\n"{sibling_scripts / "omh.exe"}" %*\r\n', encoding="utf-8", newline="")
+            sibling = managed_command_venv_scripts_dir(root / "venv2")
+            sibling.mkdir(parents=True)
+            shim = self._shim(root, sibling / "omh.exe")
 
             self.assertFalse(command_entry_belongs_to_venv(shim, root / "venv"))
 
-    def test_shim_recognition_survives_a_case_difference(self) -> None:
-        # resolve() can hand back different casing than the installer wrote,
-        # and Windows paths are case-insensitive, so an exact match would let
-        # `omh remove` strand the shim it created.
+    def test_a_venv_whose_name_extends_ours_is_not_ours(self) -> None:
+        # The prefix hazard a text match has and a path comparison does not:
+        # `<root>/venv_backup` starts with `<root>/venv`, so substring-matching
+        # the venv or its Scripts directory would delete a backup install's
+        # shim. Component-wise containment cannot make that mistake.
         from omh.paths import command_entry_belongs_to_venv, managed_command_venv_scripts_dir
 
-        from tempfile import TemporaryDirectory
-
-        with TemporaryDirectory() as tmp:
+        with TemporaryDirectory() as tmp, _as_windows():
             root = Path(tmp)
             venv_dir = root / "venv"
+            managed_command_venv_scripts_dir(venv_dir).mkdir(parents=True)
+            other = managed_command_venv_scripts_dir(root / "venv_backup")
+            other.mkdir(parents=True)
+            shim = self._shim(root, other / "omh.exe")
+
+            self.assertFalse(command_entry_belongs_to_venv(shim, venv_dir))
+
+    def test_a_shim_under_a_redirected_store_is_still_ours(self) -> None:
+        # The installer writes the spelling it was given while the reader
+        # resolves; behind a junction or a symlinked profile the two strings
+        # differ and a text match would strand the shim. Comparing resolved
+        # paths is what keeps `omh remove` able to clean up after itself.
+        from omh.paths import command_entry_belongs_to_venv, managed_command_venv_scripts_dir
+
+        with TemporaryDirectory() as tmp, _as_windows():
+            root = Path(tmp)
+            real = root / "real_local"
+            venv_dir = real / "omh" / "venv"
             scripts = managed_command_venv_scripts_dir(venv_dir)
             scripts.mkdir(parents=True)
-            shim = root / "omh.cmd"
-            body = f'@echo off\r\n"{scripts / "omh.exe"}" %*\r\n'.upper()
-            shim.write_text(body, encoding="utf-8", newline="")
+            link = root / "Local"
+            try:
+                link.symlink_to(real, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("this host does not permit symlink creation")
+            # The shim names the path through the link, as the installer would.
+            shim = self._shim(root, managed_command_venv_scripts_dir(link / "omh" / "venv") / "omh.exe")
 
             self.assertTrue(command_entry_belongs_to_venv(shim, venv_dir))
 
-    def test_an_unrelated_cmd_file_is_not_treated_as_ours(self) -> None:
+    def test_an_unrelated_cmd_file_is_not_ours(self) -> None:
         from omh.paths import command_entry_belongs_to_venv
 
-        from tempfile import TemporaryDirectory
-
-        with TemporaryDirectory() as tmp:
+        with TemporaryDirectory() as tmp, _as_windows():
             root = Path(tmp)
             venv_dir = root / "venv"
             venv_dir.mkdir()
-            foreign = root / "omh.cmd"
-            foreign.write_text('@echo off\r\n"C:\\somewhere\\else\\omh.exe" %*\r\n', encoding="utf-8", newline="")
+            foreign = self._shim(root, Path("C:/somewhere/else/omh.exe"))
 
             self.assertFalse(command_entry_belongs_to_venv(foreign, venv_dir))
 
-    def test_a_plain_executable_is_not_treated_as_ours(self) -> None:
+    def test_a_plain_executable_is_not_ours(self) -> None:
         from omh.paths import command_entry_belongs_to_venv
-
-        from tempfile import TemporaryDirectory
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -243,6 +304,21 @@ class ManagedCommandResolutionTests(unittest.TestCase):
             plain.write_text("#!/bin/sh\n", encoding="utf-8")
 
             self.assertFalse(command_entry_belongs_to_venv(plain, venv_dir))
+
+    def test_the_shim_shape_is_refused_off_windows(self) -> None:
+        # POSIX must keep exactly one delete path, the symlink one. Admitting
+        # the shim shape there would widen deletion on a platform that never
+        # produces it.
+        from omh.paths import command_entry_belongs_to_venv, managed_command_venv_scripts_dir
+
+        with TemporaryDirectory() as tmp, _as_posix():
+            root = Path(tmp)
+            venv_dir = root / "venv"
+            scripts = managed_command_venv_scripts_dir(venv_dir)
+            scripts.mkdir(parents=True)
+            shim = self._shim(root, scripts / "omh.exe")
+
+            self.assertFalse(command_entry_belongs_to_venv(shim, venv_dir))
 
 
 class InstallerCommandHintTests(unittest.TestCase):

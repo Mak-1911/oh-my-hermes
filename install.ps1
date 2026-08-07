@@ -22,6 +22,10 @@
         every user with a command they cannot run. The change is user-scope,
         additive, announced, and reversible; set OMH_ADD_TO_PATH=0 for
         install.sh's hint-only behavior.
+      * OMH_PYTHON is unset by default rather than defaulting to python3, and
+        the chosen interpreter is version-probed. `python`/`python3` on Windows
+        routinely resolve to the Microsoft Store App Execution Alias stub,
+        which is on PATH, runs, installs nothing, and exits non-zero.
       * Installer step labels are English on Windows. OMH_LANG is still
         validated and still forwarded to `omh setup` as --language, so the
         localized surface that carries real content stays localized; this file
@@ -36,12 +40,15 @@
       irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
 #>
 
-Set-StrictMode -Version Latest
+# Pinned rather than `Latest`: this file is fetched from main by URL and run on
+# whatever PowerShell the user has, so binding strictness to "newest the host
+# knows" would let a future release break an installer nobody edited.
+Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 $global:LASTEXITCODE = 0
 
 if ($PSVersionTable.PSVersion.Major -lt 5) {
-    [Console]::Error.WriteLine('omh installer: Windows PowerShell 5.1 or newer is required.')
+    Write-Host 'omh installer: Windows PowerShell 5.1 or newer is required.'
     exit 1
 }
 
@@ -58,9 +65,15 @@ function Get-OmhEnv {
 }
 
 function Test-OmhEnvSet {
-    <#  Mirrors sh's ${VAR+x}: was the variable assigned at all?  #>
+    <#  Mirrors sh's ${VAR+x}: assigned at all, even to the empty string.
+
+        Not IsNullOrEmpty. `OMH_PIP_ARGS=` set to empty is how an operator turns
+        OFF the implicit --user in python mode, and `OMH_VENV_DIR=` set to empty
+        is how they ask for the explicit "set it and retry" error rather than a
+        silent default. Folding empty into unset would take both away.
+    #>
     param([string]$Name)
-    return -not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($Name))
+    return $null -ne [Environment]::GetEnvironmentVariable($Name)
 }
 
 $OmhRepoArchiveRoot = Get-OmhEnv 'OMH_REPO_ARCHIVE_ROOT' 'https://github.com/rlaope/oh-my-hermes/archive/refs'
@@ -116,10 +129,15 @@ $OmhLangRaw = Get-OmhEnv 'OMH_LANG'
 if (-not $OmhLangRaw) { $OmhLangRaw = Get-OmhEnv 'OMH_LANGUAGE' }
 $OmhLangWasSet = [bool]$OmhLangRaw
 
-$OmhRuntimePython = ''
-$OmhCommandHint   = ''
-$OmhCommandPath   = ''
-$OmhPathNote      = ''
+# Explicitly script-scoped, because the functions below write them back with
+# $script: and the two sides have to name the same scope even when this file is
+# dot-sourced or wrapped by a caller.
+$script:OmhLang          = 'en'
+$script:OmhRuntimePython = ''
+$script:OmhCommandHint   = ''
+$script:OmhCommandPath   = ''
+$script:OmhPathNote      = ''
+$script:OmhExitCode      = 1
 
 $OmhInstallStepCount = if ($OmhInstallMode -eq 'python') { 1 } else { 2 }
 $OmhExposeStep = $OmhInstallStepCount + 1
@@ -141,8 +159,12 @@ $OmhUseColor = $OmhVtCapable -and (-not (Get-OmhEnv 'NO_COLOR')) -and (-not [Con
 $OmhEsc = [char]0x1B
 
 function Write-OmhLine {
+    # Write-Host rather than [Console]::Out: the ISE and the VS Code integrated
+    # console are not attached to [Console], where this installer would run to
+    # completion showing nothing at all -- including its own failure output.
+    # Write-Host still keeps these strings out of the success pipeline.
     param([string]$Text = '')
-    [Console]::Out.WriteLine($Text)
+    Write-Host $Text
 }
 
 function Get-OmhColor {
@@ -173,9 +195,17 @@ function Get-OmhStepLabel {
 }
 
 function Stop-OmhInstall {
+    <#  Throw rather than exit.
+
+        Under the documented `irm ... | iex` invocation there is no script scope
+        to unwind, so `exit` would terminate the user's shell -- taking the
+        diagnostic printed one line earlier with it. The top-level handler
+        turns this back into a process exit code when this file is run as a
+        script, which is what CI does.
+    #>
     param([string[]]$Lines)
     foreach ($line in $Lines) { Write-OmhLine $line }
-    exit 1
+    throw 'omh installer stopped.'
 }
 
 # ---------------------------------------------------------------------------
@@ -185,19 +215,17 @@ function Stop-OmhInstall {
 function Get-OmhNormalizedLang {
     <#  Same accepted spellings and same rejection as install.sh.  #>
     param([string]$Raw)
+    if ([string]::IsNullOrEmpty($Raw)) { return 'en' }
     switch -Regex ($Raw.ToLowerInvariant()) {
-        '^(|en|eng|english)$'       { return 'en' }
+        '^(en|eng|english)$'        { return 'en' }
         '^(ko|kr|kor|korean)$'      { return 'ko' }
         '^(ja|jp|jpn|japanese)$'    { return 'ja' }
         '^(zh|cn|zho|chi|chinese)$' { return 'zh' }
         default {
-            [Console]::Error.WriteLine("omh installer: unsupported OMH_LANG $Raw (expected en, ko, ja, or zh).")
-            exit 1
+            Stop-OmhInstall @("omh installer: unsupported OMH_LANG $Raw (expected en, ko, ja, or zh).")
         }
     }
 }
-
-$OmhLang = Get-OmhNormalizedLang $OmhLangRaw
 
 # English-only by design; see the OMH_LANG note in the file header.
 $OmhMessages = @{
@@ -232,16 +260,21 @@ function Get-OmhMessage {
 function Invoke-OmhCapture {
     <#  Run a native command, capture merged stdout+stderr, return exit code.  #>
     param([string]$FilePath, [string[]]$Arguments = @())
+    $output = ''
+    $code = 0
     # PowerShell 7.3+ turns native stderr into a terminating error under
-    # $ErrorActionPreference='Stop' when merged with 2>&1, so the merge has to
-    # happen with the preference relaxed.
-    $previous = $ErrorActionPreference
+    # $ErrorActionPreference='Stop' when merged with 2>&1. The assignment below
+    # is function-local and discarded on return; it is here to relax the merge,
+    # not to protect the caller's value, which never changes.
     $ErrorActionPreference = 'Continue'
     try {
         $output = & $FilePath @Arguments 2>&1 | Out-String
         $code = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $previous
+    } catch {
+        # A missing executable throws rather than exiting non-zero, and the
+        # caller's job is to report a failed step, not to leak a stack trace.
+        $code = 1
+        $output = $_.Exception.Message
     }
     if ($null -eq $output) { $output = '' }
     if ($null -eq $code) { $code = 0 }
@@ -263,28 +296,35 @@ function Invoke-OmhStep {
             if ($line) { Write-OmhLine ('      ' + $line) }
         }
     }
-    exit 1
+    throw 'omh installer stopped.'
 }
 
 function Invoke-OmhCli {
     <#  install.sh run_omh: always the interpreter, never the exposed shim.  #>
     param([string[]]$Arguments)
-    $previous = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    try {
-        & $OmhRuntimePython -m omh.cli @Arguments
-        $code = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $previous
+    & $OmhRuntimePython -m omh.cli @Arguments
+    $code = $LASTEXITCODE
+    if ($code -ne 0) {
+        # Propagate omh's own status, the way install.sh's `set -e` does.
+        $script:OmhExitCode = $code
+        throw "omh exited with status $code."
     }
-    if ($code -ne 0) { exit $code }
 }
 
 function Split-OmhArgString {
-    <#  install.sh leans on shell word splitting for the operator escape hatches.  #>
+    <#  install.sh leans on shell word splitting for the operator escape hatches.
+
+        The leading commas matter: a bare `return @()` writes an EMPTY
+        COLLECTION to the pipeline, which emits nothing, so the caller receives
+        $null. `@(...) + $null` then appends a null element, which [string[]]
+        turns into '' and PowerShell 7 passes to pip as a literal empty
+        argument -- breaking the default install. The comma operator returns the
+        array itself instead of enumerating it.
+    #>
     param([string]$Value)
-    if (-not $Value) { return @() }
-    return @($Value -split '\s+' | Where-Object { $_ })
+    if (-not $Value) { return ,@() }
+    return ,@($Value -split '\s+' | Where-Object { $_ })
 }
 
 # ---------------------------------------------------------------------------
@@ -293,7 +333,7 @@ function Split-OmhArgString {
 
 function Resolve-OmhPython {
     <#
-        Return a usable Python 3.11+ command, or exit with guidance.
+        Return a usable Python 3.11+ command, or stop with guidance.
 
         The version probe is not caution carried over from install.sh, which has
         none: on Windows, `python` and `python3` routinely resolve to the
@@ -304,28 +344,29 @@ function Resolve-OmhPython {
     $explicit = Get-OmhEnv 'OMH_PYTHON'
     if ($explicit) { $candidates = @($explicit) } else { $candidates = @('py', 'python', 'python3') }
 
+    $rejected = @()
     foreach ($candidate in $candidates) {
         if (-not (Get-Command $candidate -ErrorAction SilentlyContinue)) { continue }
         # Single quotes inside the snippet on purpose: Windows PowerShell 5.1
         # mangles embedded double quotes when building a native command line.
         $probe = Invoke-OmhCapture -FilePath $candidate -Arguments @('-c', 'import sys; print(''%d.%d'' % sys.version_info[:2])')
         if ($probe.ExitCode -ne 0) { continue }
-        if ($probe.Output.Trim() -notmatch '(\d+)\.(\d+)') { continue }
+        # Anchored: this is matched against arbitrary interpreter output, and a
+        # wrapper that prints a banner first would otherwise satisfy it.
+        if ($probe.Output.Trim() -notmatch '^(\d+)\.(\d+)$') { continue }
         $major = [int]$Matches[1]
         $minor = [int]$Matches[2]
         if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 11)) { return $candidate }
-        Stop-OmhInstall @(
-            "omh installer: '$candidate' is Python $major.$minor, but oh-my-hermes requires Python 3.11 or newer.",
-            'Set OMH_PYTHON to a Python 3.11+ executable and retry.'
-        )
+        # Keep looking rather than stopping here: `py` honors PY_PYTHON and
+        # py.ini, so it can land on 3.10 while `python` one slot later is 3.12.
+        $rejected += "$candidate is Python $major.$minor"
     }
 
-    $attempted = $candidates -join ', '
-    Stop-OmhInstall @(
-        "omh installer: no usable Python was found (tried: $attempted).",
-        'Install Python 3.11+ from https://www.python.org/downloads/windows/ or the Microsoft Store,',
-        'then set OMH_PYTHON to that executable and retry.'
-    )
+    $lines = @("omh installer: no usable Python 3.11+ was found (tried: $($candidates -join ', ')).")
+    foreach ($reason in $rejected) { $lines += "  $reason" }
+    $lines += 'Install Python 3.11+ from https://www.python.org/downloads/windows/ or the Microsoft Store,'
+    $lines += 'then set OMH_PYTHON to that executable and retry.'
+    Stop-OmhInstall $lines
 }
 
 # ---------------------------------------------------------------------------
@@ -377,9 +418,16 @@ for directory in dirs:
             raise SystemExit(0)
 '@
 
+function Get-OmhCommandOnPath {
+    # -CommandType Application and Select -First 1: an `omh` alias or function
+    # has an empty Source, and two resolvable executables would return an array
+    # that later space-joins into one nonsense path.
+    return Get-Command 'omh' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+}
+
 function Find-OmhCommand {
     if ($OmhCommandHint -and (Test-Path -LiteralPath $OmhCommandHint)) { return $OmhCommandHint }
-    $onPath = Get-Command 'omh' -ErrorAction SilentlyContinue
+    $onPath = Get-OmhCommandOnPath
     if ($onPath) { return $onPath.Source }
 
     # A temp file rather than `python -c`: Windows PowerShell 5.1 mangles
@@ -393,6 +441,18 @@ function Find-OmhCommand {
         return ''
     } finally {
         Remove-Item -LiteralPath $probeFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-OmhShimEncoding {
+    # cmd.exe decodes a batch file with the console OEM code page, so a profile
+    # path with non-ASCII characters -- a Hangul or Kanji account name gives one
+    # -- is mojibake at execution time in any other encoding.
+    try {
+        return [System.Text.Encoding]::GetEncoding(
+            [System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage)
+    } catch {
+        return [System.Text.Encoding]::UTF8
     }
 }
 
@@ -418,15 +478,17 @@ function New-OmhCommandShim {
     New-Item -ItemType Directory -Force -Path $OmhBinDir | Out-Null
     $target = Join-Path $OmhBinDir 'omh.cmd'
     $body = Get-OmhShimBody -Source $source
+    $encoding = Get-OmhShimEncoding
 
     if (Test-Path -LiteralPath $target) {
-        $existing = [System.IO.File]::ReadAllText($target)
+        $existing = ''
+        try { $existing = [System.IO.File]::ReadAllText($target, $encoding) } catch { $existing = '' }
         if ($existing -eq $body) {
             $script:OmhCommandHint = $target
             return
         }
         if ($OmhForceLink -eq '1') {
-            [System.IO.File]::WriteAllText($target, $body)
+            [System.IO.File]::WriteAllText($target, $body, $encoding)
             $script:OmhCommandHint = $target
             return
         }
@@ -436,7 +498,7 @@ function New-OmhCommandShim {
         return
     }
 
-    [System.IO.File]::WriteAllText($target, $body)
+    [System.IO.File]::WriteAllText($target, $body, $encoding)
     $script:OmhCommandHint = $target
 }
 
@@ -444,30 +506,45 @@ function Add-OmhBinDirToPath {
     <#
         Append the bin directory to the user-scope PATH when it is missing.
 
-        User scope only: the machine PATH needs elevation and would change other
-        accounts. The process PATH is updated too, so `omh` resolves in the very
-        shell that ran the installer without reopening it.
+        Through the registry, not [Environment]::SetEnvironmentVariable: that
+        call reads the user PATH with every %VAR% already expanded and writes it
+        back as REG_SZ, permanently flattening entries other installers wrote as
+        %JAVA_HOME%\bin or %LOCALAPPDATA%\... . Adding one directory must not
+        silently rewrite the rest of somebody's PATH.
+
+        User scope only, because the machine PATH needs elevation and would
+        change other accounts.
     #>
     if ($OmhAddToPath -ne '1') { return }
     if (-not $OmhBinDir) { return }
     if (-not (Test-Path -LiteralPath $OmhBinDir)) { return }
 
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if ($null -eq $userPath) { $userPath = '' }
-    $normalized = $OmhBinDir.TrimEnd('\')
-    foreach ($entry in ($userPath -split ';' | Where-Object { $_ })) {
-        if ($entry.TrimEnd('\') -ieq $normalized) {
-            $script:OmhPathNote = 'already-present'
+    $key = $null
+    try {
+        $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+        if ($null -eq $key) {
+            $script:OmhPathNote = 'failed'
             return
         }
-    }
-
-    $updated = if ($userPath) { $userPath.TrimEnd(';') + ';' + $OmhBinDir } else { $OmhBinDir }
-    try {
-        [Environment]::SetEnvironmentVariable('Path', $updated, 'User')
+        $stored = [string]$key.GetValue(
+            'Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        $normalized = $OmhBinDir.TrimEnd('\')
+        foreach ($entry in ($stored -split ';' | Where-Object { $_ })) {
+            # Compare expanded as well as literal: an existing entry may already
+            # be spelled %LOCALAPPDATA%\omh\bin.
+            $expanded = [Environment]::ExpandEnvironmentVariables($entry).TrimEnd('\')
+            if ($expanded -ieq $normalized -or $entry.TrimEnd('\') -ieq $normalized) {
+                $script:OmhPathNote = 'already-present'
+                return
+            }
+        }
+        $updated = if ($stored) { $stored.TrimEnd(';') + ';' + $OmhBinDir } else { $OmhBinDir }
+        $key.SetValue('Path', $updated, [Microsoft.Win32.RegistryValueKind]::ExpandString)
     } catch {
         $script:OmhPathNote = 'failed'
         return
+    } finally {
+        if ($key) { $key.Dispose() }
     }
     $env:PATH = $env:PATH.TrimEnd(';') + ';' + $OmhBinDir
     $script:OmhPathNote = 'added'
@@ -479,8 +556,11 @@ function Add-OmhBinDirToPath {
 
 function Get-OmhPipArguments {
     param([string[]]$Extra = @())
-    return @('-m', 'pip', 'install', '--disable-pip-version-check', '-q', '--no-cache-dir', '--force-reinstall') +
-        $Extra + @('--upgrade', $OmhPackageUrl)
+    # The default does not apply when $null is passed explicitly, and
+    # <array> + $null appends a null element that reaches pip as ''.
+    if ($null -eq $Extra) { $Extra = @() }
+    return ,(@('-m', 'pip', 'install', '--disable-pip-version-check', '-q', '--no-cache-dir', '--force-reinstall') +
+        $Extra + @('--upgrade', $OmhPackageUrl))
 }
 
 function Install-OmhIntoVenv {
@@ -511,128 +591,137 @@ function Install-OmhIntoPython {
         -FilePath $OmhRuntimePython -Arguments (Get-OmhPipArguments -Extra $extra)
 }
 
-# ---------------------------------------------------------------------------
-# Package source resolution
-# ---------------------------------------------------------------------------
-
 function Get-OmhNormalizedTag {
     param([string]$Version)
     if ($Version.StartsWith('v')) { return $Version }
     return "v$Version"
 }
 
-$OmhRuntimePython = Resolve-OmhPython
-
-if (-not $OmhPackageUrl) {
-    switch ($OmhChannel) {
-        'preview' {
-            $OmhPackageUrl = "$OmhRepoArchiveRoot/heads/main.zip"
-            if (-not $OmhSourceRef) { $OmhSourceRef = 'main' }
-        }
-        'stable' {
-            if (-not $OmhVersion) {
-                Stop-OmhInstall @('omh installer: OMH_CHANNEL=stable requires OMH_VERSION, for example OMH_VERSION=1.0.1.')
-            }
-            $OmhTag = Get-OmhNormalizedTag $OmhVersion
-            $OmhPackageUrl = "$OmhRepoArchiveRoot/tags/$OmhTag.zip"
-            if (-not $OmhSourceRef) { $OmhSourceRef = $OmhTag }
-        }
-        'local' {
-            Stop-OmhInstall @('omh installer: OMH_CHANNEL=local requires OMH_PACKAGE_URL to point at a local archive or path accepted by pip.')
-        }
-        default {
-            Stop-OmhInstall @("omh installer: unsupported OMH_CHANNEL '$OmhChannel' (expected preview, stable, or local).")
-        }
-    }
-} elseif (-not $OmhSourceRef) {
-    switch ($OmhChannel) {
-        'local'   { $OmhSourceRef = 'local' }
-        'stable'  { $OmhSourceRef = if ($OmhVersion) { Get-OmhNormalizedTag $OmhVersion } else { 'custom-url' } }
-        'preview' { $OmhSourceRef = 'main' }
-        default   { $OmhSourceRef = 'custom-url' }
-    }
-}
-
 # ---------------------------------------------------------------------------
 # Main flow
 # ---------------------------------------------------------------------------
 
-Write-OmhHeader (Get-OmhMessage 'installer_title') (Get-OmhMessage 'installer_subtitle')
-Write-OmhNote ((Get-OmhMessage 'channel') + ': ' + $OmhChannel)
-Write-OmhNote "Source ref: $OmhSourceRef"
-Write-OmhNote ((Get-OmhMessage 'mode') + ': ' + $OmhInstallMode)
+$OmhInstallFailed = $false
+try {
+    $script:OmhLang = Get-OmhNormalizedLang $OmhLangRaw
+    $script:OmhRuntimePython = Resolve-OmhPython
 
-switch ($OmhInstallMode) {
-    'venv'   { Install-OmhIntoVenv }
-    'python' { Install-OmhIntoPython }
-    default  {
-        Stop-OmhInstall @("omh installer: unsupported OMH_INSTALL_MODE '$OmhInstallMode' (expected venv or python).")
+    if (-not $OmhPackageUrl) {
+        switch ($OmhChannel) {
+            'preview' {
+                $OmhPackageUrl = "$OmhRepoArchiveRoot/heads/main.zip"
+                if (-not $OmhSourceRef) { $OmhSourceRef = 'main' }
+            }
+            'stable' {
+                if (-not $OmhVersion) {
+                    Stop-OmhInstall @('omh installer: OMH_CHANNEL=stable requires OMH_VERSION, for example OMH_VERSION=1.0.1.')
+                }
+                $OmhTag = Get-OmhNormalizedTag $OmhVersion
+                $OmhPackageUrl = "$OmhRepoArchiveRoot/tags/$OmhTag.zip"
+                if (-not $OmhSourceRef) { $OmhSourceRef = $OmhTag }
+            }
+            'local' {
+                Stop-OmhInstall @('omh installer: OMH_CHANNEL=local requires OMH_PACKAGE_URL to point at a local archive or path accepted by pip.')
+            }
+            default {
+                Stop-OmhInstall @("omh installer: unsupported OMH_CHANNEL '$OmhChannel' (expected preview, stable, or local).")
+            }
+        }
+    } elseif (-not $OmhSourceRef) {
+        switch ($OmhChannel) {
+            'local'   { $OmhSourceRef = 'local' }
+            'stable'  { $OmhSourceRef = if ($OmhVersion) { Get-OmhNormalizedTag $OmhVersion } else { 'custom-url' } }
+            'preview' { $OmhSourceRef = 'main' }
+            default   { $OmhSourceRef = 'custom-url' }
+        }
     }
-}
 
-$OmhCommandPath = Find-OmhCommand
-if ($OmhCommandPath) {
-    Write-OmhStep (Get-OmhStepLabel $OmhExposeStep) (Get-OmhMessage 'step_expose_command')
-    Write-OmhOk $OmhCommandPath
-    if ($OmhPathNote -eq 'added') {
-        Write-OmhNote "Added '$OmhBinDir' to your user PATH."
-        Write-OmhNote 'Other shells see it after they are reopened. Set OMH_ADD_TO_PATH=0 to skip this next time.'
-    } elseif ($OmhPathNote -eq 'failed') {
-        Write-OmhNote "Could not update the user PATH. Add '$OmhBinDir' to it manually."
-    }
-    if (-not (Get-Command 'omh' -ErrorAction SilentlyContinue)) {
-        $OmhCommandDir = Split-Path -Parent $OmhCommandPath
-        Write-OmhNote "'$OmhCommandDir' is not on PATH for this shell."
-        Write-OmhNote "Add it with: `$env:PATH = `"$OmhCommandDir;`$env:PATH`""
-        Write-OmhNote "Until then, use: $OmhCommandPath setup"
-    }
-} else {
-    Write-OmhLine 'omh installer: installed the package, but could not locate the omh command.'
-    Write-OmhLine "Use '$OmhRuntimePython -m omh.cli setup' as a fallback and check the selected Python scripts directory."
-}
+    Write-OmhHeader (Get-OmhMessage 'installer_title') (Get-OmhMessage 'installer_subtitle')
+    Write-OmhNote ((Get-OmhMessage 'channel') + ': ' + $OmhChannel)
+    Write-OmhNote "Source ref: $OmhSourceRef"
+    Write-OmhNote ((Get-OmhMessage 'mode') + ': ' + $OmhInstallMode)
 
-if ($OmhRunSetup -eq '1') {
-    $OmhSetupArgv = @('setup', '--channel', $OmhChannel, '--package-url', $OmhPackageUrl, '--source-ref', $OmhSourceRef, '--command-package-updated')
-
-    if ($OmhLangWasSet) { $OmhSetupArgv += @('--language', $OmhLang) }
-    if ($OmhChannel -eq 'local' -and (Test-Path -LiteralPath $OmhPackageUrl -PathType Container)) {
-        $OmhSetupArgv += @('--source', $OmhPackageUrl)
+    switch ($OmhInstallMode) {
+        'venv'   { Install-OmhIntoVenv }
+        'python' { Install-OmhIntoPython }
+        default  {
+            Stop-OmhInstall @("omh installer: unsupported OMH_INSTALL_MODE '$OmhInstallMode' (expected venv or python).")
+        }
     }
-    if ($OmhAutoApply -eq '0')  { $OmhSetupArgv += '--skip-apply' }
-    if ($OmhVersion)            { $OmhSetupArgv += @('--version', $OmhVersion) }
-    if ($OmhWithPlugin -eq '1') { $OmhSetupArgv += '--with-plugin' }
-    if ($OmhWithMcp -eq '1')    { $OmhSetupArgv += '--with-mcp' }
-    if ($OmhScope)              { $OmhSetupArgv += @('--scope', $OmhScope) }
-    foreach ($OmhProfilePack in ($OmhProfilePacks -split ',' | Where-Object { $_ })) {
-        $OmhSetupArgv += @('--profile-pack', $OmhProfilePack)
-    }
-    foreach ($OmhSetupProfile in ($OmhSetupProfiles -split ',' | Where-Object { $_ })) {
-        $OmhSetupArgv += @('--profile', $OmhSetupProfile)
-    }
-    if ($OmhDefaultExecutor) { $OmhSetupArgv += @('--default-executor', $OmhDefaultExecutor) }
-    $OmhSetupArgv += (Split-OmhArgString $OmhSetupArgs)
 
-    Write-OmhStep (Get-OmhStepLabel $OmhSetupStep) (Get-OmhMessage 'step_setup')
-    Invoke-OmhCli $OmhSetupArgv
-
-    if ($OmhRunDoctor -eq '0') {
-        Write-OmhNote 'Skipped doctor check because OMH_RUN_DOCTOR=0.'
+    $script:OmhCommandPath = Find-OmhCommand
+    if ($OmhCommandPath) {
+        Write-OmhStep (Get-OmhStepLabel $OmhExposeStep) (Get-OmhMessage 'step_expose_command')
+        Write-OmhOk $OmhCommandPath
+        if ($OmhPathNote -eq 'added') {
+            Write-OmhNote "Added '$OmhBinDir' to your user PATH."
+            Write-OmhNote 'This shell has it now; other shells pick it up after you sign out and back in.'
+            Write-OmhNote 'Set OMH_ADD_TO_PATH=0 to skip this next time.'
+        } elseif ($OmhPathNote -eq 'failed') {
+            Write-OmhNote "Could not update the user PATH. Add '$OmhBinDir' to it manually."
+        }
+        if (-not (Get-OmhCommandOnPath)) {
+            $OmhCommandDir = Split-Path -Parent $OmhCommandPath
+            Write-OmhNote "'$OmhCommandDir' is not on PATH for this shell."
+            Write-OmhNote "Add it with: `$env:PATH = `"$OmhCommandDir;`$env:PATH`""
+            Write-OmhNote "Until then, use: $OmhCommandPath setup"
+        }
     } else {
-        Write-OmhStep (Get-OmhStepLabel $OmhDoctorStep) (Get-OmhMessage 'step_doctor')
-        if ($OmhScope) { Invoke-OmhCli @('--scope', $OmhScope, 'doctor') } else { Invoke-OmhCli @('doctor') }
+        Write-OmhLine 'omh installer: installed the package, but could not locate the omh command.'
+        Write-OmhLine "Use '$OmhRuntimePython -m omh.cli setup' as a fallback and check the selected Python scripts directory."
     }
-} elseif ($OmhAutoApply -eq '0' -or $OmhWithPlugin -eq '1' -or $OmhWithMcp -eq '1' -or $OmhScope -or
-          $OmhProfilePacks -or $OmhSetupProfiles -or $OmhDefaultExecutor -or $OmhSetupArgs -or $OmhRunDoctor -eq '0') {
-    Write-OmhNote 'Setup options were not applied because install.ps1 installs the command only by default.'
-    Write-OmhNote "Run 'omh setup' with those choices explicitly, or set OMH_RUN_SETUP=1 for advanced one-shot bootstrap."
+
+    if ($OmhRunSetup -eq '1') {
+        $OmhSetupArgv = @('setup', '--channel', $OmhChannel, '--package-url', $OmhPackageUrl, '--source-ref', $OmhSourceRef, '--command-package-updated')
+
+        if ($OmhLangWasSet) { $OmhSetupArgv += @('--language', $OmhLang) }
+        if ($OmhChannel -eq 'local' -and (Test-Path -LiteralPath $OmhPackageUrl -PathType Container)) {
+            $OmhSetupArgv += @('--source', $OmhPackageUrl)
+        }
+        if ($OmhAutoApply -eq '0')  { $OmhSetupArgv += '--skip-apply' }
+        if ($OmhVersion)            { $OmhSetupArgv += @('--version', $OmhVersion) }
+        if ($OmhWithPlugin -eq '1') { $OmhSetupArgv += '--with-plugin' }
+        if ($OmhWithMcp -eq '1')    { $OmhSetupArgv += '--with-mcp' }
+        if ($OmhScope)              { $OmhSetupArgv += @('--scope', $OmhScope) }
+        foreach ($OmhProfilePack in ($OmhProfilePacks -split ',' | Where-Object { $_ })) {
+            $OmhSetupArgv += @('--profile-pack', $OmhProfilePack)
+        }
+        foreach ($OmhSetupProfile in ($OmhSetupProfiles -split ',' | Where-Object { $_ })) {
+            $OmhSetupArgv += @('--profile', $OmhSetupProfile)
+        }
+        if ($OmhDefaultExecutor) { $OmhSetupArgv += @('--default-executor', $OmhDefaultExecutor) }
+        $OmhSetupArgv += (Split-OmhArgString $OmhSetupArgs)
+
+        Write-OmhStep (Get-OmhStepLabel $OmhSetupStep) (Get-OmhMessage 'step_setup')
+        Invoke-OmhCli $OmhSetupArgv
+
+        if ($OmhRunDoctor -eq '0') {
+            Write-OmhNote 'Skipped doctor check because OMH_RUN_DOCTOR=0.'
+        } else {
+            Write-OmhStep (Get-OmhStepLabel $OmhDoctorStep) (Get-OmhMessage 'step_doctor')
+            if ($OmhScope) { Invoke-OmhCli @('--scope', $OmhScope, 'doctor') } else { Invoke-OmhCli @('doctor') }
+        }
+    } elseif ($OmhAutoApply -eq '0' -or $OmhWithPlugin -eq '1' -or $OmhWithMcp -eq '1' -or $OmhScope -or
+              $OmhProfilePacks -or $OmhSetupProfiles -or $OmhDefaultExecutor -or $OmhSetupArgs -or $OmhRunDoctor -eq '0') {
+        Write-OmhNote 'Setup options were not applied because install.ps1 installs the command only by default.'
+        Write-OmhNote "Run 'omh setup' with those choices explicitly, or set OMH_RUN_SETUP=1 for advanced one-shot bootstrap."
+    }
+
+    Write-OmhLine
+    Write-OmhLine (Get-OmhColor '1;36' (Get-OmhMessage 'installed'))
+    if (Get-OmhCommandOnPath) {
+        Write-OmhLine (Get-OmhMessage 'next_path')
+    } elseif ($OmhCommandPath) {
+        Write-OmhLine (Get-OmhMessage 'next_command_path' $OmhCommandPath)
+    } else {
+        Write-OmhLine "Next: run '$OmhRuntimePython -m omh.cli setup' to connect OMH to Hermes, then '$OmhRuntimePython -m omh.cli doctor' to verify."
+    }
+} catch {
+    Write-OmhLine $_.Exception.Message
+    $OmhInstallFailed = $true
 }
 
-Write-OmhLine
-Write-OmhLine (Get-OmhColor '1;36' (Get-OmhMessage 'installed'))
-if (Get-Command 'omh' -ErrorAction SilentlyContinue) {
-    Write-OmhLine (Get-OmhMessage 'next_path')
-} elseif ($OmhCommandPath) {
-    Write-OmhLine (Get-OmhMessage 'next_command_path' $OmhCommandPath)
-} else {
-    Write-OmhLine "Next: run '$OmhRuntimePython -m omh.cli setup' to connect OMH to Hermes, then '$OmhRuntimePython -m omh.cli doctor' to verify."
-}
+# `exit` only when this file was run as a script, which is what CI does. Under
+# `irm ... | iex` there is no script scope, so exiting would close the user's
+# shell on top of the diagnostic they still need to read.
+if ($OmhInstallFailed -and $MyInvocation.MyCommand.Path) { exit $OmhExitCode }

@@ -1,0 +1,6 @@
+# The installers are checked byte-for-byte by tests/test_windows_install_path.py
+# and are served raw to `sh` and `iex` pipelines, so their line endings have to
+# be the same on every checkout. Without this, git's Windows autocrlf rewrites
+# install.ps1 to CRLF on checkout and the encoding gate fails on windows-latest.
+install.sh  text eol=lf
+install.ps1 text eol=lf

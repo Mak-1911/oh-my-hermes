@@ -3036,7 +3036,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             )
 
             env = {
+                # USERPROFILE alongside HOME: ntpath.expanduser reads
+                # USERPROFILE and ignores HOME, so a HOME-only fixture would
+                # send the resolver at the real user's store on Windows.
                 "HOME": str(root),
+                "USERPROFILE": str(root),
                 "XDG_DATA_HOME": "",
                 "OMH_VENV_DIR": "",
                 setup_commands.SELF_UPDATE_SKIP_ENV: "",
