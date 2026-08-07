@@ -13,6 +13,14 @@ command -v git >/dev/null || echo "MISSING: git is required for source installs"
 command -v hermes >/dev/null || echo "NOTE: Hermes Agent command not found in PATH"
 ```
 
+On native Windows, run the PowerShell equivalent instead:
+
+```powershell
+if (-not (Get-Command py -ErrorAction SilentlyContinue)) { "MISSING: Python 3.11+ is required" }
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) { "MISSING: git is required for source installs" }
+if (-not (Get-Command hermes -ErrorAction SilentlyContinue)) { "NOTE: Hermes Agent command not found in PATH" }
+```
+
 If Hermes is not available, continue only when the target environment uses a
 hosted wrapper that manages Hermes separately. Do not claim Hermes-visible
 readiness until the target Hermes runtime or wrapper has been checked.
@@ -22,6 +30,17 @@ readiness until the target Hermes runtime or wrapper has been checked.
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
 ```
+
+On native Windows:
+
+```powershell
+irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
+```
+
+Both installers accept the same `OMH_*` environment contract and leave the same
+local result. Report which one was used, because the exposed command differs: a
+symlink at `~/.local/bin/omh` on POSIX, an `omh.cmd` shim in
+`%LOCALAPPDATA%\omh\bin` on Windows.
 
 The installer prepares the local `omh` command only. It does not run setup,
 register Hermes skill directories, install profile packs, or run doctor by

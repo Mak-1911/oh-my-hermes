@@ -16,6 +16,9 @@ classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Environment :: Console",
   "Intended Audience :: Developers",
+  # Declared, not aspirational: the full test suite is an enforcing gate on
+  # windows-latest as well as ubuntu, and install.ps1 is the native installer.
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Topic :: Software Development",

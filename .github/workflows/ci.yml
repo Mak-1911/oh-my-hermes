@@ -88,3 +88,53 @@ jobs:
         run: python -m unittest discover -s tests
       - name: Compile package
         run: python -m compileall src
+      # install.ps1 cannot be parsed or executed anywhere else, so its only
+      # oracle is this job. Parse first for a precise syntax error, then run it
+      # end to end against the checkout and prove the round trip: the shim it
+      # writes must run, and `omh uninstall` must recognize that shim as its
+      # own -- the failure #848 would otherwise reintroduce.
+      - name: Windows installer syntax
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path ./install.ps1), [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
+          Write-Host 'install.ps1 parsed clean'
+      - name: Windows installer end-to-end
+        shell: pwsh
+        env:
+          OMH_CHANNEL: local
+          OMH_ADD_TO_PATH: '0'
+          OMH_RUN_SETUP: '0'
+          # Pin the interpreter to the one setup-python installed. Left to its
+          # own discovery order the installer would prefer the `py` launcher,
+          # which points at the image's bundled Python, not this job's.
+          OMH_PYTHON: python
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = Join-Path $env:RUNNER_TEMP 'omh-install-smoke'
+          $env:OMH_PACKAGE_URL = (Get-Location).Path
+          $env:OMH_VENV_DIR = Join-Path $work 'venv'
+          $env:OMH_BIN_DIR = Join-Path $work 'bin'
+          ./install.ps1
+          $shim = Join-Path $env:OMH_BIN_DIR 'omh.cmd'
+          if (-not (Test-Path $shim)) { throw "installer did not write $shim" }
+          & $shim --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'omh.cmd shim did not run' }
+      - name: Windows managed-command round trip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = Join-Path $env:RUNNER_TEMP 'omh-install-smoke'
+          $env:OMH_VENV_DIR = Join-Path $work 'venv'
+          $env:OMH_BIN_DIR = Join-Path $work 'bin'
+          $homes = @('--omh-home', (Join-Path $work 'omh-home'), '--hermes-home', (Join-Path $work 'hermes-home'))
+          $shim = Join-Path $env:OMH_BIN_DIR 'omh.cmd'
+          & $shim @homes setup | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'omh setup failed from the installed shim' }
+          $preview = & $shim @homes uninstall --dry-run --json | ConvertFrom-Json
+          if ($preview.command_package.status -ne 'would_remove') {
+            throw "uninstall did not recognize the installer-managed command: $($preview.command_package | ConvertTo-Json -Compress)"
+          }
+          Write-Host 'installer-managed command recognized on Windows'

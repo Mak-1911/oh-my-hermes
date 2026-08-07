@@ -2954,7 +2954,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(payload["command_package"]["schema_version"], "command_package_status/v1")
             self.assertEqual(payload["command_package"]["status"], "not_updated")
             self.assertFalse(payload["command_package"]["updated"])
-            self.assertIn("install.sh", payload["command_package"]["update_instruction"])
+            # The instruction names the installer the host can actually run:
+            # a Windows user handed `curl ... | sh` reads it as "unsupported".
+            expected_installer = "install.ps1" if os.name == "nt" else "install.sh"
+            self.assertIn(expected_installer, payload["command_package"]["update_instruction"])
             self.assertEqual(payload["release_source_ref"], "main")
             self.assertEqual(payload["release_update"]["schema_version"], "release_update_status/v1")
             self.assertEqual(payload["release_update"]["status"], "refreshed")

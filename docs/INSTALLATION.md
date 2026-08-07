@@ -103,6 +103,101 @@ full workflow picker. This keeps the first explanation conversational while
 still exposing `omh_context_brief/v1` for adapters that want structured lanes,
 rules, and boundaries.
 
+## Windows
+
+OMH runs natively on Windows. The full test suite is an enforcing CI gate on
+`windows-latest`, not a smoke subset, so the library itself is held to the same
+standard as macOS and Linux. What follows is the install path, the config-home
+answer, and the capability boundary.
+
+### Install
+
+```powershell
+irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
+omh setup
+omh doctor
+```
+
+`install.ps1` is the PowerShell counterpart of `install.sh`. It reads the same
+`OMH_*` environment contract, resolves the package source the same way, and
+hands `omh setup` the same arguments. It requires Windows PowerShell 5.1
+(shipped with Windows 10 and 11) or newer.
+
+If you would rather not pipe a remote script into `iex`, the manual path is
+equivalent — this is what the installer automates:
+
+```powershell
+py -m venv $env:LOCALAPPDATA\omh\venv
+& $env:LOCALAPPDATA\omh\venv\Scripts\python.exe -m pip install --upgrade `
+    https://github.com/rlaope/oh-my-hermes/archive/refs/heads/main.zip
+& $env:LOCALAPPDATA\omh\venv\Scripts\omh.exe setup
+```
+
+Where it differs from `install.sh`, it differs because the platform does:
+
+| Behavior | POSIX | Windows |
+| --- | --- | --- |
+| Default venv | `~/.local/share/omh/venv` | `%LOCALAPPDATA%\omh\venv` |
+| Default command dir | `~/.local/bin` | `%LOCALAPPDATA%\omh\bin` |
+| How `omh` is exposed | symlink | `omh.cmd` shim (a symlink needs Developer Mode or elevation) |
+| PATH | hint printed | appended to the user PATH; set `OMH_ADD_TO_PATH=0` for hint-only |
+
+`OMH_ADD_TO_PATH` is the one option `install.ps1` adds. On POSIX,
+`~/.local/bin` is a convention most shells already carry on `PATH`, so
+`install.sh` only prints a hint. Windows has no equivalent convention, so a
+hint-only installer would leave every user with a command they cannot run. The
+change is user-scope, additive, announced in the installer output, and
+reversible.
+
+Installer step labels are English on Windows even when `OMH_LANG` is set.
+`OMH_LANG` is still validated and still forwarded to `omh setup` as
+`--language`, so the localized surface that carries real content stays
+localized. `install.ps1` is kept pure ASCII because Windows PowerShell 5.1
+decodes a BOM-less script as the system ANSI code page and would render
+localized labels as mojibake.
+
+### Which config home OMH targets
+
+`~/.hermes` and `~/.omh` are expanded by Python, and Python's
+`ntpath.expanduser` resolves `~` from `%USERPROFILE%` — it **ignores `HOME`** on
+native Windows:
+
+| Environment | Hermes home | OMH home |
+| --- | --- | --- |
+| Native Windows | `C:\Users\<you>\.hermes` | `C:\Users\<you>\.omh` |
+| WSL | `/home/<you>/.hermes` | `/home/<you>/.omh` |
+
+These are two separate stores on two separate filesystems. Installing under WSL
+does not give native Windows Hermes an OMH pack, and vice versa. Setting `HOME`
+in a PowerShell profile — a common carryover habit from WSL — has no effect on
+where OMH looks; use `HERMES_HOME` and `OMH_HOME` to override, which are honored
+identically on every platform. `omh doctor` reports the Hermes home it resolved,
+so run it if you are unsure which store a given shell is talking to.
+
+### POSIX-only surfaces
+
+No skill is POSIX-only. Every skill in the catalog is guidance plus `omh`
+commands, which behave identically in PowerShell and in `sh`.
+
+What is POSIX-only is a set of storage and locking primitives. These surfaces
+**fail closed** — they refuse rather than weaken their guarantee — because they
+exist to make a safety claim that Windows cannot back:
+
+| Surface | Requires | On Windows |
+| --- | --- | --- |
+| Domain intelligence store (`omh memory domain-status`, `domain-capture`, …) | `O_NOFOLLOW`, `O_DIRECTORY`, dirfd opens, `fcntl` locks | Refuses with an explicit error |
+| Domain context attachment in `omh chat route` | same | Routing works; the expert question is not attached |
+| Prompt compatibility audit (`omh ops prompt-compatibility-audit`) | dirfd-anchored traversal | Refuses to read prompt sources |
+| Plugin static risk audit (`omh ops plugin-risk-audit`) | dirfd-anchored traversal | Refuses to scan plugin source |
+| Cross-harness benchmark sandbox | Linux `bwrap` process confinement | Reports `unsupported`; no real runs |
+| `0600` / `0700` artifact permissions | POSIX mode bits | `chmod` is close to a no-op on NTFS; private artifacts are not enforced private |
+| macOS menu bar helper | Darwin + `swiftc` | Skipped, and says so |
+
+Generic record locking is **not** on that list: `local_store` uses
+`msvcrt.locking` on Windows, so shared-record updates get a real OS lock with
+the same guarantees as POSIX. See
+[Architecture](ARCHITECTURE.md) for the locking model.
+
 ## What Setup Changes
 
 OMH's setup footprint is intentionally bounded:

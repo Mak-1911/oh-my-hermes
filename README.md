@@ -131,6 +131,13 @@ curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh
 omh setup
 ```
 
+**On Windows (PowerShell 5.1+):**
+
+```powershell
+irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
+omh setup
+```
+
 <br>
 
 **Hermes skill tap path:**

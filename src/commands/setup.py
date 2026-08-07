@@ -54,6 +54,7 @@ from ..mcp_bridge import MCP_HOST_CONFIG_RECIPE_HOSTS
 from ..plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
 from ..plugin_pack import PLUGIN_NAME, PluginPackError, install_plugin_bundle
 from ..probe import probe_capabilities
+from ..paths import managed_command_venv_dir
 from ..release import RELEASE_CHANNELS, package_url_for
 from ..routing.recommend import recommend_skills
 from ..routing.route_plan import build_workflow_route_plan, compact_workflow_route_plan
@@ -76,7 +77,18 @@ from ..team_profiles import (
 from .common import _action_label, _paths, _print_json, _wants_json
 from .language import LANGUAGE_CODES, language_from_env, normalize_language, tr
 
-INSTALLER_COMMAND = "curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh"
+POSIX_INSTALLER_COMMAND = "curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh"
+WINDOWS_INSTALLER_COMMAND = "irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex"
+
+
+def installer_command() -> str:
+    """The installer one-liner for the host this command is running on.
+
+    A Windows user told to run `curl ... | sh` has been handed something their
+    shell cannot execute, which reads as "OMH does not support this platform"
+    rather than "wrong line was printed".
+    """
+    return WINDOWS_INSTALLER_COMMAND if os.name == "nt" else POSIX_INSTALLER_COMMAND
 COMMAND_PACKAGE_STATUS_SCHEMA_VERSION = "command_package_status/v1"
 RELEASE_UPDATE_SCHEMA_VERSION = "release_update_status/v1"
 SETUP_OPERATOR_SUMMARY_SCHEMA_VERSION = "setup_operator_summary/v1"
@@ -275,7 +287,7 @@ def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, obj
         "release": release,
         "python": managed["python"],
         "venv_dir": managed["venv_dir"],
-        "reason": "running from install.sh-managed command package venv",
+        "reason": "running from installer-managed command package venv",
     }
 
 
@@ -335,31 +347,18 @@ def _reentry_argv_with_command_package_updated() -> list[str]:
 
 
 def _managed_command_runtime() -> dict[str, object]:
-    venv_dir = _managed_command_venv_dir()
+    venv_dir = managed_command_venv_dir()
     if venv_dir is None:
-        return {"managed": False, "reason": "HOME or OMH_VENV_DIR is not available"}
+        return {"managed": False, "reason": "no home directory or OMH_VENV_DIR is available"}
     executable = Path(sys.executable).expanduser()
     if not _is_relative_to_without_resolving_symlinks(executable, venv_dir):
         return {
             "managed": False,
-            "reason": "current omh command is not running from the install.sh-managed OMH venv",
+            "reason": "current omh command is not running from the installer-managed OMH venv",
             "python": str(executable.resolve()),
             "venv_dir": str(venv_dir),
         }
     return {"managed": True, "reason": "", "python": str(executable), "venv_dir": str(venv_dir)}
-
-
-def _managed_command_venv_dir() -> Path | None:
-    explicit = os.environ.get("OMH_VENV_DIR")
-    if explicit:
-        return Path(explicit).expanduser().resolve()
-    xdg_data_home = os.environ.get("XDG_DATA_HOME")
-    if xdg_data_home:
-        return (Path(xdg_data_home).expanduser() / "omh" / "venv").resolve()
-    home = os.environ.get("HOME")
-    if home:
-        return (Path(home).expanduser() / ".local" / "share" / "omh" / "venv").resolve()
-    return None
 
 
 def _is_relative_to(path: Path, parent: Path) -> bool:
@@ -429,7 +428,7 @@ def _command_package_status_for_install(
         "updated": updated,
         "source": _command_package_source(command_package_updated=command_package_updated, source=source),
         "reason": reason,
-        "update_instruction": INSTALLER_COMMAND,
+        "update_instruction": installer_command(),
     }
 
 
@@ -770,16 +769,16 @@ def _command_package_status_for_uninstall(result: dict[str, object]) -> dict[str
 
     if dry_run and would_remove:
         status = "would_remove"
-        reason = "dry run found install.sh-managed command package paths"
+        reason = "dry run found installer-managed command package paths"
     elif removed:
         status = "removed"
-        reason = "removed install.sh-managed command package paths"
+        reason = "removed installer-managed command package paths"
     elif kept_items:
         status = "kept"
         reason = _first_kept_reason(kept_items)
     elif removal_requested:
         status = "not_found"
-        reason = "command package removal was requested, but no install.sh-managed command package paths were found"
+        reason = "command package removal was requested, but no installer-managed command package paths were found"
     else:
         status = "not_requested"
         reason = "command package removal was not requested"
@@ -2167,7 +2166,7 @@ def _print_install_summary(payload: dict[str, object], *, command: str, language
     elif label == "update":
         print(f"  {tr(language, 'update_next')}")
         if source == "builtin" and not (isinstance(command_package, dict) and command_package.get("updated")):
-            print(f"  {tr(language, 'update_command_next')}")
+            print(f"  {tr(language, 'update_command_next', command=installer_command())}")
     else:
         print(f"  {tr(language, 'install_next')}")
     print(f"  {tr(language, 'machine_readable')}")
@@ -3155,7 +3154,7 @@ def _add_top_level_commands(sub) -> None:
     uninstall.add_argument("--remove-files", action="store_true", help="Legacy mode: remove Hermes registration and the managed OMH home directory.")
     uninstall.add_argument("--all", action="store_true", help="Remove all OMH-managed local state, plugin bundle, and generated team role files.")
     uninstall.add_argument("--purge", action="store_true", help="Alias for --all.")
-    uninstall.add_argument("--keep-command", action="store_true", help="Keep the install.sh-managed omh command venv/link during full cleanup.")
+    uninstall.add_argument("--keep-command", action="store_true", help="Keep the installer-managed omh command venv/shim during full cleanup.")
     uninstall.add_argument("--force", action="store_true", help="Also remove an unmanaged ~/.hermes/plugins/omh directory when using --all.")
     uninstall.add_argument("--dry-run", action="store_true")
     uninstall.add_argument("--json", action="store_true", help="Print the machine-readable uninstall payload.")
