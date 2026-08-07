@@ -90,16 +90,27 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import secrets
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Final
 
-from ..system.local_store import ensure_dir, ensure_file, file_lock, read_jsonl_objects, utc_now
-from ..system.metadata_safety import is_sensitive_metadata_text, require_opaque_metadata_ref
+from ..system.append_only_store import (
+    RAW_OR_HIDDEN_KEYS,
+    append_sidecar_line,
+    append_store_line,
+    closed_vocabulary_value,
+    latest_record_in,
+    mint_record_id,
+    opaque_ref,
+    record_fingerprint,
+    redacted_ref,
+    reference_errors,
+    store_errors,
+)
+from ..system.local_store import file_lock, read_jsonl_objects, utc_now
+from ..system.metadata_safety import is_sensitive_metadata_text
 from ..system.paths import OmhPaths
 
 
@@ -335,42 +346,9 @@ _EXECUTION_CLAIM_KEYS: Final[frozenset[str]] = frozenset(
     }
 )
 
-# Mirrors the guard in `external_effect_receipts`: these are how raw model
-# output and private payloads arrive, so they are refused by name as well as by
-# the closed key set.
-_RAW_OR_HIDDEN_KEYS: Final[frozenset[str]] = frozenset(
-    {
-        "analysis",
-        "body",
-        "body_text",
-        "chain_of_thought",
-        "conversation",
-        "cot",
-        "hidden",
-        "hidden_reasoning",
-        "message",
-        "payload",
-        "prompt",
-        "raw",
-        "raw_log",
-        "raw_logs",
-        "raw_message",
-        "raw_output",
-        "raw_payload",
-        "raw_prompt",
-        "reasoning",
-        "stderr",
-        "stdout",
-        "think",
-        "thinking",
-        "transcript",
-        "url",
-    }
-)
+# The store label every error line and every reference fault is reported under.
+_LABEL: Final[str] = "approval_receipt"
 
-# A reference that navigates somewhere is not an opaque identifier. Same three
-# markers `external_effect_receipts` draws the line at.
-_URL_SHAPED: Final[tuple[str, ...]] = ("://", "?", "#")
 # A scope must name something inside the workspace. `require_opaque_metadata_ref`
 # already refuses a leading `/` or `~` (the first character must be alphanumeric)
 # and every backslash, so what is left is the parent traversal and the Windows
@@ -490,7 +468,7 @@ def validate_approval_receipt(record: dict[str, Any]) -> list[str]:
             "approval_receipt must not carry execution-claim keys: "
             f"{claims_execution}; consent is not an attempt and not an outcome"
         )
-    forbidden = sorted(key for key in record if str(key).lower() in _RAW_OR_HIDDEN_KEYS)
+    forbidden = sorted(key for key in record if str(key).lower() in RAW_OR_HIDDEN_KEYS)
     if forbidden:
         errors.append(f"approval_receipt must not carry raw or hidden keys: {forbidden}")
     extra_keys = sorted(set(record) - set(APPROVAL_RECEIPT_KEYS) - set(claims_execution) - set(forbidden))
@@ -512,9 +490,9 @@ def validate_approval_receipt(record: dict[str, Any]) -> list[str]:
     if record.get("claim_boundary") != CLAIM_BOUNDARY:
         errors.append("approval_receipt claim_boundary must state the approval boundary")
     for field in _REQUIRED_APPROVAL_REFS:
-        errors.extend(_reference_errors(record.get(field), field=field, required=True))
+        errors.extend(reference_errors(record.get(field), field=field, label=_LABEL, required=True))
     for field in _OPTIONAL_APPROVAL_REFS:
-        errors.extend(_reference_errors(record.get(field), field=field, required=False))
+        errors.extend(reference_errors(record.get(field), field=field, label=_LABEL, required=False))
     errors.extend(_scope_ref_errors(record.get("scope_ref")))
     if str(record.get("receipt_id", "")) and str(record.get("receipt_id", "")) == str(
         record.get("supersedes_receipt_ref", "")
@@ -544,7 +522,7 @@ def append_approval_receipt(paths: OmhPaths, record: dict[str, Any]) -> dict[str
     # both POSIX and Windows, and this store's mutual exclusion has to be a
     # property CI can assert on either platform.
     with file_lock(path, private=True):
-        _append_store_line(path, record)
+        append_store_line(path, record)
     return record
 
 
@@ -750,10 +728,7 @@ def latest_receipt_in(
     validator and the satisfaction predicate from picking different receipts for
     one question and reaching opposite conclusions about it.
     """
-    matches = [
-        dict(receipt) for receipt in receipts if str(receipt.get("approval_id", "")) == str(approval_id_value)
-    ]
-    return matches[-1] if matches else {}
+    return dict(latest_record_in(receipts, key="approval_id", value=str(approval_id_value)))
 
 
 def approval_age_seconds(decided_at: str, now: str = "") -> int:
@@ -887,21 +862,20 @@ def validate_approval_receipt_store(path: Path, *, run_id: str | None = None) ->
     happened to be validated while it sat there.
     """
     receipts, read_errors = read_jsonl_objects(path)
-    indexed = [
-        (index, receipt)
-        for index, receipt in enumerate(receipts, start=1)
-        if run_id is None or str(receipt.get("run_id", "")) == run_id
-    ]
-    errors: list[str] = list(read_errors) if run_id is None else []
-    for index, receipt in indexed:
-        errors.extend(f"{path}:{index}: {error}" for error in validate_approval_receipt(receipt))
-    errors.extend(_supersede_chain_errors(path, receipts, run_id=run_id))
+    receipt_count, errors = store_errors(
+        path,
+        receipts,
+        read_errors,
+        run_id=run_id,
+        validate_record=validate_approval_receipt,
+        label=_LABEL,
+    )
     return {
         "schema_version": APPROVAL_RECEIPT_STORE_VALIDATION_SCHEMA_VERSION,
         "path": str(path),
         "run_id": run_id or "",
         "ok": not errors,
-        "receipt_count": len(indexed),
+        "receipt_count": receipt_count,
         "mint_failure_count": len(read_approval_mint_failures(path)),
         "errors": errors,
     }
@@ -948,16 +922,7 @@ def compact_approval_receipt(receipt: Mapping[str, Any], *, now: str = "") -> di
 
 def redacted_approval_ref(value: str) -> str:
     """Fold any handle into a bounded, non-navigable receipt reference."""
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    if _is_url_shaped(text) or is_sensitive_metadata_text(text):
-        return _digest_ref(text)
-    try:
-        require_opaque_metadata_ref(text, field="approval_ref")
-    except ValueError:
-        return _digest_ref(text)
-    return text
+    return redacted_ref(value, field="approval_ref")
 
 
 def closed_approval_value(value: Any, allowed: tuple[str, ...]) -> str:
@@ -967,8 +932,7 @@ def closed_approval_value(value: Any, allowed: tuple[str, ...]) -> str:
     outside the vocabulary is not a new state, it is a value with no meaning, so
     it renders empty rather than as itself.
     """
-    text = str(value or "")
-    return text if text in allowed else ""
+    return closed_vocabulary_value(value, allowed)
 
 
 def _record_approval(
@@ -1019,35 +983,8 @@ def _record_approval(
             # an approval that refuses one line later.
             if str(prior.get("decision", "")) != "granted" or not approval_is_expired(prior, now):
                 return prior, False
-        _append_store_line(path, record)
+        append_store_line(path, record)
     return record, True
-
-
-def _append_store_line(path: Path, record: dict[str, Any]) -> None:
-    """Append one line, terminating a torn tail first.
-
-    A short write leaves a partial line with no trailing newline. Appending
-    straight onto it concatenates two records into one unparseable line and
-    loses both, so the tail byte is checked and a newline is written first when
-    it is missing. The torn line stays on disk as one corrupt line the store
-    validator reports; the new record survives as its own.
-
-    Binary mode on purpose: Windows text mode would rewrite ``\\n`` as ``\\r\\n``
-    and make the tail check platform-dependent.
-    """
-    ensure_dir(path.parent, private=True)
-    ensure_file(path, private=True)
-    payload = json.dumps(record, sort_keys=True).encode("utf-8") + b"\n"
-    with path.open("r+b") as handle:
-        handle.seek(0, os.SEEK_END)
-        if handle.tell():
-            handle.seek(-1, os.SEEK_END)
-            if handle.read(1) != b"\n":
-                payload = b"\n" + payload
-        handle.seek(0, os.SEEK_END)
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
 
 
 def _mint_failure(
@@ -1083,20 +1020,7 @@ def _mint_failure(
 
 
 def _append_mint_failure(store_path: Path, failure: dict[str, Any]) -> None:
-    path = approval_mint_failures_path(store_path)
-    try:
-        # The same lock the receipt appends take, on this log's own sidecar. It
-        # is the record that has to survive when things are already going wrong,
-        # so two flows failing at once must not interleave and lose a line. The
-        # lock is never held while the receipt store's lock is: a mint failure
-        # is raised out of that block before this runs.
-        with file_lock(path, private=True):
-            _append_store_line(path, failure)
-    except OSError:
-        # The failure log lives next to the store, so the same outage that lost
-        # the receipt can lose this line too. The mint result the caller already
-        # holds is the record of last resort; there is nothing further to try.
-        return
+    append_sidecar_line(approval_mint_failures_path(store_path), failure)
 
 
 def _lifecycle_verdict(
@@ -1257,63 +1181,9 @@ def _decision_payload(
     }
 
 
-def _supersede_chain_errors(
-    path: Path,
-    receipts: list[dict[str, Any]],
-    *,
-    run_id: str | None,
-) -> list[str]:
-    """Reject every shape a supersede chain must not take.
-
-    A chain is a line, not a graph: a receipt cannot supersede itself, cannot
-    supersede a receipt that does not already exist, and cannot supersede a
-    receipt something else already superseded. A fork means two answers to one
-    confirmation both believe they replaced the same predecessor, which makes
-    "the current answer" ambiguous -- and an ambiguous approval is the one thing
-    a consent record must never be.
-
-    Every receipt in the store is walked even when the report is scoped to one
-    run, so a link into a receipt outside the scope is still a link into a
-    receipt that exists. Only faults on in-scope receipts are reported: scoping
-    a report must never invent a broken chain.
-    """
-    seen: set[str] = set()
-    successors: dict[str, str] = {}
-    errors: list[str] = []
-    for index, receipt in enumerate(receipts, start=1):
-        in_scope = run_id is None or str(receipt.get("run_id", "")) == run_id
-        receipt_id = str(receipt.get("receipt_id", ""))
-        if receipt_id and receipt_id in seen and in_scope:
-            errors.append(f"{path}:{index}: approval_receipt receipt_id is not unique: {receipt_id}")
-        superseded = str(receipt.get("supersedes_receipt_ref", ""))
-        if superseded:
-            if superseded == receipt_id:
-                if in_scope:
-                    errors.append(
-                        f"{path}:{index}: approval_receipt supersedes_receipt_ref must not name itself: {receipt_id}"
-                    )
-            elif superseded not in seen:
-                if in_scope:
-                    errors.append(
-                        f"{path}:{index}: approval_receipt supersedes_receipt_ref does not name an earlier "
-                        f"receipt: {superseded}"
-                    )
-            elif superseded in successors:
-                if in_scope:
-                    errors.append(
-                        f"{path}:{index}: approval_receipt supersedes_receipt_ref forks the chain: "
-                        f"{superseded} is already superseded by {successors[superseded]}"
-                    )
-            else:
-                successors[superseded] = receipt_id
-        seen.add(receipt_id)
-    return errors
-
-
 def _decision_fingerprint(receipt: Mapping[str, Any]) -> str:
     """Which answer a receipt records, ignoring when it was recorded."""
-    identity = {key: receipt.get(key) for key in _DECISION_IDENTITY_KEYS}
-    return hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    return record_fingerprint(receipt, _DECISION_IDENTITY_KEYS)
 
 
 def _parse_stamp(value: str) -> datetime | None:
@@ -1327,22 +1197,8 @@ def _parse_stamp(value: str) -> datetime | None:
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
 
 
-def _reference_errors(value: Any, *, field: str, required: bool) -> list[str]:
-    if not isinstance(value, str):
-        return [f"approval_receipt {field} must be a string"]
-    if not value:
-        return [f"approval_receipt {field} is required"] if required else []
-    if _is_url_shaped(value):
-        return [f"approval_receipt {field} must be an opaque identifier, not a URL"]
-    try:
-        require_opaque_metadata_ref(value, field=f"approval_receipt {field}")
-    except ValueError as exc:
-        return [str(exc)]
-    return []
-
-
 def _scope_ref_errors(value: Any) -> list[str]:
-    errors = _reference_errors(value, field="scope_ref", required=True)
+    errors = reference_errors(value, field="scope_ref", label=_LABEL, required=True)
     if errors or not isinstance(value, str):
         return errors
     if _SCOPE_TRAVERSAL.search(value):
@@ -1361,23 +1217,7 @@ def _scope_ref(value: str) -> str:
 
 
 def _opaque(value: str, *, field: str) -> str:
-    text = str(value or "").strip()
-    if not text:
-        raise ApprovalReceiptError(f"{field} is required")
-    if _is_url_shaped(text):
-        raise ApprovalReceiptError(f"{field} must be an opaque identifier, not a URL")
-    try:
-        return require_opaque_metadata_ref(text, field=field)
-    except ValueError as exc:
-        raise ApprovalReceiptError(str(exc)) from exc
-
-
-def _is_url_shaped(value: str) -> bool:
-    return any(marker in value for marker in _URL_SHAPED)
-
-
-def _digest_ref(value: str) -> str:
-    return f"ref-{hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]}"
+    return opaque_ref(value, field=field, error=ApprovalReceiptError)
 
 
 def _bounded_error(value: str) -> str:
@@ -1391,13 +1231,7 @@ def _bounded_error(value: str) -> str:
 
 
 def _receipt_id(decided_at: str, approval_id_value: str, decision: str) -> str:
-    # Random tail for the same reason `external_effect_receipts._receipt_id`
-    # carries one: `utc_now()` has second resolution, so two answers to one
-    # confirmation in the same second would otherwise share an id and break the
-    # supersede chain.
-    base = json.dumps(
-        {"approval_id": approval_id_value, "decided_at": decided_at, "decision": decision},
-        sort_keys=True,
+    return mint_record_id(
+        prefix="approval-receipt",
+        identity={"approval_id": approval_id_value, "decided_at": decided_at, "decision": decision},
     )
-    digest = hashlib.sha256(base.encode("utf-8")).hexdigest()[:16]
-    return f"approval-receipt-{digest}-{secrets.token_hex(3)}"

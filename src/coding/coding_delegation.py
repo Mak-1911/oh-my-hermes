@@ -69,6 +69,7 @@ from ..isolation import build_isolation_plan
 from ..memory import validate_handoff_context_blocked, validate_handoff_context_pack, validate_project_memory_recall_pack
 from ..routing.executor_cues import contains_boundary_phrase
 from ..routing.recommend import recommend_skills
+from ..workflows.blocked_work_records import decision_from_action_gate, request_class_shape
 from ..skills.catalog import (
     CODING_INTENT_PRIORITY,
     CODING_REVIEW_TERMS,
@@ -500,6 +501,19 @@ def build_coding_delegation_payload(
             },
             "action_gate": action_gate,
             "handoff_safety_contract": handoff_safety_contract,
+            # What the recording surface needs to persist this decision, derived
+            # here because this is where the decision was made. `commands.coding`
+            # must not re-read the verdict to decide what to store: the gate is
+            # the single decision path, and a second reading of it is a second
+            # answer. Only the request's *class shape* travels -- never the
+            # request -- so this block is safe to serialize wherever the payload
+            # goes.
+            "blocked_work_decision": decision_from_action_gate(
+                action_gate,
+                owner=preflight_request.get("owner", "hermes") or "hermes",
+                safety_profile_revision=live_safety_profile_revision or "",
+                class_shape=request_class_shape(preflight_request),
+            ),
         }
     )
     if isolation_plan:

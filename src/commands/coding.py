@@ -30,6 +30,8 @@ from ..coding.project_governance import discover_project_governance
 from ..routing.intent import META_OR_FEEDBACK_INTENTS, classify_workflow_intent
 from ..routing.localization import normalized_phrase, routing_tokens
 from ..runtime.artifacts import append_journal_observation, create_prepared_coding_delegation_run, write_coding_delegation
+from ..system.paths import OmhPaths
+from ..workflows.blocked_work_records import mint_blocked_work_record
 from ..wrapper.lifecycle import (
     CodingLifecycleError,
     record_codex_dispatch,
@@ -109,6 +111,14 @@ def cmd_coding_delegate(args: argparse.Namespace) -> int:
             from ..executor_readiness import executor_choice_context
 
             payload["executor_choice_context"] = executor_choice_context(paths)
+        # The decision is recorded here, before anything decides whether a *run*
+        # is worth creating, and unconditionally on `--record`. That ordering is
+        # the whole point of the change: a denied gate collapses the selection,
+        # skips the run, writes no `coding_delegation.json`, and appends no
+        # journal event, so until now the one build whose reasoning most needed
+        # to outlive the turn was the one that left nothing behind. The store is
+        # runtime-wide precisely so it can hold a decision that has no run.
+        payload["blocked_work_record"] = _record_coding_decision(paths, payload)
         runtime_skip_reason = ""
         if args.record:
             runtime_skip_reason = _coding_delegate_record_readiness_skip_reason(
@@ -178,6 +188,34 @@ def cmd_coding_delegate(args: argparse.Namespace) -> int:
         raise OmhError(str(exc)) from exc
     _print_json(payload)
     return 0
+
+
+def _record_coding_decision(paths: OmhPaths, payload: dict[str, object]) -> dict[str, object]:
+    """Persist the gate's decision, and never fail the command over it.
+
+    `mint_blocked_work_record` returns its refusals and write failures rather
+    than raising, for the reason the approval store does: this runs after the
+    verdict has already been reached, and letting an unwritable store fail the
+    command would turn a missing record into a request that looks like it was
+    never judged.
+
+    The decision block is built by `coding.coding_delegation` from the one gate
+    verdict. Nothing is re-decided here; if the block is absent the payload came
+    from a path that reached no verdict, and there is no decision to record.
+    """
+    decision = payload.get("blocked_work_decision")
+    if not isinstance(decision, dict):
+        return {"recorded": False, "reason": "no_action_gate_verdict"}
+    return mint_blocked_work_record(
+        paths,
+        source=str(decision.get("source", "")),
+        outcome=str(decision.get("outcome", "")),
+        reason_domain=str(decision.get("reason_domain", "")),
+        reason_code=str(decision.get("reason_code", "")),
+        owner=str(decision.get("owner", "")),
+        safety_profile_revision=str(decision.get("safety_profile_revision", "")),
+        class_shape=[str(label) for label in decision.get("class_shape", []) or []],
+    )
 
 
 def _coding_delegate_runtime_skip_reason(payload: dict[str, object]) -> str:

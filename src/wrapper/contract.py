@@ -65,14 +65,17 @@ from .domain_context_attachment import (
 )
 from ..skills.expert_question_rendering import domain_expert_question_body
 from .localized_copy import (
+    SUPPORTED_COPY_LOCALES,
     chat_copy,
     consolidation_notice_line,
     detect_copy_locale,
     is_localized_locale,
+    recovery_action_copy,
     skill_picker_body as localized_skill_picker_body,
     skill_picker_headline,
 )
 from .orchestration_guidance import build_omh_orchestration_guidance
+from ..workflows.blocked_work_records import recovery_action_for
 
 
 CHAT_INTERACTION_SCHEMA_VERSION = "chat_interaction/v1"
@@ -5742,6 +5745,20 @@ def _apply_action_gate_arbitration(
     return adjusted, armed
 
 
+def _delegation_copy_locale(delegation_payload: dict[str, object]) -> str:
+    """The locale a denial card should speak: whatever the caller declared, else English.
+
+    Explicitly declared and never sniffed. A delegation payload carries no
+    request text -- the message is attached only under the full context mode,
+    and a denied build has no handoff to attach it to -- so detecting a locale
+    here would mean guessing from whatever fragment happened to survive. English
+    is this repo's documented default for user-facing output and localization is
+    opt-in, so an absent declaration is answered and not inferred.
+    """
+    declared = delegation_payload.get("copy_locale")
+    return str(declared) if declared in SUPPORTED_COPY_LOCALES else "en"
+
+
 def _action_gate_state(delegation_payload: dict[str, object]) -> dict[str, object]:
     """Render the action-gate verdict onto a card without re-deciding it.
 
@@ -5771,13 +5788,24 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
         rule_id = str(denial.get("rule_id", "")) or "safety_preflight_denied"
         field = str(denial.get("field", "")) or "message"
         correction = str(denial.get("correction", ""))
+        # The durable side of the denial, read off the decision block the
+        # delegation build already produced. The existing card is extended
+        # rather than joined by a new one: a second chat card would move
+        # `chat_card_case_count` across ten registration sites to say something
+        # this card is already the right place to say.
+        decision = _nested(delegation_payload, "blocked_work_decision")
+        recovery = str(decision.get("recovery_action", "")) or recovery_action_for(
+            str(decision.get("reason_domain", "")), str(decision.get("reason_code", ""))
+        )
+        recovery_line = recovery_action_copy(recovery, locale=_delegation_copy_locale(delegation_payload))
         return _chat_response(
             kind="clarification",
             headline="I cannot prepare this handoff under the current safety policy.",
             body=(
                 f"Rule `{rule_id}` blocked this on `{field}`. {correction} "
+                f"{recovery_line} "
                 "No coding agent was chosen, no handoff was prepared, and no confirmation is being asked for."
-            ),
+            ).replace("  ", " "),
             phase="clarifying",
             next_action="route_coding_request",
             thread_key=thread_key,
@@ -5792,6 +5820,15 @@ def build_chat_response_from_delegation(delegation_payload: dict[str, object], *
                 "executor_choice_required": False,
                 "dispatchable": False,
                 "prepared_handoff_boundary": "A denied request is not a prepared handoff.",
+                # `paused`, never a success-shaped state. The nearest such state
+                # a gate can reach is `not_required`, which says no evidence is
+                # owed; a block says work is owed and cannot proceed. Folding
+                # the two would render a refusal as a step that was skipped
+                # because nobody needed it.
+                "work_lifecycle_state": "paused",
+                "work_claim": "not_attempted",
+                "recovery_action": recovery,
+                "recovery_action_copy": recovery_line,
                 **gate_state,
             },
         )
@@ -9079,10 +9116,44 @@ def _handoff_step_state(status_payload: dict[str, Any], next_action: str) -> str
     return "pending"
 
 
+# The step states a status card can show. `blocked`, `failed`, and `cancelled`
+# are three different things and used to be one: every `_*_step_state` function
+# below mapped `{"blocked", "failed"}` onto `"blocked"`, so no step could ever
+# report a failure and the card said "something is in the way" where the truth
+# was "this ran and did not work". They are separated here because #808 AC2
+# requires blocked, failed, cancelled, and completed to stay apart wherever they
+# are shown, and a card is where they are shown.
+#
+# `not_required` is in this tuple and is the one success-shaped state a step can
+# reach without evidence. A blocked step must never fold into it: `not_required`
+# says no evidence is owed, and `blocked` says evidence is owed and cannot be
+# produced yet. `_terminal_step_state` exists so that distinction is made in one
+# place rather than five.
+STATUS_CARD_STEP_STATES = ("pending", "ready", "complete", "blocked", "failed", "cancelled", "not_required")
+
+# Which card state one recorded status means, for the statuses that are not
+# progress. Anything absent from this table is progress, not an ending.
+_TERMINAL_STEP_STATES = {
+    "blocked": "blocked",
+    "failed": "failed",
+    "cancelled": "cancelled",
+}
+
+
+def _terminal_step_state(status: str) -> str:
+    """The card state for a status that ended the step, or empty when it did not.
+
+    One table, read by every step builder, so a status cannot mean `failed` on
+    the execution row and `blocked` on the verification row.
+    """
+    return _TERMINAL_STEP_STATES.get(str(status), "")
+
+
 def _observed_step_state(value: dict[str, Any]) -> str:
     status = str(value.get("status", "not_observed"))
-    if status in {"blocked", "failed"}:
-        return "blocked"
+    terminal = _terminal_step_state(status)
+    if terminal:
+        return terminal
     if bool(value.get("observed", False)) and status == "completed":
         return "complete"
     return "pending"
@@ -9090,8 +9161,9 @@ def _observed_step_state(value: dict[str, Any]) -> str:
 
 def _verification_step_state(value: dict[str, Any]) -> str:
     status = str(value.get("status", ""))
-    if status in {"blocked", "failed"}:
-        return "blocked"
+    terminal = _terminal_step_state(status)
+    if terminal:
+        return terminal
     return "complete" if bool(value.get("observed", False)) else "pending"
 
 
@@ -9101,8 +9173,9 @@ def _gate_step_state(value: dict[str, Any], *, required: bool) -> str:
         return "not_required"
     if status == "passed":
         return "complete"
-    if status in {"failed", "blocked"}:
-        return "blocked"
+    terminal = _terminal_step_state(status)
+    if terminal:
+        return terminal
     return "pending"
 
 
@@ -9110,8 +9183,9 @@ def _merge_ready_step_state(value: dict[str, Any], next_action: str) -> str:
     status = str(value.get("status", "not_observed"))
     if next_action == "report_merge_ready" or status == "ready":
         return "complete"
-    if status in {"blocked", "failed"}:
-        return "blocked"
+    terminal = _terminal_step_state(status)
+    if terminal:
+        return terminal
     return "pending"
 
 
@@ -9119,8 +9193,9 @@ def _merged_step_state(value: dict[str, Any]) -> str:
     status = str(value.get("status", "not_observed"))
     if status == "merged":
         return "complete"
-    if status == "blocked":
-        return "blocked"
+    terminal = _terminal_step_state(status)
+    if terminal:
+        return terminal
     return "pending"
 
 

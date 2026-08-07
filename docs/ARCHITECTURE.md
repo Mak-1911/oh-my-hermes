@@ -152,6 +152,7 @@ src/
     quickstart.py
 
   system/
+    append_only_store.py
     hashutil.py
     ingress.py
     local_store.py
@@ -921,10 +922,73 @@ return `runtime.recorded=false` and should stay in wrapper/session state.
 
 `runtime/journal/approval_receipts.jsonl` is an append-only store of
 `approval_receipt/v1` records: one per answer an operator gave to a confirmation
-ladder. It is the second store in the journal directory and follows the same
+ladder. It is the second store in the journal directory and runs on the same
 mechanics as the first — JSONL appended under `local_store.file_lock`, an append
 that terminates a torn tail first, closed vocabularies everywhere including at
 render, idempotent minting, and supersession by link rather than by rewrite.
+
+Those mechanics are not copied between the two families; both call
+`system/append_only_store.py`, which owns the torn-tail-safe append, the
+supersede-chain walk, the opaque-reference guards, the digest handles, the
+identity fingerprint, and the best-effort mint-failure sidecar. What the base
+deliberately does not own is anything domain-shaped: each family keeps its own
+closed key tuple, field-class guard tables, vocabularies, schema versions,
+`CLAIM_BOUNDARY`, and predicates, because the reason the families are separate
+is that those must not converge.
+
+`runtime/journal/blocked_work_records.jsonl` is the third store, holding
+`blocked_work_record/v1` records: one per decision a gate reached about one
+request shape — blocked, allowed, cancelled, failed, or completed. It runs on
+the same base, told its own key names (`record_id`, `supersedes_record_ref`) so
+the shared supersede walk reports records rather than receipts it has none of.
+
+It exists because a denied gate used to leave nothing behind. `coding_delegation`
+collapses a denial through `denied_executor_selection()`, and `commands/coding`
+then returns `runtime.recorded=false`, so a preflight denial created no run,
+wrote no `coding_delegation.json`, and appended no journal event — and "why was
+this blocked?" had no answer once the turn ended. Most records in this store
+therefore carry an empty `run_id` by design: the decision precedes any run, which
+is why the store is runtime-wide and why per-run validation can never be its only
+check.
+
+Nothing on a record can name what was blocked. The key set is closed, there is no
+free-text field at all, and reference fields refuse anything path-shaped — the
+shared opaque-ref guard permits `/` because approval receipts store a scope path
+on purpose, and this family must not inherit that. What identifies a request is
+`request_fingerprint`, a digest of the *multiset of field classes and
+closed-vocabulary values present*, taken from `safety_preflight.FIELD_CLASSES`
+rather than restated. No caller-authored value is an input, so unlike a truncated
+sha of a filename it cannot be inverted by hashing a dictionary of candidate
+paths.
+
+`project_decision_history` (issue #806) is a projection over these records, in
+the shape of `project_external_effects` and `project_run_lifecycle` — derived,
+never stored, because a second store over one decision sequence is a fork by
+construction and the supersede walk already rejects forks. It records **allows**
+alongside blocks, which is what makes "an allow is never rendered as attempted or
+completed" a property of the `OUTCOME_WORK_CLAIMS` table that something can
+violate, rather than an accidental absence of rows.
+
+`DECISION_SOURCES` is split into enforcing and observing sources. The Hermes
+plugin hook contract has no deny channel — `pre_tool_call` returns injected
+context or `None`, and `pre_verify`'s only action value is `"continue"` — so a
+hook can mint a record *about* a block something else performed and is pinned to
+`declared_not_enforced` with a stated blocker. It cannot mint an allow at all.
+
+**What is wired, as opposed to declared.** The vocabularies above are wider than
+the lanes that use them, and reading `DECISION_SOURCES` as a coverage claim would
+be wrong. One producer mints today: `commands/coding.py`, one record per
+`omh coding delegate` build, from the single action-gate verdict through
+`decision_from_action_gate`. That reaches the `safety_preflight` and `action_gate`
+sources and their two reason domains. `approval_gate` and `runtime_claim_gate`
+**mint nothing yet**, and neither does any observing source; they are declared
+because the reason domains a record from those gates would cite are the ones it
+would have to join, and adding sources to a shipped record family is a migration.
+Two surfaces read the store: `omh runtime export` carries `decision_history`, and
+`omh runtime validate` carries the store's integrity report. There is no
+dedicated history command. `tests/test_blocked_work_records.py`
+(`CoverageIsWhatTheDocsSay`) fails when a producer or a read surface is added, so
+this paragraph cannot drift away from the wiring silently.
 
 **Why this is a record family and not a field group.** This repo refused a new
 family twice (#811, #818) because a family joins on run id and a join is where an
