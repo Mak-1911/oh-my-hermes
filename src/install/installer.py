@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -9,7 +8,13 @@ from ..core.errors import OmhError
 from ..converter import convert_from_dir
 from ..local_store import atomic_write_text, read_json_object_result
 from ..manifest import local_modifications, new_manifest, read_manifest, skill_records, write_manifest
-from ..paths import OmhPaths
+from ..paths import (
+    OmhPaths,
+    command_entry_belongs_to_venv,
+    managed_command_bin_dir,
+    managed_command_filenames,
+    managed_command_venv_dir,
+)
 from ..profiles.team import TEAM_PROFILE_SCHEMA_VERSION
 from ..skills.catalog import omh_skill_display_name
 from ..skill_pack import (
@@ -626,16 +631,16 @@ def _collect_command_package_removal(
     kept: list[dict[str, str]],
     dry_run: bool,
 ) -> None:
-    venv_dir = _managed_command_venv_dir()
+    venv_dir = managed_command_venv_dir()
     if venv_dir is None:
-        kept.append({"path": "omh", "reason": "HOME is not available, so the install.sh-managed command venv cannot be located"})
+        kept.append({"path": "omh", "reason": "no home directory is available, so the installer-managed command venv cannot be located"})
         return
     executable = Path(sys.executable).expanduser()
     if not _is_relative_to_without_resolving_symlinks(executable, venv_dir):
         kept.append(
             {
                 "path": str(executable.resolve()),
-                "reason": "current omh command is not running from the install.sh-managed OMH venv",
+                "reason": "current omh command is not running from the installer-managed OMH venv",
             }
         )
         return
@@ -645,27 +650,11 @@ def _collect_command_package_removal(
     _collect_removal(venv_dir, removed=removed, would_remove=would_remove, kept=kept, dry_run=dry_run, force=True)
 
 
-def _managed_command_venv_dir() -> Path | None:
-    explicit = os.environ.get("OMH_VENV_DIR")
-    if explicit:
-        return Path(explicit).expanduser().resolve()
-    xdg_data_home = os.environ.get("XDG_DATA_HOME")
-    if xdg_data_home:
-        return (Path(xdg_data_home).expanduser() / "omh" / "venv").resolve()
-    home = os.environ.get("HOME")
-    if home:
-        return (Path(home).expanduser() / ".local" / "share" / "omh" / "venv").resolve()
-    return None
-
-
 def _managed_command_links(venv_dir: Path) -> list[Path]:
     candidates: list[Path] = []
-    explicit_bin = os.environ.get("OMH_BIN_DIR")
-    home = os.environ.get("HOME")
-    if explicit_bin:
-        candidates.append(Path(explicit_bin).expanduser() / "omh")
-    elif home:
-        candidates.append(Path(home).expanduser() / ".local" / "bin" / "omh")
+    bin_dir = managed_command_bin_dir()
+    if bin_dir is not None:
+        candidates.extend(bin_dir / name for name in managed_command_filenames())
     which = shutil.which("omh")
     if which:
         candidates.append(Path(which))
@@ -676,11 +665,7 @@ def _managed_command_links(venv_dir: Path) -> list[Path]:
     seen: set[Path] = set()
     for candidate in candidates:
         path = candidate.expanduser()
-        try:
-            resolved = path.resolve()
-        except OSError:
-            continue
-        if path in seen or not path.is_symlink() or not _is_relative_to(resolved, venv_dir):
+        if path in seen or not command_entry_belongs_to_venv(path, venv_dir):
             continue
         seen.add(path)
         links.append(path)

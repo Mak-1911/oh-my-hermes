@@ -100,6 +100,13 @@ curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh
 omh setup
 ```
 
+**Windows（PowerShell 5.1+）の場合:**
+
+```powershell
+irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
+omh setup
+```
+
 <br>
 
 **Hermes skill tap:**

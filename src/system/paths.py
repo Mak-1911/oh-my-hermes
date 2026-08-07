@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -338,6 +339,161 @@ def default_omh_home() -> Path:
 
 def default_hermes_home() -> Path:
     return expand_path(os.environ.get("HERMES_HOME", "~/.hermes"))
+
+
+def _is_windows() -> bool:
+    """Whether the host uses Windows command and path conventions.
+
+    A named helper rather than inline `os.name == "nt"` so tests can exercise
+    the Windows branches from any host. Patching `os.name` itself is not an
+    option: `pathlib` reads it to pick a flavour and raises on the mismatch.
+    """
+    return os.name == "nt"
+
+
+def user_home() -> Path | None:
+    """The home environment variable the installers anchor their defaults on.
+
+    Deliberately not `os.environ["HOME"]` everywhere: on native Windows,
+    `ntpath.expanduser` reads `%USERPROFILE%` and ignores `HOME`, so a caller
+    that trusted HOME would look for managed state somewhere `~` never points
+    at -- and a Windows user with HOME set out of WSL habit would get two
+    different answers from `expand_path` and from that caller.
+
+    Not a general `~` resolver: with the variable unset this returns None,
+    while `expand_path("~")` still resolves through the passwd database on
+    POSIX. That is deliberate and matches the installers, which also give up
+    rather than guess a home they were not told about.
+    """
+    variable = "USERPROFILE" if _is_windows() else "HOME"
+    value = os.environ.get(variable)
+    return Path(value) if value else None
+
+
+def managed_command_venv_dir() -> Path | None:
+    """Where the installers put the isolated OMH venv, or None if unlocatable.
+
+    Mirrors the default resolution in `install.sh` and `install.ps1`; the two
+    installers and this reader have to agree or `omh update` and `omh remove`
+    cannot find what the installer just wrote.
+    """
+    explicit = os.environ.get("OMH_VENV_DIR")
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    xdg_data_home = os.environ.get("XDG_DATA_HOME")
+    if xdg_data_home:
+        return (Path(xdg_data_home).expanduser() / "omh" / "venv").resolve()
+    if _is_windows():
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return (Path(local_app_data).expanduser() / "omh" / "venv").resolve()
+    home = user_home()
+    if home:
+        return (home.expanduser() / ".local" / "share" / "omh" / "venv").resolve()
+    return None
+
+
+def managed_command_bin_dir() -> Path | None:
+    """Where the installers expose the `omh` command, or None if unlocatable."""
+    explicit = os.environ.get("OMH_BIN_DIR")
+    if explicit:
+        return Path(explicit).expanduser()
+    if _is_windows():
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data).expanduser() / "omh" / "bin"
+    home = user_home()
+    if home:
+        return home.expanduser() / ".local" / "bin"
+    return None
+
+
+def managed_command_filenames() -> tuple[str, ...]:
+    """Filenames an installer-exposed `omh` command can carry.
+
+    POSIX installs create a symlink named `omh`. Windows installs create an
+    `omh.cmd` shim, because a symlink there needs Developer Mode or elevation
+    and an installer must not require either. Windows keeps `omh` in the list
+    so an install made where symlinks *are* permitted is still recognized.
+    """
+    return ("omh.cmd", "omh") if _is_windows() else ("omh",)
+
+
+def managed_command_venv_scripts_dir(venv_dir: Path) -> Path:
+    """The venv subdirectory holding executables: `Scripts` on Windows, `bin` elsewhere."""
+    return venv_dir / ("Scripts" if _is_windows() else "bin")
+
+
+# The program a `.cmd` shim actually runs: the first quoted token that starts a
+# line. `install.ps1` writes `@echo off` then `"<venv>\Scripts\omh.exe" %*`, so
+# this picks the executable and ignores everything the line does after it.
+_SHIM_TARGET_PATTERN = re.compile(r'^\s*@?"([^"\r\n]+)"', re.MULTILINE)
+
+
+def _shim_target(body: str) -> Path | None:
+    match = _SHIM_TARGET_PATTERN.search(body)
+    return Path(match.group(1)) if match else None
+
+
+def _shim_decodings() -> tuple[str, ...]:
+    """Encodings a `.cmd` shim on disk might be in.
+
+    `install.ps1` writes the OEM code page because that is what `cmd.exe`
+    decodes a batch file with -- a profile path with non-ASCII characters, say
+    a Hangul account name, is mojibake at execution time in any other encoding.
+    Reading has to accept that as well as UTF-8, or `omh remove` would strand
+    the shim it just created for exactly those users.
+    """
+    if not _is_windows():
+        return ("utf-8",)
+    return ("mbcs", "utf-8")
+
+
+def command_entry_belongs_to_venv(path: Path, venv_dir: Path) -> bool:
+    """Was this `omh` entry created by an installer for `venv_dir`?
+
+    Two shapes, because the two installers create two different things: a
+    symlink resolving into the venv, or a `.cmd` shim naming the venv
+    executable by absolute path. Anything else -- a pip-installed console
+    script, a user's own wrapper -- is not ours to touch, and the caller
+    deletes what this returns True for, so "not sure" must read as False.
+
+    Both shapes are answered the same way: resolve the program the entry
+    ultimately runs and ask whether it lives inside the venv. Matching the
+    shim's text against the venv path instead would be both too loose and too
+    tight -- a user's wrapper that merely mentions `<venv>\\Scripts` on a PATH
+    line would match, `<venv>\\Scripts_backup` would match on the prefix, and a
+    store behind a junction would not match at all because `venv_dir` is
+    resolved while the shim carries the spelling the installer was given.
+    """
+    try:
+        if path.is_symlink():
+            return _is_relative_to(path.resolve(), venv_dir)
+        # Off Windows there is no shim shape to consider, and admitting one
+        # would hand POSIX a delete path that does not go through a symlink.
+        if not _is_windows() or path.suffix.lower() != ".cmd" or not path.is_file():
+            return False
+        raw = path.read_bytes()
+    except OSError:
+        return False
+
+    for encoding in _shim_decodings():
+        try:
+            body = raw.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+        target = _shim_target(body)
+        if target is not None and _is_relative_to(target, venv_dir):
+            return True
+    return False
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def project_omh_home(cwd: str | Path | None = None) -> Path:

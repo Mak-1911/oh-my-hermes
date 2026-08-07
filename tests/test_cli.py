@@ -2954,7 +2954,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(payload["command_package"]["schema_version"], "command_package_status/v1")
             self.assertEqual(payload["command_package"]["status"], "not_updated")
             self.assertFalse(payload["command_package"]["updated"])
-            self.assertIn("install.sh", payload["command_package"]["update_instruction"])
+            # The instruction names the installer the host can actually run:
+            # a Windows user handed `curl ... | sh` reads it as "unsupported".
+            expected_installer = "install.ps1" if os.name == "nt" else "install.sh"
+            self.assertIn(expected_installer, payload["command_package"]["update_instruction"])
             self.assertEqual(payload["release_source_ref"], "main")
             self.assertEqual(payload["release_update"]["schema_version"], "release_update_status/v1")
             self.assertEqual(payload["release_update"]["status"], "refreshed")
@@ -3033,7 +3036,16 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             )
 
             env = {
+                # USERPROFILE alongside HOME: ntpath.expanduser reads
+                # USERPROFILE and ignores HOME, so a HOME-only fixture would
+                # send the resolver at the real user's store on Windows.
+                # LOCALAPPDATA cleared for the same reason it clears
+                # XDG_DATA_HOME -- it outranks the home fallback on Windows and
+                # is always set there, so leaving it would resolve the real
+                # store instead of this fixture's.
                 "HOME": str(root),
+                "USERPROFILE": str(root),
+                "LOCALAPPDATA": "",
                 "XDG_DATA_HOME": "",
                 "OMH_VENV_DIR": "",
                 setup_commands.SELF_UPDATE_SKIP_ENV: "",
