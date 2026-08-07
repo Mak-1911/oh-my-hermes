@@ -17,7 +17,13 @@ from ..paths import OmhPaths
 OBSERVATION_EVENT_SCHEMA_VERSION = "omh_observation_event/v1"
 LIFECYCLE_PROJECTION_SCHEMA_VERSION = "omh_lifecycle_projection/v1"
 OBSERVATION_PRIVACY = "metadata_only"
-OBSERVATION_STATUSES = ("observed", "blocked", "failed", "not_observed")
+# `cancelled` is a member because the projection below already produces it:
+# `project_run_lifecycle` sets `observation_status` to "cancelled" from the
+# `cancelled` event, and `_terminal_status` already ranks it beside blocked and
+# failed. Without it here the status could be *projected* but never *recorded*,
+# so the one state that says "someone stopped this deliberately" could only
+# arrive as a side effect of an event whose own status said something else.
+OBSERVATION_STATUSES = ("observed", "blocked", "cancelled", "failed", "not_observed")
 CANONICAL_OBSERVATION_EVENTS = (
     "prepared_handoff_created",
     "plan_artifact_created",
@@ -448,6 +454,16 @@ def _fold_event(projection: dict[str, Any], event: dict[str, Any]) -> None:
     elif status == "failed":
         projection["failed"] = True
         projection["observation_status"] = "failed"
+    elif status == "cancelled":
+        # `cancelled` is a member of `OBSERVATION_STATUSES`, so an event can
+        # legally carry it. Without this branch the fold ignored the value and
+        # fell through to the `!= "observed"` return, and a run someone stopped
+        # deliberately projected as a run that had merely not got there yet --
+        # the vocabulary member was in the tuple and nothing in the code backed
+        # it. The event named `cancelled` was already handled below; a milestone
+        # event whose *status* is cancelled was not.
+        projection["cancelled"] = True
+        projection["observation_status"] = "cancelled"
     if status != "observed":
         return
     if event_name == "prepared_handoff_created":

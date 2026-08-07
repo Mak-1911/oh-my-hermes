@@ -68,6 +68,7 @@ def build_hermes_coding_harness(
     observed_events = _string_set(observation.get("observed_events"))
     blocked_events = _string_set(observation.get("blocked_events"))
     failed_events = _string_set(observation.get("failed_events"))
+    cancelled_events = _string_set(observation.get("cancelled_events"))
     unsatisfied_events = _unsatisfied_events(observation, observed_events=observed_events)
     latest_by_event = _mapping(observation.get("latest"))
     resolved_start_mode = _resolve_start_mode(start_mode, handoff=handoff, observed_events=observed_events, latest_by_event=latest_by_event)
@@ -110,6 +111,7 @@ def build_hermes_coding_harness(
         observed_events=observed_events,
         blocked_events=blocked_events,
         failed_events=failed_events,
+        cancelled_events=cancelled_events,
         unsatisfied_events=unsatisfied_events,
         projection_missing_evidence=_projection_missing_evidence(
             verification_matrix=verification_matrix,
@@ -599,11 +601,18 @@ def _harness_status(
     observed_events: set[str],
     blocked_events: set[str],
     failed_events: set[str],
+    cancelled_events: set[str],
     unsatisfied_events: set[str],
     projection_missing_evidence: set[str],
 ) -> str:
     if failed_events:
         return "failed"
+    # Ahead of `blocked`, because a cancellation is the stronger statement: a
+    # block says work is waiting on something, a cancellation says nobody is
+    # waiting any more. Without this branch a cancelled run reported
+    # `in_progress`, which is wrong in both directions at once.
+    if cancelled_events:
+        return "cancelled"
     if blocked_events:
         return "blocked"
     if "merge" in observed_events and not unsatisfied_events and not projection_missing_evidence:

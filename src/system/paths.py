@@ -79,6 +79,15 @@ class OmhPaths:
         return self.runtime_journal_dir / "approval_receipts.jsonl"
 
     @property
+    def runtime_blocked_work_records_path(self) -> Path:
+        # Runtime-wide, beside the other two stores, and emphatically not inside
+        # a run directory: the records this store exists for are minted when a
+        # gate denies *before* a delegation exists, so there is no run directory
+        # to hold them. Per-run storage would lose exactly the decisions that
+        # have no run, which are the ones #806 asks to be explainable later.
+        return self.runtime_journal_dir / "blocked_work_records.jsonl"
+
+    @property
     def runtime_plan_context_dir(self) -> Path:
         return self.runtime_dir / "plan-context"
 

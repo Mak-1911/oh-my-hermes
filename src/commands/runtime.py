@@ -42,7 +42,7 @@ from ..runtime.artifacts import (
     PRIVACY_MODES,
     REVIEW_STATUSES,
     RUN_STATUSES,
-    RUNTIME_OBSERVATION_EVENTS,
+    RUNTIME_OBSERVABLE_EVENTS,
     RUNTIME_OBSERVATION_STATUSES,
     create_run,
     export_runtime,
@@ -1162,7 +1162,11 @@ def _add_runtime_commands(sub) -> None:
     target.add_argument("--run", dest="run_id", default=None)
     target.add_argument("--session", dest="session_id", default=None)
     runtime_observe.add_argument("--runtime-profile", choices=CODING_RUNTIME_HANDOFF_TARGETS, required=True)
-    runtime_observe.add_argument("--event", choices=RUNTIME_OBSERVATION_EVENTS, required=True)
+    # The milestone ladder plus the three terminal events. Before this the CLI
+    # offered the ladder only, so `cancelled` was journalable in principle --
+    # `CANONICAL_OBSERVATION_EVENTS` has always had it -- and unreachable in
+    # practice: an in-process caller could append one and an operator could not.
+    runtime_observe.add_argument("--event", choices=RUNTIME_OBSERVABLE_EVENTS, required=True)
     runtime_observe.add_argument("--status", choices=RUNTIME_OBSERVATION_STATUSES, default="observed")
     runtime_observe.add_argument("--participants", default="")
     runtime_observe.add_argument("--worktree-ref", default="")

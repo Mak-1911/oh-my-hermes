@@ -19,7 +19,21 @@ WORK_OBSERVATION_SUMMARY_SCHEMA_VERSION = "work_observation_summary/v1"
 WORK_REPORT_MARKDOWN_EXPORT_SCHEMA_VERSION = "work_report_markdown_export/v1"
 WORK_OBSERVATION_EVENT_REF_SCHEMA_VERSION = "work_observation_event_ref/v1"
 REPORT_KINDS = ("progress", "completion", "blocker", "status")
-REPORT_STATUSES = ("prepared_not_observed", "in_progress", "completed", "blocked", "failed", "unknown")
+# `cancelled` is a member because a report whose only terminal options are
+# `completed`, `blocked`, and `failed` has to file a deliberate stop as one of
+# them, and each of the three is a different claim: `failed` says the work ran
+# and did not work, `blocked` says something is in the way, and neither is true
+# of work someone chose to stop. #808 AC2 requires the four to stay apart, and a
+# report is one of the places they are read.
+REPORT_STATUSES = (
+    "prepared_not_observed",
+    "in_progress",
+    "completed",
+    "blocked",
+    "cancelled",
+    "failed",
+    "unknown",
+)
 MAX_TITLE_CHARS = 120
 MAX_LEARNING_NOTE_CHARS = 180
 MAX_BLOCKERS = 5
@@ -58,8 +72,11 @@ _POST_PREPARED_NEXT_ACTIONS = {
 }
 _VERIFICATION_SUCCESS_STATUSES = {"passed", "satisfied", "completed", "verified"}
 _NON_PROGRESS_STATUSES = {"", "not_observed", "not_required", "pending"}
-_OBSERVATION_EVENT_STATUSES = ("observed", "blocked", "failed", "not_observed")
-_OBSERVATION_EVENT_EVIDENCE_STATUSES = {"observed", "blocked", "failed"}
+# Kept in step with `runtime.records.RUNTIME_OBSERVATION_STATUSES`. A status the
+# journal can hold and this tuple lacks is folded to `not_observed` by `_choice`,
+# which is how a cancelled event used to report as one nobody had looked at yet.
+_OBSERVATION_EVENT_STATUSES = ("observed", "blocked", "cancelled", "failed", "not_observed")
+_OBSERVATION_EVENT_EVIDENCE_STATUSES = {"observed", "blocked", "cancelled", "failed"}
 _INTERNAL_REPORT_MARKERS = (
     "[OMH Awareness]",
     "OMH Awareness Primer",
@@ -90,14 +107,21 @@ _CHECK_STATUS_ALIASES = {
     "failed": "fail",
     "failure": "fail",
     "error": "fail",
-    "cancelled": "fail",
-    "canceled": "fail",
+    # A cancelled check is not a failing check. Folding the two lost the only
+    # thing that separates "this ran and did not pass" from "nobody let it
+    # finish", and the first of those is a claim about the change under test
+    # that the second does not support.
+    "cancelled": "cancelled",
+    "canceled": "cancelled",
     "timed_out": "fail",
     "timed-out": "fail",
     "action_required": "fail",
     "startup_failure": "fail",
 }
-_CHECK_STATUS_ORDER = ("fail", "pending", "pass", "skipped", "unknown")
+# Reporting precedence. `cancelled` sits directly after `fail` because both are
+# reasons the gate is not satisfied, and ahead of `pending` because a cancelled
+# check will not resolve itself the way a pending one will.
+_CHECK_STATUS_ORDER = ("fail", "cancelled", "pending", "pass", "skipped", "unknown")
 _CHECK_WATCH_NOISE = (
     "refreshing checks status",
     "press ctrl+c to quit",
@@ -822,6 +846,11 @@ def _ko_status_sentence(title: str, status: str) -> str:
         return f"{title} 작업은 끝났어."
     if status == "blocked":
         return f"{title} 작업은 지금 막혀 있어."
+    # `cancelled` is a `REPORT_STATUSES` member, so a summary can carry it. With
+    # no branch here it fell through to the trailing "진행 중": the Korean report
+    # said the work was in progress about work someone had stopped.
+    if status == "cancelled":
+        return f"{title} 작업은 중간에 취소됐어."
     if status == "failed":
         return f"{title} 작업에서 실패가 확인됐어."
     if status == "prepared_not_observed":
@@ -836,6 +865,8 @@ def _ko_polite_status_sentence(title: str, status: str) -> str:
         return f"{title} 작업은 완료되었습니다."
     if status == "blocked":
         return f"{title} 작업은 현재 막혀 있습니다."
+    if status == "cancelled":
+        return f"{title} 작업은 중간에 취소되었습니다."
     if status == "failed":
         return f"{title} 작업에서 실패가 확인되었습니다."
     if status == "prepared_not_observed":
@@ -1109,13 +1140,13 @@ def _normalize_check_conclusion(value: str) -> str:
         return "pass"
     if normalized in {"skip", "skipped"}:
         return "skipped"
+    if normalized in {"cancelled", "canceled"}:
+        return "cancelled"
     if normalized in {
         "fail",
         "failed",
         "failure",
         "error",
-        "cancelled",
-        "canceled",
         "timed_out",
         "action_required",
         "startup_failure",
@@ -1137,19 +1168,19 @@ def _english_check_line(row: dict[str, str]) -> str:
 
 
 def _friendly_ko_check_summary(counts: dict[str, int]) -> str:
-    labels = {"pass": "통과", "pending": "대기 중", "fail": "실패", "skipped": "건너뜀", "unknown": "상태 미확인"}
+    labels = {"pass": "통과", "pending": "대기 중", "fail": "실패", "cancelled": "취소됨", "skipped": "건너뜀", "unknown": "상태 미확인"}
     parts = [f"{counts[status]}개 {labels[status]}" for status in _CHECK_STATUS_ORDER if counts.get(status)]
     return f"체크는 {', '.join(parts)}이야." if parts else "확인할 체크 행은 없었어."
 
 
 def _polite_ko_check_summary(counts: dict[str, int]) -> str:
-    labels = {"pass": "통과", "pending": "대기 중", "fail": "실패", "skipped": "건너뜀", "unknown": "상태 미확인"}
+    labels = {"pass": "통과", "pending": "대기 중", "fail": "실패", "cancelled": "취소됨", "skipped": "건너뜀", "unknown": "상태 미확인"}
     parts = [f"{counts[status]}개 {labels[status]}" for status in _CHECK_STATUS_ORDER if counts.get(status)]
     return f"체크는 {', '.join(parts)}입니다." if parts else "확인할 체크 행은 없습니다."
 
 
 def _ko_check_line(row: dict[str, str]) -> str:
-    labels = {"pass": "통과", "pending": "대기", "fail": "실패", "skipped": "건너뜀", "unknown": "미확인"}
+    labels = {"pass": "통과", "pending": "대기", "fail": "실패", "cancelled": "취소됨", "skipped": "건너뜀", "unknown": "미확인"}
     suffix = _check_suffix(row)
     return f"- {row['name']}: {labels.get(row['status'], row['status'])}{suffix}"
 
@@ -1297,17 +1328,25 @@ def _status_from_status_payload(status_payload: dict[str, Any]) -> str:
         "report_merge_ready",
         "report_merged",
     }
-    failed_or_blocked = _failed_or_blocked_status(execution, verification, review, ci, merge)
-    if failed_or_blocked:
-        return failed_or_blocked
-    runtime_failed_or_blocked = _runtime_failed_or_blocked_status(runtime_observation)
-    if runtime_failed_or_blocked:
-        return runtime_failed_or_blocked
+    stage_terminal = _terminal_stage_status(execution, verification, review, ci, merge)
+    if stage_terminal:
+        return stage_terminal
+    runtime_terminal = _runtime_terminal_status(runtime_observation)
+    if runtime_terminal:
+        return runtime_terminal
     runtime_terminal_requested = _runtime_terminal_requested(runtime_observation)
     if (terminal_requested or runtime_terminal_requested) and _runtime_completion_satisfied(runtime_observation):
         return "completed"
     if terminal_requested and _terminal_evidence_satisfied(execution, verification, review, ci, merge):
         return "completed"
+    # Checked ahead of the generic `surface_` fold, which returns `blocked` for
+    # everything. `summarize_runtime_observation_status` emits
+    # `surface_runtime_cancellation:` and `surface_runtime_cancelled:`, and both
+    # would otherwise have reported a cancelled run as blocked.
+    if next_action.startswith("surface_runtime_cancel"):
+        return "cancelled"
+    if next_action.startswith("surface_runtime_failed") or next_action.startswith("surface_runtime_failure"):
+        return "failed"
     if next_action.startswith("surface_") or "blocker" in next_action:
         return "blocked"
     if str(prepared.get("status", "")) == "prepared_not_observed" and not _post_prepared_work_observed(
@@ -1414,6 +1453,7 @@ def _runtime_observation_events(runtime_observation: dict[str, Any]) -> list[dic
         ("observed_events", "observed"),
         ("blocked_events", "blocked"),
         ("failed_events", "failed"),
+        ("cancelled_events", "cancelled"),
         ("not_observed_events", "not_observed"),
         ("missing_events", "not_observed"),
     ):
@@ -1434,6 +1474,7 @@ def _runtime_observation_applicable(runtime_observation: dict[str, Any]) -> bool
         _string_items(runtime_observation.get("observed_events"))
         or _string_items(runtime_observation.get("blocked_events"))
         or _string_items(runtime_observation.get("failed_events"))
+        or _string_items(runtime_observation.get("cancelled_events"))
         or _string_items(runtime_observation.get("not_observed_events"))
         or next_action in {"report_runtime_observed", "record_runtime_observation"}
         or next_action.startswith("record_runtime_observation:")
@@ -1459,26 +1500,39 @@ def _runtime_observation_event_status(record: dict[str, Any], fallback_status: s
     status = _token(record.get("status") or fallback_status)
     if status in {"observed", "completed", "passed", "satisfied", "success", "succeeded", "verified"}:
         return "observed"
-    if status in {"blocked", "failed"}:
+    if status in {"blocked", "cancelled", "failed"}:
         return status
     return "not_observed"
 
 
-def _failed_or_blocked_status(*stages: dict[str, Any]) -> str:
+def _terminal_stage_status(*stages: dict[str, Any]) -> str:
+    """The strongest ending any stage reports, or empty when none ended.
+
+    Precedence `failed` > `cancelled` > `blocked`: a failure is a claim about the
+    work, a cancellation is a claim about the decision to stop it, and a block is
+    the weakest of the three because it is the only recoverable one.
+    """
+    cancelled = False
     blocked = False
     for stage in stages:
         status = str(stage.get("status", ""))
         if status == "failed":
             return "failed"
-        if status == "blocked":
+        if status == "cancelled":
+            cancelled = True
+        elif status == "blocked":
             blocked = True
+    if cancelled:
+        return "cancelled"
     return "blocked" if blocked else ""
 
 
-def _runtime_failed_or_blocked_status(runtime_observation: dict[str, Any]) -> str:
+def _runtime_terminal_status(runtime_observation: dict[str, Any]) -> str:
+    """The same precedence over a runtime observation summary."""
     if _string_items(runtime_observation.get("failed_events")):
         return "failed"
     latest = _object(runtime_observation.get("latest"))
+    cancelled = bool(_string_items(runtime_observation.get("cancelled_events")))
     blocked = bool(_string_items(runtime_observation.get("blocked_events")))
     for record in latest.values():
         if not isinstance(record, dict):
@@ -1486,15 +1540,26 @@ def _runtime_failed_or_blocked_status(runtime_observation: dict[str, Any]) -> st
         status = _token(record.get("status") or "")
         if status == "failed":
             return "failed"
-        if status == "blocked":
+        if status == "cancelled":
+            cancelled = True
+        elif status == "blocked":
             blocked = True
+    if cancelled:
+        return "cancelled"
     return "blocked" if blocked else ""
 
 
 def _runtime_completion_satisfied(runtime_observation: dict[str, Any]) -> bool:
     if not runtime_observation:
         return False
-    if _string_items(runtime_observation.get("failed_events")) or _string_items(runtime_observation.get("blocked_events")):
+    # A cancelled milestone disqualifies completion for the same reason a failed
+    # or blocked one does: the ladder was not climbed. Leaving it out let a run
+    # whose milestone was cancelled report `completed`.
+    if (
+        _string_items(runtime_observation.get("failed_events"))
+        or _string_items(runtime_observation.get("blocked_events"))
+        or _string_items(runtime_observation.get("cancelled_events"))
+    ):
         return False
     if _string_items(runtime_observation.get("not_observed_events")) or _string_items(runtime_observation.get("missing_events")):
         return False
@@ -1546,6 +1611,7 @@ def _runtime_observation_has_progress(runtime_observation: dict[str, Any]) -> bo
         _string_items(runtime_observation.get("observed_events"))
         or _string_items(runtime_observation.get("blocked_events"))
         or _string_items(runtime_observation.get("failed_events"))
+        or _string_items(runtime_observation.get("cancelled_events"))
     )
 
 
@@ -1564,6 +1630,7 @@ def _status_phrase(status: str) -> str:
         "in_progress": "in progress",
         "completed": "completed",
         "blocked": "blocked",
+        "cancelled": "cancelled",
         "failed": "failed",
         "unknown": "at an unknown status",
     }.get(status, status.replace("_", " "))

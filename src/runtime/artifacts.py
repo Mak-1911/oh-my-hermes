@@ -46,6 +46,7 @@ from ..external_effect_receipts import (
     validate_external_effect_receipt_store,
 )
 from ..workflows.approval_receipts import validate_approval_receipt_store
+from ..workflows.blocked_work_records import decision_history, validate_blocked_work_record_store
 from ..observation_journal import (
     append_observation_event,
     merge_lifecycle_projection,
@@ -59,10 +60,14 @@ from .records import (
     EVENT_LEVELS,
     OBSERVED_RESULTS,
     OPTIONAL_APPROVAL_STORE_VALIDATORS,
+    OPTIONAL_BLOCKED_WORK_STORE_VALIDATORS,
     OPTIONAL_RECORD_VALIDATORS,
     OPTIONAL_RUNTIME_STORE_VALIDATORS,
     PRIVACY_MODES,
+    RUNTIME_BLOCK_OBSERVATION_EVENTS,
+    RUNTIME_OBSERVABLE_EVENTS,
     RUNTIME_OBSERVATION_EVENTS,
+    RUNTIME_TERMINAL_OBSERVATION_EVENTS,
     RUNTIME_OBSERVATION_SCHEMA_VERSION,
     RUNTIME_OBSERVATION_STATUSES,
     CI_STATUSES,
@@ -1093,19 +1098,44 @@ def _requested_external_effects(
 
 def summarize_runtime_observation_status(records: list[dict[str, Any]]) -> dict[str, Any]:
     latest_by_event: dict[str, dict[str, Any]] = {}
+    # Non-ladder events are kept apart from the milestone ladder. A `cancelled`
+    # is not a rung that was climbed or skipped, it is a statement that nobody
+    # is climbing any more, so folding it into `latest_by_event` would make it
+    # compete for "which milestone is next" -- a question it answers by making
+    # moot.
+    #
+    # `blocked` is collected apart from the two that end a run, because it does
+    # not end one. A block is recoverable by definition, so it may only pin
+    # `next_action` while nothing has happened since; a ladder observation
+    # recorded after it clears the pin. Ranking it beside `failed` and
+    # `cancelled` left every recovered run reporting a block it had got past.
+    terminal_events: list[dict[str, Any]] = []
+    block_events: list[dict[str, Any]] = []
+    latest_ladder_key: tuple[str, str, str, str] | None = None
     for record in records:
         if not isinstance(record, dict):
             continue
         event_type = str(record.get("event_type", ""))
+        if event_type in RUNTIME_TERMINAL_OBSERVATION_EVENTS:
+            terminal_events.append(record)
+            continue
+        if event_type in RUNTIME_BLOCK_OBSERVATION_EVENTS:
+            block_events.append(record)
+            continue
         current = latest_by_event.get(event_type)
         if event_type in RUNTIME_OBSERVATION_EVENTS and (
             current is None or _runtime_observation_sort_key(record) >= _runtime_observation_sort_key(current)
         ):
             latest_by_event[event_type] = record
+        if event_type in RUNTIME_OBSERVATION_EVENTS:
+            key = _runtime_observation_sort_key(record)
+            if latest_ladder_key is None or key > latest_ladder_key:
+                latest_ladder_key = key
 
     observed_events: list[str] = []
     blocked_events: list[str] = []
     failed_events: list[str] = []
+    cancelled_events: list[str] = []
     not_observed_events: list[str] = []
     for event_type in RUNTIME_OBSERVATION_EVENTS:
         record = latest_by_event.get(event_type)
@@ -1118,13 +1148,38 @@ def summarize_runtime_observation_status(records: list[dict[str, Any]]) -> dict[
             blocked_events.append(event_type)
         elif status == "failed":
             failed_events.append(event_type)
+        elif status == "cancelled":
+            cancelled_events.append(event_type)
         elif status == "not_observed":
             not_observed_events.append(event_type)
 
     missing_events = [event_type for event_type in RUNTIME_OBSERVATION_EVENTS if event_type not in latest_by_event]
-    unsatisfied_events = [*not_observed_events, *missing_events]
-    if failed_events:
+    # A cancelled milestone is permanently unsatisfied: nobody is going to
+    # observe it now. Leaving it out let `hermes_harness._harness_status` reach
+    # its "merge observed and nothing unsatisfied" completion check with a
+    # cancelled rung on the ladder. `blocked` and `failed` stay out because both
+    # short-circuit ahead of that check, in `next_action` here and in
+    # `_harness_status` there; `cancelled` had no such surface until now.
+    unsatisfied_events = [*not_observed_events, *missing_events, *cancelled_events]
+    terminal_event = str(terminal_events[-1].get("event_type", "")) if terminal_events else ""
+    # A block pins only while it is the last thing that happened. Any ladder
+    # observation recorded after it is evidence the run moved on.
+    standing_block = ""
+    if block_events:
+        block_key = max(_runtime_observation_sort_key(record) for record in block_events)
+        if latest_ladder_key is None or block_key > latest_ladder_key:
+            standing_block = str(block_events[-1].get("event_type", ""))
+    if terminal_event:
+        # A run that was terminated is not a run with an outstanding milestone.
+        # Reporting "record the next observation" over a cancellation is how a
+        # stopped run reads as merely incomplete.
+        next_action = f"surface_runtime_{terminal_event}:{terminal_event}"
+    elif cancelled_events:
+        next_action = f"surface_runtime_cancellation:{cancelled_events[-1]}"
+    elif failed_events:
         next_action = f"surface_runtime_failure:{failed_events[-1]}"
+    elif standing_block:
+        next_action = f"surface_runtime_blocker:{standing_block}"
     elif blocked_events:
         next_action = f"surface_runtime_blocker:{blocked_events[-1]}"
     elif unsatisfied_events:
@@ -1139,6 +1194,10 @@ def summarize_runtime_observation_status(records: list[dict[str, Any]]) -> dict[
         "observed_events": observed_events,
         "blocked_events": blocked_events,
         "failed_events": failed_events,
+        "cancelled_events": cancelled_events,
+        "terminal_events": [str(record.get("event_type", "")) for record in terminal_events],
+        "block_events": [str(record.get("event_type", "")) for record in block_events],
+        "standing_block": standing_block,
         "not_observed_events": not_observed_events,
         "missing_events": missing_events,
         "unsatisfied_events": unsatisfied_events,
@@ -1168,6 +1227,14 @@ def runtime_observation_not_applicable(reason: str) -> dict[str, Any]:
         "observed_events": [],
         "blocked_events": [],
         "failed_events": [],
+        # Carried empty rather than omitted. Three functions publish
+        # `runtime_observation_status/v1` and a reader that has to ask which one
+        # produced a payload before it knows which keys exist is reading three
+        # schemas under one version.
+        "cancelled_events": [],
+        "terminal_events": [],
+        "block_events": [],
+        "standing_block": "",
         "not_observed_events": [],
         "missing_events": [],
         "unsatisfied_events": [],
@@ -1610,12 +1677,18 @@ def _delegated_runtime_observation_status(
     latest = _object_or_empty(lifecycle.get("latest_event"))
     blocked_events = []
     failed_events = []
+    # A cancelled latest event used to land in neither list, so the only signal
+    # a stopped run left behind was `missing_events` -- and a run someone
+    # cancelled rendered exactly like a run that simply had not got there yet.
+    cancelled_events = []
     latest_event = _runtime_event_from_journal_event(str(latest.get("event", "")))
     latest_status = str(latest.get("status", ""))
     if latest_event and latest_status == "blocked":
         blocked_events.append(latest_event)
     elif latest_event and latest_status == "failed":
         failed_events.append(latest_event)
+    elif latest_event and latest_status == "cancelled":
+        cancelled_events.append(latest_event)
     missing_events = _runtime_missing_events_for_next_action(next_action)
     return {
         "schema_version": "runtime_observation_status/v1",
@@ -1625,9 +1698,13 @@ def _delegated_runtime_observation_status(
         "observed_events": observed_events,
         "blocked_events": blocked_events,
         "failed_events": failed_events,
+        "cancelled_events": cancelled_events,
+        "terminal_events": [],
+        "block_events": blocked_events,
+        "standing_block": blocked_events[0] if blocked_events else "",
         "not_observed_events": [],
         "missing_events": missing_events,
-        "unsatisfied_events": missing_events,
+        "unsatisfied_events": [*missing_events, *cancelled_events],
         "latest": {"event": latest_event, **latest} if latest_event else latest,
         "next_action": next_action,
         "claim_boundary": (
@@ -1927,6 +2004,7 @@ def validate_run_dir(
             errors.extend(f"{path}: {error}" for error in validator(record))
     errors.extend(_validate_run_external_effect_receipts(run_dir, receipts))
     errors.extend(_validate_run_approval_receipts(run_dir))
+    errors.extend(_validate_run_blocked_work_records(run_dir))
     errors.extend(_validate_run_status_gate_consistency(run_dir, receipts))
     return {"run_id": run_dir.name, "ok": not errors, "errors": errors}
 
@@ -1991,6 +2069,35 @@ def _validate_run_approval_receipts(run_dir: Path) -> list[str]:
                 continue
             errors.extend(
                 f"{store_path}[{record.get('receipt_id', '')}]: {error}" for error in validator(record)
+            )
+    return errors
+
+
+def _validate_run_blocked_work_records(run_dir: Path) -> list[str]:
+    """Schema-validate this run's blocked work records, through the registry that names them.
+
+    The same shape `_validate_run_approval_receipts` has, and the reader
+    `OPTIONAL_BLOCKED_WORK_STORE_VALIDATORS` was registered for: a registry with
+    no consumer validates nothing, which is how the approval store spent a
+    release as the one runtime store `omh runtime validate` never opened.
+
+    Records with an empty `run_id` are skipped here rather than faulted. They are
+    the decisions minted before any run existed -- a preflight denial has nothing
+    to belong to -- so they are the store's records, and `validate_runtime`
+    covers them once at store level.
+    """
+    errors: list[str] = []
+    run_id = _safe_run_id_for_dir(run_dir)
+    for name, validator in OPTIONAL_BLOCKED_WORK_STORE_VALIDATORS:
+        store_path = runtime_store_path_for_run_dir(run_dir, name)
+        if store_path is None:
+            continue
+        records, _ = read_jsonl_objects(store_path)
+        for record in records:
+            if str(record.get("run_id", "")) != run_id:
+                continue
+            errors.extend(
+                f"{store_path}[{record.get('record_id', '')}]: {error}" for error in validator(record)
             )
     return errors
 
@@ -2145,18 +2252,29 @@ def validate_runtime(paths: OmhPaths, run_id: str | None = None) -> dict[str, An
         paths.runtime_approval_receipts_path,
         run_id=run_id,
     )
+    # And the blocked-work store, for the same reason plus one of its own: most
+    # of its records carry no `run_id` at all, because the decision they record
+    # happened before a run existed. Run-scoped validation can never reach them,
+    # so this store-level call is not a second safety net for them -- it is the
+    # only one.
+    blocked_work_store_result = validate_blocked_work_record_store(
+        paths.runtime_blocked_work_records_path,
+        run_id=run_id,
+    )
     _add_duplicate_wrapper_run_link_errors(session_results, session_dirs)
     return {
         "ok": all(result["ok"] for result in results)
         and all(result["ok"] for result in session_results)
         and bool(journal_result["ok"])
         and bool(receipt_store_result["ok"])
-        and bool(approval_store_result["ok"]),
+        and bool(approval_store_result["ok"])
+        and bool(blocked_work_store_result["ok"]),
         "runs": results,
         "wrapper_sessions": session_results,
         "journal": journal_result,
         "external_effect_receipts": receipt_store_result,
         "approval_receipts": approval_store_result,
+        "blocked_work_records": blocked_work_store_result,
     }
 
 
@@ -2324,6 +2442,22 @@ def export_runtime(
         payload["redacted"] = True
     else:
         payload["redacted"] = False
+    # #806's read surface. The blocked-work store answers "why was this blocked?"
+    # after the turn, and until this line nothing in the product read it -- the
+    # store was written, validated, and never shown, so the question was
+    # answerable only by opening the JSONL by hand. It rides on the export rather
+    # than on a new command because a decision history is a view of the runtime,
+    # which is what this payload already is.
+    #
+    # Attached after `_redact` and deliberately not through it. `_redact` works
+    # by key *name*, and this projection has a `summary` key holding counts and
+    # a `source` key holding a closed vocabulary member -- both names are on the
+    # sensitive list, so running it through would replace the counts object and
+    # every decision's source with `"[redacted]"` while protecting nothing. The
+    # projection is redacted by construction instead: it has no free-text field
+    # at all, every identifier goes through `redacted_blocked_work_ref`, and
+    # every vocabulary renders empty outside its vocabulary.
+    payload["decision_history"] = decision_history(paths, run_id=run_id, limit=limit)
     return payload
 
 

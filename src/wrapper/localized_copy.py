@@ -493,6 +493,102 @@ def chat_copy(copy_id: str, *, locale: str | None = None, korean: bool | None = 
     return copy.get(selected_locale) or copy["en"]
 
 
+# One line per recovery-action id, per locale, in the `_CARD_COPY` shape and
+# with the same English fallback.
+#
+# A table of ids rather than translated corrections, on purpose. A denial's
+# `correction` comes from `safety_preflight._CORRECTIONS`, which is deliberately
+# constant-only and interpolation-free so no caller value can reach a terminal
+# through it. Translating that string would mean either a second constant table
+# keyed by the same reason codes -- a fifth explanation vocabulary -- or
+# building the localized line from the denial's fields, which is exactly the
+# interpolation the English side refuses. Keying off a closed recovery id keeps
+# the localized surface a lookup.
+_RECOVERY_ACTION_COPY: dict[str, dict[str, str]] = {
+    "declare_missing_field": {
+        "en": "Declare the missing field and send the request again.",
+        "ko": "빠진 항목을 명시한 뒤 다시 요청해 주세요.",
+        "ja": "不足している項目を明示してから、もう一度依頼してください。",
+        "zh": "补上缺少的字段后再发送一次请求。",
+        "es": "Declara el campo que falta y vuelve a enviar la solicitud.",
+        "fr": "Déclarez le champ manquant et renvoyez la demande.",
+        "de": "Deklariere das fehlende Feld und sende die Anfrage erneut.",
+    },
+    "remove_prohibited_content": {
+        "en": "Remove the credential or prohibited content and send a reference instead.",
+        "ko": "자격 증명이나 금지된 내용을 제거하고 참조값으로 대신 보내 주세요.",
+        "ja": "認証情報や禁止された内容を取り除き、参照値に置き換えてください。",
+        "zh": "移除凭据或禁止内容，改用引用值发送。",
+        "es": "Elimina la credencial o el contenido prohibido y envía una referencia en su lugar.",
+        "fr": "Retirez l'identifiant ou le contenu interdit et envoyez plutôt une référence.",
+        "de": "Entferne die Zugangsdaten oder verbotenen Inhalte und sende stattdessen eine Referenz.",
+    },
+    "narrow_declared_scope": {
+        "en": "Narrow the declared scope so it stays inside the limits and try again.",
+        "ko": "선언한 범위를 한도 안으로 좁혀서 다시 시도해 주세요.",
+        "ja": "宣言した範囲を上限内に狭めて、もう一度試してください。",
+        "zh": "把声明的范围收窄到限制以内后重试。",
+        "es": "Reduce el alcance declarado para que quede dentro de los límites e inténtalo de nuevo.",
+        "fr": "Réduisez la portée déclarée pour rester dans les limites, puis réessayez.",
+        "de": "Grenze den deklarierten Bereich auf die Limits ein und versuche es erneut.",
+    },
+    "request_approval": {
+        "en": "Ask an operator to approve this action for this scope before retrying.",
+        "ko": "다시 시도하기 전에 이 범위에 대한 작업 승인을 담당자에게 받아 주세요.",
+        "ja": "再試行の前に、この範囲に対する操作の承認を担当者から得てください。",
+        "zh": "重试前请让操作者批准此范围内的该操作。",
+        "es": "Pide a un operador que apruebe esta acción para este alcance antes de reintentar.",
+        "fr": "Demandez à un opérateur d'approuver cette action pour cette portée avant de réessayer.",
+        "de": "Lass einen Operator diese Aktion für diesen Bereich freigeben, bevor du es erneut versuchst.",
+    },
+    "record_observed_evidence": {
+        "en": "Record the observed evidence this claim needs, then ask again.",
+        "ko": "이 주장에 필요한 관측 증거를 기록한 뒤 다시 요청해 주세요.",
+        "ja": "この主張に必要な観測証跡を記録してから、もう一度依頼してください。",
+        "zh": "先记录该结论所需的观测证据，然后再次请求。",
+        "es": "Registra la evidencia observada que requiere esta afirmación y vuelve a preguntar.",
+        "fr": "Enregistrez la preuve observée requise par cette affirmation, puis redemandez.",
+        "de": "Zeichne den beobachteten Nachweis auf, den diese Aussage braucht, und frage erneut.",
+    },
+    "choose_executor": {
+        "en": "Choose a coding agent, then send the request again.",
+        "ko": "coding agent를 먼저 고른 뒤 다시 요청해 주세요.",
+        "ja": "coding agent を選んでから、もう一度依頼してください。",
+        "zh": "先选择一个 coding agent，然后再发送请求。",
+        "es": "Elige un coding agent y vuelve a enviar la solicitud.",
+        "fr": "Choisissez un coding agent, puis renvoyez la demande.",
+        "de": "Wähle einen coding agent und sende die Anfrage erneut.",
+    },
+    "no_recovery_available": {
+        "en": "No recovery is available for this decision from here.",
+        "ko": "이 결정에 대해 여기서 할 수 있는 복구 조치는 없습니다.",
+        "ja": "この判断について、ここから取れる復旧手段はありません。",
+        "zh": "对于这个决定，这里没有可用的补救方式。",
+        "es": "No hay recuperación disponible para esta decisión desde aquí.",
+        "fr": "Aucune reprise n'est possible ici pour cette décision.",
+        "de": "Für diese Entscheidung gibt es hier keine Wiederherstellung.",
+    },
+}
+
+
+def recovery_action_copy(recovery_action: str, *, locale: str | None = None, korean: bool | None = None) -> str:
+    """One localized line for a closed recovery-action id, English on any gap.
+
+    An id this table does not carry renders empty rather than as itself: the id
+    is an internal token, and printing `narrow_declared_scope` at an operator is
+    worse than printing nothing.
+    """
+    entry = _RECOVERY_ACTION_COPY.get(str(recovery_action or ""))
+    if not entry:
+        return ""
+    return entry.get(_normalize_locale(locale, korean=korean)) or entry["en"]
+
+
+def recovery_action_copy_ids() -> tuple[str, ...]:
+    """Every recovery-action id this table can render, for the coverage pin."""
+    return tuple(sorted(_RECOVERY_ACTION_COPY))
+
+
 def skill_picker_headline(*, catalog_question: bool, locale: str | None = None, korean: bool | None = None) -> str:
     selected_locale = _normalize_locale(locale, korean=korean)
     if selected_locale == "ko":

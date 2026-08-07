@@ -410,6 +410,34 @@ _CORRECTIONS: Final = {
 }
 
 
+def correction_reason_codes() -> tuple[str, ...]:
+    """Every reason code a verdict can carry, `allowed` included.
+
+    The read-only accessor a durable decision record joins on. `_CORRECTIONS`
+    stays private because it is a rendering table and not a contract, but the
+    *code set* becomes a contract the moment a record on disk cites one: a code
+    that no longer exists must be reportable as unexplainable rather than
+    silently rendered as a blank line.
+
+    `allowed` is a member because `_verdict` emits it on every pass, and a
+    decision history that records allows has to be able to cite the code its
+    own verdict carried. Its correction is empty for the obvious reason -- there
+    is nothing to correct -- which is why explainability is measured over
+    blocked entries and not over every entry.
+    """
+    return tuple(sorted(_CORRECTIONS))
+
+
+def correction_for_reason_code(reason_code: str) -> str:
+    """The constant correction line for one reason code, or empty.
+
+    Constant, never interpolated: a correction is rendered to operators, and a
+    line built from request values would be one more path for caller-controlled
+    text to reach a terminal.
+    """
+    return str(_CORRECTIONS.get(str(reason_code or ""), ""))
+
+
 # How a data-boundary limit can be enforced at all.
 #
 # `refused_before_handoff` is omh refusing to prepare the artifact, so it holds

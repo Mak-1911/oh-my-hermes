@@ -49,20 +49,25 @@ different receipts for the same effect.
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
-import re
-import secrets
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from ..system.local_store import ensure_dir, ensure_file, file_lock, read_jsonl_objects, utc_now
-from ..system.metadata_safety import (
-    is_sensitive_metadata_text,
-    require_opaque_metadata_ref,
+from ..system.append_only_store import (
+    RAW_OR_HIDDEN_KEYS,
+    append_sidecar_line,
+    append_store_line,
+    closed_vocabulary_value,
+    is_unsafe_metadata_line,
+    latest_record_in,
+    mint_record_id,
+    opaque_ref,
+    record_fingerprint,
+    redacted_ref,
+    reference_errors,
+    store_errors,
 )
+from ..system.local_store import file_lock, read_jsonl_objects, utc_now
 from ..system.paths import OmhPaths
 
 
@@ -203,51 +208,8 @@ MAX_EVIDENCE_REFS = 8
 
 REDACTED_SUMMARY = "[redacted]"
 
-# Mirrors the executor-progress guard: these key names are how raw model output
-# and private payloads arrive, so they are rejected by name as well as by the
-# closed key set.
-_RAW_OR_HIDDEN_KEYS = frozenset(
-    {
-        "analysis",
-        "body",
-        "body_text",
-        "chain_of_thought",
-        "conversation",
-        "cot",
-        "hidden",
-        "hidden_reasoning",
-        "message",
-        "payload",
-        "prompt",
-        "raw",
-        "raw_log",
-        "raw_logs",
-        "raw_message",
-        "raw_output",
-        "raw_payload",
-        "raw_prompt",
-        "reasoning",
-        "stderr",
-        "stdout",
-        "think",
-        "thinking",
-        "transcript",
-        "url",
-    }
-)
-
-# A reference that navigates somewhere is not an opaque identifier. Kept in the
-# same shape as `adapter_quality._URL`, which is where this repo first drew the
-# line between "a handle we can print" and "a link we must not".
-_URL_SHAPED = ("://", "?", "#")
-
-# The free-text guard `summary` shares with every other bounded text field in
-# this repo: `adapter_quality._safe_text` rejects the same three shapes. A URL
-# scheme or any of `/ ? #` is a link or a filesystem path; a control character
-# means the value is a transcript or a prompt rather than one metadata line.
-_UNSAFE_TEXT_URL = re.compile(r"(?i)(?:[a-z][a-z0-9+.-]*://|[/?#])")
-_UNSAFE_TEXT_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
-_UNSAFE_TEXT_WINDOWS_PATH = re.compile(r"(?:^|\s)(?:[A-Za-z]:\\|\\\\)")
+# The store label every error line and every reference fault is reported under.
+_LABEL = "external_effect_receipt"
 
 
 class ExternalEffectReceiptError(ValueError):
@@ -335,7 +297,7 @@ def validate_external_effect_receipt(record: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if not isinstance(record, dict):
         return ["external_effect_receipt must be an object"]
-    forbidden = sorted(key for key in record if str(key).lower() in _RAW_OR_HIDDEN_KEYS)
+    forbidden = sorted(key for key in record if str(key).lower() in RAW_OR_HIDDEN_KEYS)
     if forbidden:
         errors.append(f"external_effect_receipt must not carry raw or hidden keys: {forbidden}")
     extra_keys = sorted(set(record) - set(EXTERNAL_EFFECT_RECEIPT_KEYS) - set(forbidden))
@@ -370,9 +332,9 @@ def validate_external_effect_receipt(record: dict[str, Any]) -> list[str]:
     # they are rendered, and a citation built from an unguarded one is exactly
     # the string this store exists to keep out of a status report.
     for field in _REQUIRED_RECEIPT_REFS:
-        errors.extend(_reference_errors(record.get(field), field=field, required=True))
+        errors.extend(reference_errors(record.get(field), field=field, label=_LABEL, required=True))
     for field in _OPTIONAL_RECEIPT_REFS:
-        errors.extend(_reference_errors(record.get(field), field=field, required=False))
+        errors.extend(reference_errors(record.get(field), field=field, label=_LABEL, required=False))
     if record.get("observed_result") == "succeeded" and not str(record.get("external_ref", "")):
         errors.append("external_effect_receipt succeeded requires an external_ref naming the observed effect")
     refs = record.get("evidence_refs")
@@ -382,7 +344,9 @@ def validate_external_effect_receipt(record: dict[str, Any]) -> list[str]:
         if len(refs) > MAX_EVIDENCE_REFS:
             errors.append(f"external_effect_receipt evidence_refs must have at most {MAX_EVIDENCE_REFS} items")
         for index, value in enumerate(refs):
-            errors.extend(_reference_errors(value, field=f"evidence_refs[{index}]", required=True))
+            errors.extend(
+                reference_errors(value, field=f"evidence_refs[{index}]", label=_LABEL, required=True)
+            )
     for field in _RECEIPT_TEXT_FIELDS:
         text = record.get(field)
         if not isinstance(text, str):
@@ -407,35 +371,8 @@ def append_external_effect_receipt(paths: OmhPaths, record: dict[str, Any]) -> d
     # both POSIX and Windows, and this store's mutual exclusion has to be a
     # property CI can assert on either platform.
     with file_lock(path, private=True):
-        _append_store_line(path, record)
+        append_store_line(path, record)
     return record
-
-
-def _append_store_line(path: Path, record: dict[str, Any]) -> None:
-    """Append one line, terminating a torn tail first.
-
-    A short write leaves a partial line with no trailing newline. Appending
-    straight onto it concatenates two records into one unparseable line and
-    loses both, so the tail byte is checked and a newline is written first when
-    it is missing. The torn line stays on disk as one corrupt line the store
-    validator reports; the new record survives as its own.
-
-    Binary mode on purpose: Windows text mode would rewrite ``\\n`` as
-    ``\\r\\n`` and make the tail check platform-dependent.
-    """
-    ensure_dir(path.parent, private=True)
-    ensure_file(path, private=True)
-    payload = json.dumps(record, sort_keys=True).encode("utf-8") + b"\n"
-    with path.open("r+b") as handle:
-        handle.seek(0, os.SEEK_END)
-        if handle.tell():
-            handle.seek(-1, os.SEEK_END)
-            if handle.read(1) != b"\n":
-                payload = b"\n" + payload
-        handle.seek(0, os.SEEK_END)
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
 
 
 def record_external_effect(
@@ -508,7 +445,7 @@ def _record_external_effect(
         )
         if prior and _observation_fingerprint(prior) == _observation_fingerprint(record):
             return prior, False
-        _append_store_line(path, record)
+        append_store_line(path, record)
     return record, True
 
 
@@ -675,8 +612,7 @@ def latest_receipt_in(receipts: list[dict[str, Any]] | tuple[dict[str, Any], ...
     picking different receipts for one effect and reaching opposite conclusions
     about it.
     """
-    matches = [receipt for receipt in receipts if str(receipt.get("effect_id", "")) == str(effect_id)]
-    return matches[-1] if matches else {}
+    return latest_record_in(receipts, key="effect_id", value=str(effect_id))
 
 
 def select_effect_receipt(
@@ -765,21 +701,20 @@ def validate_external_effect_receipt_store(path: Path, *, run_id: str | None = N
     one bad line elsewhere cannot fault a run that has nothing to do with it.
     """
     receipts, read_errors = read_jsonl_objects(path)
-    indexed = [
-        (index, receipt)
-        for index, receipt in enumerate(receipts, start=1)
-        if run_id is None or str(receipt.get("run_id", "")) == run_id
-    ]
-    errors: list[str] = list(read_errors) if run_id is None else []
-    for index, receipt in indexed:
-        errors.extend(f"{path}:{index}: {error}" for error in validate_external_effect_receipt(receipt))
-    errors.extend(_supersede_chain_errors(path, receipts, run_id=run_id))
+    receipt_count, errors = store_errors(
+        path,
+        receipts,
+        read_errors,
+        run_id=run_id,
+        validate_record=validate_external_effect_receipt,
+        label=_LABEL,
+    )
     return {
         "schema_version": EXTERNAL_EFFECT_RECEIPT_STORE_VALIDATION_SCHEMA_VERSION,
         "path": str(path),
         "run_id": run_id or "",
         "ok": not errors,
-        "receipt_count": len(indexed),
+        "receipt_count": receipt_count,
         "mint_failure_count": len(read_external_effect_mint_failures(path)),
         "errors": errors,
     }
@@ -900,16 +835,7 @@ def redacted_external_effect_ref(value: str) -> str:
     by it; non-navigable because a status report is not a place to publish
     someone's links.
     """
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    if _is_url_shaped(text) or is_sensitive_metadata_text(text):
-        return _digest_ref(text)
-    try:
-        require_opaque_metadata_ref(text, field="external_ref")
-    except ValueError:
-        return _digest_ref(text)
-    return text
+    return redacted_ref(value, field="external_ref")
 
 
 def is_unsafe_receipt_text(value: str) -> bool:
@@ -919,15 +845,7 @@ def is_unsafe_receipt_text(value: str) -> bool:
     is the tell that the value is a prompt, a transcript, or a log slice rather
     than the single bounded metadata line a receipt summary is allowed to be.
     """
-    text = str(value or "")
-    if not text:
-        return False
-    return bool(
-        is_sensitive_metadata_text(text)
-        or _UNSAFE_TEXT_CONTROL.search(text)
-        or _UNSAFE_TEXT_URL.search(text)
-        or _UNSAFE_TEXT_WINDOWS_PATH.search(text)
-    )
+    return is_unsafe_metadata_line(value)
 
 
 def bounded_receipt_summary(value: Any) -> str:
@@ -952,8 +870,7 @@ def closed_receipt_value(value: Any, allowed: tuple[str, ...]) -> str:
     outside the vocabulary is not a new state, it is a value with no meaning, so
     it renders empty rather than as itself.
     """
-    text = str(value or "")
-    return text if text in allowed else ""
+    return closed_vocabulary_value(value, allowed)
 
 
 def compact_external_effect_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
@@ -1015,20 +932,7 @@ def _mint_failure(
 
 
 def _append_mint_failure(store_path: Path, failure: dict[str, Any]) -> None:
-    path = external_effect_mint_failures_path(store_path)
-    try:
-        # The same lock the receipt appends take, on this log's own sidecar. It
-        # is the record that has to survive when things are already going wrong,
-        # so two producers failing at once must not interleave and lose a line.
-        # The lock is never held while the receipt store's lock is: a mint
-        # failure is raised out of that block before this runs.
-        with file_lock(path, private=True):
-            _append_store_line(path, failure)
-    except OSError:
-        # The failure log lives next to the store, so the same outage that lost
-        # the receipt can lose this line too. The mint result the caller already
-        # holds is the record of last resort; there is nothing further to try.
-        return
+    append_sidecar_line(external_effect_mint_failures_path(store_path), failure)
 
 
 def _observed_effect_row(receipt: dict[str, Any], receipt_count: int) -> dict[str, Any]:
@@ -1052,57 +956,6 @@ def _projected_effect_row(requested: dict[str, Any], state: str) -> dict[str, An
     }
 
 
-def _supersede_chain_errors(
-    path: Path,
-    receipts: list[dict[str, Any]],
-    *,
-    run_id: str | None,
-) -> list[str]:
-    """Reject every shape a supersede chain must not take.
-
-    A chain is a line, not a graph: a receipt cannot supersede itself, cannot
-    supersede a receipt that does not already exist, and cannot supersede a
-    receipt something else already superseded. A fork means two retries both
-    believe they replaced the same predecessor, which makes "the latest state of
-    this effect" ambiguous.
-
-    Every receipt in the store is walked even when the report is scoped to one
-    run, so a link into a receipt outside the scope is still a link into a
-    receipt that exists. Only faults on in-scope receipts are reported: scoping
-    a report must never invent a broken chain.
-    """
-    seen: set[str] = set()
-    successors: dict[str, str] = {}
-    errors: list[str] = []
-    for index, receipt in enumerate(receipts, start=1):
-        in_scope = run_id is None or str(receipt.get("run_id", "")) == run_id
-        receipt_id = str(receipt.get("receipt_id", ""))
-        if receipt_id and receipt_id in seen and in_scope:
-            errors.append(f"{path}:{index}: external_effect_receipt receipt_id is not unique: {receipt_id}")
-        superseded = str(receipt.get("supersedes_receipt_ref", ""))
-        if superseded:
-            if superseded == receipt_id:
-                if in_scope:
-                    errors.append(
-                        f"{path}:{index}: external_effect_receipt supersedes_receipt_ref must not name itself: {receipt_id}"
-                    )
-            elif superseded not in seen:
-                if in_scope:
-                    errors.append(
-                        f"{path}:{index}: external_effect_receipt supersedes_receipt_ref does not name an earlier receipt: {superseded}"
-                    )
-            elif superseded in successors:
-                if in_scope:
-                    errors.append(
-                        f"{path}:{index}: external_effect_receipt supersedes_receipt_ref forks the chain: "
-                        f"{superseded} is already superseded by {successors[superseded]}"
-                    )
-            else:
-                successors[superseded] = receipt_id
-        seen.add(receipt_id)
-    return errors
-
-
 def _latest_receipt_for_effect_in(path: Path, effect_id: str) -> dict[str, Any]:
     receipts, _ = read_jsonl_objects(path)
     return latest_receipt_in(receipts, str(effect_id))
@@ -1110,59 +963,23 @@ def _latest_receipt_for_effect_in(path: Path, effect_id: str) -> dict[str, Any]:
 
 def _observation_fingerprint(receipt: Mapping[str, Any]) -> str:
     """Which observation a receipt records, ignoring when it was recorded."""
-    identity = {key: receipt.get(key) for key in _OBSERVATION_IDENTITY_KEYS}
-    return hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode("utf-8")).hexdigest()
-
-
-def _reference_errors(value: Any, *, field: str, required: bool) -> list[str]:
-    if not isinstance(value, str):
-        return [f"external_effect_receipt {field} must be a string"]
-    if not value:
-        return [f"external_effect_receipt {field} is required"] if required else []
-    if _is_url_shaped(value):
-        return [f"external_effect_receipt {field} must be an opaque identifier, not a URL"]
-    try:
-        require_opaque_metadata_ref(value, field=f"external_effect_receipt {field}")
-    except ValueError as exc:
-        return [str(exc)]
-    return []
+    return record_fingerprint(receipt, _OBSERVATION_IDENTITY_KEYS)
 
 
 def _opaque(value: str, *, field: str) -> str:
-    text = str(value or "").strip()
-    if not text:
-        raise ExternalEffectReceiptError(f"{field} is required")
-    if _is_url_shaped(text):
-        raise ExternalEffectReceiptError(f"{field} must be an opaque identifier, not a URL")
-    try:
-        return require_opaque_metadata_ref(text, field=field)
-    except ValueError as exc:
-        raise ExternalEffectReceiptError(str(exc)) from exc
-
-
-def _is_url_shaped(value: str) -> bool:
-    return any(marker in value for marker in _URL_SHAPED)
-
-
-def _digest_ref(value: str) -> str:
-    return f"ref-{hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]}"
+    return opaque_ref(value, field=field, error=ExternalEffectReceiptError)
 
 
 def _receipt_id(observed_at: str, effect_id: str, acting_surface: str, observed_result: str) -> str:
-    # Random tail for the same reason `observation_journal._event_id` carries
-    # one: `utc_now()` has second resolution, so two receipts for one effect in
-    # the same second would otherwise share an id and break the supersede chain.
-    base = json.dumps(
-        {
+    return mint_record_id(
+        prefix="receipt",
+        identity={
             "observed_at": observed_at,
             "effect_id": effect_id,
             "acting_surface": acting_surface,
             "observed_result": observed_result,
         },
-        sort_keys=True,
     )
-    digest = hashlib.sha256(base.encode("utf-8")).hexdigest()[:16]
-    return f"receipt-{digest}-{secrets.token_hex(3)}"
 
 
 def _bounded_refs(values: list[str] | tuple[str, ...]) -> list[str]:

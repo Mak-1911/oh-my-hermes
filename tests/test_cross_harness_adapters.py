@@ -167,7 +167,14 @@ class FailClosedAdapterRunnerTests(_RunnerMixin):
             with self.assertRaises(ProcessLookupError):
                 os.kill(pid, 0)
             self.assertTrue(outcome.repetitions[0].process_group_terminated)
-            self.assertLess(time.monotonic() - started, 4.0)
+            # The bound is the caller's own timeout plus a cleanup allowance,
+            # not a constant: a hardcoded 4.0 was below the 5s timeout one
+            # caller passes, so that test was asserting cleanup finished
+            # sooner than the timeout it had just granted. It survived only
+            # because a crash returns fast, and failed on a loaded runner at
+            # 4.36s. The property under test is that teardown is bounded, not
+            # that a shared runner is fast.
+            self.assertLess(time.monotonic() - started, timeout_seconds + 2.0)
             return outcome
 
     def test_zero_exit_descendant_with_closed_stdio_is_killed(self) -> None:

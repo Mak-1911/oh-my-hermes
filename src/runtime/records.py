@@ -69,6 +69,10 @@ from ..workflows.approval_receipts import (
     APPROVAL_RECEIPT_KEYS,
     validate_approval_receipt,
 )
+from ..workflows.blocked_work_records import (
+    BLOCKED_WORK_RECORD_KEYS,
+    validate_blocked_work_record,
+)
 from ..workflows.external_effect_receipts import (
     EXTERNAL_EFFECT_RECEIPT_KEYS,
     validate_external_effect_receipt,
@@ -104,7 +108,32 @@ RUNTIME_OBSERVATION_EVENTS = (
     "merge_readiness",
     "merge",
 )
-RUNTIME_OBSERVATION_STATUSES = ("observed", "blocked", "failed", "not_observed")
+# Kept equal to `observation_journal.OBSERVATION_STATUSES` by
+# `tests/test_blocked_work_records.py`: the CLI's `--status` choices come from
+# this tuple and every value it offers is written straight into the journal, so
+# a status this tuple has and that one lacks is a flag that fails at the write.
+# `cancelled` is a member for the reason given there -- the projection already
+# produces it, and a state that can only be projected can never be recorded.
+RUNTIME_OBSERVATION_STATUSES = ("observed", "blocked", "cancelled", "failed", "not_observed")
+
+# The three events `CANONICAL_OBSERVATION_EVENTS` already defines and
+# `omh runtime observe` could not emit. They are deliberately not members of
+# `RUNTIME_OBSERVATION_EVENTS` above: that tuple is the runtime milestone
+# ladder, and `summarize_runtime_observation_status` reports every member of it
+# that has no record as a *missing* milestone. Adding one of these there would
+# make every run permanently missing three milestones it was never meant to
+# reach. So the ladder stays the ladder, and the CLI offers the union.
+#
+# Only two of the three end a run. `blocked` is not terminal and must not be
+# classified as one: a block is recoverable by definition -- every blocked-work
+# record carries a recovery action -- so a run that was blocked and then
+# unblocked goes on to reach its milestones. Treating `blocked` as terminal
+# pinned `next_action` to the block permanently, so a run that recovered and
+# merged still reported the block as the thing to surface next.
+RUNTIME_BLOCK_OBSERVATION_EVENTS = ("blocked",)
+RUNTIME_TERMINAL_OBSERVATION_EVENTS = ("failed", "cancelled")
+RUNTIME_NON_LADDER_OBSERVATION_EVENTS = RUNTIME_BLOCK_OBSERVATION_EVENTS + RUNTIME_TERMINAL_OBSERVATION_EVENTS
+RUNTIME_OBSERVABLE_EVENTS = RUNTIME_OBSERVATION_EVENTS + RUNTIME_NON_LADDER_OBSERVATION_EVENTS
 RUNTIME_OBSERVATION_RECORD_KEYS = (
     "schema_version",
     "record_type",
@@ -2130,7 +2159,7 @@ def validate_runtime_observation_record(observation: dict[str, Any]) -> list[str
     _require(observation.get("target_type") in RUNTIME_OBSERVATION_TARGET_TYPES, errors, "runtime_observation target_type is invalid")
     _require(bool(str(observation.get("target_id", "")).strip()), errors, "runtime_observation target_id is required")
     _require(observation.get("runtime_profile") in CODING_RUNTIME_TARGETS, errors, "runtime_observation runtime_profile is invalid")
-    _require(observation.get("event_type") in RUNTIME_OBSERVATION_EVENTS, errors, "runtime_observation event_type is invalid")
+    _require(observation.get("event_type") in RUNTIME_OBSERVABLE_EVENTS, errors, "runtime_observation event_type is invalid")
     _require(observation.get("status") in RUNTIME_OBSERVATION_STATUSES, errors, "runtime_observation status is invalid")
     _require(isinstance(observation.get("observed"), bool), errors, "runtime_observation observed must be boolean")
     _require(isinstance(observation.get("participants"), list), errors, "runtime_observation participants must be a list")
@@ -3933,4 +3962,18 @@ OPTIONAL_RUNTIME_STORE_VALIDATORS = (
 # at all. The registry design that forces one reader per registry is #846.
 OPTIONAL_APPROVAL_STORE_VALIDATORS = (
     ("approval_receipts.jsonl", validate_approval_receipt),
+)
+
+# The third store, registered in its own tuple for the reason the second one
+# was: every consumer applies *every* entry in its registry to the records it
+# just read, so a family sharing a tuple with another would validate one
+# family's records against the other's schema and fault every run that has one.
+# One registry per store, one reader per registry -- the #846 rule. This one is
+# read by `runtime.artifacts._validate_run_blocked_work_records`, and the
+# store-level `validate_blocked_work_record_store` call in `validate_runtime` is
+# what makes `omh runtime validate` open the blocked-work store at all.
+BLOCKED_WORK_RECORD_RECORD_KEYS = BLOCKED_WORK_RECORD_KEYS
+
+OPTIONAL_BLOCKED_WORK_STORE_VALIDATORS = (
+    ("blocked_work_records.jsonl", validate_blocked_work_record),
 )
