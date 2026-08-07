@@ -18,6 +18,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from _platform_support import HAS_FCNTL, HAS_SECURE_DIR_IO
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 
@@ -73,14 +75,19 @@ class SharedAppendHelperTests(unittest.TestCase):
             rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
             self.assertEqual(rows, [{"n": 1}, {"n": 2}])
 
-    def test_keys_are_sorted_so_the_line_is_byte_stable(self) -> None:
+    def test_the_line_is_byte_identical_on_every_platform(self) -> None:
+        # Read as bytes on purpose. Sorted keys make the JSON stable, and
+        # newline="" keeps the terminator LF -- text mode would write "\r\n"
+        # here on Windows and the same record would be different bytes per
+        # platform, which is exactly what the repo's managed-write convention
+        # exists to prevent.
         from omh.local_store import append_jsonl_locked
 
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "journal.jsonl"
             append_jsonl_locked(path, {"b": 2, "a": 1})
 
-            self.assertEqual(path.read_text(encoding="utf-8"), '{"a": 1, "b": 2}\n')
+            self.assertEqual(path.read_bytes(), b'{"a": 1, "b": 2}\n')
 
     def test_the_lock_sidecar_is_not_mistaken_for_journal_content(self) -> None:
         from omh.local_store import append_jsonl_locked
@@ -89,7 +96,7 @@ class SharedAppendHelperTests(unittest.TestCase):
             path = Path(tmp) / "journal.jsonl"
             append_jsonl_locked(path, {"n": 1})
 
-            self.assertEqual(path.read_text(encoding="utf-8").count("\n"), 1)
+            self.assertEqual(path.read_bytes().count(b"\n"), 1)
             self.assertTrue((path.parent / f".{path.name}.lock").exists())
 
 
@@ -174,12 +181,21 @@ class AwarenessDeliveryLockTests(unittest.TestCase):
 class DomainIntelligenceCapabilityTests(unittest.TestCase):
     """The Windows user's answer to 'why does this never engage?'"""
 
-    def test_this_host_reports_the_store_as_available(self) -> None:
+    def test_the_verdict_matches_what_this_host_can_actually_do(self) -> None:
+        # Not pinned to "available": on Windows the honest answer is "missing",
+        # and that is the whole point of the row. The expectation is derived
+        # from the same primitives tests/_platform_support.py probes, so this
+        # passes on both platforms for the right reason rather than by being
+        # skipped on one.
         from omh.maintenance.probe import _domain_intelligence_store_capability
 
         capability = _domain_intelligence_store_capability()
+        expected = "available" if (HAS_SECURE_DIR_IO and HAS_FCNTL) else "missing"
+
         self.assertEqual(capability.name, "domain_intelligence_store")
-        self.assertEqual(capability.status, "available")
+        self.assertEqual(capability.status, expected)
+        if expected == "missing":
+            self.assertIn("unavailable on this host", capability.message)
 
     def test_a_host_without_fcntl_reports_missing_and_names_the_primitive(self) -> None:
         from omh.maintenance import probe

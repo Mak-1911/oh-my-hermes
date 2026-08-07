@@ -255,7 +255,11 @@ def append_jsonl_locked(path: Path, record: dict[str, Any], *, private: bool = T
     ensure_dir(path.parent, private=private)
     ensure_file(path, private=private)
     with file_lock(path, private=private) as lock:
-        with path.open("a", encoding="utf-8") as handle:
+        # newline="" for the same reason atomic_write_text uses it: text mode
+        # would translate "\n" to "\r\n" on Windows, so the same record would
+        # land as different bytes per platform. The callers this replaced wrote
+        # in translating mode and had that drift.
+        with path.open("a", encoding="utf-8", newline="") as handle:
             handle.write(json.dumps(record, sort_keys=True) + "\n")
             handle.flush()
         return dict(lock)
