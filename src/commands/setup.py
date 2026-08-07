@@ -51,10 +51,10 @@ from ..manifest import read_manifest
 from ..menubar_app import setup_menubar_app, uninstall_menubar_app
 from ..mcp.host_config import install_mcp_host_config
 from ..mcp_bridge import MCP_HOST_CONFIG_RECIPE_HOSTS
+from ..paths import managed_command_venv_dir
 from ..plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
 from ..plugin_pack import PLUGIN_NAME, PluginPackError, install_plugin_bundle
 from ..probe import probe_capabilities
-from ..paths import managed_command_venv_dir
 from ..release import RELEASE_CHANNELS, package_url_for
 from ..routing.recommend import recommend_skills
 from ..routing.route_plan import build_workflow_route_plan, compact_workflow_route_plan
@@ -89,6 +89,8 @@ def installer_command() -> str:
     rather than "wrong line was printed".
     """
     return WINDOWS_INSTALLER_COMMAND if os.name == "nt" else POSIX_INSTALLER_COMMAND
+
+
 COMMAND_PACKAGE_STATUS_SCHEMA_VERSION = "command_package_status/v1"
 RELEASE_UPDATE_SCHEMA_VERSION = "release_update_status/v1"
 SETUP_OPERATOR_SUMMARY_SCHEMA_VERSION = "setup_operator_summary/v1"
