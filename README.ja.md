@@ -80,6 +80,10 @@
 > の運用レイヤーを追加します。
 >
 > <p align="center">
+>   <img src="assets/omh-terminal-boot-banner.png" alt="OH-MY-HERMES terminal banner listing available tools, grouped skills, OMH specialists, infrastructure, and the model pool on Hermes Agent" width="1080">
+> </p>
+>
+> <p align="center">
 >   <img src="assets/hermes-omh-terminal-orchestration.png" alt="Hermes Agent and OH-MY-HERMES working side by side" width="1080">
 > </p>
 >
