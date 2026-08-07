@@ -171,8 +171,12 @@ These are two separate stores on two separate filesystems. Installing under WSL
 does not give native Windows Hermes an OMH pack, and vice versa. Setting `HOME`
 in a PowerShell profile — a common carryover habit from WSL — has no effect on
 where OMH looks; use `HERMES_HOME` and `OMH_HOME` to override, which are honored
-identically on every platform. `omh doctor` reports the Hermes home it resolved,
-so run it if you are unsure which store a given shell is talking to.
+identically on every platform.
+
+To see which store a given shell is actually talking to, `omh doctor` prints the
+config file it checked as `hermes_config: <hermes home>\config.yaml`. Operators
+who want the home on its own line can use the agent-facing `omh probe`, which
+reports `Hermes home:` directly.
 
 ### POSIX-only surfaces
 

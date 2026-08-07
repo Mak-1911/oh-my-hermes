@@ -544,7 +544,10 @@ function Add-OmhBinDirToPath {
         $script:OmhPathNote = 'failed'
         return
     } finally {
-        if ($key) { $key.Dispose() }
+        # Close(), not Dispose(): a public RegistryKey.Dispose() only arrived in
+        # .NET Framework 4.6, and a missing-method error raised here would mask
+        # whatever actually happened above.
+        if ($key) { $key.Close() }
     }
     $env:PATH = $env:PATH.TrimEnd(';') + ';' + $OmhBinDir
     $script:OmhPathNote = 'added'

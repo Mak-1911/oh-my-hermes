@@ -321,6 +321,63 @@ class ManagedCommandResolutionTests(unittest.TestCase):
             self.assertFalse(command_entry_belongs_to_venv(shim, venv_dir))
 
 
+class ManagedCommandLocationTests(unittest.TestCase):
+    """The precedence `managed_command_venv_dir` walks, pinned.
+
+    Untested before, and it broke twice while this branch was in review: once
+    because a fixture patched HOME but not USERPROFILE, once because it cleared
+    XDG_DATA_HOME but not LOCALAPPDATA. Both were silent -- the resolver simply
+    answered with the real user's store.
+    """
+
+    def _resolve(self, env: dict[str, str], windows: bool) -> "Path | None":
+        from omh.paths import managed_command_venv_dir
+
+        cleared = dict.fromkeys(
+            ("OMH_VENV_DIR", "XDG_DATA_HOME", "LOCALAPPDATA", "HOME", "USERPROFILE"), ""
+        )
+        cleared.update(env)
+        flavour = _as_windows() if windows else _as_posix()
+        with patch.dict(os.environ, cleared, clear=False), flavour:
+            return managed_command_venv_dir()
+
+    def test_an_explicit_venv_dir_outranks_everything(self) -> None:
+        for windows in (True, False):
+            resolved = self._resolve(
+                {"OMH_VENV_DIR": "/explicit", "XDG_DATA_HOME": "/xdg", "LOCALAPPDATA": "/lad", "HOME": "/h"},
+                windows,
+            )
+            self.assertEqual(resolved, Path("/explicit").resolve(), f"windows={windows}")
+
+    def test_xdg_data_home_outranks_localappdata(self) -> None:
+        # Honored on Windows too, because an operator who set it meant it.
+        resolved = self._resolve({"XDG_DATA_HOME": "/xdg", "LOCALAPPDATA": "/lad"}, windows=True)
+        self.assertEqual(resolved, (Path("/xdg") / "omh" / "venv").resolve())
+
+    def test_localappdata_is_the_windows_default_and_is_ignored_off_windows(self) -> None:
+        env = {"LOCALAPPDATA": "/lad", "HOME": "/h", "USERPROFILE": "/u"}
+        self.assertEqual(self._resolve(env, windows=True), (Path("/lad") / "omh" / "venv").resolve())
+        self.assertEqual(
+            self._resolve(env, windows=False),
+            (Path("/h") / ".local" / "share" / "omh" / "venv").resolve(),
+        )
+
+    def test_the_home_fallback_reads_userprofile_on_windows_and_home_elsewhere(self) -> None:
+        env = {"HOME": "/h", "USERPROFILE": "/u"}
+        self.assertEqual(
+            self._resolve(env, windows=True),
+            (Path("/u") / ".local" / "share" / "omh" / "venv").resolve(),
+        )
+        self.assertEqual(
+            self._resolve(env, windows=False),
+            (Path("/h") / ".local" / "share" / "omh" / "venv").resolve(),
+        )
+
+    def test_nothing_to_anchor_on_returns_none_rather_than_guessing(self) -> None:
+        for windows in (True, False):
+            self.assertIsNone(self._resolve({}, windows), f"windows={windows}")
+
+
 class InstallerCommandHintTests(unittest.TestCase):
     def test_the_update_hint_names_an_installer_the_host_can_run(self) -> None:
         from omh.commands.setup import POSIX_INSTALLER_COMMAND, WINDOWS_INSTALLER_COMMAND, installer_command
