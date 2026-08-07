@@ -31,15 +31,34 @@ _GOOGLE_API_KEY = re.compile(r"\bAIza[A-Za-z0-9_-]{20,}\b", re.IGNORECASE)
 _BODY_SHAPED = re.compile(r"[\r\n\t\f\v\x00]|```")
 
 
-def is_sensitive_metadata_text(value: str) -> bool:
-    lowered = value.lower()
+def is_secret_value_shaped(value: str) -> bool:
+    """True when the text looks like a credential *value* rather than a name.
+
+    The value half of `is_sensitive_metadata_text`, split out because the two
+    halves answer different questions. The marker words below flag anything
+    *named* like a secret -- `GITHUB_TOKEN`, `token_store.py` -- which is right
+    for a free-form opaque reference and wrong for a field whose whole content
+    is an environment variable *name*, since such a name legitimately contains
+    them. These four patterns flag the issued material itself, and a name can
+    never match one, so a field that must accept `GITHUB_TOKEN` while refusing
+    `AKIAIOSFODNN7EXAMPLE` reads this predicate instead of the wider one.
+
+    No new pattern is introduced here: these are exactly the detectors this
+    module already owned, which also bounds what the screen can catch. A
+    credential value that none of them recognises and that also matches the
+    caller's own name shape is not caught by either predicate.
+    """
     return (
-        any(marker in lowered for marker in _SENSITIVE_MARKERS)
-        or bool(_COMMON_SECRET_PREFIX.search(value))
+        bool(_COMMON_SECRET_PREFIX.search(value))
         or bool(_PLATFORM_SECRET_PREFIX.search(value))
         or bool(_AWS_ACCESS_KEY.search(value))
         or bool(_GOOGLE_API_KEY.search(value))
     )
+
+
+def is_sensitive_metadata_text(value: str) -> bool:
+    lowered = value.lower()
+    return any(marker in lowered for marker in _SENSITIVE_MARKERS) or is_secret_value_shaped(value)
 
 
 def redact_metadata_text(value: str, *, limit: int) -> str:

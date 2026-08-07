@@ -424,6 +424,21 @@ def build_coding_delegation_payload(
         if delegation.action == "delegate"
         else {}
     )
+    # Built once and handed to both the preflight and the gate. The gate's
+    # risk classifier reads the *declared* request — destinations, access
+    # intents, target paths — and rebuilding it there would scan the message a
+    # second time to produce a value this build already has.
+    preflight_request = _safety_preflight_request(
+        message,
+        owner=proposed_selection.selected_executor_profile or "hermes",
+        workflow=delegation.recommended_workflow,
+        message_context_mode=message_context_mode,
+        # The same condition `_attach_visible_message` is called under below, so
+        # the flag states what the artifact will carry.
+        raw_content_included=include_message and message_context_mode == "full",
+        intent=delegation.intent,
+        action=delegation.action,
+    )
     # The single decision path. Every downstream authority value — dispatchable,
     # choice_required, the executor selection status, and which confirmation
     # ladder is armed — is derived from this one verdict; nothing recomputes it.
@@ -442,18 +457,11 @@ def build_coding_delegation_payload(
         context_pack=context_pack,
         memory_recall_pack=memory_recall_pack,
         safety_preflight=(
-            safety_preflight
-            if safety_preflight is not None
-            else _safety_preflight_verdict(
-                message,
-                owner=proposed_selection.selected_executor_profile or "hermes",
-                workflow=delegation.recommended_workflow,
-                message_context_mode=message_context_mode,
-                # The same condition `_attach_visible_message` is called under
-                # below, so the flag states what the artifact will carry.
-                raw_content_included=include_message and message_context_mode == "full",
-            )
+            safety_preflight if safety_preflight is not None else _safety_preflight_verdict(preflight_request)
         ),
+        # What this build declared it would touch. The gate classifies risk from
+        # these declarations and never from the message.
+        safety_preflight_request=preflight_request,
         live_safety_profile_revision=live_safety_profile_revision,
         requested_actions=list(requested_authority_actions or []),
     )
@@ -763,6 +771,43 @@ def _safety_preflight_target_paths(message: str) -> list[str]:
     return paths
 
 
+def _safety_preflight_access_intents(intent: str, action: str) -> list[str]:
+    """Read, write, and share, declared for what this build will actually prepare.
+
+    Read is unconditional: preparing coding work means reading the workspace
+    the request names. Write is claimed only when the routed action would carry
+    `repo_edit`, on the same intent set `action_gate.required_actions_for` uses
+    for that action -- this is a declaration made before the gate runs, and the
+    gate's own answer stays the authority on what the envelope grants. Share is
+    never claimed, because the lane names no remote target and
+    `external_action_authority` is pinned to prepare_only, so there is nothing
+    to share with.
+    """
+    intents = ["read"]
+    if action == "delegate" and intent in {"coding", "cleanup", "docs"}:
+        intents.append("write")
+    return intents
+
+
+def _safety_preflight_data_classes(target_paths: list[str], raw_content_included: bool) -> list[str]:
+    """The data classes this build will actually touch, and no others.
+
+    Bounded metadata is always present: a prepared artifact stores digests,
+    paths, and references rather than content. Workspace source appears once
+    the user names a file. The user's own request text appears only when the
+    build will carry it verbatim, which is the same flag the raw-context rule
+    reads. No prohibited class is ever derivable here, which is the point: the
+    rule that refuses one is live for any caller, and this lane can never
+    produce a request that trips it.
+    """
+    classes = ["workspace_metadata"]
+    if target_paths:
+        classes.append("workspace_source")
+    if raw_content_included:
+        classes.append("user_request_text")
+    return classes
+
+
 def _safety_preflight_request(
     message: str,
     *,
@@ -770,6 +815,8 @@ def _safety_preflight_request(
     workflow: str,
     message_context_mode: str,
     raw_content_included: bool,
+    intent: str = "",
+    action: str = "",
 ) -> dict[str, object]:
     """The closed, bounded metadata request the preflight evaluates.
 
@@ -777,7 +824,17 @@ def _safety_preflight_request(
     packs are deliberately excluded: a path pasted into retrieved content is
     not the user asking for that target, and letting it through would be the
     exact widening #811 forbids.
+
+    The #801 boundary halves are declared here too. `workspace_roots` stays
+    empty on purpose: nothing in a chat request narrows the project, and the
+    evaluator reads an undeclared boundary as "the project itself", which the
+    absolute-path and escape rules already enforce. Declaring a synthetic root
+    derived from the very paths it would bound would be a boundary that can
+    never refuse anything. `approved_destinations` stays empty for the same
+    reason the lane names no remote target: nothing here reaches one, and an
+    empty approval approves nothing rather than everything.
     """
+    target_paths = _safety_preflight_target_paths(message)
     return {
         "owner": owner,
         "approved_scope": f"coding/{workflow}",
@@ -789,20 +846,21 @@ def _safety_preflight_request(
         # even under full mode. Re-deriving it from the mode would make the
         # rule unable to disagree with its own input.
         "raw_content_included": raw_content_included,
-        "target_paths": _safety_preflight_target_paths(message),
+        "data_classes": _safety_preflight_data_classes(target_paths, raw_content_included),
+        "workspace_roots": [],
+        "target_paths": target_paths,
+        "approved_destinations": [],
+        "access_intents": _safety_preflight_access_intents(intent, action),
         "evidence_claims": ["prepared_not_observed"],
     }
 
 
-def _safety_preflight_verdict(
-    message: str,
-    *,
-    owner: str,
-    workflow: str,
-    message_context_mode: str,
-    raw_content_included: bool,
-) -> dict[str, object] | None:
-    """The preflight verdict, or None when no evaluator is installed.
+def _safety_preflight_verdict(request: dict[str, object]) -> dict[str, object] | None:
+    """The preflight verdict for an already-built request, or None when no evaluator is installed.
+
+    Takes the request rather than rebuilding it: the gate reads the same
+    declarations to classify action risk, and building it twice would scan the
+    message twice to produce one value.
 
     The two absences stay distinct, which is the distinction the action gate
     then acts on. `None` means the lane is not present and delegation must keep
@@ -815,15 +873,7 @@ def _safety_preflight_verdict(
     evaluator = _safety_preflight_evaluator()
     if evaluator is None:
         return None
-    verdict = evaluator(
-        _safety_preflight_request(
-            message,
-            owner=owner,
-            workflow=workflow,
-            message_context_mode=message_context_mode,
-            raw_content_included=raw_content_included,
-        )
-    )
+    verdict = evaluator(request)
     if isinstance(verdict, dict) and verdict.get("status"):
         return verdict
     return {"status": "unreadable"}

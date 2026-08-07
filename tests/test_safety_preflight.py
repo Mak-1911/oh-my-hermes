@@ -44,14 +44,21 @@ from omh.quality.safety_preflight import (  # noqa: E402
     FIELD_CLASS_PATH,
     FIELD_CLASS_VOCABULARY,
     FIELD_CLASSES,
+    MAX_ACCESS_INTENTS,
+    MAX_APPROVED_DESTINATIONS,
+    MAX_DATA_CLASSES,
     MAX_EVIDENCE_CLAIMS,
     MAX_PATH_CHARS,
     MAX_PERSISTED_CONTENT_REFS,
     MAX_REMOTE_TARGETS,
     MAX_TARGET_PATHS,
+    MAX_WORKSPACE_ROOTS,
     REMOTE_TARGET_KINDS,
     REQUEST_FIELDS,
+    RULE_ACCESS_INTENT_DECLARED,
     RULE_APPROVED_SCOPE_DECLARED,
+    RULE_DATA_CLASSES_PERMITTED,
+    RULE_DESTINATIONS_APPROVED,
     RULE_EVIDENCE_CLAIM_BOUNDED,
     RULE_INPUT_METADATA_BOUNDED,
     RULE_ORG_RULE_SOURCE,
@@ -61,6 +68,7 @@ from omh.quality.safety_preflight import (  # noqa: E402
     RULE_REMOTE_TARGETS_DECLARED,
     RULE_SECRETS_ABSENT,
     RULE_TARGET_PATHS_BOUNDED,
+    RULE_WORKSPACE_ROOTS_DECLARED,
     SAFETY_PREFLIGHT_PRECEDENCE,
     SECRET_SHAPE_FIELD_CLASSES,
     evaluate_safety_preflight,
@@ -79,11 +87,15 @@ GOVERNANCE_SOURCE = REPO_ROOT / "src" / "coding" / "project_governance.py"
 EXPECTED_RULE_IDS = [
     "input_metadata_bounded",
     "secrets_absent",
+    "data_classes_permitted",
     "owner_declared",
     "approved_scope_declared",
     "raw_context_declared",
+    "workspace_roots_declared",
     "target_paths_bounded",
     "remote_targets_declared",
+    "destinations_approved",
+    "access_intent_declared",
     "persisted_content_referenced",
     "evidence_claim_bounded",
     "org_rule_source",
@@ -97,14 +109,35 @@ def request(**overrides: object) -> dict[str, object]:
         "approved_scope": "issue-804",
         "message_context_mode": "bounded",
         "raw_content_included": False,
+        "data_classes": ["workspace_metadata"],
+        "workspace_roots": [],
         "target_paths": ["src/quality/safety_preflight.py"],
         "remote_targets": [],
+        "approved_destinations": [],
+        "access_intents": ["read"],
         "persisted_content_refs": [],
         "evidence_claims": ["prepared_not_observed"],
         "observed_record_refs": [],
     }
     base.update(overrides)
     return base
+
+
+def sharing_request(kind: str = "git_remote", ref: str = "origin", **overrides: object) -> dict[str, object]:
+    """A request that reaches one destination the boundary declared, with the intent that covers it.
+
+    Naming a remote target is not enough on its own after #801: the boundary
+    has to have approved that exact destination and the request has to declare
+    the share intent, so every remote-target fixture carries all three.
+    """
+    destination = {"kind": kind, "ref": ref}
+    base: dict[str, object] = {
+        "remote_targets": [dict(destination)],
+        "approved_destinations": [dict(destination)],
+        "access_intents": ["read", "share"],
+    }
+    base.update(overrides)
+    return request(**base)
 
 
 def org_document(**overrides: object) -> dict[str, object]:
@@ -163,6 +196,12 @@ class SafetyProfileIdentityTests(unittest.TestCase):
             lambda profile: profile["corrections"].__setitem__("owner_missing", "different sentence"),
             lambda profile: profile["rules"].append({"id": "extra", "axis": "x", "level": "org", "reason_codes": []}),
             lambda profile: profile["vocabularies"]["remote_target_kinds"].append("smtp"),
+            lambda profile: profile["vocabularies"]["data_classes"].append("telemetry"),
+            lambda profile: profile["vocabularies"]["prohibited_data_classes"].clear(),
+            lambda profile: profile["vocabularies"]["access_intents"].append("delete"),
+            lambda profile: profile["bounds"].__setitem__("max_workspace_roots", MAX_WORKSPACE_ROOTS + 1),
+            lambda profile: profile["data_boundary_limits"][0].__setitem__("enforcement_kind", "advisory"),
+            lambda profile: profile["boundary_fields"].append("target_paths"),
         ):
             with self.subTest(mutate=mutate):
                 mutated = safety_rule_profile()
@@ -467,6 +506,153 @@ class SafetyPreflightDenialTests(unittest.TestCase):
                 "observed_record_refs[0]",
                 "observed_record_ref_invalid",
             ),
+            # #801 data boundary. Same contract as every rule above: the
+            # verdict names the rule, the offending field, and the correction.
+            (
+                "data classes not a list",
+                request(data_classes="workspace_source"),
+                RULE_DATA_CLASSES_PERMITTED,
+                "data_classes",
+                "data_class_not_bounded",
+            ),
+            (
+                "too many data classes",
+                request(data_classes=["workspace_source"] * (MAX_DATA_CLASSES + 1)),
+                RULE_DATA_CLASSES_PERMITTED,
+                "data_classes",
+                "data_class_count_exceeded",
+            ),
+            (
+                "unknown data class",
+                request(data_classes=["telemetry"]),
+                RULE_DATA_CLASSES_PERMITTED,
+                "data_classes[0]",
+                "data_class_unknown",
+            ),
+            (
+                "prohibited data class",
+                request(data_classes=["workspace_source", "personal_data"]),
+                RULE_DATA_CLASSES_PERMITTED,
+                "data_classes[1]",
+                "data_class_prohibited",
+            ),
+            (
+                "prohibited class content in an opaque ref",
+                request(persisted_content_refs=["ssn-123-45-6789"]),
+                RULE_DATA_CLASSES_PERMITTED,
+                "persisted_content_refs[0]",
+                "prohibited_data_class_content",
+            ),
+            (
+                "workspace roots not a list",
+                request(workspace_roots="src"),
+                RULE_WORKSPACE_ROOTS_DECLARED,
+                "workspace_roots",
+                "workspace_root_not_bounded",
+            ),
+            (
+                "too many workspace roots",
+                request(workspace_roots=[f"src/p{index}" for index in range(MAX_WORKSPACE_ROOTS + 1)]),
+                RULE_WORKSPACE_ROOTS_DECLARED,
+                "workspace_roots",
+                "workspace_root_count_exceeded",
+            ),
+            (
+                "absolute workspace root",
+                request(workspace_roots=["/etc"]),
+                RULE_WORKSPACE_ROOTS_DECLARED,
+                "workspace_roots[0]",
+                "workspace_root_absolute",
+            ),
+            (
+                "escaping workspace root",
+                request(workspace_roots=["../other-project"]),
+                RULE_WORKSPACE_ROOTS_DECLARED,
+                "workspace_roots[0]",
+                "workspace_root_escapes_project",
+            ),
+            (
+                "target outside the approved roots",
+                request(workspace_roots=["docs"], target_paths=["src/quality/safety_preflight.py"]),
+                RULE_TARGET_PATHS_BOUNDED,
+                "target_paths[0]",
+                "target_path_outside_workspace_roots",
+            ),
+            (
+                "approved destination without a ref key",
+                request(approved_destinations=[{"kind": "git_remote"}]),
+                RULE_DESTINATIONS_APPROVED,
+                "approved_destinations[0]",
+                "approved_destination_not_bounded",
+            ),
+            (
+                "too many approved destinations",
+                request(
+                    approved_destinations=[
+                        {"kind": "git_remote", "ref": f"remote-{index}"}
+                        for index in range(MAX_APPROVED_DESTINATIONS + 1)
+                    ]
+                ),
+                RULE_DESTINATIONS_APPROVED,
+                "approved_destinations",
+                "approved_destination_count_exceeded",
+            ),
+            (
+                "unknown approved destination kind",
+                request(approved_destinations=[{"kind": "smtp", "ref": "mail"}]),
+                RULE_DESTINATIONS_APPROVED,
+                "approved_destinations[0].kind",
+                "approved_destination_kind_unknown",
+            ),
+            (
+                "approved destination without a ref",
+                request(approved_destinations=[{"kind": "git_remote", "ref": ""}]),
+                RULE_DESTINATIONS_APPROVED,
+                "approved_destinations[0].ref",
+                "approved_destination_ref_missing",
+            ),
+            (
+                "destination the boundary never declared",
+                request(remote_targets=[{"kind": "git_remote", "ref": "origin"}]),
+                RULE_DESTINATIONS_APPROVED,
+                "remote_targets[0]",
+                "destination_not_declared",
+            ),
+            (
+                "access intents not a list",
+                request(access_intents="read"),
+                RULE_ACCESS_INTENT_DECLARED,
+                "access_intents",
+                "access_intent_not_bounded",
+            ),
+            (
+                "too many access intents",
+                request(access_intents=["read"] * (MAX_ACCESS_INTENTS + 1)),
+                RULE_ACCESS_INTENT_DECLARED,
+                "access_intents",
+                "access_intent_count_exceeded",
+            ),
+            (
+                "unknown access intent",
+                request(access_intents=["exfiltrate"]),
+                RULE_ACCESS_INTENT_DECLARED,
+                "access_intents[0]",
+                "access_intent_unknown",
+            ),
+            (
+                "declared destination reached without the share intent",
+                sharing_request(access_intents=["read"]),
+                RULE_ACCESS_INTENT_DECLARED,
+                "access_intents",
+                "access_intent_undeclared",
+            ),
+            (
+                "share intent the boundary approved no destination for",
+                request(access_intents=["read", "share"]),
+                RULE_ACCESS_INTENT_DECLARED,
+                "access_intents",
+                "access_intent_unapproved",
+            ),
         ]
 
     def test_every_denial_names_the_rule_the_field_and_a_correction(self) -> None:
@@ -705,7 +891,7 @@ class OrgLevelTests(unittest.TestCase):
 
     def test_the_org_level_narrows_and_names_the_offending_field(self) -> None:
         verdict = evaluate_safety_preflight(
-            request(remote_targets=[{"kind": "public_internet", "ref": "example-host"}]),
+            sharing_request("public_internet", "example-host"),
             org_rule_source=self.available(denied_remote_target_kinds=["public_internet"]),
         )
         self.assertEqual(verdict["status"], "deny")
@@ -749,7 +935,7 @@ class OrgLevelTests(unittest.TestCase):
 
     def test_the_same_input_and_revision_yields_the_same_decision_with_the_org_level(self) -> None:
         source = self.available(denied_remote_target_kinds=["public_internet"], max_target_paths=2)
-        candidate = request(remote_targets=[{"kind": "git_remote", "ref": "origin"}])
+        candidate = sharing_request()
         first = json.dumps(evaluate_safety_preflight(candidate, org_rule_source=source), sort_keys=True)
         for _ in range(5):
             self.assertEqual(
@@ -785,8 +971,11 @@ class RevisionRecheckTests(unittest.TestCase):
 class NoModelNoNetworkNoDependencyTests(unittest.TestCase):
     """Asserted by construction: the imports are the whole story."""
 
+    # `sys` joined the set for `data_boundary_enforcement_facts()`: naming the
+    # platform is how the per-host confinement answer stays a probe instead of
+    # a claim. Still stdlib, still no process, no socket, no model.
     ALLOWED_IMPORTS = frozenset(
-        {"__future__", "ast", "collections", "hashlib", "json", "os", "pathlib", "re", "time", "typing"}
+        {"__future__", "ast", "collections", "hashlib", "json", "os", "pathlib", "re", "sys", "time", "typing"}
     )
     FORBIDDEN_IMPORTS = frozenset(
         {"socket", "ssl", "urllib", "http", "requests", "httpx", "aiohttp", "subprocess", "asyncio"}
@@ -915,13 +1104,10 @@ class EndToEndOrgSourceTests(unittest.TestCase):
             path = write_org_source(root, denied_remote_target_kinds=["public_internet"])
             source = read_org_safety_rule_source(path)
             denied = evaluate_safety_preflight(
-                request(remote_targets=[{"kind": "public_internet", "ref": "example-host"}]),
+                sharing_request("public_internet", "example-host"),
                 org_rule_source=source,
             )
-            allowed = evaluate_safety_preflight(
-                request(remote_targets=[{"kind": "git_remote", "ref": "origin"}]),
-                org_rule_source=source,
-            )
+            allowed = evaluate_safety_preflight(sharing_request(), org_rule_source=source)
         self.assertEqual(denied["status"], "deny")
         self.assertEqual(denied["reason_code"], "org_rule_denied")
         self.assertEqual(allowed["status"], "allow")

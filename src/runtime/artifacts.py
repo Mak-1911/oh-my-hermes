@@ -45,6 +45,7 @@ from ..external_effect_receipts import (
     success_claim_citation,
     validate_external_effect_receipt_store,
 )
+from ..workflows.approval_receipts import validate_approval_receipt_store
 from ..observation_journal import (
     append_observation_event,
     merge_lifecycle_projection,
@@ -57,6 +58,7 @@ from .records import (
     DELEGATION_RESULTS,
     EVENT_LEVELS,
     OBSERVED_RESULTS,
+    OPTIONAL_APPROVAL_STORE_VALIDATORS,
     OPTIONAL_RECORD_VALIDATORS,
     OPTIONAL_RUNTIME_STORE_VALIDATORS,
     PRIVACY_MODES,
@@ -1924,6 +1926,7 @@ def validate_run_dir(
         if record:
             errors.extend(f"{path}: {error}" for error in validator(record))
     errors.extend(_validate_run_external_effect_receipts(run_dir, receipts))
+    errors.extend(_validate_run_approval_receipts(run_dir))
     errors.extend(_validate_run_status_gate_consistency(run_dir, receipts))
     return {"run_id": run_dir.name, "ok": not errors, "errors": errors}
 
@@ -1960,6 +1963,32 @@ def _validate_run_external_effect_receipts(run_dir: Path, receipts: list[dict[st
         if store_path is None:
             continue
         for record in receipts:
+            errors.extend(
+                f"{store_path}[{record.get('receipt_id', '')}]: {error}" for error in validator(record)
+            )
+    return errors
+
+
+def _validate_run_approval_receipts(run_dir: Path) -> list[str]:
+    """Schema-validate this run's approval receipts, through the registry that names them.
+
+    The same shape `_validate_run_external_effect_receipts` has, and the reader
+    `OPTIONAL_APPROVAL_STORE_VALIDATORS` was registered for: without a consumer
+    the registry validated nothing and the approval store was the one runtime
+    store `omh runtime validate` never opened. Parse errors are dropped here for
+    the reason they are dropped there -- a line that does not parse belongs to
+    no run, and `validate_runtime` reports it once at store level.
+    """
+    errors: list[str] = []
+    run_id = _safe_run_id_for_dir(run_dir)
+    for name, validator in OPTIONAL_APPROVAL_STORE_VALIDATORS:
+        store_path = runtime_store_path_for_run_dir(run_dir, name)
+        if store_path is None:
+            continue
+        records, _ = read_jsonl_objects(store_path)
+        for record in records:
+            if str(record.get("run_id", "")) != run_id:
+                continue
             errors.extend(
                 f"{store_path}[{record.get('receipt_id', '')}]: {error}" for error in validator(record)
             )
@@ -2107,16 +2136,27 @@ def validate_runtime(paths: OmhPaths, run_id: str | None = None) -> dict[str, An
         paths.runtime_external_effect_receipts_path,
         run_id=run_id,
     )
+    # The approval store is validated here for the same reason the effect store
+    # is: unparseable lines and a forked or self-referencing supersede chain
+    # belong to the store, not to a run, and an ambiguous consent chain is the
+    # one thing an approval record must never be. Without this call nothing in
+    # production ever ran the chain validator.
+    approval_store_result = validate_approval_receipt_store(
+        paths.runtime_approval_receipts_path,
+        run_id=run_id,
+    )
     _add_duplicate_wrapper_run_link_errors(session_results, session_dirs)
     return {
         "ok": all(result["ok"] for result in results)
         and all(result["ok"] for result in session_results)
         and bool(journal_result["ok"])
-        and bool(receipt_store_result["ok"]),
+        and bool(receipt_store_result["ok"])
+        and bool(approval_store_result["ok"]),
         "runs": results,
         "wrapper_sessions": session_results,
         "journal": journal_result,
         "external_effect_receipts": receipt_store_result,
+        "approval_receipts": approval_store_result,
     }
 
 

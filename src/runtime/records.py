@@ -65,6 +65,10 @@ from ..coding.product_quality_harnesses import validate_product_quality_harness
 from ..coding.project_governance import validate_project_governance_blocked, validate_project_governance_profile
 from ..routing.route_plan import compact_workflow_route_plan
 from ..skills.catalog_types import REASONING_DEMAND_VALUES
+from ..workflows.approval_receipts import (
+    APPROVAL_RECEIPT_KEYS,
+    validate_approval_receipt,
+)
 from ..workflows.external_effect_receipts import (
     EXTERNAL_EFFECT_RECEIPT_KEYS,
     validate_external_effect_receipt,
@@ -3910,7 +3914,23 @@ OPTIONAL_RECORD_VALIDATORS = (
 # than inside one. The exact-key tuple is re-exported here so a store record's
 # contract is discoverable next to every other runtime record contract.
 EXTERNAL_EFFECT_RECEIPT_RECORD_KEYS = EXTERNAL_EFFECT_RECEIPT_KEYS
+APPROVAL_RECEIPT_RECORD_KEYS = APPROVAL_RECEIPT_KEYS
 
 OPTIONAL_RUNTIME_STORE_VALIDATORS = (
     ("external_effect_receipts.jsonl", validate_external_effect_receipt),
+)
+
+# The approval store registers in its own tuple following the same precedent,
+# rather than joining the one above. The tuple above has one consumer --
+# `runtime.artifacts._validate_run_external_effect_receipts` -- and that consumer
+# applies *every* entry in it to the external effect receipts it just read, so a
+# second family in the same tuple would validate external effect receipts
+# against the approval schema and fault every run that has one. Each registry
+# therefore names the single store its validators are for, and each has its own
+# reader: this one is read by `runtime.artifacts._validate_run_approval_receipts`,
+# which together with the store-level `validate_approval_receipt_store` call in
+# `validate_runtime` is what makes `omh runtime validate` open the approval store
+# at all. The registry design that forces one reader per registry is #846.
+OPTIONAL_APPROVAL_STORE_VALIDATORS = (
+    ("approval_receipts.jsonl", validate_approval_receipt),
 )

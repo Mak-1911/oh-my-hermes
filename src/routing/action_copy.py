@@ -18,6 +18,7 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "choose_skill": "opening the workflow picker",
     "clarify_or_route": "checking the best workflow or clarification",
     "classify_signal_and_prepare_investigation": "classifying the signal and preparing investigation steps",
+    "confirm_risky_action": "asking for one answer on the risky action",
     "dispatch_to_workflow": "opening the selected workflow",
     "dispatch_to_executor": "dispatching to the selected coding agent",
     "gather_source_backed_evidence": "gathering source-backed evidence",
