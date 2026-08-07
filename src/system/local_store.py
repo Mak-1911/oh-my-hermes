@@ -235,6 +235,32 @@ def file_lock(
         handle.close()
 
 
+def append_jsonl_locked(path: Path, record: dict[str, Any], *, private: bool = True) -> dict[str, Any]:
+    """Append one JSON line to ``path`` while holding an exclusive OS lock.
+
+    Callers used to take ``fcntl.flock`` on the journal handle directly and
+    skip locking entirely when fcntl was missing. On Windows that meant
+    concurrent appenders had no mutual exclusion at all, and -- unlike
+    ``file_lock``, which reports ``enforced: False`` -- nothing said so, which
+    is the worse half of the bug: a guarantee that quietly is not one.
+
+    Going through ``file_lock`` gets ``msvcrt.locking`` on Windows, so the
+    guarantee actually holds there, and keeps the honest signal for a platform
+    that has neither backend.
+
+    Returns the lock status mapping so a caller can surface an unenforced
+    write. The append happens either way, because refusing to write on such a
+    platform would break every caller rather than protect anything.
+    """
+    ensure_dir(path.parent, private=private)
+    ensure_file(path, private=private)
+    with file_lock(path, private=private) as lock:
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+            handle.flush()
+        return dict(lock)
+
+
 def locked_json_update(
     path: Path,
     mutate_fn: Callable[[dict[str, Any]], dict[str, Any] | None],

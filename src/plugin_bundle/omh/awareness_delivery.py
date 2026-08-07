@@ -25,17 +25,35 @@ cannot grow.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import secrets
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
 try:
     import fcntl
-except ImportError:  # pragma: no cover - Hermes targets POSIX hosts today.
+except ImportError:  # pragma: no cover - absent on Windows.
     fcntl = None
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - present only on Windows.
+    msvcrt = None
+
+LOCK_MECHANISM_FCNTL = "fcntl"
+LOCK_MECHANISM_MSVCRT = "msvcrt"
+LOCK_MECHANISM_NONE = "none"
+# Both backends report "already held" through errno rather than a dedicated
+# exception: flock uses EACCES/EAGAIN, msvcrt.locking uses EACCES for LK_NBLCK.
+_LOCK_BUSY_ERRNOS = frozenset(
+    {errno.EACCES, errno.EAGAIN, errno.EDEADLK, getattr(errno, "EDEADLOCK", errno.EDEADLK)}
+)
+_LOCK_TIMEOUT_SECONDS = 10.0
+_LOCK_POLL_INTERVAL = 0.05
 
 
 AWARENESS_DELIVERY_SCHEMA_VERSION = "omh_awareness_delivery/v1"
@@ -91,21 +109,71 @@ def _valid_delivery_record(data: dict[str, Any]) -> bool:
     return int(data.get("route_hint_count", 0)) <= int(data.get("delivery_count", 0))
 
 
+def _acquire_delivery_lock(handle: Any, lock_path: Path) -> str:
+    """Take an exclusive OS lock, on POSIX or Windows, and say which granted it.
+
+    This module is vendored into the user's Hermes install and imports nothing
+    from omh core, so it carries its own two-backend lock instead of sharing
+    `local_store.file_lock`. Before it had the msvcrt branch, a Windows host
+    took no lock at all here, and the read-modify-write below could interleave
+    between concurrent turns and lose counter increments with nothing saying so.
+
+    The POSIX path stays a blocking `LOCK_EX`, unchanged: this runs on the
+    hottest path in the system and turning it into a bounded wait would newly
+    let it raise. Windows has no blocking primitive with the same semantics --
+    `LK_LOCK` gives up after ten seconds anyway -- so it polls the non-blocking
+    flag against the same deadline.
+    """
+    if fcntl is not None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        return LOCK_MECHANISM_FCNTL
+    if msvcrt is None:
+        return LOCK_MECHANISM_NONE
+    deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
+    while True:
+        try:
+            # msvcrt.locking locks a byte range from the current position, so
+            # the region has to be pinned to byte 0 on acquire and release for
+            # the two calls to describe the same region.
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            return LOCK_MECHANISM_MSVCRT
+        except OSError as exc:
+            if exc.errno not in _LOCK_BUSY_ERRNOS:
+                raise
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"could not lock {lock_path} within {_LOCK_TIMEOUT_SECONDS}s") from exc
+            time.sleep(_LOCK_POLL_INTERVAL)
+
+
+def _release_delivery_lock(handle: Any, mechanism: str) -> None:
+    if mechanism == LOCK_MECHANISM_FCNTL:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        return
+    if mechanism == LOCK_MECHANISM_MSVCRT:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
 @contextmanager
-def _awareness_delivery_lock(path: Path) -> Iterator[None]:
+def _awareness_delivery_lock(path: Path) -> Iterator[str]:
+    """Serialize the counter read-modify-write; yields the mechanism that held it.
+
+    A `none` yield means the host had neither backend and the mutual-exclusion
+    guarantee did not hold. The block still runs -- refusing would disable
+    awareness recording entirely -- but the caller can tell the difference.
+    """
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     path.parent.chmod(0o700)
     lock_path = path.with_name(f".{path.name}.lock")
     lock_path.touch(mode=0o600, exist_ok=True)
     lock_path.chmod(0o600)
     with lock_path.open("a+", encoding="utf-8") as handle:
-        if fcntl is not None:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        mechanism = _acquire_delivery_lock(handle, lock_path)
         try:
-            yield
+            yield mechanism
         finally:
-            if fcntl is not None:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            _release_delivery_lock(handle, mechanism)
 
 
 def _write_delivery_record(path: Path, data: dict[str, Any]) -> None:
