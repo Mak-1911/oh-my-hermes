@@ -32,6 +32,7 @@ references rather than normal user steps.
 | Goal | Read |
 | --- | --- |
 | Install, update, repair, or remove OMH | [Installation](INSTALLATION.md) |
+| Install on native Windows, and know what is POSIX-only there | [Installation: Windows](INSTALLATION.md#windows) |
 | Understand what OMH is and is not | [Direction](DIRECTION.md) |
 | Understand modules, artifacts, and ownership | [Architecture](ARCHITECTURE.md) |
 | Inspect the runtime-readable capability map | [Capabilities](CAPABILITIES.md) |
