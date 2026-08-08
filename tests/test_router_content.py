@@ -3095,7 +3095,7 @@ class RouterContentTests(unittest.TestCase):
         for path in paths:
             if path.is_dir():
                 continue
-            if path.suffix in {".png", ".jpg", ".jpeg", ".webp", ".pyc"}:
+            if path.suffix in {".png", ".jpg", ".jpeg", ".webp", ".pyc", ".gif", ".mp4", ".webm"}:
                 continue
             text = path.read_text(encoding="utf-8").lower()
             for term in forbidden:
@@ -3440,71 +3440,54 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("## Follow-Up", pr_template)
         self.assertIn("OMH", site)
         self.assertIn("Oh My Hermes", site)
-        hero = site.split('<section class="home-hero"', 1)[1].split("</section>", 1)[0]
-        self.assertIn('aria-label="Top install commands"', hero)
-        self.assertIn('src="assets/omh-readme-hero.png"', hero)
+        hero = site.split('<section class="hero hero--center"', 1)[1].split("</section>", 1)[0]
+        self.assertIn('src="assets/omh-character-mask.png"', hero)
+        self.assertIn("Power intelligence and <em>agentic memory</em> for Hermes Agent.", hero)
         self.assertIn(
-            "curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh\n"
-            "omh setup",
+            "curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh",
             hero,
         )
-        self.assertLess(hero.index("Top install commands"), hero.index("Installation options"))
-        # The landing page carries one hero illustration plus the four surface
-        # demos, and nothing else. The exact count is the point: it is what
-        # keeps decorative images off the page. It was 1 before the surfaces
-        # section existed.
+        self.assertIn("irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex", hero)
+        self.assertIn("omh setup", hero)
+        # The landing page carries the character mark four times (header,
+        # hero, Hermes executor card, footer) plus the terminal boot banner,
+        # and nothing else. The exact count keeps decorative images off the
+        # page; the three surface demos are <video> elements.
         self.assertEqual(site.count("<img"), 5)
-        surface_gifs = (
-            "assets/hermes-desktop.gif",
-            "assets/hermes-cli.gif",
-            "assets/hermes-messenger.gif",
-            "assets/omh-setup.gif",
-        )
-        for gif in surface_gifs:
-            self.assertEqual(site.count(f'src="{gif}"'), 1)
-            # The demos live once under assets/ and are copied in at build
-            # time. Without the copy step the section 404s on the deployed
-            # site while every local check still passes.
-            self.assertIn(f"cp {gif} _site/{gif}", pages)
-        self.assertEqual(site.count('loading="lazy"'), len(surface_gifs))
-        self.assertIn('href="docs/">Read the docs</a>', site)
-        self.assertIn("A stronger operating layer for the Hermes you already use.", site)
-        self.assertIn('class="product-frame"', site)
-        self.assertIn("82", site)
-        self.assertIn("6", site)
-        self.assertIn("curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh", site)
-        self.assertIn("omh setup", site)
+        self.assertEqual(site.count('src="assets/omh-character-mask.png"'), 4)
+        self.assertEqual(site.count('src="assets/omh-terminal-boot-banner.png"'), 1)
+        self.assertEqual(site.count("<video"), 3)
+        for stem in ("omh-setup", "hermes-desktop", "hermes-messenger"):
+            self.assertEqual(site.count(f'src="assets/{stem}.webm"'), 1)
+            self.assertEqual(site.count(f'src="assets/{stem}.mp4"'), 1)
+        # site/assets is self-contained; the Pages build must copy the whole
+        # tree instead of stitching demos in from the repo-root assets dir.
+        self.assertIn("cp -R site/. _site/", pages)
+        self.assertNotIn("cp assets/", pages)
+        # Language switcher: four locales, English default, no auto-detect.
+        for lang in ("en", "ko", "ja", "zh"):
+            self.assertIn(f'data-lang="{lang}"', site)
+        self.assertIn('src="i18n.js"', site)
+        self.assertIn('src="app.js"', site)
+        self.assertIn("103", site)
         self.assertIn("omh update", site)
         self.assertIn("omh doctor", site)
-        self.assertIn("hermes skills tap add rlaope/oh-my-hermes", site)
-        self.assertIn("hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes", site)
-        self.assertNotIn("omh capabilities summary --json", site)
-        self.assertIn("Three commands for people. The rest belongs to the agent layer.", site)
-        self.assertIn("agent / maintainer evaluation", site)
-        self.assertIn("coding_runtime_handoff/v1", site)
-        self.assertIn("Plan and decide", site)
-        self.assertIn("Learn and gather", site)
-        self.assertIn("Create materials and visuals", site)
-        self.assertIn("Delegate coding and ship", site)
-        self.assertIn("Operate and observe", site)
-        self.assertIn("Retain knowledge", site)
-        self.assertNotIn("usage-skill", site)
-        self.assertIn("Hermes message", site)
-        self.assertIn("I want to safely add a feature to this repo.", site)
+        # All eleven flagship workflows are named by exact skill name.
+        for slug in (
+            "ulw-work", "ulw-plan", "ulw-interview", "ulw-goal", "ulw-loop",
+            "ulw-ralph", "ulw-team", "ulw-process", "ulw-qa", "ulw-research",
+            "ulw-perf",
+        ):
+            self.assertIn(f'ulw-row__slug">{slug}</code>', site)
+        # Evidence vocabulary matches the 1.0.5 README stage badges.
+        self.assertIn("Plan · not run", site)
+        self.assertIn("Code · running", site)
+        self.assertIn("Code · reported done", site)
+        self.assertIn("Test · verified", site)
         self.assertIn("request-to-handoff", site)
-        self.assertIn("selected executor", site)
-        self.assertIn("Prepared is not observed", site)
-        self.assertIn("Reference pages when the lane needs detail.", site)
-        self.assertIn("Choose a path by job.", site)
         self.assertIn("See where Hermes ends and OMH begins.", site)
-        self.assertIn("Loop</span>", site)
-        self.assertNotIn('src="assets/omh-loop-engineering.png"', site)
-        self.assertNotIn('src="assets/omh-img-summary-card.png"', site)
-        self.assertNotIn('src="assets/omh-flagship-workflows-poster.png"', site)
         self.assertIn('href="docs/hermes-agent-architecture/"', site)
-        self.assertIn('href="docs/loop/"', site)
-        self.assertIn("No aggregate capability score.", site)
-        self.assertIn("external_metric_provider", site)
+        self.assertIn("not affiliated with Anthropic or OpenAI", site)
         self.assertIn("Hermes Agent Integration Runbook", site_docs)
         self.assertIn("Start from the decision, not the command.", site_docs)
         self.assertIn("People ask. Agents orchestrate.", site_docs)
@@ -3689,24 +3672,27 @@ class RouterContentTests(unittest.TestCase):
         self.assertNotIn("OMH 포지션", article_body)
         self.assertNotIn("Use OMH", article_body)
         self.assertNotIn("workflow lens", article_body)
-        topbar = site.split('<header class="topbar"', 1)[1].split("</header>", 1)[0]
+        topbar = site.split('<header class="topbar topbar--glass"', 1)[1].split("</header>", 1)[0]
         self.assertIn('href="docs/"', topbar)
-        self.assertNotIn('href="#architecture"', topbar)
-        self.assertNotIn('href="#install"', topbar)
         self.assertIn('class="nav__icon"', topbar)
         self.assertIn('href="https://github.com/rlaope/oh-my-hermes"', topbar)
         self.assertNotIn(">GitHub<", topbar)
+        # The language switcher sits at the far left of the topbar.
+        self.assertIn('data-lang-switch', topbar)
         docs_topbar = site_docs.split('<header class="topbar topbar--solid"', 1)[1].split("</header>", 1)[0]
         self.assertIn('class="nav__icon"', docs_topbar)
         self.assertIn('href="https://github.com/rlaope/oh-my-hermes"', docs_topbar)
         self.assertNotIn(">GitHub<", docs_topbar)
-        install_command = site.split('aria-label="Install commands"', 1)[1].split("</code>", 1)[0]
-        self.assertIn("curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh", install_command)
-        self.assertIn("omh setup", install_command)
-        self.assertIn("omh update", install_command)
-        self.assertIn("omh doctor", install_command)
-        self.assertIn("hermes skills tap add rlaope/oh-my-hermes", install_command)
-        self.assertIn("hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes", install_command)
+        install_section = site.split('id="install"', 1)[1].split("</section>", 1)[0]
+        self.assertIn("curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh", install_section)
+        self.assertIn("irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex", install_section)
+        self.assertIn("omh setup", install_section)
+        self.assertIn("omh update", install_section)
+        self.assertIn("omh doctor", install_section)
+        # The third install path is a paste-ready prompt for the visitor's own
+        # coding agent, pointing at the repository.
+        self.assertIn("https://github.com/rlaope/oh-my-hermes", install_section)
+        self.assertIn("paste the doctor output back to me", install_section)
         self.assertTrue(Path("site/assets/omh-loop-engineering.png").is_file())
         self.assertTrue(Path("site/assets/omh-img-summary-card.png").is_file())
         self.assertNotIn("github.com/rlaope/oh-my-hermes/tree/main/docs", site)
@@ -3913,7 +3899,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("binary PPTX export", playbooks)
         self.assertIn("not execution evidence", playbooks)
         self.assertIn("request-to-handoff", site)
-        self.assertIn("Start with the job, not the command.", site)
+        self.assertIn("Start with the job.", site)
 
     def test_discord_example_uses_wrapper_native_flow(self) -> None:
         text = Path("examples/discord-bot-runtime-flow.md").read_text(encoding="utf-8")

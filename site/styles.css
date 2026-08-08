@@ -1,26 +1,36 @@
 :root {
-  color-scheme: light;
-  --canvas: #ffffff;
-  --soft: #f5f5f2;
-  --soft-blue: #eef7fa;
-  --ink: #090b0c;
-  --muted: #62686f;
-  --quiet: #6b7177;
-  --line: rgba(9, 11, 12, 0.09);
-  --line-strong: rgba(9, 11, 12, 0.16);
-  --accent: #147c70;
-  --accent-strong: #0d6259;
-  --accent-soft: #e7f5f1;
-  --observed: #2563eb;
-  --observed-soft: #eaf0ff;
-  --warning: #94540f;
-  --warning-soft: #fff4e5;
-  --night: #111517;
-  --night-muted: #aeb7bd;
-  --shadow-frame: 0 24px 64px rgba(31, 39, 43, 0.12), 0 2px 8px rgba(31, 39, 43, 0.06);
-  --font-body: Arial, "Helvetica Neue", Helvetica, sans-serif;
-  --font-display: Georgia, "Times New Roman", serif;
-  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  color-scheme: dark;
+  /* Ground is neutral black. Blue lives on component surfaces, not the page. */
+  --canvas: #000000;
+  --soft: #0c0c0e;
+  --soft-blue: #0a0d12;
+  --ink: #f2f3f5;
+  --muted: #a0a2a8;
+  --quiet: #787a82;
+  --line: rgba(140, 190, 255, 0.13);
+  --line-strong: rgba(140, 190, 255, 0.28);
+  --accent: #4cc2ff;
+  --accent-strong: #8ad9ff;
+  --accent-soft: rgba(76, 194, 255, 0.11);
+  --observed: #6ea6ff;
+  --observed-soft: rgba(110, 166, 255, 0.13);
+  --warning: #f5b76b;
+  --warning-soft: rgba(245, 183, 107, 0.12);
+  --night: #000000;
+  --night-muted: #8a8c94;
+  --chrome-0: #ffffff;
+  --chrome-1: #cfe4f7;
+  --chrome-2: #7f9ec2;
+  --chrome-3: #33506f;
+  --shadow-frame: 0 28px 80px rgba(0, 0, 0, 0.66), 0 2px 10px rgba(0, 0, 0, 0.5);
+  --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter",
+    "Helvetica Neue", "Pretendard", "Noto Sans KR", "Noto Sans JP",
+    "Noto Sans SC", Arial, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter",
+    "Helvetica Neue", "Pretendard", "Noto Sans KR", "Noto Sans JP",
+    "Noto Sans SC", Arial, sans-serif;
+  --font-mono: "SFMono-Regular", "SF Mono", ui-monospace, Consolas,
+    "Liberation Mono", monospace;
   --page: 1184px;
   --measure: 720px;
   --gutter: 56px;
@@ -137,8 +147,9 @@ code {
   gap: 24px;
   padding: 12px max(var(--gutter), calc((100vw - var(--page)) / 2));
   border-bottom: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(16px);
+  background: rgba(0, 0, 0, 0.74);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
 }
 
 .brand {
@@ -159,12 +170,16 @@ code {
   height: 26px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
-  background: var(--ink);
-  color: var(--canvas);
+  border-radius: 8px;
+  background: linear-gradient(150deg, #eaf6ff 0%, #9fc4e6 26%, #2c4767 52%, #d8ecff 74%, #6f9dc9 100%);
+  color: #05131f;
   font-family: var(--font-display);
-  font-size: 14px;
-  font-weight: 400;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.5),
+    0 4px 14px rgba(76, 194, 255, 0.24);
 }
 
 .brand::before {
@@ -227,7 +242,7 @@ code {
 
 .button:hover {
   transform: translateY(-1px);
-  border-color: rgba(9, 11, 12, 0.28);
+  border-color: var(--line-strong);
   background: var(--soft);
 }
 
@@ -251,9 +266,9 @@ code {
 }
 
 .button--primary:hover {
-  border-color: #242a2d;
-  background: #242a2d;
-  color: var(--canvas);
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  color: var(--night);
 }
 
 .button--secondary {
@@ -399,7 +414,7 @@ code {
   gap: 4px;
   padding: 16px 12px;
   border-right: 1px solid var(--line);
-  background: #fafaf8;
+  background: rgba(126, 186, 255, 0.05);
 }
 
 .product-frame__rail span {
@@ -509,7 +524,7 @@ code {
   padding: 12px 14px;
   border-left: 3px solid var(--warning);
   background: var(--warning-soft);
-  color: #6f4919;
+  color: #f7d5a4;
   font-size: 13px;
   line-height: 20px;
 }
@@ -518,10 +533,10 @@ code {
 .install-terminal {
   overflow-x: auto;
   padding: 18px;
-  border: 1px solid #2a3033;
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-control);
   background: var(--night);
-  color: #eef3f5;
+  color: var(--ink);
 }
 
 .command code,
@@ -658,11 +673,11 @@ code {
   max-width: 100%;
   margin: 24px 0 18px;
   overflow: hidden;
-  border: 1px solid #2a3033;
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius-frame);
   background: var(--night);
-  color: #eef3f5;
-  box-shadow: 0 14px 32px rgba(17, 21, 23, 0.14);
+  color: var(--ink);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
 }
 
 .hero-install__bar {
@@ -671,7 +686,7 @@ code {
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  border-bottom: 1px solid #2a3033;
+  border-bottom: 1px solid var(--line-strong);
   color: var(--night-muted);
 }
 
@@ -679,7 +694,7 @@ code {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #6b7177;
+  background: var(--quiet);
 }
 
 .hero-install__bar strong {
@@ -1657,7 +1672,7 @@ a.reference-link:hover,
   padding: 20px;
   border-left: 3px solid var(--accent);
   background: var(--accent-soft);
-  color: #254943;
+  color: var(--ink);
 }
 
 .comparison-shell {
