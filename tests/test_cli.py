@@ -6112,7 +6112,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("Top recommendations:", stdout)
         self.assertIn("- ralplan: preparing a reviewed plan (high, score 32)", stdout)
         self.assertIn("Route plan:", stdout)
-        self.assertIn("- 1. triage: feedback-triage - prepared, not observed", stdout)
+        self.assertIn("- 1. triage: feedback-triage - not run", stdout)
+        # Positive twin for the negative pin below: the raw token must be gone
+        # AND a readable label must have taken its place, or a renderer that
+        # dropped the status entirely would pass both.
+        self.assertNotIn("prepared_not_observed", stdout)
         self.assertNotIn("(`prepared_not_observed`)", stdout)
         self.assertIn("Boundary:", stdout)
         self.assertIn("A recommendation or draft plan is not execution evidence.", stdout)

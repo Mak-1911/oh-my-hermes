@@ -5,7 +5,7 @@ import re
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Final, Iterable
 
 from ..hashutil import sha256_text
 from ..local_store import ensure_dir, read_json_object, utc_now
@@ -17,6 +17,11 @@ from ..system.record_revision import (
 )
 from ..paths import OmhPaths
 from ..runtime.artifacts import summarize_delegated_coding_status
+from ..wrapper.message_gate import (
+    RENDER_PROFILE_LIMITED_MARKDOWN,
+    build_message_gate,
+    render_message_gate_lines,
+)
 
 
 GOAL_LEDGER_SCHEMA = "goal_ledger/v1"
@@ -842,6 +847,78 @@ def build_goal_status_card(paths: OmhPaths, goal_id: str) -> dict[str, Any]:
             "Never render a markdown table: messenger surfaces (Slack, Telegram) drop tables."
         ),
     }
+
+
+GOAL_STATUS_CLAIM_BOUNDARY: Final[str] = (
+    "A goal status card is ledger state. Satisfied criteria are recorded, not verified, "
+    "and it is not execution, review, CI, or merge evidence."
+)
+
+
+def render_goal_status_text(
+    card: dict[str, Any], *, render_profile: str = RENDER_PROFILE_LIMITED_MARKDOWN
+) -> str:
+    """The goal status card as exact lines, for a terminal or a messenger.
+
+    `omh goal status` prints JSON by design -- it is a control-plane command and
+    wrappers parse it. That contract is fine for a wrapper and hostile to a
+    human: relayed straight into a chat client the payload arrives as one line
+    of backslash-escaped Unicode. This renders the same card instead of
+    changing what the command returns by default.
+
+    The header goes through the message gate so a goal card and a coding handoff
+    disclose their skill, status, and prompt reference in the identical shape,
+    with MODEL declared absent because a goal ledger has no executor to name.
+    """
+    gate = build_message_gate(
+        skill="ulw-goal",
+        status=str(card.get("goal_status", "")),
+        prompt_sha256=_objective_digest(card),
+        prompt_chars=len(str(card.get("objective_summary", "") or "")),
+        discloses_model=False,
+        reference_kind="objective",
+    )
+    progress = card.get("progress") if isinstance(card.get("progress"), dict) else {}
+    lines = [
+        *render_message_gate_lines(gate, render_profile=render_profile),
+        "",
+        str(card.get("objective_summary", "") or "(no objective recorded)"),
+        "",
+        # `_goal_progress` keys are `criteria_satisfied` / `criteria_total`; the
+        # shorter names render a six-criteria goal as `0 of 0`, which is worse
+        # than no line at all because it reads as a real measurement.
+        f"Criteria: {progress.get('criteria_satisfied', 0)} of "
+        f"{progress.get('criteria_total', 0)} satisfied "
+        f"({progress.get('percent_required_satisfied', 0)}% of required)",
+        f"Next action: {card.get('next_action', '') or 'unknown'}",
+    ]
+    checkpoint_lines = card.get("checkpoint_lines")
+    if isinstance(checkpoint_lines, list) and checkpoint_lines:
+        lines.extend(["", "Checkpoints:", *(str(line) for line in checkpoint_lines)])
+    else:
+        lines.extend(["", "No checkpoints recorded."])
+    for label, key in (("Missing criteria", "missing_criteria"), ("Active blockers", "active_blockers")):
+        items = card.get(key)
+        if isinstance(items, list) and items:
+            lines.extend(["", f"{label}:", *(f"- {_goal_line_item(item)}" for item in items)])
+    lines.extend(["", GOAL_STATUS_CLAIM_BOUNDARY])
+    return "\n".join(lines).strip()
+
+
+def _goal_line_item(item: Any) -> str:
+    """One bounded line per entry, whether the ledger stored a string or a dict."""
+    if isinstance(item, dict):
+        for key in ("summary", "description", "criterion", "blocker", "id"):
+            value = str(item.get(key, "") or "").strip()
+            if value:
+                return value
+        return "unnamed"
+    return " ".join(str(item or "").split()) or "unnamed"
+
+
+def _objective_digest(card: dict[str, Any]) -> str:
+    objective = str(card.get("objective_summary", "") or "")
+    return sha256_text(objective) if objective else ""
 
 
 def _linked_runtime_check(paths: OmhPaths, run_id: str) -> dict[str, Any]:

@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Final, Mapping
 
 from ..local_store import read_json_object_result, utc_now
+from ..evidence import PHASE_CODE, status_label
 from ..paths import OmhPaths
 from .context_safety import sanitize_user_facing_progress_text
 from .executor_progress import project_active_executor_status
@@ -266,7 +267,11 @@ def status_text_for(unit: Mapping[str, Any]) -> str:
     cannot import this module; `tests/test_coding_status_board.py` gates the two
     against each other.
     """
-    status = str(unit.get("status", "") or UNKNOWN)
+    # Every row on this board is a coding unit, so `Code` is the phase when the
+    # value does not imply a more specific one (`worktree_failed` implies
+    # `Setup`). The wire value stays in `unit["status"]` for anything parsing
+    # the payload; only this cell changes.
+    status = status_label(str(unit.get("status", "") or UNKNOWN), default_phase=PHASE_CODE)
     source = str(unit.get("unmapped_source_status", "") or "")
     return f"{status} (reported {source})" if source else status
 

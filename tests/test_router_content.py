@@ -3213,7 +3213,13 @@ class RouterContentTests(unittest.TestCase):
             # when the four-surface demo table (22 lines) was added above the
             # h1 in every language; it still sits below README.md's length.
             self.assertLess(len(localized_readme.splitlines()), 260)
-            self.assertIn("prepared_not_observed", localized_readme)
+            # The trust surface is the evidence table, not the wire token that
+            # used to stand in for it. Pinning the token meant a README could
+            # satisfy this by naming a value no reader could decode; pinning
+            # the two rows means it has to state the distinction that matters —
+            # an executor reporting itself done is not a checked result.
+            self.assertIn("`Plan · not run`", localized_readme)
+            self.assertIn("`Code · reported done`", localized_readme)
             self.assertIn("omh setup", localized_readme)
             self.assertIn("```sh\nomh update\nomh doctor\n```", localized_readme)
             for image in (
@@ -3239,7 +3245,10 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("## Legacy Migration and Reactivation", memory)
         self.assertIn("## Batch Context Updates", memory)
         self.assertIn("Agent/operator only", memory)
-        self.assertIn("prepared_not_observed", readme)
+        # Same reason as the localized assertion above: the English README
+        # earns trust by stating the distinction, not by printing the token.
+        self.assertIn("`Plan · not run`", readme)
+        self.assertIn("`Code · reported done`", readme)
         self.assertIn("assets/hermes-agent-hero.png", readme)
         self.assertIn("assets/friren-agent-omh-callout.png", readme)
         self.assertNotIn("assets/artengine-friren-profile-card.png", readme)

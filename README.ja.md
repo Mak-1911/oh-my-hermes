@@ -222,14 +222,16 @@ provider アクセスは、コア内部に隠された挙動ではなく、明�
 
 ## 主張より証拠
 
-| 状態 | 意味 |
-| --- | --- |
-| Prepared | route、plan、prompt、成果物 contract、handoff の準備ができています。 |
-| Observed | wrapper または runtime が行動や結果の発生を記録しました。 |
-| Verified | 必要な test、review、実画面確認、または別の gate が通過しました。 |
+OMH は自分が見たことだけを起きたと報告します。表示される状態は常に「どの段階か」と「OMH がどれだけ確信しているか」の二部構成です。
 
-`prepared_not_observed` は実行、provider access、成果物生成、review、CI、
-deployment、merge readiness、merge ではありません。
+| 表示 | 意味 |
+| --- | --- |
+| `Plan · not run` | prompt や plan の準備ができています。**まだ何も動いていません。** |
+| `Code · running` | executor が今動いており、OMH が観測しています。 |
+| `Code · reported done` | executor が終わったと言いました。結果は誰も確認していません。 |
+| `Test · verified` | test、review、CI gate が実際に通過しました。 |
+
+重要なのは下から二番目の行です。executor が終わったと言うことと結果が確認されたことは別ですが、多くのツールは両方を「完了」と書きます。
 
 ## ドキュメント
 

@@ -43,6 +43,7 @@ packages = [
   "omh.commands",
   "omh.conformance",
   "omh.core",
+  "omh.evidence",
   "omh.install",
   "omh.maintenance",
   "omh.mcp",
@@ -71,6 +72,7 @@ packages = [
 "omh.commands" = "src/commands"
 "omh.conformance" = "src/conformance"
 "omh.core" = "src/core"
+"omh.evidence" = "src/evidence"
 "omh.install" = "src/install"
 "omh.maintenance" = "src/maintenance"
 "omh.mcp" = "src/mcp"

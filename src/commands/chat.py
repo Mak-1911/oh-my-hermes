@@ -42,6 +42,7 @@ from ..wrapper.sessions import (
     show_wrapper_session,
 )
 from ..workflows.domain_project_context import bind_cli_project
+from ..evidence import confidence_label
 from .common import (
     _chat_input_and_metadata,
     _chat_message,
@@ -321,16 +322,6 @@ _ROUTE_ACTION_LABELS = {
     "fallback": "answering without a workflow",
 }
 
-_SUMMARY_STATUS_LABELS = {
-    "prepared_not_observed": "prepared, not observed",
-    "not_observed": "not observed",
-    "observed": "observed",
-    "blocked": "blocked",
-    "completed": "completed",
-    "failed": "failed",
-    "passed": "passed",
-    "pending": "pending",
-}
 
 
 def _route_action_label_without_id(action: str) -> str:
@@ -339,10 +330,18 @@ def _route_action_label_without_id(action: str) -> str:
 
 
 def _status_label_without_id(status: str) -> str:
+    """The status a person reads in the route summary.
+
+    Was a private map here saying `prepared, not observed` while the status
+    board said `prepared_not_observed` and the menubar said
+    `prepared not observed` -- three vocabularies for one state. Routed through
+    `omh.evidence.labels` so all three agree, and so an unrecognized value fails
+    closed instead of being spelled out with its underscores replaced.
+    """
     normalized = status.strip()
     if not normalized:
         return ""
-    return _SUMMARY_STATUS_LABELS.get(normalized, normalized.replace("_", " ")) or normalized
+    return confidence_label(normalized)
 
 
 def _format_summary_action(action: dict[str, object]) -> str:

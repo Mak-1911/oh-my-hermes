@@ -12,6 +12,7 @@ from ..goal_ledger import (
     create_goal_ledger,
     list_goal_ledgers,
     read_goal_ledger,
+    render_goal_status_text,
     record_goal_blocker,
     record_goal_checkpoint,
 )
@@ -135,13 +136,20 @@ def cmd_goal_cancel(args: argparse.Namespace) -> int:
 
 def cmd_goal_status(args: argparse.Namespace) -> int:
     paths = _paths(args)
+    wants_text = bool(getattr(args, "text", False))
+    if wants_text and not args.goal_id:
+        raise OmhError("--text renders one goal; pass --goal GOAL_ID")
     try:
         if args.goal_id:
+            card = build_goal_status_card(paths, args.goal_id)
+            if wants_text:
+                print(render_goal_status_text(card))
+                return 0
             _print_json(
                 {
                     "goal": read_goal_ledger(paths, args.goal_id),
                     "completion_gate": build_goal_completion_gate(paths, args.goal_id),
-                    "status_card": build_goal_status_card(paths, args.goal_id),
+                    "status_card": card,
                 }
             )
             return 0
@@ -221,6 +229,14 @@ def _add_goal_commands(sub) -> None:
 
     goal_status = goal_sub.add_parser("status")
     goal_status.add_argument("--goal", dest="goal_id", default="")
+    # JSON stays the default: `goal` is a control-plane group and wrappers parse
+    # it, so flipping the default would break them. `--text` is the opt-in for a
+    # human or a messenger relay, which is where escaped JSON is unreadable.
+    goal_status.add_argument(
+        "--text",
+        action="store_true",
+        help="Render one goal as readable lines instead of the machine payload (requires --goal).",
+    )
     goal_status.set_defaults(func=cmd_goal_status)
 
     goal_continue = goal_sub.add_parser("continue")

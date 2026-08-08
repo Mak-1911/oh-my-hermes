@@ -259,18 +259,21 @@ access stay explicit integrations rather than hidden behavior inside the core.
 
 ## Evidence Before Claims
 
-OMH separates useful preparation from observed results:
+OMH never reports that work happened unless it watched it happen. Every status
+you see has two parts: the stage, and how sure OMH is about it.
 
-| State | Meaning |
+| You see | It means |
 | --- | --- |
-| Prepared | A route, plan, prompt, artifact contract, or handoff is ready. |
-| Observed | A wrapper or runtime recorded that an action or result occurred. |
-| Verified | A matching test, review, served-surface check, or other required gate passed. |
+| `Plan · not run` | A prompt or plan is ready. **Nothing has run yet.** |
+| `Code · running` | An executor is running now, and OMH is watching it. |
+| `Code · reported done` | The executor said it finished. Nobody checked the result. |
+| `Test · verified` | A test, review, or CI gate actually passed. |
 
-`prepared_not_observed` is not execution, provider access, artifact generation,
-review, CI, deployment, merge readiness, or a merge. Capability impact is
-reported across separate dimensions rather than collapsed into one marketing
-score. See [Capability Impact](docs/CAPABILITY_IMPACT.md).
+The distinction that matters is the second row from the bottom: an executor
+saying it is done is not the same as anything having been checked, and most
+tools spell both "complete". Capability impact is reported across separate
+dimensions rather than collapsed into one marketing score. See
+[Capability Impact](docs/CAPABILITY_IMPACT.md).
 
 <br>
 

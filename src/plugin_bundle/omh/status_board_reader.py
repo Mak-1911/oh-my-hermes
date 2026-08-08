@@ -408,12 +408,47 @@ def _unmapped_status_source(value: Any) -> str:
     return collapsed[: _STATUS_SOURCE_LIMIT - 3] + "..."
 
 
+# Hand-mirror of `omh.evidence.labels`, which this bundle cannot import. Kept
+# byte-identical in behaviour by the parity test in
+# `tests/test_coding_status_board.py`; the wire values themselves are unchanged
+# on both sides.
+_CONFIDENCE_BY_VALUE: dict[str, str] = {
+    "routing_not_execution": "not run",
+    "prepared_not_observed": "not run",
+    "observed_partial": "partly seen",
+    "observed_reportable": "seen",
+    "running": "running",
+    "completed": "reported done",
+    "failed": "failed",
+    "worktree_failed": "failed",
+}
+_PHASE_BY_VALUE: dict[str, str] = {
+    "routing_not_execution": "Route",
+    "prepared_not_observed": "Plan",
+    "worktree_failed": "Setup",
+}
+_BOARD_PHASE = "Code"
+_LABEL_SEPARATOR = " \u00b7 "
+
+
+def _status_label(value: str) -> str:
+    """`Code \u00b7 running` -- mirrors `omh.evidence.labels.status_label`.
+
+    Fails closed to `not run` for the same reason `normalize_status` does: an
+    unrecognized state must never render as work that happened.
+    """
+    key = str(value or "").strip()
+    confidence = _CONFIDENCE_BY_VALUE.get(key, "not run")
+    phase = _PHASE_BY_VALUE.get(key, _BOARD_PHASE)
+    return f"{phase}{_LABEL_SEPARATOR}{confidence}"
+
+
 def _status_text(unit: dict[str, Any]) -> str:
     """The status a person reads, with any refused source word attached.
 
     Mirrors `omh.coding.status_board.status_text_for`.
     """
-    status = str(unit.get("status", "") or "unknown")
+    status = _status_label(str(unit.get("status", "") or "unknown"))
     source = str(unit.get("unmapped_source_status", "") or "")
     return f"{status} (reported {source})" if source else status
 

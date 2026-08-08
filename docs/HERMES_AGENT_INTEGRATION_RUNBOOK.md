@@ -139,34 +139,54 @@ runtime run exists and the wrapper needs a compact progress card.
   plugin `omh_interact` or `omh chat interact`. Render the prefix once per response, not on every
    paragraph; repeat it only when the adapter posts a long response as separate
    message chunks.
-5. If `target_notice.action` is `ask_to_apply_target_change`, render a short
+5. After every body chunk, post each element of
+   `chat_response.messenger_rendering.follow_up_texts` in order, as its own
+   message. These are not more of the body: `chunked_body_texts` is one body
+   cut to fit, while a follow-up is a separate thing to say, already sized for
+   one message on the resolved platform. The list is empty on every response
+   that has nothing to add, so an adapter can post it unconditionally. Today
+   the only producer is the message gate's `HERMES PROMPTING` block — the
+   composed order behind a coding handoff, head-bounded and fenced — and an
+   adapter that ignores this key silently drops it.
+6. When `chat_response.message_gate` is present, its provenance header is
+   already rendered into `body_text` for the resolved profile, so an adapter
+   posting `body_text` needs no extra work. Read the payload directly only to
+   build a richer surface: `fields` carries the disclosed skill, model,
+   evidence status, and prompt or objective reference; `field_order` is the
+   order to print them; `warnings` names any disclosure the gate could not
+   make (`message_gate_missing_model_label`,
+   `message_gate_unresolved_model_route`, `message_gate_missing_status`,
+   `message_gate_missing_prompt_reference`). A warning is advisory: OMH
+   renders the response either way, and the code exists so a degraded
+   disclosure is visible rather than silent.
+7. If `target_notice.action` is `ask_to_apply_target_change`, render a short
    setup-change comment and an apply action. Until accepted or auto-applied,
    keep the workflow scoped to the current thread target. The
    `apply_target_change` action payload carries
    `target_observation.source_metadata`; pass that sanitized metadata back to
    the wrapper backend with target-change apply enabled to persist the same
    target update.
-6. If the response is a plan, wait for the user to accept or revise the plan
+8. If the response is a plan, wait for the user to accept or revise the plan
    before preparing a handoff.
-7. If a coding handoff is prepared, check `executor_readiness/v1` before first
+9. If a coding handoff is prepared, check `executor_readiness/v1` before first
    dispatch for the selected profile. A wrapper may run
    `omh coding executor-readiness --executor <profile>` once, cache the result,
    and skip later probes unless the user forces a retry. If readiness is
    `missing` or `blocked`, ask the user to choose another coding agent,
    configure PATH, continue in Hermes, or keep a prompt/runtime handoff.
-8. If the selected profile is Hermes, render `hermes_coding_harness/v1` from
+10. If the selected profile is Hermes, render `hermes_coding_harness/v1` from
    the prepared runtime handoff or wrapper-session status. It is a read-only
    projection, so answer status questions with the current stage, lane owner,
    next action, and missing evidence. Do not say Hermes created a PR, passed
    review, passed CI, or reached merge readiness unless the matching
    `runtime_observation/v1` event exists.
-9. Dispatch the `coding_executor_handoff/v1`
+11. Dispatch the `coding_executor_handoff/v1`
    payload to the external executor outside OMH. For Codex targets, use
    `codex_skill` and `codex_invocation.dispatch_text_template`; this is the
    `$skill {message}` surface Codex actually receives.
-10. Record only evidence the wrapper actually observed: dispatch, executor
+12. Record only evidence the wrapper actually observed: dispatch, executor
    result, verification, review, CI, merge readiness, and merge.
-11. Re-render status from OMH after each observed transition.
+13. Re-render status from OMH after each observed transition.
 
 ## State Transition Reference
 

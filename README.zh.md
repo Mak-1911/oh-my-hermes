@@ -210,14 +210,18 @@ connector 系统都位于明确的外部 provider contract 之后。OMH 可以�
 
 ## 证据先于声明
 
-| 状态 | 含义 |
-| --- | --- |
-| Prepared | route、plan、prompt、产物 contract 或 handoff 已准备好。 |
-| Observed | wrapper 或 runtime 已记录某个操作或结果确实发生。 |
-| Verified | 所需 test、review、实际页面检查或其他 gate 已通过。 |
+OMH 只报告自己观测到的事情。你看到的每个状态都由两部分组成：处于哪个阶段，
+以及 OMH 对它有多确定。
 
-`prepared_not_observed` 不代表执行、provider 访问、产物生成、review、CI、
-deployment、merge readiness 或 merge。
+| 显示 | 含义 |
+| --- | --- |
+| `Plan · not run` | prompt 或 plan 已就绪。**还没有任何东西运行过。** |
+| `Code · running` | executor 正在运行，OMH 正在观测。 |
+| `Code · reported done` | executor 说它完成了。没有人检查过结果。 |
+| `Test · verified` | test、review 或 CI gate 确实通过了。 |
+
+关键是倒数第二行：executor 说自己完成了，与结果被检查过是两回事，
+而大多数工具把两者都写成「完成」。
 
 ## 文档
 
