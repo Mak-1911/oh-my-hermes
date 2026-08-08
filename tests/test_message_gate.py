@@ -400,6 +400,33 @@ class WiringTests(unittest.TestCase):
         self.assertIn(WARNING_UNRESOLVED_MODEL_ROUTE, gate["warnings"])
         self.assertNotIn(WARNING_MISSING_MODEL_LABEL, gate["warnings"])
 
+    def test_every_delegation_shape_shows_its_composed_order(self) -> None:
+        # `build_coding_delegation_payload` emits exactly one of three handoff
+        # shapes, and reading only `executor_handoff` covered one of them.
+        # `claude-code` and `generic` produce `prompt_handoff`, `hermes`
+        # produces `runtime_handoff` -- all three shipped a PROMPT digest with
+        # no composed order and no signal that one was missing.
+        expected = {
+            "codex": "executor_handoff",
+            "claude-code": "prompt_handoff",
+            "hermes": "runtime_handoff",
+            "generic": "prompt_handoff",
+        }
+        for target, shape in expected.items():
+            with self.subTest(executor=target):
+                payload = self._payload(CODING_MESSAGE, executor_target=target, mode="delegate")
+                delegation = payload["delegation"]
+                self.assertTrue(
+                    delegation[shape].get("prompt_template"),
+                    f"{target} no longer produces {shape}; update this map",
+                )
+                gate = payload["chat_response"]["message_gate"]
+                self.assertIn("HERMES PROMPTING", gate["prompt_block"])
+                self.assertEqual(
+                    payload["chat_response"]["messenger_rendering"]["follow_up_texts"][0],
+                    gate["prompt_block"],
+                )
+
     def test_a_cached_copy_does_not_alias_the_gate(self) -> None:
         # `_copy_chat_response_payload` starts from a shallow `dict(response)`,
         # so a nested `fields` dict would be shared by every cached caller.
