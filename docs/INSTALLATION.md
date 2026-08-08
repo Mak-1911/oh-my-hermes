@@ -317,7 +317,7 @@ unselected coding agent never reads as an idle external agent named
    Evidence card carry the same prepared-versus-observed boundary as before.
 
 A quiet no-run line looks like
-`[omh] v1.0.4 | plugin:ready | target:single | coding-agent:not-selected`.
+`[omh] v1.0.5 | plugin:ready | target:single | coding-agent:not-selected`.
 The plugin also exposes `omh_context` for a compact OMH mental model plus
 generic-tool checkpoint, `omh_memory` for a metadata-only comparison of Hermes
 memory against OMH's approved records, `omh_interact` for shell-free chat responses and
@@ -530,8 +530,8 @@ After installing OMH into the target runtime, verify the command path too:
 command -v omh
 omh --help
 omh release skill-content-smoke --json
-omh release product-readiness --version 1.0.4 --json
-omh release evidence-bundle --version 1.0.4 --write --json
+omh release product-readiness --version 1.0.5 --json
+omh release evidence-bundle --version 1.0.5 --write --json
 omh --omh-home /tmp/omh-smoke --hermes-home /tmp/hermes-smoke release hermes-smoke --install-path setup --omh-command omh --include-command-smoke
 ```
 
@@ -546,12 +546,12 @@ OMH workflow context to route well.
 It is not Hermes chat-load evidence. When an operator explicitly wants live
 evidence from the target Hermes profile, run one of these:
 
-Use `omh release product-readiness --version 1.0.4 --json` when you want a
+Use `omh release product-readiness --version 1.0.5 --json` when you want a
 single release-candidate card that combines skill content, G1-G10 use-case
 readiness, parity contracts, and release checklist shape. It is still local
 contract evidence, not live Hermes chat or executor evidence.
 
-Use `omh release evidence-bundle --version 1.0.4 --write --json` when you want
+Use `omh release evidence-bundle --version 1.0.5 --write --json` when you want
 that local release-candidate evidence written under
 `.omh/runtime/release-evidence/` for a release PR or release note. The bundle is
 not CI, live Hermes smoke, executor, delivery, merge, or GitHub release evidence.

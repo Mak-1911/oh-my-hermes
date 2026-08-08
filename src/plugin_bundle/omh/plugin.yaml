@@ -1,5 +1,5 @@
 name: omh
-version: "1.0.4"
+version: "1.0.5"
 description: "Oh My Hermes native bridge for metadata-only runtime status, HUD, role context, bounded evidence probes, evidence-boundary context, and a deterministic file-backed memory provider."
 author: oh-my-hermes maintainers
 provides_memory_provider: omh
