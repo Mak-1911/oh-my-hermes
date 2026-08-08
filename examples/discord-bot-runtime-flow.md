@@ -24,7 +24,7 @@ status update.
 
    ```sh
    printf '%s' "$interaction_json" |
-     python -c 'import json,sys; data=json.load(sys.stdin)["chat_response"]; body=data.get("messenger_rendering", {}).get("body_text"); isinstance(body, str) or sys.exit("missing messenger_rendering.body_text"); print(data["headline"]); print(body)'
+     python -c 'import json,sys; data=json.load(sys.stdin)["chat_response"]; rendering=data.get("messenger_rendering", {}); body=rendering.get("body_text"); isinstance(body, str) or sys.exit("missing messenger_rendering.body_text"); print(data["headline"]); print(body); [print("\n---\n" + follow_up) for follow_up in rendering.get("follow_up_texts", [])]'
    ```
 
    `chat_response.headline` already starts with a visible marker such as
@@ -34,6 +34,15 @@ status update.
    Hermes TUI or web surfaces can render their own profile's `body_text` with
    tables preserved. Keep the prefix on the first line only; repeat it only
    when posting separate split messages.
+
+   Post every element of `messenger_rendering.follow_up_texts` after the body,
+   each as its own Discord message — the `---` above stands in for that message
+   boundary. The list is empty on responses with nothing to add, so reading it
+   unconditionally is safe. A bot that cherry-picks fields and does not know
+   this key silently drops what it carries: today that is the message gate's
+   `HERMES PROMPTING` block, the composed order behind a coding handoff. The
+   provenance header itself needs no bot change — it is already inside
+   `body_text`.
    Typical action ids include `accept_plan`, `revise_plan`, `choose_executor`,
    `show_prompt_handoff`, `copy_prompt_handoff`, `send_to_executor`,
    `show_status`, and `cancel`. `send_to_codex` is only a compatibility alias
