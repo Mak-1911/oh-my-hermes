@@ -5,12 +5,7 @@ import json
 import secrets
 from typing import Any
 
-try:  # pragma: no cover - non-POSIX fallback is exercised only on platforms without fcntl.
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None  # type: ignore[assignment]
-
-from ..local_store import ensure_dir, ensure_file, read_json_object, read_jsonl_objects, utc_now
+from ..local_store import append_jsonl_locked, read_json_object, read_jsonl_objects, utc_now
 from ..paths import OmhPaths
 
 
@@ -115,17 +110,7 @@ def append_observation_event(paths: OmhPaths, event: dict[str, Any]) -> dict[str
     sequence_errors = _validate_observation_event_prerequisites(paths, record, _prior_events_for_record(paths, record))
     if sequence_errors:
         raise ValueError(sequence_errors[0])
-    ensure_dir(paths.runtime_journal_dir, private=True)
-    ensure_file(paths.runtime_journal_events_path, private=True)
-    with paths.runtime_journal_events_path.open("a", encoding="utf-8") as handle:
-        if fcntl is not None:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            handle.write(json.dumps(record, sort_keys=True) + "\n")
-            handle.flush()
-        finally:
-            if fcntl is not None:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    append_jsonl_locked(paths.runtime_journal_events_path, record)
     return record
 
 

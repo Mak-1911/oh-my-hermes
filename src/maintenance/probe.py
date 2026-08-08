@@ -1,8 +1,15 @@
 from __future__ import annotations
 from ..skills.catalog import omh_skill_display_name
 
+import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - absent on Windows.
+    fcntl = None
 
 from ..capability_roadmap import build_capability_gap_roadmap
 from ..config_adapter import external_dirs, read_config
@@ -405,6 +412,46 @@ def _dir_capability(name: str, path: Path, found_message: str, missing_message: 
     )
 
 
+def _domain_intelligence_store_capability() -> Capability:
+    """Whether this host has the primitives the domain-intelligence store needs.
+
+    The store fails closed without dirfd-anchored opens and advisory locks, and
+    `_bind_root` turns that refusal into `None` so an unavailable expert
+    question never breaks a route. That degradation is correct, but it left a
+    Windows user with a feature that silently never engages and nothing to
+    consult about why. This row is that answer.
+
+    Probed rather than keyed off `os.name`, so it stays true on any host whose
+    Python lacks one of the primitives for its own reasons.
+    """
+    missing: list[str] = []
+    if not (
+        getattr(os, "O_NOFOLLOW", 0)
+        and getattr(os, "O_DIRECTORY", 0)
+        and os.open in os.supports_dir_fd
+        and hasattr(os, "fchmod")
+    ):
+        missing.append("dirfd-anchored opens (O_NOFOLLOW/O_DIRECTORY)")
+    if fcntl is None:
+        missing.append("fcntl advisory locks")
+    if missing:
+        return Capability(
+            "domain_intelligence_store",
+            "missing",
+            f"platform:{sys.platform}",
+            (
+                "Domain intelligence and its chat context attachment are unavailable on this host, "
+                f"which lacks {' and '.join(missing)}; routing is unaffected"
+            ),
+        )
+    return Capability(
+        "domain_intelligence_store",
+        "available",
+        f"platform:{sys.platform}",
+        "Host provides the dirfd and advisory-lock primitives the domain-intelligence store requires",
+    )
+
+
 def probe_capabilities(paths: OmhPaths, *, include_parity: bool = False, include_roadmap: bool = False) -> dict:
     config_text = read_config(paths.hermes_config_path)
     configured_dirs = external_dirs(config_text)
@@ -541,6 +588,7 @@ def probe_capabilities(paths: OmhPaths, *, include_parity: bool = False, include
             ),
         ]
     )
+    capabilities.append(_domain_intelligence_store_capability())
 
     payload = {
         "schema_version": 1,

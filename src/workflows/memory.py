@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import unicodedata
@@ -10,9 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from ..local_store import (
+    append_jsonl_locked,
     atomic_write_json,
     ensure_dir,
-    ensure_file,
     file_lock,
     read_json_object,
     read_json_object_result,
@@ -20,10 +19,6 @@ from ..local_store import (
     utc_now,
 )
 
-try:  # pragma: no cover - non-POSIX fallback is exercised only on platforms without fcntl.
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None  # type: ignore[assignment]
 from ..plugin_bundle.omh.hermes_memory import build_hermes_memory_bridge as _bundle_memory_bridge
 from ..plugin_bundle.omh.hermes_memory import classify_record_expiry as _classify_record_expiry
 from ..plugin_bundle.omh.memory_dreaming import consolidation_path as _consolidation_path
@@ -1587,18 +1582,7 @@ def _append_retirement_journal(paths: OmhPaths, record_id: str, retired_at: str,
         "redaction_policy": "metadata_only",
         "claim_boundary": _RETIREMENT_JOURNAL_CLAIM_BOUNDARY,
     }
-    journal_path = _retirements_journal_path(paths)
-    ensure_dir(journal_path.parent, private=True)
-    ensure_file(journal_path, private=True)
-    with journal_path.open("a", encoding="utf-8") as handle:
-        if fcntl is not None:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            handle.write(json.dumps(entry, sort_keys=True) + "\n")
-            handle.flush()
-        finally:
-            if fcntl is not None:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    append_jsonl_locked(_retirements_journal_path(paths), entry)
     return entry
 
 
