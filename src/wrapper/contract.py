@@ -13,6 +13,7 @@ from ..coding.agentic_playbook import maybe_build_agentic_playbook
 from ..coding.agentic_playbook_contract import chat_response_with_agentic_playbook
 from ..coding.executor_local_workflow import validate_executor_local_workflow
 from ..coding.status_board import model_label_for
+from ..evidence import status_label
 from .message_gate import build_message_gate, fence_marker_for, message_gate_body
 from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_text, extract_source_metadata
 from ..routing.catalog_questions import is_skill_catalog_question as _is_skill_catalog_question
@@ -7086,7 +7087,15 @@ def _chat_response_with_message_gate(
         skill=str(trace.get("selected_workflow", "") or trace.get("label", "")),
         executor=executor,
         model_label=_status_model_label(state),
-        status=str(trace.get("evidence_state", "")),
+        # The wire value is unreadable in a chat bubble, and `usage_trace`
+        # already carries the `next_action` that names the stage the evidence
+        # value alone cannot -- `observed_partial` is equally true of a test run
+        # and a review. The value itself is untouched and still ships in
+        # `usage_trace.evidence_state` for anything that parses it.
+        status=status_label(
+            str(trace.get("evidence_state", "")),
+            next_action=str(trace.get("next_action", "")),
+        ),
         # Bounded to the same summary ceiling the show-prompt surface uses.
         #
         # This `if` is defence in depth, not the redaction mechanism. The

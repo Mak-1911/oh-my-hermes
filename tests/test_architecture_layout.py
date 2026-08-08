@@ -57,6 +57,7 @@ class ArchitectureLayoutTests(unittest.TestCase):
             "commands",
             "conformance",
             "core",
+            "evidence",
             "install",
             "maintenance",
             "mcp",

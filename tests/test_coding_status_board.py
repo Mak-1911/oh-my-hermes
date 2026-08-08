@@ -204,7 +204,7 @@ class StatusBoardBuildTests(unittest.TestCase):
         text = render_status_board_text(payload)
         self.assertIn("openrouter/qwen-3.5-coder high", text)
         bullets = status_board_messenger_body(payload, render_profile="limited_markdown")
-        self.assertIn("omo work — omo (openrouter/qwen-3.5-coder high) — completed", bullets)
+        self.assertIn("omo work — omo (openrouter/qwen-3.5-coder high) — Code · reported done", bullets)
         self.assertNotIn(" — (", bullets)
 
     def test_mixed_running_and_completed_ordering_and_dedup(self) -> None:
@@ -458,8 +458,8 @@ class MessengerProfileTests(unittest.TestCase):
         # Runtime and model read as ONE field. Separating them with a dash as
         # well produced "claude — (fable-5 high)", a doubled separator around a
         # parenthetical.
-        self.assertIn("research — claude (fable-5 high) — running — 35m — tokens unknown", bullets[0])
-        self.assertIn("feature work — codex (gpt-5-codex xhigh) — completed — 35m — 10,000,000 tokens", bullets[1])
+        self.assertIn("research — claude (fable-5 high) — Code · running — 35m — tokens unknown", bullets[0])
+        self.assertIn("feature work — codex (gpt-5-codex xhigh) — Code · reported done — 35m — 10,000,000 tokens", bullets[1])
         for bullet in bullets:
             self.assertNotIn(" — (", bullet)
         self.assertIn("session sess-7", bullets[1])
@@ -529,10 +529,10 @@ class UnmappedStatusIsVisibleTests(unittest.TestCase):
 
     def test_the_aligned_board_shows_the_word_beside_the_downgrade(self) -> None:
         text = render_status_board_text(self._payload("quiesced"))
-        self.assertIn("prepared_not_observed (reported quiesced)", text)
+        self.assertIn("Plan · not run (reported quiesced)", text)
         # The accepted row is untouched, so a board with nothing refused reads
         # exactly as it did before.
-        self.assertIn("completed", text)
+        self.assertIn("Code · reported done", text)
         self.assertNotIn("completed (reported", text)
 
     def test_the_column_stays_aligned_when_the_word_widens_it(self) -> None:
@@ -546,7 +546,7 @@ class UnmappedStatusIsVisibleTests(unittest.TestCase):
         for profile in ("rich_markdown", "limited_markdown"):
             with self.subTest(profile=profile):
                 body = status_board_messenger_body(payload, render_profile=profile)
-                self.assertIn("prepared_not_observed (reported quiesced)", body)
+                self.assertIn("Plan · not run (reported quiesced)", body)
 
     def test_an_accepted_status_renders_exactly_as_before(self) -> None:
         text = render_status_board_text(self._payload("running"))
@@ -593,8 +593,8 @@ class UnmappedStatusPluginParityTests(unittest.TestCase):
         from omh.plugin_bundle.omh.status_board_reader import render_running_work_block_text
 
         source, plugin = self._boards("quiesced")
-        self.assertIn("prepared_not_observed (reported quiesced)", render_status_board_text(source))
-        self.assertIn("prepared_not_observed (reported quiesced)", render_running_work_block_text(plugin))
+        self.assertIn("Plan · not run (reported quiesced)", render_status_board_text(source))
+        self.assertIn("Plan · not run (reported quiesced)", render_running_work_block_text(plugin))
 
     def test_neither_reader_invents_a_word_for_an_accepted_status(self) -> None:
         from omh.plugin_bundle.omh.status_board_reader import render_running_work_block_text

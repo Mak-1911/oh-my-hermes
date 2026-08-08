@@ -16,6 +16,8 @@ from ..routing.action_copy import next_action_label
 from ..targets import read_target_registry_result
 
 
+from ..evidence import status_label
+
 MENUBAR_STATUS_SCHEMA_VERSION = "menubar_status/v1"
 PROCESS_OVERLAY_SCHEMA_VERSION = "menubar_process_overlay/v1"
 DEFAULT_PROCESS_OVERLAY_TTL_SECONDS = 10
@@ -585,7 +587,10 @@ def _evidence_menu_value(hermes_agents: list[dict[str, Any]], current_executor_r
     if current_executor_row:
         evidence = _dict(current_executor_row.get("evidence"))
         state = str(evidence.get("state", "") or "prepared_not_observed")
-        return _short_text(state.replace("_", " "), limit=32)
+        # `state.replace("_", " ")` spelled the wire value out loud rather than
+        # translating it; the shared label map is what the board and the chat
+        # summary already use.
+        return _short_text(status_label(state), limit=32)
     if observed_agents:
         return f"{observed_agents} process observed"
     return "metadata only"
