@@ -7074,9 +7074,14 @@ def _chat_response_with_message_gate(
     executor = str(trace.get("selected_executor_profile", "")) or _status_executor_label(state)
     kind = str(response.get("kind", ""))
     coding_harness = str(trace.get("selected_harness", "")) == _MESSAGE_GATE_HARNESS
-    if kind not in _MESSAGE_GATE_KINDS and not (coding_harness and executor):
-        return response
     delegation_payload = _nested(payload, "delegation")
+    # `kind == "handoff"` is not sufficient on its own. `build_chat_response_from_route`
+    # emits that kind for the `ultraprocess` coding-STATUS route, which prepares
+    # no delegation and resolves no executor -- "show the coding agent status"
+    # was getting a header reading `model — unknown` plus a spurious warning,
+    # the same false positive the harness clause was tightened to remove.
+    if not ((kind in _MESSAGE_GATE_KINDS and (executor or delegation_payload)) or (coding_harness and executor)):
+        return response
     gate = build_message_gate(
         skill=str(trace.get("selected_workflow", "") or trace.get("label", "")),
         executor=executor,
@@ -7099,14 +7104,14 @@ def _chat_response_with_message_gate(
         composed_prompt=_message_gate_composed_prompt(delegation_payload),
     )
     updated = dict(response)
+    # Only the payload. The header is NOT prepended to `body` here: that would
+    # bake an ingress-source-derived render profile into the canonical
+    # `chat_response.body` and into `body_blocks`, which
+    # `docs/HERMES_AGENT_INTEGRATION_RUNBOOK.md` promises stay dialect-neutral.
+    # `messenger_rendering_contract` prepends it at the point it resolves the
+    # profile, so the rich body gets the aligned card, the fallback body gets
+    # bullets, and a wrapper relaying onto a different surface can still choose.
     updated["message_gate"] = gate
-    updated["body"] = message_gate_body(
-        gate,
-        render_profile=render_profile_for_source(
-            str(payload.get("source", "generic")), _nested(payload, "source_metadata")
-        ),
-        body=str(updated.get("body", "")),
-    )
     return updated
 
 
@@ -7118,11 +7123,17 @@ def _message_gate_composed_prompt(delegation_payload: dict[str, Any]) -> str:
     template keeps its literal ``{message}`` placeholder unless the wrapper
     opted into carrying the raw task.
     """
-    handoff = _nested(delegation_payload, "executor_handoff")
-    if not handoff.get("prompt_template"):
-        return ""
-    prompt_text, _ = _composed_prompt_handoff_text(delegation_payload, handoff)
-    return prompt_text
+    # `build_coding_delegation_payload` emits exactly one of these three, as
+    # mutually exclusive branches. Reading only `executor_handoff` meant a
+    # Hermes-runtime or prompt-only delegation showed no composed order at all
+    # while the header still carried a PROMPT digest -- no block, and no signal
+    # that a block was missing.
+    for key in ("executor_handoff", "runtime_handoff", "prompt_handoff"):
+        handoff = _nested(delegation_payload, key)
+        if handoff.get("prompt_template"):
+            prompt_text, _ = _composed_prompt_handoff_text(delegation_payload, handoff)
+            return prompt_text
+    return ""
 
 
 def _chat_response_with_route_explanation(
@@ -7230,6 +7241,7 @@ def _chat_response_with_render_profile(
             render_profile=render_profile_for_source(source, source_metadata),
             source=source,
             follow_up_texts=_message_gate_follow_ups(updated),
+            message_gate=_nested(updated, "message_gate") or None,
         )
     return updated
 
@@ -8298,6 +8310,7 @@ def messenger_rendering_contract(
     render_profile: str = RENDER_PROFILE_LIMITED_MARKDOWN,
     source: str = "",
     follow_up_texts: object = (),
+    message_gate: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """The platform-shaping rendering payload for one chat/session response.
 
@@ -8308,9 +8321,14 @@ def messenger_rendering_contract(
     an adapter that consumes blocks applies its own dialect.
     """
     resolved_profile = _normalize_render_profile(render_profile)
-    safe_body_text, safe_transforms = _messenger_safe_body(body)
+    # The gate header is rendered per profile, here, so the rich body carries the
+    # aligned card and every fallback carries bullets. Prepending it upstream
+    # would have put one profile's shaping into the canonical body and blocks.
+    safe_body_text, safe_transforms = _messenger_safe_body(
+        _gate_prefixed_body(body, message_gate, RENDER_PROFILE_LIMITED_MARKDOWN)
+    )
     if resolved_profile == RENDER_PROFILE_RICH_MARKDOWN:
-        body_text = body
+        body_text = _gate_prefixed_body(body, message_gate, RENDER_PROFILE_RICH_MARKDOWN)
         body_format = "rich_markdown"
         preferred_blocks = [
             "short_paragraph",
@@ -8542,6 +8560,13 @@ _MESSENGER_CHAR_CEILINGS: dict[str, dict[str, int]] = {
 _MESSENGER_GENERIC_CEILING: dict[str, int] = {"max_recommended_chars": 1600, "hard_limit_chars": 1800}
 
 
+def _gate_prefixed_body(body: str, message_gate: dict[str, object] | None, render_profile: str) -> str:
+    """``body`` with the message gate's lines above it, or ``body`` unchanged."""
+    if not isinstance(message_gate, dict) or not message_gate:
+        return body
+    return message_gate_body(message_gate, render_profile=render_profile, body=body)
+
+
 def _follow_up_texts(value: object, limit: int) -> list[str]:
     """Bound each follow-up to the platform ceiling the body already respects.
 
@@ -8557,8 +8582,31 @@ def _follow_up_texts(value: object, limit: int) -> list[str]:
         text = str(item or "").strip()
         if not text:
             continue
-        texts.append(text if len(text) <= limit else bounded_prompt_preview(text, max_chars=limit))
+        texts.append(text if len(text) <= limit else _bounded_follow_up(text, limit))
     return texts
+
+
+def _bounded_follow_up(text: str, limit: int) -> str:
+    """Truncate to ``limit`` INCLUDING the marker, and close any fence left open.
+
+    ``bounded_prompt_preview`` slices to ``max_chars`` and then APPENDS the
+    marker, so passing the ceiling straight through returned ~35 characters over
+    it and cut mid-fence -- both of the things this function exists to prevent.
+    The marker length is knowable up front because it carries ``len(text)``.
+    """
+    marker_room = len(f"... [truncated, {len(text)} chars total]")
+    closing = _unclosed_fence_marker(bounded_prompt_preview(text, max_chars=max(1, limit - marker_room)))
+    tail = f"\n{closing}" if closing else ""
+    head = bounded_prompt_preview(text, max_chars=max(1, limit - marker_room - len(tail)))
+    return f"{head}{tail}"
+
+
+def _unclosed_fence_marker(text: str) -> str:
+    """The marker needed to close ``text``'s dangling fence, or "" when balanced."""
+    state = _FenceState()
+    for line in text.splitlines():
+        state.toggles(line)
+    return state.marker
 
 
 def _messenger_chunking_hint(source: str = "") -> dict[str, object]:

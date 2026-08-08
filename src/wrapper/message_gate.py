@@ -22,6 +22,13 @@ The gate fixes the header and the prompt block, and nothing else. The response
 body stays free prose, and every field degrades to the literal ``unknown``
 rather than being dropped or invented -- an absent model is a fact worth
 printing, and an empty ``()`` is the one shape the rule names as forbidden.
+
+Deliberately NOT here: a parallel-lane roster. ``status_board_messenger_body``
+in ``src/coding/status_board.py`` already renders observed lanes for both
+profiles with seven columns, including the tokens and resumable session ref
+this module never sees, and it builds its labels with the same
+``model_label_for``. A four-column copy here would be a worse duplicate of a
+surface that already exists; ask ``omh coding status-board`` for the roster.
 """
 
 from __future__ import annotations
@@ -50,14 +57,13 @@ _FIELDS: Final[tuple[tuple[str, str], ...]] = (
     ("STATUS", "status"),
     ("TASK", "task"),
     ("PROMPT", "prompt"),
+    # The same digest row under the name the surface can actually back: a goal
+    # ledger holds an objective, and labelling it PROMPT asserts a provenance
+    # category the card does not have.
+    ("OBJECTIVE", "objective"),
 )
 
-_ROSTER_COLUMNS: Final[tuple[tuple[str, str], ...]] = (
-    ("UNIT", "label"),
-    ("MODEL", "model"),
-    ("STATUS", "status"),
-    ("TIME", "elapsed"),
-)
+REFERENCE_KINDS: Final[tuple[str, ...]] = ("prompt", "objective")
 
 # Bounded so a long skill name or a pasted model id cannot push the header past
 # the tightest messenger ceiling on its own.
@@ -65,13 +71,6 @@ _VALUE_LIMIT: Final[int] = 96
 # The PROMPT row carries a digest prefix, never the prompt. Twelve hex
 # characters is what `omh coding fanout` already prints for a unit ref.
 _DIGEST_PREFIX: Final[int] = 12
-# A roster longer than this is a status-board question, not a header. Six is
-# not arbitrary: the limited profile renders one bullet per field plus one per
-# unit, and `messenger_rendering.density_policy` declares `max_bullets: 12`.
-# Five fields + six units + the truncation line lands exactly on that ceiling,
-# so the gate obeys the density policy OMH already publishes instead of being
-# the first surface to break it.
-_ROSTER_LIMIT: Final[int] = 6
 # How much of the composed prompt the follow-on message shows. Long enough to
 # recognize the order Hermes actually issued, short enough that the block stays
 # well inside Discord's 1700-character soft ceiling next to a header.
@@ -83,6 +82,11 @@ WARNING_MISSING_MODEL_LABEL: Final[str] = "message_gate_missing_model_label"
 WARNING_EMPTY_PARENTHESES: Final[str] = "message_gate_empty_parentheses"
 WARNING_MISSING_STATUS: Final[str] = "message_gate_missing_status"
 WARNING_MISSING_PROMPT_REFERENCE: Final[str] = "message_gate_missing_prompt_reference"
+# `codex (executor default)` is honest -- OMH did resolve an executor and did
+# apply no model override -- but it is indistinguishable from a route that was
+# never attempted, and it silenced the missing-model warning on the main
+# delegate path. This names the difference instead of overloading `unknown`.
+WARNING_UNRESOLVED_MODEL_ROUTE: Final[str] = "message_gate_unresolved_model_route"
 
 # Rendered once under the header, mirroring `goal_status_card.render_guidance`:
 # the gate hands back exact lines, so an agent relaying them has no formatting
@@ -120,8 +124,8 @@ def build_message_gate(
     prompt_sha256: str = "",
     prompt_chars: Any = None,
     composed_prompt: str = "",
-    units: object = (),
     discloses_model: bool = True,
+    reference_kind: str = "prompt",
 ) -> dict[str, Any]:
     """Project one response's execution provenance into a gate payload.
 
@@ -140,17 +144,25 @@ def build_message_gate(
     ``discloses_model=False`` says the same thing about MODEL, and only a
     surface with no executor at all may say it -- a goal ledger card tracks
     acceptance criteria, not a running lane, so "which model" is not a fact it
-    withholds but one it does not have. Every delegation surface leaves this
-    True, so a handoff that resolved no model still reads ``unknown`` and still
-    raises ``message_gate_missing_model_label``.
+    withholds but one it does not have.
+
+    Three model states, not two, because the middle one is the common one:
+    no executor reads ``unknown`` and raises ``message_gate_missing_model_label``;
+    a resolved executor with no route reads ``codex (executor default)`` and
+    raises ``message_gate_unresolved_model_route``; a resolved route reads
+    ``codex (gpt-5-codex xhigh)`` and raises nothing. Collapsing the middle
+    state into the last one is what let the main delegate path ship a header
+    that could not distinguish "OMH applied no override" from "OMH never
+    resolved a route", with no warning either way.
     """
     resolved_label = str(model_label or "").strip()
     if not resolved_label and (str(model or "").strip() or str(reasoning_effort or "").strip()):
         resolved_label = model_label_for(model, reasoning_effort)
+    reference = reference_kind if reference_kind in REFERENCE_KINDS else REFERENCE_KINDS[0]
     fields: dict[str, str] = {
         "skill": _bounded(skill) or UNKNOWN,
         "status": _bounded(status) or UNKNOWN,
-        "prompt": _prompt_reference(prompt_sha256, prompt_chars),
+        reference: _prompt_reference(prompt_sha256, prompt_chars),
     }
     if discloses_model:
         fields["model"] = _model_field(executor, resolved_label)
@@ -159,17 +171,14 @@ def build_message_gate(
         fields["task"] = bounded_task
     payload: dict[str, Any] = {
         "schema_version": MESSAGE_GATE_SCHEMA_VERSION,
+        # Whether a model route was resolved at all, which the rendered MODEL
+        # row cannot express: `codex (executor default)` is what both a
+        # deliberate no-override and an unattempted route look like.
+        "model_route_resolved": bool(resolved_label) if discloses_model else None,
         "fields": fields,
         "field_order": [key for _, key in _FIELDS if key in fields],
         "render_guidance": RENDER_GUIDANCE,
     }
-    roster = _normalize_units(units)
-    if roster:
-        payload["roster"] = roster
-        payload["roster_count"] = len(roster)
-        # The observed total, not the rendered count: a reader must be able to
-        # tell a complete roster from a capped one without opening the board.
-        payload["roster_total"] = _unit_total(units)
     prompt_block = _prompt_block(composed_prompt, fields.get("model", ""))
     if prompt_block:
         payload["prompt_block"] = prompt_block
@@ -193,27 +202,17 @@ def render_message_gate_lines(
     fields = _fields(payload)
     if not fields:
         return []
-    rows = _roster_rows(payload)
-    omission = _roster_omission_line(payload, rows)
     if render_profile == RENDER_PROFILE_RICH_MARKDOWN:
-        block = _aligned_pairs(fields, payload)
-        if rows:
-            block = [*block, "", *_aligned_roster(rows)]
-            if omission:
-                block.append(omission)
-        return ["```", *block, "```"]
+        rows = _aligned_pairs(fields, payload)
+        # An empty fence pair is a rendering fault on every messenger, so a
+        # payload this version can read no rows out of renders nothing at all.
+        return ["```", *rows, "```"] if rows else []
     labels = {key: label for label, key in _FIELDS}
-    lines = [
-        f"- {labels[key].lower()} — {fields[key]}"
+    return [
+        f"- {labels.get(key, key.upper()).lower()} — {fields[key]}"
         for key in _field_order(payload)
         if key in fields
     ]
-    lines.extend(
-        f"- {row['label']} — {row['model']} — {row['status']} — {row['elapsed']}" for row in rows
-    )
-    if omission:
-        lines.append(f"- {omission}")
-    return lines
 
 
 def message_gate_body(
@@ -229,25 +228,6 @@ def message_gate_body(
     header = "\n".join(lines)
     return f"{header}\n\n{body}" if body else header
 
-
-def message_gate_messages(
-    payload: dict[str, Any],
-    *,
-    render_profile: str = RENDER_PROFILE_LIMITED_MARKDOWN,
-    body: str = "",
-) -> list[str]:
-    """Ordered messages an adapter posts: the header+body, then the prompt block.
-
-    The prompt block is a separate message rather than more of the first one
-    because it answers a different question ("what was actually ordered?") and
-    because a fenced block appended to a status body is the shape that pushes a
-    Discord message over its ceiling and gets split at an arbitrary point.
-    """
-    messages = [message_gate_body(payload, render_profile=render_profile, body=body)]
-    block = str(payload.get("prompt_block", "") or "")
-    if block:
-        messages.append(block)
-    return [message for message in messages if message]
 
 
 def message_gate_warnings(payload: dict[str, Any]) -> list[str]:
@@ -266,15 +246,12 @@ def message_gate_warnings(payload: dict[str, Any]) -> list[str]:
         warnings.append(WARNING_MISSING_MODEL_LABEL)
     if "()" in model:
         warnings.append(WARNING_EMPTY_PARENTHESES)
+    if "model" in fields and payload.get("model_route_resolved") is False:
+        warnings.append(WARNING_UNRESOLVED_MODEL_ROUTE)
     if fields.get("status", UNKNOWN) == UNKNOWN:
         warnings.append(WARNING_MISSING_STATUS)
-    if fields.get("prompt", UNKNOWN) == UNKNOWN:
+    if any(fields.get(key, UNKNOWN) == UNKNOWN for key in REFERENCE_KINDS if key in fields):
         warnings.append(WARNING_MISSING_PROMPT_REFERENCE)
-    for row in _roster_rows(payload):
-        label = row.get("model", "")
-        if not label or label == UNKNOWN or "()" in label:
-            warnings.append(WARNING_MISSING_MODEL_LABEL)
-            break
     return sorted(set(warnings))
 
 
@@ -331,103 +308,23 @@ def _prompt_reference(prompt_sha256: str, prompt_chars: Any) -> str:
     return reference
 
 
-def _normalize_units(units: object) -> list[dict[str, str]]:
-    """Normalize parallel lanes into the board's own row vocabulary.
 
-    Shape matches ``_fanout_brief_unit_line``'s join order so a roster line and
-    an ``omh coding fanout brief`` line describe a unit the same way. Called
-    once, at build time; readers use ``_roster_rows`` and never re-normalize.
-    """
-    if not isinstance(units, (list, tuple)):
-        return []
-    rows: list[dict[str, str]] = []
-    for unit in units[:_ROSTER_LIMIT]:
-        if not isinstance(unit, dict):
-            continue
-        label = _bounded(unit.get("label", "") or unit.get("unit_id", ""))
-        if not label:
-            continue
-        model_label = str(unit.get("model_label", "") or "").strip()
-        model = str(unit.get("model", "") or "").strip()
-        effort = str(unit.get("reasoning_effort", "") or "").strip()
-        # Same guard the header field needs: `model_label_for` answers
-        # `executor default` for empty input, which is a claim about a resolved
-        # executor. A lane that reported neither owner nor model has nothing to
-        # default, so it must stay unknown and raise the warning.
-        if not model_label and (model or effort):
-            model_label = model_label_for(model, effort)
-        rows.append(
-            {
-                "label": label,
-                "model": _model_field(
-                    str(unit.get("owner", "") or unit.get("runtime", "") or ""), model_label
-                ),
-                "status": _bounded(unit.get("status", "")) or UNKNOWN,
-                "elapsed": _bounded(unit.get("elapsed_text", "")) or UNKNOWN,
-            }
-        )
-    return rows
-
-
-def _unit_total(units: object) -> int:
-    if not isinstance(units, (list, tuple)):
-        return 0
-    return sum(1 for unit in units if isinstance(unit, dict) and (unit.get("label") or unit.get("unit_id")))
-
-
-def _roster_omission_line(payload: dict[str, Any], rows: list[dict[str, str]]) -> str:
-    """State a capped roster as its own line, never silently.
-
-    Same rule ``_fanout_brief_overflow_line`` follows: a truncated roster that
-    does not say so reads as a complete one.
-    """
-    total = payload.get("roster_total")
-    if not isinstance(total, int) or isinstance(total, bool):
-        return ""
-    omitted = total - len(rows)
-    if omitted <= 0:
-        return ""
-    return f"… +{omitted} more units — omh coding status-board"
-
-
-def _roster_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
-    """Already-normalized roster rows straight off the payload.
-
-    Deliberately not ``_normalize_units``: rows leave the builder keyed
-    ``elapsed``, and re-running the raw-unit normalizer over them would look for
-    ``elapsed_text``, find nothing, and silently rewrite every observed time to
-    ``unknown``.
-    """
-    roster = payload.get("roster")
-    if not isinstance(roster, (list, tuple)):
-        return []
-    rows: list[dict[str, str]] = []
-    for row in roster:
-        if not isinstance(row, dict):
-            continue
-        rows.append({key: str(row.get(key, "") or UNKNOWN) for _, key in _ROSTER_COLUMNS})
-    return rows
 
 
 def _aligned_pairs(fields: dict[str, str], payload: dict[str, Any]) -> list[str]:
-    width = max(len(label) for label, key in _FIELDS if key in fields)
-    order = _field_order(payload)
+    """Aligned ``LABEL  value`` rows, tolerant of a key this version does not know.
+
+    The payload is a public, round-trippable schema. A field key added in a
+    later version must degrade to its own uppercased name here rather than
+    crash a `max()` over an empty generator or a `labels[key]` lookup.
+    """
     labels = {key: label for label, key in _FIELDS}
-    return [f"{labels[key].ljust(width)}  {fields[key]}" for key in order if key in fields]
+    order = [key for key in _field_order(payload) if key in fields]
+    if not order:
+        return []
+    width = max(len(labels.get(key, key.upper())) for key in order)
+    return [f"{labels.get(key, key.upper()).ljust(width)}  {fields[key]}" for key in order]
 
-
-def _aligned_roster(rows: list[dict[str, str]]) -> list[str]:
-    widths = [
-        max(len(header), *(len(row[key]) for row in rows)) for header, key in _ROSTER_COLUMNS
-    ]
-    lines = [
-        "  ".join(header.ljust(widths[index]) for index, (header, _) in enumerate(_ROSTER_COLUMNS)).rstrip()
-    ]
-    lines.extend(
-        "  ".join(row[key].ljust(widths[index]) for index, (_, key) in enumerate(_ROSTER_COLUMNS)).rstrip()
-        for row in rows
-    )
-    return lines
 
 
 def _fields(payload: dict[str, Any]) -> dict[str, str]:

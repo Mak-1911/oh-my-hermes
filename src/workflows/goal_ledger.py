@@ -17,7 +17,11 @@ from ..system.record_revision import (
 )
 from ..paths import OmhPaths
 from ..runtime.artifacts import summarize_delegated_coding_status
-from ..wrapper.message_gate import build_message_gate, render_message_gate_lines
+from ..wrapper.message_gate import (
+    RENDER_PROFILE_LIMITED_MARKDOWN,
+    build_message_gate,
+    render_message_gate_lines,
+)
 
 
 GOAL_LEDGER_SCHEMA = "goal_ledger/v1"
@@ -851,7 +855,9 @@ GOAL_STATUS_CLAIM_BOUNDARY: Final[str] = (
 )
 
 
-def render_goal_status_text(card: dict[str, Any], *, render_profile: str = "limited_markdown") -> str:
+def render_goal_status_text(
+    card: dict[str, Any], *, render_profile: str = RENDER_PROFILE_LIMITED_MARKDOWN
+) -> str:
     """The goal status card as exact lines, for a terminal or a messenger.
 
     `omh goal status` prints JSON by design -- it is a control-plane command and
@@ -870,6 +876,7 @@ def render_goal_status_text(card: dict[str, Any], *, render_profile: str = "limi
         prompt_sha256=_objective_digest(card),
         prompt_chars=len(str(card.get("objective_summary", "") or "")),
         discloses_model=False,
+        reference_kind="objective",
     )
     progress = card.get("progress") if isinstance(card.get("progress"), dict) else {}
     lines = [
