@@ -5,7 +5,7 @@ from functools import lru_cache
 import hashlib
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from ..context_safety import MAX_SUMMARY_CHARS, bounded_prompt_preview, compact_progress_events
 from ..coding.action_gate import LADDER_ACTION_IDS
@@ -13,6 +13,7 @@ from ..coding.agentic_playbook import maybe_build_agentic_playbook
 from ..coding.agentic_playbook_contract import chat_response_with_agentic_playbook
 from ..coding.executor_local_workflow import validate_executor_local_workflow
 from ..coding.status_board import model_label_for
+from .message_gate import build_message_gate, fence_marker_for, message_gate_body
 from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_text, extract_source_metadata
 from ..routing.catalog_questions import is_skill_catalog_question as _is_skill_catalog_question
 from ..routing.chat import public_chat_route_payload, route_explanation_payload
@@ -3416,6 +3417,13 @@ def _copy_chat_response_payload(response: dict[str, object]) -> dict[str, object
     if isinstance(messenger_rendering, dict):
         copied["messenger_rendering"] = _copy_messenger_rendering_payload(messenger_rendering)
 
+    # The gate carries a nested `fields` dict and a `roster` list of dicts, so
+    # the shallow `dict(response)` above would hand every cached caller the same
+    # objects. Same aliasing class `chunked_body_texts` was fixed for.
+    message_gate = response.get("message_gate")
+    if isinstance(message_gate, dict):
+        copied["message_gate"] = _clone_static_dict(message_gate)
+
     actions = response.get("actions")
     if isinstance(actions, list):
         copied["actions"] = _copy_action_list(actions)
@@ -3750,6 +3758,7 @@ def _copy_messenger_rendering_payload(value: dict[str, object]) -> dict[str, obj
         "transforms_applied",
         "fallback_transforms_applied",
         "chunked_body_texts",
+        "follow_up_texts",
     ):
         items = value.get(key)
         if isinstance(items, list):
@@ -3764,6 +3773,13 @@ def _copy_messenger_rendering_payload(value: dict[str, object]) -> dict[str, obj
         item = value.get(key)
         if isinstance(item, dict):
             copied[key] = dict(item)
+    # `density_policy` nests a list, so a flat `dict()` would still alias it.
+    density_policy = value.get("density_policy")
+    if isinstance(density_policy, dict):
+        copied["density_policy"] = dict(density_policy)
+        avoid = density_policy.get("avoid")
+        if isinstance(avoid, list):
+            copied["density_policy"]["avoid"] = list(avoid)
     return copied
 
 
@@ -6170,17 +6186,11 @@ def _executor_local_workflow_state(handoff: dict[str, object], selected_profile:
 
 
 def _fence_marker_for(text: str) -> str:
-    """Backtick fence for embedding ``text``: one longer than the longest
-    backtick run inside it, minimum three, so embedded ``` fences nest safely."""
-    longest = 0
-    run = 0
-    for character in text:
-        if character == "`":
-            run += 1
-            longest = max(longest, run)
-        else:
-            run = 0
-    return "`" * max(3, longest + 1)
+    """Backtick fence for embedding ``text``, owned by ``message_gate``.
+
+    The gate fences its own prompt block with the identical rule, so the two
+    surfaces share one implementation rather than a hand-synced pair."""
+    return fence_marker_for(text)
 
 
 def _prompt_handoff_show_body(
@@ -7022,12 +7032,92 @@ def _finish_interaction(payload: dict[str, object], target_notice: dict[str, obj
         agentic_playbook = payload.get("agentic_playbook")
         if isinstance(agentic_playbook, dict):
             response = chat_response_with_agentic_playbook(response, agentic_playbook)
+        # Last, so the gate header sits above the final body every other
+        # transform has already contributed to, and immediately before the
+        # render profile is resolved so the shape gate chunks and dialects the
+        # header along with everything else.
+        response = _chat_response_with_message_gate(response, payload)
         payload["chat_response"] = _chat_response_with_render_profile(
             response,
             source=str(payload.get("source", "generic")),
             source_metadata=_nested(payload, "source_metadata"),
         )
     return payload
+
+
+# The gate attaches to coding-shaped responses only. `handoff` is the kind every
+# coding delegation lands on, so it qualifies on its own -- a handoff with no
+# resolved model is exactly the case the missing-model warning exists for.
+#
+# The harness alone does NOT qualify. `coding-handling` is the harness of the
+# `oh-my-hermes` router skill itself, so "what can OMH do?" resolves to it and
+# would have gained a header reading `model — unknown` on a capability
+# question, plus a spurious warning. Requiring a resolved executor alongside
+# the harness keeps the gate on replies about work someone is actually running.
+_MESSAGE_GATE_KINDS: Final[frozenset[str]] = frozenset({"handoff"})
+_MESSAGE_GATE_HARNESS: Final[str] = "coding-handling"
+
+
+def _chat_response_with_message_gate(
+    response: dict[str, object], payload: dict[str, object]
+) -> dict[str, object]:
+    """Attach the provenance gate and render its lines above the body.
+
+    Everything the gate prints is already computed elsewhere in this payload --
+    ``usage_trace`` resolved the workflow and evidence state, ``_status_model_label``
+    resolved the route, and ``_base_interaction`` hashed the message. Before this
+    function existed all of it was dropped at the render boundary and the
+    messenger got prose.
+    """
+    trace = _nested(response, "usage_trace")
+    state = _nested(response, "state")
+    executor = str(trace.get("selected_executor_profile", "")) or _status_executor_label(state)
+    kind = str(response.get("kind", ""))
+    coding_harness = str(trace.get("selected_harness", "")) == _MESSAGE_GATE_HARNESS
+    if kind not in _MESSAGE_GATE_KINDS and not (coding_harness and executor):
+        return response
+    delegation_payload = _nested(payload, "delegation")
+    gate = build_message_gate(
+        skill=str(trace.get("selected_workflow", "") or trace.get("label", "")),
+        executor=executor,
+        model_label=_status_model_label(state),
+        status=str(trace.get("evidence_state", "")),
+        # Bounded to the same summary ceiling the show-prompt surface uses. The
+        # message reaches this payload only when the wrapper opted into
+        # `include_message`; otherwise `_base_interaction` never carried it and
+        # the TASK row is absent rather than `unknown`.
+        task=bounded_prompt_preview(str(payload.get("message", "") or ""), max_chars=MAX_SUMMARY_CHARS)
+        if payload.get("message")
+        else "",
+        prompt_sha256=str(payload.get("message_sha256", "")),
+        prompt_chars=payload.get("message_length"),
+        composed_prompt=_message_gate_composed_prompt(delegation_payload),
+    )
+    updated = dict(response)
+    updated["message_gate"] = gate
+    updated["body"] = message_gate_body(
+        gate,
+        render_profile=render_profile_for_source(
+            str(payload.get("source", "generic")), _nested(payload, "source_metadata")
+        ),
+        body=str(updated.get("body", "")),
+    )
+    return updated
+
+
+def _message_gate_composed_prompt(delegation_payload: dict[str, Any]) -> str:
+    """The composed Hermes order behind this handoff, or "" when none exists.
+
+    Reuses ``_composed_prompt_handoff_text`` rather than reading
+    ``prompt_template`` directly so the gate inherits its redaction posture: the
+    template keeps its literal ``{message}`` placeholder unless the wrapper
+    opted into carrying the raw task.
+    """
+    handoff = _nested(delegation_payload, "executor_handoff")
+    if not handoff.get("prompt_template"):
+        return ""
+    prompt_text, _ = _composed_prompt_handoff_text(delegation_payload, handoff)
+    return prompt_text
 
 
 def _chat_response_with_route_explanation(
@@ -7134,8 +7224,21 @@ def _chat_response_with_render_profile(
             claim_boundary=str(updated.get("claim_boundary", "")),
             render_profile=render_profile_for_source(source, source_metadata),
             source=source,
+            follow_up_texts=_message_gate_follow_ups(updated),
         )
     return updated
+
+
+def _message_gate_follow_ups(response: dict[str, object]) -> tuple[str, ...]:
+    """The gate's prompt block, as the one follow-up message an adapter posts.
+
+    It is a separate message rather than more body because it answers a
+    different question -- what was actually ordered, not what state the work is
+    in -- and because a fenced block appended to a status body is what pushes a
+    Discord message past its ceiling and gets cut at an arbitrary point.
+    """
+    block = str(_nested(response, "message_gate").get("prompt_block", "") or "")
+    return (block,) if block else ()
 
 
 def _resolve_mode(mode: str, route: dict[str, object], *, message: str = "") -> str:
@@ -8189,6 +8292,7 @@ def messenger_rendering_contract(
     claim_boundary: str,
     render_profile: str = RENDER_PROFILE_LIMITED_MARKDOWN,
     source: str = "",
+    follow_up_texts: object = (),
 ) -> dict[str, object]:
     """The platform-shaping rendering payload for one chat/session response.
 
@@ -8269,6 +8373,12 @@ def messenger_rendering_contract(
         # (messenger_route_hint_rendering/v1) deliberately omits this key
         # because hint bodies are single-screen.
         "chunked_body_texts": _chunk_body_text(body_text, int(chunking["max_recommended_chars"])),
+        # Whole messages to post AFTER the body, in order, each already sized
+        # for one message. Distinct from `chunked_body_texts`, which is one body
+        # cut to fit: concatenating these would not reproduce `body_text`, and a
+        # follow-up is a separate thing to say rather than the rest of this one.
+        # Empty on every response that has nothing to add.
+        "follow_up_texts": _follow_up_texts(follow_up_texts, int(chunking["max_recommended_chars"])),
         "transforms_applied": transforms,
         "fallback_transforms_applied": fallback_transforms,
         "prefix_policy": {
@@ -8425,6 +8535,25 @@ _MESSENGER_CHAR_CEILINGS: dict[str, dict[str, int]] = {
 # now paired with a hard_limit_chars floor so an unknown source still gets an
 # enforceable number instead of only advice.
 _MESSENGER_GENERIC_CEILING: dict[str, int] = {"max_recommended_chars": 1600, "hard_limit_chars": 1800}
+
+
+def _follow_up_texts(value: object, limit: int) -> list[str]:
+    """Bound each follow-up to the platform ceiling the body already respects.
+
+    A follow-up over the ceiling is truncated with a visible marker rather than
+    chunked: these carry one self-contained block each (today, the message
+    gate's fenced prompt), and splitting a fence across two messages produces
+    an unclosed fence on the first one.
+    """
+    if not isinstance(value, (list, tuple)):
+        return []
+    texts: list[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        texts.append(text if len(text) <= limit else bounded_prompt_preview(text, max_chars=limit))
+    return texts
 
 
 def _messenger_chunking_hint(source: str = "") -> dict[str, object]:
