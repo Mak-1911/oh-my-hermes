@@ -218,14 +218,18 @@ OMH는 그 작업을 둘러싼 로컬 계약, 라우팅, 기억, 품질 게이�
 
 ## 주장보다 증거
 
-| 상태 | 의미 |
-| --- | --- |
-| Prepared | route, plan, prompt, 산출물 계약 또는 handoff가 준비됐습니다. |
-| Observed | wrapper 또는 runtime이 행동이나 결과가 발생했다고 기록했습니다. |
-| Verified | 필요한 test, review, 실제 화면 검사 또는 다른 gate가 통과했습니다. |
+OMH는 직접 본 것만 일어났다고 말합니다. 화면에 뜨는 상태는 항상 두 부분입니다:
+어느 단계인지, 그리고 OMH가 그걸 얼마나 확신하는지.
 
-`prepared_not_observed`는 실행, provider 접근, 산출물 생성, review, CI, 배포,
-merge readiness 또는 merge가 아닙니다.
+| 표시 | 의미 |
+| --- | --- |
+| `Plan · not run` | prompt나 plan이 준비됐습니다. **아직 아무것도 안 돌았습니다.** |
+| `Code · running` | executor가 지금 돌고 있고 OMH가 보고 있습니다. |
+| `Code · reported done` | executor가 끝났다고 말했습니다. 결과는 아무도 확인 안 했습니다. |
+| `Test · verified` | test, review, CI gate가 실제로 통과했습니다. |
+
+중요한 건 아래에서 두 번째 줄입니다. executor가 끝났다고 말한 것과 결과가
+확인된 것은 다른데, 대부분의 도구가 둘 다 "완료"라고 씁니다.
 
 ## 문서
 
