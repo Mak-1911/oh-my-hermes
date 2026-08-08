@@ -358,6 +358,46 @@ class WiringTests(unittest.TestCase):
                 for chunk in rendering["chunked_body_texts"]:
                     self.assertLessEqual(len(chunk), ceiling)
 
+    def test_a_message_the_wrapper_did_not_admit_reaches_no_rendered_surface(self) -> None:
+        # The strongest claim this file makes, so it is made with a marker
+        # string rather than by inspecting which field was populated: with the
+        # default `metadata_only` posture the message must not appear anywhere
+        # a messenger would post, in any form.
+        marker = "SENTINELTOKEN0413"
+        payload = build_chat_interaction_payload(
+            f"{CODING_MESSAGE} {marker}", source="discord", executor_target="codex", mode="delegate"
+        )
+        self.assertEqual(payload["redaction_policy"], "metadata_only")
+        self.assertNotIn("message", payload)
+        response = payload["chat_response"]
+        self.assertNotIn("task", response["message_gate"]["fields"])
+        rendering = response["messenger_rendering"]
+        for surface in (
+            rendering["body_text"],
+            rendering["fallback_body_text"],
+            *rendering["chunked_body_texts"],
+            *rendering["follow_up_texts"],
+            json.dumps(response["message_gate"], ensure_ascii=False),
+        ):
+            self.assertNotIn(marker, surface)
+
+    def test_an_admitted_message_reaches_the_task_row_and_only_there(self) -> None:
+        marker = "SENTINELTOKEN0413"
+        payload = build_chat_interaction_payload(
+            f"{CODING_MESSAGE} {marker}",
+            source="discord",
+            executor_target="codex",
+            mode="delegate",
+            include_message=True,
+        )
+        self.assertEqual(payload["redaction_policy"], "stdout_includes_message")
+        gate = payload["chat_response"]["message_gate"]
+        self.assertIn(marker, gate["fields"]["task"])
+        # The composed prompt keeps its `{message}` placeholder even here: the
+        # gate reads the delegation payload's own message, not the envelope's.
+        for text in payload["chat_response"]["messenger_rendering"]["follow_up_texts"]:
+            self.assertNotIn(marker, text)
+
     def test_a_cached_copy_does_not_alias_the_gate(self) -> None:
         # `_copy_chat_response_payload` starts from a shallow `dict(response)`,
         # so a nested `fields` dict would be shared by every cached caller.
