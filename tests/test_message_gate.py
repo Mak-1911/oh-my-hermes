@@ -48,6 +48,9 @@ from omh.wrapper.message_gate import (  # noqa: E402
 # `messenger_rendering.density_policy` publishes this ceiling for every limited
 # profile. The gate is a limited-profile surface, so it owes the same number.
 DECLARED_MAX_BULLETS = 12
+# `_DIGEST_PREFIX` in the module; restated here so a widened prefix has to be a
+# deliberate edit in two places rather than a silently longer row.
+DECLARED_DIGEST_PREFIX = 12
 
 CODING_MESSAGE = "auth 모듈 리팩터링을 코덱스한테 맡겨줘"
 
@@ -190,6 +193,18 @@ class DisclosureHonestyTests(unittest.TestCase):
         self.assertTrue(prompt.startswith("sha256:"), prompt)
         self.assertIn("412 chars", prompt)
         self.assertNotIn(CODING_MESSAGE, prompt)
+
+    def test_the_digest_is_cut_to_the_declared_prefix(self) -> None:
+        # A full 64-character digest is still a reference rather than a leak,
+        # but it costs 52 characters of a row that has a messenger ceiling to
+        # respect, and `omh coding fanout` already prints twelve.
+        digest = "533d406a486317830d49c302e798c242bbb9105fa8525e6aac89217fa397e48c"
+        gate = _routed_gate(prompt_sha256=digest)
+        self.assertEqual(gate["fields"]["prompt"].split(" ")[0], f"sha256:{digest[:DECLARED_DIGEST_PREFIX]}")
+
+    def test_a_non_hex_prompt_reference_is_stripped_to_its_alphanumerics(self) -> None:
+        gate = _routed_gate(prompt_sha256="  ab-cd ef/gh  ")
+        self.assertEqual(gate["fields"]["prompt"].split(" ")[0], "sha256:abcdefgh")
 
     def test_an_unmeasured_prompt_length_is_omitted_not_zeroed(self) -> None:
         for value in (None, "", -1, True):
@@ -371,3 +386,109 @@ class FenceMarkerOwnershipTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GoalSurfaceTests(unittest.TestCase):
+    """`omh goal status --text` -- the second gate surface, with no executor."""
+
+    CARD = {
+        "goal_status": "active",
+        "objective_summary": "포맷 선택 화면에서 진입하는 별도 가이드 페이지.",
+        "progress": {
+            "criteria_total": 6,
+            "criteria_satisfied": 2,
+            "required_total": 4,
+            "required_satisfied": 1,
+            "active_blockers": 0,
+            "percent_required_satisfied": 25,
+        },
+        "next_action": "record_checkpoint",
+        "checkpoint_lines": ["- a1b2c3: router wired — done, observed"],
+        "missing_criteria": [{"summary": "guide page renders"}, "a bare string criterion"],
+        "active_blockers": [],
+    }
+
+    def _render(self, card: dict | None = None, **kwargs: str) -> str:
+        from omh.workflows.goal_ledger import render_goal_status_text
+
+        return render_goal_status_text(card if card is not None else self.CARD, **kwargs)  # type: ignore[arg-type]
+
+    def test_the_criteria_line_reads_the_keys_the_ledger_actually_writes(self) -> None:
+        # `_goal_progress` writes `criteria_satisfied` / `criteria_total`. Reading
+        # `satisfied` / `total` rendered a six-criteria goal as `0 of 0` -- a
+        # wrong number that reads exactly like a right one.
+        self.assertIn("Criteria: 2 of 6 satisfied", self._render())
+        self.assertIn("25% of required", self._render())
+
+    def test_a_goal_declares_no_model_rather_than_an_unknown_one(self) -> None:
+        rendered = self._render()
+        self.assertNotIn("model", rendered)
+        self.assertIn("- skill — ulw-goal", rendered)
+        self.assertIn("- status — active", rendered)
+
+    def test_a_declared_non_disclosure_raises_no_missing_model_warning(self) -> None:
+        gate = build_message_gate(skill="ulw-goal", status="active", prompt_sha256="abc123", discloses_model=False)
+        self.assertNotIn("model", gate["fields"])
+        self.assertNotIn(WARNING_MISSING_MODEL_LABEL, gate["warnings"])
+
+    def test_a_delegation_surface_still_warns_when_it_resolved_no_model(self) -> None:
+        # The escape hatch above must not weaken the guard it sits next to.
+        gate = build_message_gate(skill="ulw-work", status="prepared_not_observed", prompt_sha256="abc123")
+        self.assertIn(WARNING_MISSING_MODEL_LABEL, gate["warnings"])
+
+    def test_the_rich_profile_fences_the_goal_header_too(self) -> None:
+        rendered = self._render(render_profile=RENDER_PROFILE_RICH_MARKDOWN)
+        self.assertIn("SKILL   ulw-goal", rendered)
+        self.assertEqual(rendered.count("```"), 2)
+
+    def test_no_table_is_ever_rendered(self) -> None:
+        # The one-off `render_guidance` this generalizes exists because a live
+        # Slack session lost a markdown table.
+        for profile in (RENDER_PROFILE_LIMITED_MARKDOWN, RENDER_PROFILE_RICH_MARKDOWN):
+            with self.subTest(profile=profile):
+                self.assertNotIn(" | ", self._render(render_profile=profile))
+
+    def test_ledger_entries_render_whether_stored_as_dicts_or_strings(self) -> None:
+        rendered = self._render()
+        self.assertIn("- guide page renders", rendered)
+        self.assertIn("- a bare string criterion", rendered)
+
+    def test_an_empty_card_renders_a_sentence_rather_than_a_blank_body(self) -> None:
+        rendered = self._render({})
+        self.assertIn("(no objective recorded)", rendered)
+        self.assertIn("No checkpoints recorded.", rendered)
+
+    def test_the_last_line_is_the_claim_boundary(self) -> None:
+        from omh.workflows.goal_ledger import GOAL_STATUS_CLAIM_BOUNDARY
+
+        self.assertTrue(self._render().endswith(GOAL_STATUS_CLAIM_BOUNDARY))
+
+
+class GoalCliTests(unittest.TestCase):
+    def _base(self, root) -> list[str]:
+        return ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+
+    def test_text_requires_a_goal_and_says_so(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from _cli_harness import run_cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            status, stdout, stderr = run_cli(
+                [*self._base(Path(tmp)), "goal", "status", "--text"], output_json=False
+            )
+        self.assertNotEqual(status, 0)
+        self.assertEqual(stdout, "")
+        self.assertIn("--goal", stderr)
+
+    def test_json_stays_the_default_for_this_control_plane_command(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from _cli_harness import run_cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            status, stdout, _ = run_cli([*self._base(Path(tmp)), "goal", "status"], output_json=False)
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(stdout), {"goals": []})

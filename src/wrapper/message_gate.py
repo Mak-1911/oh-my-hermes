@@ -121,6 +121,7 @@ def build_message_gate(
     prompt_chars: Any = None,
     composed_prompt: str = "",
     units: object = (),
+    discloses_model: bool = True,
 ) -> dict[str, Any]:
     """Project one response's execution provenance into a gate payload.
 
@@ -135,16 +136,24 @@ def build_message_gate(
     opted in passes ``""`` and those surfaces are omitted. An omitted row is not
     an unknown one -- the fact was never admitted to this surface, so printing
     ``unknown`` would misdescribe a redaction as a gap.
+
+    ``discloses_model=False`` says the same thing about MODEL, and only a
+    surface with no executor at all may say it -- a goal ledger card tracks
+    acceptance criteria, not a running lane, so "which model" is not a fact it
+    withholds but one it does not have. Every delegation surface leaves this
+    True, so a handoff that resolved no model still reads ``unknown`` and still
+    raises ``message_gate_missing_model_label``.
     """
     resolved_label = str(model_label or "").strip()
     if not resolved_label and (str(model or "").strip() or str(reasoning_effort or "").strip()):
         resolved_label = model_label_for(model, reasoning_effort)
     fields: dict[str, str] = {
         "skill": _bounded(skill) or UNKNOWN,
-        "model": _model_field(executor, resolved_label),
         "status": _bounded(status) or UNKNOWN,
         "prompt": _prompt_reference(prompt_sha256, prompt_chars),
     }
+    if discloses_model:
+        fields["model"] = _model_field(executor, resolved_label)
     bounded_task = _bounded(task)
     if bounded_task:
         fields["task"] = bounded_task
@@ -161,7 +170,7 @@ def build_message_gate(
         # The observed total, not the rendered count: a reader must be able to
         # tell a complete roster from a capped one without opening the board.
         payload["roster_total"] = _unit_total(units)
-    prompt_block = _prompt_block(composed_prompt, fields["model"])
+    prompt_block = _prompt_block(composed_prompt, fields.get("model", ""))
     if prompt_block:
         payload["prompt_block"] = prompt_block
     payload["warnings"] = message_gate_warnings(payload)
@@ -251,7 +260,9 @@ def message_gate_warnings(payload: dict[str, Any]) -> list[str]:
     fields = _fields(payload)
     warnings: list[str] = []
     model = fields.get("model", "")
-    if not model or model == UNKNOWN:
+    # An absent MODEL row is a declared non-disclosure (`discloses_model=False`),
+    # not a gap; a present-but-unknown one is the gap this warning names.
+    if "model" in fields and (not model or model == UNKNOWN):
         warnings.append(WARNING_MISSING_MODEL_LABEL)
     if "()" in model:
         warnings.append(WARNING_EMPTY_PARENTHESES)
