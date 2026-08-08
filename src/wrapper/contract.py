@@ -7082,10 +7082,15 @@ def _chat_response_with_message_gate(
         executor=executor,
         model_label=_status_model_label(state),
         status=str(trace.get("evidence_state", "")),
-        # Bounded to the same summary ceiling the show-prompt surface uses. The
-        # message reaches this payload only when the wrapper opted into
-        # `include_message`; otherwise `_base_interaction` never carried it and
-        # the TASK row is absent rather than `unknown`.
+        # Bounded to the same summary ceiling the show-prompt surface uses.
+        #
+        # This `if` is defence in depth, not the redaction mechanism. The
+        # guarantee is structural and upstream: with `include_message` unset,
+        # `_base_interaction` never puts the raw message into this payload at
+        # all -- a marker string planted in the message appears at zero paths
+        # in the serialized result. So the row is absent because there was
+        # nothing to render, and the guard only keeps that true if a future
+        # change starts carrying the message for some other reason.
         task=bounded_prompt_preview(str(payload.get("message", "") or ""), max_chars=MAX_SUMMARY_CHARS)
         if payload.get("message")
         else "",
