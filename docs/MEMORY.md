@@ -183,6 +183,68 @@ Expiry removes influence only; it does not move an artifact or prove any
 absence. A stale revalidation deadline requires fresh review or a bounded,
 identity-specific confirmation.
 
+## Freshness: Review-Due Dates and Source Evidence
+
+A record's freshness is one verdict derived from three stored inputs plus the
+caller's clock. Nothing is inferred from conversation, and nothing is fetched.
+
+| Input | Field | Effect |
+| --- | --- | --- |
+| Retention deadline | `ttl.expires_at` | Past it, the record is `expired`. |
+| Review-due date | `staleness.review_due_at` | Past it, the record is `stale`. |
+| Source digest | `source_evidence.sha256` | A changed source is `stale`; an unreadable one is `unknown`. |
+
+`review_due_at` is the readable name for the date `staleness.stale_after`
+always held; both are written, and when they disagree the earlier one wins, so
+editing one spelling can never restore freshness.
+
+Source evidence is opt-in and local. When `--source-ref` names an absolute
+path to a readable local file, capture records the file's SHA-256 alongside it.
+Every later freshness check re-reads that file and compares. A ref that is not
+an absolute path, a file that is gone or unreadable, and a file past the
+digest budget all read as `unknown` — never as `fresh`. OMH makes no network
+call to check anything, and never rewrites or deletes a record because its
+source moved.
+
+Both `stale` and `unknown` are ineligible for default recall, exactly like
+`expired`. `omh memory recall --include-stale` surfaces them for inspection
+carrying their ineligible replay evidence, which keeps the pack unattachable
+as approved context.
+
+### Freshness Warnings
+
+A recall pack used to drop an ineligible record silently. It now carries a
+bounded `freshness_warnings` list naming every record whose freshness is not
+confirmed, and a handoff pack is emitted even when the warning is all it has
+to say:
+
+```json
+{
+  "record_id": "mem_...",
+  "state": "stale",
+  "reason_code": "stale_review_required",
+  "review_due_at": "2026-01-01T00:00:00Z",
+  "detail": "Its revalidation deadline passed, so nobody has confirmed the record since then.",
+  "delivered": false,
+  "next_action": "Confirm, replace, or retire this record before it steers the plan."
+}
+```
+
+`delivered` says whether the record reached the pack (`--include-stale`) or
+was held back. Records excluded for reasons that are not about freshness —
+`no_query_overlap`, `over_budget` on a fresh record — never warn. Wrapper
+briefs and runtime artifact summaries carry the warnings through by name
+rather than as a count, so a summarized handoff still says which record needs
+a decision. A warning is prepared context, never execution, review, CI, or
+merge evidence.
+
+Answering the warning uses the existing lifecycle verbs: `omh memory correct`
+supersedes the record with a reviewable replacement, `omh memory retire`
+archives it once expired. Both preserve the prior revision — a correction
+writes `history/<record-id>.r<revision>.json` carrying the original payload,
+its admission provenance, its source evidence, and a `superseded_by` link to
+the successor revision.
+
 ## Recall Ranking and Delivery Usage
 
 Recall packs order eligible records relevance-first: keyword relevance rank

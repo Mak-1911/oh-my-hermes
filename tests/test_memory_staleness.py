@@ -1,0 +1,448 @@
+"""Stale project memory must announce itself before it steers anything.
+
+Issue #830. Three contracts, in the order a record meets them:
+
+1. A recall pack bound for a handoff names every record whose freshness is
+   unconfirmed, instead of quietly shrinking. Silence was the defect.
+2. Correcting or superseding a record keeps the prior revision and its
+   provenance, including the digest of the source it cited.
+3. Freshness is a function of stored metadata, the caller's ``now``, and
+   locally observable source bytes -- nothing else. Unknown never reads fresh.
+"""
+
+from __future__ import annotations
+
+import json
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from _local_package import load_local_package
+
+load_local_package()
+from omh.local_store import atomic_write_text
+from omh.memory import (
+    approve_project_memory_candidate,
+    build_project_memory_recall_pack,
+    capture_project_memory_candidate,
+    memory_recall_pack_for_handoff,
+    validate_project_memory_record,
+    validate_project_memory_recall_pack,
+)
+from omh.paths import resolve_paths
+from omh.workflows import memory as memory_workflow
+from omh.workflows.memory_lifecycle import (
+    apply_memory_correction,
+    apply_memory_reapproval,
+    apply_memory_restore,
+    apply_memory_retirement,
+    build_memory_correction,
+    build_memory_reapproval,
+    build_memory_restore,
+    build_memory_retirement,
+)
+from omh.workflows.memory_lifecycle_executor import execute_memory_lifecycle
+from omh.runtime.artifacts import _memory_recall_pack_summary as artifact_pack_summary
+from omh.wrapper.briefing import _memory_recall_pack_summary as briefing_pack_summary
+
+PAST = "2020-01-01T00:00:00Z"
+
+
+def _approved(paths, summary: str, **capture) -> dict:
+    captured = capture_project_memory_candidate(paths, summary, **capture)
+    return approve_project_memory_candidate(paths, captured["candidate"]["candidate_id"])["record"]
+
+
+def _record_path(paths, record_id: str) -> Path:
+    return paths.memory_dir / "records" / f"{record_id}.json"
+
+
+def _mutate_record(paths, record_id: str, **fields) -> dict:
+    """Rewrite a stored record's non-digested metadata.
+
+    ``canonical_payload_digest`` covers schema/id/revision/type/summary/scope
+    only, so deadlines and source evidence can be edited without invalidating
+    the admission digest or its review record.
+    """
+    path = _record_path(paths, record_id)
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored.update(fields)
+    atomic_write_text(path, json.dumps(stored), private=True)
+    return stored
+
+
+def _source_file(root: Path, name: str, body: str) -> Path:
+    path = root / name
+    # atomic_write_text, never Path.write_text: these bytes are hashed, and
+    # Path.write_text would newline-translate them to CRLF on Windows, which
+    # would make the same fixture digest differently per platform.
+    atomic_write_text(path, body)
+    return path
+
+
+class HandoffFreshnessWarningTests(unittest.TestCase):
+    """AC1: warn before a stale or expired record influences a handoff."""
+
+    def test_handoff_pack_names_the_stale_record_instead_of_dropping_it(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            record = _approved(paths, "Release notes ship from the changelog", record_type="decision")
+            _mutate_record(
+                paths,
+                record["record_id"],
+                revalidation={"deadline": PAST},
+                staleness={"stale_after": PAST, "stale_after_days": None, "review_due_at": PAST},
+            )
+
+            pack = memory_recall_pack_for_handoff(paths, "release notes changelog", executor_target="codex")
+
+            self.assertIsNotNone(pack, "a stale-only pack must still reach the handoff as a warning")
+            assert pack is not None
+            self.assertEqual(pack["record_count"], 0, "a stale record is never promoted into the handoff")
+            self.assertEqual(pack["included_records"], [])
+            [warning] = pack["freshness_warnings"]
+            self.assertEqual(warning["record_id"], record["record_id"])
+            self.assertEqual(warning["state"], "stale")
+            self.assertEqual(warning["reason_code"], "stale_review_required")
+            self.assertEqual(warning["review_due_at"], PAST)
+            self.assertFalse(warning["delivered"], "the warning says the record was held back")
+            self.assertIn("revalidation deadline passed", warning["detail"])
+            self.assertIn("Confirm, replace, or retire", warning["next_action"])
+            self.assertEqual(validate_project_memory_recall_pack(pack), [])
+
+    def test_expired_records_warn_too_and_stay_out_of_the_pack(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            record = _approved(paths, "Nightly job runs at 02:00 UTC", ttl_days=5)
+            expires_at = datetime.fromisoformat(str(record["ttl"]["expires_at"]).replace("Z", "+00:00"))
+
+            pack = build_project_memory_recall_pack(paths, "nightly job", now=expires_at + timedelta(days=1))
+
+            self.assertEqual(pack["record_count"], 0)
+            [warning] = pack["freshness_warnings"]
+            self.assertEqual(warning["record_id"], record["record_id"])
+            self.assertEqual(warning["state"], "expired")
+            self.assertEqual(warning["reason_code"], "expired_standard")
+
+    def test_fresh_records_produce_no_warning_noise(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            _approved(paths, "Docs gates are byte-exact comparisons")
+            _approved(paths, "Unrelated note about branch naming")
+
+            pack = build_project_memory_recall_pack(paths, "docs gates")
+
+            self.assertEqual(pack["record_count"], 1)
+            self.assertEqual(
+                pack["freshness_warnings"],
+                [],
+                "a record cut for no query overlap is not a freshness problem",
+            )
+
+    def test_include_stale_delivers_the_record_and_still_warns(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            record = _approved(paths, "CI runner image is ubuntu-24.04")
+            _mutate_record(
+                paths,
+                record["record_id"],
+                revalidation={"deadline": PAST},
+                staleness={"stale_after": PAST, "stale_after_days": None, "review_due_at": PAST},
+            )
+
+            pack = build_project_memory_recall_pack(paths, "ci runner ubuntu", include_stale=True)
+
+            [item] = pack["included_records"]
+            self.assertFalse(item["replay_evaluation"]["eligible"], "inspection never launders eligibility")
+            [warning] = pack["freshness_warnings"]
+            self.assertTrue(warning["delivered"], "a surfaced stale record still carries its warning")
+            self.assertEqual(warning["reason_code"], "stale_review_required")
+
+    def test_the_warning_survives_delegation_and_its_brief(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            record = _approved(paths, "Coverage gate sits at 80 percent")
+            _mutate_record(
+                paths,
+                record["record_id"],
+                revalidation={"deadline": PAST},
+                staleness={"stale_after": PAST, "stale_after_days": None, "review_due_at": PAST},
+            )
+            pack = memory_recall_pack_for_handoff(paths, "coverage gate percent", executor_target="codex")
+            assert pack is not None
+
+            for name, summarize in (("wrapper brief", briefing_pack_summary), ("runtime artifact", artifact_pack_summary)):
+                with self.subTest(surface=name):
+                    summary = summarize(pack)
+                    self.assertEqual(
+                        [entry["record_id"] for entry in summary["freshness_warnings"]],
+                        [record["record_id"]],
+                        "a summary that drops the warning puts the user back where they started",
+                    )
+                    self.assertEqual(summary["record_count"], 0)
+
+    def test_a_pack_with_nothing_to_say_is_still_omitted_from_the_handoff(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            _approved(paths, "Branch names start with agent or claude")
+
+            self.assertIsNone(
+                memory_recall_pack_for_handoff(paths, "wholly unrelated payment gateway topic"),
+                "no records and no warnings means no pack; warnings must not fabricate one",
+            )
+
+
+class SupersessionProvenanceTests(unittest.TestCase):
+    """AC2: revalidating or superseding preserves the prior revision."""
+
+    def test_correction_writes_the_prior_revision_with_its_supersession_link(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            source = _source_file(root, "deploy.md", "staging first\n")
+            record = _approved(paths, "Deploys go through staging first", record_type="decision", source_ref=str(source))
+            now = datetime.now(timezone.utc)
+
+            plan = build_memory_correction(paths, record["record_id"], 1, "Deploys go staging, then canary", now=now)
+            apply_memory_correction(paths, plan, transaction_executor=execute_memory_lifecycle)
+
+            history = json.loads(
+                (paths.memory_dir / "history" / f"{record['record_id']}.r1.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(history["revision"], 1, "the prior revision is preserved verbatim, not rewritten")
+            self.assertEqual(history["summary"], record["summary"])
+            self.assertEqual(history["admission"], record["admission"], "its approval provenance survives")
+            self.assertEqual(history["source_evidence"], record["source_evidence"])
+            self.assertEqual(
+                history["superseded_by"],
+                {
+                    "schema_version": "project_memory_record/v2",
+                    "id": record["record_id"],
+                    "id_key": "record_id",
+                    "revision": 2,
+                    "scope": record["scope"],
+                },
+            )
+            self.assertEqual(
+                validate_project_memory_record(history),
+                [],
+                "the superseded copy is a valid record, so supersession is a first-class record state",
+            )
+
+    def test_a_live_record_marked_superseded_is_refused_and_warned_about(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            record = _approved(paths, "Config lives in pyproject.toml")
+            _mutate_record(
+                paths,
+                record["record_id"],
+                superseded_by={
+                    "schema_version": "project_memory_record/v2",
+                    "id": record["record_id"],
+                    "id_key": "record_id",
+                    "revision": 2,
+                    "scope": record["scope"],
+                },
+            )
+
+            pack = build_project_memory_recall_pack(paths, "pyproject config")
+
+            self.assertEqual(pack["record_count"], 0)
+            [warning] = pack["freshness_warnings"]
+            self.assertEqual(warning["reason_code"], "superseded")
+            self.assertIn("newer revision supersedes", warning["detail"])
+
+    def test_source_evidence_survives_capture_approve_correct_reapprove(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            source = _source_file(root, "runbook.md", "restart the worker\n")
+            record = _approved(paths, "Worker restarts are manual", source_ref=str(source))
+            now = datetime.now(timezone.utc)
+
+            plan = build_memory_correction(paths, record["record_id"], 1, "Worker restarts are scripted", now=now)
+            apply_memory_correction(paths, plan, transaction_executor=execute_memory_lifecycle)
+            candidate = next(
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in sorted((paths.memory_dir / "candidates").glob("*.json"))
+                if json.loads(path.read_text(encoding="utf-8")).get("lifecycle") == "correction"
+            )
+            self.assertEqual(candidate["replacement"]["source_evidence"], record["source_evidence"])
+
+            reapproval = build_memory_reapproval(paths, candidate["candidate_id"], reviewer_claim="operator", now=now)
+            apply_memory_reapproval(paths, reapproval, transaction_executor=execute_memory_lifecycle)
+
+            live = json.loads(_record_path(paths, record["record_id"]).read_text(encoding="utf-8"))
+            self.assertEqual(live["revision"], 2)
+            self.assertEqual(
+                live["source_evidence"],
+                record["source_evidence"],
+                "a corrected revision keeps watching the same source; otherwise one correction blinds it forever",
+            )
+
+    def test_source_evidence_survives_retire_and_restore(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            source = _source_file(root, "policy.md", "two reviewers\n")
+            record = _approved(paths, "Merges need two reviewers", ttl_days=30, source_ref=str(source))
+            later = datetime.now(timezone.utc) + timedelta(days=60)
+
+            retire = build_memory_retirement(paths, record["record_id"], 1, now=later)
+            apply_memory_retirement(paths, retire, transaction_executor=execute_memory_lifecycle)
+            restore = build_memory_restore(paths, record["record_id"], 1, now=later)
+            apply_memory_restore(paths, restore, transaction_executor=execute_memory_lifecycle)
+            candidate_id = str(restore.mutations[0].payload["candidate_id"])
+            reapproval = build_memory_reapproval(paths, candidate_id, reviewer_claim="operator", now=later)
+            apply_memory_reapproval(paths, reapproval, transaction_executor=execute_memory_lifecycle)
+
+            live = json.loads(_record_path(paths, record["record_id"]).read_text(encoding="utf-8"))
+            self.assertEqual(live["revision"], 2)
+            self.assertEqual(live["source_evidence"], record["source_evidence"])
+
+
+class DeterministicFreshnessTests(unittest.TestCase):
+    """AC3: freshness derives from stored metadata and observable source bytes."""
+
+    def test_the_same_metadata_and_now_always_yield_the_same_verdict(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            source = _source_file(root, "gate.md", "byte exact\n")
+            record = _approved(paths, "Doc gates compare bytes", source_ref=str(source))
+            stored = json.loads(_record_path(paths, record["record_id"]).read_text(encoding="utf-8"))
+            probe = datetime(2026, 8, 9, 12, 0, 0, tzinfo=timezone.utc)
+
+            verdicts = [memory_workflow._record_staleness(stored, now=probe) for _ in range(3)]
+
+            self.assertEqual(verdicts[0], verdicts[1])
+            self.assertEqual(verdicts[1], verdicts[2])
+            self.assertEqual(verdicts[0]["state"], "fresh")
+            self.assertEqual(verdicts[0]["source_state"], "unchanged")
+
+    def test_a_changed_source_digest_flips_the_state_and_nothing_else_does(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            source = _source_file(root, "schema.md", "one field\n")
+            record = _approved(paths, "The schema has one field", source_ref=str(source))
+            stored = json.loads(_record_path(paths, record["record_id"]).read_text(encoding="utf-8"))
+            probe = datetime(2026, 8, 9, 12, 0, 0, tzinfo=timezone.utc)
+            self.assertEqual(memory_workflow._record_staleness(stored, now=probe)["state"], "fresh")
+
+            _source_file(root, "schema.md", "two fields\n")
+
+            after = memory_workflow._record_staleness(stored, now=probe)
+            self.assertEqual(after["state"], "stale", "the cited source moved, so the record is due for review")
+            self.assertEqual(after["reason"], "source_changed")
+            self.assertEqual(after["source_state"], "changed")
+
+    def test_an_unreadable_source_is_unknown_and_never_fresh(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            source = _source_file(root, "vanishing.md", "here for now\n")
+            record = _approved(paths, "The vanishing note still applies", source_ref=str(source))
+            stored = json.loads(_record_path(paths, record["record_id"]).read_text(encoding="utf-8"))
+            probe = datetime(2026, 8, 9, 12, 0, 0, tzinfo=timezone.utc)
+
+            source.unlink()
+
+            verdict = memory_workflow._record_staleness(stored, now=probe)
+            self.assertEqual(verdict["state"], "unknown")
+            self.assertNotEqual(verdict["state"], "fresh")
+            self.assertEqual(verdict["reason"], "source_unreadable")
+            self.assertEqual(verdict["source_state"], "unreadable")
+
+    def test_a_source_that_moved_is_kept_out_of_recall_and_named(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            source = _source_file(root, "owners.md", "team alpha owns it\n")
+            record = _approved(paths, "Team alpha owns the parser", source_ref=str(source))
+            self.assertEqual(build_project_memory_recall_pack(paths, "parser owner")["record_count"], 1)
+
+            _source_file(root, "owners.md", "team beta owns it\n")
+
+            pack = build_project_memory_recall_pack(paths, "parser owner")
+            self.assertEqual(pack["record_count"], 0, "a source-moved record is never silently promoted")
+            [excluded] = [entry for entry in pack["excluded_records"] if entry["record_id"] == record["record_id"]]
+            self.assertEqual(excluded["reason"], "source_changed")
+            [warning] = pack["freshness_warnings"]
+            self.assertEqual(warning["reason_code"], "source_changed")
+            self.assertIn("local source it cites changed", warning["detail"])
+
+    def test_an_unverifiable_source_is_kept_out_of_recall_and_named(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            source = _source_file(root, "gone.md", "still here\n")
+            record = _approved(paths, "The parser rejects empty input", source_ref=str(source))
+
+            source.unlink()
+
+            pack = build_project_memory_recall_pack(paths, "parser empty input")
+            self.assertEqual(pack["record_count"], 0, "unknown freshness must never read as approved context")
+            [warning] = pack["freshness_warnings"]
+            self.assertEqual(warning["record_id"], record["record_id"])
+            self.assertEqual(warning["state"], "unknown")
+            self.assertEqual(warning["reason_code"], "source_unverifiable")
+
+    def test_only_an_absolute_local_path_earns_source_evidence(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            _source_file(root, "relative.md", "content\n")
+
+            for source_ref in ("relative.md", "PR #123", str(root / "absent.md"), str(root)):
+                with self.subTest(source_ref=source_ref):
+                    captured = capture_project_memory_candidate(paths, f"Note about {source_ref}", source_ref=source_ref)
+                    self.assertNotIn(
+                        "source_evidence",
+                        captured["candidate"],
+                        "a ref OMH cannot digest locally carries no evidence and stays deadline-only",
+                    )
+
+    def test_review_due_at_names_the_date_stale_after_already_held(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+
+            record = _approved(paths, "Router triggers need a negative case", stale_after_days=90)
+
+            self.assertEqual(record["staleness"]["review_due_at"], record["staleness"]["stale_after"])
+            self.assertTrue(record["staleness"]["review_due_at"])
+            verdict = memory_workflow._record_staleness(record, now=datetime.now(timezone.utc))
+            self.assertEqual(verdict["review_due_at"], record["staleness"]["stale_after"])
+
+    def test_editing_only_one_deadline_spelling_cannot_restore_freshness(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            record = _approved(paths, "Only one spelling was edited")
+            future = "2099-01-01T00:00:00Z"
+
+            for edited in ({"stale_after": PAST, "review_due_at": future}, {"stale_after": future, "review_due_at": PAST}):
+                with self.subTest(**edited):
+                    stored = _mutate_record(paths, record["record_id"], staleness={**edited, "stale_after_days": None})
+                    verdict = memory_workflow._record_staleness(stored, now=datetime.now(timezone.utc))
+                    self.assertEqual(verdict["state"], "stale", "the deadline that already passed decides")
+                    self.assertEqual(verdict["review_due_at"], PAST)
+
+    def test_a_legacy_record_without_review_due_at_keeps_its_deadline(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            record = _approved(paths, "Older record written before the field was named")
+            stored = _mutate_record(
+                paths,
+                record["record_id"],
+                staleness={"stale_after": PAST, "stale_after_days": None},
+            )
+
+            verdict = memory_workflow._record_staleness(stored, now=datetime.now(timezone.utc))
+
+            self.assertEqual(verdict["state"], "stale")
+            self.assertEqual(verdict["review_due_at"], PAST, "the old spelling still supplies the deadline")
+
+
+if __name__ == "__main__":
+    unittest.main()

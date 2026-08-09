@@ -119,6 +119,7 @@ _PROJECT_MEMORY_RECORD_KEYS = {
     "source",
     "source_class",
     "source_ref",
+    "source_evidence",
     "admission",
     "retention",
     "revalidation",
@@ -130,6 +131,7 @@ _PROJECT_MEMORY_RECORD_KEYS = {
     "safety",
     "derived_from",
     "perspective",
+    "superseded_by",
     "redaction_policy",
     "claim_boundary",
 }
@@ -145,10 +147,20 @@ _PROJECT_MEMORY_RECALL_PACK_KEYS = {
     "query_intent",
     "included_records",
     "excluded_records",
+    "freshness_warnings",
     "record_count",
     "truncated",
     "redaction_policy",
     "claim_boundary",
+}
+_FRESHNESS_WARNING_KEYS = {
+    "record_id",
+    "state",
+    "reason_code",
+    "review_due_at",
+    "detail",
+    "delivered",
+    "next_action",
 }
 _PROJECT_MEMORY_RECALL_ITEM_KEYS = {
     "record_id",
@@ -244,6 +256,35 @@ _PROJECT_MEMORY_EXCLUDED_KEYS = {
     "replay_evaluation",
 }
 _PROJECT_MEMORY_TASK_REF_KEYS = {"sha256", "length", "query_supplied"}
+# Source-evidence freshness. Time deadlines alone cannot notice that the file
+# a record cites was rewritten the day after approval, so a record may carry
+# the digest of the local source observed at capture. Comparing that digest
+# against the file as it reads now is the only way to make "the source moved"
+# observable without a network call, which OMH never makes. Anything that
+# cannot be digested locally -- a ref that is not an absolute path, a deleted
+# or unreadable file, or one past the cheap-hash budget -- reads as `unknown`
+# and never as `fresh`: a trust signal must fail closed, and "we could not
+# look" is not "we looked and it was fine".
+_SOURCE_EVIDENCE_MAX_BYTES = 4 * 1024 * 1024
+# Freshness warnings are the pre-handoff surface: a recall pack used to drop a
+# stale record silently, so the executor saw a smaller pack and no reason. The
+# list is bounded like every other polled surface; the pack already says
+# `truncated` when its own budget cuts records.
+_FRESHNESS_WARNING_LIMIT = 12
+_FRESHNESS_NEXT_ACTION = "Confirm, replace, or retire this record before it steers the plan."
+_FRESHNESS_REASON_TEXT = {
+    "stale_review_required": "Its revalidation deadline passed, so nobody has confirmed the record since then.",
+    "source_changed": "The local source it cites changed after the record was approved.",
+    "source_unverifiable": "The local source it cites cannot be read now, so its freshness is unobservable.",
+    "superseded": "A newer revision supersedes this record.",
+    "expired_standard": "Its retention deadline passed.",
+    "expired_volatile": "Its retention deadline passed.",
+    "expired_durable": "Its retention deadline passed.",
+    "freshness_unconfirmed": "Its freshness could not be confirmed from stored metadata and local source evidence.",
+}
+# Reasons `--include-stale` may surface for inspection. They carry ineligible
+# replay evidence, so the pack still cannot be attached as approved context.
+_INSPECTABLE_STALE_REASONS = {"stale_review_required", "source_changed", "source_unverifiable"}
 _HANDOFF_CONTEXT_PACK_KEYS = {
     "schema_version",
     "executor_target",
@@ -666,13 +707,26 @@ def build_project_memory_recall_pack(
             run_id=run_id,
         )
         staleness = _record_staleness(record, now=now)
+        # Source-evidence freshness gates recall exactly like the time
+        # deadline does. The shared evaluator only knows deadlines, so the
+        # verdict `_record_staleness` derived from the record's own recorded
+        # digest is folded into the same eligibility decision here rather
+        # than becoming a second, quieter notion of stale.
+        source_state = str(staleness.get("source_state", ""))
+        if bool(evaluation["eligible"]) and source_state in {"changed", "unreadable"}:
+            evaluation = {
+                **evaluation,
+                "eligible": False,
+                "reason_code": "source_changed" if source_state == "changed" else "source_unverifiable",
+            }
         if not bool(evaluation["eligible"]):
             # --include-stale is an inspection affordance: it surfaces
-            # records whose ONLY problem is a passed revalidation deadline,
-            # carrying their ineligible replay evidence so the pack cannot
-            # be attached to a handoff. Expired and otherwise-ineligible
-            # records stay excluded regardless.
-            if include_stale and str(evaluation.get("reason_code", "")) == "stale_review_required":
+            # records whose ONLY problem is unconfirmed freshness -- a passed
+            # revalidation deadline or a moved source -- carrying their
+            # ineligible replay evidence so the pack cannot be attached to a
+            # handoff. Expired and otherwise-ineligible records stay excluded
+            # regardless.
+            if include_stale and str(evaluation.get("reason_code", "")) in _INSPECTABLE_STALE_REASONS:
                 score = _memory_recall_score(record, query)
                 if not query or score > 0 or str(record.get("record_id", "")) in pins:
                     included.append(_recall_item(record, score=score, staleness=staleness, evaluation=evaluation))
@@ -763,6 +817,7 @@ def build_project_memory_recall_pack(
         "query_intent": query_intent,
         "included_records": included,
         "excluded_records": excluded,
+        "freshness_warnings": _freshness_warnings(included, excluded),
         "record_count": len(included),
         "truncated": budget_exhausted,
         "redaction_policy": "metadata_only",
@@ -792,7 +847,11 @@ def memory_recall_pack_for_handoff(
         limit=limit,
         observed=_handoff_perspective_lens(executor_target),
     )
-    if not pack.get("enabled") or not pack.get("included_records"):
+    # A pack with no eligible records but a freshness warning still travels.
+    # Dropping it here was the silent failure: the handoff went out with no
+    # memory and no statement that a stale record had been held back, so the
+    # operator never got the chance to confirm, replace, or retire it.
+    if not pack.get("enabled") or not (pack.get("included_records") or pack.get("freshness_warnings")):
         return None
     return pack
 
@@ -2057,6 +2116,10 @@ def validate_project_memory_recall_pack(value: Any, *, label: str = "memory_reca
         errors.append(f"{label}.query_intent must be default or temporal")
     _validate_context_list(value.get("included_records"), _PROJECT_MEMORY_RECALL_ITEM_KEYS, errors, f"{label}.included_records", scope_key="scope")
     _validate_context_list(value.get("excluded_records"), _PROJECT_MEMORY_EXCLUDED_KEYS, errors, f"{label}.excluded_records")
+    # Optional so a wrapper-supplied pack written before freshness warnings
+    # existed still validates; present warnings are held to the full shape.
+    if "freshness_warnings" in value:
+        _validate_context_list(value.get("freshness_warnings"), _FRESHNESS_WARNING_KEYS, errors, f"{label}.freshness_warnings")
     _validate_context_map(value.get("task_ref"), _PROJECT_MEMORY_TASK_REF_KEYS, errors, f"{label}.task_ref")
     if not isinstance(value.get("truncated"), bool):
         errors.append(f"{label}.truncated must be a boolean")
@@ -2097,6 +2160,11 @@ def _build_project_memory_candidate(
     staleness = _staleness_metadata(stale_after_days, record_type=normalized_type, created_at=now)
     candidate_id = "cand_" + os.urandom(8).hex()
     status = "blocked_review_required" if safety["status"] == "blocked" else "pending_review"
+    # Digest the ref exactly as it will be stored, not as it was passed:
+    # redaction and truncation can change the string, and the freshness check
+    # later reads the stored one.
+    stored_source_ref = _redact(str(source_ref or ""))[:160]
+    source_evidence = _source_evidence(stored_source_ref, captured_at=now)
     return {
         "schema_version": PROJECT_MEMORY_CANDIDATE_SCHEMA_VERSION,
         "candidate_id": candidate_id,
@@ -2106,7 +2174,8 @@ def _build_project_memory_candidate(
         "scope": scope,
         "tags": normalized_tags,
         "source": str(source or "cli"),
-        "source_ref": _redact(str(source_ref or ""))[:160],
+        "source_ref": stored_source_ref,
+        **({"source_evidence": source_evidence} if source_evidence else {}),
         "created_at": now,
         "ttl": ttl,
         "staleness": staleness,
@@ -2159,6 +2228,10 @@ def _record_from_candidate(
         "source": str(candidate.get("source", "cli")),
         "source_class": "omh_local",
         "source_ref": _redact(str(candidate.get("source_ref", "")))[:160],
+        # The digest is carried over as observed at capture, never recomputed
+        # here: approval must not silently re-bless a source that changed
+        # while the candidate sat in the review queue.
+        **({"source_evidence": evidence} if (evidence := _source_evidence_projection(candidate)) else {}),
         "derived_from": _string_list(candidate.get("derived_from", [])),
         **(
             {"perspective": projection}
@@ -2238,7 +2311,7 @@ def _ttl_projection(retention: dict[str, object]) -> dict[str, object]:
 
 def _staleness_projection(revalidation: dict[str, object]) -> dict[str, object]:
     deadline = str(revalidation.get("deadline", ""))
-    return {"stale_after": deadline, "stale_after_days": None}
+    return {"stale_after": deadline, "stale_after_days": None, "review_due_at": deadline}
 
 
 def _empty_recall_pack(
@@ -2263,6 +2336,7 @@ def _empty_recall_pack(
         "query_intent": "default",
         "included_records": [],
         "excluded_records": [{"record_id": "", "reason": reason, "staleness": {"state": "not_checked"}}],
+        "freshness_warnings": [],
         "record_count": 0,
         "truncated": False,
         "redaction_policy": "metadata_only",
@@ -2308,6 +2382,55 @@ def _recall_exclusion(
         "staleness": staleness,
         **_recall_evidence_fields(evidence),
     }
+
+
+def _freshness_warnings(
+    included: list[dict[str, object]],
+    excluded: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Name every record in this pack whose freshness is not confirmed.
+
+    This is the surface acceptance criterion 1 asks for: before a stale,
+    expired, superseded, or source-moved record can influence a plan or a
+    handoff, the pack says which record it is, why revalidation is due, and
+    that the operator must confirm, replace, or retire it. A held-back record
+    warns exactly like a delivered one -- ``delivered`` says which happened --
+    because a record silently missing from a pack is the failure this
+    replaces, not the fix.
+
+    Records excluded for reasons that are not about freshness
+    (``no_query_overlap``, ``over_budget`` on a fresh record) never warn:
+    a warning that fires for everything is read as noise and stops working.
+    """
+    warnings: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for delivered, entry in [*((True, item) for item in included), *((False, item) for item in excluded)]:
+        record_id = str(entry.get("record_id", ""))
+        staleness = entry.get("staleness") if isinstance(entry.get("staleness"), dict) else {}
+        state = str(staleness.get("state", ""))
+        reason_code = str(entry.get("eligibility_reason", "") or "")
+        known_reason = reason_code in _FRESHNESS_REASON_TEXT
+        if not known_reason and state in {"", "fresh", "not_checked"}:
+            continue
+        if not record_id or record_id in seen:
+            continue
+        seen.add(record_id)
+        if not known_reason:
+            reason_code = "freshness_unconfirmed"
+        warnings.append(
+            {
+                "record_id": record_id,
+                "state": state or "unknown",
+                "reason_code": reason_code,
+                "review_due_at": str(staleness.get("review_due_at", "") or ""),
+                "detail": _FRESHNESS_REASON_TEXT[reason_code],
+                "delivered": bool(delivered),
+                "next_action": _FRESHNESS_NEXT_ACTION,
+            }
+        )
+        if len(warnings) >= _FRESHNESS_WARNING_LIMIT:
+            break
+    return warnings
 
 
 def _recall_evidence_fields(value: Any) -> dict[str, object]:
@@ -2479,22 +2602,119 @@ def _record_scope_matches(record: dict[str, Any], *, scope_kind: str | None, sco
 
 
 def _record_staleness(record: dict[str, Any], *, now: datetime | None = None) -> dict[str, object]:
-    """TTL and staleness state at ``now`` (wall clock when omitted).
+    """The one freshness verdict: TTL, review-due date, and source evidence.
 
     The TTL half is decided by the bundle classifier, the single source of
     truth for what "expired" means: it reads naive timestamps as UTC, where
     the local ``_parse_utc`` would read them as host-local time and move the
     verdict by up to +/-14 hours depending on where the host happens to be.
+
+    The review-due half reads ``review_due_at`` and the older ``stale_after``
+    spelling of the same date, taking whichever comes first, so records
+    written before the field was named keep their deadline and a record with
+    only one spelling edited cannot read as fresh.
+
+    The source half compares the digest recorded at capture against the cited
+    local file as it reads now. It only ever makes a record less trusted: a
+    moved source is ``stale``, an unreadable one is ``unknown``, and neither
+    can turn into ``fresh``. Every input is stored metadata plus the caller's
+    ``now`` plus locally observable bytes, so the verdict is reproducible.
     """
     now = now if now is not None else datetime.now(timezone.utc)
     ttl = record.get("ttl", {}) if isinstance(record.get("ttl"), dict) else {}
-    if _classify_record_expiry(record, now=now) == "expired":
-        return {"state": "expired", "expires_at": str(ttl.get("expires_at", ""))}
     staleness = record.get("staleness", {}) if isinstance(record.get("staleness"), dict) else {}
-    stale_after = _parse_utc(str(staleness.get("stale_after", "") or ""))
-    if stale_after and stale_after <= now:
-        return {"state": "stale", "stale_after": str(staleness.get("stale_after", ""))}
-    return {"state": "fresh", "stale_after": str(staleness.get("stale_after", "")), "expires_at": str(ttl.get("expires_at", ""))}
+    expires_at = str(ttl.get("expires_at", ""))
+    stale_after = str(staleness.get("stale_after", ""))
+    review_due_at = _earliest_deadline(str(staleness.get("review_due_at", "") or ""), stale_after)
+    source_state = _source_evidence_state(record)
+    fields = {
+        "stale_after": stale_after,
+        "review_due_at": review_due_at,
+        "expires_at": expires_at,
+        "source_state": source_state,
+    }
+    if _classify_record_expiry(record, now=now) == "expired":
+        return {"state": "expired", "reason": "retention_expired", **fields}
+    deadline = _parse_utc(review_due_at)
+    if deadline and deadline <= now:
+        return {"state": "stale", "reason": "review_due", **fields}
+    if source_state == "changed":
+        return {"state": "stale", "reason": "source_changed", **fields}
+    if source_state == "unreadable":
+        return {"state": "unknown", "reason": "source_unreadable", **fields}
+    return {"state": "fresh", "reason": "", **fields}
+
+
+def _earliest_deadline(*values: str) -> str:
+    """The soonest parseable deadline among equivalent spellings, fail-closed.
+
+    ``review_due_at`` and ``stale_after`` are two names for one date, so they
+    normally agree. When something edits only one of them they must not cancel
+    each other out: whichever deadline has already passed decides, so a
+    half-updated record reads as due for review rather than as fresh.
+    """
+    best_value = ""
+    best_time: datetime | None = None
+    for value in values:
+        if not value:
+            continue
+        if not best_value:
+            best_value = value
+        parsed = _parse_utc(value)
+        if parsed is not None and (best_time is None or parsed < best_time):
+            best_time, best_value = parsed, value
+    return best_value
+
+
+def _source_evidence(source_ref: str, *, captured_at: str) -> dict[str, object]:
+    """Digest a cited local source so a later change to it becomes observable.
+
+    Only an absolute path to a readable local file earns evidence. A relative
+    ref would resolve against whatever directory the caller happened to be in,
+    which would make the same stored record read differently per invocation;
+    a ref that is not a path at all (a PR number, a decision name) has nothing
+    to digest. Both simply carry no evidence and stay on the deadline-only
+    path, exactly as records did before.
+    """
+    digest = _local_source_digest(source_ref)
+    return {"path": source_ref, "sha256": digest, "captured_at": captured_at} if digest else {}
+
+
+def _source_evidence_projection(value: Any) -> dict[str, object]:
+    """Scalar-only projection of recorded source evidence, or {}."""
+    evidence = value.get("source_evidence") if isinstance(value, dict) else None
+    if not isinstance(evidence, dict) or not str(evidence.get("sha256", "") or ""):
+        return {}
+    return {key: str(evidence.get(key, "") or "") for key in ("path", "sha256", "captured_at")}
+
+
+def _local_source_digest(source_ref: str) -> str:
+    """SHA-256 of a local file, or "" when it cannot be digested here."""
+    if not source_ref:
+        return ""
+    try:
+        path = Path(source_ref)
+        if not path.is_absolute() or not path.is_file() or path.stat().st_size > _SOURCE_EVIDENCE_MAX_BYTES:
+            return ""
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except (OSError, ValueError):
+        # Unreadable, gone, a directory, or a path this platform rejects. The
+        # caller turns an empty digest into `unreadable`, never into `fresh`.
+        return ""
+
+
+def _source_evidence_state(record: dict[str, Any]) -> str:
+    """"" (no evidence recorded) | unchanged | changed | unreadable."""
+    evidence = record.get("source_evidence")
+    if not isinstance(evidence, dict):
+        return ""
+    recorded = str(evidence.get("sha256", "") or "")
+    if not recorded:
+        return ""
+    current = _local_source_digest(str(evidence.get("path", "") or ""))
+    if not current:
+        return "unreadable"
+    return "unchanged" if current == recorded else "changed"
 
 
 def _project_memory_safety(summary: str, content: str, *, tags: list[str]) -> dict[str, object]:
@@ -2532,9 +2752,14 @@ def _ttl_metadata(ttl_days: int | None, *, record_type: str, created_at: str) ->
 
 def _staleness_metadata(stale_after_days: int | None, *, record_type: str, created_at: str) -> dict[str, object]:
     default_days = 90 if record_type in {"fact", "decision", "lesson", "procedure"} and stale_after_days is None else stale_after_days
+    deadline = _days_after(created_at, default_days) if default_days else ""
+    # `review_due_at` is the readable name for the date `stale_after` always
+    # held. Both are written so older readers keep working; nothing derives a
+    # second deadline from the new spelling.
     return {
         "stale_after_days": default_days,
-        "stale_after": _days_after(created_at, default_days) if default_days else "",
+        "stale_after": deadline,
+        "review_due_at": deadline,
     }
 
 

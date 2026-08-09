@@ -23,7 +23,11 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     capture.add_argument("--scope-kind", choices=("project", "target", "thread", "run"), default="project")
     capture.add_argument("--scope-ref", default="default")
     capture.add_argument("--source", default="cli")
-    capture.add_argument("--source-ref", default="")
+    capture.add_argument(
+        "--source-ref",
+        default="",
+        help="What this memory is about. An absolute path to a readable local file is also digested, so a later change to that file marks the record stale.",
+    )
     capture.add_argument("--tag", action="append", default=[])
     capture.add_argument("--ttl-days", type=int, default=None)
     capture.add_argument("--stale-after-days", type=int, default=None)
