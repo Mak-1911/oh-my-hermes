@@ -15,9 +15,18 @@ from ..hermes_planning import (
 )
 from ..hermes_readiness import build_hermes_agent_readiness
 from ..workflows.hermes_retained_context import build_hermes_retained_context
+from ..workflows.plan_variants import (
+    PLAN_VARIANT_DELTA_DIMENSIONS,
+    build_plan_variant,
+    build_plan_variant_delta,
+    build_plan_variant_ref,
+    render_plan_variant_text,
+    write_plan_variant,
+)
 from ..ingress import CHAT_SOURCES, extract_message_text, extract_source_metadata
 from ..installer import OmhError
-from .common import _explicit_source_metadata, _paths, _print_json
+from ..system.local_store import utc_now
+from .common import _explicit_source_metadata, _paths, _print_json, _wants_json
 
 
 def cmd_hermes_plan(args: argparse.Namespace) -> int:
@@ -106,6 +115,67 @@ def cmd_hermes_plan_cancel(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hermes_plan_variant(args: argparse.Namespace) -> int:
+    """Fork an accepted plan into a metadata-only what-if child.
+
+    The parent artifact is only read. Nothing here replays the plan, calls a
+    tool, opens a socket, or dispatches work: the command turns flags into a
+    `plan_variant/v1` dict and optionally writes that one file.
+    """
+    try:
+        artifact = read_hermes_plan_artifact(args.path)
+        variant = build_plan_variant(
+            parent_artifact=artifact,
+            name=args.name,
+            deltas=[_plan_variant_delta(value) for value in args.delta or ()],
+            refs=[
+                *[_plan_variant_ref(value, reviewed=True) for value in args.inherit or ()],
+                *[_plan_variant_ref(value, reviewed=False) for value in args.reevaluate or ()],
+            ],
+            rationale=args.rationale or "",
+            created_at=utc_now(),
+        )
+        payload: dict[str, object] = {
+            "schema_version": "hermes_plan_variant_view/v1",
+            "variant": variant,
+        }
+        if args.record:
+            payload["artifact"] = write_plan_variant(_paths(args), variant)
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    if _wants_json(args):
+        _print_json(payload)
+        return 0
+    lines = [render_plan_variant_text(variant)]
+    artifact_record = payload.get("artifact")
+    if isinstance(artifact_record, dict):
+        lines.append(f"Recorded: {artifact_record.get('path', '')}")
+    print("\n".join(lines))
+    return 0
+
+
+def _plan_variant_delta(value: str) -> dict[str, object]:
+    dimension, label, parent_value, variant_value = _split_flag(value, 4, "delta")
+    return build_plan_variant_delta(
+        dimension=dimension,
+        label=label,
+        parent_value=parent_value,
+        variant_value=variant_value,
+    )
+
+
+def _plan_variant_ref(value: str, *, reviewed: bool) -> dict[str, object]:
+    kind, ref = _split_flag(value, 2, "inherit" if reviewed else "reevaluate")
+    return build_plan_variant_ref(kind=kind, ref=ref, reviewed=reviewed)
+
+
+def _split_flag(value: str, count: int, label: str) -> list[str]:
+    parts = [part.strip() for part in value.split(":", count - 1)]
+    if len(parts) != count or any(not part for part in parts):
+        raise ValueError(f"--{label} must contain exactly {count} colon-separated fields")
+    return parts
+
+
 def cmd_hermes_readiness(args: argparse.Namespace) -> int:
     try:
         payload = build_hermes_agent_readiness(_paths(args))
@@ -176,6 +246,40 @@ def _add_hermes_commands(sub) -> None:
     plan_revise.add_argument("path", help="Path to a hermes_plan/v1 Markdown artifact.")
     plan_revise.add_argument("--note", default="", help="Optional metadata-only revision note.")
     plan_revise.set_defaults(func=cmd_hermes_plan_revise)
+
+    plan_variant = hermes_sub.add_parser(
+        "plan-variant",
+        help="Fork an accepted Hermes plan into a metadata-only plan_variant/v1 what-if child.",
+    )
+    plan_variant.add_argument("path", help="Path to an accepted hermes_plan/v1 Markdown artifact.")
+    plan_variant.add_argument("--name", required=True, help="Short name for this what-if variant.")
+    plan_variant.add_argument(
+        "--delta",
+        action="append",
+        required=True,
+        metavar="DIMENSION:LABEL:PARENT_VALUE:VARIANT_VALUE",
+        help=f"One changed input; DIMENSION is one of {', '.join(PLAN_VARIANT_DELTA_DIMENSIONS)}. Repeatable.",
+    )
+    plan_variant.add_argument(
+        "--inherit",
+        action="append",
+        metavar="KIND:REF",
+        help="A reviewed reference the variant carries over unchanged. Repeatable.",
+    )
+    plan_variant.add_argument(
+        "--reevaluate",
+        action="append",
+        metavar="KIND:REF",
+        help="A reference that must be re-checked against the new assumption before any handoff. Repeatable.",
+    )
+    plan_variant.add_argument("--rationale", default="", help="Optional metadata-only reason for exploring this variant.")
+    plan_variant.add_argument(
+        "--record",
+        action="store_true",
+        help="Write the variant under <repo>/.omh/plan-variants, or the OMH home when outside a repository.",
+    )
+    plan_variant.add_argument("--json", action="store_true", help="Print the full plan_variant/v1 payload.")
+    plan_variant.set_defaults(func=cmd_hermes_plan_variant)
 
     plan_cancel = hermes_sub.add_parser("plan-cancel", help="Mark a file-backed Hermes plan as cancelled.")
     plan_cancel.add_argument("path", help="Path to a hermes_plan/v1 Markdown artifact.")
