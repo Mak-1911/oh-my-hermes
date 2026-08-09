@@ -102,6 +102,20 @@ class OmhPaths:
         return self.runtime_journal_dir / "workspace_bindings.jsonl"
 
     @property
+    def runtime_run_lineage_checkpoints_path(self) -> Path:
+        # Runtime-wide, beside the other four stores, even though every
+        # checkpoint names exactly one run. A lineage chain is tamper-evidence
+        # for a run's own history, and evidence kept inside the thing it audits
+        # is not evidence: deleting or rebuilding a run directory would take the
+        # chain that proves what that run continued from with it. It is also
+        # read *after* the run it describes is over, by whatever asks what state
+        # to continue from, so it has to outlive the directory. Beside the
+        # observation journal because it mirrors that journal's transitions, and
+        # under `journal/` because that is where a per-run validator can reach
+        # it from a run directory alone.
+        return self.runtime_journal_dir / "run_lineage_checkpoints.jsonl"
+
+    @property
     def runtime_plan_context_dir(self) -> Path:
         return self.runtime_dir / "plan-context"
 

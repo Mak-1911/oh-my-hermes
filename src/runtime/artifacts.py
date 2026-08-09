@@ -47,6 +47,7 @@ from ..external_effect_receipts import (
 )
 from ..workflows.approval_receipts import validate_approval_receipt_store
 from ..workflows.blocked_work_records import decision_history, validate_blocked_work_record_store
+from ..workflows.run_lineage import validate_run_lineage_checkpoint_store
 from ..workflows.workspace_bindings import validate_workspace_binding_store
 from ..observation_journal import (
     append_observation_event,
@@ -2246,6 +2247,17 @@ def validate_runtime(paths: OmhPaths, run_id: str | None = None) -> dict[str, An
         paths.runtime_workspace_bindings_path,
         run_id=run_id,
     )
+    # And the lineage store, which is the only one of the five whose integrity
+    # is not a property of any single record. A checkpoint that validates
+    # perfectly on its own can still be the point where the history broke: the
+    # per-record schema cannot see that a parent digest names the wrong
+    # predecessor or that a sequence is not its position in the chain. #826 AC2
+    # -- changing history or a referenced digest fails validation -- is only
+    # true because this call runs the chain walk in production.
+    run_lineage_store_result = validate_run_lineage_checkpoint_store(
+        paths.runtime_run_lineage_checkpoints_path,
+        run_id=run_id,
+    )
     _add_duplicate_wrapper_run_link_errors(session_results, session_dirs)
     return {
         "ok": all(result["ok"] for result in results)
@@ -2254,7 +2266,8 @@ def validate_runtime(paths: OmhPaths, run_id: str | None = None) -> dict[str, An
         and bool(receipt_store_result["ok"])
         and bool(approval_store_result["ok"])
         and bool(blocked_work_store_result["ok"])
-        and bool(workspace_binding_store_result["ok"]),
+        and bool(workspace_binding_store_result["ok"])
+        and bool(run_lineage_store_result["ok"]),
         "runs": results,
         "wrapper_sessions": session_results,
         "journal": journal_result,
@@ -2262,6 +2275,7 @@ def validate_runtime(paths: OmhPaths, run_id: str | None = None) -> dict[str, An
         "approval_receipts": approval_store_result,
         "blocked_work_records": blocked_work_store_result,
         "workspace_bindings": workspace_binding_store_result,
+        "run_lineage_checkpoints": run_lineage_store_result,
     }
 
 

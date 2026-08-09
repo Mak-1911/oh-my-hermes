@@ -79,6 +79,10 @@ from ..workflows.external_effect_receipts import (
     EXTERNAL_EFFECT_RECEIPT_KEYS,
     validate_external_effect_receipt,
 )
+from ..workflows.run_lineage import (
+    RUN_LINEAGE_CHECKPOINT_KEYS,
+    validate_run_lineage_checkpoint,
+)
 from ..workflows.workspace_bindings import (
     WORKSPACE_BINDING_KEYS,
     validate_workspace_binding,
@@ -3952,6 +3956,7 @@ EXTERNAL_EFFECT_RECEIPT_RECORD_KEYS = EXTERNAL_EFFECT_RECEIPT_KEYS
 APPROVAL_RECEIPT_RECORD_KEYS = APPROVAL_RECEIPT_KEYS
 BLOCKED_WORK_RECORD_RECORD_KEYS = BLOCKED_WORK_RECORD_KEYS
 WORKSPACE_BINDING_RECORD_KEYS = WORKSPACE_BINDING_KEYS
+RUN_LINEAGE_CHECKPOINT_RECORD_KEYS = RUN_LINEAGE_CHECKPOINT_KEYS
 
 
 @dataclass(frozen=True)
@@ -3989,4 +3994,7 @@ OPTIONAL_RUNTIME_STORE_VALIDATORS = (
     OptionalRuntimeStoreValidator("approval_receipts.jsonl", validate_approval_receipt, "receipt_id"),
     OptionalRuntimeStoreValidator("blocked_work_records.jsonl", validate_blocked_work_record, "record_id"),
     OptionalRuntimeStoreValidator("workspace_bindings.jsonl", validate_workspace_binding, "record_id"),
+    OptionalRuntimeStoreValidator(
+        "run_lineage_checkpoints.jsonl", validate_run_lineage_checkpoint, "record_id"
+    ),
 )

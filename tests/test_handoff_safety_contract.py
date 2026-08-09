@@ -121,7 +121,11 @@ _DECLARED_NOT_ENFORCED = {
     # delegation lane observes no baseline revision, so it has nothing to build
     # an anchor from, and no ticket against this repository changes that.
     "recovery": "no_delegation_surface_holds_an_observed_baseline_to_attach_an_anchor_from",
-    "start_evidence": "#826",
+    # #826 shipped `run_lineage_checkpoint/v1`, so this blocker stopped being
+    # that issue too. A lineage chain now refuses to reach dispatch without an
+    # observed start, which orders a chain; nothing makes a chain required of a
+    # run, so the claim ladder is unchanged and the row stays declared.
+    "start_evidence": "lineage_orders_the_start_but_no_claim_rung_requires_a_lineage_chain",
     "storage_retention": "#835",
     "workspace": "no_omh_side_constraint_can_bind_a_running_executor_process",
 }
@@ -395,7 +399,13 @@ class AntiDecorationTests(unittest.TestCase):
         self.assertIn("workspace_binding_guard/v1", workspace)
         self.assertIn("not a state OMH can observe", _boundary(contract, "account_authorization")["statement"])
         self.assertIn("persist until the operator deletes them", _boundary(contract, "storage_retention")["statement"])
-        self.assertIn("no observed start", _boundary(contract, "start_evidence")["statement"])
+        # Same shape as the workspace row after #820: #826 closed a half, so the
+        # sentence has to name what now exists *and* keep stating the gap, or a
+        # reader takes the ordered chain for a required one.
+        start_evidence = _boundary(contract, "start_evidence")["statement"]
+        self.assertIn("no observed start", start_evidence)
+        self.assertIn("run_lineage_checkpoint/v1", start_evidence)
+        self.assertIn("does not do is make the start required", start_evidence)
         # The recovery row is the one that names a contract that *does* exist,
         # so the sentence has to keep saying which half is missing. Without this
         # the "recovery_anchor/v1 contract exists" clause could stand alone and
