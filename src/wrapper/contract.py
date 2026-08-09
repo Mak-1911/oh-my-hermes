@@ -1669,6 +1669,9 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS: dict[str, dict[str, object]] = {
             "I will prepare the recurring workflow: schedule, source inputs, delivery target, silence policy, "
             "confirmation card, and status update rules. I can save it as a paused recurring intent, which only "
             "an approved runtime surface can activate later, with an approval reference and a recorded observer. "
+            "Before it can be activated you also choose what happens when a prior run is still active, when a "
+            "window is missed, whether a failure is retried or backfilled, and after how many consecutive "
+            "failures it pauses itself. "
             "Host cron creation, source retrieval, gateway delivery, and no-agent execution stay observed-only."
         ),
         "phase": "automation_blueprint_prepared",

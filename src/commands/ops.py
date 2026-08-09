@@ -66,17 +66,24 @@ from ..research_department import (
 )
 from ..workflows.recurring_intents import (
     ACTIVATION_OBSERVER_KINDS,
+    BACKFILL_POSTURES,
+    FAILURE_PAUSE_POSTURES,
+    MISSED_RUN_POSTURES,
     OCCURRENCE_OBSERVER_KINDS,
     OCCURRENCE_OUTCOMES,
+    OCCURRENCE_SITUATIONS,
     OVERLAP_POSTURES,
     OWNER_KINDS,
+    RETRY_POSTURES,
     activate_recurring_intent,
     build_recurring_intent,
+    decide_recurring_occurrence,
     list_recurring_intents,
     preview_recurring_intent,
     record_recurring_intent_occurrence,
     render_recurring_intent_list_text,
     render_recurring_intent_text,
+    render_recurring_occurrence_decision_text,
     revise_recurring_intent,
     show_recurring_intent,
     summarize_recurring_intent,
@@ -84,6 +91,7 @@ from ..workflows.recurring_intents import (
     validate_recurring_intent_store,
     write_recurring_intent,
 )
+from ..system.local_store import utc_now
 from .common import _paths, _print_json, _wants_json
 
 
@@ -260,6 +268,13 @@ def cmd_ops_recurring_intent(args: argparse.Namespace) -> int:
             owner=args.owner,
             owner_kind=args.owner_kind,
             overlap_posture=args.overlap_posture,
+            missed_run_posture=args.missed_run_posture,
+            retry_posture=args.retry_posture,
+            retry_max_attempts=args.retry_max_attempts,
+            backfill_posture=args.backfill_posture,
+            backfill_max_windows=args.backfill_max_windows,
+            failure_pause_posture=args.failure_pause_posture,
+            failure_pause_threshold=args.failure_pause_threshold,
             source=args.source,
         )
         written = intent if args.dry_run else write_recurring_intent(paths, intent)
@@ -282,6 +297,13 @@ def cmd_ops_recurring_intent_revise(args: argparse.Namespace) -> int:
             owner=args.owner if args.owner != "" else None,
             owner_kind=args.owner_kind or None,
             overlap_posture=args.overlap_posture or None,
+            missed_run_posture=args.missed_run_posture or None,
+            retry_posture=args.retry_posture or None,
+            retry_max_attempts=args.retry_max_attempts,
+            backfill_posture=args.backfill_posture or None,
+            backfill_max_windows=args.backfill_max_windows,
+            failure_pause_posture=args.failure_pause_posture or None,
+            failure_pause_threshold=args.failure_pause_threshold,
         )
         written = update_recurring_intent(paths, revised)
     except (FileNotFoundError, ValueError) as exc:
@@ -317,11 +339,35 @@ def cmd_ops_recurring_intent_occurrence(args: argparse.Namespace) -> int:
             observer=args.observer,
             observer_kind=args.observer_kind,
             outcome=args.outcome,
+            reason=args.reason,
+            overlapped_run_ref=args.overlapped_run_ref,
+            attempt=args.attempt,
         )
         written = update_recurring_intent(paths, recorded)
     except (FileNotFoundError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     return _emit_recurring_intent(args, paths, written, saved=True)
+
+
+def cmd_ops_recurring_intent_decide(args: argparse.Namespace) -> int:
+    """Report what the declared policy says about one situation. OMH runs nothing."""
+    try:
+        paths = _paths(args)
+        intent = show_recurring_intent(paths, args.intent_id)
+        decision = decide_recurring_occurrence(
+            intent,
+            situation=args.situation,
+            now=args.now or utc_now(),
+            active_run_ref=args.active_run_ref,
+            missed_window_count=args.missed_window_count,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    if _wants_json(args):
+        _print_json({"schema_version": "omh_ops_recurring_intent_decision/v1", "decision": decision})
+    else:
+        print(render_recurring_occurrence_decision_text(decision))
+    return 0
 
 
 def cmd_ops_recurring_intent_list(args: argparse.Namespace) -> int:
@@ -729,11 +775,57 @@ def _add_recurring_intent_shape_args(parser: argparse.ArgumentParser, *, revisin
         default="" if revising else "unassigned",
         help="Kind of owner accountable for this recurring work.",
     )
+    # The five failure-policy decisions. Each one must be explicit before an
+    # approved runtime surface can activate the intent, and none of them has a
+    # silent default: the parser default is the same `unspecified` sentinel the
+    # record uses, so "not passed" never reads as "chosen".
     parser.add_argument(
         "--overlap-posture",
         choices=("", *OVERLAP_POSTURES) if revising else OVERLAP_POSTURES,
         default="" if revising else "unspecified",
         help="What happens when an occurrence is still running; must be explicit before activation.",
+    )
+    parser.add_argument(
+        "--missed-run-posture",
+        choices=("", *MISSED_RUN_POSTURES) if revising else MISSED_RUN_POSTURES,
+        default="" if revising else "unspecified",
+        help="What happens to a window that was missed; must be explicit before activation.",
+    )
+    parser.add_argument(
+        "--retry-posture",
+        choices=("", *RETRY_POSTURES) if revising else RETRY_POSTURES,
+        default="" if revising else "unspecified",
+        help="What happens after a failed occurrence; must be explicit before activation.",
+    )
+    parser.add_argument(
+        "--retry-max-attempts",
+        type=int,
+        default=None if revising else 0,
+        help="Maximum retry attempts; required by retry_bounded and refused by any other retry posture.",
+    )
+    parser.add_argument(
+        "--backfill-posture",
+        choices=("", *BACKFILL_POSTURES) if revising else BACKFILL_POSTURES,
+        default="" if revising else "unspecified",
+        help="Whether older missed windows are replayed; must be explicit before activation.",
+    )
+    parser.add_argument(
+        "--backfill-max-windows",
+        type=int,
+        default=None if revising else 0,
+        help="Maximum older windows to backfill; required by backfill_bounded_window and refused otherwise.",
+    )
+    parser.add_argument(
+        "--failure-pause-posture",
+        choices=("", *FAILURE_PAUSE_POSTURES) if revising else FAILURE_PAUSE_POSTURES,
+        default="" if revising else "unspecified",
+        help="Whether repeated failure pauses this intent; must be explicit before activation.",
+    )
+    parser.add_argument(
+        "--failure-pause-threshold",
+        type=int,
+        default=None if revising else 0,
+        help="Consecutive failures that pause this intent; required by pause_after_consecutive_failures.",
     )
 
 
@@ -864,13 +956,49 @@ def _add_ops_commands(sub) -> None:
         help="Link one observed runtime run back to the exact recurring intent revision it ran under.",
     )
     recurring_intent_occurrence.add_argument("intent_id")
-    recurring_intent_occurrence.add_argument("--runtime-run-ref", required=True, help="Run reference owned by the runtime.")
+    recurring_intent_occurrence.add_argument(
+        "--runtime-run-ref",
+        default="",
+        help="Run reference owned by the runtime. Required by ran and failed, refused by every other outcome.",
+    )
     recurring_intent_occurrence.add_argument("--runtime-surface", required=True, help="Runtime surface that ran it.")
     recurring_intent_occurrence.add_argument("--observer", required=True, help="Who or what observed the run.")
     recurring_intent_occurrence.add_argument("--observer-kind", choices=OCCURRENCE_OBSERVER_KINDS, default="approved_runtime_surface")
     recurring_intent_occurrence.add_argument("--outcome", choices=OCCURRENCE_OUTCOMES, default="ran")
+    recurring_intent_occurrence.add_argument(
+        "--reason",
+        default="",
+        help="Policy reason nothing ran. Required by skipped, missed, and queued so a non-run is never silent.",
+    )
+    recurring_intent_occurrence.add_argument(
+        "--overlapped-run-ref",
+        default="",
+        help="The run this occurrence overlapped, skipped behind, or queued behind.",
+    )
+    recurring_intent_occurrence.add_argument("--attempt", type=int, default=1, help="Attempt number under the retry policy.")
     _add_recurring_intent_json_arg(recurring_intent_occurrence)
     recurring_intent_occurrence.set_defaults(func=cmd_ops_recurring_intent_occurrence)
+
+    recurring_intent_decide = ops_sub.add_parser(
+        "recurring-intent-decide",
+        help="Report what a recurring intent's declared failure policy says about one situation. OMH runs nothing.",
+    )
+    recurring_intent_decide.add_argument("intent_id")
+    recurring_intent_decide.add_argument(
+        "--situation",
+        choices=OCCURRENCE_SITUATIONS,
+        required=True,
+        help="The situation the approved runtime surface observed.",
+    )
+    recurring_intent_decide.add_argument(
+        "--active-run-ref",
+        default="",
+        help="Run reference still active; required by prior_run_active so an overlap can never be unnamed.",
+    )
+    recurring_intent_decide.add_argument("--missed-window-count", type=int, default=0, help="How many windows were missed.")
+    recurring_intent_decide.add_argument("--now", default="", help="Caller timestamp; defaults to the current UTC time.")
+    _add_recurring_intent_json_arg(recurring_intent_decide)
+    recurring_intent_decide.set_defaults(func=cmd_ops_recurring_intent_decide)
 
     recurring_intent_list = ops_sub.add_parser("recurring-intent-list", help="List stored recurring intents.")
     recurring_intent_list.add_argument("--limit", type=int, default=None)
