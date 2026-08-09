@@ -113,7 +113,11 @@ _ENFORCED_BOUNDARIES = frozenset(
 _DECLARED_NOT_ENFORCED = {
     "account_authorization": "host_owned_consent_flow_is_not_observable_by_omh",
     "confirmation_answered": "no_confirmation_answer_intake_mints_a_run_bound_approval",
-    "recovery": "#821",
+    # #821 shipped `recovery_anchor/v1`, so the blocker stopped being that
+    # issue. It is a reason string now for the same cause as the two above: the
+    # delegation lane observes no baseline revision, so it has nothing to build
+    # an anchor from, and no ticket against this repository changes that.
+    "recovery": "no_delegation_surface_holds_an_observed_baseline_to_attach_an_anchor_from",
     "start_evidence": "#826",
     "storage_retention": "#835",
     "workspace": "#820",
@@ -384,6 +388,14 @@ class AntiDecorationTests(unittest.TestCase):
         self.assertIn("not a state OMH can observe", _boundary(contract, "account_authorization")["statement"])
         self.assertIn("persist until the operator deletes them", _boundary(contract, "storage_retention")["statement"])
         self.assertIn("no observed start", _boundary(contract, "start_evidence")["statement"])
+        # The recovery row is the one that names a contract that *does* exist,
+        # so the sentence has to keep saying which half is missing. Without this
+        # the "recovery_anchor/v1 contract exists" clause could stand alone and
+        # read as enforcement.
+        recovery = _boundary(contract, "recovery")["statement"]
+        self.assertIn("recovery_anchor/v1 contract exists", recovery)
+        self.assertIn("still does not happen is attachment", recovery)
+        self.assertIn("records no baseline to undo against", recovery)
 
 
 class HandoffSafetyContractValidatorTests(unittest.TestCase):
