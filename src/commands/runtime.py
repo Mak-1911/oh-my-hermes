@@ -1060,6 +1060,7 @@ def _bounded_limit(args: argparse.Namespace) -> int | None:
 
 def _add_runtime_commands(sub) -> None:
     from .run_efficiency import add_runtime_efficiency_command
+    from .run_health import add_runtime_health_summary_command
 
     runtime = sub.add_parser("runtime", help="Read and record local prepared-vs-observed runtime evidence.")
     runtime_sub = runtime.add_subparsers(dest="runtime_command", required=True)
@@ -1068,6 +1069,7 @@ def _add_runtime_commands(sub) -> None:
     runtime_status.set_defaults(func=cmd_runtime_status)
 
     add_runtime_efficiency_command(runtime_sub)
+    add_runtime_health_summary_command(runtime_sub)
 
     runtime_runs = runtime_sub.add_parser("runs")
     runtime_runs.add_argument("--limit", type=int, default=50, help="Maximum recent runs to return. Use --all for an unbounded listing.")

@@ -331,8 +331,14 @@ def coding_progress_policy_enforcement() -> dict[str, object]:
         # the number of observed units. `omh goal board` is the same shape one
         # level up: polled while waiting on a multi-part goal, and capped the
         # same way.
+        #
+        # `omh runtime health-summary` is the same shape of temptation -- an
+        # agent asks "is this run stuck yet" repeatedly -- and caps its own
+        # output at `run_health.MAX_RUN_HEALTH_EVENTS` observations plus a fixed
+        # metric set, so a longer run does not buy a longer answer.
         "bounded_surfaces": [
             "omh runtime show",
+            "omh runtime health-summary",
             "omh coding fanout show",
             "omh coding fanout brief",
             "omh coding status-board",
