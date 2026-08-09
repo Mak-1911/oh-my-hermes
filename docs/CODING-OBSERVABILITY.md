@@ -254,6 +254,65 @@ citation: a link, a path, a secret, or anything with a newline or an ANSI escape
 in it becomes `[redacted]` in free text and a `ref-<digest>` handle in an
 identifier, and a value outside a closed vocabulary renders empty.
 
+## Language diagnostics, and why "clean" is not "verified"
+
+A language server answers one narrow question fast: at this revision, which
+positions in these files does the analyser object to? That is genuinely useful
+right after an edit, and it is the single most over-read signal in a coding
+report. "No diagnostics" gets written up as "verified", and the reader hears
+compilation, tests, review, and CI — none of which a diagnostic pass performs.
+
+`language_diagnostic_evidence/v1` records the narrow answer with the narrow
+label attached. OMH installs no language server, starts no process, and opens
+no socket; the diagnostics are supplied by a caller that ran the provider
+itself, and the record is metadata only — severity, code, workspace-relative
+path, and position. A diagnostic *message* is not a field, and an input
+carrying one is refused by key name, because a message is where a source body
+would arrive.
+
+The verdict is derived from what the caller supplied, never accepted from it:
+
+| Verdict | Means |
+| --- | --- |
+| `no_new_diagnostics_observed` | a fresh, attributable check found nothing new |
+| `new_diagnostics_observed` | a fresh, attributable check found N new diagnostics |
+| `attribution_unavailable` | no workspace, no baseline revision, or no end revision |
+| `stale_diagnostics` | the diagnostics were observed at a revision other than the interval end |
+| `freshness_unknown` | the caller did not say which revision the diagnostics came from |
+| `provider_unsupported` | no diagnostic provider was available for this workspace |
+| `provider_failed` | the provider ran and failed |
+| `not_observed` | no check happened |
+
+The last six are preserved rather than collapsed, because a provider that never
+ran and a provider that found nothing are exactly the two states this record
+exists to keep apart. A zero-diagnostic result observed at the wrong revision
+is `stale_diagnostics`, not a clean run.
+
+One predicate decides what any of it proves.
+`language_diagnostic_supports_claim` returns `True` only for
+`fresh_language_diagnostic_check`, and only for the first two verdicts. Asked
+about verification, compilation, tests, review, CI, merge-readiness, or merge,
+it returns `False` for every record the contract can build, including a
+perfectly clean one — there is no argument that reaches a `True`, and no verdict
+in the vocabulary that reads as verification. The human-readable
+`summary_label` is derived too, so a caller cannot hand in prose that upgrades
+its own result, and validation re-derives freshness, attribution, verdict, and
+label on the read path so a hand-edited record cannot reach a status line.
+
+Operators and wrappers can scope one supplied observation without recording
+anything:
+
+```sh
+omh quality-evidence language-diagnostics \
+  --owner claude-code --provider <provider> \
+  --workspace <id> --baseline-revision <sha> --end-revision <sha> \
+  --diagnostics-revision <sha> [--introduced <json>] [--resolved <json>] [--json]
+```
+
+It is read-only in both directions: it starts nothing and writes nothing. Plain
+text is the default and prints the claim support next to the verdict, so the
+line a reader quotes already says what the check does not settle.
+
 ## Boundary
 
 A status board is observed activity metadata. It is not result, verification,
@@ -262,3 +321,7 @@ review, CI, merge-readiness, or merge evidence, and a unit appearing as
 
 A receipt is narrower still: it is one acting surface's observation of one
 external effect, and it proves nothing about any other effect.
+
+A language diagnostic record is narrower again: it is one language-diagnostic
+check over one workspace revision interval. A clean result means no new
+diagnostics were observed in that check, and nothing more.
