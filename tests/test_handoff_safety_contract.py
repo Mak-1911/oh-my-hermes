@@ -109,7 +109,10 @@ _ENFORCED_BOUNDARIES = frozenset(
 # that must land before it can move. A blocker is not always an issue number:
 # `account_authorization` names the reason instead, because nothing that could
 # be filed would close it — OMH cannot observe a consent flow owned by someone
-# else's website.
+# else's website. `workspace` joined it when #820 landed: that issue shipped the
+# pre-dispatch half (`workspace_binding_guard/v1` reserves a workspace and a
+# branch for one handoff), and the half that remains is confining a process that
+# is already running, which no change on this side of the wall can do.
 _DECLARED_NOT_ENFORCED = {
     "account_authorization": "host_owned_consent_flow_is_not_observable_by_omh",
     "confirmation_answered": "no_confirmation_answer_intake_mints_a_run_bound_approval",
@@ -120,13 +123,14 @@ _DECLARED_NOT_ENFORCED = {
     "recovery": "no_delegation_surface_holds_an_observed_baseline_to_attach_an_anchor_from",
     "start_evidence": "#826",
     "storage_retention": "#835",
-    "workspace": "#820",
+    "workspace": "no_omh_side_constraint_can_bind_a_running_executor_process",
 }
 # The three data-boundary rows whose blocker is a *host* fact rather than a
-# repository fact: a host with an OS confinement backend is blocked on #820,
-# and a host without one is blocked on not having one. Pinning either string
-# here would make this test pass on macOS and fail on Windows, so the expected
-# value is read from the same facts the contract read.
+# repository fact: a host with an OS confinement backend is blocked on no lane
+# placing an executor under the sandbox, and a host without one is blocked on
+# not having a backend at all. Pinning either string here would make this test
+# pass on macOS and fail on Windows, so the expected value is read from the same
+# facts the contract read.
 _HOST_DEPENDENT_BOUNDARIES = frozenset(
     {
         "data_executor_honours_declared_targets",
@@ -384,7 +388,11 @@ class AntiDecorationTests(unittest.TestCase):
 
     def test_unenforced_boundaries_state_the_gap_in_words(self) -> None:
         contract = _contract()
-        self.assertIn("nothing binds a running executor", _boundary(contract, "workspace")["statement"])
+        workspace = _boundary(contract, "workspace")["statement"]
+        self.assertIn("nothing binds a running executor", workspace)
+        # And it says which half #820 did close, so a reader does not read the
+        # unenforced verdict as "nothing about workspaces is guarded".
+        self.assertIn("workspace_binding_guard/v1", workspace)
         self.assertIn("not a state OMH can observe", _boundary(contract, "account_authorization")["statement"])
         self.assertIn("persist until the operator deletes them", _boundary(contract, "storage_retention")["statement"])
         self.assertIn("no observed start", _boundary(contract, "start_evidence")["statement"])

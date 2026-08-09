@@ -79,6 +79,10 @@ from ..workflows.external_effect_receipts import (
     EXTERNAL_EFFECT_RECEIPT_KEYS,
     validate_external_effect_receipt,
 )
+from ..workflows.workspace_bindings import (
+    WORKSPACE_BINDING_KEYS,
+    validate_workspace_binding,
+)
 
 
 SCHEMA_VERSION = 1
@@ -3947,6 +3951,7 @@ OPTIONAL_RECORD_VALIDATORS = (
 EXTERNAL_EFFECT_RECEIPT_RECORD_KEYS = EXTERNAL_EFFECT_RECEIPT_KEYS
 APPROVAL_RECEIPT_RECORD_KEYS = APPROVAL_RECEIPT_KEYS
 BLOCKED_WORK_RECORD_RECORD_KEYS = BLOCKED_WORK_RECORD_KEYS
+WORKSPACE_BINDING_RECORD_KEYS = WORKSPACE_BINDING_KEYS
 
 
 @dataclass(frozen=True)
@@ -3983,4 +3988,5 @@ OPTIONAL_RUNTIME_STORE_VALIDATORS = (
     ),
     OptionalRuntimeStoreValidator("approval_receipts.jsonl", validate_approval_receipt, "receipt_id"),
     OptionalRuntimeStoreValidator("blocked_work_records.jsonl", validate_blocked_work_record, "record_id"),
+    OptionalRuntimeStoreValidator("workspace_bindings.jsonl", validate_workspace_binding, "record_id"),
 )

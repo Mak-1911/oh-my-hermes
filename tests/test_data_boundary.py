@@ -333,9 +333,9 @@ class EnforcementFactsTests(unittest.TestCase):
     def test_a_host_confinement_limit_is_unenforced_and_says_which_kind_of_unenforced(self) -> None:
         """The genuine per-host difference: which blocker stands in the way.
 
-        A host with a confinement backend is blocked on #820 alone; a host with
-        none could not enforce a runtime limit even after #820 lands, and says
-        so with its own reason.
+        A host with a confinement backend is blocked only on no lane placing an
+        executor under the sandbox; a host with none could not enforce a runtime
+        limit even after such a lane exists, and says so with its own reason.
         """
         facts = self.facts()
         entries = [entry for entry in facts["limits"] if entry["enforcement_kind"] == "host_confinement"]
@@ -344,8 +344,26 @@ class EnforcementFactsTests(unittest.TestCase):
             with self.subTest(limit=entry["limit"]):
                 self.assertFalse(entry["enforced_here"])
                 self.assertEqual(entry["host_can_enforce"], facts["host_confinement_available"])
-                expected = "#820" if facts["host_confinement_available"] else facts["host_confinement_unavailable_reason"]
+                expected = (
+                    "no_delegation_or_fanout_lane_places_an_executor_under_the_sandbox"
+                    if facts["host_confinement_available"]
+                    else facts["host_confinement_unavailable_reason"]
+                )
                 self.assertEqual(entry["blocked_by"], expected)
+
+    def test_no_data_boundary_blocker_names_the_workspace_binding_issue(self) -> None:
+        """#820 shipped a workspace reservation, not an executor sandbox.
+
+        All three unenforced rows used to cite it. That was a mis-citation even
+        before the issue landed -- placing a dispatched executor under the
+        adapter lane's sandbox was never in its scope -- and it became a
+        dangling pointer once it closed. A blocker names a ticket only when
+        landing that ticket would close it, which is the rule
+        `action_gate.ACCOUNT_AUTHORIZATION_BLOCKER` already follows.
+        """
+        for entry in self.facts()["limits"]:
+            with self.subTest(limit=entry["limit"]):
+                self.assertNotIn("#820", str(entry["blocked_by"]))
 
     def test_an_advisory_limit_is_enforced_on_no_host(self) -> None:
         for entry in self.facts()["limits"]:
