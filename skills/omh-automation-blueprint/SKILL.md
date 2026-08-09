@@ -72,6 +72,7 @@ Reasoning demand: `light`
 Quality bar:
 
 - Name cadence/timezone uncertainty, delivery target, silence/no-change rule, selected skills, and context chain.
+- When the recurring work is saved, say it is paused and name what activation needs: an explicit overlap posture, an approval reference, and an observer from the approved runtime surface.
 - Expose whether a no-agent watchdog is a candidate without claiming it exists or ran.
 - List host automation, gateway delivery, source retrieval, and no-agent execution as not evidence until observed.
 
@@ -89,6 +90,7 @@ Required inputs:
 Expected outputs:
 
 - hermes_ops_blueprint/v1 projection
+- hermes_recurring_intent/v1 paused lifecycle record when the user wants the recurring work saved
 - schedule/delivery/silence confirmation needs
 - status-card boundary
 - not-evidence list
@@ -96,11 +98,13 @@ Expected outputs:
 Artifact expectations:
 
 - hermes_ops_blueprint/v1 under .omh/hermes-ops/blueprints when a wrapper or CLI records it
+- hermes_recurring_intent/v1 under .omh/hermes-ops/recurring-intents when the user asks to save the recurring work
 
 Safety rules:
 
 - Do not claim host cron, Hermes automation, gateway delivery, source retrieval, no-agent execution, plugin load, or connector work from a prepared blueprint.
 - Keep scheduled operations as projection metadata until the host runtime supplies observed evidence.
+- A saved recurring intent is paused; never report that an occurrence ran without a runtime run reference recorded against that exact intent revision.
 - Route later coding, material generation, or report delivery into separate accepted handoffs when needed.
 
 ## Runtime Evidence

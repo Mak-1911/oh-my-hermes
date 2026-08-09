@@ -138,6 +138,21 @@ class OmhPaths:
         return self.hermes_ops_dir / "index.json"
 
     @property
+    def recurring_intents_root(self) -> Path:
+        # A recurring intent is the lifecycle envelope around a scheduled-ops
+        # blueprint, so it lives under the same hermes-ops home instead of
+        # reading on disk as a second recurring-work concept.
+        return self.hermes_ops_dir / "recurring-intents"
+
+    @property
+    def recurring_intents_dir(self) -> Path:
+        return self.recurring_intents_root / "intents"
+
+    @property
+    def recurring_intents_index_path(self) -> Path:
+        return self.recurring_intents_root / "index.json"
+
+    @property
     def research_department_dir(self) -> Path:
         return self.omh_home / "research-department"
 

@@ -64,7 +64,27 @@ from ..research_department import (
     validate_research_department_store,
     write_research_department_plan,
 )
-from .common import _paths, _print_json
+from ..workflows.recurring_intents import (
+    ACTIVATION_OBSERVER_KINDS,
+    OCCURRENCE_OBSERVER_KINDS,
+    OCCURRENCE_OUTCOMES,
+    OVERLAP_POSTURES,
+    OWNER_KINDS,
+    activate_recurring_intent,
+    build_recurring_intent,
+    list_recurring_intents,
+    preview_recurring_intent,
+    record_recurring_intent_occurrence,
+    render_recurring_intent_list_text,
+    render_recurring_intent_text,
+    revise_recurring_intent,
+    show_recurring_intent,
+    summarize_recurring_intent,
+    update_recurring_intent,
+    validate_recurring_intent_store,
+    write_recurring_intent,
+)
+from .common import _paths, _print_json, _wants_json
 
 
 DEFAULT_OPS_LIST_LIMIT = 20
@@ -72,6 +92,16 @@ DEFAULT_OPS_EXPORT_LIMIT = 20
 DEFAULT_BLUEPRINT_LIST_LIMIT = 20
 DEFAULT_RESEARCH_DEPARTMENT_LIST_LIMIT = 20
 DEFAULT_AGENT_OPS_LIST_LIMIT = 20
+DEFAULT_RECURRING_INTENT_LIST_LIMIT = 20
+
+RECURRING_INTENT_BOUNDARY = {
+    "prepared_is_not_observed": True,
+    "activated_is_not_executed": True,
+    "omh_runs_no_scheduler": True,
+    "host_schedule_created": False,
+    "occurrence_executed_by_omh": False,
+    "gateway_delivery_observed": False,
+}
 
 
 def cmd_ops_write(args: argparse.Namespace) -> int:
@@ -214,6 +244,155 @@ def cmd_ops_blueprint(args: argparse.Namespace) -> int:
             },
         }
     )
+    return 0
+
+
+def cmd_ops_recurring_intent(args: argparse.Namespace) -> int:
+    try:
+        paths = _paths(args)
+        intent = build_recurring_intent(
+            " ".join(args.request),
+            title=args.title,
+            schedule=args.schedule,
+            delivery=args.delivery,
+            silence=args.silence,
+            scope=args.scope_note,
+            owner=args.owner,
+            owner_kind=args.owner_kind,
+            overlap_posture=args.overlap_posture,
+            source=args.source,
+        )
+        written = intent if args.dry_run else write_recurring_intent(paths, intent)
+    except ValueError as exc:
+        raise OmhError(str(exc)) from exc
+    return _emit_recurring_intent(args, paths, written, saved=not args.dry_run)
+
+
+def cmd_ops_recurring_intent_revise(args: argparse.Namespace) -> int:
+    try:
+        paths = _paths(args)
+        current = show_recurring_intent(paths, args.intent_id)
+        revised = revise_recurring_intent(
+            current,
+            title=args.title or None,
+            schedule=args.schedule if args.schedule != "" else None,
+            delivery=args.delivery if args.delivery != "" else None,
+            silence=args.silence if args.silence != "" else None,
+            scope=args.scope_note if args.scope_note != "" else None,
+            owner=args.owner if args.owner != "" else None,
+            owner_kind=args.owner_kind or None,
+            overlap_posture=args.overlap_posture or None,
+        )
+        written = update_recurring_intent(paths, revised)
+    except (FileNotFoundError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    return _emit_recurring_intent(args, paths, written, saved=True)
+
+
+def cmd_ops_recurring_intent_activate(args: argparse.Namespace) -> int:
+    try:
+        paths = _paths(args)
+        current = show_recurring_intent(paths, args.intent_id)
+        activated = activate_recurring_intent(
+            current,
+            observer=args.observer,
+            observer_kind=args.observer_kind,
+            approval_ref=args.approval_ref,
+            activation_surface=args.activation_surface,
+        )
+        written = update_recurring_intent(paths, activated)
+    except (FileNotFoundError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    return _emit_recurring_intent(args, paths, written, saved=True)
+
+
+def cmd_ops_recurring_intent_occurrence(args: argparse.Namespace) -> int:
+    try:
+        paths = _paths(args)
+        current = show_recurring_intent(paths, args.intent_id)
+        recorded = record_recurring_intent_occurrence(
+            current,
+            runtime_run_ref=args.runtime_run_ref,
+            runtime_surface=args.runtime_surface,
+            observer=args.observer,
+            observer_kind=args.observer_kind,
+            outcome=args.outcome,
+        )
+        written = update_recurring_intent(paths, recorded)
+    except (FileNotFoundError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    return _emit_recurring_intent(args, paths, written, saved=True)
+
+
+def cmd_ops_recurring_intent_list(args: argparse.Namespace) -> int:
+    paths = _paths(args)
+    try:
+        limit = _limit_from_args(args, default=DEFAULT_RECURRING_INTENT_LIST_LIMIT)
+    except ValueError as exc:
+        raise OmhError(str(exc)) from exc
+    all_records = list_recurring_intents(paths)
+    records = all_records if limit is None else all_records[-limit:]
+    payload = {
+        "schema_version": "omh_ops_recurring_intent_list/v1",
+        "count": len(records),
+        "total_count": len(all_records),
+        "limit": limit if limit is not None else "all",
+        "truncated": limit is not None and len(all_records) > len(records),
+        "summary_only": True,
+        "index_authority": "cache_only",
+        "intents": [summarize_recurring_intent(record) for record in records],
+    }
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        print(render_recurring_intent_list_text(payload))
+    return 0
+
+
+def cmd_ops_recurring_intent_show(args: argparse.Namespace) -> int:
+    try:
+        paths = _paths(args)
+        intent = show_recurring_intent(paths, args.intent_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    if _wants_json(args):
+        _print_json({"schema_version": "omh_ops_recurring_intent_show/v1", "intent": intent})
+    else:
+        print(render_recurring_intent_text(intent))
+    return 0
+
+
+def _emit_recurring_intent(args: argparse.Namespace, paths, record: dict, *, saved: bool) -> int:
+    """One writer for every recurring-intent surface so the boundary never drifts.
+
+    An unsaved intent emits the preview payload the wrapper reads back to the
+    user before saving; both shapes carry `intent`, `store`, and `boundary`, so
+    a consumer that only reads those does not have to branch.
+    """
+    if not _wants_json(args):
+        print(render_recurring_intent_text(record))
+        return 0
+    store = {
+        "omh_home": str(paths.omh_home),
+        "hermes_ops_dir": str(paths.hermes_ops_dir),
+        "recurring_intents_dir": str(paths.recurring_intents_dir),
+        "index_path": str(paths.recurring_intents_index_path),
+        "index_authority": "cache_only",
+        "written": saved,
+    }
+    boundary = {
+        **RECURRING_INTENT_BOUNDARY,
+        "not_evidence_until_observed": list(record["not_evidence_until_observed"]),
+        "observed_evidence_required": list(record["observed_evidence_required"]),
+    }
+    payload = (
+        {"schema_version": "omh_ops_recurring_intent_result/v1", "intent": record}
+        if saved
+        else dict(preview_recurring_intent(record))
+    )
+    payload["store"] = store
+    payload["boundary"] = boundary
+    _print_json(payload)
     return 0
 
 
@@ -422,14 +601,17 @@ def cmd_ops_validate(args: argparse.Namespace) -> int:
     paths = _paths(args)
     result = validate_operations_store(paths)
     blueprint_result = validate_hermes_ops_store(paths)
+    recurring_intent_result = validate_recurring_intent_store(paths)
     research_department_result = validate_research_department_store(paths)
     agent_ops_result = validate_agent_operator_productivity_store(paths)
     result["hermes_ops_blueprints"] = blueprint_result
+    result["recurring_intents"] = recurring_intent_result
     result["research_department_plans"] = research_department_result
     result["agent_ops_reviews"] = agent_ops_result
     result["ok"] = (
         bool(result["ok"])
         and bool(blueprint_result["ok"])
+        and bool(recurring_intent_result["ok"])
         and bool(research_department_result["ok"])
         and bool(agent_ops_result["ok"])
     )
@@ -530,6 +712,35 @@ def _add_artifact_args(parser: argparse.ArgumentParser, *, surface: str, default
     observation.add_argument("--not-observed", action="store_true", help="Mark the artifact as explicitly not observed.")
 
 
+def _add_recurring_intent_shape_args(parser: argparse.ArgumentParser, *, revising: bool = False) -> None:
+    """The fields that shape a recurring intent, spelled identically on build and revise.
+
+    On revise an empty string means "leave this field alone", which is why the
+    two parsers share one definition instead of drifting into two vocabularies.
+    """
+    parser.add_argument("--schedule", default="", help="Explicit schedule/cadence hint.")
+    parser.add_argument("--delivery", default="", help="Explicit delivery target hint.")
+    parser.add_argument("--silence", default="", help="Explicit silence/no-change policy hint.")
+    parser.add_argument("--scope", dest="scope_note", default="", help="What this recurring work is allowed to touch.")
+    parser.add_argument("--owner", default="", help="Owner accountable for this recurring work.")
+    parser.add_argument(
+        "--owner-kind",
+        choices=("", *OWNER_KINDS) if revising else OWNER_KINDS,
+        default="" if revising else "unassigned",
+        help="Kind of owner accountable for this recurring work.",
+    )
+    parser.add_argument(
+        "--overlap-posture",
+        choices=("", *OVERLAP_POSTURES) if revising else OVERLAP_POSTURES,
+        default="" if revising else "unspecified",
+        help="What happens when an occurrence is still running; must be explicit before activation.",
+    )
+
+
+def _add_recurring_intent_json_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
+
+
 def _add_ops_commands(sub) -> None:
     from .plugin_risk_audit import add_ops_plugin_risk_audit_command
     from .provider_profile_posture import add_ops_provider_profile_posture_command
@@ -609,6 +820,68 @@ def _add_ops_commands(sub) -> None:
     blueprint.add_argument("--source", default="", help="Optional metadata source label.")
     blueprint.add_argument("--dry-run", action="store_true", help="Print the prepared blueprint without writing it.")
     blueprint.set_defaults(func=cmd_ops_blueprint)
+
+    recurring_intent = ops_sub.add_parser(
+        "recurring-intent",
+        help="Prepare a paused recurring intent from a natural-language request; OMH never activates or runs it.",
+    )
+    recurring_intent.add_argument("request", nargs="+", help="Natural-language recurring work request.")
+    recurring_intent.add_argument("--title", default="")
+    _add_recurring_intent_shape_args(recurring_intent)
+    recurring_intent.add_argument("--source", default="", help="Optional metadata source label.")
+    recurring_intent.add_argument("--dry-run", action="store_true", help="Print the preview without saving it.")
+    _add_recurring_intent_json_arg(recurring_intent)
+    recurring_intent.set_defaults(func=cmd_ops_recurring_intent)
+
+    recurring_intent_revise = ops_sub.add_parser(
+        "recurring-intent-revise",
+        help="Revise a stored recurring intent; the new revision pauses it again so activation is re-observed.",
+    )
+    recurring_intent_revise.add_argument("intent_id")
+    recurring_intent_revise.add_argument("--title", default="")
+    _add_recurring_intent_shape_args(recurring_intent_revise, revising=True)
+    _add_recurring_intent_json_arg(recurring_intent_revise)
+    recurring_intent_revise.set_defaults(func=cmd_ops_recurring_intent_revise)
+
+    recurring_intent_activate = ops_sub.add_parser(
+        "recurring-intent-activate",
+        help="Record that an approved runtime surface activated a recurring intent. OMH does not activate it.",
+    )
+    recurring_intent_activate.add_argument("intent_id")
+    recurring_intent_activate.add_argument("--observer", required=True, help="Who or what observed the activation.")
+    recurring_intent_activate.add_argument("--observer-kind", choices=ACTIVATION_OBSERVER_KINDS, default="approved_runtime_surface")
+    recurring_intent_activate.add_argument("--approval-ref", required=True, help="Recorded approval reference.")
+    recurring_intent_activate.add_argument(
+        "--activation-surface",
+        required=True,
+        help="The approved runtime surface that performed the activation.",
+    )
+    _add_recurring_intent_json_arg(recurring_intent_activate)
+    recurring_intent_activate.set_defaults(func=cmd_ops_recurring_intent_activate)
+
+    recurring_intent_occurrence = ops_sub.add_parser(
+        "recurring-intent-occurrence",
+        help="Link one observed runtime run back to the exact recurring intent revision it ran under.",
+    )
+    recurring_intent_occurrence.add_argument("intent_id")
+    recurring_intent_occurrence.add_argument("--runtime-run-ref", required=True, help="Run reference owned by the runtime.")
+    recurring_intent_occurrence.add_argument("--runtime-surface", required=True, help="Runtime surface that ran it.")
+    recurring_intent_occurrence.add_argument("--observer", required=True, help="Who or what observed the run.")
+    recurring_intent_occurrence.add_argument("--observer-kind", choices=OCCURRENCE_OBSERVER_KINDS, default="approved_runtime_surface")
+    recurring_intent_occurrence.add_argument("--outcome", choices=OCCURRENCE_OUTCOMES, default="ran")
+    _add_recurring_intent_json_arg(recurring_intent_occurrence)
+    recurring_intent_occurrence.set_defaults(func=cmd_ops_recurring_intent_occurrence)
+
+    recurring_intent_list = ops_sub.add_parser("recurring-intent-list", help="List stored recurring intents.")
+    recurring_intent_list.add_argument("--limit", type=int, default=None)
+    recurring_intent_list.add_argument("--all", action="store_true", help="Return all intent summaries instead of the default bounded window.")
+    _add_recurring_intent_json_arg(recurring_intent_list)
+    recurring_intent_list.set_defaults(func=cmd_ops_recurring_intent_list)
+
+    recurring_intent_show = ops_sub.add_parser("recurring-intent-show", help="Show one stored recurring intent by id.")
+    recurring_intent_show.add_argument("intent_id")
+    _add_recurring_intent_json_arg(recurring_intent_show)
+    recurring_intent_show.set_defaults(func=cmd_ops_recurring_intent_show)
 
     research_department = ops_sub.add_parser(
         "research-department",
