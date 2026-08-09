@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import dataclass
 import hashlib
 from typing import Any, Literal, assert_never
 
@@ -3944,36 +3946,41 @@ OPTIONAL_RECORD_VALIDATORS = (
 # contract is discoverable next to every other runtime record contract.
 EXTERNAL_EFFECT_RECEIPT_RECORD_KEYS = EXTERNAL_EFFECT_RECEIPT_KEYS
 APPROVAL_RECEIPT_RECORD_KEYS = APPROVAL_RECEIPT_KEYS
-
-OPTIONAL_RUNTIME_STORE_VALIDATORS = (
-    ("external_effect_receipts.jsonl", validate_external_effect_receipt),
-)
-
-# The approval store registers in its own tuple following the same precedent,
-# rather than joining the one above. The tuple above has one consumer --
-# `runtime.artifacts._validate_run_external_effect_receipts` -- and that consumer
-# applies *every* entry in it to the external effect receipts it just read, so a
-# second family in the same tuple would validate external effect receipts
-# against the approval schema and fault every run that has one. Each registry
-# therefore names the single store its validators are for, and each has its own
-# reader: this one is read by `runtime.artifacts._validate_run_approval_receipts`,
-# which together with the store-level `validate_approval_receipt_store` call in
-# `validate_runtime` is what makes `omh runtime validate` open the approval store
-# at all. The registry design that forces one reader per registry is #846.
-OPTIONAL_APPROVAL_STORE_VALIDATORS = (
-    ("approval_receipts.jsonl", validate_approval_receipt),
-)
-
-# The third store, registered in its own tuple for the reason the second one
-# was: every consumer applies *every* entry in its registry to the records it
-# just read, so a family sharing a tuple with another would validate one
-# family's records against the other's schema and fault every run that has one.
-# One registry per store, one reader per registry -- the #846 rule. This one is
-# read by `runtime.artifacts._validate_run_blocked_work_records`, and the
-# store-level `validate_blocked_work_record_store` call in `validate_runtime` is
-# what makes `omh runtime validate` open the blocked-work store at all.
 BLOCKED_WORK_RECORD_RECORD_KEYS = BLOCKED_WORK_RECORD_KEYS
 
-OPTIONAL_BLOCKED_WORK_STORE_VALIDATORS = (
-    ("blocked_work_records.jsonl", validate_blocked_work_record),
+
+@dataclass(frozen=True)
+class OptionalRuntimeStoreValidator:
+    """One optional store's per-record schema validator, bound to that store.
+
+    `store_name` is the key: it is the file a consumer must read before calling
+    `validator`, so a validator never sees a sibling store's records. Before
+    #846 the registry was an unkeyed tuple whose consumer read one store and
+    applied every entry to it, which meant a second family could not join --
+    it would have validated the first family's records against its own schema
+    and faulted every run that had one. Each family therefore grew a sibling
+    tuple with a near-duplicate reader; keying by store is what collapses them.
+
+    `record_id_key` is the field a consumer puts in the error label so a fault
+    names the offending record. Receipt stores carry `receipt_id`; the
+    blocked-work store carries `record_id`.
+    """
+
+    store_name: str
+    validator: Callable[[Any], list[str]]
+    record_id_key: str
+
+
+# One registry, one consumer: `runtime.artifacts._validate_run_optional_store_records`
+# dispatches per store, reading each entry's `store_name` and applying only that
+# entry's validator to what it read. Registering a store here is what makes
+# `omh runtime validate` fault a malformed record in it; the store-level
+# `validate_*_store` calls in `validate_runtime` are the separate, run-independent
+# half that reports lines belonging to no run.
+OPTIONAL_RUNTIME_STORE_VALIDATORS = (
+    OptionalRuntimeStoreValidator(
+        "external_effect_receipts.jsonl", validate_external_effect_receipt, "receipt_id"
+    ),
+    OptionalRuntimeStoreValidator("approval_receipts.jsonl", validate_approval_receipt, "receipt_id"),
+    OptionalRuntimeStoreValidator("blocked_work_records.jsonl", validate_blocked_work_record, "record_id"),
 )

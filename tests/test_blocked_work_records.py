@@ -66,8 +66,6 @@ from omh.runtime.artifacts import (
     _delegated_runtime_observation_status,
 )
 from omh.runtime.records import (
-    OPTIONAL_APPROVAL_STORE_VALIDATORS,
-    OPTIONAL_BLOCKED_WORK_STORE_VALIDATORS,
     OPTIONAL_RUNTIME_STORE_VALIDATORS,
     RUNTIME_BLOCK_OBSERVATION_EVENTS,
     RUNTIME_NON_LADDER_OBSERVATION_EVENTS,
@@ -769,14 +767,17 @@ class StoreWiring(unittest.TestCase):
             self.assertEqual(result["outcome"], "refused")
             self.assertTrue(result["error"])
 
-    def test_the_family_registers_its_own_validator_tuple(self) -> None:
-        # The #846 rule: one registry per store, one reader per registry. A
-        # family sharing a tuple would validate a sibling's records against its
-        # own schema.
-        names = {name for name, _ in OPTIONAL_BLOCKED_WORK_STORE_VALIDATORS}
-        self.assertEqual(names, {"blocked_work_records.jsonl"})
-        for other in (OPTIONAL_RUNTIME_STORE_VALIDATORS, OPTIONAL_APPROVAL_STORE_VALIDATORS):
-            self.assertEqual(names & {name for name, _ in other}, set())
+    def test_the_family_registers_its_validator_under_its_own_store(self) -> None:
+        # #846: one registry keyed by store, one consumer that dispatches per
+        # store. This family's record id is `record_id`, not the `receipt_id`
+        # its two siblings carry, so the label a fault is reported under is part
+        # of the registration rather than hardcoded in the consumer.
+        entries = {entry.store_name: entry for entry in OPTIONAL_RUNTIME_STORE_VALIDATORS}
+        self.assertIn("blocked_work_records.jsonl", entries)
+        entry = entries["blocked_work_records.jsonl"]
+        self.assertEqual(entry.record_id_key, "record_id")
+        self.assertEqual(entry.validator(_record()), [])
+        self.assertTrue(entry.validator({"schema_version": "approval_receipt/v1"}))
 
     def test_the_store_lives_beside_its_siblings_and_not_inside_a_run(self) -> None:
         with TemporaryDirectory() as tmp:

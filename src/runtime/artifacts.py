@@ -59,8 +59,6 @@ from .records import (
     DELEGATION_RESULTS,
     EVENT_LEVELS,
     OBSERVED_RESULTS,
-    OPTIONAL_APPROVAL_STORE_VALIDATORS,
-    OPTIONAL_BLOCKED_WORK_STORE_VALIDATORS,
     OPTIONAL_RECORD_VALIDATORS,
     OPTIONAL_RUNTIME_STORE_VALIDATORS,
     PRIVACY_MODES,
@@ -2002,9 +2000,9 @@ def validate_run_dir(
             errors.append(f"{path}: {exc}")
         if record:
             errors.extend(f"{path}: {error}" for error in validator(record))
-    errors.extend(_validate_run_external_effect_receipts(run_dir, receipts))
-    errors.extend(_validate_run_approval_receipts(run_dir))
-    errors.extend(_validate_run_blocked_work_records(run_dir))
+    errors.extend(
+        _validate_run_optional_store_records(run_dir, {EXTERNAL_EFFECT_RECEIPT_STORE_NAME: receipts})
+    )
     errors.extend(_validate_run_status_gate_consistency(run_dir, receipts))
     return {"run_id": run_dir.name, "ok": not errors, "errors": errors}
 
@@ -2033,71 +2031,44 @@ def _run_external_effect_receipts(run_dir: Path) -> list[dict[str, Any]]:
     return [record for record in records if str(record.get("run_id", "")) == run_id]
 
 
-def _validate_run_external_effect_receipts(run_dir: Path, receipts: list[dict[str, Any]]) -> list[str]:
-    """Schema-validate only the receipts that belong to this run."""
-    errors: list[str] = []
-    for name, validator in OPTIONAL_RUNTIME_STORE_VALIDATORS:
-        store_path = runtime_store_path_for_run_dir(run_dir, name)
-        if store_path is None:
-            continue
-        for record in receipts:
-            errors.extend(
-                f"{store_path}[{record.get('receipt_id', '')}]: {error}" for error in validator(record)
-            )
-    return errors
+def _validate_run_optional_store_records(
+    run_dir: Path,
+    already_read: dict[str, list[dict[str, Any]]],
+) -> list[str]:
+    """Schema-validate this run's records in every optional store, one store at a time.
 
+    The single consumer `OPTIONAL_RUNTIME_STORE_VALIDATORS` is keyed for. Each
+    entry names the store it was registered for, so the records handed to a
+    validator are the ones read from that store and never a sibling's. Before
+    #846 each family needed its own registry and its own near-duplicate reader,
+    because a shared unkeyed tuple applied every validator to whichever store
+    the reader happened to open.
 
-def _validate_run_approval_receipts(run_dir: Path) -> list[str]:
-    """Schema-validate this run's approval receipts, through the registry that names them.
+    `already_read` lets a caller supply records it has read for another purpose,
+    keyed by store name; anything absent is read here. Entries must already be
+    filtered to this run.
 
-    The same shape `_validate_run_external_effect_receipts` has, and the reader
-    `OPTIONAL_APPROVAL_STORE_VALIDATORS` was registered for: without a consumer
-    the registry validated nothing and the approval store was the one runtime
-    store `omh runtime validate` never opened. Parse errors are dropped here for
-    the reason they are dropped there -- a line that does not parse belongs to
-    no run, and `validate_runtime` reports it once at store level.
+    Records belonging to another run, and records with an empty `run_id`, are
+    skipped rather than faulted. An unparseable line carries no `run_id` at all,
+    and a blocked-work decision minted before any run existed -- a preflight
+    denial -- has no run to belong to. Both are the store's records, and
+    `validate_runtime` reports them once at store level instead of faulting
+    every run that is validated while they sit there.
     """
     errors: list[str] = []
     run_id = _safe_run_id_for_dir(run_dir)
-    for name, validator in OPTIONAL_APPROVAL_STORE_VALIDATORS:
-        store_path = runtime_store_path_for_run_dir(run_dir, name)
+    for entry in OPTIONAL_RUNTIME_STORE_VALIDATORS:
+        store_path = runtime_store_path_for_run_dir(run_dir, entry.store_name)
         if store_path is None:
             continue
-        records, _ = read_jsonl_objects(store_path)
+        records = already_read.get(entry.store_name)
+        if records is None:
+            parsed, _ = read_jsonl_objects(store_path)
+            records = [record for record in parsed if str(record.get("run_id", "")) == run_id]
         for record in records:
-            if str(record.get("run_id", "")) != run_id:
-                continue
+            label = record.get(entry.record_id_key, "")
             errors.extend(
-                f"{store_path}[{record.get('receipt_id', '')}]: {error}" for error in validator(record)
-            )
-    return errors
-
-
-def _validate_run_blocked_work_records(run_dir: Path) -> list[str]:
-    """Schema-validate this run's blocked work records, through the registry that names them.
-
-    The same shape `_validate_run_approval_receipts` has, and the reader
-    `OPTIONAL_BLOCKED_WORK_STORE_VALIDATORS` was registered for: a registry with
-    no consumer validates nothing, which is how the approval store spent a
-    release as the one runtime store `omh runtime validate` never opened.
-
-    Records with an empty `run_id` are skipped here rather than faulted. They are
-    the decisions minted before any run existed -- a preflight denial has nothing
-    to belong to -- so they are the store's records, and `validate_runtime`
-    covers them once at store level.
-    """
-    errors: list[str] = []
-    run_id = _safe_run_id_for_dir(run_dir)
-    for name, validator in OPTIONAL_BLOCKED_WORK_STORE_VALIDATORS:
-        store_path = runtime_store_path_for_run_dir(run_dir, name)
-        if store_path is None:
-            continue
-        records, _ = read_jsonl_objects(store_path)
-        for record in records:
-            if str(record.get("run_id", "")) != run_id:
-                continue
-            errors.extend(
-                f"{store_path}[{record.get('record_id', '')}]: {error}" for error in validator(record)
+                f"{store_path}[{label}]: {error}" for error in entry.validator(record)
             )
     return errors
 
