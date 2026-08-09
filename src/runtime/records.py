@@ -77,6 +77,10 @@ from ..workflows.blocked_work_records import (
     BLOCKED_WORK_RECORD_KEYS,
     validate_blocked_work_record,
 )
+from ..workflows.decision_gates import (
+    DECISION_GATE_KEYS,
+    validate_decision_gate,
+)
 from ..workflows.external_effect_receipts import (
     EXTERNAL_EFFECT_RECEIPT_KEYS,
     validate_external_effect_receipt,
@@ -4021,6 +4025,7 @@ APPROVAL_RECEIPT_RECORD_KEYS = APPROVAL_RECEIPT_KEYS
 BLOCKED_WORK_RECORD_RECORD_KEYS = BLOCKED_WORK_RECORD_KEYS
 WORKSPACE_BINDING_RECORD_KEYS = WORKSPACE_BINDING_KEYS
 RUN_LINEAGE_CHECKPOINT_RECORD_KEYS = RUN_LINEAGE_CHECKPOINT_KEYS
+DECISION_GATE_RECORD_KEYS = DECISION_GATE_KEYS
 
 
 @dataclass(frozen=True)
@@ -4061,4 +4066,5 @@ OPTIONAL_RUNTIME_STORE_VALIDATORS = (
     OptionalRuntimeStoreValidator(
         "run_lineage_checkpoints.jsonl", validate_run_lineage_checkpoint, "record_id"
     ),
+    OptionalRuntimeStoreValidator("decision_gates.jsonl", validate_decision_gate, "record_id"),
 )
