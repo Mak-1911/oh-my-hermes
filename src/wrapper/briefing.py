@@ -537,6 +537,10 @@ def _memory_recall_pack_summary(memory_recall_pack: dict[str, Any]) -> dict[str,
             "session_id": str(memory_recall_pack.get("session_id", "")),
             "record_count": int(memory_recall_pack.get("record_count", 0) or 0),
             "excluded_count": int(memory_recall_pack.get("excluded_count", 0) or 0),
+            # Carried whole, not counted: a brief that says "1 warning" without
+            # naming the record or the reason cannot be acted on, and the list
+            # is already bounded where the pack builds it.
+            "freshness_warnings": _list_value(memory_recall_pack.get("freshness_warnings")),
             "replay_evidence": _memory_replay_evidence(memory_recall_pack),
             "redaction_policy": str(memory_recall_pack.get("redaction_policy", "")),
             "claim_boundary": str(memory_recall_pack.get("claim_boundary", "")),
@@ -547,6 +551,7 @@ def _memory_recall_pack_summary(memory_recall_pack: dict[str, Any]) -> dict[str,
         "session_id": str(memory_recall_pack.get("session_id", "")),
         "record_count": len(_list_value(memory_recall_pack.get("included_records"))),
         "excluded_count": len(_list_value(memory_recall_pack.get("excluded_records"))),
+        "freshness_warnings": _list_value(memory_recall_pack.get("freshness_warnings")),
         "replay_evidence": _memory_replay_evidence(memory_recall_pack),
         "redaction_policy": str(memory_recall_pack.get("redaction_policy", "")),
         "claim_boundary": str(memory_recall_pack.get("claim_boundary", "")),

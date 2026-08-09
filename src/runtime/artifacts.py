@@ -1493,6 +1493,9 @@ def _memory_recall_pack_summary(memory_recall_pack: dict[str, Any]) -> dict[str,
         "session_id": memory_recall_pack.get("session_id", ""),
         "record_count": len(_list_or_empty(memory_recall_pack.get("included_records"))),
         "excluded_count": len(_list_or_empty(memory_recall_pack.get("excluded_records"))),
+        # Named, not counted: the runtime artifact has to say which record is
+        # due for review, or the summary hides the only actionable part.
+        "freshness_warnings": _list_or_empty(memory_recall_pack.get("freshness_warnings")),
         "redaction_policy": memory_recall_pack.get("redaction_policy", ""),
         "claim_boundary": memory_recall_pack.get("claim_boundary", ""),
     }
