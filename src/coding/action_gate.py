@@ -588,6 +588,17 @@ RECOVERY_ANCHOR_BLOCKER = "no_delegation_surface_holds_an_observed_baseline_to_a
 # already made it.
 START_EVIDENCE_BLOCKER = "lineage_orders_the_start_but_no_claim_rung_requires_a_lineage_chain"
 
+# Not an issue number either, and #835 is the reason it stopped being one. That
+# issue shipped `generated_artifact/v1` and its cleanup preview, so an operator
+# can now see which generated artifact is current, what replaced it, why it is
+# retained, and which ones could go. What #835 deliberately did not ship is the
+# going: the preview is a dry run with no delete path in the module at all, by
+# design, because the issue's own out-of-scope section forbids cleanup without
+# explicit confirmation and no surface in this tree can take one. Nothing
+# expires a run artifact on disk either. Naming a ticket here would promise a
+# reaper that is not planned; the reason string says what is actually missing.
+STORAGE_RETENTION_BLOCKER = "the_preview_lists_what_could_be_removed_and_no_surface_removes_anything"
+
 # (boundary, statement, enforcement, enforced_by, blocked_by).
 #
 # The `enforced_by` refs are dotted import paths that must resolve; the test
@@ -784,11 +795,16 @@ _STATIC_SAFETY_BOUNDARIES: tuple[tuple[str, str, str, tuple[str, ...], str], ...
     ),
     (
         "storage_retention",
-        "Run artifacts persist until the operator deletes them. No retention window, expiry, or cleanup "
-        "exists, so a prepared handoff and its metadata stay on disk indefinitely.",
+        "Lifecycle is now readable: `generated_artifact/v1` projects each locally generated plan, plan "
+        "variant, operation report, and skill draft with its provenance, the revision that replaced it, "
+        "the retention window it sits in, and whether removing it would be safe, and "
+        "`generated_artifact_cleanup_preview/v1` refuses to call an artifact removable while it is "
+        "current, while any local artifact still points at it, or while its window is open. What still "
+        "does not happen is deletion. The preview is a dry run with no removal path in it, nothing expires "
+        "a run artifact, and a prepared handoff and its metadata persist until the operator deletes them.",
         "declared_not_enforced",
         (),
-        "#835",
+        STORAGE_RETENTION_BLOCKER,
     ),
     (
         "untrusted_input",
