@@ -27,6 +27,7 @@ from omh.install.guidance_projection import (
     validate_guidance_projection_status,
 )
 from omh.commands import setup as setup_commands
+from omh.local_store import atomic_write_text
 from omh.maintenance.doctor import run_doctor
 from omh.manifest import SkillRecord, new_manifest, skill_records
 from omh.paths import resolve_paths
@@ -35,11 +36,18 @@ from omh.skills.catalog import omh_skill_display_name
 
 
 def _install_projection(skills_dir: Path) -> dict[str, object]:
-    """Render the projection the way the installer does, then manifest it."""
+    """Render the projection the way the installer does, then manifest it.
+
+    `atomic_write_text`, not `Path.write_text`: the installer writes through it
+    for its `newline=""`, which keeps `\\n` on disk as `\\n`. Writing in default
+    text mode translates to CRLF on Windows, and the catalog comparison hashes
+    template content that still has LF -- so the same install reads as `fresh`
+    on Linux and `stale` on Windows.
+    """
     for template in builtin_skill_templates():
         path = skills_dir / omh_skill_display_name(template.name) / "SKILL.md"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(template.content, encoding="utf-8")
+        atomic_write_text(path, template.content)
     return new_manifest("builtin", skills_dir, skill_records(skills_dir, "builtin"))
 
 
