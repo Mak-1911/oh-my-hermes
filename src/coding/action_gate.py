@@ -576,6 +576,18 @@ HANDOFF_CONTRACT_CLAIM_BOUNDARY = (
 # baseline attaches an anchor, the row stays declared.
 RECOVERY_ANCHOR_BLOCKER = "no_delegation_surface_holds_an_observed_baseline_to_attach_an_anchor_from"
 
+# Not an issue number either, and #826 is the reason it stopped being one. That
+# issue shipped `run_lineage_checkpoint/v1`, whose chain refuses a dispatch
+# checkpoint unless an observed start is already in it -- so an observed start
+# is now a prerequisite of *a lineage chain*. It is still not a prerequisite of
+# a claim. Lineage is opt-in: no claim rung, journal prerequisite, or delegation
+# surface asks a run for a chain, so a run that records none reaches dispatch
+# and execution exactly as before. Making the start required would mean making
+# the chain required of every run, which is a different change against a
+# different surface, and naming a ticket here would promise that #826 had
+# already made it.
+START_EVIDENCE_BLOCKER = "lineage_orders_the_start_but_no_claim_rung_requires_a_lineage_chain"
+
 # (boundary, statement, enforcement, enforced_by, blocked_by).
 #
 # The `enforced_by` refs are dotted import paths that must resolve; the test
@@ -747,11 +759,15 @@ _STATIC_SAFETY_BOUNDARIES: tuple[tuple[str, str, str, tuple[str, ...], str], ...
     ),
     (
         "start_evidence",
-        "runtime_start is recordable but is neither a claim rung nor a journal prerequisite, so a run can "
-        "claim dispatch and execution with no observed start.",
+        "runtime_start is recordable and `run_lineage_checkpoint/v1` now orders it: a lineage chain "
+        "refuses a dispatch checkpoint unless an observed start is already in that chain, so a history "
+        "that skips the start cannot be built. What that does not do is make the start required. A "
+        "lineage chain is opt-in — no claim rung, journal prerequisite, or delegation surface asks a run "
+        "for one — so a run that records no chain can still claim dispatch and execution with no "
+        "observed start.",
         "declared_not_enforced",
         (),
-        "#826",
+        START_EVIDENCE_BLOCKER,
     ),
     (
         "storage_content",
