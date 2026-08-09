@@ -68,12 +68,30 @@ class ReadmeHighlightsTests(unittest.TestCase):
                         self.assertFalse(label.startswith("omh "), f"{label} is an operator command")
 
     def test_the_workflow_engines_are_advertised_with_their_ulw_label(self) -> None:
-        english = Path("README.md").read_text(encoding="utf-8")
-        rows = "\n".join(_highlight_rows(english))
-
-        for engine in ("ulw-work", "ulw-goal", "ulw-team", "ulw-loop"):
-            with self.subTest(engine=engine):
-                self.assertIn(f"`{engine}`", rows)
+        # The ulw engines moved out of the Highlights table into a dedicated
+        # Ultra-Skills section (one per README language). Every engine must be
+        # advertised there by its exact installable name; the Highlights table
+        # stays omh-only so the two surfaces do not repeat each other.
+        section_heads = {
+            "README.md": "## Ultra-Skills",
+            "README.ko.md": "## 울트라 스킬",
+            "README.ja.md": "## ウルトラスキル",
+            "README.zh.md": "## Ultra 技能",
+        }
+        engines = (
+            "ulw-work", "ulw-plan", "ulw-interview", "ulw-goal", "ulw-loop",
+            "ulw-ralph", "ulw-team", "ulw-process", "ulw-qa", "ulw-research",
+            "ulw-perf",
+        )
+        for rel, head in section_heads.items():
+            text = Path(rel).read_text(encoding="utf-8")
+            self.assertIn(head, text, f"{rel}: Ultra-Skills section missing")
+            section = text.split(head, 1)[1].split("\n## ", 1)[0]
+            for engine in engines:
+                with self.subTest(readme=rel, engine=engine):
+                    self.assertIn(f"`{engine}`", section)
+            highlights = "\n".join(_highlight_rows(text))
+            self.assertNotIn("`ulw-", highlights, f"{rel}: Highlights should be omh-only")
 
 
 if __name__ == "__main__":

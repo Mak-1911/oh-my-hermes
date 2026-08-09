@@ -36,15 +36,9 @@
 
 <p align="center">
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="GitHub" src="https://img.shields.io/badge/github-rlaope%2Foh--my--hermes-181717?logo=github"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
   <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent" src="https://img.shields.io/badge/Hermes%20Agent-NousResearch-6f42c1?logo=github"></a>
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="OMH stars" src="https://img.shields.io/github/stars/rlaope/oh-my-hermes?style=flat&logo=github"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent stars" src="https://img.shields.io/github/stars/NousResearch/hermes-agent?style=flat&logo=github"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml"><img alt="GitHub Pages" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml/badge.svg"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/rlaope/oh-my-hermes?logo=github"></a>
-  <img alt="Status" src="https://img.shields.io/badge/status-1.0.5%20stable-blue">
 </p>
 
 <p align="center">
@@ -137,6 +131,31 @@ omh doctor
 
 <br>
 
+## ウルトラスキル
+
+<p align="center">
+  <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
+</p>
+
+11 の `ulw-` workflow。チャットでトリガーを言えば Hermes がルーティング —
+全カタログは [Workflow Reference](docs/WORKFLOWS.md)。
+
+| Skill | 何をするか |
+| --- | --- |
+| ⚡ `ulw-interview` | 何が欲しいのか正確に分かるまで、一度に一つずつ質問します。 |
+| ⚡ `ulw-research` | 実際のコードとウェブを調べ、出典を残し、怪しければ裏取りします。 |
+| ⚡ `ulw-plan` | 選択肢の比較、リスク、完了基準まで合意したレビュー済み計画を作ります。 |
+| ⚡ `ulw-work` | 承認済み計画を、同じファイルに触れない並列レーンで実行します。 |
+| ⚡ `ulw-ralph` | 一人が最後まで責任を持つ — 実装、検証、レビューを通るまで反復。 |
+| ⚡ `ulw-team` | 複数のワーカー、一つのタスクリスト、衝突なし。 |
+| ⚡ `ulw-loop` | 計画 → 実装 → レビューを、ゴールが本当に通るまで回します。 |
+| ⚡ `ulw-goal` | チェックポイント付きの長期ゴール — コンテキストが消えても止まった所から再開。 |
+| ⚡ `ulw-process` | 一つのタスクをリサーチから PR まで最後まで運びます。 |
+| ⚡ `ulw-qa` | わざと過酷なシナリオで攻撃し、壊れた所を直します。 |
+| ⚡ `ulw-perf` | 本当に遅く高コストな場所を測り、ホットパスを一つずつ修正します。 |
+
+<br>
+
 ## OMH が追加するもの
 
 OMH は **103 個**のインストール可能な workflow skill を、理解しやすい6つの
@@ -162,10 +181,10 @@ OMH は **103 個**のインストール可能な workflow skill を、理解し
 
 | 機能 | 使い方 | 内容 |
 | --- | --- | --- |
-| 🧭 **明確化と計画** | `ulw-interview` · `ulw-plan` · `omh-decide` | 曖昧な依頼を、明確な目標・制約・トレードオフ・受け入れ基準、そしてそのまま引き渡せる計画に変えます。 |
-| ⚡ **レバレッジを効かせた実行** | `ulw-work` · `ulw-goal` · `ulw-team` · `ulw-loop` | 高速な並列作業から持続的な複数ステップの実行までスケールしながら、所有権・チェックポイント・検証を常に可視化します。 |
-| 🔬 **調査と学習** | `ulw-research` · `omh-best-practice-research` · `omh-research-brief` | 鮮度・情報源の質・未解決の不確実性の境界を示しながら、根拠に基づく証拠を収集・統合します。 |
-| 🛠️ **安全なコーディングと出荷** | `ulw-process` · `omh-code-review` · `ulw-qa` | executor に依存しないコーディング作業を準備し、review・QA・CI・merge に関する主張は観測された証拠にのみ基づかせます。 |
+| 🧭 **明確化と計画** | `omh-plan` · `omh-decide` · `omh-meeting-brief` | 曖昧な依頼を、明確な目標・制約・トレードオフ・受け入れ基準、そしてそのまま引き渡せる計画に変えます。 |
+| ⚡ **レバレッジを効かせた実行** | `omh-idea-to-deploy` · `omh-cto-loop` · `omh-running-work-board` | 高速な並列作業から持続的な複数ステップの実行までスケールしながら、所有権・チェックポイント・検証を常に可視化します。 |
+| 🔬 **調査と学習** | `omh-best-practice-research` · `omh-research-brief` · `omh-paper-learning` | 鮮度・情報源の質・未解決の不確実性の境界を示しながら、根拠に基づく証拠を収集・統合します。 |
+| 🛠️ **安全なコーディングと出荷** | `omh-code-review` · `omh-build-failure-triage` · `omh-verification-gate` | executor に依存しないコーディング作業を準備し、review・QA・CI・merge に関する主張は観測された証拠にのみ基づかせます。 |
 | 🎨 **洗練された成果物の制作** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-image-cards` | コンテンツ・完成度・アクセシビリティ・レンダリング品質ゲートを軸に、Web サイト、ビジュアル、レポート、スライド、ドキュメント、PDF、ポスター、パッケージを制作します。 |
 | 🧠 **記憶と運用** | `omh-memory-new` · `omh-memory-sync` · `omh-ops-observability-card` · `omh-doctor` | プロジェクト記憶をレビュー優先で保ち、運用の準備状況を可視化し、provider やシステム状態を作り話にせず次の修復アクションを示します。 |
 | 🔌 **境界を隠さない接続** | `omh-toolbelt-readiness` · `omh-external-connector-readiness` · `omh-agent-board` | 作業がそれに依存する前に、必要なツール・connector・agent 面が実際に使えるかを確認し、host のロード・ツール利用・外部 provider アクセスを個別に観測可能な状態に保ちます。 |

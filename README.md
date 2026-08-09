@@ -36,15 +36,9 @@
 
 <p align="center">
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="GitHub" src="https://img.shields.io/badge/github-rlaope%2Foh--my--hermes-181717?logo=github"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
   <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent" src="https://img.shields.io/badge/Hermes%20Agent-NousResearch-6f42c1?logo=github"></a>
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="OMH stars" src="https://img.shields.io/github/stars/rlaope/oh-my-hermes?style=flat&logo=github"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent stars" src="https://img.shields.io/github/stars/NousResearch/hermes-agent?style=flat&logo=github"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml"><img alt="GitHub Pages" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml/badge.svg"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/rlaope/oh-my-hermes?logo=github"></a>
-  <img alt="Status" src="https://img.shields.io/badge/status-1.0.5%20stable-blue">
 </p>
 
 <p align="center">
@@ -62,16 +56,15 @@
 </p>
 
 <p align="center">
-  <strong>oh-my-hermes</strong> (OMH) turns a normal request in
-  <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> into
-  a clear capability, a useful next step, and an honest statement of what has
-  or has not happened. It strengthens the Hermes workflow you already use
-  instead of replacing Hermes or hiding a coding executor behind it.
+  <strong>oh-my-hermes</strong> (OMH) turns a normal
+  <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a>
+  request into a clear capability, a useful next step, and an honest record
+  of what actually happened — strengthening the workflow you already use,
+  never replacing Hermes or hiding a coding executor behind it.
   <br><br>
-  OMH is the operating layer above individual Hermes-native skills: it frames
-  the problem, selects the workflow and evidence gates, and uses native skills
-  as capabilities within that governed path rather than as competing top-level
-  owners.
+  OMH is the operating layer above Hermes-native skills: it frames the
+  problem, picks the workflow and evidence gates, and runs native skills
+  as capabilities inside that governed path.
 </p>
 
 [Website](https://rlaope.github.io/oh-my-hermes/) ·
@@ -112,7 +105,7 @@
 >   </tr>
 >   <tr>
 >     <td width="124"><a href="https://github.com/rlaope/oh-my-hermes/graphs/contributors"><img alt="AI agent collaborators" src="https://img.shields.io/badge/With-AI%20agents-6f42c1?style=flat-square&labelColor=black" width="112" /></a></td>
->     <td>Built with AI agents <a href="https://github.com/frirne-ai"><strong>Friren</strong></a> and <a href="https://github.com/sionic-khope"><strong>Killua</strong></a>, collaborators helping ship <code>oh-my-hermes</code>.</td>
+>     <td>Built with AI agents <a href="https://github.com/frirenai"><strong>Friren</strong></a> and <a href="https://github.com/sionic-khope"><strong>Killua</strong></a>, collaborators helping ship <code>oh-my-hermes</code>.</td>
 >   </tr>
 >   <tr>
 >     <td width="124"><a href="https://nousresearch.com/"><img alt="Thanks to Nous Research" src="https://img.shields.io/badge/Thanks-Nous%20Research-4B2E83?style=flat-square&labelColor=black" width="112" /></a></td>
@@ -167,13 +160,38 @@ Maintenance paths such as reconciling a `--full` install back to core live in
 
 <br>
 
+## Ultra-Skills
+
+<p align="center">
+  <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
+</p>
+
+Eleven `ulw-` workflows. Say the trigger in chat — Hermes routes the
+rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
+
+| Skill | What it does |
+| --- | --- |
+| ⚡ `ulw-interview` | Asks one question at a time until it knows exactly what you want. |
+| ⚡ `ulw-research` | Digs through real code and the live web, keeps sources, and verifies anything doubtful. |
+| ⚡ `ulw-plan` | Builds a reviewed plan: options compared, risks named, done-criteria agreed. |
+| ⚡ `ulw-work` | Runs an accepted plan in parallel lanes that never touch the same file. |
+| ⚡ `ulw-ralph` | One owner grinds a task to done — build, verify, review, repeat. |
+| ⚡ `ulw-team` | Multiple workers, one task list, no collisions. |
+| ⚡ `ulw-loop` | Cycles plan → build → review until the goal actually passes. |
+| ⚡ `ulw-goal` | Long-running goals with checkpoints — survives lost context, resumes where it stopped. |
+| ⚡ `ulw-process` | Takes one task all the way from research to an open PR. |
+| ⚡ `ulw-qa` | Attacks the build with hostile scenarios and fixes what breaks. |
+| ⚡ `ulw-perf` | Measures where it is actually slow or expensive, then fixes one hot path at a time. |
+
+<br>
+
 ## What OMH Adds
 
-### Mixture of Models
-
-<p align="left">
-  <img src="assets/hermes-agent-mom.png" alt="Hermes-Agent mixture-of-models orchestration illustration" width="520">
+<p align="center">
+  <img src="assets/hermes-agent-mom-aura.png" alt="Hermes-Agent mixture-of-models orchestration illustration" width="560">
 </p>
+
+<p align="center"><strong>Mixture of Models</strong></p>
 
 OMH packages **103 installable workflow skills** behind six human-readable
 capability families. The family is the front door; exact skill names remain
@@ -186,10 +204,10 @@ The full generated catalog, triggers, harnesses, and evidence rules live in
 
 | Capability | Try it with | What it does |
 | --- | --- | --- |
-| 🧭 **Clarify and plan** | `ulw-interview` · `ulw-plan` · `omh-decide` | Turns an ambiguous request into explicit goals, constraints, tradeoffs, acceptance criteria, and a plan that can be handed off. |
-| ⚡ **Build with leverage** | `ulw-work` · `ulw-goal` · `ulw-team` · `ulw-loop` | Scales from fast parallel work to durable multi-step execution while keeping ownership, checkpoints, and verification visible. |
-| 🔬 **Research and learn** | `ulw-research` · `omh-best-practice-research` · `omh-research-brief` | Finds and synthesizes source-backed evidence with freshness, source-quality, and unresolved-uncertainty boundaries. |
-| 🛠️ **Code and ship safely** | `ulw-process` · `omh-code-review` · `ulw-qa` | Prepares executor-neutral coding work, then makes review, QA, CI, and merge claims depend on observed evidence. |
+| 🧭 **Clarify and plan** | `omh-plan` · `omh-decide` · `omh-meeting-brief` | Turns an ambiguous request into explicit goals, constraints, tradeoffs, acceptance criteria, and a plan that can be handed off. |
+| ⚡ **Build with leverage** | `omh-idea-to-deploy` · `omh-cto-loop` · `omh-running-work-board` | Scales from fast parallel work to durable multi-step execution while keeping ownership, checkpoints, and verification visible. |
+| 🔬 **Research and learn** | `omh-best-practice-research` · `omh-research-brief` · `omh-paper-learning` | Finds and synthesizes source-backed evidence with freshness, source-quality, and unresolved-uncertainty boundaries. |
+| 🛠️ **Code and ship safely** | `omh-code-review` · `omh-build-failure-triage` · `omh-verification-gate` | Prepares executor-neutral coding work, then makes review, QA, CI, and merge claims depend on observed evidence. |
 | 🎨 **Create polished deliverables** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-image-cards` | Shapes websites, visuals, reports, decks, documents, PDFs, posters, and packages around content, taste, accessibility, and render-quality gates. |
 | 🧠 **Remember and operate** | `omh-memory-new` · `omh-memory-sync` · `omh-ops-observability-card` · `omh-doctor` | Keeps project memory review-first, surfaces operational readiness, and gives the next repair action without inventing provider or system state. |
 | 🔌 **Connect without hiding boundaries** | `omh-toolbelt-readiness` · `omh-external-connector-readiness` · `omh-agent-board` | Checks whether a needed tool, connector, or agent surface is really available before work depends on it, and keeps host load, tool use, and external-provider access separately observable. |

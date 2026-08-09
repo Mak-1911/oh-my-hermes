@@ -3198,7 +3198,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[Roles](docs/ROLES.md)", readme)
         self.assertIn("[Application cases](docs/APPLICATION_CASES.md)", readme)
         self.assertIn("[GitHub Pages site](site/index.html)", readme)
-        self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal request", readme)
+        self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal", readme)
         self.assertIn("replacing Hermes or hiding a coding executor", readme)
         self.assertIn("**103 installable workflow skills**", readme)
         self.assertIn("**103개**", localized_readmes["ko"])
@@ -3211,8 +3211,10 @@ class RouterContentTests(unittest.TestCase):
             # A localized README stays a trimmed landing page, never a full
             # translation of every English section. The budget grew from 240
             # when the four-surface demo table (22 lines) was added above the
-            # h1 in every language; it still sits below README.md's length.
-            self.assertLess(len(localized_readme.splitlines()), 260)
+            # h1 in every language, and from 260 when the Ultra-Skills section
+            # (h2 + badge + 11-row table, ~26 lines) landed in every language;
+            # it still sits below README.md's length.
+            self.assertLess(len(localized_readme.splitlines()), 290)
             # The trust surface is the evidence table, not the wire token that
             # used to stand in for it. Pinning the token meant a README could
             # satisfy this by naming a value no reader could decode; pinning
@@ -3725,6 +3727,10 @@ class RouterContentTests(unittest.TestCase):
         # so natural, non-mechanical per-language translation is allowed.
         readme_section_translations = (
             ("## Quick Start", {"ko": "## 빠른 시작", "ja": "## クイックスタート", "zh": "## 快速开始"}),
+            (
+                "## Ultra-Skills",
+                {"ko": "## 울트라 스킬", "ja": "## ウルトラスキル", "zh": "## Ultra 技能"},
+            ),
             (
                 "## What OMH Adds",
                 {"ko": "## OMH가 더하는 것", "ja": "## OMH が追加するもの", "zh": "## OMH 提供什么"},

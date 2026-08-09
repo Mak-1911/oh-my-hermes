@@ -36,15 +36,9 @@
 
 <p align="center">
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="GitHub" src="https://img.shields.io/badge/github-rlaope%2Foh--my--hermes-181717?logo=github"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
   <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent" src="https://img.shields.io/badge/Hermes%20Agent-NousResearch-6f42c1?logo=github"></a>
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="OMH stars" src="https://img.shields.io/github/stars/rlaope/oh-my-hermes?style=flat&logo=github"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent stars" src="https://img.shields.io/github/stars/NousResearch/hermes-agent?style=flat&logo=github"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml"><img alt="GitHub Pages" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml/badge.svg"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/rlaope/oh-my-hermes?logo=github"></a>
-  <img alt="Status" src="https://img.shields.io/badge/status-1.0.5%20stable-blue">
 </p>
 
 <p align="center">
@@ -134,6 +128,31 @@ omh doctor
 
 <br>
 
+## Ultra 技能
+
+<p align="center">
+  <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
+</p>
+
+十一个 `ulw-` workflow。说出触发词，其余交给 Hermes —— 完整目录见
+[Workflow Reference](docs/WORKFLOWS.md)。
+
+| Skill | 做什么 |
+| --- | --- |
+| ⚡ `ulw-interview` | 一次问一个问题，直到确切知道你要什么。 |
+| ⚡ `ulw-research` | 翻真实代码和网页做调研，留下出处，可疑就核实。 |
+| ⚡ `ulw-plan` | 做一份评审过的计划：比过方案、点明风险、定好完成标准。 |
+| ⚡ `ulw-work` | 把已确认的计划放进互不碰同一文件的并行车道执行。 |
+| ⚡ `ulw-ralph` | 一个人负责到底——实现、验证、评审，直到通过。 |
+| ⚡ `ulw-team` | 多个工作者，一份任务清单，互不相撞。 |
+| ⚡ `ulw-loop` | 计划 → 实现 → 评审，循环到目标真正通过。 |
+| ⚡ `ulw-goal` | 带检查点的长期目标——上下文丢了也能从断点继续。 |
+| ⚡ `ulw-process` | 把一个任务从调研一路带到 PR。 |
+| ⚡ `ulw-qa` | 故意用狠场景攻击，坏哪修哪。 |
+| ⚡ `ulw-perf` | 先测出真正慢和贵的地方，再逐条修热路径。 |
+
+<br>
+
 ## OMH 提供什么
 
 OMH 将 **103 个**可安装的 workflow skill 组织为6个容易理解的能力族。
@@ -158,10 +177,10 @@ OMH 将 **103 个**可安装的 workflow skill 组织为6个容易理解的能�
 
 | 能力 | 使用方式 | 作用 |
 | --- | --- | --- |
-| 🧭 **澄清与规划** | `ulw-interview` · `ulw-plan` · `omh-decide` | 把模糊的请求转化为明确的目标、约束、权衡、验收标准，以及可以直接交接的计划。 |
-| ⚡ **借助杠杆推进工作** | `ulw-work` · `ulw-goal` · `ulw-team` · `ulw-loop` | 从快速并行工作扩展到持久的多步骤执行，同时保持所有权、检查点和验证始终可见。 |
-| 🔬 **研究与学习** | `ulw-research` · `omh-best-practice-research` · `omh-research-brief` | 在标明时效性、来源质量和尚未解决的不确定性边界的同时，查找并综合有依据的证据。 |
-| 🛠️ **安全地编码与交付** | `ulw-process` · `omh-code-review` · `ulw-qa` | 准备不依赖特定 executor 的编码工作，并让 review、QA、CI 和 merge 的相关声明只依据实际观测到的证据。 |
+| 🧭 **澄清与规划** | `omh-plan` · `omh-decide` · `omh-meeting-brief` | 把模糊的请求转化为明确的目标、约束、权衡、验收标准，以及可以直接交接的计划。 |
+| ⚡ **借助杠杆推进工作** | `omh-idea-to-deploy` · `omh-cto-loop` · `omh-running-work-board` | 从快速并行工作扩展到持久的多步骤执行，同时保持所有权、检查点和验证始终可见。 |
+| 🔬 **研究与学习** | `omh-best-practice-research` · `omh-research-brief` · `omh-paper-learning` | 在标明时效性、来源质量和尚未解决的不确定性边界的同时，查找并综合有依据的证据。 |
+| 🛠️ **安全地编码与交付** | `omh-code-review` · `omh-build-failure-triage` · `omh-verification-gate` | 准备不依赖特定 executor 的编码工作，并让 review、QA、CI 和 merge 的相关声明只依据实际观测到的证据。 |
 | 🎨 **打造精致的交付物** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-image-cards` | 围绕内容、审美、无障碍性和渲染质量 gate，制作网站、视觉素材、报告、演示文稿、文档、PDF、海报和交付包。 |
 | 🧠 **记忆与运维** | `omh-memory-new` · `omh-memory-sync` · `omh-ops-observability-card` · `omh-doctor` | 让项目记忆保持“先审查后使用”，呈现运维就绪状态，并在不臆造 provider 或系统状态的前提下给出下一步修复动作。 |
 | 🔌 **在不隐藏边界的前提下连接** | `omh-toolbelt-readiness` · `omh-external-connector-readiness` · `omh-agent-board` | 在工作依赖某个工具、connector 或 agent 面之前先确认它是否真的可用，同时让 host 加载、工具使用和外部 provider 访问都能被分别观测。 |
