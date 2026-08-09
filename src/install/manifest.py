@@ -10,6 +10,7 @@ from typing import Any
 from ..version import __version__
 from ..hashutil import sha256_file
 from ..local_store import atomic_write_json, read_json_object, utc_now
+from .guidance_projection import catalog_revision
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,11 @@ def new_manifest(source: str, skills_dir: Path, records: list[SkillRecord]) -> d
         "source": source,
         "installed_at": utc_now(),
         "skills_dir": str(skills_dir),
+        # What the projection was rendered from, not just which release wrote
+        # it. A version string cannot distinguish two builds of the same
+        # release with different catalog data, and per-file checksums detect
+        # drift without naming what drifted. See `install.guidance_projection`.
+        "catalog_revision": catalog_revision(),
         "skills": [record.__dict__ for record in sorted(records, key=lambda item: item.name)],
     }
 
