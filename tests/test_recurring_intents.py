@@ -34,6 +34,32 @@ from omh.workflows.recurring_intents import (
 
 REQUEST = "every weekday morning at 9am sweep stale pull requests and send a Slack digest only if something changed"
 
+# The five failure-policy decisions an intent needs before it can be activated.
+# Kept here so the lifecycle tests below stay about the lifecycle; the gate
+# itself is owned by tests/test_recurring_failure_policy.py.
+COMPLETE_FAILURE_POLICY = {
+    "overlap_posture": "skip_when_running",
+    "missed_run_posture": "skip_missed_window",
+    "retry_posture": "no_retry",
+    "backfill_posture": "no_backfill",
+    "failure_pause_posture": "pause_after_consecutive_failures",
+    "failure_pause_threshold": 3,
+}
+COMPLETE_FAILURE_POLICY_CLI_ARGS = [
+    "--overlap-posture",
+    "skip_when_running",
+    "--missed-run-posture",
+    "skip_missed_window",
+    "--retry-posture",
+    "no_retry",
+    "--backfill-posture",
+    "no_backfill",
+    "--failure-pause-posture",
+    "pause_after_consecutive_failures",
+    "--failure-pause-threshold",
+    "3",
+]
+
 
 class RecurringIntentPreparationTests(unittest.TestCase):
     """AC1: a natural-language recurring intent is previewable and savable."""
@@ -190,8 +216,8 @@ class RecurringIntentPausedByDefaultTests(unittest.TestCase):
     def test_activation_without_a_recorded_observer_is_refused(self) -> None:
         intent = build_recurring_intent(
             REQUEST,
-            overlap_posture="skip_when_running",
             created_at="2026-06-16T00:00:00Z",
+            **COMPLETE_FAILURE_POLICY,
         )
 
         with self.assertRaises(ValueError) as caught:
@@ -227,8 +253,8 @@ class RecurringIntentPausedByDefaultTests(unittest.TestCase):
     def test_activation_requires_an_approval_reference_and_an_activating_surface(self) -> None:
         intent = build_recurring_intent(
             REQUEST,
-            overlap_posture="skip_when_running",
             created_at="2026-06-16T00:00:00Z",
+            **COMPLETE_FAILURE_POLICY,
         )
 
         with self.assertRaises(ValueError) as missing_approval:
@@ -475,10 +501,10 @@ class RecurringIntentStoreTests(unittest.TestCase):
             paths = _paths_from_tmp(tmp)
             intent = build_recurring_intent(
                 REQUEST,
-                overlap_posture="skip_when_running",
                 owner="khope",
                 owner_kind="human",
                 created_at="2026-06-16T00:00:00Z",
+                **COMPLETE_FAILURE_POLICY,
             )
 
             written = write_recurring_intent(paths, intent)
@@ -573,8 +599,7 @@ class RecurringIntentCliTests(unittest.TestCase):
                     "khope",
                     "--owner-kind",
                     "human",
-                    "--overlap-posture",
-                    "skip_when_running",
+                    *COMPLETE_FAILURE_POLICY_CLI_ARGS,
                 ]
             )
 
@@ -699,10 +724,10 @@ class RecurringIntentCliTests(unittest.TestCase):
 def _activated_intent() -> dict:
     intent = build_recurring_intent(
         REQUEST,
-        overlap_posture="skip_when_running",
         owner="khope",
         owner_kind="human",
         created_at="2026-06-16T00:00:00Z",
+        **COMPLETE_FAILURE_POLICY,
     )
     return activate_recurring_intent(
         intent,

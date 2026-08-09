@@ -41,6 +41,38 @@ outside OMH; this record only stores who or what observed it, under which
 approval reference, and at which revision. An activated intent is still not
 execution evidence — each occurrence points at the runtime run that owns its
 evidence.
+
+# Why the failure policy extends v1 instead of becoming a sibling record
+
+The record already carried one fifth of this policy: `overlap_posture`, whose
+value was required to be explicit before activation while its handling was left
+open. The remaining four decisions (missed run, retry, backfill, failure pause)
+had to land in the same digested record, not beside it, for one reason that is
+an acceptance criterion rather than a preference: an occurrence links to an
+`intent_revision_id`, and the revision digest is what makes that link mean
+something. A policy living outside the digest would let an occurrence recorded
+under "skip when running, pause after 3 failures" read as evidence for "allow
+concurrent, pause after 20" without the revision moving. So the four new
+decisions join `REVISION_DIGEST_FIELDS`, and changing any of them produces a new
+revision that the older occurrences do not cover.
+
+`overlap_posture` stays at its own top-level path rather than moving under
+`failure_policy`. It shipped with a validator branch, a CLI flag, a digest
+input, and an activation gate; re-homing it would rewrite all of that to move
+bytes. `FAILURE_POLICY_DECISIONS` names the path of each of the five decisions
+instead, so the activation gate, the open-decisions list, the digest inputs, and
+the human summary all read one table and none of them special-cases overlap.
+
+# Where the boundary sits
+
+The record *declares* the policy. `decide_recurring_occurrence` *projects* it
+onto one situation an approved runtime surface reported, and returns what the
+policy says plus the occurrence outcome to record. OMH still runs no scheduler:
+it never starts, skips, queues, retries, or backfills anything, and a decision
+payload is not evidence that the runtime did what the policy said. The one
+behavior OMH does own is local and deterministic: a `failed` occurrence that
+reaches the declared consecutive-failure threshold pauses this record, because
+that is a mutation of local lifecycle metadata, not of anything running.
 """
 
 from __future__ import annotations
@@ -50,7 +82,7 @@ import re
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from ..hashutil import sha256_text
 from ..local_store import atomic_write_json, ensure_dir, read_json_object, read_json_object_result, utc_now
@@ -68,18 +100,49 @@ RECURRING_INTENT_VALIDATION_SCHEMA_VERSION = "hermes_recurring_intent_validation
 RECURRING_INTENT_PREVIEW_SCHEMA_VERSION = "hermes_recurring_intent_preview/v1"
 RECURRING_OCCURRENCE_SCHEMA_VERSION = "hermes_recurring_occurrence/v1"
 RECURRING_INTENT_STATUS_CARD_SCHEMA_VERSION = "hermes_recurring_intent_status_card/v1"
+RECURRING_OCCURRENCE_DECISION_SCHEMA_VERSION = "hermes_recurring_occurrence_decision/v1"
 
 RECURRING_INTENT_KINDS = ("recurring-intent",)
 RECURRING_INTENT_STATUSES = ("prepared", "blocked", "archived")
 RECURRING_INTENT_OBSERVATION_STATUSES = ("prepared", "not_observed")
 LIFECYCLE_STATES = ("paused", "activated")
 OWNER_KINDS = ("unassigned", "human", "team", "runtime_surface", "executor_profile")
-OVERLAP_POSTURES = ("unspecified", "skip_when_running", "queue_after_running", "allow_concurrent")
 ACTIVATION_OBSERVER_KINDS = ("human", "approved_runtime_surface")
 OCCURRENCE_OBSERVER_KINDS = ("human", "approved_runtime_surface")
-OCCURRENCE_OUTCOMES = ("ran", "failed", "skipped")
 REQUIRED_APPROVAL_KIND = "human_or_approved_runtime_surface"
 ACTIVATION_PERFORMED_BY = "approved_runtime_surface_outside_omh"
+
+# The sentinel that separates "nobody chose yet" from "someone chose the safe
+# option". Every policy decision starts here and no builder ever replaces it
+# with a default: an implicit default that satisfies the activation gate would
+# defeat the gate.
+UNSET_POSTURE = "unspecified"
+
+OVERLAP_POSTURES = (UNSET_POSTURE, "skip_when_running", "queue_after_running", "allow_concurrent")
+MISSED_RUN_POSTURES = (UNSET_POSTURE, "skip_missed_window", "run_once_when_late")
+# There is deliberately no unbounded retry posture. Unlimited retry is out of
+# scope for this record, so the vocabulary cannot express it.
+RETRY_POSTURES = (UNSET_POSTURE, "no_retry", "retry_bounded")
+# Same reasoning for backfill: automatic catch-up of every missed window is out
+# of scope, so a backfill is either off or a bounded window count.
+BACKFILL_POSTURES = (UNSET_POSTURE, "no_backfill", "backfill_bounded_window")
+# One real posture: repeated failure always pauses. The decision the user makes
+# is the threshold, which is why an explicit posture also demands a count.
+FAILURE_PAUSE_POSTURES = (UNSET_POSTURE, "pause_after_consecutive_failures")
+
+RETRY_ATTEMPT_LIMIT = 10
+BACKFILL_WINDOW_LIMIT = 10
+FAILURE_PAUSE_THRESHOLD_LIMIT = 20
+
+OCCURRENCE_OUTCOMES = ("ran", "failed", "skipped", "missed", "queued")
+# Only these two outcomes claim that something ran, so only these two require a
+# runtime run reference. A skipped, missed, or queued occurrence exists so that
+# a non-run is recorded rather than silent, and it must not carry execution
+# evidence it does not have.
+EXECUTING_OCCURRENCE_OUTCOMES = ("ran", "failed")
+
+OCCURRENCE_SITUATIONS = ("on_time", "prior_run_active", "missed_window")
+OCCURRENCE_DECISIONS = ("start", "start_concurrent", "queue", "skip", "do_not_start")
 
 INTENT_SUMMARY_LIMIT = 240
 # The runtime run owns the durable evidence for an occurrence, so this record
@@ -95,6 +158,10 @@ RECURRING_INTENT_NOT_EVIDENCE = (
     "occurrence_executed",
     "runtime_run_started",
     "gateway_delivery_sent",
+    "occurrence_skipped_by_runtime",
+    "occurrence_retried_by_runtime",
+    "occurrence_backfilled_by_runtime",
+    "failure_pause_enforced_by_runtime",
     "review",
     "ci",
     "merge_readiness",
@@ -114,8 +181,75 @@ OCCURRENCE_CLAIM_BOUNDARY = (
     "The linked runtime run owns this execution evidence. This occurrence is only the local link back to the "
     "exact intent revision the run was started under."
 )
+NON_EXECUTING_OCCURRENCE_CLAIM_BOUNDARY = (
+    "Nothing ran for this occurrence. It records that the approved runtime surface applied the declared policy "
+    "at a moment it would otherwise have started work, so the non-run is visible instead of silent. It is not "
+    "execution evidence and it does not prove the runtime honoured the policy."
+)
+FAILURE_POLICY_CLAIM_BOUNDARY = (
+    "Overlap, missed-run, retry, backfill, and failure-pause handling is policy this record declares and "
+    "decide_recurring_occurrence projects onto one situation an approved runtime surface reported. OMH runs no "
+    "scheduler: it never starts, skips, queues, retries, or backfills an occurrence, and a decision payload is "
+    "not evidence that the runtime did what the policy says. The only thing OMH changes by itself is this local "
+    "record, when recorded failures reach the declared threshold and it pauses itself."
+)
+
+
+class FailurePolicyDecision(NamedTuple):
+    """One policy decision that must be explicit before activation.
+
+    `path` is a dotted read path into the record, so the five decisions can live
+    where they already live (overlap stayed top-level) while the gate, the
+    open-decisions list, and the digest all iterate one table.
+    """
+
+    decision: str
+    path: str
+    label: str
+    choices: tuple[str, ...]
+    question: str
+
+
+FAILURE_POLICY_DECISIONS = (
+    FailurePolicyDecision(
+        "overlap",
+        "overlap_posture.posture",
+        "overlap posture",
+        OVERLAP_POSTURES,
+        "choose the overlap posture: skip_when_running, queue_after_running, or allow_concurrent",
+    ),
+    FailurePolicyDecision(
+        "missed_run",
+        "failure_policy.missed_run.posture",
+        "missed-run posture",
+        MISSED_RUN_POSTURES,
+        "choose what a missed window does: skip_missed_window or run_once_when_late",
+    ),
+    FailurePolicyDecision(
+        "retry",
+        "failure_policy.retry.posture",
+        "retry posture",
+        RETRY_POSTURES,
+        "choose the retry posture: no_retry, or retry_bounded with a maximum attempt count",
+    ),
+    FailurePolicyDecision(
+        "backfill",
+        "failure_policy.backfill.posture",
+        "backfill posture",
+        BACKFILL_POSTURES,
+        "choose the backfill posture: no_backfill, or backfill_bounded_window with a window count",
+    ),
+    FailurePolicyDecision(
+        "failure_pause",
+        "failure_policy.failure_pause.posture",
+        "failure-pause threshold",
+        FAILURE_PAUSE_POSTURES,
+        "choose how many consecutive failures pause this intent",
+    ),
+)
+
 ACTIVATION_REQUIREMENTS = (
-    "explicit_overlap_posture",
+    *(f"explicit_{item.decision}_decision" for item in FAILURE_POLICY_DECISIONS),
     "recorded_approval_reference",
     "recorded_observer_of_the_activating_runtime_surface",
 )
@@ -141,6 +275,16 @@ REVISION_DIGEST_FIELDS = (
     "owner_profile.owner",
     "owner_profile.owner_kind",
     "overlap_posture.posture",
+    # The remaining four failure-policy decisions and their bounds. They are in
+    # the digest so that changing a policy produces a revision the already
+    # recorded occurrences do not cover.
+    "failure_policy.missed_run.posture",
+    "failure_policy.retry.posture",
+    "failure_policy.retry.max_attempts",
+    "failure_policy.backfill.posture",
+    "failure_policy.backfill.max_windows",
+    "failure_policy.failure_pause.posture",
+    "failure_policy.failure_pause.consecutive_failure_threshold",
     "required_approval.required",
     "required_approval.approval_kind",
 )
@@ -159,7 +303,14 @@ def build_recurring_intent(
     scope: str = "",
     owner: str = "",
     owner_kind: str = "unassigned",
-    overlap_posture: str = "unspecified",
+    overlap_posture: str = UNSET_POSTURE,
+    missed_run_posture: str = UNSET_POSTURE,
+    retry_posture: str = UNSET_POSTURE,
+    retry_max_attempts: int = 0,
+    backfill_posture: str = UNSET_POSTURE,
+    backfill_max_windows: int = 0,
+    failure_pause_posture: str = UNSET_POSTURE,
+    failure_pause_threshold: int = 0,
     source: str = "",
     intent_id: str | None = None,
     created_at: str | None = None,
@@ -168,6 +319,9 @@ def build_recurring_intent(
 
     There is no activation or occurrence parameter on purpose: the returned
     record cannot express "an occurrence ran" no matter what the caller passes.
+    Every failure-policy posture defaults to `unspecified` rather than to a safe
+    value, so the activation gate sees "nobody chose" instead of a default that
+    nobody read.
     """
     clean_request = " ".join(str(request).split())
     if not clean_request:
@@ -176,6 +330,15 @@ def build_recurring_intent(
         raise ValueError(f"unsupported recurring intent owner_kind: {owner_kind}")
     if overlap_posture not in OVERLAP_POSTURES:
         raise ValueError(f"unsupported recurring intent overlap_posture: {overlap_posture}")
+    failure_policy = _failure_policy(
+        missed_run_posture=missed_run_posture,
+        retry_posture=retry_posture,
+        retry_max_attempts=retry_max_attempts,
+        backfill_posture=backfill_posture,
+        backfill_max_windows=backfill_max_windows,
+        failure_pause_posture=failure_pause_posture,
+        failure_pause_threshold=failure_pause_threshold,
+    )
     created = created_at or utc_now()
     hints = {"schedule": schedule.strip(), "delivery": delivery.strip(), "silence": silence.strip()}
     derived = _derived_intents(clean_request, hints, created)
@@ -203,6 +366,7 @@ def build_recurring_intent(
         "scope": _scope(clean_request, scope=scope),
         "owner_profile": _owner_profile(owner=owner, owner_kind=owner_kind),
         "overlap_posture": _overlap_posture(overlap_posture),
+        "failure_policy": failure_policy,
         "required_approval": {
             "required": True,
             "approval_kind": REQUIRED_APPROVAL_KIND,
@@ -267,12 +431,23 @@ def revise_recurring_intent(
     owner: str | None = None,
     owner_kind: str | None = None,
     overlap_posture: str | None = None,
+    missed_run_posture: str | None = None,
+    retry_posture: str | None = None,
+    retry_max_attempts: int | None = None,
+    backfill_posture: str | None = None,
+    backfill_max_windows: int | None = None,
+    failure_pause_posture: str | None = None,
+    failure_pause_threshold: int | None = None,
 ) -> dict[str, Any]:
     """Return a revised copy with a new revision id, paused again if it was active.
 
     Revising an activated intent pauses it: the approved runtime surface
     approved a specific revision, and re-activation must record a fresh
     observer against the revision that will actually run.
+
+    This is also the only way out of a failure pause. The safety pause is
+    recorded against a revision, so resuming needs a policy revision plus a
+    fresh activation rather than a retry of the same failing policy.
     """
     if owner_kind is not None and owner_kind not in OWNER_KINDS:
         raise ValueError(f"unsupported recurring intent owner_kind: {owner_kind}")
@@ -307,6 +482,19 @@ def revise_recurring_intent(
         )
     if overlap_posture is not None:
         updated["overlap_posture"] = _overlap_posture(overlap_posture)
+    current_policy = updated["failure_policy"]
+    updated["failure_policy"] = _failure_policy(
+        missed_run_posture=_kept(missed_run_posture, current_policy["missed_run"]["posture"]),
+        retry_posture=_kept(retry_posture, current_policy["retry"]["posture"]),
+        retry_max_attempts=_kept(retry_max_attempts, current_policy["retry"]["max_attempts"]),
+        backfill_posture=_kept(backfill_posture, current_policy["backfill"]["posture"]),
+        backfill_max_windows=_kept(backfill_max_windows, current_policy["backfill"]["max_windows"]),
+        failure_pause_posture=_kept(failure_pause_posture, current_policy["failure_pause"]["posture"]),
+        failure_pause_threshold=_kept(
+            failure_pause_threshold,
+            current_policy["failure_pause"]["consecutive_failure_threshold"],
+        ),
+    )
     updated["updated_at"] = revised
     _refresh_derived_blocks(updated, revised_at=revised)
     if str(updated["revision"]["revision_id"]) == previous_revision:
@@ -356,6 +544,10 @@ def activate_recurring_intent(
     OMH does not activate anything here. This appends the transition that says
     who or what observed the activation, so a later occurrence can be read
     against a named observer instead of an anonymous flag.
+
+    Activation is also the failure-policy gate: it refuses while any of the five
+    decisions is still `unspecified`, naming each unset one, and it refuses to
+    resume a revision that already paused itself after repeated failures.
     """
     if not str(observer).strip():
         raise ValueError("recurring intent activation requires a recorded observer")
@@ -365,8 +557,16 @@ def activate_recurring_intent(
         raise ValueError("recurring intent activation requires a recorded approval reference")
     if not str(activation_surface).strip():
         raise ValueError("recurring intent activation requires the approved runtime surface that performed it")
-    if str(record["overlap_posture"]["posture"]) == "unspecified":
-        raise ValueError("recurring intent activation requires an explicit overlap posture")
+    unset = unset_failure_policy_decisions(record)
+    if unset:
+        raise ValueError(
+            "; ".join(f"recurring intent activation requires an explicit {item.label}" for item in unset)
+        )
+    if failure_pause_holds_this_revision(record):
+        raise ValueError(
+            "recurring intent paused itself after repeated failures under this revision: revise the failure "
+            "policy and record a fresh approval before re-activating"
+        )
     if str(record["lifecycle"]["state"]) == "activated":
         raise ValueError("recurring intent is already activated")
     observed = observed_at or utc_now()
@@ -401,15 +601,31 @@ def activate_recurring_intent(
 def record_recurring_intent_occurrence(
     record: dict[str, Any],
     *,
-    runtime_run_ref: str,
+    runtime_run_ref: str = "",
     runtime_surface: str,
     observer: str,
     observer_kind: str = "approved_runtime_surface",
     outcome: str = "ran",
+    reason: str = "",
+    overlapped_run_ref: str = "",
+    attempt: int = 1,
     observed_at: str | None = None,
     occurrence_id: str | None = None,
 ) -> dict[str, Any]:
-    """Link one observed runtime run back to the exact intent revision it ran under."""
+    """Record one occurrence of this intent against the exact revision it ran under.
+
+    A `ran` or `failed` occurrence links the runtime run that owns its evidence.
+    A `skipped`, `missed`, or `queued` occurrence is the opposite: nothing ran,
+    so it carries no run reference and instead must state the policy reason it
+    did not run. That is what keeps an overlap or a missed window from being
+    silent, and it is why a non-executing outcome is refused a run reference
+    rather than allowed to borrow one.
+
+    Recording a `failed` occurrence can pause this record. When the consecutive
+    failures at the current revision reach the declared threshold, the lifecycle
+    moves to `paused`, approval is revoked, and the transition carries the
+    reason in plain language.
+    """
     if str(record["lifecycle"]["state"]) != "activated":
         raise ValueError(
             "a paused recurring intent cannot record an occurrence: activate it with a recorded observer first"
@@ -418,16 +634,28 @@ def record_recurring_intent_occurrence(
         raise ValueError(f"unsupported recurring intent occurrence outcome: {outcome}")
     if observer_kind not in OCCURRENCE_OBSERVER_KINDS:
         raise ValueError(f"unsupported recurring intent occurrence observer_kind: {observer_kind}")
-    if not str(runtime_run_ref).strip():
+    executed = outcome in EXECUTING_OCCURRENCE_OUTCOMES
+    clean_run_ref = str(runtime_run_ref).strip()
+    clean_reason = " ".join(str(reason).split())
+    if executed and not clean_run_ref:
         raise ValueError("recurring intent occurrence requires a runtime run reference")
+    if not executed and clean_run_ref:
+        raise ValueError(
+            f"a {outcome} recurring intent occurrence did not run, so it must not carry a runtime run reference"
+        )
+    if not executed and not clean_reason:
+        raise ValueError(f"a {outcome} recurring intent occurrence must record why the policy did not run it")
     if not str(runtime_surface).strip():
         raise ValueError("recurring intent occurrence requires the runtime surface that ran it")
     if not str(observer).strip():
         raise ValueError("recurring intent occurrence requires a recorded observer")
+    if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1:
+        raise ValueError("recurring intent occurrence attempt must be a positive integer")
     observed = observed_at or utc_now()
     updated = _clone(record)
-    clean_run_ref = str(runtime_run_ref).strip()
-    if any(str(item.get("runtime_run", {}).get("run_ref", "")) == clean_run_ref for item in updated["occurrences"]):
+    if clean_run_ref and any(
+        str(item.get("runtime_run", {}).get("run_ref", "")) == clean_run_ref for item in updated["occurrences"]
+    ):
         raise ValueError(f"runtime run {clean_run_ref} is already linked to this recurring intent")
     revision_id = str(updated["revision"]["revision_id"])
     occurrence = {
@@ -436,21 +664,190 @@ def record_recurring_intent_occurrence(
         "intent_id": str(updated["intent_id"]),
         "intent_revision_id": revision_id,
         "outcome": outcome,
+        "executed": executed,
+        "attempt": attempt,
+        "reason": clean_reason,
+        "overlapped_run_ref": str(overlapped_run_ref).strip(),
         "observer": str(observer).strip(),
         "observer_kind": observer_kind,
         "observed_at": observed,
         "runtime_run": {"surface": str(runtime_surface).strip(), "run_ref": clean_run_ref},
-        "evidence_authority": "linked_runtime_run",
-        "claim_boundary": OCCURRENCE_CLAIM_BOUNDARY,
+        "evidence_authority": "linked_runtime_run" if executed else "local_policy_decision",
+        "claim_boundary": OCCURRENCE_CLAIM_BOUNDARY if executed else NON_EXECUTING_OCCURRENCE_CLAIM_BOUNDARY,
     }
     updated["occurrences"] = [*updated["occurrences"], occurrence][-RETAINED_OCCURRENCE_LIMIT:]
     updated["occurrences_recorded_total"] = int(updated["occurrences_recorded_total"]) + 1
     updated["updated_at"] = observed
+    _apply_failure_pause(updated, paused_at=observed)
     _refresh_derived_blocks(updated, revised_at=str(updated["revision"]["revised_at"]))
     errors = validate_recurring_intent(updated)
     if errors:
         raise ValueError("; ".join(errors))
     return updated
+
+
+def unset_failure_policy_decisions(record: dict[str, Any]) -> list[FailurePolicyDecision]:
+    """The policy decisions nobody has chosen yet, in table order.
+
+    `unspecified` and a missing block read the same way, and an explicitly
+    chosen value never does -- including when the chosen value happens to be the
+    safe one, which is the whole point of the sentinel.
+    """
+    return [item for item in FAILURE_POLICY_DECISIONS if _policy_value(record, item.path) == UNSET_POSTURE]
+
+
+def recurring_failure_pause_state(record: dict[str, Any]) -> dict[str, Any]:
+    """Consecutive failures at the current revision, against the declared threshold.
+
+    Deterministic and revision-scoped, with no heuristics and no clock:
+
+    - `failed` increments the streak, `ran` resets it to zero.
+    - `skipped`, `missed`, and `queued` are transparent: nothing ran, so they
+      neither prove recovery nor add a failure.
+    - The walk stops at the first occurrence recorded under a different
+      revision. Failures under an older policy are not evidence about this one.
+    """
+    policy = _dict_at(record, "failure_policy", "failure_pause")
+    posture = str(policy.get("posture", UNSET_POSTURE))
+    threshold = _non_negative_int(policy.get("consecutive_failure_threshold", 0))
+    revision_id = str(_dict_at(record, "revision").get("revision_id", ""))
+    streak = 0
+    counted = 0
+    for occurrence in reversed(_list_at(record, "occurrences")):
+        if not isinstance(occurrence, dict):
+            continue
+        if str(occurrence.get("intent_revision_id", "")) != revision_id:
+            break
+        outcome = str(occurrence.get("outcome", ""))
+        if outcome == "failed":
+            streak += 1
+            counted += 1
+            continue
+        if outcome == "ran":
+            break
+        counted += 1
+    paused = posture == "pause_after_consecutive_failures" and threshold > 0 and streak >= threshold
+    return {
+        "posture": posture,
+        "threshold": threshold,
+        "consecutive_failures": streak,
+        "occurrences_inspected": counted,
+        "counted_at_revision": revision_id,
+        "paused": paused,
+        "explanation": _failure_pause_explanation(posture, threshold, streak, revision_id, paused),
+    }
+
+
+def failure_pause_holds_this_revision(record: dict[str, Any]) -> bool:
+    """True while a safety pause recorded against the current revision still stands.
+
+    Reads the recorded transition rather than recomputing the streak, so a
+    revision that pauses and then loses occurrences to the retention window
+    still cannot be re-activated without a policy revision.
+    """
+    revision_id = str(_dict_at(record, "revision").get("revision_id", ""))
+    return any(
+        isinstance(item, dict)
+        and item.get("transition") == "paused_by_failure_policy"
+        and str(item.get("intent_revision_id", "")) == revision_id
+        for item in _list_at(_dict_at(record, "lifecycle"), "transitions")
+    )
+
+
+def decide_recurring_occurrence(
+    record: dict[str, Any],
+    *,
+    situation: str,
+    now: str,
+    active_run_ref: str = "",
+    missed_window_count: int = 0,
+) -> dict[str, Any]:
+    """Project the declared policy onto one situation an approved runtime reported.
+
+    OMH decides nothing about the world here: it reads the policy this revision
+    declares and returns what that policy says, which occurrence outcome to
+    record, and how many retries or backfill windows the policy allows. The
+    runtime surface is what actually starts, skips, queues, or waits.
+
+    `now` is a parameter rather than a clock read so the payload is reproducible
+    and safe to compare.
+    """
+    if situation not in OCCURRENCE_SITUATIONS:
+        raise ValueError(f"unsupported recurring occurrence situation: {situation}")
+    if not str(now).strip():
+        raise ValueError("recurring occurrence decision requires the caller's now timestamp")
+    if not isinstance(missed_window_count, int) or isinstance(missed_window_count, bool) or missed_window_count < 0:
+        raise ValueError("missed_window_count must be a non-negative integer")
+    clean_active_run = str(active_run_ref).strip()
+    if situation == "prior_run_active" and not clean_active_run:
+        # Without the run reference an overlap decision could not name what it
+        # would duplicate, which is exactly the silent case this record exists
+        # to prevent.
+        raise ValueError("a prior_run_active decision requires the run reference of the occurrence still running")
+    pause = recurring_failure_pause_state(record)
+    unset = unset_failure_policy_decisions(record)
+    outcome = _decision_outcome(record, situation, unset, pause, clean_active_run, missed_window_count)
+    return {
+        "schema_version": RECURRING_OCCURRENCE_DECISION_SCHEMA_VERSION,
+        "intent_id": str(record.get("intent_id", "")),
+        "intent_revision_id": str(_dict_at(record, "revision").get("revision_id", "")),
+        "lifecycle_state": str(_dict_at(record, "lifecycle").get("state", "")),
+        "situation": situation,
+        "decision": outcome["decision"],
+        "reason": outcome["reason"],
+        "record_occurrence_as": outcome["record_occurrence_as"],
+        "overlapped_run_ref": clean_active_run if outcome["decision"] != "do_not_start" else "",
+        "missed_window_count": missed_window_count,
+        "retry_attempts_allowed": _retry_attempts_allowed(record),
+        "backfill_windows_allowed": _backfill_windows_allowed(record, situation, outcome["decision"], missed_window_count),
+        "applied_policy": applied_recurring_failure_policy(record),
+        "unset_policy_decisions": [item.decision for item in unset],
+        "failure_pause": pause,
+        "decided_at": str(now),
+        "authority": "local_policy_projection",
+        "enforced_by": ACTIVATION_PERFORMED_BY,
+        "claim_boundary": FAILURE_POLICY_CLAIM_BOUNDARY,
+    }
+
+
+def applied_recurring_failure_policy(record: dict[str, Any]) -> dict[str, Any]:
+    """The five declared decisions plus their bounds, flat enough to report."""
+    retry = _dict_at(record, "failure_policy", "retry")
+    backfill = _dict_at(record, "failure_policy", "backfill")
+    pause = _dict_at(record, "failure_policy", "failure_pause")
+    return {
+        "overlap": _policy_value(record, "overlap_posture.posture"),
+        "missed_run": _policy_value(record, "failure_policy.missed_run.posture"),
+        "retry": str(retry.get("posture", UNSET_POSTURE)),
+        "retry_max_attempts": _non_negative_int(retry.get("max_attempts", 0)),
+        "backfill": str(backfill.get("posture", UNSET_POSTURE)),
+        "backfill_max_windows": _non_negative_int(backfill.get("max_windows", 0)),
+        "failure_pause": str(pause.get("posture", UNSET_POSTURE)),
+        "consecutive_failure_threshold": _non_negative_int(pause.get("consecutive_failure_threshold", 0)),
+    }
+
+
+def render_recurring_occurrence_decision_text(decision: dict[str, Any]) -> str:
+    policy = decision["applied_policy"]
+    lines = [
+        f"Recurring occurrence decision: {decision['decision']}",
+        f"  intent: {decision['intent_id']}",
+        f"  revision: {decision['intent_revision_id']}",
+        f"  situation: {decision['situation']}",
+        f"  reason: {decision['reason']}",
+        f"  record this occurrence as: {decision['record_occurrence_as'] or 'nothing to record'}",
+        f"  retries allowed: {decision['retry_attempts_allowed']}",
+        f"  backfill windows allowed: {decision['backfill_windows_allowed']}",
+        "  applied policy: "
+        f"overlap={policy['overlap']} missed_run={policy['missed_run']} "
+        f"retry={policy['retry']}({policy['retry_max_attempts']}) "
+        f"backfill={policy['backfill']}({policy['backfill_max_windows']}) "
+        f"failure_pause={policy['failure_pause']}({policy['consecutive_failure_threshold']})",
+        f"  failure pause: {decision['failure_pause']['explanation']}",
+        "",
+        FAILURE_POLICY_CLAIM_BOUNDARY,
+    ]
+    return "\n".join(lines)
 
 
 def recurring_intent_revision_id(record: dict[str, Any]) -> str:
@@ -506,6 +903,7 @@ def validate_recurring_intent(record: dict[str, Any]) -> list[str]:
         "scope",
         "owner_profile",
         "overlap_posture",
+        "failure_policy",
         "required_approval",
         "revision",
         "lifecycle",
@@ -527,8 +925,11 @@ def validate_recurring_intent(record: dict[str, Any]) -> list[str]:
         return errors
     if record["owner_profile"].get("owner_kind") not in OWNER_KINDS:
         errors.append(f"unsupported owner_profile.owner_kind: {record['owner_profile'].get('owner_kind', '')}")
-    if record["overlap_posture"].get("posture") not in OVERLAP_POSTURES:
-        errors.append(f"unsupported overlap_posture.posture: {record['overlap_posture'].get('posture', '')}")
+    for decision in FAILURE_POLICY_DECISIONS:
+        posture = _digest_value(record, decision.path)
+        if posture not in decision.choices:
+            errors.append(f"unsupported {decision.path}: {'' if posture is None else posture}")
+    errors.extend(_failure_policy_bound_errors(record))
     if record["required_approval"].get("required") is not True:
         errors.append("required_approval.required must stay true: activation always needs an approval reference")
     if record["required_approval"].get("approval_kind") != REQUIRED_APPROVAL_KIND:
@@ -604,6 +1005,8 @@ def summarize_recurring_intent(record: dict[str, Any]) -> dict[str, Any]:
     revision_id = str(record.get("revision", {}).get("revision_id", ""))
     occurrences = record.get("occurrences", [])
     occurrences = occurrences if isinstance(occurrences, list) else []
+    unset = unset_failure_policy_decisions(record)
+    pause = recurring_failure_pause_state(record)
     return {
         "intent_id": str(record.get("intent_id", "")),
         "kind": str(record.get("kind", "")),
@@ -614,7 +1017,11 @@ def summarize_recurring_intent(record: dict[str, Any]) -> dict[str, Any]:
         "revision_id": revision_id,
         "updated_at": str(record.get("updated_at", "")),
         "cadence": str(record.get("schedule_intent", {}).get("cadence", "unspecified")),
-        "overlap_posture": str(record.get("overlap_posture", {}).get("posture", "unspecified")),
+        "overlap_posture": _policy_value(record, "overlap_posture.posture"),
+        "failure_policy_complete": not unset,
+        "unset_failure_policy_decisions": [item.decision for item in unset],
+        "failure_paused": failure_pause_holds_this_revision(record),
+        "consecutive_failures": int(pause["consecutive_failures"]),
         "owner": str(record.get("owner_profile", {}).get("owner", "")),
         "occurrence_count": int(record.get("occurrences_recorded_total", 0) or 0),
         "retained_occurrence_count": len(occurrences),
@@ -663,6 +1070,8 @@ def render_recurring_intent_text(record: dict[str, Any]) -> str:
     approval_line = f"granted, ref {approval['approval_ref']}" if approval["granted"] else "required, not granted"
     owner = str(record["owner_profile"]["owner"]) or "unassigned"
     linked = summarize_recurring_intent(record)["current_revision_occurrence_count"]
+    policy = applied_recurring_failure_policy(record)
+    pause = recurring_failure_pause_state(record)
     lines = [
         str(record["title"]),
         f"  id: {record['intent_id']}",
@@ -674,6 +1083,11 @@ def render_recurring_intent_text(record: dict[str, Any]) -> str:
         f"  scope: {record['scope']['summary']}",
         f"  owner: {owner} ({record['owner_profile']['owner_kind']})",
         f"  overlap posture: {record['overlap_posture']['posture']}",
+        f"  missed-run posture: {policy['missed_run']}",
+        f"  retry posture: {policy['retry']} (max attempts {policy['retry_max_attempts']})",
+        f"  backfill posture: {policy['backfill']} (max windows {policy['backfill_max_windows']})",
+        f"  failure pause: {policy['failure_pause']} (threshold {policy['consecutive_failure_threshold']})",
+        f"  consecutive failures at this revision: {pause['consecutive_failures']}",
         f"  approval: {approval_line}",
         f"  occurrences linked to this revision: {linked}",
         "",
@@ -698,8 +1112,11 @@ def render_recurring_intent_list_text(payload: dict[str, Any]) -> str:
         lines.append(
             f"  [{item['lifecycle_state']}] {item['title']} ({item['intent_id']}) "
             f"cadence={item['cadence']} overlap={item['overlap_posture']} "
+            f"failure_policy={'complete' if item['failure_policy_complete'] else 'incomplete'} "
             f"occurrences={item['current_revision_occurrence_count']}/{item['occurrence_count']}"
         )
+        if item["failure_paused"]:
+            lines.append(f"    paused by its failure policy after {item['consecutive_failures']} consecutive failures")
     lines.append("A recurring intent is prepared lifecycle metadata; OMH runs no scheduler.")
     return "\n".join(lines)
 
@@ -748,10 +1165,283 @@ def _overlap_posture(posture: str) -> dict[str, object]:
     return {
         "status": "prepared",
         "posture": posture,
-        "explicit": posture != "unspecified",
-        "requires_confirmation": posture == "unspecified",
-        "failure_policy_owner": "tracked separately; this record carries the posture, not the overrun handling",
+        "explicit": posture != UNSET_POSTURE,
+        "requires_confirmation": posture == UNSET_POSTURE,
+        "failure_policy_decision": "overlap",
     }
+
+
+def _failure_policy(
+    *,
+    missed_run_posture: str,
+    retry_posture: str,
+    retry_max_attempts: int,
+    backfill_posture: str,
+    backfill_max_windows: int,
+    failure_pause_posture: str,
+    failure_pause_threshold: int,
+) -> dict[str, object]:
+    """The four failure-policy decisions that live outside `overlap_posture`.
+
+    A bound is normalised to zero for a posture that cannot carry one, and
+    demanded for a posture that must: choosing `retry_bounded` without a count
+    is not a choice.
+    """
+    if missed_run_posture not in MISSED_RUN_POSTURES:
+        raise ValueError(f"unsupported recurring intent missed_run_posture: {missed_run_posture}")
+    if retry_posture not in RETRY_POSTURES:
+        raise ValueError(f"unsupported recurring intent retry_posture: {retry_posture}")
+    if backfill_posture not in BACKFILL_POSTURES:
+        raise ValueError(f"unsupported recurring intent backfill_posture: {backfill_posture}")
+    if failure_pause_posture not in FAILURE_PAUSE_POSTURES:
+        raise ValueError(f"unsupported recurring intent failure_pause_posture: {failure_pause_posture}")
+    attempts = _bounded_policy_count(
+        retry_posture,
+        retry_max_attempts,
+        bounded_posture="retry_bounded",
+        limit=RETRY_ATTEMPT_LIMIT,
+        label="retry_bounded requires a maximum attempt count",
+    )
+    windows = _bounded_policy_count(
+        backfill_posture,
+        backfill_max_windows,
+        bounded_posture="backfill_bounded_window",
+        limit=BACKFILL_WINDOW_LIMIT,
+        label="backfill_bounded_window requires a window count",
+    )
+    threshold = _bounded_policy_count(
+        failure_pause_posture,
+        failure_pause_threshold,
+        bounded_posture="pause_after_consecutive_failures",
+        limit=FAILURE_PAUSE_THRESHOLD_LIMIT,
+        label="pause_after_consecutive_failures requires a consecutive-failure threshold",
+    )
+    return {
+        "status": "prepared",
+        "missed_run": _policy_decision_block(missed_run_posture),
+        "retry": {**_policy_decision_block(retry_posture), "max_attempts": attempts},
+        "backfill": {**_policy_decision_block(backfill_posture), "max_windows": windows},
+        "failure_pause": {
+            **_policy_decision_block(failure_pause_posture),
+            "consecutive_failure_threshold": threshold,
+        },
+        "unbounded_retry_supported": False,
+        "unbounded_backfill_supported": False,
+        "enforced_by": ACTIVATION_PERFORMED_BY,
+        "decision_surface": "decide_recurring_occurrence",
+        "claim_boundary": FAILURE_POLICY_CLAIM_BOUNDARY,
+    }
+
+
+def _policy_decision_block(posture: str) -> dict[str, object]:
+    return {
+        "status": "prepared",
+        "posture": posture,
+        "explicit": posture != UNSET_POSTURE,
+        "requires_confirmation": posture == UNSET_POSTURE,
+    }
+
+
+def _bounded_policy_count(posture: str, value: object, *, bounded_posture: str, limit: int, label: str) -> int:
+    if posture != bounded_posture:
+        return 0
+    count = _non_negative_int(value)
+    if count < 1 or count > limit:
+        raise ValueError(f"{label} between 1 and {limit}")
+    return count
+
+
+def _kept(supplied: object, current: object) -> Any:
+    """Revision semantics: `None` means leave this policy field where it is."""
+    return current if supplied is None else supplied
+
+
+def _policy_value(record: dict[str, Any], path: str) -> str:
+    value = _digest_value(record, path)
+    return UNSET_POSTURE if value in (None, "") else str(value)
+
+
+def _dict_at(record: Any, *keys: str) -> dict[str, Any]:
+    value: Any = record
+    for key in keys:
+        if not isinstance(value, dict):
+            return {}
+        value = value.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _list_at(record: Any, key: str) -> list[Any]:
+    value = record.get(key) if isinstance(record, dict) else None
+    return value if isinstance(value, list) else []
+
+
+def _non_negative_int(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return 0
+    return value
+
+
+def _failure_pause_explanation(posture: str, threshold: int, streak: int, revision_id: str, paused: bool) -> str:
+    if posture == UNSET_POSTURE:
+        return (
+            "No failure-pause threshold has been chosen yet, so this intent cannot be activated and nothing "
+            "will pause it automatically."
+        )
+    if paused:
+        return (
+            f"This recurring intent paused itself: {streak} consecutive failed occurrences were recorded under "
+            f"revision {revision_id}, reaching the declared threshold of {threshold}. Nothing will run again "
+            "until the failure policy is revised and an approved runtime surface records a fresh activation."
+        )
+    return (
+        f"{streak} of {threshold} consecutive failures are recorded under revision {revision_id}; this intent "
+        f"pauses itself at {threshold}."
+    )
+
+
+def _apply_failure_pause(record: dict[str, Any], *, paused_at: str) -> None:
+    """Move an activated record to `paused` once recorded failures reach the threshold."""
+    if str(record["lifecycle"]["state"]) != "activated":
+        return
+    pause = recurring_failure_pause_state(record)
+    if not pause["paused"]:
+        return
+    record["lifecycle"]["state"] = "paused"
+    record["lifecycle"]["transitions"] = [
+        *record["lifecycle"]["transitions"],
+        {
+            "transition": "paused_by_failure_policy",
+            "intent_revision_id": str(record["revision"]["revision_id"]),
+            "observer": "",
+            "observer_kind": "local_policy",
+            "approval_ref": "",
+            "activation_surface": "",
+            "reason": pause["explanation"],
+            "recorded_at": paused_at,
+        },
+    ]
+    record["required_approval"] = {**record["required_approval"], "granted": False, "approval_ref": ""}
+
+
+def _decision_outcome(
+    record: dict[str, Any],
+    situation: str,
+    unset: list[FailurePolicyDecision],
+    pause: dict[str, Any],
+    active_run_ref: str,
+    missed_window_count: int,
+) -> dict[str, str]:
+    """Which way the declared policy points, in refusal-first order."""
+    if unset:
+        return {
+            "decision": "do_not_start",
+            "reason": (
+                "This recurring intent cannot run: its failure policy is incomplete. Still unset: "
+                + ", ".join(item.label for item in unset)
+                + "."
+            ),
+            "record_occurrence_as": "",
+        }
+    if pause["paused"]:
+        return {"decision": "do_not_start", "reason": pause["explanation"], "record_occurrence_as": ""}
+    if str(_dict_at(record, "lifecycle").get("state", "")) != "activated":
+        return {
+            "decision": "do_not_start",
+            "reason": (
+                "This recurring intent is paused, so no approved runtime surface has been recorded against the "
+                "current revision."
+            ),
+            "record_occurrence_as": "",
+        }
+    if situation == "prior_run_active":
+        return _overlap_decision(_policy_value(record, "overlap_posture.posture"), active_run_ref)
+    if situation == "missed_window":
+        return _missed_run_decision(
+            _policy_value(record, "failure_policy.missed_run.posture"),
+            missed_window_count,
+        )
+    return {
+        "decision": "start",
+        "reason": "No prior run is active and no window was missed, so the declared policy allows this occurrence.",
+        "record_occurrence_as": "ran",
+    }
+
+
+def _overlap_decision(posture: str, active_run_ref: str) -> dict[str, str]:
+    if posture == "skip_when_running":
+        return {
+            "decision": "skip",
+            "reason": (
+                f"Run {active_run_ref} is still active and the declared overlap posture is skip_when_running, so "
+                "this window is skipped rather than duplicated."
+            ),
+            "record_occurrence_as": "skipped",
+        }
+    if posture == "queue_after_running":
+        return {
+            "decision": "queue",
+            "reason": (
+                f"Run {active_run_ref} is still active and the declared overlap posture is queue_after_running, so "
+                "this window waits for that run instead of starting beside it."
+            ),
+            "record_occurrence_as": "queued",
+        }
+    return {
+        "decision": "start_concurrent",
+        "reason": (
+            f"The declared overlap posture is allow_concurrent, so this window may start while run "
+            f"{active_run_ref} is still active. Record the occurrence naming that run so the concurrency is "
+            "visible rather than silent."
+        ),
+        "record_occurrence_as": "ran",
+    }
+
+
+def _missed_run_decision(posture: str, missed_window_count: int) -> dict[str, str]:
+    if posture == "skip_missed_window":
+        return {
+            "decision": "skip",
+            "reason": (
+                f"{missed_window_count} window(s) were missed and the declared missed-run posture is "
+                "skip_missed_window, so no catch-up work is started."
+            ),
+            "record_occurrence_as": "missed",
+        }
+    return {
+        "decision": "start",
+        "reason": (
+            f"{missed_window_count} window(s) were missed and the declared missed-run posture is "
+            "run_once_when_late, so the most recent missed window runs once."
+        ),
+        "record_occurrence_as": "ran",
+    }
+
+
+def _retry_attempts_allowed(record: dict[str, Any]) -> int:
+    retry = _dict_at(record, "failure_policy", "retry")
+    if str(retry.get("posture", UNSET_POSTURE)) != "retry_bounded":
+        return 0
+    return _non_negative_int(retry.get("max_attempts", 0))
+
+
+def _backfill_windows_allowed(
+    record: dict[str, Any],
+    situation: str,
+    decision: str,
+    missed_window_count: int,
+) -> int:
+    """Older missed windows the policy allows on top of the one being decided.
+
+    Backfill only applies when a missed window is actually being run, and never
+    exceeds the declared bound -- the record has no vocabulary for catching up
+    on everything.
+    """
+    if situation != "missed_window" or decision != "start":
+        return 0
+    backfill = _dict_at(record, "failure_policy", "backfill")
+    if str(backfill.get("posture", UNSET_POSTURE)) != "backfill_bounded_window":
+        return 0
+    return min(max(missed_window_count - 1, 0), _non_negative_int(backfill.get("max_windows", 0)))
 
 
 def _claim_boundary() -> dict[str, object]:
@@ -760,6 +1450,9 @@ def _claim_boundary() -> dict[str, object]:
         "activated_is_not_executed": True,
         "omh_runs_no_scheduler": True,
         "occurrence_evidence_authority": "linked_runtime_run",
+        "failure_policy_decided_here_enforced_elsewhere": True,
+        "failure_policy_enforced_by": ACTIVATION_PERFORMED_BY,
+        "failure_policy_statement": FAILURE_POLICY_CLAIM_BOUNDARY,
         "statement": PREPARED_RECURRING_INTENT_IS_NOT,
     }
 
@@ -790,10 +1483,7 @@ def _open_decisions(record: dict[str, Any]) -> list[str]:
         decisions.append("confirm the scope this recurring work is allowed to touch")
     if record["owner_profile"].get("requires_confirmation"):
         decisions.append("name the owner accountable for this recurring work")
-    if record["overlap_posture"].get("requires_confirmation"):
-        decisions.append(
-            "choose the overlap posture: skip_when_running, queue_after_running, or allow_concurrent"
-        )
+    decisions.extend(item.question for item in unset_failure_policy_decisions(record))
     return decisions
 
 
@@ -815,6 +1505,8 @@ def _human_summary(record: dict[str, Any]) -> str:
             "It is activated by an approved runtime surface; OMH still runs no scheduler, and each occurrence "
             "counts only when that runtime records a run reference here."
         )
+    elif failure_pause_holds_this_revision(record):
+        closing = recurring_failure_pause_state(record)["explanation"]
     else:
         closing = (
             "It is paused: OMH runs no scheduler, so nothing happens until an approved runtime surface "
@@ -822,17 +1514,62 @@ def _human_summary(record: dict[str, Any]) -> str:
         )
     return (
         f"{when}: {record['request_summary']} Report to {surfaces}, {reporting}. "
-        f"Owner: {owner}. {closing}"
+        f"Owner: {owner}. {_failure_policy_sentence(record)} {closing}"
+    )
+
+
+def _failure_policy_sentence(record: dict[str, Any]) -> str:
+    """What the user is told will happen when things go wrong, before activation."""
+    unset = unset_failure_policy_decisions(record)
+    if unset:
+        return (
+            "Its failure policy is incomplete, so it cannot be activated yet: "
+            + ", ".join(item.label for item in unset)
+            + " still need a decision."
+        )
+    policy = applied_recurring_failure_policy(record)
+    overlap = {
+        "skip_when_running": "skip this window",
+        "queue_after_running": "wait for that run to finish",
+        "allow_concurrent": "start anyway alongside it",
+    }[policy["overlap"]]
+    missed = (
+        "the missed window is skipped"
+        if policy["missed_run"] == "skip_missed_window"
+        else "the most recent missed window runs once when it is late"
+    )
+    retry = (
+        "a failed occurrence is not retried"
+        if policy["retry"] == "no_retry"
+        else f"a failed occurrence is retried up to {policy['retry_max_attempts']} time(s)"
+    )
+    backfill = (
+        "older missed windows are never backfilled"
+        if policy["backfill"] == "no_backfill"
+        else f"at most {policy['backfill_max_windows']} older missed window(s) are backfilled"
+    )
+    return (
+        f"If a prior run is still active it will {overlap}; if a window is missed, {missed}; {retry}; "
+        f"{backfill}; and it pauses itself after {policy['consecutive_failure_threshold']} consecutive failures."
     )
 
 
 def _status_card(record: dict[str, Any]) -> dict[str, object]:
     activated = str(record["lifecycle"]["state"]) == "activated"
+    pause = recurring_failure_pause_state(record)
+    failure_paused = failure_pause_holds_this_revision(record)
+    if failure_paused:
+        headline = "Recurring intent paused by its own failure policy"
+        next_steps = ["revise the failure policy, then record a fresh activation with an approval reference"]
+    elif activated:
+        headline = "Recurring intent activated by an approved runtime surface"
+        next_steps = ["record each occurrence with the runtime run reference that owns its evidence"]
+    else:
+        headline = "Recurring intent prepared and paused"
+        next_steps = ["hand activation to an approved runtime surface and record its observer"]
     return {
         "schema_version": RECURRING_INTENT_STATUS_CARD_SCHEMA_VERSION,
-        "headline": "Recurring intent activated by an approved runtime surface"
-        if activated
-        else "Recurring intent prepared and paused",
+        "headline": headline,
         "lifecycle_state": str(record["lifecycle"]["state"]),
         "revision_id": str(record["revision"]["revision_id"]),
         "prepared": [
@@ -842,16 +1579,41 @@ def _status_card(record: dict[str, Any]) -> dict[str, object]:
             "scope",
             "owner profile",
             "overlap posture",
+            "missed-run, retry, backfill, and failure-pause policy",
             "required approval",
         ],
+        "applied_policy": applied_recurring_failure_policy(record),
+        "failure_pause": dict(pause),
         "not_observed": list(RECURRING_INTENT_NOT_EVIDENCE),
-        "next": list(record["open_decisions"])
-        or (
-            ["record each occurrence with the runtime run reference that owns its evidence"]
-            if activated
-            else ["hand activation to an approved runtime surface and record its observer"]
-        ),
+        "next": list(record["open_decisions"]) or next_steps,
     }
+
+
+def _failure_policy_bound_errors(record: dict[str, Any]) -> list[str]:
+    """Every bounded count must match the posture that is allowed to carry it."""
+    errors: list[str] = []
+    for keys, field, bounded_posture, limit in (
+        (("failure_policy", "retry"), "max_attempts", "retry_bounded", RETRY_ATTEMPT_LIMIT),
+        (("failure_policy", "backfill"), "max_windows", "backfill_bounded_window", BACKFILL_WINDOW_LIMIT),
+        (
+            ("failure_policy", "failure_pause"),
+            "consecutive_failure_threshold",
+            "pause_after_consecutive_failures",
+            FAILURE_PAUSE_THRESHOLD_LIMIT,
+        ),
+    ):
+        block = _dict_at(record, *keys)
+        path = ".".join((*keys, field))
+        raw = block.get(field, 0)
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+            errors.append(f"{path} must be a non-negative integer")
+            continue
+        if str(block.get("posture", UNSET_POSTURE)) == bounded_posture:
+            if raw < 1 or raw > limit:
+                errors.append(f"{path} must be between 1 and {limit} for posture {bounded_posture}")
+        elif raw != 0:
+            errors.append(f"{path} must be 0 unless the posture is {bounded_posture}")
+    return errors
 
 
 def _lifecycle_errors(record: dict[str, Any]) -> list[str]:
@@ -877,8 +1639,13 @@ def _lifecycle_errors(record: dict[str, Any]) -> list[str]:
     if state == "activated":
         if not activations:
             errors.append("an activated recurring intent must carry a recorded activation transition")
-        if str(record["overlap_posture"].get("posture", "")) == "unspecified":
-            errors.append("an activated recurring intent must carry an explicit overlap posture")
+        for decision in unset_failure_policy_decisions(record):
+            errors.append(f"an activated recurring intent must carry an explicit {decision.label}")
+        if failure_pause_holds_this_revision(record):
+            errors.append(
+                "an activated recurring intent must not carry a failure pause at its current revision: "
+                "revise the failure policy and record a fresh activation instead"
+            )
         if record["required_approval"].get("granted") is not True:
             errors.append("an activated recurring intent must record its approval as granted")
     return errors
@@ -915,13 +1682,24 @@ def _occurrence_errors(record: dict[str, Any]) -> list[str]:
             continue
         if occurrence.get("schema_version") != RECURRING_OCCURRENCE_SCHEMA_VERSION:
             errors.append(f"{path}.schema_version must be {RECURRING_OCCURRENCE_SCHEMA_VERSION}")
-        if occurrence.get("outcome") not in OCCURRENCE_OUTCOMES:
+        outcome = occurrence.get("outcome")
+        if outcome not in OCCURRENCE_OUTCOMES:
             errors.append(f"{path}.outcome must be one of {', '.join(OCCURRENCE_OUTCOMES)}")
         if not str(occurrence.get("observer", "")).strip():
             errors.append(f"{path} must name the observer that reported the run")
         runtime_run = occurrence.get("runtime_run")
-        if not isinstance(runtime_run, dict) or not str(runtime_run.get("run_ref", "")).strip():
-            errors.append(f"{path} must link a runtime run reference: preparation is never execution")
+        run_ref = str(runtime_run.get("run_ref", "")).strip() if isinstance(runtime_run, dict) else ""
+        if outcome in EXECUTING_OCCURRENCE_OUTCOMES:
+            if not run_ref:
+                errors.append(f"{path} must link a runtime run reference: preparation is never execution")
+        elif outcome in OCCURRENCE_OUTCOMES:
+            # A non-executing occurrence records a non-run. Borrowing a run
+            # reference would let it read as execution evidence, and an empty
+            # reason would make the non-run silent.
+            if run_ref:
+                errors.append(f"{path} is a {outcome} occurrence and must not carry a runtime run reference")
+            if not str(occurrence.get("reason", "")).strip():
+                errors.append(f"{path} is a {outcome} occurrence and must record why the policy did not run it")
         revision_id = str(occurrence.get("intent_revision_id", ""))
         if revision_id not in known_revisions:
             errors.append(f"{path} names unknown intent revision {revision_id or '<missing>'}")

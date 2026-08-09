@@ -72,7 +72,8 @@ Reasoning demand: `light`
 Quality bar:
 
 - Name cadence/timezone uncertainty, delivery target, silence/no-change rule, selected skills, and context chain.
-- When the recurring work is saved, say it is paused and name what activation needs: an explicit overlap posture, an approval reference, and an observer from the approved runtime surface.
+- When the recurring work is saved, say it is paused and name what activation needs: explicit overlap, missed-run, retry, backfill, and failure-pause decisions, an approval reference, and an observer from the approved runtime surface.
+- Before activation, say what the policy does when a prior run is still active, when a window is missed, and when failures repeat; after a safety pause, report the applied policy and that resuming needs a policy revision.
 - Expose whether a no-agent watchdog is a candidate without claiming it exists or ran.
 - List host automation, gateway delivery, source retrieval, and no-agent execution as not evidence until observed.
 
@@ -105,6 +106,7 @@ Safety rules:
 - Do not claim host cron, Hermes automation, gateway delivery, source retrieval, no-agent execution, plugin load, or connector work from a prepared blueprint.
 - Keep scheduled operations as projection metadata until the host runtime supplies observed evidence.
 - A saved recurring intent is paused; never report that an occurrence ran without a runtime run reference recorded against that exact intent revision.
+- A prepared failure policy is not enforcement: OMH never starts, skips, queues, retries, or backfills an occurrence, and a policy decision is not proof the runtime honoured it.
 - Route later coding, material generation, or report delivery into separate accepted handoffs when needed.
 
 ## Runtime Evidence

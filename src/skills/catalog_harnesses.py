@@ -1820,7 +1820,7 @@ _HARNESSES = [
         (
             "validate hermes_ops_blueprint/v1",
             "check schedule/delivery/silence fields",
-            "verify a saved recurring intent is paused and names its overlap posture, approval, and activation observer",
+            "verify a saved recurring intent is paused and names its overlap, missed-run, retry, backfill, and failure-pause policy, approval, and activation observer",
             "verify not_evidence_until_observed lists runtime and gateway claims",
         ),
         "If cadence, delivery, or silence policy is missing, prepare the blueprint and ask for the smallest missing confirmation.",
@@ -1853,6 +1853,7 @@ _HARNESSES = [
         overclaim_guards=(
             "A hermes_ops_blueprint/v1 artifact is not host cron creation, Hermes automation, gateway delivery, source retrieval, no-agent execution, plugin load, or connector evidence.",
             "A hermes_recurring_intent/v1 record stays paused until an approved runtime surface records an activation observer, and an activated intent is still not occurrence-execution evidence.",
+            "A declared overlap, missed-run, retry, backfill, or failure-pause policy is a decision the runtime surface applies; OMH runs nothing and a policy decision is not evidence that anything was skipped, retried, or backfilled.",
             "A silence policy is not proof that a run happened or that there were no changes.",
             "No-agent suitability is only a design hint until a no-agent runtime record exists.",
         ),
