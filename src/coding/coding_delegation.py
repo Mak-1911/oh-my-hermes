@@ -36,6 +36,7 @@ from ..executors import (
     runtime_profile_contract,
     runtime_templates_for_profile,
 )
+from .handoff_input_manifest import build_handoff_input_manifest, pinned_input_manifest
 from .hermes_harness import build_hermes_coding_harness
 from .executor_capability_snapshots import (
     KNOWN_CAPABILITY_NAMES,
@@ -316,6 +317,7 @@ def build_coding_delegation_payload(
     source_metadata: dict[str, str] | None = None,
     executor_target: str = "generic",
     context_pack: dict[str, object] | None = None,
+    input_manifest: dict[str, object] | None = None,
     memory_recall_pack: dict[str, object] | None = None,
     plan_artifact: dict[str, object] | None = None,
     preferred_workflow: str | None = None,
@@ -385,6 +387,11 @@ def build_coding_delegation_payload(
         review_required=review_required,
         review_workflow="code-review" if review_required else None,
         delegation_prompt_template=_delegation_prompt_template(action, intent, workflow, harness),
+    )
+    resolved_input_manifest = (
+        input_manifest
+        if input_manifest is not None
+        else _derived_input_manifest(context_pack, executor_target=executor_target)
     )
     payload: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
@@ -540,6 +547,7 @@ def build_coding_delegation_payload(
             executor_local_workflow=executor_local_workflow,
         )
         _attach_context_pack(payload["executor_handoff"], context_pack)
+        _attach_input_manifest(payload["executor_handoff"], resolved_input_manifest)
         _attach_memory_recall_pack(payload["executor_handoff"], memory_recall_pack)
     elif selection.work_owner_mode == "runtime_handoff" and selection.selected_executor_profile and delegation.action == "delegate":
         prompting_contract = _executor_prompting_contract(
@@ -559,6 +567,7 @@ def build_coding_delegation_payload(
             executor_local_workflow=executor_local_workflow,
         )
         _attach_context_pack(payload["runtime_handoff"], context_pack)
+        _attach_input_manifest(payload["runtime_handoff"], resolved_input_manifest)
         _attach_memory_recall_pack(payload["runtime_handoff"], memory_recall_pack)
     elif selection.work_owner_mode == "prompt_only_handoff" and selection.selected_executor_profile and delegation.action == "delegate":
         prompting_contract = _executor_prompting_contract(
@@ -578,6 +587,7 @@ def build_coding_delegation_payload(
             executor_local_workflow=executor_local_workflow,
         )
         _attach_context_pack(payload["prompt_handoff"], context_pack)
+        _attach_input_manifest(payload["prompt_handoff"], resolved_input_manifest)
         _attach_memory_recall_pack(payload["prompt_handoff"], memory_recall_pack)
     specialist_work_quality = build_specialist_work_quality_contract(
         delegation.recommended_workflow,
@@ -916,6 +926,45 @@ def build_coding_delegation_event_payload(
         include_message=include_message,
         source_metadata=extract_source_metadata(event),
     )
+
+
+def _derived_input_manifest(
+    context_pack: dict[str, object] | None,
+    *,
+    executor_target: str,
+) -> dict[str, object] | None:
+    """The manifest a handoff carries when the caller supplied no explicit one.
+
+    #823 asks that *every* coding handoff carry a bounded input manifest, and on
+    this lane the reviewed context pack is the one input OMH can enumerate on its
+    own -- files, plan sections, and diffs arrive as explicit selections from a
+    caller that made them. The derived manifest is therefore the pack's
+    contribution, restated in the manifest's terms with each item's hash, byte
+    cost, and safety verdict attached, so a user can read what the owner
+    receives even when nothing else was selected. With no pack there is nothing
+    to enumerate and no manifest is invented.
+    """
+    if not context_pack:
+        return None
+    scope = context_pack.get("scope")
+    return build_handoff_input_manifest(
+        executor_target=executor_target,
+        session_id=str(context_pack.get("session_id", "")),
+        scope=scope if isinstance(scope, dict) else None,
+        context_pack=context_pack,
+    )
+
+
+def _attach_input_manifest(handoff: object, input_manifest: dict[str, object] | None) -> None:
+    """Pin the manifest onto the handoff.
+
+    `pinned_input_manifest` validates and then detaches a copy, so the recorded
+    revision and digest stay the ones this handoff carried even if the caller
+    keeps revising its own manifest afterwards.
+    """
+    if not isinstance(handoff, dict) or not input_manifest:
+        return
+    handoff["input_manifest"] = pinned_input_manifest(input_manifest)
 
 
 def _attach_context_pack(handoff: object, context_pack: dict[str, object] | None) -> None:

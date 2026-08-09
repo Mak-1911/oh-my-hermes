@@ -580,9 +580,18 @@ class ProvenanceSoleAccessorPolicyTests(unittest.TestCase):
     `provenance` usages elsewhere (src/commands/ops.py research provenance,
     src/quality/ evidence records) are an unrelated vocabulary and are not
     matched by the dict-access anchors.
+
+    `_UNRELATED_VOCABULARY` is the same "unrelated vocabulary" carve-out for a
+    file that does use dict access, and it is deliberately per-file rather than
+    a pattern: `handoff_input_manifest/v1` gives every manifest item a
+    `provenance` object naming the local source it came from, which is not a
+    `coding_model_route/*` provenance and reaches no resolver. Widening this
+    tuple is how a second such contract is admitted — one file at a time, with
+    a reason — so the gate keeps its teeth on everything that really is a route.
     """
 
     _ACCESS_RE = re.compile(r"""(?:\[\s*["']provenance["']\s*\]|\.get\(\s*["']provenance["'])""")
+    _UNRELATED_VOCABULARY = (("coding", "handoff_input_manifest.py"),)
 
     def test_provenance_key_reads_stay_in_model_routing(self) -> None:
         repo_src = Path(__file__).resolve().parent.parent / "src"
@@ -591,11 +600,27 @@ class ProvenanceSoleAccessorPolicyTests(unittest.TestCase):
             for path in sorted((repo_src / directory).rglob("*.py")):
                 if path.name == "model_routing.py" and directory == "coding":
                     continue
+                if (directory, path.name) in self._UNRELATED_VOCABULARY:
+                    continue
                 text = path.read_text(encoding="utf-8")
                 for match in self._ACCESS_RE.finditer(text):
                     line = text.count("\n", 0, match.start()) + 1
                     offenders.append(f"{path.relative_to(repo_src)}:{line}")
         self.assertEqual(offenders, [], "read provenance via route_provenance() instead")
+
+    def test_unrelated_vocabulary_carve_outs_never_touch_model_routes(self) -> None:
+        """The carve-out's premise, checked rather than asserted in prose.
+
+        An exempted file that started reading model routes would still be
+        exempt, and the gate would report nothing. Proving it imports no
+        resolver is what keeps the exemption honest, and a stale entry for a
+        renamed file fails here instead of rotting into a silent hole.
+        """
+        repo_src = Path(__file__).resolve().parent.parent / "src"
+        for directory, name in ProvenanceSoleAccessorPolicyTests._UNRELATED_VOCABULARY:
+            path = repo_src / directory / name
+            self.assertTrue(path.is_file(), f"stale provenance carve-out: {directory}/{name}")
+            self.assertNotIn("model_routing", path.read_text(encoding="utf-8"), f"{directory}/{name}")
 
 
 class DispatchArgvTests(unittest.TestCase):

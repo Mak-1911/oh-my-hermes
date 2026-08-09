@@ -62,6 +62,7 @@ from ..coding.action_gate import (
     validate_handoff_safety_contract,
     validate_task_authority_envelope,
 )
+from ..coding.handoff_input_manifest import validate_handoff_input_manifest
 from ..coding.product_family_templates import validate_product_family_template
 from ..coding.product_quality_harnesses import validate_product_quality_harness
 from ..coding.project_governance import validate_project_governance_blocked, validate_project_governance_profile
@@ -302,6 +303,7 @@ CODING_EXECUTOR_HANDOFF_KEYS = (
     "harness_quality",
     "context_pack",
     "context_pack_blocked",
+    "input_manifest",
     "memory_recall_pack",
     "project_governance_profile",
     "project_governance_blocked",
@@ -338,6 +340,7 @@ CODING_PROMPT_HANDOFF_KEYS = (
     "harness_quality",
     "context_pack",
     "context_pack_blocked",
+    "input_manifest",
     "memory_recall_pack",
     "project_governance_profile",
     "project_governance_blocked",
@@ -381,6 +384,7 @@ CODING_RUNTIME_HANDOFF_KEYS = (
     "hermes_coding_harness",
     "context_pack",
     "context_pack_blocked",
+    "input_manifest",
     "memory_recall_pack",
     "project_governance_profile",
     "project_governance_blocked",
@@ -1188,6 +1192,9 @@ def _compact_executor_handoff(value: Any) -> dict[str, Any]:
     context_pack_blocked = _compact_context_pack_blocked(value.get("context_pack_blocked"))
     if context_pack_blocked:
         compact["context_pack_blocked"] = context_pack_blocked
+    input_manifest = _compact_input_manifest(value.get("input_manifest"))
+    if input_manifest:
+        compact["input_manifest"] = input_manifest
     memory_recall_pack = _compact_memory_recall_pack(value.get("memory_recall_pack"))
     if memory_recall_pack:
         compact["memory_recall_pack"] = memory_recall_pack
@@ -1253,6 +1260,9 @@ def _compact_prompt_handoff(value: Any) -> dict[str, Any]:
     context_pack_blocked = _compact_context_pack_blocked(value.get("context_pack_blocked"))
     if context_pack_blocked:
         compact["context_pack_blocked"] = context_pack_blocked
+    input_manifest = _compact_input_manifest(value.get("input_manifest"))
+    if input_manifest:
+        compact["input_manifest"] = input_manifest
     memory_recall_pack = _compact_memory_recall_pack(value.get("memory_recall_pack"))
     if memory_recall_pack:
         compact["memory_recall_pack"] = memory_recall_pack
@@ -1321,6 +1331,9 @@ def _compact_runtime_handoff(value: Any) -> dict[str, Any]:
     context_pack_blocked = _compact_context_pack_blocked(value.get("context_pack_blocked"))
     if context_pack_blocked:
         compact["context_pack_blocked"] = context_pack_blocked
+    input_manifest = _compact_input_manifest(value.get("input_manifest"))
+    if input_manifest:
+        compact["input_manifest"] = input_manifest
     memory_recall_pack = _compact_memory_recall_pack(value.get("memory_recall_pack"))
     if memory_recall_pack:
         compact["memory_recall_pack"] = memory_recall_pack
@@ -1750,6 +1763,23 @@ def _compact_context_pack_blocked(value: Any) -> dict[str, Any]:
         "blocked_by_conflicts": _compact_context_dict_list(value.get("blocked_by_conflicts", [])),
         "claim_boundary": str(value.get("claim_boundary", "")),
     }
+
+
+def _compact_input_manifest(value: Any) -> dict[str, Any]:
+    """Record the manifest whole, or not at all.
+
+    Unlike the context pack this is not re-projected field by field: the
+    manifest's `digest` covers its own content, so a compact copy assembled from
+    selected fields would carry a digest that no longer matches what it
+    describes. An unvalidatable manifest is dropped instead of half-recorded,
+    the same way `_compact_governance_and_family` treats a contract it cannot
+    validate.
+    """
+    if not isinstance(value, dict) or not value:
+        return {}
+    if validate_handoff_input_manifest(value, label="input_manifest"):
+        return {}
+    return deepcopy(value)
 
 
 def _compact_memory_recall_pack(value: Any) -> dict[str, Any]:
@@ -3852,6 +3882,8 @@ def validate_handoff_context_pack_fields(handoff: dict[str, Any], label: str) ->
         errors.extend(validate_handoff_context_blocked(handoff.get("context_pack_blocked"), label=f"{label} context_pack_blocked"))
     if "memory_recall_pack" in handoff:
         errors.extend(validate_project_memory_recall_pack(handoff.get("memory_recall_pack"), label=f"{label} memory_recall_pack"))
+    if "input_manifest" in handoff:
+        errors.extend(validate_handoff_input_manifest(handoff.get("input_manifest"), label=f"{label} input_manifest"))
     return errors
 
 
