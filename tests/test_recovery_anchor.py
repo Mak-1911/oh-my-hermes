@@ -360,6 +360,21 @@ class BoundedDirtyStateTests(unittest.TestCase):
                 self.assertTrue(str(path).startswith("ref-"), path)
         self.assertEqual(validate_recovery_anchor(_observed(dirty_state=state)), [])
 
+    def test_a_root_anchored_path_folds_in_either_separator_spelling(self) -> None:
+        # Both spellings on both platforms, not `os.sep`. `\etc\shadow` is
+        # root-anchored on Windows but was read here as project-relative, so an
+        # absolute path was stored verbatim in a metadata-only record. Windows CI
+        # was the only place `os.sep` produced that spelling, which is why the
+        # bound is asserted against literals instead of the platform separator.
+        for path in ("/etc/shadow", "\\etc\\shadow", "C:/Windows/system32", "\\\\server\\share\\x"):
+            with self.subTest(path=path):
+                state = build_dirty_state_digest(observed=True, changed_paths=(path,))
+                stored = state["paths"]  # type: ignore[index]
+                self.assertEqual(len(stored), 1)
+                self.assertTrue(str(stored[0]).startswith("ref-"), stored[0])
+                self.assertNotIn("etc", str(stored[0]))
+                self.assertNotIn("Windows", str(stored[0]))
+
     def test_a_stored_path_that_never_went_through_the_bound_is_rejected(self) -> None:
         anchor = _observed()
         tampered = {**anchor, "dirty_state": {**anchor["dirty_state"], "paths": ["/etc/shadow"]}}  # type: ignore[dict-item]

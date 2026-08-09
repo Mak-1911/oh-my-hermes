@@ -176,7 +176,11 @@ _LABEL = "recovery_anchor"
 # and the pattern cannot disagree about what an object name is.
 _OBJECT_NAME = re.compile(rf"^[0-9a-f]{{{MIN_BASE_REVISION_CHARS},{MAX_BASE_REVISION_CHARS}}}$")
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
-_WINDOWS_PATH = re.compile(r"^(?:[A-Za-z]:|\\\\)")
+# Rooted in any spelling: a drive letter, a UNC prefix, or one leading separator
+# of either kind. The single backslash is the one that bites -- on Windows
+# `os.path.join(os.sep, "etc", "shadow")` is `\etc\shadow`, which is root-anchored
+# there but was read as project-relative here and stored verbatim.
+_ROOTED_PATH = re.compile(r"^(?:[A-Za-z]:|[\\/])")
 
 
 class RecoveryAnchorError(ValueError):
@@ -632,7 +636,7 @@ def _bounded_path(value: str) -> str:
         return digest_ref(text)
     if _CONTROL_CHARS.search(text) or is_sensitive_metadata_text(text) or is_url_shaped(text):
         return digest_ref(text)
-    if text.startswith("~") or text.startswith("/") or _WINDOWS_PATH.match(text):
+    if text.startswith("~") or _ROOTED_PATH.match(text):
         return digest_ref(text)
     if ".." in re.split(r"[\\/]", text):
         return digest_ref(text)
