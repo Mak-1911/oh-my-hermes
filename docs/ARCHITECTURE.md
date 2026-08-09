@@ -923,6 +923,61 @@ status means a handoff was prepared; the companion run envelope is also marked
 Executor-choice, runtime-handoff, clarify, fallback, and prompt-only handoffs
 return `runtime.recorded=false` and should stay in wrapper/session state.
 
+### External Action Readiness
+
+`workflows/external_action_readiness.py` answers the one question a person
+actually asks before an external action: can Hermes do this now? It stores
+nothing. It reads records the surfaces above already wrote and derives one
+`external_action_readiness/v1` answer, scoped to a **requested outcome** rather
+than to a connector, because two outcomes over one connector routinely differ —
+the surface can be reachable while one of the two effects has never succeeded
+through it.
+
+Two axes, kept apart because welding them is the confusion the answer removes:
+
+- **Evidence tier** — the strongest class of fact anyone recorded.
+  `installed` is a local configuration fact; `host_observed` means a host
+  reported loading the surface; `usable_observed` means a host reported using
+  it; `used` means an external effect receipt records this outcome succeeding;
+  `stale` means one of those was true and is now past its horizon.
+- **State** — the answer: `ready`, `blocked`, `not_observed`, `stale`,
+  `failed`, each carrying the smallest next action.
+
+Configuration can never reach `ready`, and the guard is mechanical rather than
+advisory. `SOURCE_TIERS` declares which tiers each source may claim, the
+`local_configuration` source may claim only `installed`, and `installed` sits
+below the tier level a positive answer requires. The finished answer is
+re-checked on the way out, so a `ready` carrying a tier that cannot support one
+fails validation.
+
+Scoping follows the same split: evidence naming an outcome answers for that
+outcome and no other, so a receipt for a different effect cannot satisfy this
+one; evidence naming only a surface answers for every outcome over that surface.
+
+Freshness is derived at read time from `EXTERNAL_ACTION_STALE_AFTER_SECONDS`
+(six hours, the horizon `pre_handoff_readiness` and `action_gate` already use
+for the same kind of question). No expiry is written into a record, `now` is a
+parameter so the derivation is deterministic, and an unreadable or future stamp
+reads as older than the horizon rather than being clamped.
+
+Invalid evidence is rejected before the derivation, never after it, so bad input
+structurally cannot raise an answer. When records were supplied and none
+survived validation and scoping, the last valid answer is preserved rather than
+overwritten and the answer says so through `state_source: preserved_prior` plus
+a bounded `rejected_evidence` list naming the gap.
+
+`omh runtime action-readiness --outcome <id> --surface <host>` is the read-only
+view. It adapts plugin host observations, MCP host sessions, and external effect
+receipts; `omh_mcp_observation/v1` and `omh_evidence_probe/v1` are deliberately
+not adapted, because neither names a host or an effect and neither can therefore
+be scoped to a requested outcome. There is no flag that asserts readiness —
+every tier above `installed` exists because some other surface observed
+something — and no answer store, so a corrupt line appended to an evidence store
+today cannot erase what the valid records already say. The command is registered
+in `coding_progress_policy_enforcement()["bounded_surfaces"]`: its output is one
+verdict, at most eight rejected rows, and at most eight store faults, however
+large the stores grow.
+
 ### Approval Receipts
 
 `runtime/journal/approval_receipts.jsonl` is an append-only store of

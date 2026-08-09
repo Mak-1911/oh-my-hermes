@@ -336,9 +336,15 @@ def coding_progress_policy_enforcement() -> dict[str, object]:
         # agent asks "is this run stuck yet" repeatedly -- and caps its own
         # output at `run_health.MAX_RUN_HEALTH_EVENTS` observations plus a fixed
         # metric set, so a longer run does not buy a longer answer.
+        #
+        # `omh runtime action-readiness` is that temptation aimed outward --
+        # "can you send it yet" -- and answers in a fixed shape: one verdict, a
+        # capped list of rejected records, and a capped list of store faults, no
+        # matter how large the evidence stores have grown.
         "bounded_surfaces": [
             "omh runtime show",
             "omh runtime health-summary",
+            "omh runtime action-readiness",
             "omh coding fanout show",
             "omh coding fanout brief",
             "omh coding status-board",
