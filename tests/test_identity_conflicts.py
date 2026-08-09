@@ -466,7 +466,16 @@ class IncompleteScanTests(unittest.TestCase):
         self.assertEqual(report["precedence"], "uncontested")
         self.assertEqual(after_removal["precedence"], "unknown")
         self.assertEqual(after_removal["severity"], "warning")
-        self.assertTrue(any(str(missing) in item for item in after_removal["unreadable"]))
+        # The report records the resolved directory, so the assertion has to
+        # resolve too. Matching the raw path passed on macOS only because
+        # `/private/var/...` happens to contain `/var/...` as a substring; on
+        # Windows the temp directory resolves out of its 8.3 short form and the
+        # raw spelling is not a substring of the long one.
+        resolved = str(Path(missing).resolve(strict=False))
+        self.assertTrue(
+            any(resolved in item for item in after_removal["unreadable"]),
+            after_removal["unreadable"],
+        )
 
 
 class NoWriteTests(unittest.TestCase):
