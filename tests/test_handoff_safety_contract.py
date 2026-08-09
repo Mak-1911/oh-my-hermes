@@ -100,6 +100,7 @@ _ENFORCED_BOUNDARIES = frozenset(
         "network",
         "profile_revision",
         "prohibited_actions",
+        "review_receipt",
         "storage_content",
         "untrusted_input",
     }
@@ -113,7 +114,6 @@ _DECLARED_NOT_ENFORCED = {
     "account_authorization": "host_owned_consent_flow_is_not_observable_by_omh",
     "confirmation_answered": "no_confirmation_answer_intake_mints_a_run_bound_approval",
     "recovery": "#821",
-    "review_receipt": "#844",
     "start_evidence": "#826",
     "storage_retention": "#835",
     "workspace": "#820",
@@ -383,7 +383,6 @@ class AntiDecorationTests(unittest.TestCase):
         self.assertIn("nothing binds a running executor", _boundary(contract, "workspace")["statement"])
         self.assertIn("not a state OMH can observe", _boundary(contract, "account_authorization")["statement"])
         self.assertIn("persist until the operator deletes them", _boundary(contract, "storage_retention")["statement"])
-        self.assertIn("no external effect", _boundary(contract, "review_receipt")["statement"])
         self.assertIn("no observed start", _boundary(contract, "start_evidence")["statement"])
 
 
@@ -600,7 +599,11 @@ class EvidenceRequirementTests(unittest.TestCase):
             ("wrapper", {"prompt_dispatched": True}, Claim.EXECUTOR_DISPATCHED),
             ("execution", {"observed": True}, Claim.EXECUTION_OBSERVED),
             ("verification", {"observed": True}, Claim.VERIFICATION_OBSERVED),
-            ("review", {"observed": True, "status": "passed"}, Claim.REVIEW_OBSERVED),
+            (
+                "review",
+                {"observed": True, "status": "passed", "receipt": _receipt("review", run_id)},
+                Claim.REVIEW_OBSERVED,
+            ),
             ("ci", {"observed": True, "status": "passed", "receipt": _receipt("ci", run_id)}, Claim.CI_OBSERVED),
             ("merge_readiness", {"observed": True, "status": "ready"}, Claim.MERGE_READY),
             ("merge", {"observed": True, "status": "merged", "receipt": _receipt("merge", run_id)}, Claim.MERGED),
@@ -622,7 +625,7 @@ class EvidenceRequirementTests(unittest.TestCase):
             "wrapper": {"prompt_dispatched": True},
             "execution": {"observed": True},
             "verification": {"observed": True},
-            "review": {"observed": True, "status": "passed"},
+            "review": {"observed": True, "status": "passed", "receipt": _receipt("review", run_id)},
             "ci": {"observed": True, "status": "passed"},
         }
         self.assertNotIn(Claim.CI_OBSERVED, allowed_runtime_claims(status, validation_failed=False))
@@ -635,10 +638,10 @@ class EvidenceRequirementTests(unittest.TestCase):
         status["merge"] = {"observed": True, "status": "merged"}
         self.assertNotIn(Claim.MERGED, allowed_runtime_claims(status, validation_failed=False))
 
-    def test_review_is_claim_gated_but_not_receipt_gated_and_the_contract_says_so(self) -> None:
-        # The asymmetry against CI and merge is real and is declared rather than
-        # closed here: closing it would change the ladder for runs recorded
-        # before receipts existed, which is a separate decision.
+    def test_review_is_receipt_gated_like_ci_and_merge_and_the_contract_says_so(self) -> None:
+        # #844 closed the last asymmetry in the ladder. Review was the one stage
+        # where OMH would report "review passed" with nothing naming the surface
+        # that reviewed it.
         run_id = "run-818"
         status: dict[str, object] = {
             "external_effects": {"run_id": run_id},
@@ -648,10 +651,31 @@ class EvidenceRequirementTests(unittest.TestCase):
             "verification": {"observed": True},
             "review": {"observed": True, "status": "passed"},
         }
+        self.assertNotIn(Claim.REVIEW_OBSERVED, allowed_runtime_claims(status, validation_failed=False))
+        # The refusal reads as a receipt gap, not as a missing review record.
+        blocked = {entry["claim"]: entry["reason"] for entry in blocked_runtime_claims(
+            allowed_runtime_claims(status, validation_failed=False), validation_failed=False
+        )}
+        self.assertIn("external effect receipt", blocked["review_observed"])
+        self.assertIn("runtime_review_record", blocked["review_observed"])
+        self.assertIn("before external effect receipts existed", blocked["review_observed"])
+
+        # Only a succeeded receipt for this run's review effect lifts it.
+        for result in ("attempted", "failed", "unknown"):
+            with self.subTest(result=result):
+                status["review"] = {
+                    "observed": True,
+                    "status": "passed",
+                    "receipt": _receipt("review", run_id, result=result),
+                }
+                self.assertNotIn(Claim.REVIEW_OBSERVED, allowed_runtime_claims(status, validation_failed=False))
+        status["review"] = {"observed": True, "status": "passed", "receipt": _receipt("review", run_id)}
         self.assertIn(Claim.REVIEW_OBSERVED, allowed_runtime_claims(status, validation_failed=False))
+
         review_receipt = _boundary(_contract(), "review_receipt")
-        self.assertEqual(review_receipt["enforcement"], "declared_not_enforced")
-        self.assertEqual(review_receipt["blocked_by"], "#844")
+        self.assertEqual(review_receipt["enforcement"], "enforced")
+        self.assertEqual(review_receipt["blocked_by"], "")
+        self.assertIn("omh.runtime.claims._receipt_cited", review_receipt["enforced_by"])
 
     def test_a_failed_validation_collapses_every_claim_to_metadata(self) -> None:
         status: dict[str, object] = {
