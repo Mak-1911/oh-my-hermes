@@ -16,6 +16,7 @@ from ..config_adapter import (
 )
 from ..hashutil import sha256_file, sha256_text
 from ..local_store import can_write_dir
+from ..install.guidance_projection import build_guidance_projection_status
 from ..manifest import local_modifications, read_manifest
 from ..paths import OmhPaths
 from ..plugin_bundle.omh.memory_dreaming import read_dreaming_state, read_latest_consolidation
@@ -151,6 +152,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
             ),
         )
     )
+    checks.append(_guidance_projection_check(paths, manifest, registered=external_registered))
     target_registry, target_registry_error = read_target_registry_result(paths)
     target_topology = summarize_target_registry(paths)
     if target_registry_error:
@@ -646,6 +648,45 @@ def _skill_freshness_check(paths: OmhPaths, manifest: dict) -> Check:
         ),
         remediation="Run `omh update` to regenerate the managed skills from the current package catalog.",
         next_action="Run `omh update`, then `omh doctor` again.",
+    )
+
+
+def _guidance_projection_check(paths: OmhPaths, manifest: dict | None, *, registered: bool) -> Check:
+    """Report the Hermes-visible guidance projection as one answer with four axes.
+
+    `manifest`, `local_modifications`, `skill_freshness`, `external_dir`, and
+    `runtime_context` each answer a fragment, and an operator reading them has
+    to work out which fragment is the actual problem. This check names the
+    catalog revision the projection was rendered from and states freshness,
+    drift, registration, and observed host use as four separate values, so the
+    repair is not guessed from a list of booleans.
+
+    It fails only on the axis the others do not own: whether the projection is
+    current and untampered. Registration keeps its own check, and observed host
+    use is never a failure -- OMH cannot see a running Hermes from here, so
+    `not_observed` is the honest resting state, not a fault.
+    """
+    status = build_guidance_projection_status(
+        paths.skills_dir,
+        manifest,
+        registered=registered,
+        host_observed=False,
+    )
+    projection = str(status["projection"])
+    drift = str(status["drift"])
+    current = projection in {"fresh", "not_comparable"} and drift in {"clean", "unknown"}
+    summary = (
+        f"projection={projection} drift={drift} registration={status['registration']} "
+        f"host_observation={status['host_observation']} catalog_revision={str(status['catalog_revision'])[:12]}"
+    )
+    if current:
+        return Check("guidance_projection", True, summary)
+    return Check(
+        "guidance_projection",
+        False,
+        summary,
+        remediation=str(status["next_action"]),
+        next_action=str(status["next_action"]),
     )
 
 
