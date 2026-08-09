@@ -240,13 +240,12 @@ class ExternalEffectVocabularyTests(unittest.TestCase):
 
     def test_receipt_store_is_registered_beside_the_other_runtime_records(self) -> None:
         self.assertEqual(EXTERNAL_EFFECT_RECEIPT_RECORD_KEYS, EXTERNAL_EFFECT_RECEIPT_KEYS)
-        self.assertEqual(
-            [name for name, _ in OPTIONAL_RUNTIME_STORE_VALIDATORS],
-            ["external_effect_receipts.jsonl"],
-        )
-        validator = dict(OPTIONAL_RUNTIME_STORE_VALIDATORS)["external_effect_receipts.jsonl"]
-        self.assertEqual(validator(_valid_receipt()), [])
-        self.assertTrue(validator({"schema_version": "wrong"}))
+        entries = {entry.store_name: entry for entry in OPTIONAL_RUNTIME_STORE_VALIDATORS}
+        self.assertIn("external_effect_receipts.jsonl", entries)
+        entry = entries["external_effect_receipts.jsonl"]
+        self.assertEqual(entry.record_id_key, "receipt_id")
+        self.assertEqual(entry.validator(_valid_receipt()), [])
+        self.assertTrue(entry.validator({"schema_version": "wrong"}))
 
     def test_receipt_record_keys_are_exact(self) -> None:
         record = _valid_receipt()

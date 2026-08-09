@@ -1085,13 +1085,23 @@ module under `src/commands/` references a writer at all.
 `omh runtime validate` is the store's third consumer, and the one that reaches
 the chain validator. `runtime/artifacts.py::validate_runtime` reports the store
 under an `approval_receipts` key beside `external_effect_receipts`, and
-`_validate_run_approval_receipts` applies the per-record validator
-`records.OPTIONAL_APPROVAL_STORE_VALIDATORS` names to the receipts belonging to
-each run. Without those two callers the registry validated nothing: an
-unparseable line, a duplicate receipt id, and a forked supersede chain — two
-answers that both believe they replaced the same predecessor, which makes "the
-current answer" ambiguous — all went unreported. Why each registry needs its own
-reader rather than one shared tuple is the design problem #846 tracks.
+`_validate_run_optional_store_records` applies the per-record validator that
+`records.OPTIONAL_RUNTIME_STORE_VALIDATORS` registers for this store to the
+receipts belonging to each run. Without those two callers the registry validated
+nothing: an unparseable line, a duplicate receipt id, and a forked supersede
+chain — two answers that both believe they replaced the same predecessor, which
+makes "the current answer" ambiguous — all went unreported.
+
+That registry is keyed by store, which is what #846 fixed. It began as an
+unkeyed tuple read by a consumer that opened one store and applied every entry
+to it, so the approval and blocked-work families could not join without
+validating external-effect receipts against their own schemas and faulting
+every run that had one. Each grew a sibling tuple and a near-duplicate reader
+instead. Now one entry names one store, one consumer dispatches per store, and
+a validator is only ever handed records read from the store it registered for.
+Registering a store is what makes `omh runtime validate` fault a malformed
+record inside a run; the store-level `validate_*_store` calls are the separate
+half that reports lines belonging to no run at all.
 
 The gate is the store's other consumer. `coding/action_gate.py::classify_action_risk`
 calls `approval_satisfies_request_in` with receipts the caller already read — the

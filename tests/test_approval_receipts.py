@@ -36,7 +36,6 @@ from omh.coding.action_gate import MUTATING_ACTIONS as GATE_MUTATING_ACTIONS
 from omh.paths import resolve_paths
 from omh.runtime.records import (
     APPROVAL_RECEIPT_RECORD_KEYS,
-    OPTIONAL_APPROVAL_STORE_VALIDATORS,
     OPTIONAL_RUNTIME_STORE_VALIDATORS,
 )
 from omh.workflows.approval_receipts import (
@@ -166,16 +165,18 @@ class ApprovalReceiptShapeTests(unittest.TestCase):
 
     def test_the_receipt_store_is_registered_beside_the_other_runtime_records(self) -> None:
         self.assertEqual(APPROVAL_RECEIPT_RECORD_KEYS, APPROVAL_RECEIPT_KEYS)
-        self.assertEqual(
-            [name for name, _ in OPTIONAL_APPROVAL_STORE_VALIDATORS],
-            ["approval_receipts.jsonl"],
-        )
-        validator = dict(OPTIONAL_APPROVAL_STORE_VALIDATORS)["approval_receipts.jsonl"]
-        self.assertEqual(validator(_valid_receipt()), [])
-        self.assertTrue(validator({"schema_version": "wrong"}))
-        # Deliberately not joined to the external-effect registry: its one
-        # consumer applies every entry to the external effect receipts it read.
-        self.assertNotIn("approval_receipts.jsonl", [name for name, _ in OPTIONAL_RUNTIME_STORE_VALIDATORS])
+        entries = {entry.store_name: entry for entry in OPTIONAL_RUNTIME_STORE_VALIDATORS}
+        self.assertIn("approval_receipts.jsonl", entries)
+        entry = entries["approval_receipts.jsonl"]
+        self.assertEqual(entry.record_id_key, "receipt_id")
+        self.assertEqual(entry.validator(_valid_receipt()), [])
+        self.assertTrue(entry.validator({"schema_version": "wrong"}))
+        # #846 joined this store to the one registry. It used to need a sibling
+        # tuple because the consumer applied every entry to the single store it
+        # read, and this validator rejects anything that is not an approval
+        # receipt -- which is why the consumer must dispatch per store. That
+        # dispatch is proved in tests/test_runtime_artifacts.py.
+        self.assertTrue(entry.validator({"schema_version": "external_effect_receipt/v1"}))
 
 
 class ApprovalNeverAssertsExecutionTests(unittest.TestCase):

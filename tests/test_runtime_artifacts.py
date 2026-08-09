@@ -49,7 +49,9 @@ from omh.runtime_artifacts import (
     write_runtime_observation,
     write_wrapper_contract,
 )
+from omh.runtime import records as runtime_records
 from omh.runtime.records import (
+    OPTIONAL_RUNTIME_STORE_VALIDATORS,
     RUNTIME_OBSERVATION_EVENTS,
     build_coding_delegation_record,
     validate_coding_executor_handoff,
@@ -2057,6 +2059,87 @@ class RuntimeArtifactTests(unittest.TestCase):
 
             self.assertEqual(state["installed_skills"], 18)
             self.assertEqual(state["last_run_id"], "r1")
+
+
+_STORE_SCHEMA_VERSIONS = {
+    "approval_receipts.jsonl": "approval_receipt/v1",
+    "blocked_work_records.jsonl": "blocked_work_record/v1",
+    "external_effect_receipts.jsonl": "external_effect_receipt/v1",
+}
+
+
+class OptionalRuntimeStoreValidatorRegistryTests(unittest.TestCase):
+    """#846: one registry keyed by store, one consumer that dispatches per store.
+
+    The registry used to be an unkeyed tuple whose consumer read a single store
+    and applied every entry to it. A second family could not join without
+    validating the first family's records against its own schema, so each new
+    store grew a sibling tuple and a near-duplicate reader instead.
+    """
+
+    def test_the_registry_names_each_store_once_and_left_no_sibling_tuples(self) -> None:
+        names = [entry.store_name for entry in OPTIONAL_RUNTIME_STORE_VALIDATORS]
+        self.assertEqual(sorted(names), sorted(set(names)))
+        self.assertEqual(set(names), set(_STORE_SCHEMA_VERSIONS))
+        forked = sorted(
+            name
+            for name in vars(runtime_records)
+            if name.startswith("OPTIONAL_") and name.endswith("_STORE_VALIDATORS")
+        )
+        self.assertEqual(forked, ["OPTIONAL_RUNTIME_STORE_VALIDATORS"])
+
+    def test_no_validator_accepts_a_sibling_stores_record(self) -> None:
+        # Why the dispatch below has to be per store. If any validator were
+        # indifferent to a sibling's records, one shared reader would be safe.
+        for entry in OPTIONAL_RUNTIME_STORE_VALIDATORS:
+            for sibling in OPTIONAL_RUNTIME_STORE_VALIDATORS:
+                if sibling.store_name == entry.store_name:
+                    continue
+                record = {"schema_version": _STORE_SCHEMA_VERSIONS[sibling.store_name]}
+                with self.subTest(validator=entry.store_name, record=sibling.store_name):
+                    self.assertTrue(entry.validator(record))
+
+    def test_a_malformed_record_faults_its_own_store_and_no_sibling(self) -> None:
+        for entry in OPTIONAL_RUNTIME_STORE_VALIDATORS:
+            with self.subTest(store=entry.store_name), TemporaryDirectory() as tmp:
+                paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+                run_id = create_run(paths, {"skill": "plan"})["run_id"]
+                store_path = paths.runtime_journal_dir / entry.store_name
+                store_path.parent.mkdir(parents=True, exist_ok=True)
+                store_path.write_text(
+                    json.dumps({"schema_version": "nonsense", "run_id": run_id, entry.record_id_key: "x-1"})
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+                errors = validate_runtime(paths, run_id)["runs"][0]["errors"]
+
+                self.assertTrue(errors)
+                for error in errors:
+                    self.assertTrue(error.startswith(f"{store_path}[x-1]: "), error)
+                for sibling in OPTIONAL_RUNTIME_STORE_VALIDATORS:
+                    if sibling.store_name == entry.store_name:
+                        continue
+                    for error in errors:
+                        self.assertNotIn(sibling.store_name, error)
+
+    def test_a_malformed_record_in_one_store_leaves_an_unrelated_run_clean(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            faulted = create_run(paths, {"skill": "plan"})["run_id"]
+            clean = create_run(paths, {"skill": "plan"})["run_id"]
+            self.assertNotEqual(faulted, clean)
+            store_path = paths.runtime_approval_receipts_path
+            store_path.parent.mkdir(parents=True, exist_ok=True)
+            store_path.write_text(
+                json.dumps({"schema_version": "nonsense", "run_id": faulted, "receipt_id": "x-1"}) + "\n",
+                encoding="utf-8",
+            )
+
+            by_run = {run["run_id"]: run for run in validate_runtime(paths)["runs"]}
+
+            self.assertFalse(by_run[faulted]["ok"])
+            self.assertTrue(by_run[clean]["ok"], by_run[clean]["errors"])
 
 
 if __name__ == "__main__":
