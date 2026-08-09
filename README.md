@@ -171,29 +171,29 @@ Eleven flagship workflows carry the `ulw-` prefix. Say the trigger in
 chat and Hermes routes the rest — full catalog in
 [Workflow Reference](docs/WORKFLOWS.md).
 
-| Skill | Say | What it does |
+| Stage | Skill | What it does |
 | --- | --- | --- |
-| `ulw-work` | `ultrawork` · `parallel work` | Splits an accepted plan into disjoint lanes — owner, acceptance criteria, and verification per lane. Two lanes never edit the same file. |
-| `ulw-plan` | `ralplan` · `consensus plan` | Consensus planning with review gates: facts, options, risks, acceptance criteria, handoff. |
-| `ulw-interview` | `deep-interview` · `clarify` | One question at a time until the brief is clear. Six rounds max, clarity scored each round. |
-| `ulw-goal` | `ultragoal` · `goal ledger` | A checkpointed ledger survives context loss and resumes exactly where it stopped, behind a final completion gate. |
-| `ulw-loop` | `loop` · `long horizon goal` | Interview → plan → research → build → review, cycling until a real gate passes. |
-| `ulw-ralph` | `ralph` · `finish until done` | One owner drives a task to done: implement, verify, review, repeat until the gate passes. |
-| `ulw-team` | `team` · `parallel agents` | N coordinated workers on one shared task list, lanes owned explicitly, verification merged. |
-| `ulw-process` | `ultraprocess` · `end-to-end process` | One clean task-to-PR cycle: research, plan, handoff, review, docs, PR — tracked end to end. |
-| `ulw-qa` | `ultraqa` · `release qa` | Hostile scenarios, end-to-end runs, release QA, and fix loops — explicit and evidence-backed. |
-| `ulw-research` | `web research` · `source-backed research` | Reference implementations at pinned refs, live web evidence with citations, verified claims. |
-| `ulw-perf` | `ultraperf` · `find the bottleneck` | Finds where the system is actually slow, leaking, or expensive — then fixes one measured hot path at a time. |
+| Interview | ⚡ `ulw-interview` | Asks one question at a time until it knows exactly what you want. |
+| Research | ⚡ `ulw-research` | Digs through real code and the live web, keeps sources, and verifies anything doubtful. |
+| Plan | ⚡ `ulw-plan` | Builds a reviewed plan: options compared, risks named, done-criteria agreed. |
+| Build | ⚡ `ulw-work` | Runs an accepted plan in parallel lanes that never touch the same file. |
+| Build | ⚡ `ulw-ralph` | One owner grinds a task to done — build, verify, review, repeat. |
+| Build | ⚡ `ulw-team` | Multiple workers, one task list, no collisions. |
+| Build | ⚡ `ulw-loop` | Cycles plan → build → review until the goal actually passes. |
+| Build | ⚡ `ulw-goal` | Long-running goals with checkpoints — survives lost context, resumes where it stopped. |
+| Build | ⚡ `ulw-process` | Takes one task all the way from research to an open PR. |
+| QA | ⚡ `ulw-qa` | Attacks the build with hostile scenarios and fixes what breaks. |
+| Perf | ⚡ `ulw-perf` | Measures where it is actually slow or expensive, then fixes one hot path at a time. |
 
 <br>
 
 ## What OMH Adds
 
-### Mixture of Models
-
-<p align="left">
-  <img src="assets/hermes-agent-mom.png" alt="Hermes-Agent mixture-of-models orchestration illustration" width="520">
+<p align="center">
+  <img src="assets/hermes-agent-mom-aura.png" alt="Hermes-Agent mixture-of-models orchestration illustration" width="560">
 </p>
+
+<p align="center"><strong>Mixture of Models</strong></p>
 
 OMH packages **103 installable workflow skills** behind six human-readable
 capability families. The family is the front door; exact skill names remain

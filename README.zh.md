@@ -137,19 +137,19 @@ omh doctor
 十一个旗舰 workflow 带有 `ulw-` 前缀。在对话里说出触发词，其余交给 Hermes
 路由 —— 完整目录见 [Workflow Reference](docs/WORKFLOWS.md)。
 
-| Skill | 这样说 | 做什么 |
+| 阶段 | Skill | 做什么 |
 | --- | --- | --- |
-| `ulw-work` | `ultrawork` · `parallel work` | 把已确认的计划切成互不重叠的车道——每条车道有归属、验收标准与验证。两条车道绝不改同一个文件。 |
-| `ulw-plan` | `ralplan` · `consensus plan` | 带评审关卡的共识规划：事实、方案、风险、验收标准、交接。 |
-| `ulw-interview` | `deep-interview` · `clarify` | 一次只问一个问题，直到简报清晰。最多六轮，每轮标注清晰度。 |
-| `ulw-goal` | `ultragoal` · `goal ledger` | 带检查点的账本挺过上下文丢失，从中断处精确续跑，最后还有一道完成关卡。 |
-| `ulw-loop` | `loop` · `long horizon goal` | 访谈 → 规划 → 研究 → 构建 → 评审，循环直到真正的关卡通过。 |
-| `ulw-ralph` | `ralph` · `finish until done` | 单一归属方把任务推到完成：实现、验证、评审，反复直到关卡通过。 |
-| `ulw-team` | `team` · `parallel agents` | N 个协同工作者共用一份任务清单，车道归属明确，验证合并。 |
-| `ulw-process` | `ultraprocess` · `end-to-end process` | 一个干净的从任务到 PR 的周期：调研、规划、交接、评审、文档、PR——全程可追踪。 |
-| `ulw-qa` | `ultraqa` · `release qa` | 恶意场景、端到端跑通、发版 QA 与修复循环——显式且有据可依。 |
-| `ulw-research` | `web research` · `source-backed research` | 以真实代码和最新网页资料为依据做调研，留下出处，可疑的说法一定核实。 |
-| `ulw-perf` | `ultraperf` · `find the bottleneck` | 找出系统真正慢、漏、贵的地方——然后逐条修复被测量过的热路径。 |
+| 访谈 | ⚡ `ulw-interview` | 一次问一个问题，直到确切知道你要什么。 |
+| 调研 | ⚡ `ulw-research` | 翻真实代码和网页做调研，留下出处，可疑就核实。 |
+| 规划 | ⚡ `ulw-plan` | 做一份评审过的计划：比过方案、点明风险、定好完成标准。 |
+| 实现 | ⚡ `ulw-work` | 把已确认的计划放进互不碰同一文件的并行车道执行。 |
+| 实现 | ⚡ `ulw-ralph` | 一个人负责到底——实现、验证、评审，直到通过。 |
+| 实现 | ⚡ `ulw-team` | 多个工作者，一份任务清单，互不相撞。 |
+| 实现 | ⚡ `ulw-loop` | 计划 → 实现 → 评审，循环到目标真正通过。 |
+| 实现 | ⚡ `ulw-goal` | 带检查点的长期目标——上下文丢了也能从断点继续。 |
+| 实现 | ⚡ `ulw-process` | 把一个任务从调研一路带到 PR。 |
+| QA | ⚡ `ulw-qa` | 故意用狠场景攻击，坏哪修哪。 |
+| 性能 | ⚡ `ulw-perf` | 先测出真正慢和贵的地方，再逐条修热路径。 |
 
 <br>
 
