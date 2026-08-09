@@ -1,12 +1,28 @@
 from __future__ import annotations
 
 import argparse
+import json
 
+from ..capabilities.projection import (
+    CapabilityProjectionError,
+    DEFAULT_PROJECTION_LIMIT,
+    approve_capability_authority,
+    authority_change_report,
+    expand_capability,
+    project_capabilities,
+    request_digest,
+)
 from ..capabilities.registry import capability_summary, filtered_capability_snapshot, inspect_capability, list_capabilities
 from ..capabilities.schema import CAPABILITY_SECTION_CHOICES
+from ..capabilities.toggles import enabled_workflow_names, read_capability_policy
 from ..installer import OmhError
 from ..quality.capability_impact import build_capability_impact_report, format_capability_impact_summary
-from .common import _print_json, _wants_json
+from ..runtime.context_budget import (
+    CAPABILITY_PROJECTION_SURFACE,
+    record_context_emission,
+    run_context_budget,
+)
+from .common import _paths, _print_json, _wants_json
 
 
 def cmd_capabilities_export(args: argparse.Namespace) -> int:
@@ -98,6 +114,111 @@ def cmd_capabilities_impact(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_capabilities_project(args: argparse.Namespace) -> int:
+    """Project only the capabilities one request needs, inside the task budget.
+
+    The grant is re-derived from this install's capability policy on every call.
+    `--authority-digest` is how a caller pins the grant it approved: a policy
+    change between two projections produces a different digest and this command
+    refuses rather than quietly serving a different view.
+    """
+    paths = _paths(args)
+    request = str(getattr(args, "request", "") or "")
+    task_id = str(getattr(args, "task_id", "") or "") or f"task-{request_digest(request)[:12]}"
+    offered = enabled_workflow_names(read_capability_policy(paths))
+
+    try:
+        authority = approve_capability_authority(task_id=task_id, granted_capabilities=offered)
+    except CapabilityProjectionError as exc:
+        raise OmhError(str(exc)) from exc
+
+    approved_digest = str(getattr(args, "authority_digest", "") or "")
+    if approved_digest:
+        change = authority_change_report(approved_digest, authority)
+        if not change["unchanged"]:
+            if _wants_json(args):
+                _print_json(change)
+            else:
+                print(f"OMH capability authority changed for {task_id}")
+                print(f"  Approved digest: {change['approved_digest']}")
+                print(f"  Current digest:  {change['current_digest']}")
+                print("  Re-approve the capability authority before reusing this projection.")
+            return 2
+
+    budget = run_context_budget(paths, task_id, surface=CAPABILITY_PROJECTION_SURFACE)
+    try:
+        projection = project_capabilities(
+            request,
+            authority=authority,
+            budget=budget,
+            offered_capabilities=offered,
+            limit=int(getattr(args, "limit", DEFAULT_PROJECTION_LIMIT)),
+        )
+        expand = str(getattr(args, "expand", "") or "")
+        payload = expand_capability(projection, expand) if expand else projection.to_dict()
+    except CapabilityProjectionError as exc:
+        raise OmhError(str(exc)) from exc
+    except ValueError as exc:
+        raise OmhError(str(exc)) from exc
+
+    record_context_emission(
+        paths,
+        task_id,
+        surface=CAPABILITY_PROJECTION_SURFACE,
+        byte_count=len(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)),
+    )
+
+    if _wants_json(args):
+        _print_json(payload)
+        return 0
+    if expand:
+        _print_capability_expansion(payload)
+    else:
+        _print_capability_projection(payload)
+    return 0
+
+
+def _print_capability_projection(payload: dict[str, object]) -> None:
+    authority = payload.get("authority", {})
+    authority = authority if isinstance(authority, dict) else {}
+    print(f"OMH capability projection for task {payload.get('task_id', '')}")
+    if payload.get("degraded"):
+        drop = payload.get("budget_drop", {})
+        drop = drop if isinstance(drop, dict) else {}
+        print("  Degraded: this task exhausted its context budget; no capability detail was emitted.")
+        print(f"  Dropped: {', '.join(str(item) for item in drop.get('dropped_capabilities', []))}")
+        print(f"  Bytes: {drop.get('projected_bytes', 0)} needed, {drop.get('remaining_bytes', 0)} remaining.")
+    included = payload.get("included", [])
+    if isinstance(included, list) and included:
+        print("Relevant capabilities")
+        for entry in included:
+            if not isinstance(entry, dict):
+                continue
+            print(f"- {entry.get('capability', '')} ({entry.get('family', '')})")
+            print(f"  {entry.get('summary', '')}")
+            print(f"  Why: {entry.get('match_reason', '')}")
+    summary = payload.get("exclusion_summary", {})
+    if isinstance(summary, dict) and summary:
+        print("Excluded")
+        for reason, count in sorted(summary.items()):
+            print(f"  {reason}: {count}")
+    print(f"Offered: {payload.get('offered_count', 0)}; included: {payload.get('included_count', 0)}.")
+    print("Expansion is explicit: rerun with `--expand <capability>` for exact detail.")
+    print("For machine-readable output, rerun with `--json`.")
+
+
+def _print_capability_expansion(payload: dict[str, object]) -> None:
+    detail = payload.get("detail", {})
+    detail = detail if isinstance(detail, dict) else {}
+    print(f"OMH capability detail: {payload.get('capability', '')}")
+    print(f"Family: {payload.get('family', '')}")
+    for key in ("description", "category", "phase", "hermes_role", "primary_harness"):
+        if detail.get(key):
+            print(f"{key.replace('_', ' ').title()}: {detail[key]}")
+    print("Boundary: expanded detail is catalog metadata, not execution evidence.")
+    print("For machine-readable output, rerun with `--json`.")
+
+
 def _add_capabilities_commands(sub) -> None:
     capabilities = sub.add_parser("capabilities", help="Inspect OMH capability manifests for Hermes/plugin/wrapper use.")
     capabilities.add_argument("--json", action="store_true", help="Print the default machine-readable capability summary.")
@@ -124,6 +245,22 @@ def _add_capabilities_commands(sub) -> None:
     )
     impact.add_argument("--json", action="store_true", help="Print the machine-readable impact report.")
     impact.set_defaults(func=cmd_capabilities_impact)
+
+    project = capabilities_sub.add_parser(
+        "project",
+        help="Project only the capabilities one request needs, inside the declared context budget.",
+    )
+    project.add_argument("request", nargs="?", default="", help="The outcome the user asked for.")
+    project.add_argument("--limit", type=int, default=DEFAULT_PROJECTION_LIMIT, help="Maximum capabilities to include.")
+    project.add_argument("--task-id", default="", help="Ledger and authority id; defaults to a digest of the request.")
+    project.add_argument("--expand", default="", help="Return exact detail for one already-projected capability.")
+    project.add_argument(
+        "--authority-digest",
+        default="",
+        help="Refuse the projection when the re-derived authority no longer matches this approved digest.",
+    )
+    project.add_argument("--json", action="store_true", help="Print the machine-readable projection payload.")
+    project.set_defaults(func=cmd_capabilities_project)
 
     inspect = capabilities_sub.add_parser("inspect", help="Inspect one capability by id.")
     inspect.add_argument("identifier")
