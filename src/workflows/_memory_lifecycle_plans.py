@@ -17,6 +17,7 @@ from ..plugin_bundle.omh.memory_governance import (
 from ..system.paths import OmhPaths
 from ._memory_lifecycle_model import LifecycleMutation, LifecyclePlan, LifecycleTransactionExecutor
 from ._memory_lifecycle_scan import ScanFinding, journal_findings, linked_to, matching_json_findings, matching_scope_findings, parse_time, read_json, safe_token, stamp
+from .memory import MEMORY_ATTENTION_SCHEMA_VERSION, MEMORY_ATTENTION_TIERS
 
 
 def _scope(value: Mapping[str, object]) -> dict[str, object]:
@@ -92,7 +93,7 @@ def _tombstone(tombstone_id: str, record_id: str, revision: int, scope: Mapping[
 
 def _pending_candidate(record: Mapping[str, object], candidate_id: str, revision: int, lifecycle: str) -> dict[str, object]:
     origin = stable_artifact_identity(dict(record))
-    replacement = {key: record[key] for key in ("record_type", "summary", "scope", "source_class", "source_ref", "source_evidence", "retention", "revalidation", "ttl", "staleness", "derived_from", "perspective") if key in record}
+    replacement = {key: record[key] for key in ("record_type", "summary", "scope", "source_class", "source_ref", "source_evidence", "retention", "revalidation", "ttl", "staleness", "derived_from", "perspective", "attention") if key in record}
     return {"schema_version": "project_memory_candidate/v2", "candidate_id": candidate_id, "candidate_revision": revision, "record_id": str(record["record_id"]), "artifact_kind": "record", "status": "pending_review", "admission": {"state": "pending_review"}, "origin": origin, "lifecycle": lifecycle, "replacement": replacement}
 
 
@@ -109,11 +110,29 @@ def _source_evidence(replacement: Mapping[str, object]) -> dict[str, object]:
     return {key: str(evidence.get(key, "") or "") for key in ("path", "sha256", "captured_at")}
 
 
+def _attention(replacement: Mapping[str, object]) -> dict[str, object]:
+    """Carry a reviewed revision's attention tier into its successor, scalar-only.
+
+    Without this a correction or a restore silently returns an archived or
+    reference record to the active working set -- the exact opposite of what
+    the operator asked for, and invisible until the record reappeared in a
+    handoff. An unreadable tier carries nothing, so the successor falls back to
+    the ordinary active default rather than inheriting a corrupt value.
+    """
+    attention = replacement.get("attention")
+    if not isinstance(attention, Mapping) or str(attention.get("tier", "") or "") not in MEMORY_ATTENTION_TIERS:
+        return {}
+    return {
+        "schema_version": MEMORY_ATTENTION_SCHEMA_VERSION,
+        **{key: str(attention.get(key, "") or "") for key in ("tier", "reason", "previous_tier", "changed_at")},
+    }
+
+
 def _approved_record(replacement: Mapping[str, object], record_id: str, revision: int, reviewer: str, now: datetime) -> dict[str, object]:
     record_type = str(replacement.get("record_type", "fact"))
     retention = replacement.get("retention") if isinstance(replacement.get("retention"), Mapping) else {}
     ttl_days = retention.get("ttl_days") if isinstance(retention.get("ttl_days"), int) and not isinstance(retention.get("ttl_days"), bool) else None
-    record: dict[str, object] = {"schema_version": PROJECT_MEMORY_RECORD_SCHEMA_VERSION, "record_id": record_id, "revision": revision, "record_type": record_type, "summary": str(replacement.get("summary", "")), "scope": _scope(replacement), "source_class": str(replacement.get("source_class", "omh_local")), "derived_from": [str(ref) for ref in (replacement.get("derived_from") if isinstance(replacement.get("derived_from"), list) else []) if isinstance(ref, str)], **({"perspective": {"observer": str(replacement["perspective"].get("observer", "")), "observed": str(replacement["perspective"].get("observed", ""))}} if isinstance(replacement.get("perspective"), Mapping) and str(replacement["perspective"].get("observed", "")) else {}), **({"source_evidence": evidence} if (evidence := _source_evidence(replacement)) else {}), "retention": build_retention(str(retention.get("class", "standard")), record_type=record_type, admitted_at=now, ttl_days=ttl_days), "revalidation": {}, "admission": {"state": "approved_manual", "review_id": f"review-{record_id}-r{revision}", "reviewer_claim": reviewer, "admitted_at": stamp(now), "policy_version": MEMORY_GOVERNANCE_POLICY_VERSION, "classifier_version": MEMORY_CLASSIFIER_VERSION}}
+    record: dict[str, object] = {"schema_version": PROJECT_MEMORY_RECORD_SCHEMA_VERSION, "record_id": record_id, "revision": revision, "record_type": record_type, "summary": str(replacement.get("summary", "")), "scope": _scope(replacement), "source_class": str(replacement.get("source_class", "omh_local")), "derived_from": [str(ref) for ref in (replacement.get("derived_from") if isinstance(replacement.get("derived_from"), list) else []) if isinstance(ref, str)], **({"perspective": {"observer": str(replacement["perspective"].get("observer", "")), "observed": str(replacement["perspective"].get("observed", ""))}} if isinstance(replacement.get("perspective"), Mapping) and str(replacement["perspective"].get("observed", "")) else {}), **({"source_evidence": evidence} if (evidence := _source_evidence(replacement)) else {}), **({"attention": attention} if (attention := _attention(replacement)) else {}), "retention": build_retention(str(retention.get("class", "standard")), record_type=record_type, admitted_at=now, ttl_days=ttl_days), "revalidation": {}, "admission": {"state": "approved_manual", "review_id": f"review-{record_id}-r{revision}", "reviewer_claim": reviewer, "admitted_at": stamp(now), "policy_version": MEMORY_GOVERNANCE_POLICY_VERSION, "classifier_version": MEMORY_CLASSIFIER_VERSION}}
     identity = stable_artifact_identity(record)
     record["admission"] = {**record["admission"], "artifact_identity": identity, "payload_digest": canonical_payload_digest(record)}
     return record

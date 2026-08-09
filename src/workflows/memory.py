@@ -62,6 +62,9 @@ MEMORY_RECALL_USAGE_SCHEMA_VERSION = "omh_memory_recall_usage/v1"
 MEMORY_LINEAGE_SCHEMA_VERSION = "omh_memory_lineage/v1"
 MEMORY_PERSPECTIVES_SCHEMA_VERSION = "omh_memory_perspectives/v1"
 MEMORY_PINS_SCHEMA_VERSION = "omh_memory_pins/v1"
+MEMORY_ATTENTION_SCHEMA_VERSION = "omh_memory_attention/v1"
+MEMORY_ATTENTION_CHANGE_SCHEMA_VERSION = "memory_attention_change/v1"
+MEMORY_ATTENTION_JOURNAL_SCHEMA_VERSION = "omh_memory_attention_journal/v1"
 MEMORY_ROLLUP_SCHEMA_VERSION = "omh_memory_rollup/v1"
 HERMES_MEMORY_BRIDGE_SCHEMA_VERSION = "hermes_memory_bridge/v1"
 
@@ -131,6 +134,7 @@ _PROJECT_MEMORY_RECORD_KEYS = {
     "safety",
     "derived_from",
     "perspective",
+    "attention",
     "superseded_by",
     "redaction_policy",
     "claim_boundary",
@@ -148,6 +152,7 @@ _PROJECT_MEMORY_RECALL_PACK_KEYS = {
     "included_records",
     "excluded_records",
     "freshness_warnings",
+    "attention",
     "record_count",
     "truncated",
     "redaction_policy",
@@ -173,6 +178,7 @@ _PROJECT_MEMORY_RECALL_ITEM_KEYS = {
     "staleness",
     "score",
     "ranking",
+    "attention_tier",
     "derived_from",
     "perspective",
     "revision",
@@ -192,6 +198,7 @@ _RECALL_RANKING_KEYS = {
     "usage_rank",
     "times_recalled",
     "age_tier",
+    "attention_rank",
     "pinned",
     "veracity_weight_pct",
 }
@@ -222,6 +229,50 @@ _AGE_TIER_WEIGHTS = (1.0, 0.5, 0.25)
 # record still fails closed on expiry, scope, perspective, and review checks.
 # The cap stays small because pins occupy recall budget first.
 _MEMORY_PINS_LIMIT = 12
+# Attention tiers are Letta's context hierarchy read deterministically. A tier
+# says how much of the working context a record may occupy; it never says
+# whether the record is true, approved, or fresh. `active` is the working set,
+# `reference` stays recallable behind active peers, and `archive` leaves the
+# default pack while the record stays in the store, readable, and answerable
+# by an explicit archived query. Archive-the-tier is therefore NOT
+# retirement-the-lifecycle: retirement moves an expired revision out of
+# `records/` and writes a tombstone; a tier change moves nothing and deletes
+# nothing. The tier feeds the one existing ranking ladder in
+# `build_project_memory_recall_pack`, never a second ordering pass.
+MEMORY_ATTENTION_TIERS = ("active", "reference", "archive")
+DEFAULT_MEMORY_ATTENTION_TIER = "active"
+_MEMORY_ATTENTION_RANK = {"active": 0, "reference": 1, "archive": 2}
+_RECALL_ATTENTION_KEYS = {
+    "active_included",
+    "reference_included",
+    "archived_included",
+    "archived_excluded",
+    "include_archived",
+    "detail",
+}
+# Matches `_redact`'s own cap so the bound stays true if either side moves;
+# the reason is operator prose and must never become an unbounded field.
+_MEMORY_ATTENTION_REASON_LIMIT = 240
+_MEMORY_ATTENTION_JOURNAL_LIMIT = 20
+_MEMORY_ATTENTION_TIER_DETAIL = {
+    "active": "Active records lead the working context.",
+    "reference": "Reference records stay recallable but yield to active peers inside the same recall budget.",
+    "archive": (
+        "Archived records leave the default working context. They stay in the store, stay readable, "
+        "and still answer an explicit archived query; nothing is deleted."
+    ),
+}
+_MEMORY_ATTENTION_REFUSAL_DETAIL = {
+    "record_not_found": "No approved OMH memory record carries that id, so there is no attention tier to change.",
+    "record_unreadable": "That record file exists but could not be read as JSON, so its attention tier cannot be changed safely.",
+    "unsupported_record_schema": "That file is not a current approved OMH memory record, so attention tiers do not apply to it.",
+    "tier_unchanged": "The record already sits in the requested tier, so there is nothing to apply.",
+}
+_MEMORY_ATTENTION_CLAIM_BOUNDARY = (
+    "An attention tier is an OMH-local recall-priority marker only. It never changes whether a record is "
+    "true, approved, fresh, or eligible, it never deletes anything, and it is not execution, review, CI, "
+    "merge, or Hermes internal-memory evidence."
+)
 # Perspective is honcho's peer paradigm reinterpreted deterministically: an
 # optional (observer, observed) pair naming whose view a record is and which
 # actor it is about. Unscoped records behave exactly as before; a scoped
@@ -657,6 +708,8 @@ def build_project_memory_recall_pack(
     limit: int = 6,
     max_chars: int | None = None,
     include_stale: bool = False,
+    include_archived: bool = False,
+    attention_override: dict[str, str] | None = None,
     now: datetime | None = None,
     stale_override: dict[str, object] | None = None,
     run_id: str | None = None,
@@ -690,12 +743,29 @@ def build_project_memory_recall_pack(
     review_resolver = _project_memory_review_resolver(paths)
     included: list[dict[str, object]] = []
     excluded: list[dict[str, object]] = []
+    archived_excluded = 0
     for record in records:
         if not _record_scope_matches(record, scope_kind=scope_kind, scope_ref=scope_ref):
             continue
         # Perspective mismatch skips silently, exactly like scope mismatch:
         # the record belongs to another actor's lens, not to this pack.
         if not _record_perspective_matches(record, observer=observer, observed=observed):
+            continue
+        attention_tier = _record_attention_tier(record, override=attention_override)
+        if attention_tier == "archive" and not include_archived:
+            # Archive is an attention tier, not a deletion. The record stays
+            # in `records/`, stays readable, and returns to any pack built
+            # with include_archived -- but it leaves the default working
+            # context NAMED, never silently, so the operator can always see
+            # what the archive is holding back.
+            excluded.append(
+                {
+                    "record_id": str(record.get("record_id", "")),
+                    "reason": "archived_tier",
+                    "staleness": {"state": "not_checked"},
+                }
+            )
+            archived_excluded += 1
             continue
         evaluation = _evaluate_memory_artifact(
             record,
@@ -729,7 +799,9 @@ def build_project_memory_recall_pack(
             if include_stale and str(evaluation.get("reason_code", "")) in _INSPECTABLE_STALE_REASONS:
                 score = _memory_recall_score(record, query)
                 if not query or score > 0 or str(record.get("record_id", "")) in pins:
-                    included.append(_recall_item(record, score=score, staleness=staleness, evaluation=evaluation))
+                    included.append(
+                        _recall_item(record, score=score, staleness=staleness, evaluation=evaluation, attention_tier=attention_tier)
+                    )
                     continue
             excluded.append(_recall_exclusion(record, evaluation, staleness=staleness))
             continue
@@ -739,7 +811,7 @@ def build_project_memory_recall_pack(
         if query and score <= 0 and str(record.get("record_id", "")) not in pins:
             excluded.append(_recall_exclusion(record, evaluation, staleness=staleness, reason="no_query_overlap"))
             continue
-        included.append(_recall_item(record, score=score, staleness=staleness, evaluation=evaluation))
+        included.append(_recall_item(record, score=score, staleness=staleness, evaluation=evaluation, attention_tier=attention_tier))
     query_intent = _recall_query_intent(query)
     _attach_recall_ranking(
         included,
@@ -748,15 +820,19 @@ def build_project_memory_recall_pack(
         now=now if now is not None else datetime.now(timezone.utc),
         recency_weight=2.0 if query_intent == "temporal" else _RECALL_RRF_WEIGHTS["recency"],
     )
-    # Pinned anchors lead, then relevance; the decayed fused score orders
-    # records only within an equal relevance rank. A weaker keyword match
-    # can therefore never displace a stronger unpinned one -- including
-    # across the budget cut below -- while recency, delivery usage, and age
-    # tier decide ties and unqueried packs. Pins take priority within the
-    # budget but never own it outright: at most limit-1 pinned slots lead
-    # the pack (minimum one), and further pins compete as normal records,
-    # so a fully-used pin budget cannot blank query-driven recall.
+    # Pinned anchors lead, then attention tier, then relevance; the decayed
+    # fused score orders records only within an equal relevance rank. A weaker
+    # keyword match can therefore never displace a stronger unpinned one of
+    # the same tier -- including across the budget cut below -- while recency,
+    # delivery usage, and age tier decide ties and unqueried packs. Attention
+    # sits above relevance on purpose: that is what "build recall packs from
+    # active records first" means, and it is the one place the tier acts.
+    # Pins take priority within the budget but never own it outright: at most
+    # limit-1 pinned slots lead the pack (minimum one), and further pins
+    # compete as normal records, so a fully-used pin budget cannot blank
+    # query-driven recall.
     ranked_key = lambda item: (  # noqa: E731 - shared by both sort passes below
+        int(_ranking_field(item, "attention_rank")),
         int(_ranking_field(item, "relevance_rank")),
         -int(_ranking_field(item, "decayed_score_micro")),
         str(item.get("record_id", "")),
@@ -818,6 +894,7 @@ def build_project_memory_recall_pack(
         "included_records": included,
         "excluded_records": excluded,
         "freshness_warnings": _freshness_warnings(included, excluded),
+        "attention": _attention_disclosure(included, archived_excluded, include_archived=include_archived),
         "record_count": len(included),
         "truncated": budget_exhausted,
         "redaction_policy": "metadata_only",
@@ -1028,6 +1105,13 @@ def _attach_recall_ranking(
         )
         tier = _age_tier(str(item.get("approved_at", "")), now=now)
         veracity_pct = _ADMISSION_VERACITY_WEIGHT_PCT.get(str(item.get("admission_mode", "")), _ADMISSION_VERACITY_DEFAULT_PCT)
+        # The attention rank is an ordering key, not a score input: it never
+        # touches the fused score, so a tier change reorders records without
+        # rewriting the relevance/recency/usage evidence that explains them.
+        attention_rank = _MEMORY_ATTENTION_RANK.get(
+            str(item.get("attention_tier", "")) or DEFAULT_MEMORY_ATTENTION_TIER,
+            _MEMORY_ATTENTION_RANK[DEFAULT_MEMORY_ATTENTION_TIER],
+        )
         item["ranking"] = {
             # rrf_score_micro is undecayed rank fusion under THIS pack's
             # weights (a temporal query raises the recency weight, so scores
@@ -1041,6 +1125,7 @@ def _attach_recall_ranking(
             "usage_rank": usage_ranks[record_id],
             "times_recalled": _times_recalled(item),
             "age_tier": tier,
+            "attention_rank": attention_rank,
             "pinned": record_id in pins,
             "veracity_weight_pct": veracity_pct,
         }
@@ -1336,6 +1421,301 @@ def set_memory_pin(paths: OmhPaths, record_id: str, *, pinned: bool) -> dict[str
         "claim_boundary": (
             "A pin is an OMH-local delivery-priority marker only; it never overrides expiry, scope, "
             "perspective, or review eligibility, and it is not execution or Hermes internal-memory evidence."
+        ),
+    }
+
+
+def normalize_memory_attention_tier(value: Any) -> str:
+    """The one place a tier name is accepted. An unknown tier is refused.
+
+    Failing loudly here is deliberate: silently coercing an unrecognized tier
+    to ``active`` would quietly undo an operator's archive request.
+    """
+    tier = str(value or "").strip().lower()
+    if tier not in MEMORY_ATTENTION_TIERS:
+        raise ValueError(f"unsupported memory attention tier: {value!r}; use one of {', '.join(MEMORY_ATTENTION_TIERS)}")
+    return tier
+
+
+def record_attention_tier(record: dict[str, Any]) -> str:
+    """A stored record's attention tier; anything unreadable reads as active.
+
+    Absence is the normal case for every record approved before tiers existed,
+    and a corrupt tier value is indistinguishable from absence here. Defaulting
+    to ``active`` is safe because attention is not a trust gate: expiry, scope,
+    perspective, and review eligibility still decide what may be recalled.
+    """
+    attention = record.get("attention")
+    tier = str(attention.get("tier", "")) if isinstance(attention, dict) else ""
+    return tier if tier in MEMORY_ATTENTION_TIERS else DEFAULT_MEMORY_ATTENTION_TIER
+
+
+def _record_attention_tier(record: dict[str, Any], *, override: dict[str, str] | None = None) -> str:
+    """Stored tier, or the previewed tier when this pack is a projection.
+
+    The override exists so a preview and the pack built after apply run the
+    exact same ranking code on the exact same inputs. Recomputing the order a
+    second way would make "what will remain in the working context" a guess.
+    """
+    if override:
+        candidate = override.get(str(record.get("record_id", "")))
+        if candidate is not None:
+            return normalize_memory_attention_tier(candidate)
+    return record_attention_tier(record)
+
+
+def _attention_metadata(tier: str, *, reason: str, previous_tier: str, changed_at: str) -> dict[str, str]:
+    """Scalar-only tier metadata; nested non-scalars would be dropped by
+    correction/restore and by the recall-pack validators."""
+    return {
+        "schema_version": MEMORY_ATTENTION_SCHEMA_VERSION,
+        "tier": tier,
+        "reason": _redact(str(reason or ""))[:_MEMORY_ATTENTION_REASON_LIMIT],
+        "previous_tier": str(previous_tier or ""),
+        "changed_at": str(changed_at or ""),
+    }
+
+
+def _attention_disclosure(
+    included: list[dict[str, object]],
+    archived_excluded: int,
+    *,
+    include_archived: bool,
+) -> dict[str, object]:
+    """Say out loud which tiers this pack is made of.
+
+    The issue asks recall to disclose when reference records are included, and
+    the same sentence is the only honest way to report an archived record that
+    was held back: a smaller pack with no explanation is the failure this
+    replaces.
+    """
+    counts = dict.fromkeys(MEMORY_ATTENTION_TIERS, 0)
+    for item in included:
+        tier = str(item.get("attention_tier", "")) or DEFAULT_MEMORY_ATTENTION_TIER
+        counts[tier if tier in counts else DEFAULT_MEMORY_ATTENTION_TIER] += 1
+    parts: list[str] = []
+    if not included:
+        parts.append("No reviewed records are in the working context.")
+    else:
+        parts.append(f"{counts['active']} active record(s) lead this working context.")
+    if counts["reference"]:
+        parts.append(f"{counts['reference']} reference-tier record(s) are included behind them.")
+    if counts["archive"]:
+        parts.append(f"{counts['archive']} archived record(s) are included because this query asked for the archive.")
+    if archived_excluded:
+        parts.append(
+            f"{archived_excluded} archived record(s) stayed out of the working context; "
+            "they remain in the store and are listed as archived_tier exclusions."
+        )
+    return {
+        "active_included": counts["active"],
+        "reference_included": counts["reference"],
+        "archived_included": counts["archive"],
+        "archived_excluded": int(archived_excluded),
+        "include_archived": bool(include_archived),
+        "detail": " ".join(parts),
+    }
+
+
+def _memory_attention_journal_path(paths: OmhPaths) -> Path:
+    return paths.memory_dir / "attention.jsonl"
+
+
+def read_memory_attention_journal(
+    paths: OmhPaths,
+    *,
+    record_id: str | None = None,
+    limit: int = _MEMORY_ATTENTION_JOURNAL_LIMIT,
+) -> list[dict[str, object]]:
+    """Most recent tier changes, oldest first, bounded like every polled surface.
+
+    This is the reversibility surface: every applied change records the tier it
+    came from, so an archive is always undoable from local evidence alone.
+    """
+    # A corrupt line costs only itself: the journal is an audit trail, and a
+    # single bad append must never make the tier surface unreadable.
+    lines, _errors = read_jsonl_objects(_memory_attention_journal_path(paths))
+    entries = [
+        entry
+        for entry in lines
+        if isinstance(entry, dict)
+        and entry.get("schema_version") == MEMORY_ATTENTION_JOURNAL_SCHEMA_VERSION
+        and (record_id is None or str(entry.get("record_id", "")) == str(record_id))
+    ]
+    return entries[-max(limit, 0):] if limit > 0 else []
+
+
+def _attention_stamp(now: datetime | None) -> str:
+    if now is None:
+        return utc_now()
+    moment = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _attention_working_context(pack: dict[str, object]) -> dict[str, object]:
+    included = pack.get("included_records")
+    items = included if isinstance(included, list) else []
+    return {
+        "record_ids": [str(item.get("record_id", "")) for item in items if isinstance(item, dict)],
+        "record_count": len(items),
+        "truncated": bool(pack.get("truncated", False)),
+        "attention": dict(pack.get("attention", {})) if isinstance(pack.get("attention"), dict) else {},
+    }
+
+
+def _refused_attention_change(record_id: str, requested: str, reason: str, reason_code: str) -> dict[str, object]:
+    return {
+        "schema_version": MEMORY_ATTENTION_CHANGE_SCHEMA_VERSION,
+        "record_id": record_id,
+        "current_tier": "",
+        "requested_tier": requested,
+        "reason": _redact(str(reason or ""))[:_MEMORY_ATTENTION_REASON_LIMIT],
+        "eligible": False,
+        "applied": False,
+        "reason_code": reason_code,
+        "detail": _MEMORY_ATTENTION_REFUSAL_DETAIL[reason_code],
+        "tier_detail": _MEMORY_ATTENTION_TIER_DETAIL[requested],
+        "working_context_before": {"record_ids": [], "record_count": 0, "truncated": False, "attention": {}},
+        "working_context_after": {"record_ids": [], "record_count": 0, "truncated": False, "attention": {}},
+        "leaving_working_context": [],
+        "entering_working_context": [],
+        "recent_changes": [],
+        "redaction_policy": "metadata_only",
+        "next_action": "No tier change is possible: resolve the reported reason first.",
+        "claim_boundary": _MEMORY_ATTENTION_CLAIM_BOUNDARY,
+    }
+
+
+def build_memory_attention_change(
+    paths: OmhPaths,
+    record_id: str,
+    *,
+    tier: str,
+    reason: str = "",
+    query: str = "",
+    limit: int = 6,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Preview one tier change: what the working context holds now, and after.
+
+    Nothing on disk moves. The projected "after" context is built by the same
+    recall builder with the requested tier substituted in memory, so the
+    preview is the pack the operator will actually get -- not a description of
+    one. Pass ``now`` to keep repeated previews byte-identical.
+    """
+    requested = normalize_memory_attention_tier(tier)
+    normalized_id = str(record_id).strip()
+    if not _SAFE_REF.match(normalized_id):
+        raise ValueError(f"unsafe memory record id: {record_id!r}")
+    record, error = read_json_object_result(_memory_record_path(paths, normalized_id))
+    if error:
+        return _refused_attention_change(normalized_id, requested, reason, "record_unreadable")
+    if not isinstance(record, dict) or str(record.get("record_id", "")) != normalized_id:
+        return _refused_attention_change(normalized_id, requested, reason, "record_not_found")
+    if record.get("schema_version") != PROJECT_MEMORY_RECORD_SCHEMA_VERSION:
+        return _refused_attention_change(normalized_id, requested, reason, "unsupported_record_schema")
+    current = record_attention_tier(record)
+    if current == requested:
+        return {
+            **_refused_attention_change(normalized_id, requested, reason, "tier_unchanged"),
+            "current_tier": current,
+        }
+    before = build_project_memory_recall_pack(paths, query, limit=limit, now=now)
+    after = build_project_memory_recall_pack(
+        paths,
+        query,
+        limit=limit,
+        now=now,
+        attention_override={normalized_id: requested},
+    )
+    before_context = _attention_working_context(before)
+    after_context = _attention_working_context(after)
+    before_ids = list(before_context["record_ids"]) if isinstance(before_context["record_ids"], list) else []
+    after_ids = list(after_context["record_ids"]) if isinstance(after_context["record_ids"], list) else []
+    return {
+        "schema_version": MEMORY_ATTENTION_CHANGE_SCHEMA_VERSION,
+        "record_id": normalized_id,
+        "current_tier": current,
+        "requested_tier": requested,
+        "reason": _redact(str(reason or ""))[:_MEMORY_ATTENTION_REASON_LIMIT],
+        "eligible": True,
+        "applied": False,
+        "reason_code": "planned",
+        "detail": (
+            f"Moving this record from {current} to {requested} leaves "
+            f"{after_context['record_count']} record(s) in the working context, was {before_context['record_count']}."
+        ),
+        "tier_detail": _MEMORY_ATTENTION_TIER_DETAIL[requested],
+        "working_context_before": before_context,
+        "working_context_after": after_context,
+        "leaving_working_context": [item for item in before_ids if item not in set(after_ids)],
+        "entering_working_context": [item for item in after_ids if item not in set(before_ids)],
+        "recent_changes": read_memory_attention_journal(paths, record_id=normalized_id),
+        "redaction_policy": "metadata_only",
+        "next_action": (
+            f"Apply with `omh memory attention {normalized_id} --tier {requested} --apply`. "
+            "Nothing has changed yet."
+        ),
+        "claim_boundary": _MEMORY_ATTENTION_CLAIM_BOUNDARY,
+    }
+
+
+def apply_memory_attention_change(
+    paths: OmhPaths,
+    record_id: str,
+    *,
+    tier: str,
+    reason: str = "",
+    query: str = "",
+    limit: int = 6,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Apply the previewed tier change to the local record and journal it.
+
+    Apply re-derives the preview so both steps share one guard set, then
+    re-reads the record under the store lock: a tier change that raced another
+    operator would otherwise journal a previous tier that was never true.
+    """
+    report = build_memory_attention_change(paths, record_id, tier=tier, reason=reason, query=query, limit=limit, now=now)
+    if not bool(report.get("eligible")):
+        raise ValueError(f"{report['reason_code']}: {report['detail']}")
+    normalized_id = str(report["record_id"])
+    requested = str(report["requested_tier"])
+    current = str(report["current_tier"])
+    changed_at = _attention_stamp(now)
+    entry = {
+        "schema_version": MEMORY_ATTENTION_JOURNAL_SCHEMA_VERSION,
+        "record_id": normalized_id,
+        "previous_tier": current,
+        "tier": requested,
+        "reason": str(report["reason"]),
+        "changed_at": changed_at,
+        "actor_class": "operator",
+        "redaction_policy": "metadata_only",
+        "claim_boundary": _MEMORY_ATTENTION_CLAIM_BOUNDARY,
+    }
+    with file_lock(paths.memory_index_path, private=True):
+        stored, error = read_json_object_result(_memory_record_path(paths, normalized_id))
+        if error or not isinstance(stored, dict) or record_attention_tier(stored) != current:
+            raise ValueError(f"memory record {normalized_id} changed attention tier concurrently; re-run the preview")
+        _write_project_memory_record(
+            paths,
+            {
+                **stored,
+                "attention": _attention_metadata(requested, reason=reason, previous_tier=current, changed_at=changed_at),
+            },
+        )
+        append_jsonl_locked(_memory_attention_journal_path(paths), entry)
+        _write_memory_index_unlocked(paths)
+    return {
+        **report,
+        "applied": True,
+        "reason_code": "applied",
+        "changed_at": changed_at,
+        "journal_entry": entry,
+        "next_action": (
+            f"Reverse it with `omh memory attention {normalized_id} --tier {current} --apply`. "
+            "The record itself was never moved or deleted."
         ),
     }
 
@@ -2120,6 +2500,11 @@ def validate_project_memory_recall_pack(value: Any, *, label: str = "memory_reca
     # existed still validates; present warnings are held to the full shape.
     if "freshness_warnings" in value:
         _validate_context_list(value.get("freshness_warnings"), _FRESHNESS_WARNING_KEYS, errors, f"{label}.freshness_warnings")
+    # Optional for the same reason as freshness warnings: a pack written before
+    # attention tiers existed still validates, and a present block is held to
+    # the full scalar-only shape.
+    if "attention" in value:
+        _validate_context_map(value.get("attention"), _RECALL_ATTENTION_KEYS, errors, f"{label}.attention")
     _validate_context_map(value.get("task_ref"), _PROJECT_MEMORY_TASK_REF_KEYS, errors, f"{label}.task_ref")
     if not isinstance(value.get("truncated"), bool):
         errors.append(f"{label}.truncated must be a boolean")
@@ -2252,6 +2637,16 @@ def _record_from_candidate(
         "updated_at": approved_at,
         "ttl": _ttl_projection(retention),
         "staleness": _staleness_projection(revalidation),
+        # Every approved record states its tier explicitly. An implicit
+        # default would make "this record is active" and "nobody ever set a
+        # tier" the same fact, and the operator could not tell an intentional
+        # promotion from a record the tier system never touched.
+        "attention": _attention_metadata(
+            DEFAULT_MEMORY_ATTENTION_TIER,
+            reason="approved_default",
+            previous_tier="",
+            changed_at=approved_at,
+        ),
         "safety": candidate.get("safety", {}),
         "redaction_policy": "metadata_only",
         "claim_boundary": "Reviewed OMH project memory is prepared context only; it is not execution, review, CI, merge, or Hermes internal-memory evidence.",
@@ -2337,6 +2732,7 @@ def _empty_recall_pack(
         "included_records": [],
         "excluded_records": [{"record_id": "", "reason": reason, "staleness": {"state": "not_checked"}}],
         "freshness_warnings": [],
+        "attention": _attention_disclosure([], 0, include_archived=False),
         "record_count": 0,
         "truncated": False,
         "redaction_policy": "metadata_only",
@@ -2350,6 +2746,7 @@ def _recall_item(
     score: int,
     staleness: dict[str, object],
     evaluation: dict[str, object],
+    attention_tier: str = DEFAULT_MEMORY_ATTENTION_TIER,
 ) -> dict[str, object]:
     evidence = _replay_evaluation(record, evaluation)
     return {
@@ -2362,6 +2759,7 @@ def _recall_item(
         "approved_at": str(record.get("approved_at", "")),
         "staleness": staleness,
         "score": int(score),
+        "attention_tier": attention_tier,
         "derived_from": _string_list(record.get("derived_from", [])),
         "perspective": _perspective_projection(record.get("perspective")),
         **_recall_evidence_fields(evidence),
