@@ -56,16 +56,15 @@
 </p>
 
 <p align="center">
-  <strong>oh-my-hermes</strong> (OMH) turns a normal request in
-  <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a> into
-  a clear capability, a useful next step, and an honest statement of what has
-  or has not happened. It strengthens the Hermes workflow you already use
-  instead of replacing Hermes or hiding a coding executor behind it.
+  <strong>oh-my-hermes</strong> (OMH) turns a normal
+  <a href="https://github.com/NousResearch/hermes-agent">Hermes Agent</a>
+  request into a clear capability, a useful next step, and an honest record
+  of what actually happened — strengthening the workflow you already use,
+  never replacing Hermes or hiding a coding executor behind it.
   <br><br>
-  OMH is the operating layer above individual Hermes-native skills: it frames
-  the problem, selects the workflow and evidence gates, and uses native skills
-  as capabilities within that governed path rather than as competing top-level
-  owners.
+  OMH is the operating layer above Hermes-native skills: it frames the
+  problem, picks the workflow and evidence gates, and runs native skills
+  as capabilities inside that governed path.
 </p>
 
 [Website](https://rlaope.github.io/oh-my-hermes/) ·

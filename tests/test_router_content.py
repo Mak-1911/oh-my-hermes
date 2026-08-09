@@ -3198,7 +3198,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[Roles](docs/ROLES.md)", readme)
         self.assertIn("[Application cases](docs/APPLICATION_CASES.md)", readme)
         self.assertIn("[GitHub Pages site](site/index.html)", readme)
-        self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal request", readme)
+        self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal", readme)
         self.assertIn("replacing Hermes or hiding a coding executor", readme)
         self.assertIn("**103 installable workflow skills**", readme)
         self.assertIn("**103개**", localized_readmes["ko"])
