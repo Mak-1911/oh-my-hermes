@@ -42,6 +42,12 @@ _SENSITIVE_RE = re.compile(
 # fine" branch, because an org rule that cannot be read must never be read as
 # permission. The caller (`quality/safety_preflight.py`) turns any
 # `status != "available"` into a denial.
+#
+# Issue #805 adds one question and deliberately keeps it outside this reader:
+# whether a local attestation over the source bytes verifies. That is not the
+# same question as whether the document is readable, so it lives in
+# `coding/safety_rule_attestation.py` and reaches this module only as three more
+# refusal codes plus the two result builders at the bottom of this section.
 ORG_SAFETY_RULE_SOURCE_SCHEMA_VERSION = "omh_org_safety_rules/v1"
 ORG_SAFETY_RULE_SOURCE_RESULT_SCHEMA_VERSION = "omh_org_safety_rule_source/v1"
 ORG_SAFETY_RULE_SOURCE_MAX_BYTES = 16_384
@@ -61,6 +67,17 @@ ORG_SAFETY_RULE_SOURCE_REASON_CODES = (
     "org_source_unknown_version",
     "org_source_unknown_fields",
     "org_source_unsafe_metadata",
+    # The local attestation refusals (issue #805). They live in this vocabulary
+    # rather than a second one because they are the same kind of answer -- this
+    # source may not be activated, and here is the field that says why -- and
+    # because `quality/safety_preflight` already turns every non-available code
+    # in this tuple into a denial. They are NOT the attestation axis itself;
+    # `coding/safety_rule_attestation.py` owns that, and it stays a separate
+    # field so a valid tag over a malformed document and an invalid tag over a
+    # well-formed one stay two distinguishable answers.
+    "org_source_attestation_missing",
+    "org_source_attestation_invalid",
+    "org_source_attestation_key_unreadable",
 )
 _ORG_SOURCE_FIELDS = frozenset({"schema_version", "revision", "denied_remote_target_kinds", "max_target_paths"})
 _ORG_SOURCE_CHUNK_BYTES = 4_096
@@ -155,75 +172,94 @@ def read_org_safety_rule_source(
     offending field, so the caller can deny and say why. There is no branch
     that reports an unreadable source as permission.
     """
+    result, _ = read_org_safety_rule_source_with_bytes(
+        source_path, time_budget_seconds=time_budget_seconds, clock=clock
+    )
+    return result
+
+
+def read_org_safety_rule_source_with_bytes(
+    source_path: str | Path,
+    *,
+    time_budget_seconds: float = ORG_SAFETY_RULE_SOURCE_TIME_BUDGET_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
+) -> tuple[dict[str, object], bytes]:
+    """The reader above, plus the exact bytes it read.
+
+    The local attestation lane (issue #805) authenticates the SOURCE BYTES
+    rather than the parsed document, and it has to authenticate the same read
+    the rules came from: opening the file a second time would tag one read and
+    then apply another. The bytes are empty exactly when the read itself failed,
+    which is every case where the result is already unavailable for a
+    source-side reason. A document that read cleanly but parsed badly still
+    returns its bytes, so a caller can report the tag over those bytes and the
+    parse failure as the two separate answers they are.
+    """
     identity = hashlib.sha256(str(source_path).encode("utf-8")).hexdigest()
     if not str(source_path).strip():
         # Opted in without a configured path: still a denial, never an
         # implicit "off". Turning the org level off is a separate decision.
-        return _org_source_unavailable(identity, "org_source_missing", _ORG_SOURCE_PATH_FIELD)
+        return org_safety_rule_source_unavailable(identity, "org_source_missing", _ORG_SOURCE_PATH_FIELD), b""
     path = Path(source_path)
     started = clock()
     if path.is_symlink():
-        return _org_source_unavailable(identity, "org_source_unsafe", _ORG_SOURCE_PATH_FIELD)
+        return org_safety_rule_source_unavailable(identity, "org_source_unsafe", _ORG_SOURCE_PATH_FIELD), b""
     if not path.exists():
-        return _org_source_unavailable(identity, "org_source_missing", _ORG_SOURCE_PATH_FIELD)
+        return org_safety_rule_source_unavailable(identity, "org_source_missing", _ORG_SOURCE_PATH_FIELD), b""
     if not path.is_file():
-        return _org_source_unavailable(identity, "org_source_unsafe", _ORG_SOURCE_PATH_FIELD)
+        return org_safety_rule_source_unavailable(identity, "org_source_unsafe", _ORG_SOURCE_PATH_FIELD), b""
     chunks: list[bytes] = []
     total = 0
     try:
         with path.open("rb") as handle:
             while True:
                 if clock() - started > time_budget_seconds:
-                    return _org_source_unavailable(identity, "org_source_timed_out", _ORG_SOURCE_PATH_FIELD)
+                    return org_safety_rule_source_unavailable(identity, "org_source_timed_out", _ORG_SOURCE_PATH_FIELD), b""
                 chunk = handle.read(_ORG_SOURCE_CHUNK_BYTES)
                 if not chunk:
                     break
                 total += len(chunk)
                 if total > ORG_SAFETY_RULE_SOURCE_MAX_BYTES:
-                    return _org_source_unavailable(identity, "org_source_oversized", _ORG_SOURCE_PATH_FIELD)
+                    return org_safety_rule_source_unavailable(identity, "org_source_oversized", _ORG_SOURCE_PATH_FIELD), b""
                 chunks.append(chunk)
     except FileNotFoundError:
-        return _org_source_unavailable(identity, "org_source_missing", _ORG_SOURCE_PATH_FIELD)
+        return org_safety_rule_source_unavailable(identity, "org_source_missing", _ORG_SOURCE_PATH_FIELD), b""
     except OSError:
-        return _org_source_unavailable(identity, "org_source_unreadable", _ORG_SOURCE_PATH_FIELD)
+        return org_safety_rule_source_unavailable(identity, "org_source_unreadable", _ORG_SOURCE_PATH_FIELD), b""
     if clock() - started > time_budget_seconds:
-        return _org_source_unavailable(identity, "org_source_timed_out", _ORG_SOURCE_PATH_FIELD)
-    return _org_source_document(identity, b"".join(chunks))
+        return org_safety_rule_source_unavailable(identity, "org_source_timed_out", _ORG_SOURCE_PATH_FIELD), b""
+    raw = b"".join(chunks)
+    return _org_source_document(identity, raw), raw
 
 
 def _org_source_document(identity: str, raw: bytes) -> dict[str, object]:
     try:
         document = decode_bounded_json_object(raw, max_depth=_ORG_SOURCE_MAX_DEPTH, max_nodes=_ORG_SOURCE_MAX_NODES)
     except ValueError:
-        return _org_source_unavailable(identity, "org_source_malformed", "org_rule_source.document")
+        return org_safety_rule_source_unavailable(identity, "org_source_malformed", "org_rule_source.document")
     if document.get("schema_version") != ORG_SAFETY_RULE_SOURCE_SCHEMA_VERSION:
-        return _org_source_unavailable(identity, "org_source_unknown_version", "org_rule_source.schema_version")
+        return org_safety_rule_source_unavailable(identity, "org_source_unknown_version", "org_rule_source.schema_version")
     unknown = sorted(set(document) - _ORG_SOURCE_FIELDS)
     if unknown:
-        return _org_source_unavailable(identity, "org_source_unknown_fields", f"org_rule_source.{unknown[0]}")
+        return org_safety_rule_source_unavailable(identity, "org_source_unknown_fields", f"org_rule_source.{unknown[0]}")
     revision = document.get("revision")
     if not isinstance(revision, str) or not revision.strip():
-        return _org_source_unavailable(identity, "org_source_malformed", "org_rule_source.revision")
+        return org_safety_rule_source_unavailable(identity, "org_source_malformed", "org_rule_source.revision")
     kinds = document.get("denied_remote_target_kinds", [])
     if not _org_bounded_tokens(kinds):
-        return _org_source_unavailable(identity, "org_source_malformed", "org_rule_source.denied_remote_target_kinds")
+        return org_safety_rule_source_unavailable(identity, "org_source_malformed", "org_rule_source.denied_remote_target_kinds")
     cap = document.get("max_target_paths")
     if cap is not None and (not isinstance(cap, int) or isinstance(cap, bool) or not 0 <= cap <= _ORG_SOURCE_MAX_TARGET_PATHS):
-        return _org_source_unavailable(identity, "org_source_malformed", "org_rule_source.max_target_paths")
+        return org_safety_rule_source_unavailable(identity, "org_source_malformed", "org_rule_source.max_target_paths")
     unsafe_field = _org_unsafe_metadata_field(revision, kinds)
     if unsafe_field:
-        return _org_source_unavailable(identity, "org_source_unsafe_metadata", unsafe_field)
-    return {
-        "schema_version": ORG_SAFETY_RULE_SOURCE_RESULT_SCHEMA_VERSION,
-        "status": "available",
-        "reason_code": "org_source_available",
-        "field": "",
-        "source_identity_sha256": identity,
-        "content_sha256": hashlib.sha256(raw).hexdigest(),
-        "revision": revision,
-        "rules": {"denied_remote_target_kinds": sorted(set(kinds)), "max_target_paths": cap},
-        "claim_boundary": ORG_SAFETY_RULE_SOURCE_CLAIM_BOUNDARY,
-    }
+        return org_safety_rule_source_unavailable(identity, "org_source_unsafe_metadata", unsafe_field)
+    return org_safety_rule_source_available(
+        identity,
+        content_sha256=hashlib.sha256(raw).hexdigest(),
+        revision=revision,
+        rules={"denied_remote_target_kinds": sorted(set(kinds)), "max_target_paths": cap},
+    )
 
 
 def _org_bounded_tokens(value: Any) -> bool:
@@ -243,7 +279,41 @@ def _org_unsafe_metadata_field(revision: str, kinds: list[str]) -> str:
     return ""
 
 
-def _org_source_unavailable(identity: str, reason_code: str, field: str) -> dict[str, object]:
+def org_safety_rule_source_available(
+    identity: str, *, content_sha256: str, revision: str, rules: dict[str, object]
+) -> dict[str, object]:
+    """The available result shape, built in one place so it cannot drift.
+
+    Public for the local attestation lane (issue #805): when a new revision
+    fails verification, that lane serves the last revision that did verify, out
+    of local trust state rather than out of the file. The retained rule set has
+    to reach the evaluator in exactly the shape the reader produces, not in a
+    lookalike a second literal would drift away from.
+    """
+    return {
+        "schema_version": ORG_SAFETY_RULE_SOURCE_RESULT_SCHEMA_VERSION,
+        "status": "available",
+        "reason_code": "org_source_available",
+        "field": "",
+        "source_identity_sha256": identity,
+        "content_sha256": content_sha256,
+        "revision": revision,
+        "rules": dict(rules),
+        "claim_boundary": ORG_SAFETY_RULE_SOURCE_CLAIM_BOUNDARY,
+    }
+
+
+def org_safety_rule_source_unavailable(identity: str, reason_code: str, field: str) -> dict[str, object]:
+    """The unavailable result shape, naming its reason code and offending field.
+
+    Public for the same reason. An attestation failure is a refusal of the same
+    kind the reader already makes -- the document parsed, but the local tag over
+    its bytes did not verify -- so it speaks this vocabulary rather than opening
+    a second one. The reason code is checked because a code outside the tuple
+    would reach `safety_preflight._CORRECTIONS` with no correction to render.
+    """
+    if reason_code not in ORG_SAFETY_RULE_SOURCE_REASON_CODES:
+        raise ValueError(f"unsupported org rule source reason code: {reason_code}")
     return {
         "schema_version": ORG_SAFETY_RULE_SOURCE_RESULT_SCHEMA_VERSION,
         "status": "unavailable",

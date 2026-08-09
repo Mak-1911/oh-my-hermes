@@ -116,6 +116,15 @@ class OmhPaths:
         return self.runtime_journal_dir / "run_lineage_checkpoints.jsonl"
 
     @property
+    def safety_rule_trust_state_path(self) -> Path:
+        # The last org safety rule revision whose local attestation verified
+        # (issue #805). Runtime-wide rather than per run: it is what a later
+        # evaluation falls back to when a new revision fails verification, so it
+        # has to outlive any one run directory. Metadata only -- two digests, a
+        # revision label, and the two bounded rule values.
+        return self.runtime_dir / "safety_rule_trust.json"
+
+    @property
     def runtime_plan_context_dir(self) -> Path:
         return self.runtime_dir / "plan-context"
 

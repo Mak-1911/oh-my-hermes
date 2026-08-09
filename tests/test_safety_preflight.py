@@ -968,6 +968,75 @@ class RevisionRecheckTests(unittest.TestCase):
                 self.assertEqual(recheck["live_revision"], safety_profile_revision())
 
 
+class AlreadyMetAcceptanceCriterionPins(unittest.TestCase):
+    """Issue #805 AC1 and AC2, already satisfied before the issue was worked.
+
+    Nothing below is new behaviour and nothing below was reimplemented. Both
+    criteria are pinned here because AC3 is built directly on top of them: the
+    retention path decides which revision is in force, which is only meaningful
+    while a verdict still reports its revision and a drifted revision still
+    blocks. A silent regression in either would make AC3 answer a question
+    nobody is asking.
+    """
+
+    def test_ac1_every_evaluated_artifact_reports_its_rule_revision(self) -> None:
+        # Already met. `_verdict` pins `safety_profile_revision` on every
+        # verdict it emits -- allow, builtin denial, org denial, and the
+        # "not even an object" refusal alike -- and the durable records that
+        # quote a verdict carry the same field onward
+        # (`workflows/approval_receipts.py`, `workflows/blocked_work_records.py`,
+        # each with their own tests). This is the pin, not a reimplementation.
+        live = safety_profile_revision()
+        cases: list[tuple[str, object, dict[str, object] | None]] = [
+            ("allow", request(), None),
+            ("builtin denial", request(owner=""), None),
+            ("non-object request", "not a request", None),
+            (
+                "org denial",
+                request(),
+                {
+                    "schema_version": "omh_org_safety_rule_source/v1",
+                    "status": "unavailable",
+                    "reason_code": "org_source_missing",
+                    "field": "org_rule_source.source_path",
+                    "source_identity_sha256": "0" * 64,
+                    "content_sha256": "",
+                    "revision": "",
+                    "rules": {},
+                    "claim_boundary": "not compliance, execution, review, ci, merge",
+                },
+            ),
+        ]
+        for label, candidate, org in cases:
+            with self.subTest(label=label):
+                verdict = evaluate_safety_preflight(candidate, org_rule_source=org)
+                self.assertEqual(verdict["safety_profile_revision"], live)
+                self.assertEqual(len(str(verdict["safety_profile_revision"])), 64)
+
+    def test_ac2_changed_rules_block_continuation_until_re_evaluated(self) -> None:
+        # Already met. `recheck_safety_preflight_revision` reports `drifted` for
+        # a carried revision the live profile no longer matches and refuses to
+        # call it dispatchable, and `coding/action_gate._revision_drift_denial`
+        # turns exactly that into a denial *before* arbitration runs, which
+        # `tests/test_risky_action_confirmation.py` already asserts. This is the
+        # pin for the preflight half.
+        allowed = evaluate_safety_preflight(request())
+        self.assertEqual(allowed["status"], "allow")
+        self.assertTrue(recheck_safety_preflight_revision(allowed)["dispatchable"])
+
+        carried_under_an_older_profile = dict(allowed, safety_profile_revision="0" * 64)
+        drifted = recheck_safety_preflight_revision(carried_under_an_older_profile)
+        self.assertEqual((drifted["status"], drifted["reason_code"]), ("drifted", "revision_drifted"))
+        self.assertFalse(drifted["dispatchable"])
+        self.assertEqual(drifted["live_revision"], safety_profile_revision())
+
+        # Re-evaluating under the live profile is the only thing that clears it.
+        # The carried verdict's own status is untouched by the recheck, so a
+        # stale allow cannot talk its way past the drift.
+        self.assertEqual(carried_under_an_older_profile["status"], "allow")
+        self.assertTrue(recheck_safety_preflight_revision(evaluate_safety_preflight(request()))["dispatchable"])
+
+
 class NoModelNoNetworkNoDependencyTests(unittest.TestCase):
     """Asserted by construction: the imports are the whole story."""
 
@@ -1068,11 +1137,17 @@ class OrgRuleSourceOptInTests(unittest.TestCase):
                 encoding="utf-8",
             )
             policy = read_org_rule_source_policy(paths)
+            # `attestation_key_path` joined the closed key set in #805. The
+            # bound did not move: a hand-edited `extra` is still dropped, and an
+            # absent attestation key still reads as the blank default, which is
+            # "no local attestation required".
             self.assertEqual(
-                set(policy), {"schema_version", "enabled", "source_path", "claim_boundary"}
+                set(policy),
+                {"schema_version", "enabled", "source_path", "attestation_key_path", "claim_boundary"},
             )
             self.assertTrue(policy["enabled"])
             self.assertEqual(policy["source_path"], "/org/rules.json")
+            self.assertEqual(policy["attestation_key_path"], "")
 
     def test_a_non_object_value_reads_as_off(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
