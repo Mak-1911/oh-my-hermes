@@ -134,22 +134,22 @@ omh doctor
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-十一个旗舰 workflow 带有 `ulw-` 前缀。在对话里说出触发词，其余交给 Hermes
-路由 —— 完整目录见 [Workflow Reference](docs/WORKFLOWS.md)。
+十一个 `ulw-` workflow。说出触发词，其余交给 Hermes —— 完整目录见
+[Workflow Reference](docs/WORKFLOWS.md)。
 
-| 阶段 | Skill | 做什么 |
-| --- | --- | --- |
-| 访谈 | ⚡ `ulw-interview` | 一次问一个问题，直到确切知道你要什么。 |
-| 调研 | ⚡ `ulw-research` | 翻真实代码和网页做调研，留下出处，可疑就核实。 |
-| 规划 | ⚡ `ulw-plan` | 做一份评审过的计划：比过方案、点明风险、定好完成标准。 |
-| 实现 | ⚡ `ulw-work` | 把已确认的计划放进互不碰同一文件的并行车道执行。 |
-| 实现 | ⚡ `ulw-ralph` | 一个人负责到底——实现、验证、评审，直到通过。 |
-| 实现 | ⚡ `ulw-team` | 多个工作者，一份任务清单，互不相撞。 |
-| 实现 | ⚡ `ulw-loop` | 计划 → 实现 → 评审，循环到目标真正通过。 |
-| 实现 | ⚡ `ulw-goal` | 带检查点的长期目标——上下文丢了也能从断点继续。 |
-| 实现 | ⚡ `ulw-process` | 把一个任务从调研一路带到 PR。 |
-| QA | ⚡ `ulw-qa` | 故意用狠场景攻击，坏哪修哪。 |
-| 性能 | ⚡ `ulw-perf` | 先测出真正慢和贵的地方，再逐条修热路径。 |
+| Skill | 做什么 |
+| --- | --- |
+| ⚡ `ulw-interview` | 一次问一个问题，直到确切知道你要什么。 |
+| ⚡ `ulw-research` | 翻真实代码和网页做调研，留下出处，可疑就核实。 |
+| ⚡ `ulw-plan` | 做一份评审过的计划：比过方案、点明风险、定好完成标准。 |
+| ⚡ `ulw-work` | 把已确认的计划放进互不碰同一文件的并行车道执行。 |
+| ⚡ `ulw-ralph` | 一个人负责到底——实现、验证、评审，直到通过。 |
+| ⚡ `ulw-team` | 多个工作者，一份任务清单，互不相撞。 |
+| ⚡ `ulw-loop` | 计划 → 实现 → 评审，循环到目标真正通过。 |
+| ⚡ `ulw-goal` | 带检查点的长期目标——上下文丢了也能从断点继续。 |
+| ⚡ `ulw-process` | 把一个任务从调研一路带到 PR。 |
+| ⚡ `ulw-qa` | 故意用狠场景攻击，坏哪修哪。 |
+| ⚡ `ulw-perf` | 先测出真正慢和贵的地方，再逐条修热路径。 |
 
 <br>
 

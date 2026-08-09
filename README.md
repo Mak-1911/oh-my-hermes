@@ -167,23 +167,22 @@ Maintenance paths such as reconciling a `--full` install back to core live in
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-Eleven flagship workflows carry the `ulw-` prefix. Say the trigger in
-chat and Hermes routes the rest — full catalog in
-[Workflow Reference](docs/WORKFLOWS.md).
+Eleven `ulw-` workflows. Say the trigger in chat — Hermes routes the
+rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
 
-| Stage | Skill | What it does |
-| --- | --- | --- |
-| Interview | ⚡ `ulw-interview` | Asks one question at a time until it knows exactly what you want. |
-| Research | ⚡ `ulw-research` | Digs through real code and the live web, keeps sources, and verifies anything doubtful. |
-| Plan | ⚡ `ulw-plan` | Builds a reviewed plan: options compared, risks named, done-criteria agreed. |
-| Build | ⚡ `ulw-work` | Runs an accepted plan in parallel lanes that never touch the same file. |
-| Build | ⚡ `ulw-ralph` | One owner grinds a task to done — build, verify, review, repeat. |
-| Build | ⚡ `ulw-team` | Multiple workers, one task list, no collisions. |
-| Build | ⚡ `ulw-loop` | Cycles plan → build → review until the goal actually passes. |
-| Build | ⚡ `ulw-goal` | Long-running goals with checkpoints — survives lost context, resumes where it stopped. |
-| Build | ⚡ `ulw-process` | Takes one task all the way from research to an open PR. |
-| QA | ⚡ `ulw-qa` | Attacks the build with hostile scenarios and fixes what breaks. |
-| Perf | ⚡ `ulw-perf` | Measures where it is actually slow or expensive, then fixes one hot path at a time. |
+| Skill | What it does |
+| --- | --- |
+| ⚡ `ulw-interview` | Asks one question at a time until it knows exactly what you want. |
+| ⚡ `ulw-research` | Digs through real code and the live web, keeps sources, and verifies anything doubtful. |
+| ⚡ `ulw-plan` | Builds a reviewed plan: options compared, risks named, done-criteria agreed. |
+| ⚡ `ulw-work` | Runs an accepted plan in parallel lanes that never touch the same file. |
+| ⚡ `ulw-ralph` | One owner grinds a task to done — build, verify, review, repeat. |
+| ⚡ `ulw-team` | Multiple workers, one task list, no collisions. |
+| ⚡ `ulw-loop` | Cycles plan → build → review until the goal actually passes. |
+| ⚡ `ulw-goal` | Long-running goals with checkpoints — survives lost context, resumes where it stopped. |
+| ⚡ `ulw-process` | Takes one task all the way from research to an open PR. |
+| ⚡ `ulw-qa` | Attacks the build with hostile scenarios and fixes what breaks. |
+| ⚡ `ulw-perf` | Measures where it is actually slow or expensive, then fixes one hot path at a time. |
 
 <br>
 
