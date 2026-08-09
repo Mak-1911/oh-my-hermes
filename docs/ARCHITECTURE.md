@@ -1300,6 +1300,62 @@ Initial transition policy is intentionally conservative: clarification can hand
 off to planning, and planning can hand off to execution or QA. Other active
 workflow conflicts must be finished or cleared explicitly.
 
+## Goal Journey Projection
+
+`goal_journey/v1` (`src/workflows/goal_journey.py`) answers one question a
+resumed conversation has to answer honestly: what already advanced this goal,
+and what still stands between it and completion. It is a read-only projection —
+`build_goal_journey()` writes nothing and mutates nothing — exposed as `omh goal
+journey --goal <id>`, which prints readable lines by default and the machine
+payload under `--json` or `OMH_OUTPUT=json`.
+
+The goal ledger stores no session, plan, handoff, or owner link. The projection
+does not add writers for them; it re-derives the edges from artifacts that
+already exist:
+
+| Edge | Derived from |
+| --- | --- |
+| goal → run | `linked_runtime_runs` in the ledger |
+| run → handoff, owner, execution | `summarize_delegated_coding_status()` for that run |
+| goal → session | a wrapper session whose `current_run_id` is one of those runs |
+| session → plan | the session's own `plan` block and plan `decision` |
+| goal → checkpoints, criteria | the ledger's own lists |
+
+Three properties are the contract, and each is a test:
+
+- **Criteria need accepted evidence.** A criterion reads as satisfied only when
+  the ledger says satisfied, it carries evidence refs, *and* a done checkpoint
+  actually referenced it while carrying evidence. A ledger hand-edited to
+  `satisfied` therefore projects as pending. That makes the journey stricter
+  than `build_goal_completion_gate()` and never looser: `completion.ready` is
+  the conjunction of the ledger gate and an empty blocking-gate list, and
+  `completion.ledger_gate_ready` reports the ledger's own verdict beside it.
+- **Completion stays blocked while any required gate lacks evidence.**
+  `required_gates` flattens the four gate kinds the ledger blocks on —
+  acceptance criterion, active blocker, linked runtime run, goal status — each
+  with an `evidence_accepted` boolean. `validate_goal_journey()` refuses a
+  payload whose `completion.ready` is true while any gate is unsatisfied, so the
+  invariant is enforced on the payload and not only in the builder.
+- **Stages distinguish intent from proof.** `intent`, `preparation`,
+  `activity`, `blocked`, `verified_complete`, `cancelled`. A ledger that says
+  complete while a required gate lacks evidence reads as `blocked`, never as
+  verified.
+
+Two determinism rules apply. `now` is a parameter, never a wall-clock read
+inside the payload, so two projections of an unchanged goal compare equal; the
+CLI supplies `utc_now()` and tests pin it. Without `now`, evidence freshness
+reports `unknown` rather than guessing. The checkpoint list is tail-bounded at
+`GOAL_JOURNEY_CHECKPOINT_LIMIT` with a `checkpoint_history` block, because a
+goal spanning months is exactly the case this projection exists for; criteria,
+gates, and the stage are derived from the *full* checkpoint list first, so
+bounding output never moves a verdict.
+
+The payload is metadata-only in the same sense as the ledger: the objective
+travels as `objective_hash` plus the ledger's bounded summary, and a linked
+session contributes its id, status, decision, and `message_sha256` — never a
+transcript. `claim_boundary` and `not_evidence` state what the projection is
+not, and `validate_goal_journey()` rejects a payload that weakens either.
+
 ## Record Revisions and Idempotent Mutations
 
 Wrapper sessions, goal ledgers, loop cycles, executor sessions, and workflow

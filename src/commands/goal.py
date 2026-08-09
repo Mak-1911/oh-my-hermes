@@ -17,11 +17,13 @@ from ..goal_ledger import (
     record_goal_checkpoint,
 )
 from ..installer import OmhError
+from ..system.local_store import utc_now
 from ..workflows.coordination_board import (
     DEFAULT_LIMIT as COORDINATION_BOARD_DEFAULT_LIMIT,
     build_coordination_board,
     render_coordination_board_text,
 )
+from ..workflows.goal_journey import build_goal_journey, render_goal_journey_text
 from .common import _paths, _print_json, _wants_json, add_revision_guard_arguments
 
 
@@ -178,6 +180,22 @@ def cmd_goal_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_goal_journey(args: argparse.Namespace) -> int:
+    paths = _paths(args)
+    try:
+        # The wall clock is read here, in the command, and passed in: the
+        # projection itself never reads one, so a test can pin freshness and
+        # two reads of an unchanged goal stay comparable.
+        journey = build_goal_journey(paths, args.goal_id, now=utc_now())
+    except (FileNotFoundError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    if _wants_json(args):
+        _print_json({"journey": journey})
+        return 0
+    print(render_goal_journey_text(journey))
+    return 0
+
+
 def cmd_goal_continue(args: argparse.Namespace) -> int:
     try:
         _print_json({"continuation": build_goal_continuation(_paths(args), args.goal_id)})
@@ -290,3 +308,16 @@ def _add_goal_commands(sub) -> None:
     )
     goal_board.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
     goal_board.set_defaults(func=cmd_goal_board)
+
+    goal_journey = goal_sub.add_parser("journey")
+    goal_journey.add_argument("--goal", dest="goal_id", required=True)
+    # New surface, so DIRECTION applies without a compatibility exception:
+    # plain text is the default user experience and the machine payload is the
+    # opt-in. The older `goal` subcommands keep their JSON default because
+    # wrappers already parse them.
+    goal_journey.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the machine-readable goal_journey/v1 payload instead of readable lines.",
+    )
+    goal_journey.set_defaults(func=cmd_goal_journey)
