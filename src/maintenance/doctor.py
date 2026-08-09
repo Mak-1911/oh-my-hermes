@@ -17,6 +17,7 @@ from ..config_adapter import (
 from ..hashutil import sha256_file, sha256_text
 from ..local_store import can_write_dir
 from ..install.guidance_projection import build_guidance_projection_status
+from ..install.hook_integrity import HOOK_HOST_TARGET, VALID_HOOK_EVENTS, build_hook_integrity_status
 from ..install.identity_conflicts import build_identity_conflict_report
 from ..manifest import local_modifications, read_manifest
 from ..paths import OmhPaths
@@ -278,6 +279,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
                 _awareness_delivery_check(paths),
             ]
         )
+    checks.append(_hook_integrity_check(paths))
     profile_installs = state.get("last_team_profile_install") if isinstance(state, dict) else None
     if not profile_installs:
         checks.append(Check("team_profile_packs", True, f"optional OMH team profile packs are not installed at {paths.hermes_agents_dir}"))
@@ -685,6 +687,45 @@ def _guidance_projection_check(paths: OmhPaths, manifest: dict | None, *, regist
         "guidance_projection",
         False,
         summary,
+        remediation=str(status["next_action"]),
+        next_action=str(status["next_action"]),
+    )
+
+
+def _hook_integrity_check(paths: OmhPaths) -> Check:
+    """Report the reviewed native hooks as one answer with six axes.
+
+    `plugin_bundle_current` already notices that *some* managed file drifted,
+    but it says so at bundle grain: an operator learns the bundle is stale and
+    not that `pre_llm_call` specifically is no longer the hook that was
+    reviewed, nor which capability that takes down. This check names the axis
+    that failed -- digest, event scope, timeout, review, host target, or
+    revocation -- and lists every hook dropped from the managed projection with
+    the command that brings it back.
+
+    It fails only on an actual exclusion or an unreadable revocation ledger.
+    An uninstalled bundle is not a fault: the reviewed digests are still the
+    reviewed digests, nothing has changed them, and failing here would make
+    every machine that has not run `omh setup` yet look tampered with.
+    """
+    status = build_hook_integrity_status(paths)
+    records = status["records"]
+    excluded = status["excluded_hooks"]
+    summary = (
+        f"managed={len(status['managed_hooks'])}/{len(records)} digest={status['digest_state']} "
+        f"event_scope={len(VALID_HOOK_EVENTS)} review={status['review_state']} "
+        f"host_target={HOOK_HOST_TARGET} revocation={status['revocation_state']} "
+        f"ledger={status['revocation_ledger']} observed={status['observed_in_this_environment']}"
+    )
+    if not excluded and status["revocation_ledger"] != "unreadable":
+        return Check("plugin_hook_integrity", True, summary)
+    detail = "; ".join(str(item["repair"]) for item in excluded)
+    if status["revocation_ledger"] == "unreadable":
+        detail = f"{status['revocation_ledger_path']} is unreadable" + (f"; {detail}" if detail else "")
+    return Check(
+        "plugin_hook_integrity",
+        False,
+        f"{summary}; {detail}",
         remediation=str(status["next_action"]),
         next_action=str(status["next_action"]),
     )

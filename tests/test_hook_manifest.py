@@ -11,6 +11,7 @@ from _local_package import load_local_package
 load_local_package()
 
 from omh.capabilities.hooks import hook_manifest
+from omh.install.hook_integrity import HOOK_REVIEWS, VALID_HOOK_EVENTS
 from omh.plugin_bundle.omh.awareness import awareness_route_hint
 from omh.plugin_bundle.omh.awareness_delivery import read_awareness_delivery
 from omh.plugin_bundle.omh.hooks.llm_hooks import pre_llm_call
@@ -87,6 +88,37 @@ class HookManifestTests(unittest.TestCase):
         self.assertIn("native_command_rendered", events)
         self.assertIn("render_kind", events["native_command_rendered"]["payload_fields"])
         self.assertIn("not proof", hooks["pre_llm_call"]["claim_boundary"])
+
+    def test_hook_manifest_never_claims_an_observed_or_invoked_hook(self) -> None:
+        """#803 AC3, on the manifest side: availability is not invocation.
+
+        The integrity record in `install.hook_integrity` refines this manifest
+        rather than replacing it, so the boundary has to hold in both. Here it
+        is the resting state of the static projection: nothing OMH can compute
+        without a host observation may set an observed flag.
+        """
+        manifest = hook_manifest()
+
+        for hook in manifest["plugin_hooks"]:
+            with self.subTest(hook=hook["name"]):
+                self.assertFalse(hook["observed_in_this_environment"])
+                self.assertIn("not proof that Hermes loaded or invoked", hook["claim_boundary"])
+        for tool in manifest["plugin_tools"]:
+            self.assertFalse(tool["observed_in_this_environment"])
+        for event in manifest["wrapper_events"]:
+            self.assertFalse(event["observed_in_this_environment"])
+
+    def test_every_manifest_hook_has_a_reviewed_integrity_record(self) -> None:
+        """#803 AC1, on the manifest side: no hook ships without a review.
+
+        Adding a hook to `PROVIDED_HOOKS` is what makes it appear here. If it
+        can appear here without a `HOOK_REVIEWS` entry, it reaches Hermes with
+        no reviewed digest and no declared event scope behind it.
+        """
+        names = {hook["name"] for hook in hook_manifest()["plugin_hooks"]}
+
+        self.assertEqual(names, set(HOOK_REVIEWS))
+        self.assertEqual(names, set(VALID_HOOK_EVENTS))
 
     def test_pre_llm_call_records_delivery_in_explicit_omh_home(self) -> None:
         with TemporaryDirectory() as explicit_home, TemporaryDirectory() as env_home:
