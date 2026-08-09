@@ -23,6 +23,15 @@ from ..external_effect_receipts import (
     read_external_effect_receipts,
     validate_external_effect_receipt_store,
 )
+from ..workflows.external_action_readiness import (
+    ExternalActionReadinessError,
+    answer_external_action_readiness,
+    evidence_from_external_effect_receipt,
+    evidence_from_mcp_host_session,
+    evidence_from_plugin_host_observation,
+)
+from ..mcp.bridge import read_mcp_host_sessions
+from ..plugin_observations import read_plugin_host_observations
 from ..workflows.approval_receipts import (
     APPROVAL_TTL_SECONDS,
     CLAIM_BOUNDARY as APPROVAL_CLAIM_BOUNDARY,
@@ -938,6 +947,131 @@ def _render_receipts_text(payload: dict) -> str:
     return "\n".join(line for line in lines if line)
 
 
+ACTION_READINESS_VIEW_SCHEMA_VERSION = "runtime_action_readiness_view/v1"
+DEFAULT_ACTION_READINESS_SCAN_LIMIT = 20
+# The output of this surface is a fixed shape -- one answer, at most eight
+# rejected rows, at most this many store faults -- no matter how large the
+# evidence stores grow. That is why it is registered as a bounded surface: an
+# agent asking "can you do it yet" every thirty seconds buys the same size
+# answer every time.
+MAX_ACTION_READINESS_STORE_ERRORS = 8
+
+_ACTION_READINESS_HEADLINES = {
+    "ready": "Yes — ready now",
+    "blocked": "No — blocked",
+    "not_observed": "Unknown — nothing has been observed",
+    "stale": "Unknown — the last observation is stale",
+    "failed": "No — the last attempt failed",
+}
+
+
+def cmd_runtime_action_readiness(args: argparse.Namespace) -> int:
+    """Answer "can Hermes do this now?" for one requested outcome (#809).
+
+    Read-only, and deliberately without a way to assert readiness: every tier
+    above `installed` comes from a record some other surface wrote after it
+    observed something. A flag that said "this is ready" would put back exactly
+    the confusion between configuration and capability this surface removes.
+
+    There is no answer store and no `--prior`. The durable state is the evidence
+    stores themselves, and they are re-read in full on every call, so a corrupt
+    line appended today cannot erase what valid records already say: the
+    last-valid-state preservation the contract requires is structural here
+    rather than remembered. Unreadable lines are reported as store faults in the
+    same breath.
+    """
+    paths = _paths(args)
+    limit = _bounded_limit(args)
+    outcome_id = str(getattr(args, "outcome_id", "") or "")
+    surface = str(getattr(args, "surface", "") or "")
+    action = str(getattr(args, "action", "") or "").strip() or outcome_id
+
+    plugin_records, plugin_errors = read_plugin_host_observations(paths, limit=limit)
+    mcp_records, mcp_errors = read_mcp_host_sessions(paths, limit=limit)
+    receipts = read_external_effect_receipts(paths, effect_id=outcome_id, limit=limit)
+
+    # Host records are surface-scoped, so they are filtered by host here;
+    # receipts are outcome-scoped and were already selected by effect id.
+    from_plugin = _adapted_evidence(
+        [record for record in plugin_records if str(record.get("host", "")) == surface],
+        evidence_from_plugin_host_observation,
+    )
+    from_mcp = _adapted_evidence(
+        [record for record in mcp_records if str(record.get("host", "")) == surface],
+        evidence_from_mcp_host_session,
+    )
+    from_receipts = _adapted_evidence(receipts, evidence_from_external_effect_receipt)
+    evidence = [*from_plugin, *from_mcp, *from_receipts]
+    counts = {
+        "plugin_host_observation": len(from_plugin),
+        "mcp_host_session": len(from_mcp),
+        "external_effect_receipt": len(from_receipts),
+    }
+
+    try:
+        answer = answer_external_action_readiness(
+            outcome_id=outcome_id,
+            action=action,
+            surface=surface,
+            evidence=evidence,
+        )
+    except ExternalActionReadinessError as exc:
+        raise OmhError(str(exc)) from exc
+
+    store_errors = [str(error) for error in (*plugin_errors, *mcp_errors)]
+    payload: dict[str, object] = {
+        "schema_version": ACTION_READINESS_VIEW_SCHEMA_VERSION,
+        "answer": answer,
+        "evidence_sources": counts,
+        "scanned_limit": limit or 0,
+        "store_errors": store_errors[:MAX_ACTION_READINESS_STORE_ERRORS],
+        "store_error_count": len(store_errors),
+    }
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        print(_render_action_readiness_text(payload))
+    return 0
+
+
+def _adapted_evidence(records: list, adapt) -> list[dict]:
+    """Every record this adapter could read as evidence, dropping the rest.
+
+    A record the adapter returns nothing for is not weaker evidence: it is a
+    state that says nothing about whether the outcome can happen now, such as an
+    effect a surface observed start and could not classify.
+    """
+    adapted = [adapt(record) for record in records]
+    return [item for item in adapted if item is not None]
+
+
+def _render_action_readiness_text(payload: dict) -> str:
+    answer = payload.get("answer")
+    answer = answer if isinstance(answer, dict) else {}
+    state = str(answer.get("state", ""))
+    counts = payload.get("evidence_sources")
+    counts = counts if isinstance(counts, dict) else {}
+    lines = [
+        f"Can Hermes do this now? {_ACTION_READINESS_HEADLINES.get(state, 'Unknown')}",
+        f"  Outcome: {answer.get('outcome_id', '')} — {answer.get('action', '')}",
+        f"  Surface: {answer.get('surface', '')}",
+        f"  State: {state} (strongest evidence: {answer.get('evidence_tier', '')})",
+        f"  Why: {answer.get('reason', '')}",
+        f"  Next: {answer.get('next_step', '')}",
+        f"  Evidence: {answer.get('accepted_count', 0)} in scope, "
+        f"{answer.get('rejected_count', 0)} rejected ({answer.get('evidence_integrity', '')})",
+        "  Read from: " + ", ".join(f"{name} {counts.get(name, 0)}" for name in sorted(counts)),
+    ]
+    for row in answer.get("rejected_evidence", []) or []:
+        if isinstance(row, dict):
+            lines.append(f"    rejected record {row.get('index', '')}: {row.get('reason', '')}")
+    if payload.get("store_error_count"):
+        lines.append(f"  Store faults: {payload.get('store_error_count', 0)}")
+        lines.extend(f"    {error}" for error in payload.get("store_errors", []) or [])
+    lines.append(str(answer.get("claim_boundary", "")))
+    return "\n".join(line for line in lines if line)
+
+
 def cmd_runtime_approvals(args: argparse.Namespace) -> int:
     """Read recorded approval receipts. There is deliberately no grant command.
 
@@ -1233,6 +1367,38 @@ def _add_runtime_commands(sub) -> None:
     runtime_receipts.add_argument("--all", action="store_true", help="Return all receipts.")
     runtime_receipts.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
     runtime_receipts.set_defaults(func=cmd_runtime_receipts)
+
+    runtime_action_readiness = runtime_sub.add_parser(
+        "action-readiness",
+        help=(
+            "Answer whether one requested external outcome can be done now, from recorded evidence only. "
+            "Read-only: readiness above the installed tier cannot be asserted, only observed."
+        ),
+    )
+    runtime_action_readiness.add_argument(
+        "--outcome",
+        dest="outcome_id",
+        required=True,
+        help="The requested outcome this answer is about. Matches an external effect id when one exists.",
+    )
+    runtime_action_readiness.add_argument(
+        "--surface",
+        required=True,
+        help="The host or connector the outcome runs over, as recorded by host observations.",
+    )
+    runtime_action_readiness.add_argument(
+        "--action",
+        default="",
+        help="One bounded line naming what the user asked for. Defaults to the outcome id.",
+    )
+    runtime_action_readiness.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_ACTION_READINESS_SCAN_LIMIT,
+        help="Maximum recent records to scan per evidence store.",
+    )
+    runtime_action_readiness.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
+    runtime_action_readiness.set_defaults(func=cmd_runtime_action_readiness)
 
     runtime_approvals = runtime_sub.add_parser(
         "approvals",
