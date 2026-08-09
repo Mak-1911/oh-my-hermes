@@ -503,9 +503,32 @@ class CoordinationBoardResilienceTests(unittest.TestCase):
                 paths,
                 units=[{"title": "nameless"}, {"unit_id": "alpha", "title": "extract the parser"}],
             )
+            # Hand-written rather than recorded through the ledger API, which
+            # refuses an id-less checkpoint. The board reads whatever is on
+            # disk, so the shape it must survive is the one it never wrote.
+            goal_dir = paths.goals_dir / "g-partial"
+            goal_dir.mkdir(parents=True, exist_ok=True)
+            (goal_dir / "goal.json").write_text(
+                json.dumps(
+                    {
+                        "goal_id": "g-partial",
+                        "status": "active",
+                        "objective_summary": "ship the gateway",
+                        "checkpoints": [
+                            {"status": "pending", "summary": "nameless"},
+                            {"checkpoint_id": "cp-wire", "status": "pending", "summary": "wire it"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
             payload = build_coordination_board(paths, now=_NOW)
 
-        self.assertEqual([item["item_id"] for item in payload["items"]], [f"{_FANOUT_ID}/alpha"])
+        self.assertEqual(
+            sorted(item["item_id"] for item in payload["items"]),
+            [f"{_FANOUT_ID}/alpha", "g-partial/cp-wire"],
+        )
+        self.assertEqual(validate_coordination_board(payload), [])
 
 
 class CoordinationBoardValidationTests(unittest.TestCase):
