@@ -168,12 +168,19 @@ runtime run exists and the wrapper needs a compact progress card.
    target update.
 8. If the response is a plan, wait for the user to accept or revise the plan
    before preparing a handoff.
-9. If a coding handoff is prepared, check `executor_readiness/v1` before first
-   dispatch for the selected profile. A wrapper may run
-   `omh coding executor-readiness --executor <profile>` once, cache the result,
-   and skip later probes unless the user forces a retry. If readiness is
+9. If a coding handoff is prepared, check `executor_readiness/v1` before every
+   dispatch for the selected profile by running
+   `omh coding executor-readiness --executor <profile>`. The probe reuses the
+   stored observation while it is still fresh and still bound to the same
+   profile, tool, permission profile, and workspace; that recheck is cheap and
+   local, so a wrapper does not need a cache of its own. If readiness is
    `missing` or `blocked`, ask the user to choose another coding agent,
-   configure PATH, continue in Hermes, or keep a prompt/runtime handoff.
+   configure PATH, continue in Hermes, or keep a prompt/runtime handoff. If
+   readiness is `stale`, the payload carries `pre_handoff_readiness/v1` naming
+   the gap and `pre_handoff_repair_card/v1` with the commands that close it;
+   render the card and do not dispatch. Rerunning with `--force` is the only
+   thing that replaces a stale observation, and the card never claims a repair
+   ran.
 10. If the selected profile is Hermes, render `hermes_coding_harness/v1` from
    the prepared runtime handoff or wrapper-session status. It is a read-only
    projection, so answer status questions with the current stage, lane owner,

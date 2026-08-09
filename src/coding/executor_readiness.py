@@ -9,7 +9,12 @@ from typing import Any
 
 from ..executors import EXECUTOR_PROFILES, executor_label
 from ..local_store import atomic_write_json, read_json_object_result, utc_now
-from ..paths import OmhPaths
+from ..paths import OmhPaths, find_project_root
+from .pre_handoff_readiness import (
+    build_pre_handoff_repair_card,
+    evaluate_pre_handoff_readiness,
+    readiness_binding,
+)
 
 
 EXECUTOR_READINESS_SCHEMA_VERSION = "executor_readiness/v1"
@@ -171,7 +176,18 @@ def probe_executor_readiness(
     *,
     force: bool = False,
     dry_run: bool = False,
+    now: str = "",
 ) -> dict[str, object]:
+    """Readiness for one profile, rechecked against the machine it was observed on.
+
+    A cached decision is reused only while it is still fresh AND still bound to
+    the same profile, tool, permission profile, and workspace. When it is not,
+    the cached decision is NOT silently re-probed: this call reports the exact
+    gap and a repair card, and `force=True` stays the only way to replace the
+    stored observation. Re-probing on staleness would hide a missing tool
+    behind a subprocess run nobody asked for, which is the same surprise #837
+    exists to remove --- only later in the handoff.
+    """
     normalized = _normalize_profile(profile)
     if normalized == "choose":
         return executor_readiness_contract("choose")
@@ -179,10 +195,32 @@ def probe_executor_readiness(
     state, state_error = _read_state(paths)
     cached = _cached_profile(state, normalized)
     if cached and not force:
+        verdict = evaluate_pre_handoff_readiness(
+            profile=normalized,
+            cached=cached,
+            binding=live_readiness_binding(paths, normalized),
+            capability_snapshot=_capability_snapshot(paths, normalized),
+            now=now,
+        )
         result = dict(cached)
-        result["cache_status"] = "cached"
-        result["first_use_skipped"] = True
+        result["pre_handoff_readiness"] = verdict
         result["claim_boundary"] = contract["claim_boundary"]
+        if verdict["usable"]:
+            result["cache_status"] = "cached"
+            result["first_use_skipped"] = True
+        else:
+            # Never `ready`: a decision that no longer describes this machine
+            # is not weaker evidence of readiness, it is none.
+            result["cache_status"] = "invalidated"
+            result["first_use_skipped"] = False
+            result["status"] = "stale"
+            result["available"] = False
+            result["summary"] = str(verdict["reason"])
+            result["next_action"] = "repair_prerequisite_then_force_readiness_probe"
+            result["repair_card"] = build_pre_handoff_repair_card(
+                verdict,
+                repair_command=_repair_command(normalized),
+            )
         return _with_advisory_signals(paths, normalized, result)
     if dry_run:
         result = dict(contract)
@@ -198,6 +236,88 @@ def probe_executor_readiness(
     result = _run_probe(contract)
     _write_state(paths, state, normalized, result)
     return _with_advisory_signals(paths, normalized, result)
+
+
+def live_readiness_binding(
+    paths: OmhPaths,
+    profile: str,
+    *,
+    workspace_ref: str | None = None,
+) -> dict[str, object]:
+    """The current value of every input whose change invalidates readiness.
+
+    Four axes, each read from where that input actually lives:
+
+    * `profile` --- the profile's own identity and what a ready result would
+      let a wrapper do, so renaming a profile or changing its ready action
+      cannot silently reuse an observation made under the old definition.
+    * `tool` --- the command the probe would run and every PATH resolution of
+      it, so an uninstall, a reinstall somewhere else, or a newer binary
+      appearing ahead of the observed one all register.
+    * `permission` --- the safety profile revision, the same content hash
+      `fanout_dispatch` already rechecks before it spawns anything.
+    * `workspace` --- the repository this readiness was observed in, because a
+      per-user readiness cache is shared across every checkout on the machine.
+
+    Local reads only: no subprocess, no network. `workspace_ref` is injectable
+    so a caller (and a test) can bind readiness to a workspace other than the
+    process working directory.
+    """
+    from ..quality.safety_preflight import safety_profile_revision
+
+    command, args = _resolved_command(profile) or ("", ())
+    probe_kind = "local_command" if command else "wrapper_observed_profile"
+    return readiness_binding(
+        profile=profile,
+        profile_revision="\x1e".join((executor_label(profile), _ready_action(profile), probe_kind)),
+        tool_paths=(command, *args, *_path_resolutions(command)) if command else (),
+        permission_revision=safety_profile_revision(),
+        workspace_ref=workspace_ref if workspace_ref is not None else _workspace_ref(paths),
+    )
+
+
+def _workspace_ref(paths: OmhPaths) -> str:
+    """The workspace a readiness observation belongs to.
+
+    The repository root when there is one, so a readiness decision made in one
+    checkout is not reused in another; the store home otherwise, which is the
+    only workspace identity a run outside a repository has.
+    """
+    root = find_project_root()
+    return str(root) if root is not None else str(paths.omh_home)
+
+
+def _capability_snapshot(paths: OmhPaths, profile: str) -> dict[str, object] | None:
+    """The recorded capability snapshot for this profile, if one exists.
+
+    Absent is not the same as prepared-only here: with no snapshot on disk
+    there is no capability claim riding the handoff, so readiness stands on its
+    own probe evidence. A snapshot that IS present is re-checked at dispatch
+    time --- prepared-only or expired evidence cannot support a ready result.
+    """
+    from .executor_capability_snapshots import (
+        executor_capability_snapshot_path,
+        read_matching_executor_capability_snapshot,
+    )
+
+    try:
+        path = executor_capability_snapshot_path(paths.executor_capability_snapshots_dir, profile)
+    except ValueError:
+        return None
+    return read_matching_executor_capability_snapshot(path, expected_executor=profile)
+
+
+def _repair_command(profile: str) -> str:
+    """The owner-specific command that confirms the missing prerequisite.
+
+    Executor-specific value inside an executor-neutral card: a probeable
+    profile confirms its own CLI, and a wrapper-observed profile has no CLI to
+    confirm, so it gets the local check that covers it instead.
+    """
+    command, args = _resolved_command(profile) or ("", ())
+    if not command:
+        return "omh doctor"
+    return " ".join((command, *args))
 
 
 def _with_advisory_signals(paths: OmhPaths, profile: str, result: dict[str, object]) -> dict[str, object]:
@@ -367,7 +487,7 @@ EXECUTOR_CHOICE_CONTEXT_CLAIM_BOUNDARY = (
 )
 
 
-def executor_choice_context(paths: OmhPaths) -> dict[str, object]:
+def executor_choice_context(paths: OmhPaths, *, now: str = "") -> dict[str, object]:
     """Return per-candidate readiness/auth context for the choose-executor question.
 
     Reads cached readiness state and cheap local markers only — no subprocess
@@ -375,6 +495,11 @@ def executor_choice_context(paths: OmhPaths) -> dict[str, object]:
     inventory hint rides along so Hermes answers the choice from what the user
     actually has instead of asking blind; the full report stays behind
     `omh coding model-inventory`.
+
+    Each candidate's stored readiness goes through the same freshness rule the
+    probe applies (#837), so a decision that no longer describes this machine
+    reads `stale` here too. Ranking a candidate whose CLI is gone to the top of
+    the choose-executor card is the failure that rule exists to prevent.
     """
     from .executor_auth_signals import auth_signal_for_profile, last_limit_signal_for_profile
     from .model_inventory import local_model_inventory
@@ -383,11 +508,23 @@ def executor_choice_context(paths: OmhPaths) -> dict[str, object]:
     candidates: list[dict[str, object]] = []
     for profile in EXECUTOR_CHOICE_CONTEXT_PROFILES:
         cached = _cached_profile(state, profile) or {}
+        # Same freshness rule as the probe: a stale or rebound decision must
+        # not read `ready` here either, or the ranking would put a candidate
+        # whose CLI is gone at the top of the choose-executor card.
+        verdict = evaluate_pre_handoff_readiness(
+            profile=profile,
+            cached=cached or None,
+            binding=live_readiness_binding(paths, profile),
+            capability_snapshot=_capability_snapshot(paths, profile),
+            now=now,
+        )
+        observed_status = str(cached.get("status", "not_observed"))
         candidates.append(
             {
                 "profile": profile,
                 "label": executor_label(profile),
-                "readiness_status": str(cached.get("status", "not_observed")),
+                "readiness_status": observed_status if (verdict["usable"] or not cached) else "stale",
+                "readiness_freshness": str(verdict["reason_code"]),
                 "auth_signal": auth_signal_for_profile(profile),
                 "last_limit_signal": last_limit_signal_for_profile(paths, profile),
             }
@@ -471,6 +608,12 @@ def _write_state(paths: OmhPaths, state: dict[str, Any], profile: str, result: d
     # login/limit state at first probe (see _with_advisory_signals).
     stored.pop("auth_signal", None)
     stored.pop("last_limit_signal", None)
+    # The binding is what makes `updated_at` readable later: without it a
+    # stored decision can only be aged, never checked against the machine it
+    # described. It carries no timestamp of its own, deliberately -- it is
+    # compared for equality, and a clock inside a compared payload turns that
+    # comparison into a race.
+    stored["readiness_binding"] = live_readiness_binding(paths, profile)
     stored["updated_at"] = utc_now()
     profiles[profile] = stored
     state.update(

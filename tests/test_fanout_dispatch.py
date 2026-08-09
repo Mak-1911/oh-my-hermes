@@ -13,6 +13,10 @@ load_local_package()
 
 from _cli_harness import run_cli  # noqa: E402
 
+from omh.coding.executor_readiness import (  # noqa: E402
+    live_readiness_binding,
+    probe_executor_readiness,
+)
 from omh.coding.fanout import build_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import write_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import fanout_dispatch_summary_path  # noqa: E402
@@ -22,6 +26,7 @@ from omh.coding.fanout_dispatch import (  # noqa: E402
     verify_goal_matches_contract,
 )
 from omh.runtime.artifacts import show_run  # noqa: E402
+from omh.system.local_store import atomic_write_json  # noqa: E402
 from omh.system.paths import OmhPaths  # noqa: E402
 
 _GOAL = "split the sample feature across agents"
@@ -211,6 +216,59 @@ class FanoutDispatchEngineTests(unittest.TestCase):
 
             by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
             self.assertEqual(by_unit["core"]["status"], "executor_not_ready")
+            self.assertFalse((paths.runtime_runs_dir / by_unit["core"]["run_ref"]).exists())
+            # No card when the probe carried none: `missing` is already a named
+            # gap, and inventing a repair path here would be a claim.
+            self.assertNotIn("repair_card", by_unit["core"])
+
+    def test_a_stale_owner_carries_its_repair_card_into_the_unit_result(self) -> None:
+        """The #837 recheck at the handoff boundary: a decision that no longer
+        describes this machine reads `stale`, and the unit result says which
+        prerequisite moved instead of only that the owner was not ready."""
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            binding = live_readiness_binding(paths, "codex")
+            atomic_write_json(
+                paths.executor_readiness_path,
+                {
+                    "schema_version": "executor_readiness_cache/v1",
+                    "profiles": {
+                        "codex": {
+                            "schema_version": "executor_readiness/v1",
+                            "profile": "codex",
+                            "status": "ready",
+                            "observed_once": True,
+                            "updated_at": "2026-01-01T00:00:00Z",
+                            "readiness_binding": {
+                                **binding,
+                                "axes": {**binding["axes"], "tool": "0" * 64},
+                            },
+                        }
+                    },
+                },
+                private=True,
+            )
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                runner=_agent_runner(),
+                readiness=probe_executor_readiness,
+                # The real probe runs here, so keep it to the one owner whose
+                # cache this test seeded: an unseeded owner would probe its CLI
+                # for real and make the test depend on the host's PATH.
+                only_units=["core"],
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["core"]["status"], "executor_not_ready")
+            self.assertEqual(by_unit["core"]["readiness_status"], "stale")
+            card = by_unit["core"]["repair_card"]
+            self.assertEqual(card["changed_axes"], ["tool"])
+            self.assertEqual(card["status"], "prepared_not_observed")
             self.assertFalse((paths.runtime_runs_dir / by_unit["core"]["run_ref"]).exists())
 
     def test_dry_run_plans_without_spawning_or_creating_runs(self) -> None:

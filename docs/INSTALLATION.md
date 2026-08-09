@@ -856,12 +856,17 @@ The backend flow is:
    Claude Code and generic agents use prompt-only handoffs; Hermes, OMX, OMO,
    and OMC use runtime handoffs with team/swarm, worker-protocol, and worktree
    guidance. The wrapper records only what it actually observes.
-14. For a coding profile that has not been observed before, the wrapper can run
-   `omh coding executor-readiness --executor <profile>` once and cache
-   `executor_readiness/v1`. If the probe reports `missing` or `blocked`, ask the
-   user to choose another coding agent, configure PATH, continue in Hermes, or
-   keep a prompt/runtime handoff. Retry only after that state changes. Readiness
-   is not dispatch, implementation, review, CI, or merge evidence.
+14. Before dispatching to a coding profile, the wrapper runs
+   `omh coding executor-readiness --executor <profile>` and reads
+   `executor_readiness/v1`. OMH reuses its stored observation while that
+   observation is still fresh and still bound to the same profile, tool,
+   permission profile, and workspace, so the wrapper does not need a cache of
+   its own. If the probe reports `missing` or `blocked`, ask the user to choose
+   another coding agent, configure PATH, continue in Hermes, or keep a
+   prompt/runtime handoff. Retry only after that state changes. If it reports
+   `stale`, read `pre_handoff_repair_card/v1` for the missing prerequisite and
+   the repair commands, and keep the handoff prepared instead of dispatching.
+   Readiness is not dispatch, implementation, review, CI, or merge evidence.
 15. If the wrapper observes Hermes target metadata such as `agent_ref`,
    `agent_count`, or `hermes_home`, `chat_interaction/v1` may include
    `target_notice` and `target_topology`. Render the concise notice or
@@ -934,7 +939,7 @@ omh chat session select-executor "$session_id" claude-code
 omh chat session select-executor "$session_id" generic
 ```
 
-Check the selected coding agent once before first dispatch:
+Check the selected coding agent before dispatch:
 
 ```sh
 omh coding executor-readiness --executor codex
@@ -946,6 +951,17 @@ If the result is `missing` or `blocked`, keep the handoff prepared and ask the
 operator whether to choose a different coding agent, configure PATH, continue in
 Hermes, or use a prompt/runtime handoff. Do not treat this probe as proof that
 the coding agent ran.
+
+If the result is `stale`, an earlier observation no longer describes this
+machine: it aged past its window, or the profile, tool, permission profile, or
+workspace it was bound to changed. The payload names the gap in
+`pre_handoff_readiness/v1` and the repair path in
+`pre_handoff_repair_card/v1`. Keep the handoff prepared, run the card's
+commands, and re-observe readiness explicitly:
+
+```sh
+omh coding executor-readiness --executor codex --force
+```
 
 Agent and wrapper operators can record a bounded local capability observation
 separately when the host has actually exposed it. This is a control-plane

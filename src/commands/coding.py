@@ -603,7 +603,9 @@ def _capability_snapshot_path(args: argparse.Namespace) -> Path:
     explicit_path = getattr(args, "snapshot_path", "")
     if explicit_path:
         return Path(explicit_path).expanduser()
-    return _paths(args).omh_home / "coding" / "executor-capability-snapshots" / f"{args.executor}.json"
+    # Same directory the readiness recheck reads at dispatch time, named once
+    # on OmhPaths so the two surfaces cannot drift to different folders.
+    return _paths(args).executor_capability_snapshots_dir / f"{args.executor}.json"
 
 
 def cmd_coding_governance_discover(args: argparse.Namespace) -> int:

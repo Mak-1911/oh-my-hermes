@@ -64,6 +64,15 @@ goal to Hermes in chat; these commands are the backend surface.
   write; a drifted or unprovable profile is refused and the contract must be
   re-prepared. The field is optional under `fanout_contract/v1`: a contract
   frozen before it existed carries no revision and is not gated.
+- **Owner-readiness integrity.** Each unit's owner is rechecked immediately
+  before its handoff. A stored readiness observation counts only while it is
+  still fresh and still bound to the same profile, tool, permission profile,
+  and workspace; a decision that no longer describes this machine reads
+  `stale`, never `ready`. The unit then comes back `executor_not_ready`
+  carrying `pre_handoff_repair_card/v1`, which names the prerequisite that
+  moved and the commands that confirm it. Dispatch never re-probes on its own:
+  `omh coding executor-readiness --executor <profile> --force` is the only
+  thing that replaces a stale observation.
 - **Worktrees.** One per unit at `<repo>-fanout-<unit>` on branch
   `agent/<unit>`, all branched from one SHA resolved at dispatch start
   (`--base-ref`, default HEAD). Pre-existing paths or branches are errors,

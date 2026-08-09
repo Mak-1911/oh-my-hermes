@@ -118,6 +118,7 @@ src/
     executor_readiness.py
     executors.py
     isolation.py
+    pre_handoff_readiness.py
     team_readiness.py
     worktree_creator.py
 
