@@ -30,9 +30,11 @@ from ..memory import (
     LifecycleCandidateError,
     RejectedDecisionRecallRequest,
     apply_approved_memory_update_batch,
+    apply_memory_attention_change,
     apply_memory_retirement,
     apply_memory_update_batch,
     approve_project_memory_candidate,
+    build_memory_attention_change,
     build_memory_lineage,
     build_memory_perspectives,
     build_memory_retirement,
@@ -177,6 +179,7 @@ def cmd_memory_recall(args: argparse.Namespace) -> int:
             limit=_optional_positive_int(args.limit, "--limit") or 6,
             max_chars=_optional_positive_int(args.max_chars, "--max-chars"),
             include_stale=args.include_stale,
+            include_archived=args.include_archived,
             observer=args.observer,
             observed=args.observed,
         )
@@ -213,6 +216,23 @@ def cmd_memory_pin(args: argparse.Namespace) -> int:
 def cmd_memory_unpin(args: argparse.Namespace) -> int:
     try:
         payload = set_memory_pin(_paths(args), args.record_id, pinned=False)
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(payload)
+    return 0
+
+
+def cmd_memory_attention(args: argparse.Namespace) -> int:
+    try:
+        change = apply_memory_attention_change if args.apply else build_memory_attention_change
+        payload = change(
+            _paths(args),
+            args.record_id,
+            tier=args.tier,
+            reason=args.reason,
+            query=" ".join(args.query).strip(),
+            limit=_optional_positive_int(args.limit, "--limit") or 6,
+        )
     except (OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
     _print_json(payload)

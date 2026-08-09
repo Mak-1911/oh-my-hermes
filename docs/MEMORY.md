@@ -349,6 +349,86 @@ deliberately do not fire as bare tokens. Relevance stays the primary sort
 key in both cases, so neither signal can change which keyword matches win —
 only how peers of equal relevance order.
 
+## Attention Tiers: Active, Reference, Archive
+
+Approved memory grows, and an old but still-true record can crowd out the few
+facts that should steer the current conversation. Every approved record
+therefore carries an explicit attention tier saying how much of the working
+context it may occupy. The tier says nothing about whether the record is true,
+approved, or fresh — expiry, scope, perspective, and review eligibility are
+unchanged by it.
+
+| Tier | Effect on recall |
+| --- | --- |
+| `active` | Leads the working context. The default for every approved record. |
+| `reference` | Stays recallable, but yields to active peers inside the same budget. |
+| `archive` | Leaves default recall. The record stays in the store and answers an explicit archived query. |
+
+The tier enters the one existing ranking ladder, which now reads: pinned
+anchors, then attention tier, then relevance rank, then the decayed fused
+score, then record id. A reference record therefore ranks below every active
+record of the same pin status, and there is no second ordering mechanism to
+keep in sync. Each included record reports its `attention_tier`, and its
+`ranking` block reports the integer `attention_rank` used for the sort. The
+fused score itself is untouched, so a tier change reorders a pack without
+rewriting the relevance evidence that explains it.
+
+Every pack carries an `attention` block disclosing what it is made of:
+
+```json
+{
+  "active_included": 2,
+  "reference_included": 1,
+  "archived_included": 0,
+  "archived_excluded": 1,
+  "include_archived": false,
+  "detail": "2 active record(s) lead this working context. 1 reference-tier record(s) are included behind them. 1 archived record(s) stayed out of the working context; they remain in the store and are listed as archived_tier exclusions."
+}
+```
+
+A tier change is previewed before it is applied, and the preview writes
+nothing:
+
+```sh
+# Agent/operator only: preview what the tier change does to the working context.
+omh memory attention <record-id> --tier reference
+
+# Agent/operator only: apply the previewed change and journal the prior tier.
+omh memory attention <record-id> --tier archive --reason "superseded by the canary policy" --apply
+
+# Agent/operator only: query the archive explicitly.
+omh memory recall "deploys" --include-archived
+```
+
+The preview projects the working context twice — as it stands, and with the
+requested tier substituted — through the same recall builder, so
+`working_context_after` is the pack the operator actually gets rather than a
+description of one. It also names `leaving_working_context` and
+`entering_working_context` by record id. Pass `--query` to preview against the
+task text the change is meant to affect. A change that would be a no-op is
+refused as `tier_unchanged`, so every journal line is a real move, and a
+missing record is refused as `record_not_found` with a readable reason.
+
+Applied changes write `attention` on the record (tier, bounded reason, prior
+tier, change timestamp) and append one `omh_memory_attention_journal/v1` line
+to `.omh/memory/attention.jsonl`. The prior tier is recorded in both places, so
+an archive is always reversible from local evidence alone. The tier lives
+outside the reviewed payload digest, so changing it never breaks a record's
+immutable review linkage — and corrections and restores carry the tier onto the
+successor revision instead of silently returning an archived record to the
+active set.
+
+**Archive the tier is not retirement the lifecycle verb.** Archiving moves no
+file: the record stays in `records/`, stays readable, stays valid, and is
+listed in every pack as an `archived_tier` exclusion rather than vanishing from
+it. Retirement moves an expired revision into `.omh/memory/archive/` and writes
+a tombstone. The tier is also not an exemption: an expired archive-tier record
+still retires on the normal schedule. Neither operation is a deletion.
+
+This is Letta's context hierarchy read deterministically: OMH keeps the
+explicit tiers and the disclosure, and drops the model-side judgement about
+what deserves attention.
+
 ## Provenance and Lineage
 
 A capture may declare which approved records a new fact was derived from:
@@ -439,6 +519,10 @@ legacy memory or silently grants replay eligibility.
   while preserving that archive. A newer live conflict remains review-blocked.
 - **prune** hard-deletes only the manifest-declared OMH-local target set for an
   expired volatile revision, after report and explicit confirmation.
+
+The `archive` attention tier is not one of these verbs. It changes only how
+much of the working context a live record may occupy; it moves no file and
+writes no tombstone. See Attention Tiers above.
 
 Restore and prune are report-first operator actions:
 

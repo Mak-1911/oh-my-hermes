@@ -4,6 +4,7 @@ import argparse
 
 from ..plugin_bundle.omh.memory_blocks import DEFAULT_BLOCK_LIMIT_CHARS
 from ..plugin_bundle.omh.memory_governance import SOURCE_CLASSES
+from ..workflows.memory import MEMORY_ATTENTION_TIERS
 from . import memory
 from .domain_intelligence_parser import add_domain_intelligence_commands
 
@@ -74,6 +75,11 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
         help="Optional summary-character budget; records cut by it are marked over_budget and the pack says truncated.",
     )
     recall.add_argument("--include-stale", action="store_true")
+    recall.add_argument(
+        "--include-archived",
+        action="store_true",
+        help="Also recall archive-tier records. They are excluded by default as archived_tier, never deleted.",
+    )
     recall.add_argument("--observer", default=None, help="Perspective lens: only unscoped records and records with this observer pass.")
     recall.add_argument("--observed", default=None, help="Perspective lens: only unscoped records and records about this actor pass.")
     recall.set_defaults(func=memory.cmd_memory_recall)
@@ -109,6 +115,23 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     unpin = memory_sub.add_parser("unpin", help="Remove one record's recall-anchor marker.")
     unpin.add_argument("record_id")
     unpin.set_defaults(func=memory.cmd_memory_unpin)
+
+    attention = memory_sub.add_parser(
+        "attention",
+        help="Report how one record's attention tier would change the working context; --apply writes the local tier change.",
+    )
+    attention.add_argument("record_id")
+    attention.add_argument(
+        "--tier",
+        choices=MEMORY_ATTENTION_TIERS,
+        required=True,
+        help="active leads the working context; reference stays recallable behind active peers; archive leaves default recall without deleting anything.",
+    )
+    attention.add_argument("--reason", default="", help="Why the tier changed; stored as bounded metadata on the record and in the local journal.")
+    attention.add_argument("--query", nargs="*", default=[], help="Optional task text so the previewed working context matches the recall this tier change affects.")
+    attention.add_argument("--limit", type=int, default=6, help="Recall budget used to preview the working context.")
+    attention.add_argument("--apply", action="store_true", help="Write the tier change (default is report-only).")
+    attention.set_defaults(func=memory.cmd_memory_attention)
 
     lineage = memory_sub.add_parser("lineage", help="Trace derived-from provenance links for one reviewed memory record.")
     lineage.add_argument("record_id")

@@ -169,6 +169,21 @@ class MemorySyncSkillTests(unittest.TestCase):
         ):
             self.assertIn(anchor, content, anchor)
 
+    def test_memory_sync_skill_teaches_the_preview_then_apply_attention_tier_flow(self) -> None:
+        """Without this guidance the tier is a CLI feature Hermes never reaches,
+        and the user is back to typing a control-plane command."""
+        content = _template_content("memory-sync")
+        on_disk = Path("skills/omh-memory-sync/SKILL.md").read_text(encoding="utf-8")
+        for anchor in (
+            "Attention (주의)",
+            "omh memory attention <record-id> --tier <tier>",
+            "The preview writes nothing.",
+            "An attention tier is not a lifecycle state",
+            "omh memory recall --include-archived",
+        ):
+            self.assertIn(anchor, content, anchor)
+            self.assertIn(anchor, on_disk, anchor)
+
     def test_memory_sync_skill_context_rail_markers(self) -> None:
         markers = (
             "Workflow Lane",
