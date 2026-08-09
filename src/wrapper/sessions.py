@@ -63,9 +63,15 @@ from .executor_sessions import (
     read_executor_session_result,
 )
 from ..coding_delegation import build_coding_delegation_payload
+from ..coding.owner_fit import owner_capability_snapshots
+from ..coding.owner_retarget import build_owner_retarget
 
 
 WRAPPER_SESSION_RESULT_SCHEMA_VERSION = "wrapper_session_result/v1"
+# The statuses that mean "this session already has a prepared handoff", and so
+# the only ones an explicit retarget can move: there is nothing to re-project
+# before one exists.
+PREPARED_HANDOFF_STATUSES = ("handoff_prepared", "prompt_handoff_prepared", "runtime_handoff_prepared")
 PLAN_DECISION_TRANSITIONS = {
     "plan_presented": {"accept", "revise", "cancel"},
     "plan_accepted": {"accept", "revise", "cancel"},
@@ -304,6 +310,7 @@ def prepare_wrapper_session_handoff(
     source_metadata: dict[str, str] | None = None,
     executor_target: str | None = None,
     context_pack: dict[str, object] | None = None,
+    retarget: bool = False,
     expected_revision: int | None = None,
     mutation_id: str | None = None,
 ) -> dict[str, object]:
@@ -329,7 +336,23 @@ def prepare_wrapper_session_handoff(
     follow_up_sha = hashlib.sha256(extract_message_text(event_or_message).encode("utf-8")).hexdigest()
     follow_up_message = bool(extract_message_text(event_or_message))
     follow_up = False
-    if session.get("current_run_id"):
+    retarget_from = _retarget_source_owner(session, executor_target or "", retarget=retarget)
+    if retarget_from:
+        # An explicit retarget must not take any of the re-serve short-circuits
+        # below. Retargeting normally repeats the ORIGINAL task text, which
+        # matches the prepared message, and re-serving would hand back the OLD
+        # owner's handoff with exit 0 while silently ignoring the owner the
+        # person just asked for.
+        #
+        # The run-integrity invariants that branch enforces still apply while a
+        # run is linked: a retarget detaches this session from its Codex run,
+        # so it must not detach from an inconsistent one.
+        if session.get("current_run_id"):
+            if session["status"] != "handoff_prepared":
+                raise WrapperSessionError("wrapper session current_run_id is only valid after handoff preparation")
+            if _run_owned_by_other_session(paths, str(session["current_run_id"]), str(session["session_id"])):
+                raise WrapperSessionError("wrapper session current_run_id is already linked to another wrapper session")
+    elif session.get("current_run_id"):
         if session["status"] != "handoff_prepared":
             raise WrapperSessionError("wrapper session current_run_id is only valid after handoff preparation")
         run_id = str(session["current_run_id"])
@@ -369,8 +392,11 @@ def prepare_wrapper_session_handoff(
         raise WrapperSessionError("wrapper session requires executor selection before preparing a handoff")
     if executor_target and follow_up:
         if executor_target != str(session.get("selected_executor_profile") or ""):
-            raise WrapperSessionError("a follow-up handoff keeps the selected executor; start a new session to switch executors")
-    elif executor_target:
+            raise WrapperSessionError(
+                "a follow-up handoff keeps the selected executor; retarget the accepted plan explicitly to move "
+                "it to another executor, or start a new session to replan"
+            )
+    elif executor_target and not retarget_from:
         selected = select_wrapper_session_executor(
             paths,
             session_id,
@@ -384,36 +410,74 @@ def prepare_wrapper_session_handoff(
             # that follows must compare against the revision that write
             # produced, not the one the wrapper originally rendered.
             guard_revision = record_revision_of(session)
-    if not follow_up and session["status"] not in {"plan_accepted", "executor_selected"}:
+    if not follow_up and not retarget_from and session["status"] not in {"plan_accepted", "executor_selected"}:
         raise WrapperSessionError("wrapper session plan must be accepted before preparing a handoff")
-    selected_executor = str(session.get("selected_executor_profile") or "codex")
-    if session.get("work_owner_mode") == "runtime_handoff" and selected_executor:
-        return _prepare_runtime_session_handoff(
+    if retarget_from:
+        # The accepted plan is already bound to this session; only the owner
+        # moves. The selection write `select_wrapper_session_executor` performs
+        # is skipped because it refuses a session that already has a prepared
+        # handoff, and the prepare below rewrites owner, mode, and status in the
+        # same guarded transaction that stores the new handoff.
+        selected_executor = str(executor_target)
+        work_owner_mode = executor_selection_for_target(selected_executor, action="delegate").work_owner_mode
+        # Named before the new handoff exists (AC2): building it here means a
+        # move that would silently replan the task raises instead of preparing.
+        #
+        # `follow_up` stays false, so the prepare below does NOT inherit the
+        # session's route preference. A follow-up is new text that has to be
+        # pulled back onto the accepted lane; a retarget repeats the accepted
+        # task itself, and routing it exactly as the prepare it replaces did is
+        # what keeps the re-projection faithful to that handoff.
+        retarget_record: dict[str, object] | None = _owner_retarget_record(
             paths,
             session,
-            event_or_message,
+            extract_message_text(event_or_message),
             limit=limit,
-            include_message=include_message,
-            source_metadata=source_metadata,
-            executor_target=selected_executor,
             context_pack=context_pack,
-            follow_up=follow_up,
-            expected_revision=guard_revision,
-            mutation_id=mutation_id,
+            from_owner=retarget_from,
+            to_owner=selected_executor,
+        )
+    else:
+        selected_executor = str(session.get("selected_executor_profile") or "codex")
+        work_owner_mode = str(session.get("work_owner_mode") or "")
+        retarget_record = None
+    if work_owner_mode == "runtime_handoff" and selected_executor:
+        return _with_owner_retarget(
+            _prepare_runtime_session_handoff(
+                paths,
+                session,
+                event_or_message,
+                limit=limit,
+                include_message=include_message,
+                source_metadata=source_metadata,
+                executor_target=selected_executor,
+                context_pack=context_pack,
+                follow_up=follow_up,
+                expected_revision=guard_revision,
+                mutation_id=mutation_id,
+            ),
+            retarget_record,
+            paths,
+            session_id,
         )
     if selected_executor and selected_executor != "codex":
-        return _prepare_prompt_only_session_handoff(
+        return _with_owner_retarget(
+            _prepare_prompt_only_session_handoff(
+                paths,
+                session,
+                event_or_message,
+                limit=limit,
+                include_message=include_message,
+                source_metadata=source_metadata,
+                executor_target=selected_executor,
+                context_pack=context_pack,
+                follow_up=follow_up,
+                expected_revision=guard_revision,
+                mutation_id=mutation_id,
+            ),
+            retarget_record,
             paths,
-            session,
-            event_or_message,
-            limit=limit,
-            include_message=include_message,
-            source_metadata=source_metadata,
-            executor_target=selected_executor,
-            context_pack=context_pack,
-            follow_up=follow_up,
-            expected_revision=guard_revision,
-            mutation_id=mutation_id,
+            session_id,
         )
     message = extract_message_text(event_or_message)
     metadata = _source_metadata(event_or_message)
@@ -424,14 +488,19 @@ def prepare_wrapper_session_handoff(
     digest = _mutation_digest("link_prepared_handoff_run", message_sha256, "codex", metadata)
     recovered_run_id = _find_recoverable_prepared_handoff_run(paths, session, message_sha256, metadata)
     if recovered_run_id:
-        return _link_prepared_handoff_run(
+        return _with_owner_retarget(
+            _link_prepared_handoff_run(
+                paths,
+                session,
+                recovered_run_id,
+                recovered=True,
+                expected_revision=guard_revision,
+                mutation_id=mutation_id,
+                mutation_digest=digest,
+            ),
+            retarget_record,
             paths,
-            session,
-            recovered_run_id,
-            recovered=True,
-            expected_revision=guard_revision,
-            mutation_id=mutation_id,
-            mutation_digest=digest,
+            session_id,
         )
     follow_up_workflow, follow_up_score = _session_route_preference(session) if follow_up else (None, None)
     lifecycle: dict[str, object] = {}
@@ -479,7 +548,125 @@ def prepare_wrapper_session_handoff(
         run = lifecycle["run"]
         lifecycle["status"] = report_codex_delegation_lifecycle(paths, str(run["run_id"]) if isinstance(run, dict) else "")
         linked["handoff"] = lifecycle
-    return linked
+    return _with_owner_retarget(linked, retarget_record, paths, session_id)
+
+
+def _retarget_source_owner(session: dict[str, Any], executor_target: str, *, retarget: bool) -> str:
+    """The owner an explicit retarget moves away from, or "" when this is not one.
+
+    The guard this relaxes refused EVERY executor change on a follow-up handoff,
+    and that intent survives untouched: a follow-up is a delta on an accepted
+    plan, silently swapping its owner would hand the next instruction to
+    somebody the user never chose, and this returns "" for a follow-up so the
+    refusal still fires. What no longer holds is the only escape the old message
+    offered --- "start a new session to switch executors". A new session has no
+    accepted plan, so that escape charged the user a full replan for a change
+    that alters nothing about the work (#812).
+
+    Retargeting is therefore a distinct, named operation rather than a silent
+    allow. The caller has to ask for it by name, it only applies to a session
+    that already has a prepared handoff, it refuses a move to the owner already
+    selected, and it records what it did in `coding_owner_retarget/v1`.
+    """
+    if not retarget:
+        return ""
+    if not executor_target:
+        raise WrapperSessionError("retargeting requires the coding owner to move the accepted plan to")
+    # `select_wrapper_session_executor` is skipped on this path, so the target
+    # validation it normally performs has to happen here instead.
+    if executor_target == "choose" or executor_target not in CODING_EXECUTOR_TARGETS:
+        raise WrapperSessionError(f"unsupported wrapper session executor: {executor_target}")
+    status = str(session.get("status", ""))
+    if status not in PREPARED_HANDOFF_STATUSES:
+        raise WrapperSessionError(
+            f"cannot retarget a wrapper session while status is {status}; there is no prepared handoff to re-project"
+        )
+    current = str(session.get("selected_executor_profile") or "")
+    if not current:
+        raise WrapperSessionError("cannot retarget a wrapper session that has no selected executor")
+    if executor_target == current:
+        raise WrapperSessionError(
+            f"the accepted plan is already targeted at {executor_target}; retargeting requires a different executor"
+        )
+    return current
+
+
+def _owner_retarget_record(
+    paths: OmhPaths,
+    session: dict[str, Any],
+    message: str,
+    *,
+    limit: int,
+    context_pack: dict[str, object] | None,
+    from_owner: str,
+    to_owner: str,
+) -> dict[str, object]:
+    """The `coding_owner_retarget/v1` record for one accepted plan changing owner.
+
+    Both sides are re-projections of the same accepted plan, built here from
+    identical owner-neutral inputs and differing only in `executor_target`.
+    `build_owner_retarget` then compares the two owner-neutral task contracts
+    and refuses when any field moved, so a "retarget" that would quietly replan
+    the task raises instead of being recorded as one.
+
+    The routing arguments deliberately match the prepare this record describes,
+    down to NOT inheriting the session's route preference: a projection routed
+    differently from the handoff it accompanies would report a contract that
+    handoff does not carry.
+
+    Neither projection reads a memory recall pack or carries source metadata:
+    both are owner-specific handoff context that never enters the task
+    contract, so reading them here would cost I/O to produce values the
+    comparison ignores.
+    """
+    snapshot_directory = _capability_snapshot_directory(paths)
+
+    def projection(owner: str) -> dict[str, object]:
+        return build_coding_delegation_payload(
+            message,
+            source=str(session["source"]),
+            limit=limit,
+            executor_target=owner,
+            context_pack=context_pack,
+            capability_snapshot_directory=snapshot_directory,
+        )
+
+    return build_owner_retarget(
+        from_payload=projection(from_owner),
+        to_payload=projection(to_owner),
+        task_source_sha256=hashlib.sha256(message.encode("utf-8")).hexdigest(),
+        capability_snapshots=dict(owner_capability_snapshots(snapshot_directory, (from_owner, to_owner))),
+    )
+
+
+def _with_owner_retarget(
+    result: dict[str, object],
+    retarget_record: dict[str, object] | None,
+    paths: OmhPaths,
+    session_id: str,
+) -> dict[str, object]:
+    """Attach and journal the retarget once the new handoff actually exists.
+
+    The record is built before the prepare so a refused move never writes; the
+    event is appended after it so the journal never claims a retarget that did
+    not finish (issue #828 AC1, applied to this operation).
+    """
+    if retarget_record is None:
+        return result
+    append_wrapper_session_event(
+        _session_dir(paths, session_id),
+        {
+            "event": "coding_owner_retargeted",
+            "message": "wrapper session retargeted accepted coding work to another owner",
+            "data": retarget_record,
+        },
+    )
+    result["coding_owner_retarget"] = retarget_record
+    return result
+
+
+def _capability_snapshot_directory(paths: OmhPaths) -> Path:
+    return paths.omh_home / "coding" / "executor-capability-snapshots"
 
 
 def _session_route_preference(session: dict[str, Any]) -> tuple[str | None, int | None]:
@@ -537,7 +724,7 @@ def _prepare_prompt_only_session_handoff(
             executor_target=executor_target,
             session_id=str(session["session_id"]),
         ),
-        capability_snapshot_directory=paths.omh_home / "coding" / "executor-capability-snapshots",
+        capability_snapshot_directory=_capability_snapshot_directory(paths),
     )
     prompt_handoff = payload.get("prompt_handoff")
     if not isinstance(prompt_handoff, dict):
@@ -563,6 +750,12 @@ def _prepare_prompt_only_session_handoff(
                 "selected_executor_profile": executor_target,
                 "dispatch_policy": "prepare_only",
                 "prompt_handoff": prompt_handoff,
+                # Cleared for the same reason the runtime prepare clears
+                # `prompt_handoff`: retargeting (#812) makes a runtime-prepared
+                # session reachable from here, and a stale runtime handoff left
+                # beside a prompt handoff is a second answer to "what is
+                # prepared".
+                "runtime_handoff": {},
                 "current_run_id": "",
                 "updated_at": utc_now(),
             }
@@ -651,7 +844,7 @@ def _prepare_runtime_session_handoff(
             executor_target=executor_target,
             session_id=str(session["session_id"]),
         ),
-        capability_snapshot_directory=paths.omh_home / "coding" / "executor-capability-snapshots",
+        capability_snapshot_directory=_capability_snapshot_directory(paths),
     )
     runtime_handoff = payload.get("runtime_handoff")
     if not isinstance(runtime_handoff, dict):

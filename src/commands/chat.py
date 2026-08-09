@@ -248,6 +248,7 @@ def cmd_chat_session_prepare_handoff(args: argparse.Namespace) -> int:
             source_metadata=source_metadata,
             executor_target=args.executor,
             context_pack=_context_pack(args),
+            retarget=bool(getattr(args, "retarget", False)),
             **_revision_guard(args),
         )
     except FileNotFoundError as exc:
@@ -1229,6 +1230,14 @@ def _add_chat_commands(sub) -> None:
         "--context-pack",
         default=None,
         help="Optional handoff_context_pack/v1 JSON to attach to the prepared executor prompt when conflict-free.",
+    )
+    session_prepare.add_argument(
+        "--retarget",
+        action="store_true",
+        help=(
+            "Move the already-accepted plan to the --executor owner without replanning it. Preserves scope, "
+            "criteria, and verification, and reports the owner-specific and capability differences."
+        ),
     )
     add_revision_guard_arguments(session_prepare)
     session_prepare.set_defaults(func=cmd_chat_session_prepare_handoff)

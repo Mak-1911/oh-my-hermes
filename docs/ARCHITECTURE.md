@@ -119,6 +119,7 @@ src/
     executors.py
     isolation.py
     owner_fit.py
+    owner_retarget.py
     pre_handoff_readiness.py
     team_readiness.py
     worktree_creator.py
@@ -687,6 +688,59 @@ Classification reads the snapshot and never the owner id.
 `owner_fit_without_owner_identity` drops the only two owner-identity fields
 (`owner`, `label`), and two owners holding equal evidence produce equal
 projections — the executor-neutrality property in code rather than in prose.
+
+### Coding Owner Retarget
+
+`coding/owner_retarget.py` moves an accepted coding plan to a different owner
+without planning it again. A plan is accepted once, and the accepted reading —
+routed workflow, intent, acceptance criteria, verification expectations — is
+computed before `build_coding_delegation_payload` looks at `executor_target` at
+all. What used to depend on the owner was the only way to change one:
+`prepare_wrapper_session_handoff` refused every executor change on a follow-up
+handoff and offered a single escape, "start a new session". A new session has no
+accepted plan, so changing owner meant replanning approved work.
+
+Retargeting is therefore a re-projection, not a decision:
+
+- `coding_task_contract/v1` is the owner-neutral half of one accepted plan,
+  projected from `payload["delegation"]` plus a digest of the equally
+  owner-neutral `specialist_work_quality` bar. `work_role` is
+  `delegation.executor_profile` renamed on projection, because it names the role
+  the work is scoped to and never the coding owner.
+- `coding_owner_retarget/v1` records one move: both owners, the preserved
+  contract and its digest, the enumerated owner-specific delta
+  (`OWNER_SPECIFIC_FIELDS`, plus the observed-evidence events and wrapper
+  actions gained and lost), and the capability delta.
+- `build_owner_retarget` compares the two contracts field by field and raises
+  when any of them moved. A move that would change the task contract is refused
+  as a replan, so preservation is enforced by the builder rather than only
+  asserted by a test.
+
+The capability delta reuses `owner_fit`'s matcher instead of growing a second
+one. Both owners are classified against the target plan's requirement set,
+because "what changed" is only meaningful on one yardstick; the yardstick's own
+movement is reported separately as `required_by_owner_change` and
+`dropped_by_owner_change`. That movement is the point — retargeting from an
+external-executor owner to a runtime owner turns the routed workflow into
+something the new owner must carry locally, adding a `local_workflow`
+requirement the source plan never had. `next_action` follows from the delta:
+`confirm_owner_capability_gap` when something is recorded unavailable,
+`record_capability_evidence` when something is unproven, otherwise
+`prepare_handoff_for_new_owner`.
+
+Capability snapshots arrive as a parameter and nothing here reads a clock, a
+network, a credential, or a host configuration file, so retargeting stays a pure
+local re-projection.
+
+On the wrapper surface the guard was relaxed into a named operation rather than
+a silent allow. `omh chat session prepare-handoff --executor <owner> --retarget`
+moves a session that already has a prepared handoff; without `--retarget` a
+follow-up still keeps its executor, exactly as before. The retarget only applies
+to a prepared session, refuses a move to the owner already selected, refuses an
+unknown owner, and journals `coding_owner_retarget/v1` as a
+`coding_owner_retargeted` session event once the new handoff exists. A retarget
+is `prepared_not_observed`: it is not dispatch evidence and not proof the new
+owner accepted or started the work.
 
 ## Hermes Capability Boundary
 
