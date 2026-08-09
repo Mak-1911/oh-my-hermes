@@ -313,6 +313,95 @@ It is read-only in both directions: it starts nothing and writes nothing. Plain
 text is the default and prints the claim support next to the verdict, so the
 line a reader quotes already says what the check does not settle.
 
+## Why is this run unhealthy
+
+A status board says what is happening. It does not say why a run is slow,
+stale, retrying, or missing the evidence that would settle it — and each coding
+owner narrates that in its own words, so the same unhealthy run used to read
+differently depending on who was executing it.
+
+`run_health_summary/v1` is the one answer shape. It is a read-only projection:
+
+```sh
+omh runtime health-summary --input run_health_input.json [--json]
+```
+
+A run that dispatched, explored, then failed its tests twice reads like this
+(the `Boundary:` and `--json` footer lines are elided):
+
+```
+Run health summary (OMH projection)
+Run: run-834
+Owner: claude-code (progress lane: yes, evidence ceiling: verified)
+Observed events: 6 (observed at 9000 ms)
+Freshness: fresh (idle 3000 ms, stale after 300000 ms)
+Failure class: verification_failed
+Total duration: 5000 ms
+Phase durations:
+- dispatch: 1000 ms
+- execution: 1000 ms
+- verification: 1000 ms
+Counts:
+- retries: 1
+- evidence gaps: 0
+- unobserved phases: 1
+Efficiency claim: unclaimed (baseline: none, evaluator: none, gate: no_named_baseline_and_evaluator)
+```
+
+The retry is the second `tests_started`: it moves the run backwards through the
+phase order, which is what a retry is regardless of which word the owner used
+for it. The unobserved phase is `completion` — nothing said the executor
+finished, which is exactly why the run is worth asking about.
+
+**One vocabulary, whatever the owner.** The projection runs over *normalized*
+progress events, never over raw per-owner event shapes. A codex run narrating
+`dispatch_to_executor / item.completed / turn.completed` and a Claude Code run
+narrating `system / assistant / result` normalize to the same three words, so
+they produce byte-identical summaries apart from the owner attribution block.
+`health_digest` is that equality in one comparison — it deliberately excludes
+the owner, so two owners agreeing is one `==`.
+
+The equality is not vacuous. An owner whose stream this repo cannot read
+carries a lower evidence ceiling, so an `omo-runtime` `full_tests_passed`
+normalizes to `unmapped_source_event` rather than `tests_passed`. That run gets
+a different summary, with an evidence gap counted where a verification would
+otherwise have been claimed. That is the correct answer, not a gap to close by
+guessing.
+
+**Three absences, and none of them is a number.** Every metric is a
+`{state, value, reason}` triple:
+
+| state | meaning | value |
+| --- | --- | --- |
+| `observed` | both bounds were observed, with clocks | the number, possibly a genuine `0` |
+| `unknown` | the EVENT that bounds the metric was never observed | `null`, plus the reason |
+| `unavailable` | the event was observed but carried no clock | `null`, plus the reason |
+
+A phase nothing later closed stays `unknown`. Closing it with the observation
+instant is the one estimate a projection like this is tempted to make, and it
+would turn an in-flight run into a measured one. Nothing substitutes the
+observation instant, the last event, or a neighbouring phase for a bound it did
+not observe — for the same reason an absent token count on the board renders
+`unknown` and never `0`.
+
+A run with nothing observed reports every metric as `unknown`, not `0` retries
+and `0` evidence gaps. Zero retries is an observation; nobody made it.
+
+**No efficiency claim without two names.** `efficiency_claim.direction` may be
+`unclaimed`, `improved`, `regressed`, or `unchanged`, and anything other than
+`unclaimed` requires both a named `baseline_ref` and a named `evaluator_ref`.
+The rule is enforced twice: the parser refuses to build such a payload, and
+`validate_run_health_summary` refuses to read one back, so a hand-edited record
+claiming "faster" with nobody named is rejected rather than rendered. `gate` is
+derived from the two refs, so it cannot be hand-set to agree with the claim.
+
+**Deterministic.** The module reads no clock. The observation instant arrives
+as `observed_at_ms` on the input, and `health_digest` excludes it along with
+every field derived from it (`idle_duration_ms`, `staleness`), so comparing two
+runs' health never turns into comparing two wall clocks. The validator
+re-derives every metric, the staleness verdict, the claim gate, the owner
+attribution, and the digest from the stored observations.
+
 ## Boundary
 
 A status board is observed activity metadata. It is not result, verification,
@@ -325,3 +414,9 @@ external effect, and it proves nothing about any other effect.
 A language diagnostic record is narrower again: it is one language-diagnostic
 check over one workspace revision interval. A clean result means no new
 diagnostics were observed in that check, and nothing more.
+
+A run health summary is narrow in a different direction: it explains observed
+events and settles none of them. It is metadata-only observation, not execution,
+verification, review, CI, merge-readiness, or merge evidence, and an `improved`
+efficiency claim on one is a comparison a named evaluator made against a named
+baseline — not a measurement OMH performed.
