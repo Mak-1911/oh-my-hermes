@@ -47,6 +47,7 @@ from ..external_effect_receipts import (
 )
 from ..workflows.approval_receipts import validate_approval_receipt_store
 from ..workflows.blocked_work_records import decision_history, validate_blocked_work_record_store
+from ..workflows.workspace_bindings import validate_workspace_binding_store
 from ..observation_journal import (
     append_observation_event,
     merge_lifecycle_projection,
@@ -2232,6 +2233,16 @@ def validate_runtime(paths: OmhPaths, run_id: str | None = None) -> dict[str, An
         paths.runtime_blocked_work_records_path,
         run_id=run_id,
     )
+    # And the workspace-binding store, where the supersede chain is not a
+    # bookkeeping detail: it is what answers "which record holds this
+    # directory". A fork in it is two records both claiming to be the current
+    # state of one workspace, which is the exact ambiguity the guard exists to
+    # remove, and most of its records carry no `run_id` because the guard runs
+    # before a workspace-bound handoff has a run.
+    workspace_binding_store_result = validate_workspace_binding_store(
+        paths.runtime_workspace_bindings_path,
+        run_id=run_id,
+    )
     _add_duplicate_wrapper_run_link_errors(session_results, session_dirs)
     return {
         "ok": all(result["ok"] for result in results)
@@ -2239,13 +2250,15 @@ def validate_runtime(paths: OmhPaths, run_id: str | None = None) -> dict[str, An
         and bool(journal_result["ok"])
         and bool(receipt_store_result["ok"])
         and bool(approval_store_result["ok"])
-        and bool(blocked_work_store_result["ok"]),
+        and bool(blocked_work_store_result["ok"])
+        and bool(workspace_binding_store_result["ok"]),
         "runs": results,
         "wrapper_sessions": session_results,
         "journal": journal_result,
         "external_effect_receipts": receipt_store_result,
         "approval_receipts": approval_store_result,
         "blocked_work_records": blocked_work_store_result,
+        "workspace_bindings": workspace_binding_store_result,
     }
 
 

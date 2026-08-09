@@ -2065,6 +2065,7 @@ _STORE_SCHEMA_VERSIONS = {
     "approval_receipts.jsonl": "approval_receipt/v1",
     "blocked_work_records.jsonl": "blocked_work_record/v1",
     "external_effect_receipts.jsonl": "external_effect_receipt/v1",
+    "workspace_bindings.jsonl": "workspace_binding_guard/v1",
 }
 
 

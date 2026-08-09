@@ -89,6 +89,19 @@ class OmhPaths:
         return self.runtime_journal_dir / "blocked_work_records.jsonl"
 
     @property
+    def runtime_workspace_bindings_path(self) -> Path:
+        # Runtime-wide, beside the other three stores, and it is the one store
+        # for which per-run placement would defeat the feature outright. A
+        # binding exists to be read by a handoff that has nothing to do with the
+        # one that wrote it: exclusivity means the *second* handoff sees the
+        # first handoff's claim. A per-run file is invisible to every other run
+        # by construction, which is exactly the blind spot that let two
+        # handoffs bind one workspace. The guard also runs before a
+        # workspace-bound handoff is enabled, which on the delegation lane is
+        # before a run directory exists to hold anything.
+        return self.runtime_journal_dir / "workspace_bindings.jsonl"
+
+    @property
     def runtime_plan_context_dir(self) -> Path:
         return self.runtime_dir / "plan-context"
 

@@ -761,6 +761,10 @@ Runtime artifacts are local JSON/JSONL files under `.omh/runtime/`.
       external_effect_mint_failures.jsonl
       approval_receipts.jsonl
       approval_mint_failures.jsonl
+      blocked_work_records.jsonl
+      blocked_work_mint_failures.jsonl
+      workspace_bindings.jsonl
+      workspace_binding_mint_failures.jsonl
     wrapper_sessions/
       <session-id>/
         session.json
@@ -1115,6 +1119,62 @@ boundary of `handoff_safety_contract/v1` is `declared_not_enforced`, blocked by
 `no_confirmation_answer_intake_mints_a_run_bound_approval`. "Consent is
 classified; on the shipped lane it is not enforced" below says why arming there
 would have been worse than not arming.
+
+### Workspace Bindings
+
+`runtime/journal/workspace_bindings.jsonl` is the fourth store, holding
+`workspace_binding_guard/v1` records: one reservation of one canonical workspace
+and one branch for one handoff, under one owner and one base revision, with the
+condition that will release it. It runs on the same base as the other three,
+told its own key names (`record_id`, `supersedes_binding_ref`).
+
+It exists because nothing in the tree knew about anyone else's workspace.
+`coding/isolation.py` decides *whether* a handoff wants its own worktree, and
+`wrapper/worktree_binding.py` builds a recipe for opening one executor in one
+path; neither consults a registry of active bindings, so two handoffs pointed at
+one directory both succeeded and two handoffs on one branch were invisible. The
+guard is the missing exclusivity: `acquire_workspace_binding` reads the active
+set and appends the new claim under one `local_store.file_lock`, so two
+concurrent acquisitions on one workspace produce one held binding and one
+refusal rather than two winners.
+
+Identity is the *canonical* path — expanded, user-resolved, and symlink-resolved
+through `paths.expand_path` — then digested. `~/w`, `$HOME/w`, `/tmp/w/../w`, and
+the absolute path are one workspace, which is what stops the guard being defeated
+by typing the path differently, and no host path byte reaches the store: a stored
+`workspace_ref` that is not a digest handle is refused at build, at validate, and
+at render. There are two conflict axes and they report separately because they
+have different answers — the same canonical workspace held by another handoff,
+and the same `(repository, branch)` pair held by another active workspace.
+
+Staleness is derived at read time from the head record's stamp — the
+`action_gate._account_state` idiom — against `BINDING_STALE_AFTER_SECONDS`, and
+it **blocks reuse without ever releasing anything**. Auto-release would be the
+background lease service issue #820 puts out of scope, and it would be wrong on
+its own terms: a binding nobody has reported on is not a binding nobody is
+running. A stale conflict therefore carries a different reason code and a
+different recovery from a fresh one — release it explicitly, which is an act with
+an owner — and every refusal returns a closed `recovery_action` id together with
+the sentence for it, because an id alone is not guidance. Release itself has two
+doors: `observed_terminal_state`, accepted only from the handoff and owner on
+record, and `explicit_safe_release`, accepted from anyone, because a release only
+the absent holder could perform would lock an abandoned workspace forever.
+
+A binding is ownership evidence and nothing else. It is not evidence the
+directory exists (nothing here stats the filesystem), not dispatch, and not
+result: `CLAIM_BOUNDARY` says so on every record and on every verdict, and a
+record shaped to assert execution is refused by key name before the closed key
+set even sees it. The `workspace` boundary of `handoff_safety_contract/v1` stays
+`declared_not_enforced` for that reason — the pre-dispatch half now exists, the
+runtime half cannot, because no change on this side of the wall constrains a
+process that is already running.
+
+**What is wired, as opposed to declared.** The store, the guard, the read-only
+`inspect_workspace_binding`, the registry entry in
+`OPTIONAL_RUNTIME_STORE_VALIDATORS`, and the store-level report inside
+`omh runtime validate`. No delegation or chat lane calls the guard yet, and no
+`omh` command exposes it; wiring a caller is a separate change with its own
+user-facing surface and its own confirmation copy.
 
 ### Prepared Runtime Run Executor Matrix
 
@@ -1578,8 +1638,10 @@ known boundary, not an oversight.
 ### Adoption boundary
 
 This contract covers record-level staleness only. Cross-record binding — such as
-a session pinned to a workspace — is tracked separately as issue #820 and is not
-enforced here. Distributed locks across machines are also out of scope: the
+a session pinned to a workspace — is not enforced here; that is
+`workspace_binding_guard/v1`'s job, and it is a separate store with its own
+lock, described under **Workspace Bindings** below. Distributed locks across
+machines are also out of scope: the
 guard is a single-host advisory lock plus a revision compare. Records written
 before operation scoping keep un-prefixed `applied_mutations` keys; those keys
 are never matched again, so one legacy id can apply a second time and then
@@ -2074,8 +2136,9 @@ than onto a second label set. The facts function's `enforcement_kind` survives
 only inside the statement, where it explains *why* a limit is or is not enforced
 here; `enforced_here` is the whole mapping to `enforced` versus
 `declared_not_enforced`. Three of the rows are host-dependent by nature: a host
-with an OS confinement backend is blocked on #820, and a host without one is
-blocked on not having one, which is why the test compares those three against
+with an OS confinement backend is blocked on no delegation or fanout lane
+placing an executor under the sandbox, and a host without one is blocked on not
+having a backend at all, which is why the test compares those three against
 the same facts the contract read instead of pinning a string that would pass on
 macOS and fail on Windows. The facts are declared in
 `HANDOFF_CONTRACT_INPUT_SOURCES` and probed once per process behind
@@ -2094,8 +2157,12 @@ enforcement suite pins its exact argv, so changing it fails a test rather than
 quietly widening what the sentence covers.
 
 Declared and not enforced, each naming what must land first: **workspace** —
-`allowed_targets` is derived from the isolation plan but nothing binds a running
-executor to it (#820); **confirmation answered** — the gate classifies every
+`workspace_binding_guard/v1` now refuses a second workspace-bound handoff on a
+reserved workspace or branch before one is enabled, but `allowed_targets` is
+still derived from the isolation plan and nothing binds a running executor to it
+(`no_omh_side_constraint_can_bind_a_running_executor_process`, because confining
+a running process needs an OS-level backend the host owns);
+**confirmation answered** — the gate classifies every
 risky class and names the approval each granted carrier action would need, but
 nothing on the shipped lane can record an answer, so nothing is withheld
 (`no_confirmation_answer_intake_mints_a_run_bound_approval`); **storage retention** — run artifacts are metadata-only,
@@ -2111,8 +2178,13 @@ the minimum scopes, and a readiness state, but grants, verifies, and refuses
 nothing, because a consent flow owned by a provider's website is not observable
 from here (`host_owned_consent_flow_is_not_observable_by_omh`); and the three
 runtime `data_*` rows — the cross-harness adapter lane builds an OS confinement
-sandbox that no delegation or fanout lane places an executor under (#820 on a
-capable host, and the host's own missing backend elsewhere).
+sandbox that no delegation or fanout lane places an executor under
+(`no_delegation_or_fanout_lane_places_an_executor_under_the_sandbox` on a
+capable host, and the host's own missing backend elsewhere; the advisory row
+reports `no_omh_side_measurement_observes_whether_an_executor_honoured_its_targets`
+on every host). All three used to cite #820, which was a mis-citation even
+before that issue landed — it shipped a workspace reservation, not an executor
+sandbox — and would have become a dangling pointer once it closed.
 
 The last two are known asymmetries rather than oversights. Closing either means
 adding a rung or a prerequisite to `runtime/claims.py` and

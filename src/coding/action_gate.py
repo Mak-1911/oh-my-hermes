@@ -409,6 +409,14 @@ ACCOUNT_BLOCKER_KEYS = ("blocker", "statement", "cites")
 # `data_boundary_enforcement_facts` already sets the precedent of a `blocked_by`
 # that names the reason rather than a ticket.
 ACCOUNT_AUTHORIZATION_BLOCKER = "host_owned_consent_flow_is_not_observable_by_omh"
+# Also not an issue number, on the same precedent. #820 delivered the half OMH
+# owns -- `workspace_binding_guard/v1` refuses a second workspace-bound handoff
+# on a reserved workspace or branch before one is enabled -- and closing it does
+# not close this boundary, because the other half is confining a process that is
+# already running. That needs an OS-level confinement backend the host owns; no
+# change on this side of the wall can do it, so naming a ticket here would
+# promise a fix nobody can ship.
+WORKSPACE_RUNTIME_BLOCKER = "no_omh_side_constraint_can_bind_a_running_executor_process"
 ACCOUNT_AUTHORIZATION_CLAIM_BOUNDARY = (
     "This account-authorization projection is prepared metadata. It is not dispatch, execution, or "
     "evidence that any account is usable: a login marker means a local file exists, never that a "
@@ -763,11 +771,14 @@ _STATIC_SAFETY_BOUNDARIES: tuple[tuple[str, str, str, tuple[str, ...], str], ...
     ),
     (
         "workspace",
+        "The pre-dispatch half now exists: `workspace_binding_guard/v1` reserves a canonical workspace and "
+        "branch for one handoff atomically, and a second workspace-bound handoff on either is refused "
+        "before it is enabled, with the owner and the recovery named. The runtime half does not. "
         "allowed_targets is derived from the isolation plan, but nothing binds a running executor to it. "
         "The target is a declaration the executor is trusted to honour, not a constraint applied to it.",
         "declared_not_enforced",
         (),
-        "#820",
+        WORKSPACE_RUNTIME_BLOCKER,
     ),
 )
 

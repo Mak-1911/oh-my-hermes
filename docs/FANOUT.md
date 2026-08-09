@@ -227,8 +227,9 @@ goal to Hermes in chat; these commands are the backend surface.
   `runtime_filesystem_confinement` and `runtime_network_confinement` are
   `host_confinement`, and dispatch does **not** provide them — the
   cross-harness adapter lane builds an OS confinement sandbox (`sandbox-exec`
-  on macOS, a trusted `bwrap` on Linux) and no dispatched unit runs under it
-  (#820). `executor_honours_declared_targets` is advisory everywhere: a unit's
+  on macOS, a trusted `bwrap` on Linux) and no dispatched unit runs under it,
+  which is the blocker those two rows now name in words.
+  `executor_honours_declared_targets` is advisory everywhere: a unit's
   file boundary is frozen in the contract and checked for overlaps at prepare
   time, but nothing constrains the spawned CLI to it at runtime.
   `quality/safety_preflight.py::data_boundary_enforcement_facts` reports which

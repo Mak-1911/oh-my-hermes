@@ -448,6 +448,26 @@ def correction_for_reason_code(reason_code: str) -> str:
 # and that is the distinction issue #801 asks OMH to surface.
 DATA_BOUNDARY_ENFORCEMENT_KINDS: Final = ("refused_before_handoff", "host_confinement", "advisory")
 
+# Why each unenforced kind is unenforced. Reason strings rather than issue
+# numbers, on the `action_gate.ACCOUNT_AUTHORIZATION_BLOCKER` precedent: a
+# blocker names a ticket only when landing that ticket would close it.
+#
+# Both of these used to name `#820`, which was a mis-citation even before that
+# issue landed. #820 is about two handoffs sharing one workspace, and it shipped
+# `workspace_binding_guard/v1` for exactly that -- a pre-dispatch reservation.
+# Neither of these limits is about reservations. Every `host_confinement` limit
+# is unenforced because no delegation or fanout lane places an executor under
+# the sandbox the cross-harness adapter lane already builds, which is real,
+# fileable work that #820 was never going to do. A host that *could* confine
+# still reports the limit as unenforced; it reports a different blocker from a
+# host that could not.
+_HOST_CONFINEMENT_BLOCKER: Final = "no_delegation_or_fanout_lane_places_an_executor_under_the_sandbox"
+# The advisory limit is not fileable at all. Measuring whether a running
+# executor stayed inside its declared targets needs the same OS-level
+# confinement the host owns; on this side of the wall there is nothing to
+# observe, on any host.
+_ADVISORY_LIMIT_BLOCKER: Final = "no_omh_side_measurement_observes_whether_an_executor_honoured_its_targets"
+
 # (limit id, enforcement kind, enforcer symbols, blocker).
 #
 # The symbols are dotted import paths in `omh.coding.action_gate`'s
@@ -490,32 +510,27 @@ DATA_BOUNDARY_LIMITS: Final = (
             "omh.quality.cross_harness_adapter_sandbox.sandbox_command",
             "omh.quality.cross_harness_adapter_sandbox.read_roots_are_safe",
         ),
-        "#820",
+        _HOST_CONFINEMENT_BLOCKER,
     ),
     (
         "runtime_network_confinement",
         "host_confinement",
         ("omh.quality.cross_harness_adapter_sandbox.sandbox_command",),
-        "#820",
+        _HOST_CONFINEMENT_BLOCKER,
     ),
     (
         "executor_honours_declared_targets",
         "advisory",
         (),
-        "#820",
+        _ADVISORY_LIMIT_BLOCKER,
     ),
 )
 DATA_BOUNDARY_LIMIT_NAMES: Final = tuple(entry[0] for entry in DATA_BOUNDARY_LIMITS)
 
 # The confinement tool each platform would use, and the reason a platform with
-# neither can never enforce a runtime limit no matter which issue lands.
+# neither can never enforce a runtime limit no matter what else lands.
 _MACOS_CONFINEMENT_TOOL: Final = "/usr/bin/sandbox-exec"
 _NO_HOST_BACKEND_REASON: Final = "no_os_confinement_backend_on_this_platform"
-# Every host_confinement limit is blocked on the same issue today, because no
-# delegation or fanout lane places an executor under the sandbox the adapter
-# lane already builds. A host that *could* confine still reports the limit as
-# unenforced; it reports a different blocker from a host that could not.
-_HOST_CONFINEMENT_BLOCKER: Final = "#820"
 
 
 def safety_rule_profile() -> dict[str, object]:
@@ -679,9 +694,9 @@ def data_boundary_enforcement_facts() -> dict[str, object]:
 
     Today every `host_confinement` limit is still unenforced even where the
     host is capable, because no delegation or fanout lane places an executor
-    under the sandbox the cross-harness adapter lane builds (#820). The
-    capability flag is what separates "the host could, once #820 lands" from
-    "this host never could", and that separation is the deliverable.
+    under the sandbox the cross-harness adapter lane builds. The capability flag
+    is what separates "the host could, once a lane does that" from "this host
+    never could", and that separation is the deliverable.
 
     Deliberately not part of `safety_rule_profile()`: the answer differs per
     machine, and a host-dependent digest would read as profile drift on every
