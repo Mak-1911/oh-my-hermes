@@ -118,6 +118,7 @@ src/
     executor_readiness.py
     executors.py
     isolation.py
+    owner_fit.py
     pre_handoff_readiness.py
     team_readiness.py
     worktree_creator.py
@@ -632,6 +633,60 @@ metadata from it.
 The delegation-first completion model is tracked in
 `docs/DELEGATION_FIRST_COMPLETENESS.md`. It is the product boundary for making
 OMH feel more complete without turning Hermes into the main coding executor.
+
+### Coding Owner Fit
+
+`coding/owner_fit.py` answers whether a coding owner can actually finish the
+plan that was just accepted. Owner selection used to read four inputs — an owner
+named in the request envelope, an owner named in the message, a recorded setup
+preference, a keyword route-family cue — and no capability evidence at all, so a
+gap surfaced during execution rather than before it.
+
+Two pure derivations, both with `now` as a parameter:
+
+- **Requirements** come from the accepted plan's declared fields only
+  (`ACCEPTED_PLAN_FIELDS`: the routed workflow, the work-owner mode, the
+  workspace-binding strategy). The message is never parsed here. The vocabulary
+  is the one `executor_capability_snapshot/v1` already speaks, so a requirement
+  and the evidence answering it always share a name.
+- **Classification** matches one requirement against one owner's recorded
+  snapshot and lands in `met`, `unmet`, or `unknown`. `OWNER_FIT_REASON_CODES`
+  is the single table mapping a reason to its classification, so "why" and
+  "what" cannot drift.
+
+The three states are kept apart deliberately. `met` needs fresh host-observed
+availability; `unmet` needs fresh host-observed unavailability; everything else
+— no snapshot, no record of that capability, prepared-only evidence, evidence
+scoped to a different workflow, evidence past the horizon — is `unknown`. An
+owner with an unmet requirement is `blocked` and is never recommended; an owner
+with an unknown requirement is `unproven`, which is also not recommended but is
+not reported as a gap either, because nothing was observed to be missing.
+
+Freshness reuses `CAPABILITY_EVIDENCE_STALE_AFTER_SECONDS` through
+`pre_handoff_readiness.capability_evidence_is_fresh` rather than declaring a
+second horizon. Expired evidence classifies `unknown` whatever it recorded,
+including a recorded `unavailable`: an expired observation is not knowledge of
+the present, and `unknown` still yields `unproven`, which is still not
+recommended.
+
+An explicitly named owner is still honoured. Naming an owner still selects it
+and still prepares its handoff; `resolve_coding_route_decision` is unchanged.
+When the named owner cannot do the work the report keeps it, sets
+`named_owner_honoured`, states the gap in `named_owner_gap`, and leaves it out
+of `recommended_owners`. Hermes therefore never recommends an owner with a known
+unmet capability and never silently swaps an owner a person asked for.
+
+`coding_owner_fit_report/v1` rides on every delegate-action coding payload, so
+`omh coding delegate` and the chat lane read the same answer, and
+`executor_choice_context` takes the same plan so owner fit is the first ranking
+key on the choose-executor card — an owner that cannot do the work never heads
+it. Candidates are ranked, never removed. Both artifacts are
+`prepared_not_observed`.
+
+Classification reads the snapshot and never the owner id.
+`owner_fit_without_owner_identity` drops the only two owner-identity fields
+(`owner`, `label`), and two owners holding equal evidence produce equal
+projections — the executor-neutrality property in code rather than in prose.
 
 ## Hermes Capability Boundary
 

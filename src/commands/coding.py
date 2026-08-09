@@ -110,9 +110,15 @@ def cmd_coding_delegate(args: argparse.Namespace) -> int:
             _apply_plan_handoff_source(payload)
             _accept_handoff_role_context(paths, payload)
         if payload.get("delegation_policy") or _payload_choice_required(payload):
+            from ..coding.owner_fit import accepted_plan_from_delegation
             from ..executor_readiness import executor_choice_context
 
-            payload["executor_choice_context"] = executor_choice_context(paths)
+            # Same plan the payload's own `coding_owner_fit` block was derived
+            # from, so the ranked card and the report cannot disagree.
+            payload["executor_choice_context"] = executor_choice_context(
+                paths,
+                plan=accepted_plan_from_delegation(payload),
+            )
         # The decision is recorded here, before anything decides whether a *run*
         # is worth creating, and unconditionally on `--record`. That ordering is
         # the whole point of the change: a denied gate collapses the selection,
