@@ -38,7 +38,7 @@
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="GitHub" src="https://img.shields.io/badge/github-rlaope%2Foh--my--hermes-181717?logo=github"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent" src="https://img.shields.io/badge/Hermes%20Agent-NousResearch-6f42c1?logo=github"></a>
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="OMH stars" src="https://img.shields.io/github/stars/rlaope/oh-my-hermes?style=flat&logo=github"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
+  <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent stars" src="https://img.shields.io/github/stars/NousResearch/hermes-agent?style=flat&logo=github"></a>
 </p>
 
 <p align="center">
@@ -137,10 +137,9 @@ omh doctor
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-11 のフラッグシップ workflow が `ulw-` 接頭辞を持ちます。計画し、並列化し、
-ループし、検証する長期レーンです。普通のチャットでトリガーを言えば、
-あとは Hermes がルーティングします。全カタログは
-[Workflow Reference](docs/WORKFLOWS.md) にあります。
+11 のフラッグシップ workflow が `ulw-` 接頭辞を持ちます。チャットでトリガーを
+言えば、あとは Hermes がルーティングします — 全カタログは
+[Workflow Reference](docs/WORKFLOWS.md)。
 
 | Skill | こう言う | 何をするか |
 | --- | --- | --- |

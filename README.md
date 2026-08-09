@@ -38,7 +38,7 @@
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="GitHub" src="https://img.shields.io/badge/github-rlaope%2Foh--my--hermes-181717?logo=github"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent" src="https://img.shields.io/badge/Hermes%20Agent-NousResearch-6f42c1?logo=github"></a>
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="OMH stars" src="https://img.shields.io/github/stars/rlaope/oh-my-hermes?style=flat&logo=github"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
+  <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent stars" src="https://img.shields.io/github/stars/NousResearch/hermes-agent?style=flat&logo=github"></a>
 </p>
 
 <p align="center">
@@ -167,10 +167,9 @@ Maintenance paths such as reconciling a `--full` install back to core live in
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-Eleven flagship workflows carry the `ulw-` prefix. They are the
-long-horizon lanes: the ones that plan, parallelize, loop, and verify.
-Say the trigger in normal chat and Hermes routes the rest; the full
-catalog lives in [Workflow Reference](docs/WORKFLOWS.md).
+Eleven flagship workflows carry the `ulw-` prefix. Say the trigger in
+chat and Hermes routes the rest — full catalog in
+[Workflow Reference](docs/WORKFLOWS.md).
 
 | Skill | Say | What it does |
 | --- | --- | --- |

@@ -38,7 +38,7 @@
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="GitHub" src="https://img.shields.io/badge/github-rlaope%2Foh--my--hermes-181717?logo=github"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent" src="https://img.shields.io/badge/Hermes%20Agent-NousResearch-6f42c1?logo=github"></a>
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="OMH stars" src="https://img.shields.io/github/stars/rlaope/oh-my-hermes?style=flat&logo=github"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
+  <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent stars" src="https://img.shields.io/github/stars/NousResearch/hermes-agent?style=flat&logo=github"></a>
 </p>
 
 <p align="center">
@@ -134,9 +134,8 @@ omh doctor
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-十一个旗舰 workflow 带有 `ulw-` 前缀。它们是负责规划、并行、循环与验证的
-长周期车道。在日常对话里说出触发词，其余交给 Hermes 路由。完整目录见
-[Workflow Reference](docs/WORKFLOWS.md)。
+十一个旗舰 workflow 带有 `ulw-` 前缀。在对话里说出触发词，其余交给 Hermes
+路由 —— 完整目录见 [Workflow Reference](docs/WORKFLOWS.md)。
 
 | Skill | 这样说 | 做什么 |
 | --- | --- | --- |

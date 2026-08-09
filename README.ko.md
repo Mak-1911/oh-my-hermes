@@ -38,7 +38,7 @@
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="GitHub" src="https://img.shields.io/badge/github-rlaope%2Foh--my--hermes-181717?logo=github"></a>
   <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent" src="https://img.shields.io/badge/Hermes%20Agent-NousResearch-6f42c1?logo=github"></a>
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="OMH stars" src="https://img.shields.io/github/stars/rlaope/oh-my-hermes?style=flat&logo=github"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
+  <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent stars" src="https://img.shields.io/github/stars/NousResearch/hermes-agent?style=flat&logo=github"></a>
 </p>
 
 <p align="center">
@@ -137,9 +137,8 @@ omh doctor
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-11개의 대표 workflow가 `ulw-` 접두사를 가집니다. 계획하고, 병렬화하고,
-반복하고, 검증하는 장기 레인들입니다. 평범한 대화로 트리거만 말하면
-나머지는 Hermes가 라우팅합니다. 전체 카탈로그는
+11개의 대표 workflow가 `ulw-` 접두사를 가집니다. 대화에서 트리거만 말하면
+나머지는 Hermes가 라우팅합니다 — 전체 카탈로그는
 [Workflow Reference](docs/WORKFLOWS.md)에 있습니다.
 
 | Skill | 이렇게 말하세요 | 무엇을 하나 |
