@@ -623,7 +623,11 @@ def _dispatch_unit(
         }
     probe = readiness(paths, owner)
     if str(probe.get("status", "")) != "ready":
-        return {
+        # The pre-handoff recheck (#837) can turn a once-ready owner into
+        # `stale` right here. Carrying its repair card through means the unit
+        # result names the prerequisite that moved and the command that
+        # confirms it, instead of only reporting that the owner was not ready.
+        not_ready: dict[str, Any] = {
             "unit_id": unit_id,
             "run_ref": run_ref,
             "owner": owner,
@@ -631,6 +635,10 @@ def _dispatch_unit(
             "readiness_status": str(probe.get("status", "unknown")),
             "merge_ready": False,
         }
+        repair_card = probe.get("repair_card")
+        if isinstance(repair_card, Mapping):
+            not_ready["repair_card"] = dict(repair_card)
+        return not_ready
     discovery = (discoveries or {}).get(owner)
     prompt = build_unit_prompt(unit, goal_text, discovery)
     argv = build_dispatch_argv(owner, prompt, model_route)

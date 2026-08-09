@@ -15,8 +15,12 @@ from omh.coding.executor_auth_signals import (  # noqa: E402
     executor_auth_signals,
     last_limit_signal_for_profile,
 )
-from omh.coding.executor_readiness import executor_choice_context, probe_executor_readiness  # noqa: E402
-from omh.system.local_store import atomic_write_json  # noqa: E402
+from omh.coding.executor_readiness import (  # noqa: E402
+    executor_choice_context,
+    live_readiness_binding,
+    probe_executor_readiness,
+)
+from omh.system.local_store import atomic_write_json, utc_now  # noqa: E402
 from omh.system.paths import OmhPaths  # noqa: E402
 
 
@@ -129,6 +133,10 @@ class ReadinessAdvisoryFreshnessTests(unittest.TestCase):
             root = Path(tmp)
             paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
             # Seed a cached observed_once probe result so no subprocess runs.
+            # `updated_at` and `readiness_binding` are part of the fixture as of
+            # #837: `observed_once` alone no longer keeps a decision usable, so
+            # a cache entry has to be both fresh and bound to this machine to
+            # exercise the advisory-refresh path this test is about.
             atomic_write_json(
                 paths.executor_readiness_path,
                 {
@@ -139,6 +147,8 @@ class ReadinessAdvisoryFreshnessTests(unittest.TestCase):
                             "profile": "codex",
                             "status": "ready",
                             "observed_once": True,
+                            "updated_at": utc_now(),
+                            "readiness_binding": live_readiness_binding(paths, "codex"),
                         }
                     },
                 },

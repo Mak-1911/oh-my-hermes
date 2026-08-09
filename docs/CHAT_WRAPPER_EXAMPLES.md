@@ -599,22 +599,41 @@ Apply the prefix once at the first line of one rendered response. Do not repeat
 long answer into separate Discord/Slack messages, it can repeat the same prefix
 once at the start of each chunk.
 
-## First-Use Coding Agent Readiness
+## Pre-Handoff Coding Agent Readiness
 
 Coding handoff responses include `executor_readiness/v1` so the wrapper can
-check Codex, Claude Code, Hermes coding, or oh-my runtime availability once per
-profile instead of discovering it after the user presses a handoff button.
+check Codex, Claude Code, Hermes coding, or oh-my runtime availability before
+the user presses a handoff button instead of discovering it afterwards.
 
 ```sh
 omh coding executor-readiness --executor codex
 omh coding executor-readiness --executor claude-code
 ```
 
+A stored observation is reused only while it is still fresh and still bound to
+the same profile, tool, permission profile, and workspace, so the check is safe
+to run before every dispatch.
+
 If readiness is `missing` or `blocked`, show a human choice instead of failing
 silently: choose another coding agent, configure the command path, continue in
 Hermes, or keep a prompt/runtime handoff. After the user changes that state,
-retry the readiness check once. The probe only proves local availability; it is
-not dispatch, implementation, review, CI, or merge evidence.
+retry the readiness check once.
+
+If readiness is `stale`, an earlier observation no longer describes this
+machine. The payload then carries `pre_handoff_readiness/v1` with the reason
+and `pre_handoff_repair_card/v1` with the missing prerequisite and the commands
+that close it:
+
+```sh
+codex --version                                       # confirm the prerequisite
+omh coding executor-readiness --executor codex --force # re-observe readiness
+```
+
+Render the card and keep the handoff prepared. `--force` is the only thing that
+replaces a stale observation, and the card is prepared guidance: OMH did not
+install a tool, change a permission, or re-probe anything. The probe only proves
+local availability; it is not dispatch, implementation, review, CI, or merge
+evidence.
 
 ## Discord-Style Handoff Status Card
 
