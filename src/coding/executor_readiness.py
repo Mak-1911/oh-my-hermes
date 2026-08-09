@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -487,7 +488,12 @@ EXECUTOR_CHOICE_CONTEXT_CLAIM_BOUNDARY = (
 )
 
 
-def executor_choice_context(paths: OmhPaths, *, now: str = "") -> dict[str, object]:
+def executor_choice_context(
+    paths: OmhPaths,
+    *,
+    now: str = "",
+    plan: Mapping[str, object] | None = None,
+) -> dict[str, object]:
     """Return per-candidate readiness/auth context for the choose-executor question.
 
     Reads cached readiness state and cheap local markers only — no subprocess
@@ -500,14 +506,24 @@ def executor_choice_context(paths: OmhPaths, *, now: str = "") -> dict[str, obje
     probe applies (#837), so a decision that no longer describes this machine
     reads `stale` here too. Ranking a candidate whose CLI is gone to the top of
     the choose-executor card is the failure that rule exists to prevent.
+
+    `plan` is the accepted plan's declared fields (#810). When one is supplied,
+    each candidate also carries its owner-fit verdict and the required
+    capabilities recorded unavailable for it, and fit becomes the FIRST ranking
+    key — an owner that cannot do the work must never head this card, whatever
+    its login marker says. Candidates are still never removed: the card offers
+    what the user may pick, and the verdict says what each pick would cost.
     """
     from .executor_auth_signals import auth_signal_for_profile, last_limit_signal_for_profile
     from .model_inventory import local_model_inventory
+    from .owner_fit import derive_plan_capability_requirements, evaluate_owner_fit
 
+    requirements = derive_plan_capability_requirements(plan) if plan is not None else None
     state, _ = _read_state(paths)
     candidates: list[dict[str, object]] = []
     for profile in EXECUTOR_CHOICE_CONTEXT_PROFILES:
         cached = _cached_profile(state, profile) or {}
+        snapshot = _capability_snapshot(paths, profile)
         # Same freshness rule as the probe: a stale or rebound decision must
         # not read `ready` here either, or the ranking would put a candidate
         # whose CLI is gone at the top of the choose-executor card.
@@ -515,28 +531,44 @@ def executor_choice_context(paths: OmhPaths, *, now: str = "") -> dict[str, obje
             profile=profile,
             cached=cached or None,
             binding=live_readiness_binding(paths, profile),
-            capability_snapshot=_capability_snapshot(paths, profile),
+            capability_snapshot=snapshot,
             now=now,
         )
         observed_status = str(cached.get("status", "not_observed"))
-        candidates.append(
-            {
-                "profile": profile,
-                "label": executor_label(profile),
-                "readiness_status": observed_status if (verdict["usable"] or not cached) else "stale",
-                "readiness_freshness": str(verdict["reason_code"]),
-                "auth_signal": auth_signal_for_profile(profile),
-                "last_limit_signal": last_limit_signal_for_profile(paths, profile),
-            }
-        )
-    # Advisory ranking, never a veto: logged-in first, then no fresh limit
-    # signal, then cached-ready, with the fixed profile order as tiebreak so
-    # equal candidates stay deterministic.
+        candidate: dict[str, object] = {
+            "profile": profile,
+            "label": executor_label(profile),
+            "readiness_status": observed_status if (verdict["usable"] or not cached) else "stale",
+            "readiness_freshness": str(verdict["reason_code"]),
+            "auth_signal": auth_signal_for_profile(profile),
+            "last_limit_signal": last_limit_signal_for_profile(paths, profile),
+        }
+        if requirements is not None:
+            # The same snapshot the freshness rule just read, so readiness and
+            # fit cannot describe different evidence for one candidate.
+            fit = evaluate_owner_fit(
+                owner=profile,
+                requirements=requirements,
+                capability_snapshot=snapshot,
+                now=now,
+            )
+            candidate["owner_fit_verdict"] = str(fit["verdict"])
+            candidate["owner_fit_unmet"] = list(fit["unmet"])
+            candidate["owner_fit_unknown"] = list(fit["unknown"])
+        candidates.append(candidate)
+    # Advisory ranking, never a veto: owner fit first when a plan says what the
+    # work needs, then logged-in, then no fresh limit signal, then cached-ready,
+    # with the fixed profile order as tiebreak so equal candidates stay
+    # deterministic.
     candidates.sort(key=_choice_context_rank)
     inventory = local_model_inventory()
     return {
         "candidates": candidates,
-        "ranked_by": ("login_marker", "fresh_limit_signal_absent", "readiness_status"),
+        "ranked_by": (
+            ("owner_fit_verdict", "login_marker", "fresh_limit_signal_absent", "readiness_status")
+            if requirements is not None
+            else ("login_marker", "fresh_limit_signal_absent", "readiness_status")
+        ),
         "model_inventory_hint": {
             "families_present": inventory.get("families_present", []),
             "model_count": len(inventory.get("available_models", [])),
@@ -547,14 +579,21 @@ def executor_choice_context(paths: OmhPaths, *, now: str = "") -> dict[str, obje
     }
 
 
-def _choice_context_rank(candidate: dict[str, object]) -> tuple[int, int, int, int]:
+# Absent means "no plan said what this work needs", which must leave the
+# pre-#810 ordering exactly as it was rather than sort by a verdict nobody
+# derived.
+_OWNER_FIT_RANKS: dict[str, int] = {"ready": 0, "unproven": 1, "blocked": 2}
+
+
+def _choice_context_rank(candidate: dict[str, object]) -> tuple[int, int, int, int, int]:
     auth = candidate.get("auth_signal")
     login = str(auth.get("login_marker", "")) if isinstance(auth, dict) else ""
     limit = candidate.get("last_limit_signal")
     fresh_limit = isinstance(limit, dict) and bool(limit) and not limit.get("stale", False)
     ready = str(candidate.get("readiness_status", "")) == "ready"
+    fit = _OWNER_FIT_RANKS.get(str(candidate.get("owner_fit_verdict", "")), 0)
     original = EXECUTOR_CHOICE_CONTEXT_PROFILES.index(str(candidate.get("profile", "")))
-    return (0 if login == "present" else 1, 1 if fresh_limit else 0, 0 if ready else 1, original)
+    return (fit, 0 if login == "present" else 1, 1 if fresh_limit else 0, 0 if ready else 1, original)
 
 
 def _ready_action(profile: str) -> str:
