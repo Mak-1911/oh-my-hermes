@@ -555,7 +555,6 @@ HANDOFF_CONTRACT_CLAIM_BOUNDARY = (
     "This safety contract is prepared metadata. It is not dispatch, execution, review, CI, or merge "
     "evidence, and an enforced boundary means a refusing check exists — not that any action ran."
 )
-REVIEW_RECEIPT_BLOCKER = "#844"
 
 # (boundary, statement, enforcement, enforced_by, blocked_by).
 #
@@ -634,8 +633,8 @@ _STATIC_SAFETY_BOUNDARIES: tuple[tuple[str, str, str, tuple[str, ...], str], ...
     (
         "evidence_separation",
         "Prepared metadata is not observed execution. Each claim rung requires its own observation, the "
-        "observation journal refuses an out-of-order lifecycle event, and CI and merge additionally "
-        "require an external effect receipt that observed that effect succeed.",
+        "observation journal refuses an out-of-order lifecycle event, and review, CI, and merge "
+        "additionally require an external effect receipt that observed that effect succeed.",
         "enforced",
         (
             "omh.runtime.claims.allowed_runtime_claims",
@@ -711,11 +710,15 @@ _STATIC_SAFETY_BOUNDARIES: tuple[tuple[str, str, str, tuple[str, ...], str], ...
     ),
     (
         "review_receipt",
-        "A review claim needs an observed review record but, unlike CI and merge, no external effect "
-        "receipt. A local record saying review passed is accepted as the evidence for itself.",
-        "declared_not_enforced",
-        (),
-        REVIEW_RECEIPT_BLOCKER,
+        "A review claim is refused unless an external effect receipt from runtime_review_record "
+        "observed this run's review succeed. A local record saying review passed is the claim, not "
+        "the evidence for it, and is no longer accepted as evidence for itself.",
+        "enforced",
+        (
+            "omh.runtime.claims._receipt_cited",
+            "omh.workflows.external_effect_receipts.receipt_satisfies_success_claim",
+        ),
+        "",
     ),
     (
         "start_evidence",

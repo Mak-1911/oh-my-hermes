@@ -75,7 +75,7 @@ EXTERNAL_EFFECT_CLAIM_BOUNDARY = (
 )
 # The run-summary claims that assert an external effect, and the effect kind
 # whose receipt has to back each one.
-RECEIPT_BACKED_RUN_CLAIMS = {"ci_observed": "ci", "merge_observed": "merge"}
+RECEIPT_BACKED_RUN_CLAIMS = {"review_observed": "review", "ci_observed": "ci", "merge_observed": "merge"}
 OBSERVATION_STATUS_ORDER = (
     "unknown",
     "prepared_not_observed",
@@ -214,15 +214,16 @@ def _apply_external_effect_receipts_to_run_summary(
     summary: dict[str, Any],
     lifecycle: dict[str, Any],
 ) -> None:
-    """Withdraw a CI or merge success claim that no receipt backs.
+    """Withdraw a review, CI, or merge success claim that no receipt backs.
 
-    CI and merge are the two rungs that assert something happened outside this
-    machine. A local `ci.json` or `merge.json` is the claim, not the evidence
-    for it, and the journal event beside it is written by the same call, so
-    neither can promote itself. Before the receipt store existed this reader
-    reported `ci_observed: True` from a local record alone -- which is the state
-    of every pre-#836 store on disk today, and why the default here is to
-    withdraw the claim rather than to trust the record.
+    These are the three rungs that assert something happened outside this
+    machine. A local `review.json`, `ci.json`, or `merge.json` is the claim, not
+    the evidence for it, and the journal event beside it is written by the same
+    call, so none can promote itself. Before the receipt store existed this
+    reader reported `ci_observed: True` from a local record alone -- which is
+    the state of every pre-#836 store on disk today, and why the default here is
+    to withdraw the claim rather than to trust the record. Review joined the
+    other two in #844.
 
     The rule is the same one `omh.runtime.claims._receipt_cited` applies on the
     CLI side, so the Hermes-facing surface cannot contradict it.

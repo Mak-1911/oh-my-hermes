@@ -61,7 +61,11 @@ RUNTIME_CLAIM_BLOCK_REASONS: Final = {
     Claim.EXECUTOR_DISPATCHED: "wrapper dispatch evidence is not observed",
     Claim.EXECUTION_OBSERVED: "executor result evidence is not observed",
     Claim.VERIFICATION_OBSERVED: "verification evidence is not observed",
-    Claim.REVIEW_OBSERVED: "review evidence is not observed",
+    Claim.REVIEW_OBSERVED: (
+        "review evidence is not observed, or no external effect receipt from runtime_review_record "
+        "records this run's review as succeeded; a run recorded before external effect receipts "
+        "existed has none and cannot make this claim"
+    ),
     Claim.CI_OBSERVED: (
         "CI evidence is not observed, or no external effect receipt from runtime_ci_record "
         "records this run's CI as succeeded; a run recorded before external effect receipts "
@@ -119,7 +123,11 @@ def _claim_allowed(claim: Claim, status: Mapping[str, JsonValue]) -> bool:
             return _bool_value(_mapping_value(status, "verification"), "observed")
         case Claim.REVIEW_OBSERVED:
             review = _mapping_value(status, "review")
-            return _bool_value(review, "observed") and _string_value(review, "status") == "passed"
+            return (
+                _bool_value(review, "observed")
+                and _string_value(review, "status") == "passed"
+                and _receipt_cited(status, review, kind="review")
+            )
         case Claim.CI_OBSERVED:
             ci = _mapping_value(status, "ci")
             return (
@@ -146,11 +154,15 @@ def _claim_allowed(claim: Claim, status: Mapping[str, JsonValue]) -> bool:
 def _receipt_cited(status: Mapping[str, JsonValue], section: Mapping[str, JsonValue], *, kind: str) -> bool:
     """Whether a gate's success is backed by a receipt that names who acted.
 
-    CI and merge are the two rungs that assert something happened outside this
-    machine. A local record saying "passed" or "merged" is the claim, not the
-    evidence for it, so both rungs additionally require a receipt that observed
-    *that* effect *succeed* from the surface that gate is observed by. A
-    `failed`, `attempted`, or unrelated receipt refuses the claim.
+    Review, CI, and merge are the three rungs that assert something happened
+    outside this machine. A local record saying "passed" or "merged" is the
+    claim, not the evidence for it, so each rung additionally requires a receipt
+    that observed *that* effect *succeed* from the surface that gate is observed
+    by. A `failed`, `attempted`, or unrelated receipt refuses the claim.
+
+    Review was the last rung to skip this check (#844). It was the one place
+    OMH would report "review passed" with nothing naming the surface that
+    reviewed, which made the evidence ladder inconsistent with itself.
 
     This is the same `receipt_satisfies_success_claim` that runtime validation
     uses, called on the same receipt, so the ladder and the validator can never

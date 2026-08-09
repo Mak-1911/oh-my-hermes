@@ -650,10 +650,13 @@ class LegacyStoreCompatibilityTests(unittest.TestCase):
                     "executor_dispatched",
                     "execution_observed",
                     "verification_observed",
-                    "review_observed",
                 ],
             )
             self.assertNotEqual(report["claim_state"], "metadata_available")
+            # #844 made review the third receipt-gated rung, so a legacy store
+            # now keeps its lower rungs through verification rather than review.
+            self.assertIn("external effect receipt", blocked["review_observed"])
+            self.assertIn("before external effect receipts existed", blocked["review_observed"])
             self.assertIn("external effect receipt", blocked["ci_observed"])
             self.assertIn("before external effect receipts existed", blocked["ci_observed"])
             self.assertIn("external effect receipt", blocked["merged"])
@@ -667,6 +670,9 @@ class LegacyStoreCompatibilityTests(unittest.TestCase):
             write_merge_record(run_dir, {"status": "merged", "target_branch": "main", "merge_commit": "abc123"})
             _remove_receipt_store(paths)
 
+            # Three gates since #844, in ladder order: each re-record mints the
+            # receipt its own rung now requires.
+            write_review_record(run_dir, {"status": "passed", "reviewer": "code-review"})
             write_ci_record(run_dir, {"status": "passed", "provider": "github-actions", "checks": ["unit:passed"]})
             write_merge_record(run_dir, {"status": "merged", "target_branch": "main", "merge_commit": "abc123"})
 
@@ -700,9 +706,10 @@ class LegacyStoreCompatibilityTests(unittest.TestCase):
 
             before = summarize_delegated_coding_status(paths, run_id)
             self.assertEqual(before["next_action"], "report_merged")
-            self.assertEqual(check_runtime_run(paths, run_id)["claim_state"], "review_observed")
+            self.assertEqual(check_runtime_run(paths, run_id)["claim_state"], "verification_observed")
 
             for command in (
+                ["runtime", "review", "--run", run_id, "--status", "passed", "--reviewer", "code-review"],
                 ["runtime", "ci", "--run", run_id, "--status", "passed", "--provider", "github-actions", "--check", "unit:passed"],
                 ["runtime", "merge", "--run", run_id, "--merged", "--target-branch", "main", "--merge-commit", "abc123"],
             ):
@@ -722,6 +729,7 @@ class LegacyStoreCompatibilityTests(unittest.TestCase):
             self.assertTrue(after["merge"]["receipt"]["receipt_id"])
             self.assertEqual(after["merge"]["receipt"]["acting_surface"], "runtime_merge_record")
             self.assertEqual(after["ci"]["receipt"]["acting_surface"], "runtime_ci_record")
+            self.assertEqual(after["review"]["receipt"]["acting_surface"], "runtime_review_record")
             self.assertIn(after["merge"]["receipt"]["receipt_id"], after["safe_summary"])
             # No false intermediate record. Every gate status written during the
             # recovery is one the operator observed; the `not_observed` CI record
@@ -729,9 +737,9 @@ class LegacyStoreCompatibilityTests(unittest.TestCase):
             recorded = [
                 str(event.get("data", {}).get("status", ""))
                 for event in _run_events(run_dir)[recovery_starts_at:]
-                if event.get("event") in {"ci_recorded", "merge_recorded"}
+                if event.get("event") in {"review_recorded", "ci_recorded", "merge_recorded"}
             ]
-            self.assertEqual(recorded, ["passed", "merged"])
+            self.assertEqual(recorded, ["passed", "passed", "merged"])
             self.assertEqual(
                 sorted(
                     (receipt["effect_id"], receipt["observed_result"])
@@ -740,6 +748,7 @@ class LegacyStoreCompatibilityTests(unittest.TestCase):
                 [
                     (external_effect_id("ci", run_id), "succeeded"),
                     (external_effect_id("merge", run_id), "succeeded"),
+                    (external_effect_id("review", run_id), "succeeded"),
                 ],
             )
 

@@ -83,7 +83,7 @@ def _run_summary(paths: OmhPaths, run_id: str) -> dict[str, object]:
 
 
 class VendoredReaderReceiptRuleTests(unittest.TestCase):
-    def test_ci_and_merge_success_is_not_claimed_without_a_receipt(self) -> None:
+    def test_review_ci_and_merge_success_is_not_claimed_without_a_receipt(self) -> None:
         """The pre-#836 store shape: local records claim success, nothing observed it."""
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
@@ -96,13 +96,18 @@ class VendoredReaderReceiptRuleTests(unittest.TestCase):
 
             self.assertFalse(summary["ci_observed"])
             self.assertFalse(summary["merge_observed"])
-            self.assertNotIn(summary["observation_status"], {"ci_observed", "merge_observed"})
+            # Review joined the receipt-backed rungs in #844.
+            self.assertFalse(summary["review_observed"])
+            self.assertNotIn(
+                summary["observation_status"], {"review_observed", "ci_observed", "merge_observed"}
+            )
             self.assertFalse(summary["lifecycle"]["ci_observed"])
             self.assertFalse(summary["lifecycle"]["merge_observed"])
-            self.assertEqual(summary["external_effect_claims"]["unreceipted"], ["ci", "merge"])
+            self.assertFalse(summary["lifecycle"]["review_observed"])
+            self.assertEqual(summary["external_effect_claims"]["unreceipted"], ["ci", "merge", "review"])
             self.assertEqual(summary["external_effect_claims"]["receipt_backed"], [])
 
-    def test_ci_and_merge_success_is_claimed_when_receipts_name_the_acting_surface(self) -> None:
+    def test_review_ci_and_merge_success_is_claimed_when_receipts_name_the_acting_surface(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
             run_id = _executed_run(paths)
@@ -112,7 +117,10 @@ class VendoredReaderReceiptRuleTests(unittest.TestCase):
 
             self.assertTrue(summary["ci_observed"])
             self.assertTrue(summary["merge_observed"])
-            self.assertEqual(summary["external_effect_claims"]["receipt_backed"], ["ci", "merge"])
+            self.assertTrue(summary["review_observed"])
+            self.assertEqual(
+                summary["external_effect_claims"]["receipt_backed"], ["ci", "merge", "review"]
+            )
             self.assertEqual(summary["external_effect_claims"]["unreceipted"], [])
 
     def test_observation_status_is_demoted_only_to_the_rung_it_can_still_claim(self) -> None:
@@ -121,8 +129,11 @@ class VendoredReaderReceiptRuleTests(unittest.TestCase):
         self.assertEqual(demote("merge_observed", {"ci", "merge"}), "merge_observed")
         self.assertEqual(demote("merge_observed", {"ci"}), "merge_gate_observed")
         self.assertEqual(demote("merge_observed", set()), "merge_gate_observed")
-        self.assertEqual(demote("ci_observed", set()), "review_observed")
-        self.assertEqual(demote("ci_observed", {"ci"}), "ci_observed")
+        # Review is itself receipt-backed since #844, so an empty backed set
+        # walks past it down to the highest local rung.
+        self.assertEqual(demote("ci_observed", set()), "verification_observed")
+        self.assertEqual(demote("ci_observed", {"review"}), "review_observed")
+        self.assertEqual(demote("ci_observed", {"ci", "review"}), "ci_observed")
         # Local rungs are never demoted, and a terminal state is never rewritten.
         self.assertEqual(demote("execution_observed", set()), "execution_observed")
         self.assertEqual(demote("blocked", set()), "blocked")
@@ -153,7 +164,9 @@ class VendoredReaderReceiptRuleTests(unittest.TestCase):
 
             summary = _run_summary(paths, run_id)
             self.assertFalse(summary["ci_observed"])
-            self.assertEqual(summary["external_effect_claims"]["receipt_backed"], [])
+            # The review receipt this run's review record minted is untouched:
+            # a superseding CI failure withdraws the CI claim, not its siblings.
+            self.assertEqual(summary["external_effect_claims"]["receipt_backed"], ["review"])
 
     def test_another_runs_receipt_does_not_back_this_runs_claim(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -196,7 +209,7 @@ class VendoredReaderParityTests(unittest.TestCase):
     def test_vendored_effect_kinds_match_the_source_record_surfaces(self) -> None:
         self.assertEqual(
             sorted(runtime_reader.RECEIPT_BACKED_RUN_CLAIMS.values()),
-            ["ci", "merge"],
+            ["ci", "merge", "review"],
         )
         for kind in runtime_reader.RECEIPT_BACKED_RUN_CLAIMS.values():
             with self.subTest(kind=kind):
