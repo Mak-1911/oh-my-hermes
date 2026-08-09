@@ -235,9 +235,9 @@ window.OMH_I18N = {
     "ulw.research.tag": { en: "Decision grounding", ko: "의사결정 근거", ja: "意思決定の根拠", zh: "决策依据" },
     "ulw.research.body": {
       en: "Reference implementations at pinned refs, live web evidence with citations, verified claims.",
-      ko: "고정 ref의 참조 구현, 인용 딸린 실시간 웹 증거, 검증된 주장.",
-      ja: "固定 ref のリファレンス実装、引用付きライブ Web 証拠、検証済みの主張。",
-      zh: "固定 ref 上的参考实现、带引用的实时网络证据、经过核验的主张。"
+      ko: "실제 코드와 최신 웹 자료로 조사하고, 출처를 남기고, 의심스러운 주장은 검증합니다.",
+      ja: "実際のコードと最新のウェブ情報で調査し、出典を残し、怪しい主張は裏取りします。",
+      zh: "用真实代码和最新网页资料做调研，留下出处，可疑说法一定核实。"
     },
     "ulw.perf.title": { en: "Ultraperf", ko: "Ultraperf", ja: "Ultraperf", zh: "Ultraperf" },
     "ulw.perf.tag": { en: "Measured optimization", ko: "측정 기반 최적화", ja: "計測ベース最適化", zh: "以测量为准的优化" },

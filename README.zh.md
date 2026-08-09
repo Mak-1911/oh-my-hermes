@@ -36,15 +36,9 @@
 
 <p align="center">
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="GitHub" src="https://img.shields.io/badge/github-rlaope%2Foh--my--hermes-181717?logo=github"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
   <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent" src="https://img.shields.io/badge/Hermes%20Agent-NousResearch-6f42c1?logo=github"></a>
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="OMH stars" src="https://img.shields.io/github/stars/rlaope/oh-my-hermes?style=flat&logo=github"></a>
-  <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent stars" src="https://img.shields.io/github/stars/NousResearch/hermes-agent?style=flat&logo=github"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml"><img alt="GitHub Pages" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml/badge.svg"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/rlaope/oh-my-hermes?logo=github"></a>
-  <img alt="Status" src="https://img.shields.io/badge/status-1.0.5%20stable-blue">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
 </p>
 
 <p align="center">
@@ -134,6 +128,32 @@ omh doctor
 
 <br>
 
+## Ultra 技能
+
+<p align="center">
+  <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
+</p>
+
+十一个旗舰 workflow 带有 `ulw-` 前缀。它们是负责规划、并行、循环与验证的
+长周期车道。在日常对话里说出触发词，其余交给 Hermes 路由。完整目录见
+[Workflow Reference](docs/WORKFLOWS.md)。
+
+| Skill | 这样说 | 做什么 |
+| --- | --- | --- |
+| `ulw-work` | `ultrawork` · `parallel work` | 把已确认的计划切成互不重叠的车道——每条车道有归属、验收标准与验证。两条车道绝不改同一个文件。 |
+| `ulw-plan` | `ralplan` · `consensus plan` | 带评审关卡的共识规划：事实、方案、风险、验收标准、交接。 |
+| `ulw-interview` | `deep-interview` · `clarify` | 一次只问一个问题，直到简报清晰。最多六轮，每轮标注清晰度。 |
+| `ulw-goal` | `ultragoal` · `goal ledger` | 带检查点的账本挺过上下文丢失，从中断处精确续跑，最后还有一道完成关卡。 |
+| `ulw-loop` | `loop` · `long horizon goal` | 访谈 → 规划 → 研究 → 构建 → 评审，循环直到真正的关卡通过。 |
+| `ulw-ralph` | `ralph` · `finish until done` | 单一归属方把任务推到完成：实现、验证、评审，反复直到关卡通过。 |
+| `ulw-team` | `team` · `parallel agents` | N 个协同工作者共用一份任务清单，车道归属明确，验证合并。 |
+| `ulw-process` | `ultraprocess` · `end-to-end process` | 一个干净的从任务到 PR 的周期：调研、规划、交接、评审、文档、PR——全程可追踪。 |
+| `ulw-qa` | `ultraqa` · `release qa` | 恶意场景、端到端跑通、发版 QA 与修复循环——显式且有据可依。 |
+| `ulw-research` | `web research` · `source-backed research` | 以真实代码和最新网页资料为依据做调研，留下出处，可疑的说法一定核实。 |
+| `ulw-perf` | `ultraperf` · `find the bottleneck` | 找出系统真正慢、漏、贵的地方——然后逐条修复被测量过的热路径。 |
+
+<br>
+
 ## OMH 提供什么
 
 OMH 将 **103 个**可安装的 workflow skill 组织为6个容易理解的能力族。
@@ -158,10 +178,10 @@ OMH 将 **103 个**可安装的 workflow skill 组织为6个容易理解的能�
 
 | 能力 | 使用方式 | 作用 |
 | --- | --- | --- |
-| 🧭 **澄清与规划** | `ulw-interview` · `ulw-plan` · `omh-decide` | 把模糊的请求转化为明确的目标、约束、权衡、验收标准，以及可以直接交接的计划。 |
-| ⚡ **借助杠杆推进工作** | `ulw-work` · `ulw-goal` · `ulw-team` · `ulw-loop` | 从快速并行工作扩展到持久的多步骤执行，同时保持所有权、检查点和验证始终可见。 |
-| 🔬 **研究与学习** | `ulw-research` · `omh-best-practice-research` · `omh-research-brief` | 在标明时效性、来源质量和尚未解决的不确定性边界的同时，查找并综合有依据的证据。 |
-| 🛠️ **安全地编码与交付** | `ulw-process` · `omh-code-review` · `ulw-qa` | 准备不依赖特定 executor 的编码工作，并让 review、QA、CI 和 merge 的相关声明只依据实际观测到的证据。 |
+| 🧭 **澄清与规划** | `omh-plan` · `omh-decide` · `omh-meeting-brief` | 把模糊的请求转化为明确的目标、约束、权衡、验收标准，以及可以直接交接的计划。 |
+| ⚡ **借助杠杆推进工作** | `omh-idea-to-deploy` · `omh-cto-loop` · `omh-running-work-board` | 从快速并行工作扩展到持久的多步骤执行，同时保持所有权、检查点和验证始终可见。 |
+| 🔬 **研究与学习** | `omh-best-practice-research` · `omh-research-brief` · `omh-paper-learning` | 在标明时效性、来源质量和尚未解决的不确定性边界的同时，查找并综合有依据的证据。 |
+| 🛠️ **安全地编码与交付** | `omh-code-review` · `omh-build-failure-triage` · `omh-verification-gate` | 准备不依赖特定 executor 的编码工作，并让 review、QA、CI 和 merge 的相关声明只依据实际观测到的证据。 |
 | 🎨 **打造精致的交付物** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-image-cards` | 围绕内容、审美、无障碍性和渲染质量 gate，制作网站、视觉素材、报告、演示文稿、文档、PDF、海报和交付包。 |
 | 🧠 **记忆与运维** | `omh-memory-new` · `omh-memory-sync` · `omh-ops-observability-card` · `omh-doctor` | 让项目记忆保持“先审查后使用”，呈现运维就绪状态，并在不臆造 provider 或系统状态的前提下给出下一步修复动作。 |
 | 🔌 **在不隐藏边界的前提下连接** | `omh-toolbelt-readiness` · `omh-external-connector-readiness` · `omh-agent-board` | 在工作依赖某个工具、connector 或 agent 面之前先确认它是否真的可用，同时让 host 加载、工具使用和外部 provider 访问都能被分别观测。 |

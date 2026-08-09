@@ -36,15 +36,9 @@
 
 <p align="center">
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="GitHub" src="https://img.shields.io/badge/github-rlaope%2Foh--my--hermes-181717?logo=github"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
   <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent" src="https://img.shields.io/badge/Hermes%20Agent-NousResearch-6f42c1?logo=github"></a>
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="OMH stars" src="https://img.shields.io/github/stars/rlaope/oh-my-hermes?style=flat&logo=github"></a>
-  <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent stars" src="https://img.shields.io/github/stars/NousResearch/hermes-agent?style=flat&logo=github"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml"><img alt="GitHub Pages" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml/badge.svg"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/rlaope/oh-my-hermes?logo=github"></a>
-  <img alt="Status" src="https://img.shields.io/badge/status-1.0.5%20stable-blue">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
 </p>
 
 <p align="center">
@@ -137,6 +131,33 @@ omh doctor
 
 <br>
 
+## 울트라 스킬
+
+<p align="center">
+  <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
+</p>
+
+11개의 대표 workflow가 `ulw-` 접두사를 가집니다. 계획하고, 병렬화하고,
+반복하고, 검증하는 장기 레인들입니다. 평범한 대화로 트리거만 말하면
+나머지는 Hermes가 라우팅합니다. 전체 카탈로그는
+[Workflow Reference](docs/WORKFLOWS.md)에 있습니다.
+
+| Skill | 이렇게 말하세요 | 무엇을 하나 |
+| --- | --- | --- |
+| `ulw-work` | `ultrawork` · `parallel work` | 승인된 계획을 겹치지 않는 레인으로 나눕니다. 레인마다 소유자, 수용 기준, 검증 명령이 붙고, 두 레인이 같은 파일을 건드리지 않습니다. |
+| `ulw-plan` | `ralplan` · `consensus plan` | 리뷰 게이트가 있는 합의 계획입니다. 사실, 선택지, 리스크, 수용 기준, 핸드오프까지 정리합니다. |
+| `ulw-interview` | `deep-interview` · `clarify` | 브리프가 명확해질 때까지 한 번에 한 질문씩 묻습니다. 최대 6라운드, 라운드마다 명확도를 점수로 보여줍니다. |
+| `ulw-goal` | `ultragoal` · `goal ledger` | 진행 상황을 체크포인트로 남겨, 컨텍스트가 날아가도 멈춘 지점부터 그대로 이어갑니다. 완료 게이트를 통과해야 끝납니다. |
+| `ulw-loop` | `loop` · `long horizon goal` | 인터뷰 → 계획 → 리서치 → 빌드 → 리뷰를 진짜 게이트를 통과할 때까지 순환합니다. |
+| `ulw-ralph` | `ralph` · `finish until done` | 한 명의 소유자가 작업을 끝까지 밀어붙입니다. 구현, 검증, 리뷰를 게이트 통과까지 반복합니다. |
+| `ulw-team` | `team` · `parallel agents` | 하나의 공유 작업 목록 위에서 N명의 작업자가 움직입니다. 레인 소유는 명시적이고 검증은 병합됩니다. |
+| `ulw-process` | `ultraprocess` · `end-to-end process` | 작업에서 PR까지 한 사이클로 갑니다. 리서치, 계획, 핸드오프, 리뷰, 문서, PR을 끝까지 추적합니다. |
+| `ulw-qa` | `ultraqa` · `release qa` | 적대적 시나리오, 엔드투엔드 실행, 릴리스 QA, 수정 루프를 명시적이고 증거에 기반해 돌립니다. |
+| `ulw-research` | `web research` · `source-backed research` | 실제 코드와 최신 웹 자료를 근거로 조사하고, 출처를 남기고, 의심스러운 주장은 검증까지 합니다. |
+| `ulw-perf` | `ultraperf` · `find the bottleneck` | 시스템이 실제로 느리고 새고 비싼 지점을 찾은 뒤, 측정된 핫패스를 하나씩 고칩니다. |
+
+<br>
+
 ## OMH가 더하는 것
 
 OMH는 **103개**의 설치형 workflow skill을 사람이 이해하기 쉬운 6개 기능군으로
@@ -162,10 +183,10 @@ OMH는 **103개**의 설치형 workflow skill을 사람이 이해하기 쉬운 6
 
 | 기능 | 사용 방법 | 동작 |
 | --- | --- | --- |
-| 🧭 **명확화와 계획** | `ulw-interview` · `ulw-plan` · `omh-decide` | 모호한 요청을 명확한 목표, 제약, trade-off, 완료 기준, 그리고 그대로 전달할 수 있는 계획으로 바꿉니다. |
-| ⚡ **레버리지를 활용한 실행** | `ulw-work` · `ulw-goal` · `ulw-team` · `ulw-loop` | 빠른 병렬 작업부터 지속적인 다단계 실행까지 확장하면서도 소유권, 체크포인트, 검증을 계속 볼 수 있게 유지합니다. |
-| 🔬 **조사와 학습** | `ulw-research` · `omh-best-practice-research` · `omh-research-brief` | 최신성, 출처 품질, 아직 해소되지 않은 불확실성 경계를 함께 표시하며 근거 기반 증거를 찾고 종합합니다. |
-| 🛠️ **안전한 코딩과 배포** | `ulw-process` · `omh-code-review` · `ulw-qa` | executor에 종속되지 않는 코딩 작업을 준비하고, review·QA·CI·merge에 대한 주장은 관측된 증거에만 근거하게 만듭니다. |
+| 🧭 **명확화와 계획** | `omh-plan` · `omh-decide` · `omh-meeting-brief` | 모호한 요청을 명확한 목표, 제약, trade-off, 완료 기준, 그리고 그대로 전달할 수 있는 계획으로 바꿉니다. |
+| ⚡ **레버리지를 활용한 실행** | `omh-idea-to-deploy` · `omh-cto-loop` · `omh-running-work-board` | 빠른 병렬 작업부터 지속적인 다단계 실행까지 확장하면서도 소유권, 체크포인트, 검증을 계속 볼 수 있게 유지합니다. |
+| 🔬 **조사와 학습** | `omh-best-practice-research` · `omh-research-brief` · `omh-paper-learning` | 최신성, 출처 품질, 아직 해소되지 않은 불확실성 경계를 함께 표시하며 근거 기반 증거를 찾고 종합합니다. |
+| 🛠️ **안전한 코딩과 배포** | `omh-code-review` · `omh-build-failure-triage` · `omh-verification-gate` | executor에 종속되지 않는 코딩 작업을 준비하고, review·QA·CI·merge에 대한 주장은 관측된 증거에만 근거하게 만듭니다. |
 | 🎨 **완성도 높은 산출물 제작** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-image-cards` | 콘텐츠, 완성도, 접근성, 렌더링 품질 게이트를 기준으로 웹사이트, 시각 자료, 보고서, 발표 자료, 문서, PDF, 포스터, 패키지를 만듭니다. |
 | 🧠 **기억과 운영** | `omh-memory-new` · `omh-memory-sync` · `omh-ops-observability-card` · `omh-doctor` | 프로젝트 기억을 검토 우선으로 유지하고, 운영 준비 상태를 보여주며, provider나 시스템 상태를 지어내지 않고 다음 복구 행동을 제시합니다. |
 | 🔌 **경계를 숨기지 않는 연결** | `omh-toolbelt-readiness` · `omh-external-connector-readiness` · `omh-agent-board` | 작업이 의존하기 전에 필요한 도구·connector·agent 표면이 실제로 준비됐는지 확인하고, host 로드·도구 사용·외부 provider 접근을 각각 별도로 관측할 수 있게 유지합니다. |

@@ -36,15 +36,9 @@
 
 <p align="center">
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="GitHub" src="https://img.shields.io/badge/github-rlaope%2Foh--my--hermes-181717?logo=github"></a>
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
   <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent" src="https://img.shields.io/badge/Hermes%20Agent-NousResearch-6f42c1?logo=github"></a>
   <a href="https://github.com/rlaope/oh-my-hermes"><img alt="OMH stars" src="https://img.shields.io/github/stars/rlaope/oh-my-hermes?style=flat&logo=github"></a>
-  <a href="https://github.com/NousResearch/hermes-agent"><img alt="Hermes Agent stars" src="https://img.shields.io/github/stars/NousResearch/hermes-agent?style=flat&logo=github"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml"><img alt="GitHub Pages" src="https://github.com/rlaope/oh-my-hermes/actions/workflows/pages.yml/badge.svg"></a>
-  <a href="https://github.com/rlaope/oh-my-hermes/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/rlaope/oh-my-hermes?logo=github"></a>
-  <img alt="Status" src="https://img.shields.io/badge/status-1.0.5%20stable-blue">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-blue">
 </p>
 
 <p align="center">
@@ -112,7 +106,7 @@
 >   </tr>
 >   <tr>
 >     <td width="124"><a href="https://github.com/rlaope/oh-my-hermes/graphs/contributors"><img alt="AI agent collaborators" src="https://img.shields.io/badge/With-AI%20agents-6f42c1?style=flat-square&labelColor=black" width="112" /></a></td>
->     <td>Built with AI agents <a href="https://github.com/frirne-ai"><strong>Friren</strong></a> and <a href="https://github.com/sionic-khope"><strong>Killua</strong></a>, collaborators helping ship <code>oh-my-hermes</code>.</td>
+>     <td>Built with AI agents <a href="https://github.com/frirenai"><strong>Friren</strong></a> and <a href="https://github.com/sionic-khope"><strong>Killua</strong></a>, collaborators helping ship <code>oh-my-hermes</code>.</td>
 >   </tr>
 >   <tr>
 >     <td width="124"><a href="https://nousresearch.com/"><img alt="Thanks to Nous Research" src="https://img.shields.io/badge/Thanks-Nous%20Research-4B2E83?style=flat-square&labelColor=black" width="112" /></a></td>
@@ -167,6 +161,33 @@ Maintenance paths such as reconciling a `--full` install back to core live in
 
 <br>
 
+## Ultra-Skills
+
+<p align="center">
+  <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
+</p>
+
+Eleven flagship workflows carry the `ulw-` prefix. They are the
+long-horizon lanes: the ones that plan, parallelize, loop, and verify.
+Say the trigger in normal chat and Hermes routes the rest; the full
+catalog lives in [Workflow Reference](docs/WORKFLOWS.md).
+
+| Skill | Say | What it does |
+| --- | --- | --- |
+| `ulw-work` | `ultrawork` · `parallel work` | Splits an accepted plan into disjoint lanes — owner, acceptance criteria, and verification per lane. Two lanes never edit the same file. |
+| `ulw-plan` | `ralplan` · `consensus plan` | Consensus planning with review gates: facts, options, risks, acceptance criteria, handoff. |
+| `ulw-interview` | `deep-interview` · `clarify` | One question at a time until the brief is clear. Six rounds max, clarity scored each round. |
+| `ulw-goal` | `ultragoal` · `goal ledger` | A checkpointed ledger survives context loss and resumes exactly where it stopped, behind a final completion gate. |
+| `ulw-loop` | `loop` · `long horizon goal` | Interview → plan → research → build → review, cycling until a real gate passes. |
+| `ulw-ralph` | `ralph` · `finish until done` | One owner drives a task to done: implement, verify, review, repeat until the gate passes. |
+| `ulw-team` | `team` · `parallel agents` | N coordinated workers on one shared task list, lanes owned explicitly, verification merged. |
+| `ulw-process` | `ultraprocess` · `end-to-end process` | One clean task-to-PR cycle: research, plan, handoff, review, docs, PR — tracked end to end. |
+| `ulw-qa` | `ultraqa` · `release qa` | Hostile scenarios, end-to-end runs, release QA, and fix loops — explicit and evidence-backed. |
+| `ulw-research` | `web research` · `source-backed research` | Reference implementations at pinned refs, live web evidence with citations, verified claims. |
+| `ulw-perf` | `ultraperf` · `find the bottleneck` | Finds where the system is actually slow, leaking, or expensive — then fixes one measured hot path at a time. |
+
+<br>
+
 ## What OMH Adds
 
 ### Mixture of Models
@@ -186,10 +207,10 @@ The full generated catalog, triggers, harnesses, and evidence rules live in
 
 | Capability | Try it with | What it does |
 | --- | --- | --- |
-| 🧭 **Clarify and plan** | `ulw-interview` · `ulw-plan` · `omh-decide` | Turns an ambiguous request into explicit goals, constraints, tradeoffs, acceptance criteria, and a plan that can be handed off. |
-| ⚡ **Build with leverage** | `ulw-work` · `ulw-goal` · `ulw-team` · `ulw-loop` | Scales from fast parallel work to durable multi-step execution while keeping ownership, checkpoints, and verification visible. |
-| 🔬 **Research and learn** | `ulw-research` · `omh-best-practice-research` · `omh-research-brief` | Finds and synthesizes source-backed evidence with freshness, source-quality, and unresolved-uncertainty boundaries. |
-| 🛠️ **Code and ship safely** | `ulw-process` · `omh-code-review` · `ulw-qa` | Prepares executor-neutral coding work, then makes review, QA, CI, and merge claims depend on observed evidence. |
+| 🧭 **Clarify and plan** | `omh-plan` · `omh-decide` · `omh-meeting-brief` | Turns an ambiguous request into explicit goals, constraints, tradeoffs, acceptance criteria, and a plan that can be handed off. |
+| ⚡ **Build with leverage** | `omh-idea-to-deploy` · `omh-cto-loop` · `omh-running-work-board` | Scales from fast parallel work to durable multi-step execution while keeping ownership, checkpoints, and verification visible. |
+| 🔬 **Research and learn** | `omh-best-practice-research` · `omh-research-brief` · `omh-paper-learning` | Finds and synthesizes source-backed evidence with freshness, source-quality, and unresolved-uncertainty boundaries. |
+| 🛠️ **Code and ship safely** | `omh-code-review` · `omh-build-failure-triage` · `omh-verification-gate` | Prepares executor-neutral coding work, then makes review, QA, CI, and merge claims depend on observed evidence. |
 | 🎨 **Create polished deliverables** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-image-cards` | Shapes websites, visuals, reports, decks, documents, PDFs, posters, and packages around content, taste, accessibility, and render-quality gates. |
 | 🧠 **Remember and operate** | `omh-memory-new` · `omh-memory-sync` · `omh-ops-observability-card` · `omh-doctor` | Keeps project memory review-first, surfaces operational readiness, and gives the next repair action without inventing provider or system state. |
 | 🔌 **Connect without hiding boundaries** | `omh-toolbelt-readiness` · `omh-external-connector-readiness` · `omh-agent-board` | Checks whether a needed tool, connector, or agent surface is really available before work depends on it, and keeps host load, tool use, and external-provider access separately observable. |
