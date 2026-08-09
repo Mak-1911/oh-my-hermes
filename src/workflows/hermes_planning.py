@@ -24,6 +24,11 @@ from ..skills.catalog import (
     harness_quality_contract,
     routable_definitions,
 )
+from .workflow_composition import (
+    CODING_OWNER_CHOICE_PENDING,
+    WORKFLOW_COMPOSITION_CODING_OWNERS,
+    build_workflow_composition,
+)
 
 
 SCHEMA_VERSION = "hermes_plan/v1"
@@ -158,9 +163,32 @@ def _build_hermes_plan_payload_cached(
         ),
         "recommendations": recommendations,
     }
+    composition = _workflow_composition_for(task, executor_target)
+    if composition is not None:
+        payload["workflow_composition"] = composition
     if metadata:
         payload["source_metadata"] = metadata
     return payload
+
+
+def _workflow_composition_for(task: str, executor_target: str) -> dict[str, object] | None:
+    """The ordered workflow a compound request asked for, or nothing (issue #816).
+
+    A plan is built around one recommended skill. When the request asked for
+    several outcomes at once, that single skill answers the loudest fragment and
+    the rest disappear, so the composition is attached alongside it. Only a
+    `composed` result is attached: a single-outcome request already has its
+    answer in `plan`, and attaching a one-step composition to it would dress a
+    single capability up as a workflow.
+
+    An `executor_target` a composition cannot delegate to -- `hermes`, the chat
+    orchestrator -- falls back to an unmade choice rather than being accepted.
+    """
+    coding_owner = (
+        executor_target if executor_target in WORKFLOW_COMPOSITION_CODING_OWNERS else CODING_OWNER_CHOICE_PENDING
+    )
+    composition = build_workflow_composition(task, coding_owner=coding_owner)
+    return composition if composition.get("state") == "composed" else None
 
 
 def _clone_jsonish(value: Any) -> Any:
@@ -480,6 +508,7 @@ def render_plan_markdown(payload: dict[str, object], artifact_name: str = "plan.
             "",
             *_markdown_list(plan.get("verification_plan", [])),
             "",
+            *_composed_workflow_lines(payload.get("workflow_composition")),
             "## Execution Handoff",
             "",
             str(plan.get("execution_handoff", "")).strip(),
@@ -1125,6 +1154,52 @@ def _markdown_list(values: object) -> list[str]:
     if not isinstance(values, list):
         return ["- None recorded."]
     return [f"- {str(value)}" for value in values if str(value)] or ["- None recorded."]
+
+
+def _composed_workflow_lines(composition: object) -> list[str]:
+    """The ordered workflow section, present only when the request composed.
+
+    The recorded artifact is what a coding owner is handed after acceptance, so
+    a composition that lived only in stdout would be lost exactly where it
+    matters. The section is omitted entirely for a single-outcome plan rather
+    than rendered empty, which keeps every existing artifact byte-identical.
+    """
+    if not isinstance(composition, dict) or composition.get("state") != "composed":
+        return []
+    steps = composition.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return []
+    lines = ["## Composed Workflow", ""]
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        status = " (capability not available)" if step.get("capability_status") == "missing" else ""
+        lines.append(
+            f"{step.get('order', '')}. `{step.get('capability', '')}` — owner: "
+            f"{step.get('owner', '')} ({step.get('owner_kind', '')}){status}"
+        )
+        lines.append("")
+        lines.append("Inputs:")
+        lines.extend(_markdown_list(step.get("inputs", [])))
+        lines.append("")
+        lines.append(f"Output: {step.get('output', '')}")
+        lines.append("")
+        lines.append(f"Evidence boundary: {step.get('evidence_boundary', '')}")
+        lines.append("")
+    gaps = composition.get("missing_capabilities")
+    if isinstance(gaps, list) and gaps:
+        lines.append("Missing capabilities (reported, not installed):")
+        lines.extend(
+            f"- {gap.get('capability', '')} ({gap.get('needed_for_step', '')}): {gap.get('reason', '')}"
+            for gap in gaps
+            if isinstance(gap, dict)
+        )
+        lines.append("")
+    lines.append(str(composition.get("ownership_rule", "")))
+    lines.append("")
+    lines.append(str(composition.get("claim_boundary", "")))
+    lines.append("")
+    return lines
 
 
 def _quality_gate_lines(value: object) -> list[str]:
