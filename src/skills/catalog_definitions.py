@@ -3854,16 +3854,27 @@ _DEFINITIONS = [
             "prepare host automation or no-agent follow-up only after an operator/wrapper records observed runtime evidence."
         ),
         required_inputs=("recurring request", "schedule or cadence hint", "delivery target or current-thread default", "silence/no-change preference"),
-        expected_outputs=("hermes_ops_blueprint/v1 projection", "schedule/delivery/silence confirmation needs", "status-card boundary", "not-evidence list"),
-        artifact_expectations=("hermes_ops_blueprint/v1 under .omh/hermes-ops/blueprints when a wrapper or CLI records it",),
+        expected_outputs=(
+            "hermes_ops_blueprint/v1 projection",
+            "hermes_recurring_intent/v1 paused lifecycle record when the user wants the recurring work saved",
+            "schedule/delivery/silence confirmation needs",
+            "status-card boundary",
+            "not-evidence list",
+        ),
+        artifact_expectations=(
+            "hermes_ops_blueprint/v1 under .omh/hermes-ops/blueprints when a wrapper or CLI records it",
+            "hermes_recurring_intent/v1 under .omh/hermes-ops/recurring-intents when the user asks to save the recurring work",
+        ),
         safety_rules=(
             "Do not claim host cron, Hermes automation, gateway delivery, source retrieval, no-agent execution, plugin load, or connector work from a prepared blueprint.",
             "Keep scheduled operations as projection metadata until the host runtime supplies observed evidence.",
+            "A saved recurring intent is paused; never report that an occurrence ran without a runtime run reference recorded against that exact intent revision.",
             "Route later coding, material generation, or report delivery into separate accepted handoffs when needed.",
         ),
         quality_tier="ops-blueprint-gated",
         quality_bar=(
             "Name cadence/timezone uncertainty, delivery target, silence/no-change rule, selected skills, and context chain.",
+            "When the recurring work is saved, say it is paused and name what activation needs: an explicit overlap posture, an approval reference, and an observer from the approved runtime surface.",
             "Expose whether a no-agent watchdog is a candidate without claiming it exists or ran.",
             "List host automation, gateway delivery, source retrieval, and no-agent execution as not evidence until observed.",
         ),

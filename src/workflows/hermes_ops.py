@@ -398,6 +398,16 @@ def hermes_ops_blueprint_exists(paths: OmhPaths, blueprint_id: str) -> bool:
     return _valid_blueprint_id(blueprint_id) and _blueprint_path(paths, blueprint_id).exists()
 
 
+def nested_status_boundary_errors(record: dict[str, Any], *, path: str = "$") -> list[str]:
+    """The prepared-vs-observed status walk, shared with sibling ops records.
+
+    Exposed so the recurring-intent lifecycle record reuses this exact guard
+    instead of copying it. A copy is how two guards drift, and this walk is the
+    reason a prepared ops artifact cannot quietly grow an observed claim.
+    """
+    return _nested_status_boundary_errors(record, path=path)
+
+
 def staged_gap_map() -> list[dict[str, str]]:
     return [
         {

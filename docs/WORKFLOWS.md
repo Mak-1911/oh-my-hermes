@@ -3080,6 +3080,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Why: A blueprint can prepare the scheduled operation, but it cannot prove runtime execution or delivery.
 - Quality bar:
   - Name cadence/timezone uncertainty, delivery target, silence/no-change rule, selected skills, and context chain.
+  - When the recurring work is saved, say it is paused and name what activation needs: an explicit overlap posture, an approval reference, and an observer from the approved runtime surface.
   - Expose whether a no-agent watchdog is a candidate without claiming it exists or ran.
   - List host automation, gateway delivery, source retrieval, and no-agent execution as not evidence until observed.
 - Completion checklist:
@@ -3096,14 +3097,17 @@ These surfaces are generated command references, not installed Hermes workflow s
   - silence/no-change preference
 - Expected outputs:
   - hermes_ops_blueprint/v1 projection
+  - hermes_recurring_intent/v1 paused lifecycle record when the user wants the recurring work saved
   - schedule/delivery/silence confirmation needs
   - status-card boundary
   - not-evidence list
 - Artifact expectations:
   - hermes_ops_blueprint/v1 under .omh/hermes-ops/blueprints when a wrapper or CLI records it
+  - hermes_recurring_intent/v1 under .omh/hermes-ops/recurring-intents when the user asks to save the recurring work
 - Safety rules:
   - Do not claim host cron, Hermes automation, gateway delivery, source retrieval, no-agent execution, plugin load, or connector work from a prepared blueprint.
   - Keep scheduled operations as projection metadata until the host runtime supplies observed evidence.
+  - A saved recurring intent is paused; never report that an occurrence ran without a runtime run reference recorded against that exact intent revision.
   - Route later coding, material generation, or report delivery into separate accepted handoffs when needed.
 
 ### reliability-review
@@ -8471,6 +8475,7 @@ Prepare recurring Hermes operations as schedule/delivery/silence blueprints with
   - silence/no-change policy
 - Outputs:
   - hermes_ops_blueprint/v1
+  - hermes_recurring_intent/v1 when the recurring work is saved
   - schedule/delivery/silence policy
   - skill context chain
   - not-evidence boundary
@@ -8481,6 +8486,7 @@ Prepare recurring Hermes operations as schedule/delivery/silence blueprints with
 - Verification:
   - validate hermes_ops_blueprint/v1
   - check schedule/delivery/silence fields
+  - verify a saved recurring intent is paused and names its overlap posture, approval, and activation observer
   - verify not_evidence_until_observed lists runtime and gateway claims
 - Evidence ladder:
   - `blueprint_scope_recorded`
@@ -8505,6 +8511,7 @@ Prepare recurring Hermes operations as schedule/delivery/silence blueprints with
 - Privacy default: `metadata_only`
 - Overclaim guards:
   - A hermes_ops_blueprint/v1 artifact is not host cron creation, Hermes automation, gateway delivery, source retrieval, no-agent execution, plugin load, or connector evidence.
+  - A hermes_recurring_intent/v1 record stays paused until an approved runtime surface records an activation observer, and an activated intent is still not occurrence-execution evidence.
   - A silence policy is not proof that a run happened or that there were no changes.
   - No-agent suitability is only a design hint until a no-agent runtime record exists.
 - Fallback: If cadence, delivery, or silence policy is missing, prepare the blueprint and ask for the smallest missing confirmation.

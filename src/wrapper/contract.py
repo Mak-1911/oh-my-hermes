@@ -700,8 +700,9 @@ _STATUS_COPY = {
 _HUMAN_ACK_BODY_BY_SKILL = {
     "automation-blueprint": (
         "I will prepare this as a recurring Hermes ops workflow: schedule, source inputs, delivery target, "
-        "silence policy, and the confirmation card. Creating the actual schedule or sending messages still "
-        "needs observed runtime evidence."
+        "silence policy, and the confirmation card. If you want it kept, I can save it as a paused recurring "
+        "intent. Activating it, creating the actual schedule, or sending messages still needs observed runtime "
+        "evidence."
     ),
     "research-department": (
         "I will shape this into a research workflow: what to watch, how raw findings move into analysis, "
@@ -1666,8 +1667,9 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS: dict[str, dict[str, object]] = {
         "headline": "I can turn this into a scheduled ops blueprint.",
         "body": (
             "I will prepare the recurring workflow: schedule, source inputs, delivery target, silence policy, "
-            "confirmation card, and status update rules. Host cron creation, source retrieval, gateway delivery, "
-            "and no-agent execution stay observed-only."
+            "confirmation card, and status update rules. I can save it as a paused recurring intent, which only "
+            "an approved runtime surface can activate later, with an approval reference and a recorded observer. "
+            "Host cron creation, source retrieval, gateway delivery, and no-agent execution stay observed-only."
         ),
         "phase": "automation_blueprint_prepared",
         "next_action": "prepare_scheduled_ops_blueprint",
@@ -1682,6 +1684,7 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS: dict[str, dict[str, object]] = {
             "capture_schedule",
             "define_source_inputs",
             "set_delivery_and_silence_policy",
+            "save_paused_recurring_intent",
             "prepare_confirmation_card",
         ],
         "evidence_not_observed": [
