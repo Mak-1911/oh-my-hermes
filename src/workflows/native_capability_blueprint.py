@@ -90,10 +90,13 @@ What reads these today
 
 Stated because the vocabulary here is wider than the wiring. No production
 surface mints a blueprint yet; this module is the contract and
-`tests/test_native_capability_blueprint.py` is its only caller. Issue #795's
-quality gate is the intended reader, and `blueprint_expected_surfaces` is the
-accessor it joins on: it refuses an invalid blueprint rather than returning a
-partial surface list a gate would silently pass.
+`tests/test_native_capability_blueprint.py` is its only minting caller.
+
+`native_capability_quality_gate` (#795) reads it: the surface vocabulary and the
+anchors are the expected set it gates a capability against, and
+`blueprint_expected_surfaces` is the accessor it joins on, which refuses an
+invalid blueprint rather than returning a partial surface list a gate would
+silently pass.
 """
 
 from __future__ import annotations
@@ -380,6 +383,17 @@ class NativeCapabilityBlueprintError(ValueError):
 # ---------------------------------------------------------------------------
 
 
+def is_canonical_capability_id(value: Any) -> bool:
+    """Whether one value is the canonical skill-name slug a capability is keyed by.
+
+    Exposed because a capability is keyed by the same identifier wherever it is
+    described -- a blueprint here, a quality gate in #795 -- and two modules
+    deciding separately what that identifier looks like is how they end up
+    disagreeing about which capability a payload is about.
+    """
+    return isinstance(value, str) and bool(_CAPABILITY_ID.match(value))
+
+
 def blueprint_surface_anchor(surface: str) -> str:
     """The file and structure one surface name refers to, or an empty string."""
     return NATIVE_CAPABILITY_SURFACE_ANCHORS.get(str(surface), "")
@@ -530,7 +544,7 @@ def validate_native_capability_blueprint(blueprint: Mapping[str, Any]) -> list[s
 def _identity_errors(blueprint: Mapping[str, Any]) -> list[str]:
     errors: list[str] = []
     capability_id = blueprint.get("capability_id")
-    if not isinstance(capability_id, str) or not _CAPABILITY_ID.match(capability_id):
+    if not is_canonical_capability_id(capability_id):
         errors.append(
             f"{_LABEL} capability_id must be the canonical skill name as a lowercase slug: {capability_id!r}"
         )
