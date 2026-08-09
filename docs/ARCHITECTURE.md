@@ -1567,6 +1567,48 @@ normal plan lifecycle commands.
 by default, takes `--json` for the full payload, and writes the record only with
 `--record`.
 
+### Workflow Composition
+
+`workflow_composition/v1` (`workflows/workflow_composition.py`) is the ordered
+workflow a single compound outcome request asked for. A plan is built around one
+recommended skill, so a request naming several outcomes at once gets an answer to
+its loudest fragment and loses the rest. A composition keeps all of them.
+
+Compound intent is recognised in two deterministic stages. `routing/compound_intent.py`
+splits the request into the outcome fragments it stated, using a declared table
+of English clause connectors matched with a boundary-anchored pattern -- so the
+`and` inside `understand` never separates anything. Each fragment then goes
+through the same `recommend_skills` scoring every other OMH surface uses, and
+each winning skill maps to its capability family through the existing family
+projection. A request is compound when at least two fragments resolve to
+different families; anything less is reported as `not_compound` or
+`no_composable_path` with a reason, never as a one-step workflow.
+
+Steps are sorted into `WORKFLOW_COMPOSITION_FAMILY_ORDER` -- gather, decide,
+produce materials, delegate coding, operate, retain -- rather than into the
+order the user happened to speak, so the same request composes the same workflow
+however it was phrased. Every step names its capability, owner, inputs, output,
+and evidence boundary, all derived from that skill's `SkillDefinition` and its
+family card rather than from a per-skill instruction set that could drift.
+
+Ownership follows `docs/DIRECTION.md`: a step in the `delegate_coding_and_ship`
+family is delegated to the selected coding owner, every other step is retained
+by Hermes, and `hermes` is refused as the coding owner by both the builder and
+the validator. That refusal is narrow -- `hermes_coding_team_path/v1` still
+exists for Hermes-runtime coding. What a composition may not do is leave
+implementation with the same Hermes turn that is narrating the workflow.
+
+A capability a step needs but that is not available stays in the ordered
+workflow marked `missing` and is reported under `missing_capabilities` with a
+reason. Nothing here installs it; the module imports no installer.
+
+The record is a pure function of the outcome text, the constraints, the selected
+coding owner, the available capability set, and `catalog_revision()`. No clock,
+no randomness, no model call. `omh hermes compose "<outcome>"` prints the
+ordered workflow as plain text and takes `--json` for the full payload;
+`omh hermes plan` attaches the same record as `workflow_composition` when, and
+only when, the request composed.
+
 ## Workflow State
 
 Workflow lifecycle state is stored separately from runtime run evidence under
