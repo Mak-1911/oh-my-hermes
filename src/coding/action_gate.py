@@ -556,6 +556,18 @@ HANDOFF_CONTRACT_CLAIM_BOUNDARY = (
     "evidence, and an enforced boundary means a refusing check exists — not that any action ran."
 )
 
+# Not an issue number, for the reason `RISK_CONSENT_BLOCKER` is not one: what
+# blocks the `recovery` row is a property of the shipped lane, not a ticket
+# waiting to be worked. #821 shipped `recovery_anchor/v1`, so the contract now
+# exists and refuses to call anything recoverable without an observed baseline
+# for the workspace being asked about. What it cannot do is observe that
+# baseline: this lane runs no Git command and reads no working tree, so a
+# baseline revision has to arrive from a surface that already observed one, and
+# `build_coding_delegation_payload` builds a handoff before any run, worktree,
+# or observation exists to supply it. Until a caller that holds an observed
+# baseline attaches an anchor, the row stays declared.
+RECOVERY_ANCHOR_BLOCKER = "no_delegation_surface_holds_an_observed_baseline_to_attach_an_anchor_from"
+
 # (boundary, statement, enforcement, enforced_by, blocked_by).
 #
 # The `enforced_by` refs are dotted import paths that must resolve; the test
@@ -702,11 +714,16 @@ _STATIC_SAFETY_BOUNDARIES: tuple[tuple[str, str, str, tuple[str, ...], str], ...
     ),
     (
         "recovery",
-        "No recovery anchor is attached to risky work, so nothing records how to undo a prepared handoff "
-        "once it has been dispatched.",
+        "The recovery_anchor/v1 contract exists and refuses to read as recoverable without an observed "
+        "baseline for the workspace being asked about: an absent, prepared-only, or mismatched anchor "
+        "returns a refusal and no recipe. What still does not happen is attachment. No delegation "
+        "surface requests an anchor, because this lane observes no baseline to build one from — it runs "
+        "no Git command and reads no working tree, and a handoff is prepared before any run, worktree, "
+        "or observation exists. So risky work still carries no anchor, and a dispatched handoff still "
+        "records no baseline to undo against.",
         "declared_not_enforced",
         (),
-        "#821",
+        RECOVERY_ANCHOR_BLOCKER,
     ),
     (
         "review_receipt",
