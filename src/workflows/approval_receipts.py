@@ -51,11 +51,12 @@ reasons. A stored `expires_at` is a second independently writable field: a
 hand-edited store widens the window by editing one number, while a window that
 lives in `APPROVAL_TTL_SECONDS` here cannot be widened by anything on disk. And
 the honest reason -- the `storage_retention` boundary of
-`handoff_safety_contract/v1` is `declared_not_enforced` (blocked by #835)
-because no retention or cleanup exists for run artifacts. Nothing deletes an
-approval receipt. Claiming an approval "expires" on disk would be a lie about a
-file that outlives every window it names, so expiry is a property every reader
-recomputes and never a property the artifact has.
+`handoff_safety_contract/v1` is still `declared_not_enforced`. #835 made
+artifact lifecycle readable, but its cleanup preview is a dry run and this store
+is not even one of the families it projects, so nothing deletes an approval
+receipt. Claiming an approval "expires" on disk would be a lie about a file that
+outlives every window it names, so expiry is a property every reader recomputes
+and never a property the artifact has.
 
 A decision stamped in the future is not fresh either. It cannot be shown to be
 older than zero seconds, so it is refused rather than clamped, which is the

@@ -1149,9 +1149,10 @@ uses for limit signals, rather than stored as an `expires_at` the reader must
 trust. A stored deadline is a second independently writable field: a hand-edited
 store widens the window by editing one number, while a window that lives in code
 cannot be widened by anything on disk. The honest reason matters more — the
-`storage_retention` boundary of `handoff_safety_contract/v1` is
-`declared_not_enforced` (blocked by #835) because no retention or cleanup exists
-for run artifacts. Nothing deletes an approval receipt, so claiming one
+`storage_retention` boundary of `handoff_safety_contract/v1` is still
+`declared_not_enforced`: #835 made artifact lifecycle readable, but its cleanup
+preview is a dry run and the receipt store is not one of the families it
+projects. Nothing deletes an approval receipt, so claiming one
 "expires" on disk would be a lie about a file that outlives every window it
 names. Expiry is a property every reader recomputes and never a property the
 artifact has. A decision stamped in the future returns `age_seconds = -1` and
@@ -1378,6 +1379,74 @@ contracts, executor-session state, runtime evidence, review/CI/merge status,
 pending evidence gaps, and `user_facing_lines[]`. It remains metadata-only: raw
 prompts and full interview transcripts are not reconstructed, and merge-ready is
 kept distinct from observed merge evidence.
+
+### Generated Artifact Lifecycle
+
+`generated_artifact/v1` (`runtime/generated_artifacts.py`) answers which locally
+generated artifact is current, what replaced it, why it is retained, and which
+ones could be removed. It is a read-side projection: nothing is stamped onto an
+artifact at write time, and no producing workflow was changed to support it. An
+artifact written before the projection existed reads exactly like one written
+after.
+
+Four kinds are covered, each with a *revision line* — the field the producer
+already writes that says two artifacts are two revisions of one thing — and an
+ordering key that says which came second:
+
+| Kind | Store | Revision line | Ordering key |
+| --- | --- | --- | --- |
+| `hermes_plan` | `plans/` | `task_statement_sha256` | the stamp `write_hermes_plan` puts in the filename |
+| `operation_artifact` | `operations/<surface>/` | surface, kind, title | `created_at` |
+| `plan_variant` | `plan-variants/` | parent digest and variant name | `created_at` |
+| `skill_draft` | `learning/skill-drafts/` | `proposed_skill_name` | `created_at` |
+
+Role context packs and plan handoff context packs are read as reference
+*sources* but are not projected as kinds, and the preview says so in
+`unsupported_kinds` rather than omitting them silently: a content-addressed pack
+carries no timestamp and no successor link, and a plan context pack is rewritten
+in place, so neither can be told apart by revision.
+
+The newest member of a line is `current` and every earlier member is
+`superseded`, naming its replacement in both directions. Ordering fails closed
+twice: a plan the producer already marked `superseded` is superseded whatever
+its position says, and a line whose members carry no distinct creation times
+keeps every member `current`, because guessing which of two files replaced the
+other is exactly how a live artifact reaches a cleanup list.
+
+`generated_artifact_cleanup_preview/v1` is a **dry run**. It lists what could be
+removed and why, and removes nothing — there is no delete path in the module,
+and `tests/test_generated_artifact_cleanup.py` walks its AST to keep it that
+way. An artifact is eligible only when it is superseded, no local artifact
+references it, and its retention window (built through the same
+`build_retention` the memory lane uses) has closed against the caller-supplied
+`now`. Every listed artifact, eligible or not, carries a sentence naming the
+condition that decided it; a record without one fails `validate_generated_artifact`.
+
+"Referenced" is a real reverse scan over coding delegation records, plan handoff
+context packs, plan variants, role context packs, and operation reports: every
+string in every source file is collected and matched against each artifact's
+resolved path, id, and content digest, so a pin recorded under a key this module
+has never heard of still counts. Two matches are deliberately not counted. An
+artifact never references itself. And a content digest that more than one stored
+artifact answers to identifies none of them, so it is dropped as a reference key
+for all of them: the plan renderer is a pure function of the task statement, so
+re-planning one task writes byte-identical files, and crediting one pack's
+digest to every revision would keep each duplicate forever while printing a
+reason that points at a sibling's pin. Dropping it is safe because every
+artifact pin in this tree that records a digest records the path beside it, so
+the file the pin actually meant is still held by its path match.
+
+The observation journal is also excluded — it is append-only history, so
+every artifact ever written appears in it, and treating history as a live pin
+would make the eligible set empty by construction.
+
+`omh runtime artifacts` renders the preview as plain text, takes `--json` for
+the payload, and `--retention-days` to move the window. It has no `--delete`,
+`--prune`, or `--confirm` flag, and the absence of all of them is pinned by a
+test. Removing a file stays the operator's own act. The `storage_retention`
+boundary of `handoff_safety_contract/v1` therefore stays
+`declared_not_enforced`, blocked on
+`the_preview_lists_what_could_be_removed_and_no_surface_removes_anything`.
 
 ## Hermes Planning Artifacts
 
@@ -2276,9 +2345,13 @@ a running process needs an OS-level backend the host owns);
 **confirmation answered** — the gate classifies every
 risky class and names the approval each granted carrier action would need, but
 nothing on the shipped lane can record an answer, so nothing is withheld
-(`no_confirmation_answer_intake_mints_a_run_bound_approval`); **storage retention** — run artifacts are metadata-only,
-but no retention window, expiry, or cleanup exists, so they persist until the
-operator deletes them (#835); **recovery** — no recovery anchor is attached to
+(`no_confirmation_answer_intake_mints_a_run_bound_approval`); **storage
+retention** — `generated_artifact/v1` and its dry-run cleanup preview now say
+which generated artifact is current, what replaced it, and which ones could go,
+but nothing removes one and no window expires a run artifact, so artifacts
+persist until the operator deletes them
+(`the_preview_lists_what_could_be_removed_and_no_surface_removes_anything`);
+**recovery** — no recovery anchor is attached to
 risky work (#821); **start evidence** — `runtime_start` is recordable but is
 neither a claim rung nor a journal prerequisite, so a run can claim dispatch and
 execution with no observed start (#826); **review receipt** — a review claim

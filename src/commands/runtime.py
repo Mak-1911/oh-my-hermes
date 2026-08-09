@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, timezone
 
 from ..codex_progress import summarize_codex_jsonl_file
 from ..executor_progress import (
@@ -66,6 +67,12 @@ from ..runtime.artifacts import (
     write_review_record,
     write_runtime_observation,
     write_wrapper_contract,
+)
+from ..runtime.generated_artifacts import (
+    DEFAULT_ARTIFACT_SCAN_LIMIT,
+    DEFAULT_RETENTION_DAYS,
+    build_generated_artifact_cleanup_preview,
+    render_generated_artifact_cleanup_preview_text,
 )
 from ..runtime.context_budget import (
     PROGRESS_STATUS_LEDGER_KEY,
@@ -1156,6 +1163,36 @@ def _render_approvals_text(payload: dict) -> str:
     return "\n".join(line for line in lines if line)
 
 
+def cmd_runtime_artifacts(args: argparse.Namespace) -> int:
+    """Show which locally generated artifacts are current, and preview cleanup.
+
+    Read-only by construction, and deliberately so: there is no `--delete` and
+    no confirm flag that would grow into one. The projection reports what could
+    be removed and why; removing it is the operator's own act, outside OMH.
+
+    `now` is read here, at the process edge, and passed into the projection.
+    Every retention verdict downstream is a pure function of that one value, so
+    two calls against the same store and the same stamp answer identically.
+    """
+    limit = None if getattr(args, "all", False) else int(getattr(args, "limit", DEFAULT_ARTIFACT_SCAN_LIMIT))
+    if limit is not None and limit < 1:
+        raise OmhError("--limit must be at least 1 unless --all is set")
+    retention_days = int(getattr(args, "retention_days", DEFAULT_RETENTION_DAYS))
+    if retention_days < 1:
+        raise OmhError("--retention-days must be at least 1")
+    payload = build_generated_artifact_cleanup_preview(
+        _paths(args),
+        now=datetime.now(timezone.utc),
+        retention_days=retention_days,
+        limit=limit,
+    )
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        print(render_generated_artifact_cleanup_preview_text(payload))
+    return 0
+
+
 def cmd_runtime_validate(args: argparse.Namespace) -> int:
     result = validate_runtime(_paths(args), args.run_id)
     _print_json(result)
@@ -1419,6 +1456,30 @@ def _add_runtime_commands(sub) -> None:
     runtime_approvals.add_argument("--all", action="store_true", help="Return all approvals.")
     runtime_approvals.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
     runtime_approvals.set_defaults(func=cmd_runtime_approvals)
+
+    runtime_artifacts = runtime_sub.add_parser(
+        "artifacts",
+        help=(
+            "Show which locally generated artifacts are current or superseded, what replaced them, why each "
+            "is retained, and which could be removed. Dry run: this never deletes anything."
+        ),
+    )
+    runtime_artifacts.add_argument(
+        "--retention-days",
+        dest="retention_days",
+        type=int,
+        default=DEFAULT_RETENTION_DAYS,
+        help=f"Days a superseded artifact is kept before it reads as removable (default: {DEFAULT_RETENTION_DAYS}).",
+    )
+    runtime_artifacts.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_ARTIFACT_SCAN_LIMIT,
+        help=f"Maximum recent artifacts to project per kind (default: {DEFAULT_ARTIFACT_SCAN_LIMIT}).",
+    )
+    runtime_artifacts.add_argument("--all", action="store_true", help="Project every stored artifact.")
+    runtime_artifacts.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
+    runtime_artifacts.set_defaults(func=cmd_runtime_artifacts)
 
     runtime_validate = runtime_sub.add_parser("validate")
     runtime_validate.add_argument("--run", dest="run_id", default=None)

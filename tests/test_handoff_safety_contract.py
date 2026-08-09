@@ -126,7 +126,12 @@ _DECLARED_NOT_ENFORCED = {
     # observed start, which orders a chain; nothing makes a chain required of a
     # run, so the claim ladder is unchanged and the row stays declared.
     "start_evidence": "lineage_orders_the_start_but_no_claim_rung_requires_a_lineage_chain",
-    "storage_retention": "#835",
+    # #835 shipped `generated_artifact/v1` and its dry-run cleanup preview, so
+    # this blocker stopped being that issue too. Lifecycle is readable now;
+    # removal is not implemented and is not queued behind a ticket, because that
+    # issue puts cleanup-without-explicit-confirmation out of scope and no
+    # surface here can take a confirmation.
+    "storage_retention": "the_preview_lists_what_could_be_removed_and_no_surface_removes_anything",
     "workspace": "no_omh_side_constraint_can_bind_a_running_executor_process",
 }
 # The three data-boundary rows whose blocker is a *host* fact rather than a
@@ -398,7 +403,15 @@ class AntiDecorationTests(unittest.TestCase):
         # unenforced verdict as "nothing about workspaces is guarded".
         self.assertIn("workspace_binding_guard/v1", workspace)
         self.assertIn("not a state OMH can observe", _boundary(contract, "account_authorization")["statement"])
-        self.assertIn("persist until the operator deletes them", _boundary(contract, "storage_retention")["statement"])
+        # Same shape as the workspace and start_evidence rows: #835 closed the
+        # readable half, so the sentence has to name what now exists *and* keep
+        # stating the gap. Without the second clause a reader takes a preview
+        # that lists removable artifacts for something that removes them.
+        storage_retention = _boundary(contract, "storage_retention")["statement"]
+        self.assertIn("generated_artifact_cleanup_preview/v1", storage_retention)
+        self.assertIn("still does not happen is deletion", storage_retention)
+        self.assertIn("dry run with no removal path", storage_retention)
+        self.assertIn("persist until the operator deletes them", storage_retention)
         # Same shape as the workspace row after #820: #826 closed a half, so the
         # sentence has to name what now exists *and* keep stating the gap, or a
         # reader takes the ordered chain for a required one.
