@@ -19,7 +19,7 @@ from omh.commands.main import build_parser
 from omh.commands.language import LANGUAGE_CODES, MESSAGES
 from omh.capabilities.families import CONCEPTUAL_WORKFLOW_SURFACES, capability_family_projection
 from omh.config_adapter import ensure_external_dir, external_dirs
-from omh.maintenance.doctor import _skill_shadowing_check
+from omh.maintenance.doctor import _identity_conflicts_check
 from omh.paths import resolve_paths
 from omh.plugin_bundle.omh.memory_governance import canonical_payload_digest
 from omh.record_revision import MAX_MUTATION_ID_CHARS
@@ -1758,8 +1758,9 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             clean_payload = json.loads(stdout)
             clean_checks = {check["name"]: check for check in clean_payload["checks"]}
             self.assertTrue(clean_payload["ok"])
-            self.assertEqual(clean_checks["skill_shadowing"]["severity"], "ok")
-            self.assertTrue(clean_checks["skill_shadowing"]["observed"])
+            self.assertEqual(clean_checks["identity_conflicts"]["severity"], "ok")
+            self.assertTrue(clean_checks["identity_conflicts"]["observed"])
+            self.assertIn("precedence=uncontested", clean_checks["identity_conflicts"]["message"])
 
             collision_name = installable_skill_names()[0]
             (foreign_skills / collision_name).mkdir(parents=True)
@@ -1774,7 +1775,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 status, stdout, stderr = run_cli(base + ["doctor"], output_json=False)
 
             self.assertEqual(status, 0, stderr)
-            self.assertIn("skill_shadowing:", stdout)
+            self.assertIn("identity_conflicts:", stdout)
             self.assertIn(collision_name, stdout)
             self.assertIn("Hermes runtime precedence is not observed", stdout)
 
@@ -1784,12 +1785,16 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(status, 0, stderr)
             payload = json.loads(stdout)
             checks = {check["name"]: check for check in payload["checks"]}
-            collision = checks["skill_shadowing"]
+            collision = checks["identity_conflicts"]
             self.assertTrue(payload["ok"])
             self.assertEqual(collision["severity"], "warning")
             self.assertTrue(collision["ok"])
             self.assertTrue(collision["observed"])
-            self.assertEqual(collision["message"].count(collision_name), 1)
+            # One contest, not five: the plain file, the differently-cased
+            # sibling, the nested copy, the symlink alias, and the second
+            # spelling of the same configured directory must not each mint one.
+            self.assertIn("conflicts=1", collision["message"])
+            self.assertIn(f"skill name {collision_name} (warning) claimed by", collision["message"])
             self.assertIn("Hermes runtime precedence is not observed", collision["message"])
             groups = {group["name"]: group for group in payload["summary"]["groups"]}
             self.assertEqual(groups["hermes_registration"]["status"], "warning")
@@ -1801,14 +1806,15 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             foreign_skills = root / "foreign-skills"
             foreign_skills.mkdir()
 
-            with patch("omh.maintenance.doctor.Path.iterdir", side_effect=OSError("permission denied")):
-                check = _skill_shadowing_check(paths, [str(foreign_skills)])
+            with patch("omh.install.identity_conflicts.Path.iterdir", side_effect=OSError("permission denied")):
+                check = _identity_conflicts_check(paths, [str(foreign_skills)], None)
 
         self.assertTrue(check.ok)
         self.assertEqual(check.severity, "warning")
         self.assertTrue(check.observed)
         self.assertIn("scan incomplete", check.message)
-        self.assertIn("unreadable external directory", check.message)
+        self.assertIn("permission denied", check.message)
+        self.assertIn("precedence=unknown", check.message)
         self.assertIn("Hermes runtime precedence is not observed", check.message)
 
     def test_doctor_reports_external_skill_path_resolution_failure_as_an_advisory_warning(self) -> None:
@@ -1816,8 +1822,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             root = Path(tmp)
             paths = resolve_paths(root / ".omh", root / ".hermes")
 
-            with patch("omh.maintenance.doctor.Path.resolve", side_effect=RuntimeError("symlink loop")):
-                check = _skill_shadowing_check(paths, [str(root / "foreign-skills")])
+            with patch("omh.install.identity_conflicts.Path.resolve", side_effect=RuntimeError("symlink loop")):
+                check = _identity_conflicts_check(paths, [str(root / "foreign-skills")], None)
 
         self.assertTrue(check.ok)
         self.assertEqual(check.severity, "warning")

@@ -17,6 +17,7 @@ from ..config_adapter import (
 from ..hashutil import sha256_file, sha256_text
 from ..local_store import can_write_dir
 from ..install.guidance_projection import build_guidance_projection_status
+from ..install.identity_conflicts import build_identity_conflict_report
 from ..manifest import local_modifications, read_manifest
 from ..paths import OmhPaths
 from ..plugin_bundle.omh.memory_dreaming import read_dreaming_state, read_latest_consolidation
@@ -130,11 +131,15 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
         checks.append(Check(f"skill:{skill}", path.exists(), str(path)))
     config_text = read_config(paths.hermes_config_path)
     dirs = external_dirs(config_text)
-    checks.append(Check("hermes_config", paths.hermes_config_path.exists(), f"{paths.hermes_config_path}"))
+    hermes_config_present = paths.hermes_config_path.exists()
+    checks.append(Check("hermes_config", hermes_config_present, f"{paths.hermes_config_path}"))
     # config.yaml stores external_dirs in POSIX form (config_adapter._normalize).
     external_registered = paths.skills_dir.as_posix() in dirs
     checks.append(Check("external_dir", external_registered, f"{paths.skills_dir} in skills.external_dirs"))
-    checks.append(_skill_shadowing_check(paths, dirs))
+    # `None`, not `dirs`, when the config is absent: `read_config` returns "" for
+    # a missing file, so an empty list there would read as "Hermes registers no
+    # foreign directory" when the truth is that Hermes was never asked.
+    checks.append(_identity_conflicts_check(paths, dirs if hermes_config_present else None, manifest))
     checks.append(_memory_provider_check(config_text))
     checks.append(_memory_consolidation_check(paths))
     checks.append(
@@ -361,65 +366,60 @@ def _memory_provider_check(config_text: str) -> Check:
     )
 
 
-def _skill_shadowing_check(paths: OmhPaths, configured_dirs: list[str]) -> Check:
-    """Report immediate foreign skill-directory name collisions without loading them."""
-    foreign_dirs: list[Path] = []
-    seen_dirs: set[Path] = set()
-    unreadable: list[str] = []
-    try:
-        managed_dir = paths.skills_dir.expanduser().resolve(strict=False)
-    except (OSError, RuntimeError) as error:
-        managed_dir = None
-        unreadable.append(f"managed skill directory {paths.skills_dir}: {error}")
-    for raw_dir in configured_dirs:
-        try:
-            candidate = Path(raw_dir).expanduser().resolve(strict=False)
-        except (OSError, RuntimeError) as error:
-            unreadable.append(f"{raw_dir}: {error}")
-            continue
-        if candidate == managed_dir or candidate in seen_dirs:
-            continue
-        seen_dirs.add(candidate)
-        foreign_dirs.append(candidate)
+def _identity_conflicts_check(
+    paths: OmhPaths,
+    configured_dirs: list[str] | None,
+    manifest: dict | None,
+) -> Check:
+    """Name every local source that also claims an OMH-facing skill, command, or hook.
 
-    collisions: list[str] = []
-    core_skill_names = frozenset(CORE_SKILLS)
-    for foreign_dir in foreign_dirs:
-        try:
-            children = list(foreign_dir.iterdir())
-        except OSError as error:
-            unreadable.append(f"{foreign_dir}: {error}")
-            continue
-        names = sorted(
-            child.name
-            for child in children
-            if not child.is_symlink() and child.is_dir() and child.name in core_skill_names
-        )
-        if names:
-            collisions.append(f"{foreign_dir}: {', '.join(names)}")
+    The question this answers is the one an operator actually asks: a familiar
+    request triggered the wrong workflow, or a bridge tool that is installed did
+    not answer -- what else on this machine holds that name? So the message
+    names both sides of every contest and says which side OMH installed, rather
+    than reporting that a foreign directory exists and leaving the operator to
+    work out whose it is.
 
-    boundary = "This is a local configured-directory scan only; Hermes runtime precedence is not observed."
-    if unreadable or collisions:
-        details = [
-            *collisions,
-            *[f"scan incomplete: unreadable external directory {item}" for item in unreadable],
-        ]
-        return Check(
-            "skill_shadowing",
-            True,
-            f"potential OMH core skill-name collision or unreadable external directory: {'; '.join(details)}. {boundary}",
-            severity="warning",
-            remediation="Review configured external skill directories and rename, remove, or repair the reported entries before relying on their skill names.",
-            next_action="Resolve the reported external skill directory entries, then rerun `omh doctor`; Hermes runtime precedence still requires separate observation.",
-        )
-    return Check(
-        "skill_shadowing",
-        True,
-        (
-            f"no potential OMH core skill-name collisions across {len(foreign_dirs)} foreign configured skill "
-            f"{'directory' if len(foreign_dirs) == 1 else 'directories'}. {boundary}"
-        ),
+    It never resolves the contest. `build_identity_conflict_report` reads local
+    declarations and OMH's install manifests; Hermes' load order is not among
+    them, so precedence stays `unknown` and this check never rewrites, renames,
+    or removes anything it found.
+    """
+    report = build_identity_conflict_report(
+        skills_dir=paths.skills_dir,
+        manifest=manifest,
+        plugins_dir=paths.hermes_plugins_dir,
+        configured_skill_dirs=configured_dirs,
     )
+    severity = str(report["severity"])
+    summary = _identity_conflict_summary(report)
+    if severity == "ok":
+        return Check("identity_conflicts", True, summary)
+    return Check(
+        "identity_conflicts",
+        severity != "blocking",
+        summary,
+        severity=severity,
+        remediation=str(report["next_action"]),
+        next_action=str(report["next_action"]),
+    )
+
+
+def _identity_conflict_summary(report: dict) -> str:
+    scanned = report["scanned"]
+    header = (
+        f"precedence={report['precedence']} conflicts={len(report['conflicts'])} "
+        f"scanned skill_dirs={scanned['skill_dirs']} plugin_dirs={scanned['plugin_dirs']}"
+    )
+    details = [
+        f"{conflict['kind']} name {conflict['name']} ({conflict['severity']}) claimed by "
+        + ", ".join(f"{source['ownership']} at {source['location']}" for source in conflict["sources"])
+        for conflict in report["conflicts"]
+    ]
+    details.extend(f"scan incomplete: {item}" for item in report["unreadable"])
+    if details:
+        return f"{header}: {'; '.join(details)}. {report['claim_boundary']}"
+    return f"{header}. {report['claim_boundary']}"
 
 
 def run_doctor_advisories(paths: OmhPaths) -> AdvisoryReport:
