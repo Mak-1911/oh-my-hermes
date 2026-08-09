@@ -1239,6 +1239,40 @@ delegation and use `wrapper_contract.message_field` only as the JSON pointer to
 the message text inside the payload; they should not scrape the Markdown plan
 body to recover commands or state.
 
+### Plan Variants
+
+`plan_variant/v1` (`workflows/plan_variants.py`) is the what-if child of an
+accepted plan. It answers "what if we had assumed something else" without
+overwriting the artifact a prepared handoff already points at by digest.
+
+```text
+.omh/
+  plan-variants/
+    plan-variant-<digest12>.json
+```
+
+A variant records the parent plan path, the parent's immutable `sha256`, one
+explicit delta per changed input (assumption, scope, coding owner, policy,
+acceptance criteria, or verification), the readable `changed_inputs` projection
+of those deltas, the reviewed references it inherits unchanged, the references
+that must be re-evaluated against the new assumption, and an undecided
+`next_handoff` block naming both candidates. `variant_id` and `variant_digest`
+derive from the parent digest, the variant name, and the deltas, so siblings of
+different parents are never interchangeable and the same fork is reproducible.
+The caller supplies `created_at`; wall-clock time stays out of both digests.
+
+A variant is deliberately not a plan. Its key set is closed and carries no
+`status`, so nothing can read `accepted` off it, and `omh hermes plan-variant`
+refuses any parent that is not an accepted `hermes_plan/v1` artifact. Creating
+one is a pure local metadata operation: no replay, tool call, network call, or
+dispatch. Choosing a variant as the next handoff is a separate act through the
+normal plan lifecycle commands.
+
+`omh hermes plan-variant <accepted-plan.md> --name <name> --delta
+<dimension:label:parent_value:variant_value>` prints a differences-only summary
+by default, takes `--json` for the full payload, and writes the record only with
+`--record`.
+
 ## Workflow State
 
 Workflow lifecycle state is stored separately from runtime run evidence under
