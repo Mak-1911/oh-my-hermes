@@ -17,7 +17,12 @@ from ..goal_ledger import (
     record_goal_checkpoint,
 )
 from ..installer import OmhError
-from .common import _paths, _print_json, add_revision_guard_arguments
+from ..workflows.coordination_board import (
+    DEFAULT_LIMIT as COORDINATION_BOARD_DEFAULT_LIMIT,
+    build_coordination_board,
+    render_coordination_board_text,
+)
+from .common import _paths, _print_json, _wants_json, add_revision_guard_arguments
 
 
 def cmd_goal_create(args: argparse.Namespace) -> int:
@@ -181,6 +186,36 @@ def cmd_goal_continue(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_goal_board(args: argparse.Namespace) -> int:
+    """Show every recorded coordination item as one board.
+
+    Plain text is the default because this command answers a human question
+    ("what is moving, blocked, or ready next?"); `--json` is the opt-in for an
+    agent or a script. The sibling `goal status` keeps JSON as its default
+    because wrappers already parse it; this command is new, so it starts on the
+    repo's normal side of that line.
+    """
+    payload = build_coordination_board(_paths(args), limit=_coordination_board_limit(args))
+    if _wants_json(args):
+        _print_json(payload)
+    else:
+        print(render_coordination_board_text(payload))
+    return 0
+
+
+def _coordination_board_limit(args: argparse.Namespace) -> int:
+    """Row cap, refused rather than coerced when it is not positive.
+
+    A non-positive limit returns an empty `items` list beside a non-zero
+    `item_count`, which reads as "nothing is coordinated" — the opposite of
+    what the board projected.
+    """
+    limit = int(getattr(args, "limit", COORDINATION_BOARD_DEFAULT_LIMIT))
+    if limit < 1:
+        raise OmhError("--limit must be at least 1")
+    return limit
+
+
 def _add_goal_commands(sub) -> None:
     goal = sub.add_parser("goal", help="Manage durable local goal ledgers and completion gates.")
     goal_sub = goal.add_subparsers(dest="goal_command", required=True)
@@ -242,3 +277,16 @@ def _add_goal_commands(sub) -> None:
     goal_continue = goal_sub.add_parser("continue")
     goal_continue.add_argument("--goal", dest="goal_id", required=True)
     goal_continue.set_defaults(func=cmd_goal_continue)
+
+    goal_board = goal_sub.add_parser(
+        "board",
+        help="Show active, blocked, dependency-gated, and next-ready work as one board (read-only).",
+    )
+    goal_board.add_argument(
+        "--limit",
+        type=int,
+        default=COORDINATION_BOARD_DEFAULT_LIMIT,
+        help=f"Maximum items to display (default: {COORDINATION_BOARD_DEFAULT_LIMIT}).",
+    )
+    goal_board.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
+    goal_board.set_defaults(func=cmd_goal_board)

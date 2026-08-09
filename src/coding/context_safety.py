@@ -328,12 +328,15 @@ def coding_progress_policy_enforcement() -> dict[str, object]:
         # `omh coding status-board` belongs here for the same reason the other
         # three do: it is a surface an agent will poll while waiting on work, so
         # it caps its own rows (`--limit`, default 20) instead of growing with
-        # the number of observed units.
+        # the number of observed units. `omh goal board` is the same shape one
+        # level up: polled while waiting on a multi-part goal, and capped the
+        # same way.
         "bounded_surfaces": [
             "omh runtime show",
             "omh coding fanout show",
             "omh coding fanout brief",
             "omh coding status-board",
+            "omh goal board",
         ],
         "default_history_limit": MAX_RUN_HISTORY_EVENTS,
         "run_context_budget_bytes": RUN_CONTEXT_BUDGET_BYTES,
