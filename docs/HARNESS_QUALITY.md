@@ -142,6 +142,44 @@ contract shaped like this:
   review, CI, merge, or proof that future routing improved. Export bundles are
   derived artifacts and are not part of the canonical learning index repair loop.
 
+## Teaching A Proven Workflow (agent-facing)
+
+A user who has just watched a workflow work can ask Hermes to keep it. The
+`omh learning skill-draft` group is the deterministic backend for that request;
+users express the intent in natural language and Hermes fills the flags.
+
+- `omh learning skill-draft new "<explicit request>" --name <slug> --source-run
+  <run-id> --instruction ... --input name=description --precondition ...
+  --stop-condition ... --verification ...` returns `skill_draft/v1`. It records
+  a draft only when the message carries an explicit learning signal such as
+  "turn this into a skill"; passive activity exits non-zero with
+  `no_explicit_learning_signal` and writes nothing. The draft keeps the fixed
+  instructions separate from the declared inputs, preconditions, stop
+  conditions, and verification steps, and its provenance names the
+  user-selected source runs, the transient identifiers redacted out of the
+  request, and the pending review decision.
+- A draft is inactive by construction. It is stored under
+  `.omh/learning/skill-drafts/`, is never written under `skills/`, never becomes
+  catalog data, and carries its proposed name under `proposed_skill_name` rather
+  than `name`. A name that collides with an installed skill fails validation,
+  and an inactive draft carries no copy-ready proposal at all.
+- `omh learning skill-draft show <draft-id>` returns the draft plus a live
+  `skill_draft_generated_output_check/v1`: the draft validates, the catalog
+  contract is clean, the draft projects to a `SkillDefinition` the catalog's own
+  per-definition validator accepts, and that definition renders a single-line
+  frontmatter description and a catalog-index line inside its byte ceiling.
+  `activation_blockers` is what a reviewer has to clear.
+- `omh learning skill-draft review <draft-id> --decision approve|revise|reject`
+  is the only activation path. Approval recomputes the generated-output checks
+  and refuses to activate when any fail, so an approval on its own can never
+  activate a draft that would not render a valid skill. Only a passing check set
+  plus an explicit approval flips the draft to `active_proposal` and mints the
+  copy-ready `skill_draft_proposal/v1`. Review notes are stored as hash and
+  length, never raw text.
+- Even an activated draft is a proposal. It is not an installed skill, not
+  catalog data, and not proof that Hermes Agent `/learn`, a maintainer, or any
+  runtime acted on it.
+
 ## Wrapper Rules
 
 - Use `wrapper_actions` as platform-neutral action ids; map them to buttons,
