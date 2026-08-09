@@ -51,6 +51,17 @@ def validate_catalog_contract() -> dict[str, object]:
     }
 
 
+def validate_skill_definition_contract(definition: SkillDefinition) -> list[str]:
+    """Validate one definition against the same field contract the catalog gate uses.
+
+    `validate_catalog_contract()` answers "is the shipped catalog renderable".
+    A caller holding a definition that is deliberately NOT in the catalog - a
+    reviewable skill draft, for instance - needs the same per-definition answer
+    without registering anything, so the loop body is exposed rather than copied.
+    """
+    return _validate_skill_definition(definition, {harness.name for harness in builtin_harnesses()})
+
+
 def harness_summary_payload() -> dict[str, object]:
     definitions = builtin_definitions()
     skills_by_harness = _skills_by_harness(definitions)

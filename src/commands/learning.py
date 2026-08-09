@@ -43,6 +43,17 @@ from ..workflow_learning import (
     write_self_improvement_store_route,
     write_workflow_eval,
 )
+from ..workflows.skill_draft import (
+    build_skill_draft,
+    check_skill_draft_generated_output,
+    list_skill_drafts,
+    review_skill_draft,
+    show_skill_draft,
+    skill_draft_is_active,
+    skill_draft_ref,
+    write_skill_draft,
+)
+from ..local_store import utc_now
 from ..wrapper.contract import INTERACTION_MODES, build_chat_interaction_payload
 from .common import _chat_input_and_metadata, _explicit_source_metadata, _paths, _print_json
 
@@ -446,6 +457,193 @@ def cmd_learning_audit(args: argparse.Namespace) -> int:
     return 0 if payload.get("status") in {"ready", "no_records", "needs_attention"} else 1
 
 
+SKILL_DRAFT_CLAIM_BOUNDARY_NOTE = (
+    "A skill draft is review material stored under .omh/learning/skill-drafts/. OMH did not install a skill, "
+    "write anything under skills/, register catalog data, run the workflow, pass review, run CI, or merge."
+)
+
+
+def _declared_inputs(values: list[str]) -> list[dict[str, str]]:
+    inputs: list[dict[str, str]] = []
+    for value in values:
+        name, separator, description = value.partition("=")
+        if not separator or not name.strip() or not description.strip():
+            raise OmhError(f"--input must be given as name=description, got: {value}")
+        inputs.append({"name": name.strip(), "description": description.strip()})
+    return inputs
+
+
+def cmd_learning_skill_draft_new(args: argparse.Namespace) -> int:
+    try:
+        paths = _paths(args)
+        event_or_message, _ = _chat_input_and_metadata(args)
+        message = extract_message_text(event_or_message) if isinstance(event_or_message, dict) else str(event_or_message)
+        draft = build_skill_draft(
+            message,
+            source_runs=args.source_run,
+            proposed_skill_name=args.name,
+            fixed_instructions=args.instruction,
+            declared_inputs=_declared_inputs(args.input),
+            preconditions=args.precondition,
+            stop_conditions=args.stop_condition,
+            verification_steps=args.verification,
+            created_at=utc_now(),
+        )
+    except (OSError, json.JSONDecodeError, ValueError, WorkflowLearningError) as exc:
+        raise OmhError(str(exc)) from exc
+    if draft is None:
+        # AC1: no explicit teach-this-workflow request, no draft. Passive
+        # activity has no other way into this command.
+        _print_json(
+            {
+                "schema_version": "skill_draft_result/v1",
+                "status": "no_explicit_learning_signal",
+                "recorded": False,
+                "claim_boundary": (
+                    "OMH records a skill draft only from an explicit user request such as "
+                    "\"turn this into a skill\". Nothing was captured or converted."
+                ),
+            }
+        )
+        return 1
+    try:
+        checks = check_skill_draft_generated_output(draft)
+        if not args.dry_run:
+            write_skill_draft(paths, draft)
+    except (OSError, ValueError, WorkflowLearningError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(
+        {
+            "schema_version": "skill_draft_result/v1",
+            "status": "drafted",
+            "recorded": not args.dry_run,
+            "dry_run": args.dry_run,
+            "skill_draft_ref": skill_draft_ref(str(draft["draft_id"])),
+            "draft": draft,
+            "generated_output_check": checks,
+            "next_command": f"omh learning skill-draft review {draft['draft_id']} --decision approve",
+            "claim_boundary": SKILL_DRAFT_CLAIM_BOUNDARY_NOTE,
+        }
+    )
+    return 0
+
+
+def cmd_learning_skill_draft_list(args: argparse.Namespace) -> int:
+    try:
+        drafts = list_skill_drafts(_paths(args), limit=args.limit)
+    except (OSError, json.JSONDecodeError, ValueError, WorkflowLearningError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(
+        {
+            "schema_version": "skill_draft_list/v1",
+            "drafts": drafts,
+            "claim_boundary": SKILL_DRAFT_CLAIM_BOUNDARY_NOTE,
+        }
+    )
+    return 0
+
+
+def cmd_learning_skill_draft_show(args: argparse.Namespace) -> int:
+    try:
+        draft = show_skill_draft(_paths(args), args.draft_id)
+        checks = check_skill_draft_generated_output(draft)
+    except FileNotFoundError as exc:
+        raise OmhError(f"skill draft not found: {args.draft_id}") from exc
+    except (OSError, json.JSONDecodeError, ValueError, WorkflowLearningError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(
+        {
+            "schema_version": "skill_draft_show/v1",
+            "draft": draft,
+            "active": skill_draft_is_active(draft),
+            "generated_output_check": checks,
+            "activation_blockers": list(checks["errors"]),
+            "claim_boundary": SKILL_DRAFT_CLAIM_BOUNDARY_NOTE,
+        }
+    )
+    return 0
+
+
+def cmd_learning_skill_draft_review(args: argparse.Namespace) -> int:
+    try:
+        paths = _paths(args)
+        reviewed = review_skill_draft(
+            show_skill_draft(paths, args.draft_id),
+            decision=args.decision,
+            reviewer_ref=args.reviewer_ref or "operator",
+            reviewed_at=utc_now(),
+            review_note=args.review_note or "",
+        )
+        write_skill_draft(paths, reviewed)
+    except FileNotFoundError as exc:
+        raise OmhError(f"skill draft not found: {args.draft_id}") from exc
+    except (OSError, json.JSONDecodeError, ValueError, WorkflowLearningError) as exc:
+        raise OmhError(str(exc)) from exc
+    _print_json(
+        {
+            "schema_version": "skill_draft_review_result/v1",
+            "recorded": True,
+            "decision": args.decision,
+            "activated": skill_draft_is_active(reviewed),
+            "skill_draft_ref": skill_draft_ref(str(reviewed["draft_id"])),
+            "draft": reviewed,
+            "claim_boundary": SKILL_DRAFT_CLAIM_BOUNDARY_NOTE,
+        }
+    )
+    return 0
+
+
+def _add_skill_draft_commands(learning_sub) -> None:
+    skill_draft = learning_sub.add_parser(
+        "skill-draft",
+        help="Turn an explicitly identified proven workflow into an inactive, reviewable skill draft.",
+    )
+    skill_draft_sub = skill_draft.add_subparsers(dest="skill_draft_command", required=True)
+
+    new = skill_draft_sub.add_parser(
+        "new",
+        help="Draft a skill proposal from an explicit teach-this-workflow request and user-selected runs.",
+    )
+    new.add_argument("message", nargs="*", help="The explicit user request, for example 'turn this into a skill: ...'.")
+    new.add_argument("--source", choices=CHAT_SOURCES, default="generic")
+    new.add_argument("--stdin", action="store_true")
+    new.add_argument("--event-json", default=None)
+    new.add_argument("--source-event-id", default="")
+    new.add_argument("--channel-ref", default="")
+    new.add_argument("--user-ref", default="")
+    new.add_argument("--name", required=True, help="Proposed skill name as a lowercase-hyphen slug.")
+    new.add_argument("--source-run", action="append", default=[], help="User-selected source run id; repeat per run.")
+    new.add_argument("--instruction", action="append", default=[], help="One fixed instruction; repeat in order.")
+    new.add_argument("--input", action="append", default=[], help="One variable input as name=description; repeat per input.")
+    new.add_argument("--precondition", action="append", default=[], help="One precondition; repeat per condition.")
+    new.add_argument("--stop-condition", action="append", default=[], help="One stop condition; repeat per condition.")
+    new.add_argument("--verification", action="append", default=[], help="One required verification step; repeat per step.")
+    new.add_argument("--dry-run", action="store_true")
+    new.set_defaults(func=cmd_learning_skill_draft_new)
+
+    list_drafts = skill_draft_sub.add_parser("list", help="List local skill drafts and their review state.")
+    list_drafts.add_argument("--limit", type=int, default=None)
+    list_drafts.set_defaults(func=cmd_learning_skill_draft_list)
+
+    show = skill_draft_sub.add_parser("show", help="Show one skill draft with its current generated-output checks.")
+    show.add_argument("draft_id")
+    show.set_defaults(func=cmd_learning_skill_draft_show)
+
+    review = skill_draft_sub.add_parser(
+        "review",
+        help="Record an explicit review decision. Approval activates the draft only when the generated-output checks pass.",
+    )
+    review.add_argument("draft_id")
+    review.add_argument("--decision", choices=("approve", "revise", "reject"), required=True)
+    review.add_argument("--reviewer-ref", default="operator")
+    review.add_argument(
+        "--review-note",
+        default="",
+        help="Optional reviewer note; OMH stores only its hash and length, not the note text.",
+    )
+    review.set_defaults(func=cmd_learning_skill_draft_review)
+
+
 def _add_learning_commands(sub) -> None:
     learning = sub.add_parser(
         "learning",
@@ -641,3 +839,5 @@ def _add_learning_commands(sub) -> None:
     index_rebuild = index_sub.add_parser("rebuild", help="Rebuild learning_index.json from local learning records.")
     index_rebuild.add_argument("--dry-run", action="store_true")
     index_rebuild.set_defaults(func=cmd_learning_index_rebuild)
+
+    _add_skill_draft_commands(learning_sub)
