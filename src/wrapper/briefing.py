@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from ..coding.executor_local_workflow import validate_executor_local_workflow
+from ..coding.handoff_input_manifest import input_manifest_summary
 
 CODING_BRIEFING_SCHEMA_VERSION = "coding_briefing/v1"
 
@@ -229,6 +230,11 @@ def _work_summary(session: dict[str, Any], runtime_status: dict[str, Any]) -> di
             "context_pack": _context_pack_summary(_object(handoff.get("context_pack"))),
             "context_pack_blocked": _context_pack_blocked_summary(_object(handoff.get("context_pack_blocked"))),
             "memory_recall_pack": _memory_recall_pack_summary(_object(handoff.get("memory_recall_pack"))),
+            # Counts plus the pinned identity, never the item list: the brief
+            # says how big the package is, whether it overflowed, and exactly
+            # which manifest revision the handoff carried, and the manifest
+            # itself stays the surface a user reads item by item.
+            "input_manifest": input_manifest_summary(_object(handoff.get("input_manifest"))),
         },
         "review": {
             "required": bool(review.get("required", False)),

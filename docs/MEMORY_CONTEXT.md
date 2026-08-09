@@ -91,3 +91,32 @@ A handoff may contain only evaluator-eligible, conflict-free OMH context. It
 records exclusions with stable reasons instead of silently reusing stale or
 unreviewed material. Prepared handoff context remains preparation evidence,
 not execution, model-use, provider-use, review, CI, or merge evidence.
+
+## Input Manifest
+
+`handoff_input_manifest/v1` is the bounded list of everything a coding owner is
+prepared to receive: files, plan sections, diffs, and reviewed memory records in
+one uniform item shape. Every item carries its provenance, the selector that
+chose it, a `sha256:` hash of its bytes, its byte cost, why it belongs, and the
+safety verdict that let it travel. Everything refused is listed beside them with
+one of `blocked_by_unresolved_conflict`, `duplicate_item`, `outside_workspace`,
+`over_budget`, `unreadable_source`, or `unsafe_content`, so an oversized or
+unsafe package reads as a reported refusal with numbers rather than a silent
+truncation.
+
+It is a superset of `handoff_context_pack/v1`, not a replacement. The pack stays
+the single source of reviewed memory and keeps its own contract; when one is
+supplied, its included items project into `reviewed_memory` manifest items with
+their pack provenance carried unchanged, and `derived_from` names the pack.
+
+Selectors are reproducible — a path, a sorted glob, a plan heading, a revision
+range, or a memory record id — and the manifest stores references and hashes,
+never copies of the source. Item safety comes from the classifiers
+`coding.action_gate` already declares, applied separately to content and to
+refs; nothing that fails them is included. The manifest carries no timestamp, so
+two builds from the same inputs agree byte for byte.
+
+Each handoff pins the manifest by `revision` and `digest`, attached as a
+detached copy. A later edit changes the manifest's digest while the handoff
+keeps naming the one it carried, which is what makes the divergence detectable
+rather than invisible.
