@@ -20,6 +20,7 @@ from omh.coding.executor_readiness import (  # noqa: E402
 from omh.coding.fanout import build_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import write_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import fanout_dispatch_summary_path  # noqa: E402
+from omh.coding.fanout_artifacts import fanout_unit_recovery_path  # noqa: E402
 from omh.coding.fanout_dispatch import (  # noqa: E402
     _owner_skill_discoveries,
     dispatch_fanout,
@@ -83,6 +84,52 @@ def _agent_runner(*, fail_units: set[str] | None = None, timeout_units: set[str]
 
 def _ready(paths, profile, **kwargs):
     return {"status": "ready", "profile": profile}
+
+
+_SECRET = "s3cret-source-line-that-must-never-leave-the-worktree"
+
+
+def _writing_runner(
+    *,
+    fail_units: set[str] | None = None,
+    write_units: set[str] | None = None,
+    timeout_units: set[str] | None = None,
+    break_git_diff: bool = False,
+):
+    """Like `_agent_runner`, but the fake agent leaves real files behind.
+
+    Units named in `write_units` write a file into their worktree before the
+    spawn returns, which is what gives the recovery probe something to measure.
+    """
+    spawned: list[list[str]] = []
+
+    def owns(prompt: str, unit_id: str) -> bool:
+        # The branch line is the only unit-unique string in the prompt: every
+        # unit's do_not_touch list names its siblings' paths, so a bare
+        # substring match on the id fires for the wrong unit.
+        return f"agent/{unit_id} in the current worktree" in prompt
+
+    def runner(argv, **kwargs):
+        if argv[0] == "git":
+            if break_git_diff and "diff" in argv:
+                return _FakeCompleted(128, "")
+            return subprocess.run(argv, **kwargs)
+        spawned.append(list(argv))
+        prompt = " ".join(argv)
+        cwd = Path(str(kwargs.get("cwd", ".")))
+        for unit_id in write_units or set():
+            if owns(prompt, unit_id):
+                (cwd / f"{unit_id}_partial.py").write_text(f"# {_SECRET}\nvalue = 1\n", encoding="utf-8")
+        for unit_id in timeout_units or set():
+            if owns(prompt, unit_id):
+                raise subprocess.TimeoutExpired(argv, kwargs.get("timeout", 0))
+        for unit_id in fail_units or set():
+            if owns(prompt, unit_id):
+                return _FakeCompleted(1, f"unit {unit_id} failed")
+        return _FakeCompleted(0, "done")
+
+    runner.spawned = spawned
+    return runner
 
 
 class FanoutDispatchEngineTests(unittest.TestCase):
@@ -461,6 +508,139 @@ class FanoutDispatchEngineTests(unittest.TestCase):
             by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
             self.assertEqual(by_unit["core"]["status"], "worktree_failed")
             self.assertIn("already exists", by_unit["core"]["reason"])
+
+
+class FanoutUnitRecoveryTests(unittest.TestCase):
+    """A failed unit still owns its worktree; the summary must say what survived."""
+
+    def _setup(self, tmp: str):
+        root = Path(tmp)
+        paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+        repo, sha = _make_repo(root)
+        contract = write_fanout_contract(paths, build_fanout_contract(_GOAL, _UNITS))
+        return paths, repo, sha, contract
+
+    def _dispatch(self, paths, repo, sha, contract, runner):
+        return dispatch_fanout(
+            paths,
+            contract,
+            goal_text=_GOAL,
+            repo_root=repo,
+            base_sha=sha,
+            runner=runner,
+            readiness=_ready,
+        )
+
+    def test_a_failed_unit_that_wrote_files_reports_recoverable_work(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+
+            summary = self._dispatch(
+                paths, repo, sha, contract,
+                _writing_runner(fail_units={"docs"}, write_units={"docs"}),
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            recovery = by_unit["docs"]["recovery"]
+            self.assertEqual(by_unit["docs"]["status"], "failed")
+            self.assertFalse(by_unit["docs"]["merge_ready"])
+            self.assertEqual(recovery["outcome"], "recovery_available")
+            self.assertEqual(recovery["schema_version"], "fanout_unit_recovery/v1")
+            self.assertEqual(recovery["paths"], ["docs_partial.py"])
+            self.assertEqual(recovery["paths_changed"], 1)
+            self.assertFalse(recovery["paths_truncated"])
+            self.assertGreater(recovery["diff_bytes"], 0)
+            self.assertEqual(len(recovery["diff_sha256"]), 64)
+            self.assertIn("git -C", recovery["recover_with"])
+            self.assertIn("not verification", recovery["claim_boundary"])
+            self.assertEqual(summary["recovery_available_units"], ["docs"])
+
+    def test_the_recovery_record_carries_metadata_and_never_content(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+
+            summary = self._dispatch(
+                paths, repo, sha, contract,
+                _writing_runner(fail_units={"docs"}, write_units={"docs"}),
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            recovery = by_unit["docs"]["recovery"]
+            # The whole point of hashing the diff instead of storing it.
+            self.assertNotIn(_SECRET, json.dumps(summary))
+            stored = Path(recovery["recovery_ref"])
+            self.assertTrue(stored.is_file())
+            stored_text = stored.read_text(encoding="utf-8")
+            self.assertNotIn(_SECRET, stored_text)
+            self.assertIn(recovery["diff_sha256"], stored_text)
+            # Persisted under the fanout's own directory, nowhere else.
+            self.assertEqual(
+                stored,
+                fanout_unit_recovery_path(paths, contract["fanout_id"], "docs"),
+            )
+
+    def test_a_failed_unit_that_wrote_nothing_reports_no_changes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+
+            summary = self._dispatch(paths, repo, sha, contract, _writing_runner(fail_units={"docs"}))
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["docs"]["recovery"]["outcome"], "no_changes")
+            self.assertNotIn("recovery_ref", by_unit["docs"]["recovery"])
+            self.assertEqual(summary["recovery_available_units"], [])
+
+    def test_a_completed_unit_is_never_probed_for_recovery(self) -> None:
+        # Negative guard: a successful unit's work is reached by merging its
+        # branch, not by salvage. Capturing there would imply the opposite.
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+
+            summary = self._dispatch(paths, repo, sha, contract, _writing_runner(write_units={"docs"}))
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["docs"]["status"], "completed")
+            self.assertNotIn("recovery", by_unit["docs"])
+            self.assertEqual(summary["recovery_available_units"], [])
+
+    def test_a_timed_out_unit_still_gets_its_partial_work_measured(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+
+            summary = self._dispatch(
+                paths, repo, sha, contract,
+                _writing_runner(timeout_units={"docs"}, write_units={"docs"}),
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["docs"]["exit_code"], 124)
+            self.assertEqual(by_unit["docs"]["recovery"]["outcome"], "recovery_available")
+            self.assertEqual(summary["recovery_available_units"], ["docs"])
+
+    def test_a_broken_git_probe_degrades_instead_of_failing_the_unit(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+
+            summary = self._dispatch(
+                paths, repo, sha, contract,
+                _writing_runner(fail_units={"docs"}, write_units={"docs"}, break_git_diff=True),
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            # The unit result survives; only the salvage report degrades.
+            self.assertEqual(by_unit["docs"]["status"], "failed")
+            self.assertEqual(by_unit["docs"]["exit_code"], 1)
+            self.assertEqual(by_unit["docs"]["recovery"]["outcome"], "capture_failed")
+            self.assertEqual(summary["recovery_available_units"], [])
+
+    def test_recovery_paths_reject_ids_that_would_escape_the_fanout_directory(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+            for bad in ("../escape", "a/b", "", "UPPER", "-leading"):
+                with self.subTest(unit_id=bad):
+                    with self.assertRaises(ValueError):
+                        fanout_unit_recovery_path(paths, "fanout-0123456789ab", bad)
 
 
 class FanoutDispatchCliTests(unittest.TestCase):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from hashlib import sha256
 from pathlib import Path
 import shutil
 import subprocess
@@ -457,6 +458,14 @@ def dispatch_fanout(
         "merge_order": order,
         "units": summary_units,
         "merge_ready_units": [entry["unit_id"] for entry in summary_units if entry.get("merge_ready")],
+        # The counterpart to merge_ready: units that failed but left work worth
+        # looking at before anyone re-runs them from scratch.
+        "recovery_available_units": [
+            entry["unit_id"]
+            for entry in summary_units
+            if isinstance(entry.get("recovery"), Mapping)
+            and entry["recovery"].get("outcome") == "recovery_available"
+        ],
         "auto_merge": False,
         "dependency_bar": (
             "A satisfied dependency means only that the owner agent process exited 0. "
@@ -815,7 +824,141 @@ def _dispatch_unit(
     if limit_label:
         result["limit_shaped"] = True
         result["limit_pattern"] = limit_label
+    if exit_code != 0:
+        # A failed unit still owns its worktree, and whatever it managed to
+        # write is the only thing standing between the operator and redoing
+        # the work. Capture what survived before the summary claims the unit
+        # produced nothing.
+        recovery = _capture_unit_recovery(
+            paths,
+            fanout_id=fanout_id,
+            unit_id=unit_id,
+            worktree=worktree,
+            base_sha=base_sha,
+            runner=runner,
+        )
+        if recovery is not None:
+            result["recovery"] = recovery
     return result
+
+
+# One unit's salvage report is a few dozen paths at most; past that the list
+# stops being a recovery aid and starts being a second copy of the diff.
+_MAX_RECOVERY_PATHS = 50
+RECOVERY_SCHEMA_VERSION = "fanout_unit_recovery/v1"
+RECOVERY_CLAIM_BOUNDARY = (
+    "A recovery record measures what a failed unit left in its worktree. It is not verification, review, "
+    "or evidence that the captured work is correct, complete, or safe to merge."
+)
+
+
+def _capture_unit_recovery(
+    paths: OmhPaths,
+    *,
+    fanout_id: str,
+    unit_id: str,
+    worktree: Path,
+    base_sha: str,
+    runner: Callable[..., Any],
+) -> dict[str, Any] | None:
+    """Metadata for whatever a failed unit left behind, or None when unmeasurable.
+
+    Metadata only, on purpose: the changed paths, how many lines moved, and the
+    size and SHA-256 of the diff that carries them. The diff itself is hashed
+    and dropped — it stays in the unit worktree, which is the one place it is
+    already allowed to live.
+
+    Capture never raises. A unit that failed must not fail differently because
+    the salvage probe did.
+    """
+    # `git diff` does not see untracked files, and a failed unit's brand-new
+    # files are the most common thing worth salvaging. `add -N` records the
+    # paths without staging content, which both completes the measurement and
+    # makes the `recover_with` command below actually produce a full patch.
+    # It respects .gitignore, so build output stays out of the report.
+    # Each argv is spelled with a literal subcommand, never `["git", verb]`:
+    # INVARIANT 3 in tests/test_handoff_safety_contract_enforcement.py resolves
+    # git verbs statically and fails closed on a runtime one.
+    _git_text(runner, worktree, ["git", "add", "-N", "--", "."])
+    numstat = _git_text(runner, worktree, ["git", "diff", "--numstat", base_sha])
+    patch = _git_text(runner, worktree, ["git", "diff", base_sha])
+    if numstat is None or patch is None:
+        return {
+            "schema_version": RECOVERY_SCHEMA_VERSION,
+            "outcome": "capture_failed",
+            "reason": "git refused to diff the unit worktree against the dispatch base",
+            "claim_boundary": RECOVERY_CLAIM_BOUNDARY,
+        }
+    paths_changed, lines_changed = _parse_numstat(numstat)
+    patch_bytes = patch.encode("utf-8")
+    if not paths_changed and not patch_bytes:
+        return {
+            "schema_version": RECOVERY_SCHEMA_VERSION,
+            "outcome": "no_changes",
+            "claim_boundary": RECOVERY_CLAIM_BOUNDARY,
+        }
+    record: dict[str, Any] = {
+        "schema_version": RECOVERY_SCHEMA_VERSION,
+        "outcome": "recovery_available",
+        "unit_id": unit_id,
+        "base_sha": base_sha,
+        "worktree_path": str(worktree),
+        "paths_changed": len(paths_changed),
+        "lines_changed": lines_changed,
+        "paths": paths_changed[:_MAX_RECOVERY_PATHS],
+        "paths_truncated": len(paths_changed) > _MAX_RECOVERY_PATHS,
+        "diff_bytes": len(patch_bytes),
+        "diff_sha256": sha256(patch_bytes).hexdigest(),
+        "recover_with": f"git -C {worktree} diff {base_sha}",
+        "claim_boundary": RECOVERY_CLAIM_BOUNDARY,
+    }
+    if fanout_id:
+        from .fanout_artifacts import write_fanout_unit_recovery
+
+        try:
+            record["recovery_ref"] = str(write_fanout_unit_recovery(paths, fanout_id, unit_id, record))
+        except (OSError, ValueError):
+            # Same posture as the in-flight marker: a persistence failure is
+            # reported by omission, never by losing the unit result.
+            record["recovery_ref"] = ""
+    return record
+
+
+def _git_text(runner: Callable[..., Any], worktree: Path, argv: list[str]) -> str | None:
+    """Stdout of one git command in the unit worktree, or None on any failure.
+
+    Callers pass the complete argv, subcommand included, so the verb stays a
+    literal at every construction site.
+    """
+    try:
+        completed = runner(argv, cwd=str(worktree), text=True, capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if int(getattr(completed, "returncode", 1)) != 0:
+        return None
+    return str(getattr(completed, "stdout", "") or "")
+
+
+def _parse_numstat(numstat: str) -> tuple[list[str], int]:
+    """Sorted changed paths and total moved lines from `git diff --numstat`.
+
+    Binary files report `-` for both counts; they still count as a changed
+    path and contribute no lines.
+    """
+    paths_changed: list[str] = []
+    lines_changed = 0
+    for line in numstat.splitlines():
+        fields = line.split("\t")
+        if len(fields) < 3:
+            continue
+        added, removed, path = fields[0], fields[1], fields[-1]
+        if not path.strip():
+            continue
+        paths_changed.append(path.strip())
+        for count in (added, removed):
+            if count.isdigit():
+                lines_changed += int(count)
+    return sorted(set(paths_changed)), lines_changed
 
 
 def _ensure_unit_run(paths: OmhPaths, unit: Mapping[str, Any], owner: str) -> None:

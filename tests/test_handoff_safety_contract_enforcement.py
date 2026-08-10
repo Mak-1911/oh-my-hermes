@@ -429,13 +429,23 @@ FORBIDDEN_GIT_VERBS = frozenset({"push", "merge", "rebase", "remote", "fetch", "
 FORGE_PROGRAMS = frozenset({"gh", "hub", "glab", "tea"})
 
 # The complete set of git argv literals in `src/`, keyed by file and by the run
-# of literal words that follow `git`. Both are read-only local operations.
+# of literal words that follow `git`. Every one is local; none names a remote.
 GIT_ARGV_ALLOWLIST: dict[tuple[str, tuple[str, ...]], str] = {
     ("src/coding/worktree_creator.py", ("worktree", "add")): (
         "creates a local isolated workspace for an executor; touches no remote"
     ),
     ("src/commands/coding.py", ("rev-parse",)): (
         "resolves --base-ref to a commit sha inside `coding fanout dispatch`; read-only"
+    ),
+    ("src/coding/fanout_dispatch.py", ("add", ".")): (
+        "`git add -N -- .` inside a FAILED unit's own isolated worktree, so the recovery probe can "
+        "measure files that unit created. Not read-only: it writes intent-to-add entries to that "
+        "worktree's index. It stages no content, makes no commit, names no remote, and never runs "
+        "against the operator's repository or a unit that succeeded"
+    ),
+    ("src/coding/fanout_dispatch.py", ("diff",)): (
+        "measures what a failed unit left in its own worktree -- `--numstat` for paths, then the "
+        "patch that is hashed for size/sha256 and dropped; read-only"
     ),
 }
 

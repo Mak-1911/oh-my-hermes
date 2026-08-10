@@ -216,6 +216,25 @@ goal to Hermes in chat; these commands are the backend surface.
   and `duration_seconds`, and the full dispatch summary persists to
   `~/.omh/coding/fanout/<id>/dispatch_summary.json` (latest wins,
   metadata only, skipped on `--dry-run`).
+- **Failed-unit recovery.** A unit that exits non-zero — including a
+  timeout — still owns its worktree, and whatever it wrote is the only
+  thing between the operator and redoing the work. Before the summary
+  reports the failure, dispatch measures that worktree against the
+  dispatch base and attaches a `recovery` record to the unit result:
+  `outcome` (`recovery_available`, `no_changes`, or `capture_failed`),
+  the changed path count and names (capped, with `paths_truncated`),
+  `lines_changed`, `diff_bytes`, `diff_sha256`, and a `recover_with`
+  command. Units whose outcome is `recovery_available` are rolled up in
+  the summary's `recovery_available_units`, the counterpart to
+  `merge_ready_units`, and the record also persists to
+  `~/.omh/coding/fanout/<id>/recovery/<unit>.json`. The probe runs
+  `git add -N` in that unit's worktree first so files the unit *created*
+  are measured too, and so the printed `recover_with` command produces a
+  complete patch; it stages no content and makes no commit. The record is
+  metadata only — the diff is hashed for size and digest, then dropped,
+  and never leaves the worktree. Successful units are never probed: their
+  work is reached by merging their branch, not by salvage. A failed probe
+  degrades to `capture_failed` and never changes the unit's own result.
 - **Limit signals.** A failed spawn whose bounded output matches a fixed,
   context-anchored limit-shape pattern (rate limit, usage limit, quota
   exceeded, HTTP 429, credits) is flagged `limit_shaped` with a pattern
