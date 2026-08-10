@@ -196,7 +196,12 @@ def _normalized_max_inline_tokens(value: object) -> int:
 
 
 def missing_spawn_plan_fields(plan: Mapping[str, object] | None) -> list[str]:
-    """Plan fields still unanswered, in declaration order."""
+    """Plan fields still unanswered, in declaration order.
+
+    Answers the *blank* question only. Over-length fields are a shape failure
+    that `normalized_spawn_plan` raises on, so call this on a normalized plan
+    to get a complete verdict.
+    """
     if plan is None:
         return list(FANOUT_SPAWN_PLAN_FIELDS)
     missing = [field for field in FANOUT_SPAWN_PLAN_TEXT_FIELDS if not str(plan.get(field, "") or "").strip()]
@@ -211,20 +216,34 @@ def require_spawn_plan(
 ) -> dict[str, object] | None:
     """Return the plan to freeze, refusing an unjustified wide split.
 
-    A plan supplied under the threshold is kept rather than rejected: the
-    operator answered a question nobody asked, and dropping that answer would
-    lose the only record of why the split looks the way it does.
+    One rule, so there is no silent path: a plan that is supplied at all must
+    be complete, and above the threshold one must be supplied. A half-filled
+    receipt is worse than none — it reads as an answer — and freezing one
+    would also add a `spawn_plan` key to contracts that used to have none,
+    which is exactly the drift this gate must not cause.
     """
     normalized = normalized_spawn_plan(plan)
-    if not spawn_plan_required(unit_count):
-        return normalized
+    required = spawn_plan_required(unit_count)
+    if normalized is None:
+        if required:
+            raise FanoutContractError(
+                f"a {unit_count}-unit split exceeds the {FANOUT_SPAWN_PLAN_THRESHOLD}-unit spawn-plan "
+                f"threshold; add a spawn_plan to the units payload answering: "
+                f"{', '.join(FANOUT_SPAWN_PLAN_FIELDS)}"
+            )
+        return None
     missing = missing_spawn_plan_fields(normalized)
-    if missing:
+    if not missing:
+        return normalized
+    if required:
         raise FanoutContractError(
             f"a {unit_count}-unit split exceeds the {FANOUT_SPAWN_PLAN_THRESHOLD}-unit spawn-plan threshold; "
             f"add a spawn_plan to the units payload answering: {', '.join(missing)}"
         )
-    return normalized
+    raise FanoutContractError(
+        f"the supplied spawn_plan is incomplete; answer {', '.join(missing)} or remove the spawn_plan "
+        f"entirely (a {unit_count}-unit split does not require one)"
+    )
 
 
 def detect_boundary_overlaps(units: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:

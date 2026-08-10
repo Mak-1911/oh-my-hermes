@@ -21,6 +21,26 @@ FANOUT_FINAL_INTEGRATION_GATE = (
     "git diff --check",
 )
 
+# The key set a `fanout_contract/v1` freeze carries. `safety_profile_revision`
+# and `spawn_plan` are optional and additive: an install without the preflight
+# evaluator omits the first, and a split that needed no justification omits the
+# second. Everything else is always present. Declared here rather than inlined
+# in a test so the contract's shape lives beside its schema version.
+FANOUT_CONTRACT_KEYS = (
+    "board_projection",
+    "claim_boundary",
+    "fanout_id",
+    "goal",
+    "merge_plan",
+    "observed_evidence_required",
+    "schema_version",
+    "source",
+    "source_metadata",
+    "status",
+    "units",
+)
+FANOUT_CONTRACT_OPTIONAL_KEYS = ("safety_profile_revision", "spawn_plan")
+
 FANOUT_SPAWN_PLAN_SCHEMA_VERSION = "fanout_spawn_plan/v1"
 # Up to four units a split is small enough to read at a glance. Past that the
 # contract stops recording an obvious decomposition and starts recording a

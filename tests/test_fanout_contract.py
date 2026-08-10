@@ -24,6 +24,8 @@ from omh.coding.fanout import (  # noqa: E402
 )
 from omh.coding.fanout_artifacts import read_fanout_contract, write_fanout_contract  # noqa: E402
 from omh.coding.fanout_contracts import (  # noqa: E402
+    FANOUT_CONTRACT_KEYS,
+    FANOUT_CONTRACT_OPTIONAL_KEYS,
     FANOUT_SPAWN_PLAN_FIELDS,
     FANOUT_SPAWN_PLAN_THRESHOLD,
     FanoutContractError,
@@ -196,27 +198,38 @@ class FanoutSpawnPlanTests(unittest.TestCase):
                 contract = build_fanout_contract("split work", _wide_units(count))
                 self.assertNotIn("spawn_plan", contract)
 
-    def test_a_contract_under_the_threshold_is_byte_identical_to_a_pre_gate_freeze(self) -> None:
-        # The gate is additive: the three-unit contract every existing caller
-        # freezes must not gain a key, or every stored contract reads as drift.
+    def test_a_split_needing_no_plan_gains_no_contract_key(self) -> None:
+        # The gate is additive: the contract every existing caller freezes must
+        # not gain a key, or every stored contract reads as drift. Key set is
+        # the whole story because `atomic_write_json` sorts keys on the way out.
         contract = build_fanout_contract("refactor auth and cover it", _UNITS, source="discord")
         self.assertEqual(
             sorted(contract),
-            [
-                "board_projection",
-                "claim_boundary",
-                "fanout_id",
-                "goal",
-                "merge_plan",
-                "observed_evidence_required",
-                "safety_profile_revision",
-                "schema_version",
-                "source",
-                "source_metadata",
-                "status",
-                "units",
-            ],
+            sorted((*FANOUT_CONTRACT_KEYS, "safety_profile_revision")),
         )
+        self.assertNotIn("spawn_plan", contract)
+
+    def test_a_hollow_plan_is_refused_rather_than_frozen_as_a_receipt(self) -> None:
+        # The regression that matters: a scaffolded-but-unfilled plan used to
+        # be truthy, so it added a `spawn_plan` key full of empty strings to a
+        # contract that had none -- drift AND a receipt asserting a
+        # justification nobody wrote. Refusing keeps both from happening.
+        for hollow in ({}, {"why_parallel": "four disjoint subsystems"}, {"max_inline_tokens": 4000}):
+            with self.subTest(plan=hollow):
+                with self.assertRaises(FanoutContractError) as caught:
+                    build_fanout_contract("split work", _UNITS, spawn_plan=hollow)
+                message = str(caught.exception)
+                self.assertIn("incomplete", message)
+                # It names the escape hatch, since below the threshold the
+                # operator can simply drop the key.
+                self.assertIn("remove the spawn_plan", message)
+
+    def test_a_hollow_plan_above_the_threshold_reports_the_threshold_instead(self) -> None:
+        with self.assertRaises(FanoutContractError) as caught:
+            build_fanout_contract("split work five ways", _wide_units(), spawn_plan={})
+        message = str(caught.exception)
+        self.assertIn("spawn-plan threshold", message)
+        self.assertNotIn("remove the spawn_plan", message)
 
     def test_a_wide_split_without_a_plan_is_rejected_by_name(self) -> None:
         units = _wide_units()
@@ -282,11 +295,27 @@ class FanoutSpawnPlanTests(unittest.TestCase):
             normalized_spawn_plan(["why_parallel"])
         self.assertIn("must be an object", str(caught.exception))
 
-    def test_a_plan_supplied_under_the_threshold_is_kept_rather_than_dropped(self) -> None:
+    def test_a_complete_plan_supplied_under_the_threshold_is_kept_rather_than_dropped(self) -> None:
         contract = build_fanout_contract("split work", _UNITS, spawn_plan=_SPAWN_PLAN)
 
         self.assertEqual(contract["spawn_plan"]["unit_count"], len(_UNITS))
         self.assertEqual(contract["spawn_plan"]["why_parallel"], _SPAWN_PLAN["why_parallel"])
+        self.assertEqual(sorted(contract), sorted((*FANOUT_CONTRACT_KEYS, *FANOUT_CONTRACT_OPTIONAL_KEYS)))
+
+    def test_the_operator_cannot_overwrite_the_contract_side_plan_fields(self) -> None:
+        # `**accepted_spawn_plan` splats into the contract, so the normalizer
+        # must build a fresh dict from the declared fields rather than copying
+        # whatever the operator sent.
+        contract = build_fanout_contract(
+            "split work",
+            _UNITS,
+            spawn_plan={**_SPAWN_PLAN, "schema_version": "attacker/v9", "threshold": 999, "unit_count": 1},
+        )
+
+        plan = contract["spawn_plan"]
+        self.assertEqual(plan["schema_version"], "fanout_spawn_plan/v1")
+        self.assertEqual(plan["threshold"], FANOUT_SPAWN_PLAN_THRESHOLD)
+        self.assertEqual(plan["unit_count"], len(_UNITS))
 
     def test_the_gate_stays_deterministic(self) -> None:
         units = _wide_units()
@@ -436,6 +465,32 @@ class FanoutCliTests(unittest.TestCase):
             )
             self.assertEqual(stored["spawn_plan"], payload["spawn_plan"])
 
+    def test_a_malformed_plan_reaches_the_operator_as_a_shape_error(self) -> None:
+        # Coercing a non-object to None at the CLI boundary made "wrong shape"
+        # indistinguishable from "nothing sent": under the threshold the plan
+        # vanished silently, and over it the operator was told to add a plan
+        # they had already added.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+
+            for name, units in (("narrow", _UNITS), ("wide", _wide_units())):
+                path = root / f"{name}.json"
+                path.write_text(
+                    json.dumps({"units": units, "spawn_plan": "why_parallel: disjoint subsystems"}),
+                    encoding="utf-8",
+                )
+                with self.subTest(payload=name):
+                    status, _, stderr = run_cli(
+                        base + ["coding", "fanout", "prepare", "--goal", "split", "it", "--units", str(path)]
+                    )
+                    self.assertEqual(status, 2)
+                    self.assertIn("spawn_plan must be an object", stderr)
+
+                    status, stdout, _ = run_cli(base + ["coding", "fanout", "validate", "--units", str(path)])
+                    self.assertEqual(status, 1)
+                    self.assertIn("spawn_plan must be an object", json.loads(stdout)["error"])
+
     def test_fanout_validate_reports_the_requirement_before_prepare_refuses(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -451,7 +506,12 @@ class FanoutCliTests(unittest.TestCase):
             wide.write_text(json.dumps(_wide_units()), encoding="utf-8")
             status, stdout, _ = run_cli(base + ["coding", "fanout", "validate", "--units", str(wide)])
             self.assertEqual(status, 1)
-            self.assertIn("spawn-plan threshold", json.loads(stdout)["error"])
+            refused = json.loads(stdout)
+            self.assertIn("spawn-plan threshold", refused["error"])
+            # The refusal is exactly when a wrapper needs to know a plan is
+            # wanted, so the flag rides the error payload too.
+            self.assertTrue(refused["spawn_plan_required"])
+            self.assertEqual(refused["unit_count"], FANOUT_SPAWN_PLAN_THRESHOLD + 1)
 
             planned = root / "planned.json"
             planned.write_text(json.dumps({"units": _wide_units(), "spawn_plan": _SPAWN_PLAN}), encoding="utf-8")

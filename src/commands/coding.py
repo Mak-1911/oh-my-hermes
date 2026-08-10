@@ -956,6 +956,10 @@ def cmd_coding_fanout_validate(args: argparse.Namespace) -> int:
 
     raw_units, spawn_plan = _read_fanout_payload(args.units)
     units = [_normalized_unit(unit, index) for index, unit in enumerate(raw_units)]
+    # Computed before the gate, and reported on both paths: a wrapper deciding
+    # whether to ask the operator for a plan needs this answer most when the
+    # gate has just refused. `spawn_plan_required` is pure and cannot raise.
+    requires_plan = spawn_plan_required(len(units))
     try:
         validate_fanout_units(units)
         # Same gate `prepare` runs, in the same order, so `validate` cannot
@@ -964,14 +968,22 @@ def cmd_coding_fanout_validate(args: argparse.Namespace) -> int:
         notes = detect_boundary_overlaps(units)
         order = merge_order(units)
     except FanoutContractError as exc:
-        _print_json({"schema_version": "fanout_validation/v1", "ok": False, "error": str(exc)})
+        _print_json(
+            {
+                "schema_version": "fanout_validation/v1",
+                "ok": False,
+                "unit_count": len(units),
+                "spawn_plan_required": requires_plan,
+                "error": str(exc),
+            }
+        )
         return 1
     _print_json(
         {
             "schema_version": "fanout_validation/v1",
             "ok": True,
             "unit_count": len(units),
-            "spawn_plan_required": spawn_plan_required(len(units)),
+            "spawn_plan_required": requires_plan,
             "merge_order": order,
             "conflict_risk_notes": notes,
         }
@@ -1398,25 +1410,24 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
     return 0
 
 
-def _read_fanout_units(units_arg: str) -> list[dict[str, object]]:
-    units, _spawn_plan = _read_fanout_payload(units_arg)
-    return units
-
-
-def _read_fanout_payload(units_arg: str) -> tuple[list[dict[str, object]], dict[str, object] | None]:
+def _read_fanout_payload(units_arg: str) -> tuple[list[dict[str, object]], object]:
     """The unit list, plus the spawn plan when the object form carries one.
 
     The plan rides in the same payload rather than behind a second flag: it
     justifies this exact split, and an operator who edits the units without
     editing the justification is the case the gate exists to catch.
+
+    The plan is returned exactly as written, unvalidated. Coercing a malformed
+    one to None here would make "you sent the wrong shape" indistinguishable
+    from "you sent nothing", and the shape error is the one an operator who
+    typed a string instead of an object actually needs.
     """
     raw = sys.stdin.read() if units_arg == "-" else Path(units_arg).expanduser().read_text(encoding="utf-8")
     payload = json.loads(raw)
     units = payload.get("units") if isinstance(payload, dict) else payload
     if not isinstance(units, list):
         raise OmhError("fanout units input must be a JSON list (or an object with a 'units' list)")
-    spawn_plan = payload.get("spawn_plan") if isinstance(payload, dict) else None
-    return units, spawn_plan if isinstance(spawn_plan, dict) else None
+    return units, payload.get("spawn_plan") if isinstance(payload, dict) else None
 
 
 def _add_coding_commands(sub) -> None:
