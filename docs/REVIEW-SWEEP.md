@@ -105,8 +105,10 @@ uv run python -m omh.cli docs capability-families --check
 git diff --check
 ```
 
-CI only runs `docs workflows --check` of those three byte gates, so
-`docs roles --check` and `docs capability-families --check` are yours to catch.
+CI runs all three of those byte gates unconditionally on every PR
+(`.github/workflows/ci.yml`), so a desync fails there whether or not you catch
+it. Run them anyway: a red gate you name with the source that moved is a
+useful finding, and a red gate the author has to bisect from a CI log is not.
 
 When the diff touches only a few modules, run those first for a fast signal,
 then the full suite before you post:
@@ -240,25 +242,49 @@ When a PR already has a `review-sweep` review at an older SHA, the
 before posting; it is six rules, not one, and the sweep cannot satisfy them
 from memory.
 
-Fetch your previous review first — it is the thing you are ratcheting
-against:
+Fetch the previous review first — it is the thing you are ratcheting against.
+Take the **last review by any author**, not only a sweep-marked one: a human
+review settles ground exactly as a sweep review does, and its blockers carry
+forward the same way. Read the SHA from `.commit_id` rather than parsing the
+marker, since the API field is authoritative and the marker is reviewer-written
+text:
 
 ```sh
 gh api repos/rlaope/oh-my-hermes/pulls/<number>/reviews \
-  --jq '[.[] | select(.body | contains("review-sweep: head="))] | last'
+  --jq '[.[] | {sha: .commit_id, user: .user.login, state, body}] | last'
 ```
 
-Then diff the PR against the SHA that review was posted at, so the round
-covers the delta rather than the whole PR:
+**An empty result means this is round one.** Say so in the body and review the
+whole PR; the ratchet does not apply.
+
+Then scope the delta. A force-push — rebase or squash, the ordinary way an
+author turns a PR around — leaves the previously reviewed SHA unreachable, and
+a merge of `main` into the branch makes a two-dot diff render other people's
+commits as the author's work. Handle both:
 
 ```sh
-git diff <previous-reviewed-sha>..<headRefOid>
+git fetch origin <previous-reviewed-sha> 2>/dev/null || true
+if git merge-base --is-ancestor <previous-reviewed-sha> <headRefOid> 2>/dev/null; then
+  git diff <previous-reviewed-sha>..<headRefOid>
+else
+  git range-diff origin/main...<previous-reviewed-sha> origin/main...<headRefOid>
+fi
 ```
+
+If neither resolves — the previous SHA is gone and `range-diff` cannot pair
+the commits — declare the ratchet broken in the body, carry the previous
+round's unresolved findings forward by hand, and treat the rest as round one.
+
+Run the Step 4 gates on every round, including this one. They are how a
+re-review catches an artifact desync or a broken count without reading outside
+the delta, and `REVIEW.md`'s scope rule constrains what you report, not what
+you run.
 
 Open the body with the round number and the SHA you are ratcheting against,
 carry every unresolved finding forward at its original severity, justify any
-new Important finding on unchanged ground or demote it, and withdraw anything
-from your previous round that the rules say you should not have raised.
+new Important finding on settled ground or post it demoted with the admission
+attached, and withdraw anything from your previous round that the rules say
+you should not have raised.
 
 ## Step 8 — report
 
