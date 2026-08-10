@@ -235,9 +235,30 @@ Non-zero means this exact commit was already reviewed. Skip it.
 
 ### Re-reviews
 
-When a PR already has a `review-sweep` review at an older SHA, follow the
-`REVIEW.md` convergence rule: **Important findings only, no new nits.** Open
-with what changed since the last review.
+When a PR already has a `review-sweep` review at an older SHA, the
+`REVIEW.md` **Re-review convergence** ratchet is in force. Read that section
+before posting; it is six rules, not one, and the sweep cannot satisfy them
+from memory.
+
+Fetch your previous review first — it is the thing you are ratcheting
+against:
+
+```sh
+gh api repos/rlaope/oh-my-hermes/pulls/<number>/reviews \
+  --jq '[.[] | select(.body | contains("review-sweep: head="))] | last'
+```
+
+Then diff the PR against the SHA that review was posted at, so the round
+covers the delta rather than the whole PR:
+
+```sh
+git diff <previous-reviewed-sha>..<headRefOid>
+```
+
+Open the body with the round number and the SHA you are ratcheting against,
+carry every unresolved finding forward at its original severity, justify any
+new Important finding on unchanged ground or demote it, and withdraw anything
+from your previous round that the rules say you should not have raised.
 
 ## Step 8 — report
 

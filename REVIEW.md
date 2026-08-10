@@ -101,8 +101,46 @@ consistency finding with a concrete `file:line` alternative, not a bug.
 
 ## Re-review convergence
 
-After the first review of a PR, suppress new Nits and post Important findings
-only. A one-line fix must not reach round seven on style.
+A review round that can raise anything about anything never converges. From
+the second round on, the review is a ratchet: it can only tighten around what
+is still unresolved, never re-open settled ground. Six rules, in force from
+round two.
+
+**Suppress new Nits.** Post Important findings only. A one-line fix must not
+reach round seven on style.
+
+**Review the delta, not the PR.** Round two and later cover exactly two
+things: what changed since the round you last posted, and whether the findings
+you raised then are resolved. Ground you already approved is closed. If you
+find yourself reading a file the delta does not touch, you have left the
+round.
+
+**Justify novelty or demote it.** A new Important finding on ground a previous
+round already passed over must say, in the finding itself, why it was not
+visible then — a fix revealed it, a file arrived, an assumption was disproved.
+Without that sentence it is not Important; record it as a Nit and let it ride.
+This is the rule that stops a reviewer from mining an unchanged file for
+leverage after the author has already turned the PR around once.
+
+**Carryover blockers stay blocking.** A finding raised in an earlier round and
+still unresolved blocks at its original severity no matter how many rounds
+have passed. Convergence pressure never dissolves a real defect; it only stops
+new ones from appearing on old ground.
+
+**The verdict cannot worsen once blockers clear.** When every Important
+finding from the previous round is resolved, this round's verdict must be at
+least as good as the last. Going from "changes requested" to "changes
+requested" on entirely new grounds — without a novelty justification — is the
+failure this forbids.
+
+**Withdraw your own over-reach.** Before posting, re-read your previous round
+against the rules above and the Do-not-report list. A demand that turns out to
+have been scope expansion, speculation, or a Nit dressed as Important is your
+defect, not the author's: withdraw it in this round's body and say so. Do not
+convert it into another revision cycle.
+
+State the round number and the previous review you are ratcheting against at
+the top of the body, so the author can check the ratchet held.
 
 ## Summary shape
 
