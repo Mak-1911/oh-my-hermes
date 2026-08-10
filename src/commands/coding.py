@@ -1100,6 +1100,25 @@ _FANOUT_BRIEF_CLAIM_BOUNDARY = (
 )
 
 
+def _brief_recovery(dispatched: dict) -> dict[str, object]:
+    """The salvage line for one unit: outcome, size, and how to get the patch.
+
+    `unknown` when the unit was never dispatched, matching how every other
+    field in this view reports an absent observation rather than inferring one.
+    A successful unit is never probed, so it reports `not_applicable`.
+    """
+    record = dispatched.get("recovery")
+    if not isinstance(record, dict):
+        if not dispatched:
+            return {"outcome": "unknown"}
+        return {"outcome": "not_applicable"}
+    brief: dict[str, object] = {"outcome": str(record.get("outcome", "unknown"))}
+    for key in ("paths_changed", "lines_changed", "diff_bytes", "recover_with", "recovery_ref", "reason"):
+        if key in record:
+            brief[key] = record[key]
+    return brief
+
+
 def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
     from ..coding.fanout_artifacts import fanout_dispatch_summary_path, read_fanout_contract
     from ..coding.fanout_contracts import PREPARED_NOT_OBSERVED
@@ -1190,6 +1209,12 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
                 "elapsed_seconds": dispatched.get("duration_seconds", "unknown"),
                 "tokens_total": dispatched.get("tokens_total", "unknown"),
                 "limit_shaped": bool(dispatched.get("limit_shaped", False)),
+                # The salvage signal, beside the other failure annotation this
+                # view already carries. Without it the operator reads
+                # `status: failed`, deletes the unit worktree so a re-dispatch
+                # can recreate it, and destroys the work the recovery record
+                # exists to preserve.
+                "recovery": _brief_recovery(dispatched),
                 "summary": latest_summary,
             }
         )

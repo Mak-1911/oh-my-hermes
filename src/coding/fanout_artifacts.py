@@ -10,6 +10,9 @@ from ..system.paths import OmhPaths
 from .fanout_contracts import FANOUT_ID_PATTERN
 
 _FANOUT_ID_RE = re.compile(FANOUT_ID_PATTERN)
+# The same slug shape `fanout._UNIT_ID_RE` accepts, restated here rather than
+# imported so the path validator does not depend on the contract builder.
+_UNIT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 
 def write_fanout_contract(paths: OmhPaths, contract: dict[str, object]) -> dict[str, object]:
@@ -28,6 +31,48 @@ def write_fanout_contract(paths: OmhPaths, contract: dict[str, object]) -> dict[
 def fanout_dispatch_summary_path(paths: OmhPaths, fanout_id: str) -> Path:
     """Validated dispatch-summary path for one fanout (id pattern + containment)."""
     return _managed_fanout_dir(paths, _validated_fanout_id(fanout_id)) / "dispatch_summary.json"
+
+
+def fanout_unit_recovery_path(paths: OmhPaths, fanout_id: str, unit_id: str) -> Path:
+    """Validated recovery-record path for one unit of one fanout.
+
+    The unit id rides through the same slug check the contract builder applies,
+    so a crafted id cannot walk out of the fanout directory.
+    """
+    if not _UNIT_ID_RE.match(str(unit_id or "")):
+        raise ValueError(f"invalid unit_id: {unit_id!r}")
+    recovery_dir = _managed_fanout_dir(paths, _validated_fanout_id(fanout_id)) / "recovery"
+    if recovery_dir.is_symlink():
+        raise ValueError("fanout recovery directory must not be a symlink")
+    return recovery_dir / f"{unit_id}.json"
+
+
+def write_fanout_unit_recovery(
+    paths: OmhPaths,
+    fanout_id: str,
+    unit_id: str,
+    record: dict[str, object],
+) -> Path:
+    """Persist one unit's metadata-only recovery record and return its path."""
+    recovery_path = fanout_unit_recovery_path(paths, fanout_id, unit_id)
+    ensure_dir(paths.fanout_contracts_dir, private=True)
+    ensure_dir(recovery_path.parent.parent, private=True)
+    ensure_dir(recovery_path.parent, private=True)
+    atomic_write_json(recovery_path, record, private=True)
+    return recovery_path
+
+
+def clear_fanout_unit_recovery(paths: OmhPaths, fanout_id: str, unit_id: str) -> None:
+    """Drop a unit's stored recovery record, if it has one.
+
+    Called before a unit re-runs, so a record describing an earlier attempt
+    cannot outlive the worktree it points at. Same posture as the in-flight
+    marker: best effort, never blocks a dispatch.
+    """
+    try:
+        fanout_unit_recovery_path(paths, fanout_id, unit_id).unlink(missing_ok=True)
+    except (OSError, ValueError):
+        return
 
 
 def read_fanout_contract(paths: OmhPaths, fanout_id: str) -> dict[str, object]:
