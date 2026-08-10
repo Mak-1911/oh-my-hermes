@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from ..installer import OmhError
 from ..operator_productivity import (
@@ -55,6 +56,11 @@ from ..design_orchestration import (
     DESIGN_SURFACES,
     DESIGN_TYPOGRAPHIES,
     build_design_orchestration,
+)
+from ..design_directions import (
+    DESIGN_DIRECTION_OPTION_IDS,
+    build_design_direction_set,
+    render_design_direction_set_html,
 )
 from ..research_department import (
     build_research_department_plan,
@@ -213,6 +219,66 @@ def cmd_ops_design_orchestration(args: argparse.Namespace) -> int:
         )
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
+    return 0
+
+
+def _direction_option_descriptor(value: str) -> tuple[str, str, str, str, str, str, tuple[str, ...]]:
+    parts = value.split(":")
+    if len(parts) != 7:
+        raise ValueError(
+            "option must be id:hierarchy:palette:typography:layout:signature_element:avoid1|avoid2"
+        )
+    avoid_patterns = tuple(pattern for pattern in parts[6].split("|") if pattern)
+    if not avoid_patterns:
+        raise ValueError("option must name at least one avoid pattern")
+    return (parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], avoid_patterns)
+
+
+def cmd_ops_design_directions(args: argparse.Namespace) -> int:
+    try:
+        directions = build_design_direction_set(
+            surface=args.surface,
+            audience=args.audience,
+            primary_task=args.primary_task,
+            platform=args.platform,
+            mode=args.mode,
+            context_references=tuple(_context_reference_descriptor(value) for value in args.context_reference),
+            options=tuple(_direction_option_descriptor(value) for value in args.option),
+            chosen_option=args.choose or "",
+        )
+        preview_path = ""
+        if args.html:
+            document = render_design_direction_set_html(directions)
+            target = Path(args.html)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            # newline="" so the document is byte-identical on Windows; a
+            # rendered artifact that differs by platform cannot be compared.
+            with target.open("w", encoding="utf-8", newline="") as handle:
+                handle.write(document)
+            preview_path = str(target)
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    if _wants_json(args):
+        payload = dict(directions)
+        if preview_path:
+            payload["preview_path"] = preview_path
+        _print_json(payload)
+        return 0
+    offered = ", ".join(str(option["option_id"]) for option in directions["options"])
+    print(f"Design directions for {directions['intent']['surface']}: option {offered}")
+    for option in directions["options"]:
+        marker = " (chosen)" if option["option_id"] == directions["chosen_option"] else ""
+        print(
+            f"  {option['option_id']}{marker}: {option['hierarchy']} / {option['palette']} / "
+            f"{option['typography']} / {option['layout']} / {option['signature_element']}"
+        )
+    if preview_path:
+        print(f"Preview written to {preview_path} - open it yourself; nothing was served or launched.")
+    if directions["chosen_option"]:
+        print(f"Choice recorded: {directions['chosen_option']}.")
+    else:
+        print("No choice recorded yet. Re-run with --choose <id> once you have looked.")
+    print("Prepared only. This is not implementation, visual QA, or evidence that anyone looked at the preview.")
     return 0
 
 
@@ -893,6 +959,34 @@ def _add_ops_commands(sub) -> None:
     design_orchestration.add_argument("--signature-element", choices=DESIGN_SIGNATURE_ELEMENTS, required=True)
     design_orchestration.add_argument("--avoid-pattern", action="append", choices=DESIGN_AVOID_PATTERNS, required=True)
     design_orchestration.set_defaults(func=cmd_ops_design_orchestration)
+
+    design_directions = ops_sub.add_parser(
+        "design-directions",
+        help="Offer two to four design directions and record which one was chosen.",
+    )
+    design_directions.add_argument("--surface", choices=DESIGN_SURFACES, required=True)
+    design_directions.add_argument("--audience", choices=DESIGN_AUDIENCES, required=True)
+    design_directions.add_argument("--primary-task", choices=DESIGN_PRIMARY_TASKS, required=True)
+    design_directions.add_argument("--platform", choices=DESIGN_PLATFORMS, required=True)
+    design_directions.add_argument("--mode", choices=DESIGN_MODES, required=True)
+    design_directions.add_argument("--context-reference", action="append", required=True)
+    design_directions.add_argument(
+        "--option",
+        action="append",
+        required=True,
+        metavar="ID:HIERARCHY:PALETTE:TYPOGRAPHY:LAYOUT:SIGNATURE:AVOID|AVOID",
+        help="A direction to offer. Repeat two to four times, ids a, b, c, d in order.",
+    )
+    design_directions.add_argument(
+        "--choose",
+        choices=DESIGN_DIRECTION_OPTION_IDS,
+        help="Record this option as chosen. Omit while the choice is still open.",
+    )
+    design_directions.add_argument(
+        "--html",
+        help="Write the self-contained static preview here. No server is started and no browser is opened.",
+    )
+    design_directions.set_defaults(func=cmd_ops_design_directions)
 
     rhythm = ops_sub.add_parser("rhythm", help="Create an operating rhythm artifact such as a meeting or retro record.")
     _add_artifact_args(rhythm, surface="operating-rhythm", default_kind="meeting")
