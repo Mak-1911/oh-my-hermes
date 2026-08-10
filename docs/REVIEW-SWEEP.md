@@ -257,22 +257,31 @@ gh api repos/rlaope/oh-my-hermes/pulls/<number>/reviews \
 **An empty result means this is round one.** Say so in the body and review the
 whole PR; the ratchet does not apply.
 
-Then scope the delta. A force-push — rebase or squash, the ordinary way an
-author turns a PR around — leaves the previously reviewed SHA unreachable, and
-a merge of `main` into the branch makes a two-dot diff render other people's
-commits as the author's work. Handle both:
+Then scope the delta. Two ordinary things break the obvious
+`git diff <prev>..<head>`: a force-push — rebase or squash, the usual way an
+author turns a PR around — leaves the previous SHA unreachable, and a merge of
+`main` into the branch leaves it reachable but fills a two-dot diff with every
+commit `main` gained in the interval, rendering other people's already-merged
+work as the author's.
+
+`range-diff` is correct in both cases, because it compares the two series
+*as rebased onto `main`* rather than walking history between them. Use it
+first, not as a fallback:
 
 ```sh
 git fetch origin <previous-reviewed-sha> 2>/dev/null || true
-if git merge-base --is-ancestor <previous-reviewed-sha> <headRefOid> 2>/dev/null; then
-  git diff <previous-reviewed-sha>..<headRefOid>
-else
-  git range-diff origin/main...<previous-reviewed-sha> origin/main...<headRefOid>
-fi
+git range-diff origin/main...<previous-reviewed-sha> origin/main...<headRefOid>
 ```
 
-If neither resolves — the previous SHA is gone and `range-diff` cannot pair
-the commits — declare the ratchet broken in the body, carry the previous
+Reach for a plain diff only to read a specific file's change in full, and
+scope it to the merge base so a merged `main` cannot leak in:
+
+```sh
+git diff "$(git merge-base <previous-reviewed-sha> <headRefOid>)"..<headRefOid> -- <path>
+```
+
+If `range-diff` cannot pair the commits — the previous SHA is gone and was
+never fetched — declare the ratchet broken in the body, carry the previous
 round's unresolved findings forward by hand, and treat the rest as round one.
 
 Run the Step 4 gates on every round, including this one. They are how a
