@@ -4160,14 +4160,22 @@ def _attach_executor_choice_context(delegation: dict[str, object], paths: OmhPat
     Only cached readiness state and cheap local markers are read — no
     subprocess runs — so the chat lane stays as deterministic as the CLI lane
     that already attaches the same block.
+
+    The accepted plan travels with it (#810) so the card cannot rank an owner
+    whose required capabilities are recorded unavailable above one that can do
+    the work.
     """
     if paths is None:
         return
     if not (delegation.get("delegation_policy") or _nested(delegation, "executor_selection").get("choice_required")):
         return
     from ..coding.executor_readiness import executor_choice_context
+    from ..coding.owner_fit import accepted_plan_from_delegation
 
-    delegation["executor_choice_context"] = executor_choice_context(paths)
+    delegation["executor_choice_context"] = executor_choice_context(
+        paths,
+        plan=accepted_plan_from_delegation(delegation),
+    )
 
 
 def _coding_route_decision_for_delegation(

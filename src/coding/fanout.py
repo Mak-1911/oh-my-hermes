@@ -9,8 +9,13 @@ from .fanout_contracts import (
     FANOUT_CLAIM_BOUNDARY,
     FANOUT_CONTRACT_SCHEMA_VERSION,
     FANOUT_FINAL_INTEGRATION_GATE,
+    FANOUT_SPAWN_PLAN_CLAIM_BOUNDARY,
+    FANOUT_SPAWN_PLAN_FIELDS,
+    FANOUT_SPAWN_PLAN_SCHEMA_VERSION,
+    FANOUT_SPAWN_PLAN_THRESHOLD,
     FANOUT_UNIT_OWNERS,
     FanoutContractError,
+    MAX_SPAWN_PLAN_FIELD_CHARS,
     PREPARED_NOT_OBSERVED,
 )
 from .model_routing import model_route_for_unit
@@ -25,6 +30,7 @@ def build_fanout_contract(
     source: str = "generic",
     source_metadata: Mapping[str, object] | None = None,
     local_catalogs: Mapping[str, Mapping[str, object]] | None = None,
+    spawn_plan: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     normalized_goal = " ".join(goal.split())
     if not normalized_goal:
@@ -33,6 +39,12 @@ def build_fanout_contract(
     validate_fanout_units(normalized_units)
     conflict_notes = detect_boundary_overlaps(normalized_units)
     order = merge_order(normalized_units)
+    # Last, after every structural check. A split with overlapping boundaries
+    # or a dependency cycle can never be frozen no matter what justifies it,
+    # and asking for four paragraphs first means the operator writes them for
+    # a decomposition they then have to throw away. Structure is cheaper to
+    # fix and is a precondition for the justification being worth anything.
+    accepted_spawn_plan = require_spawn_plan(len(normalized_units), spawn_plan)
     digest = sha256(normalized_goal.encode("utf-8")).hexdigest()
     fanout_id = f"fanout-{digest[:12]}"
     safety_revision = _frozen_safety_profile_revision()
@@ -67,6 +79,22 @@ def build_fanout_contract(
         # "not gated", which is what contracts frozen before this field carry
         # and what the dispatch re-check already treats as a pass.
         **({"safety_profile_revision": safety_revision} if safety_revision else {}),
+        # Optional and additive for the same reason the safety revision is: a
+        # contract at or below the threshold carries no plan and stays
+        # byte-identical to one frozen before this gate existed.
+        **(
+            {
+                "spawn_plan": {
+                    "schema_version": FANOUT_SPAWN_PLAN_SCHEMA_VERSION,
+                    **accepted_spawn_plan,
+                    "unit_count": len(normalized_units),
+                    "threshold": FANOUT_SPAWN_PLAN_THRESHOLD,
+                    "claim_boundary": FANOUT_SPAWN_PLAN_CLAIM_BOUNDARY,
+                }
+            }
+            if accepted_spawn_plan
+            else {}
+        ),
         "units": contract_units,
         "merge_plan": {
             "merge_order": order,
@@ -127,6 +155,94 @@ def validate_fanout_units(units: Sequence[Mapping[str, object]]) -> None:
                 raise FanoutContractError(f"unit {unit_id} depends on unknown unit {dependency!r}")
             if str(dependency) == unit_id:
                 raise FanoutContractError(f"unit {unit_id} cannot depend on itself")
+
+
+def spawn_plan_required(unit_count: int) -> bool:
+    """Whether a split this wide has to carry an operator justification."""
+    return unit_count > FANOUT_SPAWN_PLAN_THRESHOLD
+
+
+def normalized_spawn_plan(plan: Mapping[str, object] | None) -> dict[str, object] | None:
+    """Collapse a proposed spawn plan to its stored shape, or None when absent.
+
+    Shape failures raise; a field that is merely blank does not. Blank is the
+    answer `missing_spawn_plan_fields` reports by name, which is a better
+    error than a generic "invalid plan".
+    """
+    if plan is None:
+        return None
+    if not isinstance(plan, Mapping):
+        raise FanoutContractError("spawn_plan must be an object")
+    normalized: dict[str, object] = {}
+    for field in FANOUT_SPAWN_PLAN_FIELDS:
+        value = plan.get(field, "")
+        # A justification has to be prose an operator wrote. `str(value)` would
+        # accept a list, a dict, or a bool and freeze its Python repr into the
+        # contract as if it were an answer — single quotes and all — which is
+        # exactly the "answer nobody wrote" this gate exists to refuse.
+        if value is not None and not isinstance(value, str):
+            raise FanoutContractError(
+                f"spawn_plan {field} must be a string; got {type(value).__name__}"
+            )
+        text = " ".join(str(value or "").split())
+        if len(text) > MAX_SPAWN_PLAN_FIELD_CHARS:
+            raise FanoutContractError(
+                f"spawn_plan {field} must be at most {MAX_SPAWN_PLAN_FIELD_CHARS} chars"
+            )
+        normalized[field] = text
+    return normalized
+
+
+def missing_spawn_plan_fields(plan: Mapping[str, object] | None) -> list[str]:
+    """Plan fields still unanswered, in declaration order.
+
+    Answers the *blank* question only. Over-length and wrong-typed fields are
+    shape failures that `normalized_spawn_plan` raises on, so call this on a
+    normalized plan to get a complete verdict.
+    """
+    if plan is None:
+        return list(FANOUT_SPAWN_PLAN_FIELDS)
+    return [field for field in FANOUT_SPAWN_PLAN_FIELDS if not str(plan.get(field, "") or "").strip()]
+
+
+def require_spawn_plan(
+    unit_count: int,
+    plan: Mapping[str, object] | None,
+) -> dict[str, object] | None:
+    """Return the plan to freeze, refusing an unjustified wide split.
+
+    One rule, so there is no silent path: a plan that is supplied at all must
+    be complete, and above the threshold one must be supplied. A half-filled
+    receipt is worse than none — it reads as an answer — and freezing one
+    would also add a `spawn_plan` key to contracts that used to have none,
+    which is exactly the drift this gate must not cause.
+    """
+    normalized = normalized_spawn_plan(plan)
+    required = spawn_plan_required(unit_count)
+    if normalized is None:
+        if required:
+            raise FanoutContractError(
+                f"a {unit_count}-unit split exceeds the {FANOUT_SPAWN_PLAN_THRESHOLD}-unit spawn-plan "
+                f"threshold; add a spawn_plan to the units payload answering: "
+                f"{', '.join(FANOUT_SPAWN_PLAN_FIELDS)}"
+            )
+        return None
+    missing = missing_spawn_plan_fields(normalized)
+    if not missing:
+        return normalized
+    # A plan IS present here, so neither branch tells the operator to add one —
+    # they are looking straight at it. Above the threshold the plan is also
+    # mandatory, so the only remedy offered is completing it.
+    if required:
+        raise FanoutContractError(
+            f"the supplied spawn_plan is incomplete; answer {', '.join(missing)} "
+            f"(a {unit_count}-unit split exceeds the {FANOUT_SPAWN_PLAN_THRESHOLD}-unit threshold, "
+            f"so the plan is required)"
+        )
+    raise FanoutContractError(
+        f"the supplied spawn_plan is incomplete; answer {', '.join(missing)} or remove the spawn_plan "
+        f"entirely (a {unit_count}-unit split does not require one)"
+    )
 
 
 def detect_boundary_overlaps(units: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:

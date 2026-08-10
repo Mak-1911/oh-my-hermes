@@ -110,9 +110,15 @@ def cmd_coding_delegate(args: argparse.Namespace) -> int:
             _apply_plan_handoff_source(payload)
             _accept_handoff_role_context(paths, payload)
         if payload.get("delegation_policy") or _payload_choice_required(payload):
+            from ..coding.owner_fit import accepted_plan_from_delegation
             from ..executor_readiness import executor_choice_context
 
-            payload["executor_choice_context"] = executor_choice_context(paths)
+            # Same plan the payload's own `coding_owner_fit` block was derived
+            # from, so the ranked card and the report cannot disagree.
+            payload["executor_choice_context"] = executor_choice_context(
+                paths,
+                plan=accepted_plan_from_delegation(payload),
+            )
         # The decision is recorded here, before anything decides whether a *run*
         # is worth creating, and unconditionally on `--record`. That ordering is
         # the whole point of the change: a denied gate collapses the selection,
@@ -907,7 +913,7 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
     from ..coding.fanout_contracts import FanoutContractError
     from ..coding.model_routing import EXECUTOR_MODEL_OPTIONS
 
-    units = _read_fanout_units(args.units)
+    units, spawn_plan = _read_fanout_payload(args.units)
     if is_degenerate_single_unit(units):
         _print_json(single_unit_redirect(units))
         return 0
@@ -927,6 +933,7 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
             source=args.source,
             source_metadata=_explicit_source_metadata(args),
             local_catalogs=_local_model_catalogs() if needs_inventory else {},
+            spawn_plan=spawn_plan,
         )
     except FanoutContractError as exc:
         raise OmhError(str(exc)) from exc
@@ -937,22 +944,53 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
 
 
 def cmd_coding_fanout_validate(args: argparse.Namespace) -> int:
-    from ..coding.fanout import detect_boundary_overlaps, merge_order, validate_fanout_units, _normalized_unit
+    from ..coding.fanout import (
+        detect_boundary_overlaps,
+        merge_order,
+        require_spawn_plan,
+        spawn_plan_required,
+        validate_fanout_units,
+        _normalized_unit,
+    )
     from ..coding.fanout_contracts import FanoutContractError
 
-    units = [_normalized_unit(unit, index) for index, unit in enumerate(_read_fanout_units(args.units))]
+    raw_units, spawn_plan = _read_fanout_payload(args.units)
+    # Computed before the gate, and reported on both paths: a wrapper deciding
+    # whether to ask the operator for a plan needs this answer most when the
+    # gate has just refused. `spawn_plan_required` is pure and cannot raise.
+    requires_plan = spawn_plan_required(len(raw_units))
     try:
+        # Inside the try, because `_normalized_unit` raises on a non-object
+        # entry too. Outside it, a malformed unit escaped as a traceback with
+        # an empty stdout, and a wrapper following this command's documented
+        # contract parsed that empty string as JSON.
+        units = [_normalized_unit(unit, index) for index, unit in enumerate(raw_units)]
         validate_fanout_units(units)
+        # Same checks `prepare` runs, in the same order, so `validate` cannot
+        # report a split that `prepare` will then refuse to freeze — including
+        # the spawn-plan gate running last, after the structural ones.
         notes = detect_boundary_overlaps(units)
         order = merge_order(units)
+        require_spawn_plan(len(units), spawn_plan)
     except FanoutContractError as exc:
-        _print_json({"schema_version": "fanout_validation/v1", "ok": False, "error": str(exc)})
+        _print_json(
+            {
+                "schema_version": "fanout_validation/v1",
+                "ok": False,
+                # `raw_units`, not `units`: a malformed entry means `units` was
+                # never bound, and the caller still needs the count it sent.
+                "unit_count": len(raw_units),
+                "spawn_plan_required": requires_plan,
+                "error": str(exc),
+            }
+        )
         return 1
     _print_json(
         {
             "schema_version": "fanout_validation/v1",
             "ok": True,
             "unit_count": len(units),
+            "spawn_plan_required": requires_plan,
             "merge_order": order,
             "conflict_risk_notes": notes,
         }
@@ -1062,6 +1100,25 @@ _FANOUT_BRIEF_CLAIM_BOUNDARY = (
 )
 
 
+def _brief_recovery(dispatched: dict) -> dict[str, object]:
+    """The salvage line for one unit: outcome, size, and how to get the patch.
+
+    `unknown` when the unit was never dispatched, matching how every other
+    field in this view reports an absent observation rather than inferring one.
+    A successful unit is never probed, so it reports `not_applicable`.
+    """
+    record = dispatched.get("recovery")
+    if not isinstance(record, dict):
+        if not dispatched:
+            return {"outcome": "unknown"}
+        return {"outcome": "not_applicable"}
+    brief: dict[str, object] = {"outcome": str(record.get("outcome", "unknown"))}
+    for key in ("paths_changed", "lines_changed", "diff_bytes", "recover_with", "recovery_ref", "reason"):
+        if key in record:
+            brief[key] = record[key]
+    return brief
+
+
 def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
     from ..coding.fanout_artifacts import fanout_dispatch_summary_path, read_fanout_contract
     from ..coding.fanout_contracts import PREPARED_NOT_OBSERVED
@@ -1152,6 +1209,12 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
                 "elapsed_seconds": dispatched.get("duration_seconds", "unknown"),
                 "tokens_total": dispatched.get("tokens_total", "unknown"),
                 "limit_shaped": bool(dispatched.get("limit_shaped", False)),
+                # The salvage signal, beside the other failure annotation this
+                # view already carries. Without it the operator reads
+                # `status: failed`, deletes the unit worktree so a re-dispatch
+                # can recreate it, and destroys the work the recovery record
+                # exists to preserve.
+                "recovery": _brief_recovery(dispatched),
                 "summary": latest_summary,
             }
         )
@@ -1379,13 +1442,43 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
     return 0
 
 
-def _read_fanout_units(units_arg: str) -> list[dict[str, object]]:
+def _read_fanout_payload(units_arg: str) -> tuple[list[dict[str, object]], object]:
+    """The unit list, plus the spawn plan when the object form carries one.
+
+    The plan rides in the same payload rather than behind a second flag: it
+    justifies this exact split, and an operator who edits the units without
+    editing the justification is the case the gate exists to catch.
+
+    The plan is returned exactly as written, unvalidated. Coercing a malformed
+    one to None here would make "you sent the wrong shape" indistinguishable
+    from "you sent nothing", and the shape error is the one an operator who
+    typed a string instead of an object actually needs.
+    """
     raw = sys.stdin.read() if units_arg == "-" else Path(units_arg).expanduser().read_text(encoding="utf-8")
     payload = json.loads(raw)
     units = payload.get("units") if isinstance(payload, dict) else payload
     if not isinstance(units, list):
         raise OmhError("fanout units input must be a JSON list (or an object with a 'units' list)")
-    return units
+    if not isinstance(payload, dict):
+        return units, None
+    _reject_near_miss_key(payload, "spawn_plan")
+    return units, payload.get("spawn_plan")
+
+
+def _reject_near_miss_key(payload: dict[str, object], expected: str) -> None:
+    """Refuse a key that is the expected one with different punctuation or case.
+
+    `spawnPlan` and `spawn-plan` are both natural spellings, and `.get` drops
+    either without a word — worst below the threshold, where the operator's
+    justification is silently discarded and the frozen contract says nothing
+    was supplied.
+    """
+    if expected in payload:
+        return
+    flattened = expected.replace("_", "")
+    for key in payload:
+        if str(key).replace("_", "").replace("-", "").lower() == flattened:
+            raise OmhError(f"unknown key {key!r} in fanout units payload; did you mean {expected!r}?")
 
 
 def _add_coding_commands(sub) -> None:

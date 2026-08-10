@@ -101,8 +101,82 @@ consistency finding with a concrete `file:line` alternative, not a bug.
 
 ## Re-review convergence
 
-After the first review of a PR, suppress new Nits and post Important findings
-only. A one-line fix must not reach round seven on style.
+A review round that can raise anything about anything never converges. From
+the second round on, the review is a ratchet: it tightens around what is still
+unresolved and does not re-open settled ground.
+
+**Settled ground** is the diff the previous round was posted against, and only
+as far as that round says it looked. A round that reviewed part of a PR — a
+large diff, a partial pass, a skipped module — says so, and settles only what
+it names. A shallow round one must not blind every round after it.
+
+**Verdict** below means this file's tally (`1 important, 3 nits`,
+`No blocking issues`). The `review-sweep` procedure posts `COMMENT` and never
+approves or requests changes, so the tally is the only verdict it has. A
+reviewer who does hold approve / request-changes power reads the same rules
+with their verdict in place of the tally.
+
+Six rules, in force from round two.
+
+**Suppress new Nits.** Post Important findings only. A one-line fix must not
+reach round seven on style.
+
+**Scope findings to the delta — not your reading.** Round two and later raise
+findings about two things: what changed since the round you last posted, and
+whether the findings you raised then are resolved.
+
+This constrains what you *report*, never what you *read*. Reading outside the
+delta stays mandatory: the two headline Important findings in this repo are
+things that should have changed and did not — a generated artifact whose
+source moved without it, a count assertion three files away. Neither is
+visible in the diff. **A finding whose cause is in the delta is a delta
+finding, whichever file exhibits it.** Run the Step 4 gates every round; they
+catch desync without reading anything.
+
+**Justify novelty, or post it demoted and say why.** A new Important finding
+on ground a previous round settled must say, in the finding itself, why it was
+not visible then. Four reasons count, and the fourth is the honest one: a fix
+revealed it, a file arrived, an assumption was disproved, or **you did not
+examine this last round** — say that plainly. It costs you credibility, which
+is the correct price, and it costs the repository nothing.
+
+Without one of those, the finding is not Important this round: post it as a
+Nit *with* the admission attached. It does not vanish — the nit-suppression
+rule above does not apply to a demoted finding, because a suppressed finding
+and a deleted finding are the same thing.
+
+**Anything on the `What Important means here` list is exempt from demotion.**
+A contract break is Important on discovery, in whatever round it surfaces. A
+network call added to core `omh`, a false evidence claim, a hand-edited
+generated artifact, a positive-only routing trigger: these stay Important
+without a novelty sentence. Convergence pressure is not worth shipping one.
+
+**Carryover blockers stay blocking.** A finding raised in an earlier round and
+still unresolved blocks at its original severity no matter how many rounds
+have passed — unless you withdraw it under the last rule, which is the only
+thing that clears one other than a fix. Judge "resolved" to the same bar the
+Verification bar sets for findings: point at the line that resolves it, or say
+the resolution is unverified.
+
+**A cleared round cannot be made worse.** When the previous round raised at
+least one Important finding and this round finds all of them resolved, this
+round's tally must not report more Important findings *on that same ground*.
+The antecedent needs a non-empty set: a previous round with no Important
+findings settles nothing and locks nothing. And this rule is subordinate to
+the novelty rule above — a properly justified new Important finding stands on
+its own and sets the tally, whatever this rule would otherwise say.
+
+**Withdraw your own over-reach.** Before posting, re-read your previous round
+against the Do-not-report list and the `What Important means here` list. A
+demand that turns out to have been scope expansion, speculation, or a Nit
+dressed as Important is your defect, not the author's: withdraw it in this
+round's body and say so. A withdrawn finding stops being a carryover blocker.
+Judge round one against those two lists only — the ratchet did not bind it.
+
+State the round number and the SHA you are ratcheting against at the top of
+the body, so the author can check the ratchet held. If the same finding is
+disputed across two rounds, it goes to the maintainer rather than into a third
+round; nothing here is a mandate to keep arguing.
 
 ## Summary shape
 

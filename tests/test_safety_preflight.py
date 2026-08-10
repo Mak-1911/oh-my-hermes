@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from _credential_fixtures import AWS_ACCESS_KEY_ID
 from _local_package import load_local_package
 
 load_local_package()
@@ -233,7 +234,7 @@ class FieldClassTests(unittest.TestCase):
         for field, value in (
             ("owner", "ghp_abcdefghijklmnopqrstuvwxyz"),
             ("approved_scope", "api_key-scope"),
-            ("persisted_content_refs", ["AKIAIOSFODNN7EXAMPLE"]),
+            ("persisted_content_refs", [AWS_ACCESS_KEY_ID]),
             ("observed_record_refs", ["bearer-abc"]),
         ):
             with self.subTest(field=field):
@@ -280,7 +281,7 @@ class FieldClassTests(unittest.TestCase):
         mode = evaluate_safety_preflight(request(message_context_mode="ghp_abcdefghijklmnopqrstuvwxyz"))
         self.assertEqual(mode["status"], "deny")
         self.assertEqual(mode["reason_code"], "raw_context_mode_unknown")
-        claim = evaluate_safety_preflight(request(evidence_claims=["AKIAIOSFODNN7EXAMPLE"]))
+        claim = evaluate_safety_preflight(request(evidence_claims=[AWS_ACCESS_KEY_ID]))
         self.assertEqual(claim["status"], "deny")
         self.assertEqual(claim["reason_code"], "evidence_claim_unknown")
         kind = evaluate_safety_preflight(request(remote_targets=[{"kind": "api_key", "ref": "origin"}]))
@@ -353,7 +354,7 @@ class SafetyPreflightDenialTests(unittest.TestCase):
             ),
             (
                 "credential shaped value",
-                request(owner="AKIAIOSFODNN7EXAMPLE"),
+                request(owner=AWS_ACCESS_KEY_ID),
                 RULE_SECRETS_ABSENT,
                 "owner",
                 "secret_shaped_value",
@@ -732,10 +733,10 @@ class PreExpansionInputTests(unittest.TestCase):
             ("fenced block in a declared field", request(approved_scope="```python```"), "body_shaped_request_value"),
             ("long body in a declared field", request(approved_scope="x" * 500), "body_shaped_request_value"),
             ("credential in a declared field", request(approved_scope="ghp_abcdefghijklmnopqrstuvwxyz"), "secret_shaped_value"),
-            ("credential inside a list", request(persisted_content_refs=["AKIAIOSFODNN7EXAMPLE"]), "secret_shaped_value"),
+            ("credential inside a list", request(persisted_content_refs=[AWS_ACCESS_KEY_ID]), "secret_shaped_value"),
             (
                 "credential inside a nested remote target",
-                request(remote_targets=[{"kind": "git_remote", "ref": "AKIAIOSFODNN7EXAMPLE"}]),
+                request(remote_targets=[{"kind": "git_remote", "ref": AWS_ACCESS_KEY_ID}]),
                 "secret_shaped_value",
             ),
             ("body inside a list", request(target_paths=["src/a.py\nsrc/b.py"]), "body_shaped_request_value"),

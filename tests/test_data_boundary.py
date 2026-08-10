@@ -17,6 +17,7 @@ import json
 import unittest
 from unittest import mock
 
+from _credential_fixtures import AWS_ACCESS_KEY_ID
 from _local_package import load_local_package
 
 load_local_package()
@@ -189,7 +190,7 @@ class ProhibitedDataClassTests(unittest.TestCase):
 
     def test_credential_material_keeps_naming_the_credential_rule(self) -> None:
         """`secrets_absent` predates #801 and still answers for its own class."""
-        verdict = evaluate_safety_preflight(request(owner="AKIAIOSFODNN7EXAMPLE"))
+        verdict = evaluate_safety_preflight(request(owner=AWS_ACCESS_KEY_ID))
         self.assertEqual(verdict["reason_code"], "secret_shaped_value")
 
     def test_the_prohibited_content_scan_never_reads_a_user_named_path(self) -> None:

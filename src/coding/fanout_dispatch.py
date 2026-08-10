@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from hashlib import sha256
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import time
@@ -457,6 +459,9 @@ def dispatch_fanout(
         "merge_order": order,
         "units": summary_units,
         "merge_ready_units": [entry["unit_id"] for entry in summary_units if entry.get("merge_ready")],
+        # The counterpart to merge_ready: units that failed but left work worth
+        # looking at before anyone re-runs them from scratch.
+        "recovery_available_units": _recovery_available(summary_units),
         "auto_merge": False,
         "dependency_bar": (
             "A satisfied dependency means only that the owner agent process exited 0. "
@@ -478,7 +483,41 @@ def dispatch_fanout(
         summary_path = fanout_dispatch_summary_path(paths, fanout_id)
         stored = _merged_dispatch_summary(summary_path, summary)
         atomic_write_json(summary_path, stored, private=True)
+        # The CLI prints what this returns, so the rollups it carries have to
+        # agree with the file just written — an operator who re-ran one unit
+        # was being told nothing was salvageable while the stored summary said
+        # otherwise. Only the rollups and the carried-forward `recovery` are
+        # taken from the merged view: per-unit `status` stays THIS run's answer,
+        # so `already_completed` still means "I did not re-run this".
+        summary["units"] = _with_carried_recovery(summary["units"], stored.get("units", []))
+        summary["recovery_available_units"] = _recovery_available(summary["units"])
     return summary
+
+
+def _with_carried_recovery(
+    units: list[dict[str, Any]],
+    merged_units: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """This run's entries, plus the recovery a unit that did not re-run still has."""
+    merged_by_id = {str(entry.get("unit_id", "")): entry for entry in merged_units if isinstance(entry, Mapping)}
+    carried: list[dict[str, Any]] = []
+    for entry in units:
+        merged = merged_by_id.get(str(entry.get("unit_id", "")))
+        if "recovery" not in entry and isinstance(merged, Mapping) and isinstance(merged.get("recovery"), Mapping):
+            carried.append({**entry, "recovery": dict(merged["recovery"])})
+        else:
+            carried.append(entry)
+    return carried
+
+
+def _recovery_available(units: Sequence[Mapping[str, Any]]) -> list[str]:
+    return [
+        str(entry.get("unit_id"))
+        for entry in units
+        if isinstance(entry, Mapping)
+        and isinstance(entry.get("recovery"), Mapping)
+        and entry["recovery"].get("outcome") == "recovery_available"
+    ]
 
 
 _DISPATCH_SKIP_STATUSES = frozenset({"already_completed", "not_selected"})
@@ -503,6 +542,20 @@ def _merged_dispatch_summary(summary_path: Path, summary: dict[str, Any]) -> dic
             # A skipped unit carries no telemetry; the earlier observed entry
             # is the richer record and stays.
             merged_units.append(earlier)
+        elif (
+            isinstance(earlier, dict)
+            and "recovery" in earlier
+            and "recovery" not in entry
+            and "exit_code" not in entry
+        ):
+            # The unit did not actually re-run: no exit code means no spawn, so
+            # statuses like `worktree_failed` or `executor_not_ready` say
+            # nothing about what the earlier attempt left behind. Carrying the
+            # earlier recovery forward keeps a salvageable unit from vanishing
+            # from the rollup while its record is still on disk. A unit that
+            # DID run replaces the answer, which is how a later success clears
+            # a stale one.
+            merged_units.append({**entry, "recovery": earlier["recovery"]})
         else:
             merged_units.append(entry)
     merged = dict(summary)
@@ -510,6 +563,12 @@ def _merged_dispatch_summary(summary_path: Path, summary: dict[str, Any]) -> dic
     merged["merge_ready_units"] = [
         str(entry.get("unit_id")) for entry in merged_units if isinstance(entry, dict) and entry.get("merge_ready")
     ]
+    # Recomputed for the same reason merge_ready_units is: the current run's
+    # rollup only names units it dispatched, so carrying it through unchanged
+    # would erase an earlier run's salvageable unit from the one field an
+    # operator reads first — while that unit's own `recovery` record, merged
+    # just above, still says otherwise.
+    merged["recovery_available_units"] = _recovery_available(merged_units)
     return merged
 
 
@@ -702,6 +761,15 @@ def _dispatch_unit(
             "merge_ready": False,
         }
     worktree = Path(str(worktree_record["worktree_path"]))
+    if fanout_id:
+        # Before the spawn, like the in-flight marker below. A record from an
+        # earlier attempt describes a worktree that has just been rebuilt from
+        # base, so leaving it would advertise a stale digest and a recover_with
+        # pointing at work that no longer exists. If this run also fails, the
+        # probe writes a fresh one.
+        from .fanout_artifacts import clear_fanout_unit_recovery
+
+        clear_fanout_unit_recovery(paths, fanout_id, unit_id)
     _ensure_unit_run(paths, unit, owner)
     append_journal_observation(
         paths,
@@ -815,7 +883,240 @@ def _dispatch_unit(
     if limit_label:
         result["limit_shaped"] = True
         result["limit_pattern"] = limit_label
+    if exit_code != 0:
+        # A failed unit still owns its worktree, and whatever it managed to
+        # write is the only thing standing between the operator and redoing
+        # the work. Capture what survived before the summary claims the unit
+        # produced nothing.
+        recovery = _capture_unit_recovery(
+            paths,
+            fanout_id=fanout_id,
+            unit_id=unit_id,
+            worktree=worktree,
+            base_sha=base_sha,
+            runner=runner,
+        )
+        if recovery is not None:
+            result["recovery"] = recovery
     return result
+
+
+# One unit's salvage report is a few dozen paths at most; past that the list
+# stops being a recovery aid and starts being a second copy of the diff.
+_MAX_RECOVERY_PATHS = 50
+RECOVERY_SCHEMA_VERSION = "fanout_unit_recovery/v1"
+RECOVERY_CLAIM_BOUNDARY = (
+    "A recovery record measures what a failed unit left in its worktree. It is not verification, review, "
+    "or evidence that the captured work is correct, complete, or safe to merge."
+)
+
+
+def _capture_unit_recovery(
+    paths: OmhPaths,
+    *,
+    fanout_id: str,
+    unit_id: str,
+    worktree: Path,
+    base_sha: str,
+    runner: Callable[..., Any],
+) -> dict[str, Any] | None:
+    """Metadata for whatever a failed unit left behind, or None when unmeasurable.
+
+    Metadata only, on purpose: the changed paths, how many lines moved, and the
+    size and SHA-256 of the diff that carries them. The diff itself is hashed
+    and dropped — it stays in the unit worktree, which is the one place it is
+    already allowed to live.
+
+    Capture never raises. A unit that failed must not fail differently because
+    the salvage probe did.
+    """
+    # Each argv is spelled with a literal subcommand, never `["git", verb]`:
+    # INVARIANT 3 in tests/test_handoff_safety_contract_enforcement.py resolves
+    # git verbs statically and fails closed on a runtime one.
+    #
+    # Git discovery walks UP from cwd, and a unit worktree is a sibling of the
+    # repo root. If the unit destroyed its own `.git` link, an unguarded write
+    # here would land in whatever repository encloses the parent directory —
+    # possibly the operator's. Confirm the worktree is its own toplevel before
+    # writing anything, so the allowlist's "never the operator's repository"
+    # claim is checked rather than asserted.
+    toplevel = _git_text(runner, worktree, ["git", "rev-parse", "--show-toplevel"])
+    if toplevel is None or not _same_directory(toplevel.strip(), worktree):
+        return _capture_failed("the unit worktree no longer resolves as its own git toplevel")
+    # `git diff` does not see untracked files, and a failed unit's brand-new
+    # files are the most common thing worth salvaging. `add -N` records the
+    # paths without staging content, which both completes the measurement and
+    # makes the `recover_with` command below actually produce a full patch.
+    # It respects .gitignore, so build output stays out of the report.
+    untracked_measured = _git_text(runner, worktree, ["git", "add", "-N", "--", "."]) is not None
+    # Bytes, not text. `-z` deliberately disables git's C-quoting so paths are
+    # emitted raw, and decoding them through the host locale (cp1252 on the
+    # enforcing Windows job) silently rewrites a non-ASCII filename into
+    # mojibake the operator then cannot find. Decoded strictly as UTF-8 below,
+    # which is what git records paths as.
+    numstat_bytes = _git_bytes(runner, worktree, ["git", "diff", "--numstat", "-z", base_sha])
+    # Captured as BYTES, never decoded. A partial file in a non-UTF-8 encoding
+    # is ordinary debris in a failed unit, and `text=True` would raise
+    # UnicodeDecodeError straight through this function and abort the whole
+    # dispatch. Hashing raw bytes also makes the digest describe what git
+    # actually emits, rather than a decode/re-encode round trip through
+    # whatever the host locale happens to be.
+    patch_bytes = _git_bytes(runner, worktree, ["git", "diff", base_sha])
+    if numstat_bytes is None or patch_bytes is None:
+        return _capture_failed("git refused to diff the unit worktree against the dispatch base")
+    paths_changed, lines_changed = _parse_numstat(numstat_bytes.decode("utf-8", "surrogateescape"))
+    if not untracked_measured:
+        # `add -N` failed, so anything the unit CREATED is invisible to
+        # `git diff`. Whatever the tracked diff shows, this record cannot make
+        # the completeness promise its `recover_with` command advertises, and a
+        # partial answer an operator acts on is worse than an honest refusal.
+        # `tracked_paths_seen` says the worktree is not empty so nobody deletes
+        # it on the strength of this record.
+        failed = _capture_failed(
+            "git add -N failed, so files the unit created could not be measured; "
+            "the tracked diff alone is not a complete patch"
+        )
+        failed["tracked_paths_seen"] = len(paths_changed)
+        return failed
+    if not paths_changed and not patch_bytes:
+        return {
+            "schema_version": RECOVERY_SCHEMA_VERSION,
+            "outcome": "no_changes",
+            "claim_boundary": RECOVERY_CLAIM_BOUNDARY,
+        }
+    record: dict[str, Any] = {
+        "schema_version": RECOVERY_SCHEMA_VERSION,
+        "outcome": "recovery_available",
+        "unit_id": unit_id,
+        "base_sha": base_sha,
+        "worktree_path": str(worktree),
+        "paths_changed": len(paths_changed),
+        "lines_changed": lines_changed,
+        "paths": paths_changed[:_MAX_RECOVERY_PATHS],
+        "paths_truncated": len(paths_changed) > _MAX_RECOVERY_PATHS,
+        "diff_bytes": len(patch_bytes),
+        "diff_sha256": sha256(patch_bytes).hexdigest(),
+        "recover_with": f"git -C {shlex.quote(str(worktree))} diff {shlex.quote(base_sha)}",
+        "claim_boundary": RECOVERY_CLAIM_BOUNDARY,
+    }
+    if fanout_id:
+        from .fanout_artifacts import fanout_unit_recovery_path, write_fanout_unit_recovery
+
+        try:
+            # The ref goes INTO the record before it is serialized. Writing
+            # first and assigning after left the on-disk file missing a key the
+            # summary's copy carried, so two shapes advertised the same
+            # schema_version and a consumer reading the documented path got a
+            # KeyError.
+            record["recovery_ref"] = str(fanout_unit_recovery_path(paths, fanout_id, unit_id))
+            write_fanout_unit_recovery(paths, fanout_id, unit_id, record)
+        except (OSError, ValueError):
+            # Same posture as the in-flight marker: a persistence failure is
+            # reported by omission, never by losing the unit result.
+            record["recovery_ref"] = ""
+    return record
+
+
+def _capture_failed(reason: str) -> dict[str, Any]:
+    """A recovery record that reports the probe could not answer.
+
+    Distinct from `no_changes` on purpose: "the unit left nothing" and "I could
+    not tell" lead an operator to opposite actions.
+    """
+    return {
+        "schema_version": RECOVERY_SCHEMA_VERSION,
+        "outcome": "capture_failed",
+        "reason": reason,
+        "claim_boundary": RECOVERY_CLAIM_BOUNDARY,
+    }
+
+
+def _same_directory(reported: str, worktree: Path) -> bool:
+    if not reported:
+        return False
+    try:
+        return Path(reported).resolve(strict=False) == worktree.resolve(strict=False)
+    except OSError:
+        return False
+
+
+def _git_text(runner: Callable[..., Any], worktree: Path, argv: list[str]) -> str | None:
+    """Decoded stdout of one git command in the unit worktree, or None on failure.
+
+    Callers pass the complete argv, subcommand included, so the verb stays a
+    literal at every construction site. Decoding is lenient: this is used for
+    git's own structured output (paths, refs), where an undecodable byte
+    should degrade one field rather than abort a dispatch.
+    """
+    try:
+        completed = runner(
+            argv, cwd=str(worktree), text=True, errors="replace", capture_output=True, timeout=60
+        )
+        # Inside the try: a runner that reports a non-numeric returncode makes
+        # `int(...)` raise TypeError, which would escape this "never raises"
+        # helper exactly the way UnicodeDecodeError used to.
+        if int(getattr(completed, "returncode", 1)) != 0:
+            return None
+        stdout = getattr(completed, "stdout", "") or ""
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        return None
+    return stdout if isinstance(stdout, str) else stdout.decode("utf-8", "replace")
+
+
+def _git_bytes(runner: Callable[..., Any], worktree: Path, argv: list[str]) -> bytes | None:
+    """Raw stdout of one git command, undecoded, or None on failure.
+
+    Used for the patch: it may contain any byte sequence a failed unit wrote,
+    and decoding it would both risk raising and make any digest describe the
+    round trip rather than git's actual output.
+    """
+    try:
+        completed = runner(argv, cwd=str(worktree), capture_output=True, timeout=60)
+        if int(getattr(completed, "returncode", 1)) != 0:
+            return None
+        stdout = getattr(completed, "stdout", b"") or b""
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        return None
+    return stdout if isinstance(stdout, bytes) else str(stdout).encode("utf-8", "surrogateescape")
+
+
+def _parse_numstat(numstat: str) -> tuple[list[str], int]:
+    """Sorted changed paths and total moved lines from `git diff --numstat -z`.
+
+    `-z` is what makes this parseable: it NUL-terminates records and turns off
+    the C-quoting that would otherwise mangle a path containing a tab or a
+    quote. Binary files report `-` for both counts; they still count as a
+    changed path and contribute no lines.
+
+    A rename or copy emits an empty path field followed by two more records —
+    the old path then the new one. Both are counted, because both are things
+    the operator has to reconcile.
+    """
+    tokens = numstat.split("\0")
+    paths_changed: list[str] = []
+    lines_changed = 0
+    index = 0
+    while index < len(tokens):
+        record = tokens[index]
+        index += 1
+        # Split on the first two tabs only. `-z` emits the path raw, so a
+        # filename containing a tab would otherwise be truncated at it.
+        fields = record.split("\t", 2)
+        if len(fields) < 3:
+            continue
+        added, removed, path = fields[0], fields[1], fields[2]
+        for count in (added, removed):
+            if count.isdigit():
+                lines_changed += int(count)
+        if path:
+            paths_changed.append(path)
+            continue
+        # Rename/copy: the next two tokens are the old and new paths.
+        for offset in (0, 1):
+            if index + offset < len(tokens) and tokens[index + offset]:
+                paths_changed.append(tokens[index + offset])
+        index += 2
+    return sorted(set(paths_changed)), lines_changed
 
 
 def _ensure_unit_run(paths: OmhPaths, unit: Mapping[str, Any], owner: str) -> None:

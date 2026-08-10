@@ -1015,6 +1015,7 @@ This is a Hermes-native `{name}` workflow skill.
 - **Provenance (출처)** - Ask for the source class and distinguish Hermes-native, provider, and vector material as `not_omh_reviewed`.
 - **Target (대상)** - Review existing native-memory claims only. Route a new project/product fact to `memory-new`.
 - **Review (검토)** - Prioritize stale, conflicting, duplicate, and overgeneralized claims. Offer keep, revise, or archive choices; do not describe an archive as removal.
+- **Attention (주의)** - For a reviewed OMH-local record, keep/archive is an attention tier: `active` leads the working context, `reference` stays recallable behind active peers, `archive` leaves default recall. Preview with `omh memory attention <record-id> --tier <tier>`, say which records stay in the working context and which leave it, then apply with `--apply` only after the user agrees. The preview writes nothing.
 - **Diff (차이)** - Prepare one concise native write diff with before/after claims and counts. Keep the caps: MEMORY.md about 2,200 characters and USER.md about 1,375 characters.
 - **Native-write boundary (쓰기)** - This skill can prepare guidance and a native write diff only. It never invokes, applies, or observes a `MEMORY.md`/`USER.md` write.
 
@@ -1023,6 +1024,8 @@ This is a Hermes-native `{name}` workflow skill.
 The prepared artifact is `memory_curation_review/v1`, not native-memory mutation evidence. Hermes-native and external provider/vector context is `not_omh_reviewed`: it can nominate an OMH candidate but never inherits OMH approval. A configured Hermes runtime may transmit rendered OMH prefetch content in its model request.
 
 Use lifecycle words literally: expire removes influence only; retire archives recoverably; restore creates a new pending revision while preserving the archive; prune hard-deletes only the manifest-declared OMH-local target set. Report restore and prune first. No lifecycle result proves anything outside that named local target set.
+
+An attention tier is not a lifecycle state, and the two uses of "archive" are different: the `archive` tier only stops a record from occupying the default working context, leaving it in the store, readable, and answerable by `omh memory recall --include-archived`, while `retire` moves an expired revision into the local archive directory. Neither is deletion; never describe either as one.
 
 Legacy v1 material is migration/review-required. Present `memory inventory` counts and the report-first per-artifact `memory reactivate ... --apply` path; inventory and reactivation never silently grant replay eligibility. Dreaming remains reminder-only: it prepares reminders for `stale_review_required` and `expired_volatile_records`, never consolidation, retirement, restore, or prune.
 
@@ -1645,3 +1648,155 @@ def _harness_payload(harness: HarnessDefinition) -> dict[str, object]:
         "fallback": harness.fallback,
         "harness_quality": harness_quality_contract(harness.name),
     }
+
+
+def code_review_reference_templates() -> list[SkillReferenceTemplate]:
+    return list(_code_review_reference_templates_cached())
+
+
+@lru_cache(maxsize=1)
+def _code_review_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
+    return (
+        SkillReferenceTemplate("code-review", "references/review-dispatch.md", _review_dispatch_reference()),
+        SkillReferenceTemplate("code-review", "references/review-response.md", _review_response_reference()),
+    )
+
+
+def _review_dispatch_reference() -> str:
+    return """# Requesting a Review
+
+`code-review` states what a review must contain. This states how to obtain one.
+Load it when dispatching a reviewer, not when reading a finding.
+
+## Name the range before dispatching
+
+A reviewer handed the wrong range reviews a fraction of the change and returns
+a clean verdict on code nobody read. That is a manufactured pass, and it is the
+exact failure the evidence boundary exists to prevent.
+
+```sh
+BASE_SHA=$(git merge-base origin/main HEAD)   # or the commit recorded before the work began
+HEAD_SHA=$(git rev-parse HEAD)
+```
+
+**Never `HEAD~1`.** It silently drops every commit of a multi-commit task except
+the last. Record BASE before the work starts; deriving it afterwards from the
+log is guesswork the moment a merge or a fixup lands.
+
+State both SHAs in the request. A review whose range is unstated cannot be
+re-run, and cannot be shown to have covered anything.
+
+## Hand over artifacts, not bodies
+
+Everything pasted into a dispatch stays resident for the rest of the session and
+is re-read on every later turn. Write the diff, the plan section, and the failing
+output to files under `.omh/artifacts/` or `.omh/handoffs/` and pass the paths.
+
+A dispatch describes one unit of work. Do not paste accumulated prior-task
+summaries into later dispatches - a fresh reviewer needs the range, the
+requirements, and the constraints, and nothing else.
+
+## What the request must carry
+
+- **Range** - BASE_SHA and HEAD_SHA, both spelled out.
+- **Claim** - what the author says this does. The review is against this claim.
+- **Requirements** - a path to the plan or spec section, not its pasted text.
+- **Constraints** - anything project-wide the diff must satisfy.
+- **Return contract** - findings first, severity per finding, and the file, line,
+  and command output each one rests on.
+
+## Reading the report
+
+A reviewer's report is a claim, not evidence. Two rules keep it honest:
+
+- **Do not trust the report.** A stated rationale never downgrades a finding's
+  severity. "I checked and it is fine" is not a check; the command output is.
+- **"Attempted" is not "addressed."** A fix is done when the specific defect no
+  longer reproduces, shown by the same command that showed it. A commit message
+  saying it was fixed is not that command.
+
+## The four statuses an implementer may return
+
+Anything dispatched to change code returns exactly one of these, so the
+coordinator can act without re-reading the work:
+
+| Status | Meaning | What the coordinator does |
+| --- | --- | --- |
+| `DONE` | Complete and verified | Generate the review range, dispatch the reviewer |
+| `DONE_WITH_CONCERNS` | Complete, with doubts stated | Read the concerns first; address correctness or scope before review |
+| `NEEDS_CONTEXT` | Missing information it could not derive | Supply exactly what is missing, re-dispatch |
+| `BLOCKED` | Cannot complete | Change something - more context, a stronger model, a smaller task, or escalate |
+
+Never re-dispatch a `BLOCKED` unit unchanged. If it said it was stuck, repeating
+the request repeats the outcome.
+
+## Boundary
+
+A prepared review request is not a review. A returned report is not a fix, and a
+fix is not verification. Each step is observed only from its own fresh output.
+"""
+
+
+def _review_response_reference() -> str:
+    return """# Receiving a Review
+
+Review feedback is a technical claim to evaluate, not a verdict to perform
+agreement with. Load this when findings arrive, before changing anything.
+
+## Verify before implementing
+
+1. **Read** the whole set without reacting.
+2. **Restate** each item in your own words. If you cannot, you do not understand it yet.
+3. **Verify** it against the codebase as it actually is.
+4. **Evaluate** whether it is correct *for this project*, not in general.
+5. **Respond** with a technical acknowledgement or reasoned push-back.
+6. **Implement** one item at a time, checking each.
+
+## The clarification gate is all-or-nothing
+
+If any item is unclear, ask about it **before implementing any of them**.
+
+Findings are frequently related. Implementing the four you understood can make
+the two you did not understand harder to fix, or can implement them wrongly by
+implication. Partial understanding produces a partial-fix diff that then needs
+its own review round.
+
+## Push-back is part of the contract
+
+A reviewer working from a diff has less context than you do. When a finding is
+wrong, say so with the technical reason and the evidence - the test that covers
+it, the constraint that forbids the suggested shape, the platform it breaks.
+
+Do not implement a change you believe is wrong in order to close a finding. That
+trades a review round for a defect.
+
+What is not push-back: silence, partial implementation, or implementing
+something adjacent and calling the finding addressed.
+
+## Order the work
+
+1. Anything that blocks other items.
+2. Correctness, highest severity first.
+3. Everything mechanical.
+
+Re-run the verifying command after each, not once at the end. A batch of fixes
+verified together cannot tell you which one regressed.
+
+## What not to say
+
+Performative agreement wastes a turn and hides whether the item was understood.
+Skip "you're absolutely right", "great catch", and "let me implement that now" -
+restate the requirement, or start working.
+
+## Convergence
+
+From round two, the review is a ratchet: new findings on ground the previous
+round already settled need a stated reason they were not visible earlier, and a
+finding carried forward keeps the severity it was raised at. See `REVIEW.md` for
+the full rule set; this file only covers the reviewee's side.
+
+## Boundary
+
+Reading a finding is not fixing it. A fix is observed only when the command that
+demonstrated the defect no longer does.
+"""

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from functools import lru_cache
 import re
@@ -70,6 +71,10 @@ _GUARDRAIL_CANDIDATE_INJECTION_IDS = frozenset(
         "executor_runtime_readiness_before_generic_advice",
         "feedback_before_coding",
         "gateway_intent_before_feedback_triage",
+        # A greenfield request scores 0 on `deep-interview` by construction - the
+        # user types "build a todo list", never "interview me" - so without
+        # injection the guard's boost has no candidate to land on.
+        "greenfield_build_before_generic_picker",
         "hermes_coding_team_before_generic_clarification",
         "github_event_ops_before_generic_planning",
         "live_info_operator_before_generic_current_facts",
@@ -1588,51 +1593,16 @@ def _score_definition(
         _ecosystem_identity_connector_explicit_match(normalized_query)
     )
 
+    # Some skills belong in the shortlist only when their own precondition
+    # holds. That was seven copies of this same conditional, so adding an
+    # eighth meant editing the function every skill is scored by. The rules
+    # live in `_SKILL_OFFERS_ITSELF` at the foot of this module now: same
+    # predicates, same evaluation order, one row per skill.
+    offers_itself = _SKILL_OFFERS_ITSELF.get(definition.name)
     if (
-        definition.name == "ops-observability-card"
-        and explicit_skill != "ops-observability-card"
-        and (
-            ops_observability_external_blocked(normalized_query)
-            or ops_observability_generic_metrics_blocked(normalized_query, query_tokens)
-            or _public_plugin_connector_readiness_match(normalized_query)
-            or _skill_scout_candidate_alias_intent_match(normalized_query)
-        )
-    ):
-        return None
-    if (
-        definition.name == "harness-session-inventory"
-        and explicit_skill != "harness-session-inventory"
-        and not _harness_session_inventory_recommendation_applies(normalized_query, query_tokens)
-    ):
-        return None
-    if (
-        definition.name == "build-failure-triage"
-        and explicit_skill != "build-failure-triage"
-        and _build_failure_triage_fixed_or_pass_verification_context(normalized_query)
-    ):
-        return None
-    if (
-        definition.name == "media-input-operator"
-        and explicit_skill != "media-input-operator"
-        and not media_input_operator_guard_applies(normalized_query, query_tokens)
-    ):
-        return None
-    if (
-        definition.name == "external-connector-readiness"
-        and explicit_skill != "external-connector-readiness"
-        and not _external_connector_readiness_recommendation_applies(normalized_query, query_tokens)
-    ):
-        return None
-    if (
-        definition.name == "prompt-import-readiness"
-        and explicit_skill != "prompt-import-readiness"
-        and not _prompt_import_readiness_recommendation_applies(normalized_query, query_tokens)
-    ):
-        return None
-    if (
-        definition.name == "physical-device-readiness"
-        and explicit_skill != "physical-device-readiness"
-        and not _physical_device_readiness_recommendation_applies(normalized_query, query_tokens)
+        offers_itself is not None
+        and explicit_skill != definition.name
+        and not offers_itself(normalized_query, query_tokens)
     ):
         return None
 
@@ -1641,7 +1611,7 @@ def _score_definition(
         matched.update(("explicit_invocation", f"name:{definition.name}"))
 
     for trigger_phrase in prepared.plain_trigger_phrases:
-        if _phrase_match(normalized_query, trigger_phrase):
+        if _trigger_phrase_match(normalized_query, trigger_phrase):
             score += 6
             matched.add(f"trigger:{trigger_phrase}")
 
@@ -2249,6 +2219,20 @@ def _phrase_match(query: str, value: str) -> bool:
     return bool(query and value and (query in value or value in query))
 
 
+def _trigger_phrase_match(query: str, value: str) -> bool:
+    """A trigger fires when the message contains it, never the reverse.
+
+    `_phrase_match` is bidirectional, which is right for description and
+    use_when - a short query legitimately appears inside a long prose field.
+    For triggers the reverse arm inverts the contract: it makes the message
+    `test` match the triggers `npm test`, `cargo test`, `pytest`, and
+    `python -m unittest` at +6 apiece, so one ambiguous word scored 73 and
+    routed to `command-operator` at high confidence. A trigger is a phrase the
+    user is expected to say; a fragment of one is not evidence they said it.
+    """
+    return bool(query and value and value in query)
+
+
 def _explicit_phrase_match(query: str, value: str) -> bool:
     return bool(query and value and value in query)
 
@@ -2371,3 +2355,36 @@ def _evidence_boundary(definition: SkillDefinition) -> str:
 
 def _wrapper_guidance(definition: SkillDefinition) -> str:
     return _policy_for(definition).wrapper_guidance
+
+
+def _ops_observability_card_offers_itself(normalized_query: str, query_tokens: set[str]) -> bool:
+    return not (
+        ops_observability_external_blocked(normalized_query)
+        or ops_observability_generic_metrics_blocked(normalized_query, query_tokens)
+        or _public_plugin_connector_readiness_match(normalized_query)
+        or _skill_scout_candidate_alias_intent_match(normalized_query)
+    )
+
+
+def _build_failure_triage_offers_itself(normalized_query: str, query_tokens: set[str]) -> bool:
+    return not _build_failure_triage_fixed_or_pass_verification_context(normalized_query)
+
+
+# Skills that withdraw from the shortlist unless their own precondition holds,
+# checked in `_score_definition`. An explicit invocation always overrides this:
+# naming a skill outright is the user overruling its self-assessment.
+#
+# This is a table because it was a table already - seven hand-written copies of
+# one conditional inside the function that scores every skill, which is where
+# `docs/ADDING-A-SKILL.md` did not think to send anyone. Two entries are phrased
+# as blockers upstream and keep that phrasing in the wrappers above rather than
+# being rewritten, so the predicates here are the same ones as before.
+_SKILL_OFFERS_ITSELF: dict[str, Callable[[str, set[str]], bool]] = {
+    "ops-observability-card": _ops_observability_card_offers_itself,
+    "harness-session-inventory": _harness_session_inventory_recommendation_applies,
+    "build-failure-triage": _build_failure_triage_offers_itself,
+    "media-input-operator": media_input_operator_guard_applies,
+    "external-connector-readiness": _external_connector_readiness_recommendation_applies,
+    "prompt-import-readiness": _prompt_import_readiness_recommendation_applies,
+    "physical-device-readiness": _physical_device_readiness_recommendation_applies,
+}

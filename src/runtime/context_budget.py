@@ -26,7 +26,13 @@ from ..paths import OmhPaths
 RUN_CONTEXT_BUDGET_SCHEMA_VERSION = "omh_run_context_budget/v1"
 RUN_UNCHANGED_SCHEMA_VERSION = "omh_run_show_unchanged/v1"
 PROGRESS_STATUS_UNCHANGED_SCHEMA_VERSION = "omh_progress_status_unchanged/v1"
+CAPABILITY_PROJECTION_SUMMARY_ONLY_SCHEMA_VERSION = "omh_capability_projection_summary_only/v1"
 CONTEXT_BUDGET_LEDGER_NAME = "context_budget.json"
+
+# The ledger bucket a task-scoped capability projection spends from. A
+# projection is emitted per task, not per run, so the ledger key is the task id
+# the caller supplies rather than a run id.
+CAPABILITY_PROJECTION_SURFACE = "capability_projection"
 
 # `progress-status` spans every binding rather than one run, so it needs a
 # ledger bucket that is not a run id. The double underscores keep it from
@@ -300,5 +306,56 @@ def degrade_run_payload(shown: dict[str, Any], budget: dict[str, Any]) -> dict[s
             "Summary-only projection emitted after this run exhausted its observe-context budget. "
             "It is not execution, review, CI, merge-readiness, or merge evidence; read the listed "
             "artifacts for the full record."
+        ),
+    }
+
+
+def degrade_capability_projection_payload(
+    projected: dict[str, Any],
+    budget: dict[str, Any],
+    *,
+    dropped: list[dict[str, Any]],
+    content_bytes: int,
+) -> dict[str, Any]:
+    """Summary-only replacement for a task-scoped capability projection.
+
+    Same contract as `degrade_run_payload`: keep the position, drop the
+    material, name what was removed, and point at the command that returns it.
+    A capability projection has no journal history to shorten, so what it drops
+    is capability detail -- which is exactly what a reader must be told, or the
+    projection becomes a silent truncation of the authority view.
+
+    The authority block is carried through unchanged. Degrading is a context
+    decision; it never narrows or widens what the approved authority granted.
+    """
+    authority = projected.get("authority") if isinstance(projected.get("authority"), dict) else {}
+    task_id = str(projected.get("task_id", ""))
+    return {
+        "schema_version": CAPABILITY_PROJECTION_SUMMARY_ONLY_SCHEMA_VERSION,
+        "task_id": task_id,
+        "request_digest": str(projected.get("request_digest", "")),
+        "authority": authority,
+        "included": [],
+        "included_count": 0,
+        "offered_count": int(projected.get("offered_count", 0) or 0),
+        "exclusions": dropped,
+        "exclusion_summary": projected.get("exclusion_summary", {}),
+        "exclusion_reason_vocabulary": projected.get("exclusion_reason_vocabulary", []),
+        "budget_drop": {
+            "dropped_capabilities": [str(entry.get("capability", "")) for entry in dropped],
+            "dropped_count": len(dropped),
+            "projected_bytes": content_bytes,
+            "budget_bytes": int(budget.get("budget_bytes", 0) or 0),
+            "remaining_bytes": int(budget.get("remaining_bytes", 0) or 0),
+        },
+        "context_budget": public_budget(budget),
+        "degraded": True,
+        "degraded_reason": "capability_projection_context_budget_exhausted",
+        "next_action": "widen_the_request_or_start_a_new_task_budget_instead_of_repeating_this_command",
+        "full_output_command": f"omh capabilities project --task-id {task_id} --json",
+        "claim_boundary": (
+            "Summary-only capability projection emitted after this task exhausted its context "
+            "budget. Every capability it dropped is named above; nothing was silently withheld. "
+            "It is not execution, review, CI, merge-readiness, or merge evidence."
         ),
     }

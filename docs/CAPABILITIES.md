@@ -34,6 +34,7 @@ omh capabilities list
 omh capabilities inspect ultragoal --json
 omh capabilities inspect handoff-guide --section roles --json
 omh capabilities inspect request-to-handoff --section playbooks --json
+omh capabilities project "prepare a coding handoff for this issue"
 omh context brief "make an image card for this PR" --json
 ```
 
@@ -71,6 +72,66 @@ Capability families are the public, user-facing front door. The older lanes and
 groups remain in the manifest as compatibility context for wrappers, tests, and
 existing plugin surfaces; they should not be introduced to normal users before
 the family layer.
+
+## Task-Scoped Projection
+
+Every payload above is a whole-catalog snapshot. That is the right answer to
+"what can this install do?" and the wrong answer to "what does this request
+need": a request that needs two capabilities was still handed all of them, so
+the inventory ate context, diluted the routing signal, and put authority the
+task never asked for in front of the model.
+
+`omh capabilities project "<request>"` answers the second question as a view
+over the same catalog. It emits `omh_capability_projection/v1`:
+
+```sh
+omh capabilities project "prepare a coding handoff for this issue"
+omh capabilities project "prepare a coding handoff for this issue" --json
+omh capabilities project "prepare a coding handoff for this issue" --expand plan
+omh capabilities project "<request>" --task-id task-a --authority-digest <digest>
+```
+
+How it behaves:
+
+- **Selection reuses the router.** The shortlist comes from `omh recommend`'s
+  scorer and the family mapping, not from a second ranking, so a projection can
+  never disagree with the route the user is about to be offered.
+- **Two levels.** The projection carries a compact summary per relevant
+  capability: id, family, one-line description, next action, why it matched,
+  and score. Exact detail requires an explicit `--expand <capability>`, and a
+  capability the projection did not include cannot be expanded.
+- **Budgeted.** Content size is measured against `omh_run_context_budget/v1` --
+  the same per-task ledger the runtime observe surfaces spend from, keyed by
+  `--task-id`. Over budget, the lowest-ranked capabilities are dropped and
+  named; past the floor the payload degrades to
+  `omh_capability_projection_summary_only/v1` with `budget_drop` carrying the
+  dropped ids and the byte numbers. A drop is never silent.
+- **Closed exclusion vocabulary.** Every offered capability that is not
+  included is accounted for by exactly one of `beyond_context_budget`,
+  `not_granted_by_authority`, `not_relevant_to_request`, or
+  `outranked_by_shortlist`. Only capabilities the router actually considered are
+  itemized by name; the rest are counted. Naming ninety irrelevant workflows to
+  explain their absence would restore the dump this surface removes.
+
+### Approved Authority Is Frozen
+
+`omh_capability_authority/v1` records what a task's approval covered. A
+projection is a VIEW over it and can only intersect, which is enforced by the
+shape of the API rather than by a rule a caller must remember: the grant is a
+frozen record holding a frozen set, one function builds it, and the refresh
+entry point takes no authority parameter at all. Re-projecting against a
+catalog that grew since approval therefore cannot widen anything -- the new
+capability appears as an exclusion carrying `not_granted_by_authority`.
+
+The grant is re-derived from this install's capability policy on every
+invocation and identified by a digest. Pass `--authority-digest` with the value
+you approved and the command refuses with exit code 2 and an
+`omh_capability_authority_change/v1` report when the local policy has moved,
+instead of quietly serving a different view.
+
+The projection reads no clock and touches no network. The context budget is a
+parameter, so the same request against the same grant and budget projects byte
+for byte the same payload.
 
 ## Sections
 

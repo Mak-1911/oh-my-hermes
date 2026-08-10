@@ -23,6 +23,12 @@ from ..workflows.plan_variants import (
     render_plan_variant_text,
     write_plan_variant,
 )
+from ..workflows.workflow_composition import (
+    CODING_OWNER_CHOICE_PENDING,
+    WORKFLOW_COMPOSITION_CODING_OWNERS,
+    build_workflow_composition,
+    render_workflow_composition_text,
+)
 from ..ingress import CHAT_SOURCES, extract_message_text, extract_source_metadata
 from ..installer import OmhError
 from ..system.local_store import utc_now
@@ -176,6 +182,28 @@ def _split_flag(value: str, count: int, label: str) -> list[str]:
     return parts
 
 
+def cmd_hermes_compose(args: argparse.Namespace) -> int:
+    """Compose one ordered workflow from one compound outcome request.
+
+    Nothing is installed, dispatched, or written: the command turns the request
+    into a `workflow_composition/v1` dict and prints it.
+    """
+    try:
+        outcome = sys.stdin.read().strip() if args.stdin else " ".join(args.message).strip()
+        payload = build_workflow_composition(
+            outcome,
+            constraints=args.constraint or (),
+            coding_owner=args.coding_owner,
+        )
+    except (OSError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    if _wants_json(args):
+        _print_json(payload)
+        return 0
+    print(render_workflow_composition_text(payload))
+    return 0
+
+
 def cmd_hermes_readiness(args: argparse.Namespace) -> int:
     try:
         payload = build_hermes_agent_readiness(_paths(args))
@@ -280,6 +308,29 @@ def _add_hermes_commands(sub) -> None:
     )
     plan_variant.add_argument("--json", action="store_true", help="Print the full plan_variant/v1 payload.")
     plan_variant.set_defaults(func=cmd_hermes_plan_variant)
+
+    compose = hermes_sub.add_parser(
+        "compose",
+        help="Compose one ordered multi-step workflow from a single compound outcome request.",
+    )
+    compose.add_argument("message", nargs="*", help="The compound outcome to compose into an ordered workflow.")
+    compose.add_argument("--stdin", action="store_true", help="Read the outcome request from stdin.")
+    compose.add_argument(
+        "--constraint",
+        action="append",
+        help="A constraint every step must carry as an input. Repeatable.",
+    )
+    compose.add_argument(
+        "--coding-owner",
+        default=CODING_OWNER_CHOICE_PENDING,
+        choices=WORKFLOW_COMPOSITION_CODING_OWNERS,
+        help=(
+            "Owner for delegated coding steps. `hermes` is not selectable: Hermes retains chat, "
+            "clarification, research, planning, and narration, and coding is delegated."
+        ),
+    )
+    compose.add_argument("--json", action="store_true", help="Print the full workflow_composition/v1 payload.")
+    compose.set_defaults(func=cmd_hermes_compose)
 
     plan_cancel = hermes_sub.add_parser("plan-cancel", help="Mark a file-backed Hermes plan as cancelled.")
     plan_cancel.add_argument("path", help="Path to a hermes_plan/v1 Markdown artifact.")

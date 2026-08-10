@@ -125,6 +125,19 @@ class OmhPaths:
         return self.runtime_dir / "safety_rule_trust.json"
 
     @property
+    def runtime_decision_gates_path(self) -> Path:
+        # Runtime-wide, beside the other five stores, because the whole point of
+        # #825 is that the question outlives the turn that asked it. A gate is
+        # written when work blocks and read when somebody answers, which may be
+        # after a restart, and the answer has to be matched against the question
+        # as it was asked rather than against whatever the next turn
+        # reconstructs. Per-run placement would also defeat the one-open-gate
+        # rule the same way it defeated workspace exclusivity: the check has to
+        # see every open gate at once, and a per-run file is invisible to every
+        # other reader by construction.
+        return self.runtime_journal_dir / "decision_gates.jsonl"
+
+    @property
     def runtime_plan_context_dir(self) -> Path:
         return self.runtime_dir / "plan-context"
 

@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from _cli_harness import run_cli
+from _credential_fixtures import AWS_ACCESS_KEY_ID
 from _local_package import load_local_package
 
 
@@ -70,7 +71,7 @@ class RunEfficiencyReportTests(unittest.TestCase):
             parse_run_efficiency_input(unknown_metric)
 
         for secret_source_value in (
-            "AKIAIOSFODNN7EXAMPLE",
+            AWS_ACCESS_KEY_ID,
             "AIzaSyDUMMYABCDEFGHIJKLMNOPQRSTUVWX123",
             "npm_12345678901234567890",
             "gho_12345678901234567890",

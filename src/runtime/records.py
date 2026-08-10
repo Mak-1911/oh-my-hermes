@@ -77,6 +77,10 @@ from ..workflows.blocked_work_records import (
     BLOCKED_WORK_RECORD_KEYS,
     validate_blocked_work_record,
 )
+from ..workflows.decision_gates import (
+    DECISION_GATE_KEYS,
+    validate_decision_gate,
+)
 from ..workflows.external_effect_receipts import (
     EXTERNAL_EFFECT_RECEIPT_KEYS,
     validate_external_effect_receipt,
@@ -1869,6 +1873,11 @@ def _compact_memory_recall_item(item: dict[str, Any]) -> dict[str, Any]:
             if isinstance(item.get("staleness"), dict) and key in item.get("staleness", {})
         },
         "score": int(item.get("score", 0) or 0),
+        # The attention tier survives compaction for the same executor-parity
+        # reason as the ranking block below: it is the field that explains why
+        # an active record outranked a reference one, so dropping it would
+        # leave the run-backed path unable to explain its own pack order.
+        "attention_tier": str(item.get("attention_tier", "") or ""),
         # Ranking and provenance survive compaction for the same executor-
         # parity reason as included_records above: both are bounded scalar
         # metadata, and dropping them would leave the run-backed codex path
@@ -1887,7 +1896,7 @@ def _compact_ranking(value: Any) -> dict[str, Any]:
         return {}
     compacted: dict[str, Any] = {
         key: int(ranking.get(key, 0) or 0)
-        for key in ("rrf_score_micro", "decayed_score_micro", "relevance_rank", "recency_rank", "usage_rank", "times_recalled", "age_tier", "veracity_weight_pct")
+        for key in ("rrf_score_micro", "decayed_score_micro", "relevance_rank", "recency_rank", "usage_rank", "times_recalled", "age_tier", "attention_rank", "veracity_weight_pct")
     }
     compacted["pinned"] = bool(ranking.get("pinned", False))
     return compacted
@@ -4021,6 +4030,7 @@ APPROVAL_RECEIPT_RECORD_KEYS = APPROVAL_RECEIPT_KEYS
 BLOCKED_WORK_RECORD_RECORD_KEYS = BLOCKED_WORK_RECORD_KEYS
 WORKSPACE_BINDING_RECORD_KEYS = WORKSPACE_BINDING_KEYS
 RUN_LINEAGE_CHECKPOINT_RECORD_KEYS = RUN_LINEAGE_CHECKPOINT_KEYS
+DECISION_GATE_RECORD_KEYS = DECISION_GATE_KEYS
 
 
 @dataclass(frozen=True)
@@ -4061,4 +4071,5 @@ OPTIONAL_RUNTIME_STORE_VALIDATORS = (
     OptionalRuntimeStoreValidator(
         "run_lineage_checkpoints.jsonl", validate_run_lineage_checkpoint, "record_id"
     ),
+    OptionalRuntimeStoreValidator("decision_gates.jsonl", validate_decision_gate, "record_id"),
 )

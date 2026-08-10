@@ -47,10 +47,17 @@ from .executor_capability_snapshots import (
 )
 from .executor_local_workflow import build_executor_local_workflow
 from .executor_local_workflow_selection import is_workflow
+from .owner_fit import (
+    accepted_plan_from_delegation,
+    build_owner_fit_report,
+    derive_plan_capability_requirements,
+    owner_capability_snapshots,
+)
 from .product_family_templates import product_family_template
 from .product_quality_harnesses import product_quality_harness
 from .project_governance import discover_project_governance, governance_handoff_attachment
 from ..executor_readiness import (
+    EXECUTOR_CHOICE_CONTEXT_PROFILES,
     executor_readiness_contract,
     executor_readiness_for_selection,
     with_executor_readiness_options,
@@ -526,6 +533,18 @@ def build_coding_delegation_payload(
     )
     if isolation_plan:
         payload["isolation_plan"] = isolation_plan
+    if delegation.action == "delegate":
+        # Attached here rather than in a wrapper because this is where the
+        # accepted plan is decided: the routed workflow, the workspace binding,
+        # and the work-owner mode are all final by this line, and the snapshot
+        # directory is already in hand. One attachment point serves both the
+        # chat lane and `omh coding delegate`, so neither can answer the
+        # owner-fit question differently from the other.
+        payload["coding_owner_fit"] = _coding_owner_fit(
+            payload,
+            executor_target=executor_target,
+            capability_snapshot_directory=capability_snapshot_directory,
+        )
     if _inline_coding_policy_applies(
         message.lower(), delegation.intent, delegation.action, bool(action_gate["choice_required"])
     ):
@@ -1739,6 +1758,36 @@ def _executor_local_capability_strategy(profile: str) -> dict[str, object]:
             "capabilities exist, were loaded, or were executed."
         ),
     }
+
+
+def _coding_owner_fit(
+    payload: dict[str, object],
+    *,
+    executor_target: str,
+    capability_snapshot_directory: Path | None,
+) -> dict[str, object]:
+    """The owner-fit report for the plan this build just accepted (#810).
+
+    Candidates are the same locally-probeable set the choose-executor card
+    ranks, plus the named owner when a person named one outside that set. The
+    named owner is added rather than substituted: this report never drops the
+    owner somebody asked for, it only declines to *recommend* an owner whose
+    required capabilities are recorded unavailable.
+
+    Only RECORDED snapshots are read here. `_resolved_executor_capability_snapshot`
+    falls back to a prepared snapshot so a handoff always carries one; that
+    fallback must not reach this matcher, because a prepared capability is the
+    absence of an observation and would read as evidence.
+    """
+    named_owner = executor_target if executor_target != "choose" else ""
+    candidates = list(EXECUTOR_CHOICE_CONTEXT_PROFILES)
+    if named_owner and named_owner not in candidates:
+        candidates.append(named_owner)
+    return build_owner_fit_report(
+        requirements=derive_plan_capability_requirements(accepted_plan_from_delegation(payload)),
+        owners=owner_capability_snapshots(capability_snapshot_directory, candidates),
+        named_owner=named_owner,
+    )
 
 
 def _prepared_executor_capability_snapshot(profile: str) -> dict[str, object]:

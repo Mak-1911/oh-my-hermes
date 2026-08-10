@@ -25,6 +25,9 @@ class MemoryParserTests(unittest.TestCase):
             (["memory", "perspectives"], "cmd_memory_perspectives"),
             (["memory", "pin", "record-one"], "cmd_memory_pin"),
             (["memory", "unpin", "record-one"], "cmd_memory_unpin"),
+            (["memory", "attention", "record-one", "--tier", "reference"], "cmd_memory_attention"),
+            (["memory", "attention", "record-one", "--tier", "archive", "--apply"], "cmd_memory_attention"),
+            (["memory", "recall", "query", "--include-archived"], "cmd_memory_recall"),
             (["memory", "rollup", "--tag", "deploy"], "cmd_memory_rollup"),
             (["memory", "rollup", "--tag", "deploy", "--apply"], "cmd_memory_rollup"),
             (["memory", "capture", "summary", "--observed", "codex"], "cmd_memory_capture"),
@@ -46,6 +49,20 @@ class MemoryParserTests(unittest.TestCase):
             ["memory", "capture", "summary", "--derived-from", "mem_a", "--derived-from", "mem_b"]
         )
         self.assertEqual(args.derived_from, ["mem_a", "mem_b"])
+
+    def test_memory_attention_rejects_an_unknown_tier_at_the_parser_boundary(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            build_parser().parse_args(["memory", "attention", "record-one", "--tier", "cold-storage"])
+        self.assertEqual(raised.exception.code, 2)
+
+    def test_memory_attention_requires_an_explicit_tier(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            build_parser().parse_args(["memory", "attention", "record-one"])
+        self.assertEqual(raised.exception.code, 2)
+
+    def test_memory_attention_defaults_to_report_only(self) -> None:
+        args = build_parser().parse_args(["memory", "attention", "record-one", "--tier", "archive"])
+        self.assertFalse(args.apply)
 
     def test_memory_lineage_defaults_to_three_hops(self) -> None:
         args = build_parser().parse_args(["memory", "lineage", "record-one"])

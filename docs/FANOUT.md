@@ -9,9 +9,10 @@ goal to Hermes in chat; these commands are the backend surface.
    titles, owners, file boundaries, dependencies.
 2. **Freeze** — `omh coding fanout prepare --goal <words> --units units.json
    --record` validates the split deterministically (boundary overlaps without
-   a `depends_on` edge are hard errors; dependency cycles are hard errors) and
-   freezes it as `fanout_contract/v1` under `~/.omh/coding/fanout/<id>/`. The
-   goal is stored as a digest only.
+   a `depends_on` edge are hard errors; dependency cycles are hard errors; a
+   split wider than four units with no spawn plan is a hard error, see
+   **Spawn plan** below) and freezes it as `fanout_contract/v1` under
+   `~/.omh/coding/fanout/<id>/`. The goal is stored as a digest only.
 3. **Dispatch (opt-in bridge)** — `omh coding fanout dispatch <id>
    --goal-file goal.txt` spawns each spawnable unit's local agent CLI in an
    isolated per-unit worktree, dependency-aware, with bounded concurrency.
@@ -37,6 +38,55 @@ goal to Hermes in chat; these commands are the backend surface.
 5. **Merge (human/agent-gated)** — dispatch never merges. The summary lists
    merge-ready units in the contract's `merge_order`; merging and the final
    integration gate remain the operator's or reviewing agent's job.
+
+## Spawn plan
+
+A split into more than four units has to say why. Up to four, the shape is
+small enough to read at a glance; past that the contract stops recording an
+obvious decomposition and starts recording a guess, and the cost of a wrong
+guess is N worktrees of thin work nobody can merge.
+
+The plan rides in the units payload's object form rather than behind its own
+flag, so the justification and the split it justifies live in one file:
+
+```json
+{
+  "units": [ ... ],
+  "spawn_plan": {
+    "why_parallel": "Five disjoint subsystems each own their own test lane.",
+    "why_not_single_unit": "One executor would serialize five unrelated verification loops.",
+    "independence": "No unit reads or writes another unit's file_scope.",
+    "expected_evidence_shape": "Per-unit run record plus the unit's own focused test command."
+  }
+}
+```
+
+Rules:
+
+- All four fields must be strings. Each is collapsed to a single line and
+  bounded at 280 characters. A list, number, or boolean is refused rather
+  than coerced — its Python repr would pass the blank check while being
+  exactly the answer nobody wrote.
+- A plan supplied at all must be complete, at any width. A half-filled plan
+  reads as an answer nobody wrote, so it is refused rather than frozen —
+  below the threshold the fix is to complete it or drop the key entirely.
+- The gate runs **last**, after the boundary-overlap and dependency-cycle
+  checks. A split that can never be frozen fails on its structure, so the
+  operator is not asked to justify a decomposition they will have to rewrite.
+- A key that is `spawn_plan` with different punctuation or case (`spawnPlan`,
+  `spawn-plan`) is a hard error naming the intended key, not a silent drop.
+- An accepted plan is frozen into the contract as an optional top-level
+  `spawn_plan` key carrying the four answers, the observed `unit_count`, the
+  `threshold` in force, and a claim boundary. A split that needed no plan
+  gains no key, so contracts frozen before this gate existed keep their exact
+  shape.
+- A spawn plan is prepared operator justification. It is not evidence that
+  the split is correct, that the units are independent, that the named
+  evidence shape was produced, or that any unit ran.
+- `omh coding fanout validate` runs the same checks in the same order and
+  reports `unit_count` and `spawn_plan_required` on both its success and its
+  error payload, so a wrapper can ask for a plan before `prepare` refuses the
+  freeze, and can always parse the answer as JSON.
 
 ## Dispatch bridge semantics
 
@@ -216,6 +266,41 @@ goal to Hermes in chat; these commands are the backend surface.
   and `duration_seconds`, and the full dispatch summary persists to
   `~/.omh/coding/fanout/<id>/dispatch_summary.json` (latest wins,
   metadata only, skipped on `--dry-run`).
+- **Failed-unit recovery.** A unit that exits non-zero — including a
+  timeout — still owns its worktree, and whatever it wrote is the only
+  thing between the operator and redoing the work. Before the summary
+  reports the failure, dispatch measures that worktree against the
+  dispatch base and attaches a `recovery` record to the unit result:
+  `outcome` (`recovery_available`, `no_changes`, or `capture_failed`),
+  the changed path count and names (capped, with `paths_truncated`),
+  `lines_changed`, `diff_bytes`, `diff_sha256`, `recovery_ref`, and a
+  `recover_with` command. Units whose outcome is `recovery_available` are
+  rolled up in the summary's `recovery_available_units`, the counterpart
+  to `merge_ready_units`, and `omh coding fanout brief` carries a compact
+  `recovery` line per unit so the signal survives after the dispatch JSON
+  scrolls past. The record also persists to
+  `~/.omh/coding/fanout/<id>/recovery/<unit>.json`, byte-for-byte the same
+  keys as the summary's copy.
+  The probe runs `git add -N` in that unit's worktree first so files the
+  unit *created* are measured too, and so the printed `recover_with`
+  command produces a complete patch; it stages no content and makes no
+  commit, and a `rev-parse --show-toplevel` check first proves the probe
+  is standing in the unit's own worktree. If `add -N` fails, the outcome
+  is `capture_failed` with `tracked_paths_seen` — never
+  `recovery_available`, because a patch missing the created files is not
+  the complete one the record advertises. Paths and the patch are both
+  read as raw bytes, so a non-ASCII filename is recorded as written
+  rather than mangled through the host locale. The record is metadata
+  only — the diff is hashed for size and digest, then dropped, and never
+  leaves the worktree.
+  Lifecycle: any stored record is cleared before a unit re-runs, so one
+  cannot outlive the worktree it points at; a unit that re-runs and
+  succeeds ends with no record and drops out of the rollup; and a unit
+  that could not re-run at all (`worktree_failed`) keeps the earlier
+  record, because failing to start says nothing about what the last
+  attempt left behind. Successful units are never probed: their work is
+  reached by merging their branch, not by salvage. A failed probe
+  degrades to `capture_failed` and never changes the unit's own result.
 - **Limit signals.** A failed spawn whose bounded output matches a fixed,
   context-anchored limit-shape pattern (rate limit, usage limit, quota
   exceeded, HTTP 429, credits) is flagged `limit_shaped` with a pattern
@@ -291,8 +376,10 @@ probed source reports a status: `present`, `absent`, `unreadable`, or
 ## Command reference
 
 ```sh
+# units.json is either a JSON list of units, or an object:
+#   {"units": [...], "spawn_plan": {...}}   <- spawn_plan required above 4 units
 omh coding fanout prepare --goal <words...> --units units.json [--record] [--source discord]
-omh coding fanout validate --units units.json
+omh coding fanout validate --units units.json   # also reports spawn_plan_required
 omh coding fanout show <fanout-id> [--limit 20] [--full]
 omh coding fanout brief [<fanout-id>] [--json]
 omh coding fanout dispatch <fanout-id> --goal-file goal.txt \

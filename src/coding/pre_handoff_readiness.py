@@ -165,6 +165,19 @@ def changed_binding_axes(stored: object, live: Mapping[str, Any]) -> list[str]:
     ]
 
 
+def capability_evidence_is_fresh(observed_at: str, now: str = "") -> bool:
+    """Whether one capability observation is still inside the #837 evidence horizon.
+
+    Exposed so the owner-fit matcher (#810) reuses this horizon instead of
+    introducing a second one; two numbers for the same question would let two
+    surfaces disagree about the same machine. Same rule
+    `_capability_evidence_state` already applies: an empty, unreadable, or
+    future stamp is older than the horizon, never fresher.
+    """
+    age = _stamp_age_seconds(observed_at, now, CAPABILITY_EVIDENCE_STALE_AFTER_SECONDS)
+    return age <= CAPABILITY_EVIDENCE_STALE_AFTER_SECONDS
+
+
 def evaluate_pre_handoff_readiness(
     *,
     profile: str,

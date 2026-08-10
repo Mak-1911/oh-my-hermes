@@ -2290,6 +2290,7 @@ _DEFINITIONS = [
         ),
         expected_outputs=(
             "design_orchestration/v1",
+            "design_direction_set/v1 when the direction is still open",
             "design intent and opaque context-reference boundary",
             "prepared direction vocabulary",
             "downstream composition: design-quality-gate, frontend, accessibility-audit, visual-qa",
@@ -2298,6 +2299,8 @@ _DEFINITIONS = [
         ),
         artifact_expectations=(
             "design_orchestration/v1 with prepared_not_observed status",
+            "design_direction_set/v1 offers two to four directions with chosen_option empty until the user picks",
+            "a static self-contained preview file when one is written; no server, port, or browser launch",
             "no raw project source, prompt, asset, path, or URL retention",
             "no executor target, dispatch, implementation, render, QA PASS, review, CI, deployment, or merge claim",
         ),
@@ -4360,6 +4363,8 @@ _DEFINITIONS = [
             "If no diff, file set, PR, or artifact is available, inspect the requested target or ask one target question before reviewing.",
             "If tests fail or are missing, cite the exact command gap and do not approve the change as verified.",
             "If independent review evidence is unavailable, say so directly instead of implying a second reviewer passed it.",
+            "To dispatch a reviewer rather than write the findings yourself, load `omh-code-review/references/review-dispatch.md`; it carries the base-SHA rule and the implementer status contract.",
+            "When findings arrive for work you own, load `omh-code-review/references/review-response.md` before changing anything.",
         ),
     ),
     SkillDefinition(

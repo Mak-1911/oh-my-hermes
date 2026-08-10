@@ -2203,7 +2203,7 @@ _FEATURE_SURFACE_HARNESSES = (
         "Direction.",
         "Use for design.",
         ("intent", "context"),
-        ("design_orchestration/v1",),
+        ("design_orchestration/v1", "design_direction_set/v1"),
         quality_tier="design-gated",
         evidence_ladder=("intent", "direction", "visual_when_available"),
         wrapper_actions=("prepare_design_orchestration", "choose_executor", "prepare_visual_qa"),

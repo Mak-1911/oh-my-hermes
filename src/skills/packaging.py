@@ -6,6 +6,7 @@ from .catalog import installable_skill_definitions
 from .render import (
     SkillReferenceTemplate,
     SkillTemplate,
+    code_review_reference_templates,
     deep_interview_skill,
     memory_new_skill,
     memory_sync_skill,
@@ -22,7 +23,7 @@ def builtin_skill_templates() -> list[SkillTemplate]:
 
 
 def builtin_skill_reference_templates() -> list[SkillReferenceTemplate]:
-    return [*router_reference_templates(), *wiki_reference_templates()]
+    return [*router_reference_templates(), *wiki_reference_templates(), *code_review_reference_templates()]
 
 
 def _skill_template_for(name: str) -> SkillTemplate:

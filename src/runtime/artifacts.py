@@ -47,6 +47,7 @@ from ..external_effect_receipts import (
 )
 from ..workflows.approval_receipts import validate_approval_receipt_store
 from ..workflows.blocked_work_records import decision_history, validate_blocked_work_record_store
+from ..workflows.decision_gates import validate_decision_gate_store
 from ..workflows.run_lineage import validate_run_lineage_checkpoint_store
 from ..workflows.workspace_bindings import validate_workspace_binding_store
 from ..observation_journal import (
@@ -2279,6 +2280,17 @@ def validate_runtime(paths: OmhPaths, run_id: str | None = None) -> dict[str, An
         paths.runtime_run_lineage_checkpoints_path,
         run_id=run_id,
     )
+    # And the decision-gate store, whose store-level half carries a rule no
+    # per-record validator can see: #825 AC1 says a blocked workflow has *one*
+    # open gate, and "one" is a property of the set of records, not of any
+    # record in it. `open_decision_gate` refuses to write the second one, but a
+    # hand-edited or older-build store can already hold it, and an operator
+    # presented with two open questions has no rule for which one their answer
+    # belongs to. This call is what makes the rule survive the file.
+    decision_gate_store_result = validate_decision_gate_store(
+        paths.runtime_decision_gates_path,
+        run_id=run_id,
+    )
     _add_duplicate_wrapper_run_link_errors(session_results, session_dirs)
     return {
         "ok": all(result["ok"] for result in results)
@@ -2288,7 +2300,8 @@ def validate_runtime(paths: OmhPaths, run_id: str | None = None) -> dict[str, An
         and bool(approval_store_result["ok"])
         and bool(blocked_work_store_result["ok"])
         and bool(workspace_binding_store_result["ok"])
-        and bool(run_lineage_store_result["ok"]),
+        and bool(run_lineage_store_result["ok"])
+        and bool(decision_gate_store_result["ok"]),
         "runs": results,
         "wrapper_sessions": session_results,
         "journal": journal_result,
@@ -2297,6 +2310,7 @@ def validate_runtime(paths: OmhPaths, run_id: str | None = None) -> dict[str, An
         "blocked_work_records": blocked_work_store_result,
         "workspace_bindings": workspace_binding_store_result,
         "run_lineage_checkpoints": run_lineage_store_result,
+        "decision_gates": decision_gate_store_result,
     }
 
 
