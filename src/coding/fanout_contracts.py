@@ -21,6 +21,55 @@ FANOUT_FINAL_INTEGRATION_GATE = (
     "git diff --check",
 )
 
+# The key set a `fanout_contract/v1` freeze carries. `safety_profile_revision`
+# and `spawn_plan` are optional and additive: an install without the preflight
+# evaluator omits the first, and a split that needed no justification omits the
+# second. Everything else is always present. Declared here rather than inlined
+# in a test so the contract's shape lives beside its schema version.
+FANOUT_CONTRACT_KEYS = (
+    "board_projection",
+    "claim_boundary",
+    "fanout_id",
+    "goal",
+    "merge_plan",
+    "observed_evidence_required",
+    "schema_version",
+    "source",
+    "source_metadata",
+    "status",
+    "units",
+)
+FANOUT_CONTRACT_OPTIONAL_KEYS = ("safety_profile_revision", "spawn_plan")
+
+FANOUT_SPAWN_PLAN_SCHEMA_VERSION = "fanout_spawn_plan/v1"
+# Up to four units a split is small enough to read at a glance. Past that the
+# contract stops recording an obvious decomposition and starts recording a
+# guess, so the operator has to say why out loud. The threshold is locked
+# rather than configurable on purpose: a threshold that can be raised is a
+# threshold that gets raised instead of answered.
+FANOUT_SPAWN_PLAN_THRESHOLD = 4
+# Four questions, all prose. Gajae-Code's receipt carries a fifth,
+# `maxInlineTokens`, because its parent agent enforces an inline-output budget
+# on the child. OMH has no such consumer — the units are foreign CLI processes
+# whose output it does not bound — so requiring the operator to invent a number
+# nothing reads would be a mandatory unbounded field with no reader. Left out
+# until something needs it.
+FANOUT_SPAWN_PLAN_FIELDS = (
+    "why_parallel",
+    "why_not_single_unit",
+    "independence",
+    "expected_evidence_shape",
+)
+# Bounded for the reason every operator-typed contract string is bounded here:
+# a field with no ceiling is a field that eventually carries a pasted
+# transcript. One or two sentences is the whole intent.
+MAX_SPAWN_PLAN_FIELD_CHARS = 280
+FANOUT_SPAWN_PLAN_CLAIM_BOUNDARY = (
+    "A spawn plan is the operator's prepared justification for splitting one goal across several units. "
+    "It is not evidence that the split is correct, that the units are independent, that the named evidence "
+    "shape was produced, or that any unit ran."
+)
+
 
 class FanoutContractError(ValueError):
     """Raised when a proposed fanout unit list cannot be frozen into a contract."""

@@ -9,9 +9,10 @@ goal to Hermes in chat; these commands are the backend surface.
    titles, owners, file boundaries, dependencies.
 2. **Freeze** — `omh coding fanout prepare --goal <words> --units units.json
    --record` validates the split deterministically (boundary overlaps without
-   a `depends_on` edge are hard errors; dependency cycles are hard errors) and
-   freezes it as `fanout_contract/v1` under `~/.omh/coding/fanout/<id>/`. The
-   goal is stored as a digest only.
+   a `depends_on` edge are hard errors; dependency cycles are hard errors; a
+   split wider than four units with no spawn plan is a hard error, see
+   **Spawn plan** below) and freezes it as `fanout_contract/v1` under
+   `~/.omh/coding/fanout/<id>/`. The goal is stored as a digest only.
 3. **Dispatch (opt-in bridge)** — `omh coding fanout dispatch <id>
    --goal-file goal.txt` spawns each spawnable unit's local agent CLI in an
    isolated per-unit worktree, dependency-aware, with bounded concurrency.
@@ -37,6 +38,55 @@ goal to Hermes in chat; these commands are the backend surface.
 5. **Merge (human/agent-gated)** — dispatch never merges. The summary lists
    merge-ready units in the contract's `merge_order`; merging and the final
    integration gate remain the operator's or reviewing agent's job.
+
+## Spawn plan
+
+A split into more than four units has to say why. Up to four, the shape is
+small enough to read at a glance; past that the contract stops recording an
+obvious decomposition and starts recording a guess, and the cost of a wrong
+guess is N worktrees of thin work nobody can merge.
+
+The plan rides in the units payload's object form rather than behind its own
+flag, so the justification and the split it justifies live in one file:
+
+```json
+{
+  "units": [ ... ],
+  "spawn_plan": {
+    "why_parallel": "Five disjoint subsystems each own their own test lane.",
+    "why_not_single_unit": "One executor would serialize five unrelated verification loops.",
+    "independence": "No unit reads or writes another unit's file_scope.",
+    "expected_evidence_shape": "Per-unit run record plus the unit's own focused test command."
+  }
+}
+```
+
+Rules:
+
+- All four fields must be strings. Each is collapsed to a single line and
+  bounded at 280 characters. A list, number, or boolean is refused rather
+  than coerced — its Python repr would pass the blank check while being
+  exactly the answer nobody wrote.
+- A plan supplied at all must be complete, at any width. A half-filled plan
+  reads as an answer nobody wrote, so it is refused rather than frozen —
+  below the threshold the fix is to complete it or drop the key entirely.
+- The gate runs **last**, after the boundary-overlap and dependency-cycle
+  checks. A split that can never be frozen fails on its structure, so the
+  operator is not asked to justify a decomposition they will have to rewrite.
+- A key that is `spawn_plan` with different punctuation or case (`spawnPlan`,
+  `spawn-plan`) is a hard error naming the intended key, not a silent drop.
+- An accepted plan is frozen into the contract as an optional top-level
+  `spawn_plan` key carrying the four answers, the observed `unit_count`, the
+  `threshold` in force, and a claim boundary. A split that needed no plan
+  gains no key, so contracts frozen before this gate existed keep their exact
+  shape.
+- A spawn plan is prepared operator justification. It is not evidence that
+  the split is correct, that the units are independent, that the named
+  evidence shape was produced, or that any unit ran.
+- `omh coding fanout validate` runs the same checks in the same order and
+  reports `unit_count` and `spawn_plan_required` on both its success and its
+  error payload, so a wrapper can ask for a plan before `prepare` refuses the
+  freeze, and can always parse the answer as JSON.
 
 ## Dispatch bridge semantics
 
@@ -291,8 +341,10 @@ probed source reports a status: `present`, `absent`, `unreadable`, or
 ## Command reference
 
 ```sh
+# units.json is either a JSON list of units, or an object:
+#   {"units": [...], "spawn_plan": {...}}   <- spawn_plan required above 4 units
 omh coding fanout prepare --goal <words...> --units units.json [--record] [--source discord]
-omh coding fanout validate --units units.json
+omh coding fanout validate --units units.json   # also reports spawn_plan_required
 omh coding fanout show <fanout-id> [--limit 20] [--full]
 omh coding fanout brief [<fanout-id>] [--json]
 omh coding fanout dispatch <fanout-id> --goal-file goal.txt \

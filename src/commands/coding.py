@@ -913,7 +913,7 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
     from ..coding.fanout_contracts import FanoutContractError
     from ..coding.model_routing import EXECUTOR_MODEL_OPTIONS
 
-    units = _read_fanout_units(args.units)
+    units, spawn_plan = _read_fanout_payload(args.units)
     if is_degenerate_single_unit(units):
         _print_json(single_unit_redirect(units))
         return 0
@@ -933,6 +933,7 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
             source=args.source,
             source_metadata=_explicit_source_metadata(args),
             local_catalogs=_local_model_catalogs() if needs_inventory else {},
+            spawn_plan=spawn_plan,
         )
     except FanoutContractError as exc:
         raise OmhError(str(exc)) from exc
@@ -943,22 +944,53 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
 
 
 def cmd_coding_fanout_validate(args: argparse.Namespace) -> int:
-    from ..coding.fanout import detect_boundary_overlaps, merge_order, validate_fanout_units, _normalized_unit
+    from ..coding.fanout import (
+        detect_boundary_overlaps,
+        merge_order,
+        require_spawn_plan,
+        spawn_plan_required,
+        validate_fanout_units,
+        _normalized_unit,
+    )
     from ..coding.fanout_contracts import FanoutContractError
 
-    units = [_normalized_unit(unit, index) for index, unit in enumerate(_read_fanout_units(args.units))]
+    raw_units, spawn_plan = _read_fanout_payload(args.units)
+    # Computed before the gate, and reported on both paths: a wrapper deciding
+    # whether to ask the operator for a plan needs this answer most when the
+    # gate has just refused. `spawn_plan_required` is pure and cannot raise.
+    requires_plan = spawn_plan_required(len(raw_units))
     try:
+        # Inside the try, because `_normalized_unit` raises on a non-object
+        # entry too. Outside it, a malformed unit escaped as a traceback with
+        # an empty stdout, and a wrapper following this command's documented
+        # contract parsed that empty string as JSON.
+        units = [_normalized_unit(unit, index) for index, unit in enumerate(raw_units)]
         validate_fanout_units(units)
+        # Same checks `prepare` runs, in the same order, so `validate` cannot
+        # report a split that `prepare` will then refuse to freeze — including
+        # the spawn-plan gate running last, after the structural ones.
         notes = detect_boundary_overlaps(units)
         order = merge_order(units)
+        require_spawn_plan(len(units), spawn_plan)
     except FanoutContractError as exc:
-        _print_json({"schema_version": "fanout_validation/v1", "ok": False, "error": str(exc)})
+        _print_json(
+            {
+                "schema_version": "fanout_validation/v1",
+                "ok": False,
+                # `raw_units`, not `units`: a malformed entry means `units` was
+                # never bound, and the caller still needs the count it sent.
+                "unit_count": len(raw_units),
+                "spawn_plan_required": requires_plan,
+                "error": str(exc),
+            }
+        )
         return 1
     _print_json(
         {
             "schema_version": "fanout_validation/v1",
             "ok": True,
             "unit_count": len(units),
+            "spawn_plan_required": requires_plan,
             "merge_order": order,
             "conflict_risk_notes": notes,
         }
@@ -1385,13 +1417,43 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
     return 0
 
 
-def _read_fanout_units(units_arg: str) -> list[dict[str, object]]:
+def _read_fanout_payload(units_arg: str) -> tuple[list[dict[str, object]], object]:
+    """The unit list, plus the spawn plan when the object form carries one.
+
+    The plan rides in the same payload rather than behind a second flag: it
+    justifies this exact split, and an operator who edits the units without
+    editing the justification is the case the gate exists to catch.
+
+    The plan is returned exactly as written, unvalidated. Coercing a malformed
+    one to None here would make "you sent the wrong shape" indistinguishable
+    from "you sent nothing", and the shape error is the one an operator who
+    typed a string instead of an object actually needs.
+    """
     raw = sys.stdin.read() if units_arg == "-" else Path(units_arg).expanduser().read_text(encoding="utf-8")
     payload = json.loads(raw)
     units = payload.get("units") if isinstance(payload, dict) else payload
     if not isinstance(units, list):
         raise OmhError("fanout units input must be a JSON list (or an object with a 'units' list)")
-    return units
+    if not isinstance(payload, dict):
+        return units, None
+    _reject_near_miss_key(payload, "spawn_plan")
+    return units, payload.get("spawn_plan")
+
+
+def _reject_near_miss_key(payload: dict[str, object], expected: str) -> None:
+    """Refuse a key that is the expected one with different punctuation or case.
+
+    `spawnPlan` and `spawn-plan` are both natural spellings, and `.get` drops
+    either without a word — worst below the threshold, where the operator's
+    justification is silently discarded and the frozen contract says nothing
+    was supplied.
+    """
+    if expected in payload:
+        return
+    flattened = expected.replace("_", "")
+    for key in payload:
+        if str(key).replace("_", "").replace("-", "").lower() == flattened:
+            raise OmhError(f"unknown key {key!r} in fanout units payload; did you mean {expected!r}?")
 
 
 def _add_coding_commands(sub) -> None:
