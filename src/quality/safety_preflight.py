@@ -403,6 +403,13 @@ _CORRECTIONS: Final = {
     "org_source_unknown_version": "Set the org rule source schema_version to the supported version.",
     "org_source_unknown_fields": "Remove the unsupported field from the org rule source.",
     "org_source_unsafe_metadata": "Remove the credential-shaped or body-shaped value from the org rule source.",
+    # The local attestation refusals (issue #805). Each names the operator
+    # action for one distinct failure, because "the tag did not verify" is not
+    # one problem: no tag was written, the bytes no longer match the tag, or the
+    # key itself could not be read.
+    "org_source_attestation_missing": "Write the local attestation tag beside the org rule source, or clear the configured attestation key.",
+    "org_source_attestation_invalid": "Re-attest the org rule source with the local key, or restore the bytes the existing tag covers.",
+    "org_source_attestation_key_unreadable": "Grant read access to the configured local attestation key, or clear it.",
     "org_rule_unknown_value": "Use an org rule value this profile revision understands, or the rule cannot be honoured.",
     "org_rule_denied": "The org rule source narrows this profile; change the request or the org rule source.",
     "org_widening_ignored": "No change is required; a wider org value was discarded because the org level can only narrow.",

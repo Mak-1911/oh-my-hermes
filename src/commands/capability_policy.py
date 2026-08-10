@@ -22,6 +22,7 @@ from ..capabilities.toggles import (
     enabled_workflow_names,
     family_labels_by_id,
     normalize_family_id,
+    org_rule_source_attestation_key_path,
     org_rule_source_enabled,
     org_rule_source_path,
     read_capability_policy,
@@ -76,6 +77,7 @@ def _policy_report(paths) -> dict[str, object]:
         "org_rule_source_policy": org_policy,
         "org_rule_source_enabled": org_rule_source_enabled(org_policy),
         "org_rule_source_path": org_rule_source_path(org_policy),
+        "org_rule_source_attestation_key_path": org_rule_source_attestation_key_path(org_policy),
         "setup_profile_path": str(paths.setup_profile_path),
     }
 
@@ -167,6 +169,13 @@ def _print_capability_policy_summary(payload: dict[str, object]) -> None:
         print(f"  Always retained: {', '.join(str(item) for item in core)}")
     if payload.get("org_rule_source_enabled"):
         print(f"  Org safety rule source: on ({payload.get('org_rule_source_path', '')})")
+        key_path = str(payload.get("org_rule_source_attestation_key_path", ""))
+        # "Local attestation", never "signature": the key is symmetric, so this
+        # line must not read as a provenance claim in a terminal either.
+        if key_path:
+            print(f"  Local rule attestation: required (key {key_path})")
+        else:
+            print("  Local rule attestation: not required")
     else:
         print("  Org safety rule source: off")
     print(_color("Next", "1;32", use_color))

@@ -259,12 +259,22 @@ ORG_RULE_SOURCE_POLICY_CLAIM_BOUNDARY = (
 )
 
 
-def build_org_rule_source_policy(*, enabled: bool = False, source_path: str = "") -> dict[str, Any]:
-    """Build the opt-in payload persisted inside setup-profile.json."""
+def build_org_rule_source_policy(
+    *, enabled: bool = False, source_path: str = "", attestation_key_path: str = ""
+) -> dict[str, Any]:
+    """Build the opt-in payload persisted inside setup-profile.json.
+
+    `attestation_key_path` (issue #805) is where the operator keeps the local
+    HMAC-SHA256 key that `coding/safety_rule_attestation.py` verifies the rule
+    source against. Blank is the default and means no attestation is required,
+    which is why an install that predates the key behaves exactly as it did. A
+    path, not a key: the secret itself never enters the setup profile.
+    """
     return {
         "schema_version": ORG_RULE_SOURCE_POLICY_SCHEMA_VERSION,
         "enabled": bool(enabled),
         "source_path": str(source_path or "").strip(),
+        "attestation_key_path": str(attestation_key_path or "").strip(),
         "claim_boundary": ORG_RULE_SOURCE_POLICY_CLAIM_BOUNDARY,
     }
 
@@ -278,14 +288,17 @@ def read_org_rule_source_policy(paths: OmhPaths) -> dict[str, Any]:
     return build_org_rule_source_policy(
         enabled=bool(policy.get("enabled", False)),
         source_path=str(policy.get("source_path", "") or ""),
+        attestation_key_path=str(policy.get("attestation_key_path", "") or ""),
     )
 
 
 def write_org_rule_source_policy(
-    paths: OmhPaths, *, enabled: bool, source_path: str = ""
+    paths: OmhPaths, *, enabled: bool, source_path: str = "", attestation_key_path: str = ""
 ) -> dict[str, Any]:
     """Read-modify-write the opt-in, preserving every other profile field."""
-    policy = build_org_rule_source_policy(enabled=enabled, source_path=source_path)
+    policy = build_org_rule_source_policy(
+        enabled=enabled, source_path=source_path, attestation_key_path=attestation_key_path
+    )
     profile = read_json_object(paths.setup_profile_path) or {}
     profile["org_rule_source_policy"] = policy
     atomic_write_json(paths.setup_profile_path, profile, private=True)
@@ -300,3 +313,10 @@ def org_rule_source_path(policy: dict[str, Any] | None) -> str:
     if not isinstance(policy, dict):
         return ""
     return str(policy.get("source_path", "") or "").strip()
+
+
+def org_rule_source_attestation_key_path(policy: dict[str, Any] | None) -> str:
+    """Where the local attestation key lives, or empty when none is required."""
+    if not isinstance(policy, dict):
+        return ""
+    return str(policy.get("attestation_key_path", "") or "").strip()

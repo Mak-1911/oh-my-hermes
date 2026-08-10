@@ -2049,6 +2049,48 @@ than trusting the persisted file. OMH policy stays out of `config.yaml`, which
 is Hermes-owned. `omh capability-policy status` reports the opt-in state; it
 does not change it.
 
+### Local Rule Attestation And Retention
+
+`coding/safety_rule_attestation.py` adds a second, separately opt-in question
+about the same source: does a local tag over its raw bytes verify? The tag is
+HMAC-SHA256 with a key the operator holds on this machine, computed with stdlib
+`hmac` and `hashlib` — no new dependency, no network, no key service.
+
+Be precise about the guarantee, because the difference matters. HMAC is
+symmetric. A verifying tag shows the bytes were not altered by anyone who does
+not hold the key; it does not show who wrote them, and anyone who can read the
+key file can mint a tag that verifies. This is a local integrity and
+authenticity check against an operator-held shared key, not public-key signing
+and not third-party provenance. Every scheme that would prove provenance —
+Ed25519, minisign, GPG — is a dependency this repository does not take, so the
+word used throughout the code, the reason codes, and the claim boundary is
+"attested", never "signed".
+
+The two questions stay two fields. `signature_state` is one of `not_required`,
+`valid`, `missing`, `invalid`, or `unverifiable`; the org source `status` is
+unchanged. A valid tag over a malformed document is still unavailable for the
+reader's own reason, and an invalid tag over a well-formed document is a refusal
+with its own code. Neither is folded into the other.
+
+`activate_org_safety_rules()` decides which rule set is in force and reports
+three outcomes. `activated` means the source read cleanly and either no key is
+configured or the tag verified; a verified revision is recorded in the local
+trust state at `runtime/safety_rule_trust.json` inside the OMH home, which is
+the only thing that ever writes that file. `retained` means verification failed
+while a previously verified set for the same source path is on record: that set
+stays in force, `rejected_revision` names the revision that did not activate,
+and nothing from the candidate is applied. `unavailable` means the reader
+refused the document, or verification failed with nothing retained — three new
+refusal codes (`org_source_attestation_missing`,
+`org_source_attestation_invalid`, `org_source_attestation_key_unreadable`) join
+the reader's vocabulary, and the evaluator turns each into a denial carrying its
+own correction.
+
+The lane is off unless `attestation_key_path` is set in the
+`org_rule_source_policy` block of `setup-profile.json`. With no key configured
+nothing is opened, no trust file is created, and the org source result is
+byte-for-byte what it was before.
+
 ### Task Authority Envelope
 
 `task_authority_envelope/v1` is the task-scoped authority a prepared coding
