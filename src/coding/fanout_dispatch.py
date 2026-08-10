@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import time
@@ -519,6 +520,18 @@ def _merged_dispatch_summary(summary_path: Path, summary: dict[str, Any]) -> dic
     merged["merge_ready_units"] = [
         str(entry.get("unit_id")) for entry in merged_units if isinstance(entry, dict) and entry.get("merge_ready")
     ]
+    # Recomputed for the same reason merge_ready_units is: the current run's
+    # rollup only names units it dispatched, so carrying it through unchanged
+    # would erase an earlier run's salvageable unit from the one field an
+    # operator reads first — while that unit's own `recovery` record, merged
+    # just above, still says otherwise.
+    merged["recovery_available_units"] = [
+        str(entry.get("unit_id"))
+        for entry in merged_units
+        if isinstance(entry, dict)
+        and isinstance(entry.get("recovery"), Mapping)
+        and entry["recovery"].get("outcome") == "recovery_available"
+    ]
     return merged
 
 
@@ -871,27 +884,42 @@ def _capture_unit_recovery(
     Capture never raises. A unit that failed must not fail differently because
     the salvage probe did.
     """
+    # Each argv is spelled with a literal subcommand, never `["git", verb]`:
+    # INVARIANT 3 in tests/test_handoff_safety_contract_enforcement.py resolves
+    # git verbs statically and fails closed on a runtime one.
+    #
+    # Git discovery walks UP from cwd, and a unit worktree is a sibling of the
+    # repo root. If the unit destroyed its own `.git` link, an unguarded write
+    # here would land in whatever repository encloses the parent directory —
+    # possibly the operator's. Confirm the worktree is its own toplevel before
+    # writing anything, so the allowlist's "never the operator's repository"
+    # claim is checked rather than asserted.
+    toplevel = _git_text(runner, worktree, ["git", "rev-parse", "--show-toplevel"])
+    if toplevel is None or not _same_directory(toplevel.strip(), worktree):
+        return _capture_failed("the unit worktree no longer resolves as its own git toplevel")
     # `git diff` does not see untracked files, and a failed unit's brand-new
     # files are the most common thing worth salvaging. `add -N` records the
     # paths without staging content, which both completes the measurement and
     # makes the `recover_with` command below actually produce a full patch.
     # It respects .gitignore, so build output stays out of the report.
-    # Each argv is spelled with a literal subcommand, never `["git", verb]`:
-    # INVARIANT 3 in tests/test_handoff_safety_contract_enforcement.py resolves
-    # git verbs statically and fails closed on a runtime one.
-    _git_text(runner, worktree, ["git", "add", "-N", "--", "."])
-    numstat = _git_text(runner, worktree, ["git", "diff", "--numstat", base_sha])
-    patch = _git_text(runner, worktree, ["git", "diff", base_sha])
-    if numstat is None or patch is None:
-        return {
-            "schema_version": RECOVERY_SCHEMA_VERSION,
-            "outcome": "capture_failed",
-            "reason": "git refused to diff the unit worktree against the dispatch base",
-            "claim_boundary": RECOVERY_CLAIM_BOUNDARY,
-        }
+    untracked_measured = _git_text(runner, worktree, ["git", "add", "-N", "--", "."]) is not None
+    numstat = _git_text(runner, worktree, ["git", "diff", "--numstat", "-z", base_sha])
+    # Captured as BYTES, never decoded. A partial file in a non-UTF-8 encoding
+    # is ordinary debris in a failed unit, and `text=True` would raise
+    # UnicodeDecodeError straight through this function and abort the whole
+    # dispatch. Hashing raw bytes also makes the digest describe what git
+    # actually emits, rather than a decode/re-encode round trip through
+    # whatever the host locale happens to be.
+    patch_bytes = _git_bytes(runner, worktree, ["git", "diff", base_sha])
+    if numstat is None or patch_bytes is None:
+        return _capture_failed("git refused to diff the unit worktree against the dispatch base")
     paths_changed, lines_changed = _parse_numstat(numstat)
-    patch_bytes = patch.encode("utf-8")
     if not paths_changed and not patch_bytes:
+        if not untracked_measured:
+            # `add -N` failed, so files the unit created are invisible to
+            # `git diff`. "Nothing here" and "nothing I could see" are
+            # different answers, and only one of them is safe to act on.
+            return _capture_failed("git add -N failed, so files the unit created could not be measured")
         return {
             "schema_version": RECOVERY_SCHEMA_VERSION,
             "outcome": "no_changes",
@@ -907,9 +935,10 @@ def _capture_unit_recovery(
         "lines_changed": lines_changed,
         "paths": paths_changed[:_MAX_RECOVERY_PATHS],
         "paths_truncated": len(paths_changed) > _MAX_RECOVERY_PATHS,
+        "untracked_measured": untracked_measured,
         "diff_bytes": len(patch_bytes),
         "diff_sha256": sha256(patch_bytes).hexdigest(),
-        "recover_with": f"git -C {worktree} diff {base_sha}",
+        "recover_with": f"git -C {shlex.quote(str(worktree))} diff {shlex.quote(base_sha)}",
         "claim_boundary": RECOVERY_CLAIM_BOUNDARY,
     }
     if fanout_id:
@@ -924,40 +953,102 @@ def _capture_unit_recovery(
     return record
 
 
+def _capture_failed(reason: str) -> dict[str, Any]:
+    """A recovery record that reports the probe could not answer.
+
+    Distinct from `no_changes` on purpose: "the unit left nothing" and "I could
+    not tell" lead an operator to opposite actions.
+    """
+    return {
+        "schema_version": RECOVERY_SCHEMA_VERSION,
+        "outcome": "capture_failed",
+        "reason": reason,
+        "claim_boundary": RECOVERY_CLAIM_BOUNDARY,
+    }
+
+
+def _same_directory(reported: str, worktree: Path) -> bool:
+    if not reported:
+        return False
+    try:
+        return Path(reported).resolve(strict=False) == worktree.resolve(strict=False)
+    except OSError:
+        return False
+
+
 def _git_text(runner: Callable[..., Any], worktree: Path, argv: list[str]) -> str | None:
-    """Stdout of one git command in the unit worktree, or None on any failure.
+    """Decoded stdout of one git command in the unit worktree, or None on failure.
 
     Callers pass the complete argv, subcommand included, so the verb stays a
-    literal at every construction site.
+    literal at every construction site. Decoding is lenient: this is used for
+    git's own structured output (paths, refs), where an undecodable byte
+    should degrade one field rather than abort a dispatch.
     """
     try:
-        completed = runner(argv, cwd=str(worktree), text=True, capture_output=True, timeout=60)
-    except (OSError, subprocess.SubprocessError):
+        completed = runner(
+            argv, cwd=str(worktree), text=True, errors="replace", capture_output=True, timeout=60
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
         return None
     if int(getattr(completed, "returncode", 1)) != 0:
         return None
-    return str(getattr(completed, "stdout", "") or "")
+    stdout = getattr(completed, "stdout", "") or ""
+    return stdout if isinstance(stdout, str) else stdout.decode("utf-8", "replace")
+
+
+def _git_bytes(runner: Callable[..., Any], worktree: Path, argv: list[str]) -> bytes | None:
+    """Raw stdout of one git command, undecoded, or None on failure.
+
+    Used for the patch: it may contain any byte sequence a failed unit wrote,
+    and decoding it would both risk raising and make any digest describe the
+    round trip rather than git's actual output.
+    """
+    try:
+        completed = runner(argv, cwd=str(worktree), capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if int(getattr(completed, "returncode", 1)) != 0:
+        return None
+    stdout = getattr(completed, "stdout", b"") or b""
+    return stdout if isinstance(stdout, bytes) else str(stdout).encode("utf-8", "replace")
 
 
 def _parse_numstat(numstat: str) -> tuple[list[str], int]:
-    """Sorted changed paths and total moved lines from `git diff --numstat`.
+    """Sorted changed paths and total moved lines from `git diff --numstat -z`.
 
-    Binary files report `-` for both counts; they still count as a changed
-    path and contribute no lines.
+    `-z` is what makes this parseable: it NUL-terminates records and turns off
+    the C-quoting that would otherwise mangle a path containing a tab or a
+    quote. Binary files report `-` for both counts; they still count as a
+    changed path and contribute no lines.
+
+    A rename or copy emits an empty path field followed by two more records —
+    the old path then the new one. Both are counted, because both are things
+    the operator has to reconcile.
     """
+    tokens = numstat.split("\0")
     paths_changed: list[str] = []
     lines_changed = 0
-    for line in numstat.splitlines():
-        fields = line.split("\t")
+    index = 0
+    while index < len(tokens):
+        record = tokens[index]
+        index += 1
+        # Split on the first two tabs only. `-z` emits the path raw, so a
+        # filename containing a tab would otherwise be truncated at it.
+        fields = record.split("\t", 2)
         if len(fields) < 3:
             continue
-        added, removed, path = fields[0], fields[1], fields[-1]
-        if not path.strip():
-            continue
-        paths_changed.append(path.strip())
+        added, removed, path = fields[0], fields[1], fields[2]
         for count in (added, removed):
             if count.isdigit():
                 lines_changed += int(count)
+        if path:
+            paths_changed.append(path)
+            continue
+        # Rename/copy: the next two tokens are the old and new paths.
+        for offset in (0, 1):
+            if index + offset < len(tokens) and tokens[index + offset]:
+                paths_changed.append(tokens[index + offset])
+        index += 2
     return sorted(set(paths_changed)), lines_changed
 
 

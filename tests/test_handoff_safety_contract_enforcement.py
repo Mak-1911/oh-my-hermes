@@ -444,8 +444,13 @@ GIT_ARGV_ALLOWLIST: dict[tuple[str, tuple[str, ...]], str] = {
         "against the operator's repository or a unit that succeeded"
     ),
     ("src/coding/fanout_dispatch.py", ("diff",)): (
-        "measures what a failed unit left in its own worktree -- `--numstat` for paths, then the "
+        "measures what a failed unit left in its own worktree -- `--numstat -z` for paths, then the "
         "patch that is hashed for size/sha256 and dropped; read-only"
+    ),
+    ("src/coding/fanout_dispatch.py", ("rev-parse",)): (
+        "`rev-parse --show-toplevel`, run BEFORE the `add -N` above, to prove the recovery probe is "
+        "standing in the unit's own worktree and not in whatever repository encloses it; read-only, "
+        "and the reason the `add` entry's containment claim is checked rather than asserted"
     ),
 }
 
