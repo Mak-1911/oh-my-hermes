@@ -1654,6 +1654,76 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "answer_clarification",
         "clarification",
     ),
+    # Greenfield creation reaches the interview lane. Before the greenfield
+    # guard the product noun decided the outcome: `build a navbar` reached the
+    # delivery cycle at 44 while `build a todo list` scored 4 and fell to the
+    # picker, because `navbar` sat in a literal noun set and `todo`, `app`, and
+    # `dashboard` did not.
+    RoutingInterventionCase(
+        "greenfield-build-reaches-interview",
+        "An English greenfield build request reaches the interview lane whatever the product noun",
+        "let's build a react todo list",
+        "dispatch",
+        "deep-interview",
+        "answer_clarification",
+        "clarification",
+    ),
+    RoutingInterventionCase(
+        "greenfield-build-korean-reaches-interview",
+        "A Korean greenfield build request reaches the interview lane",
+        "웹사이트 하나 만들어줘",
+        "dispatch",
+        "deep-interview",
+        "answer_clarification",
+        "clarification",
+    ),
+    # Overroute guards for the greenfield shape. The creation opener is the
+    # weakest signal in the message, so anything that claimed it on real
+    # vocabulary keeps its lane.
+    RoutingInterventionCase(
+        "greenfield-shape-keeps-frontend",
+        "A greenfield opener does not take a web surface request off the frontend lane",
+        "make me a landing page",
+        "dispatch",
+        "frontend",
+        "prepare_frontend_handoff",
+        "frontend_handoff",
+    ),
+    RoutingInterventionCase(
+        "greenfield-shape-keeps-delivery-for-named-surface",
+        "Naming a concrete existing surface keeps the delivery cycle instead of opening an interview",
+        "build a login component",
+        "dispatch",
+        "ultraprocess",
+        "choose_executor",
+        "handoff",
+    ),
+    RoutingInterventionCase(
+        "greenfield-shape-keeps-research-brief",
+        "Creating a named deliverable keeps its own lane rather than the interview lane",
+        "create a research brief for the auth migration",
+        "dispatch",
+        "research-brief",
+        "run_hermes_research",
+        "web_research",
+    ),
+    # Trigger-direction guard. A trigger fires when the message contains it,
+    # never the reverse: the bare word `test` used to match `npm test`,
+    # `cargo test`, `pytest`, and `python -m unittest` at +6 apiece and reached
+    # `command-operator` with a score of 73 at high confidence. The bare-word
+    # half of that guard lives in tests/test_routing_scoring.py - a one-word
+    # message cannot be an intervention case, because this corpus also forbids
+    # the raw message from appearing in the machine payload and a common word
+    # always does.
+    RoutingInterventionCase(
+        "command-phrase-still-reaches-command-operator",
+        "The trigger-direction fix keeps a message that genuinely contains the command phrase",
+        "npm test",
+        "dispatch",
+        "command-operator",
+        "prepare_command_operator_card",
+        "command_operator",
+    ),
     RoutingInterventionCase(
         "verb-shaped-research-keeps-paper-learning",
         "A sentence opening with the verb research keeps paper-learning for an attached paper",

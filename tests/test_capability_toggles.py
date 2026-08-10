@@ -261,9 +261,15 @@ class CapabilityToggleRoutingTests(unittest.TestCase):
             with self.subTest(message=message):
                 self.assertNotEqual(route_chat_message(message)["selected_skill"], "capability-toggle")
 
-    def test_a_bare_product_token_still_routes_where_it_did_before(self) -> None:
-        # A trigger containing bare "omh" stole this route once already.
-        self.assertEqual(route_chat_message("omh")["selected_skill"], "workflow-learning")
+    def test_a_bare_product_token_opens_the_product_itself(self) -> None:
+        # This asserted `workflow-learning` while triggers matched in both
+        # directions. That skill's only `omh` triggers are negative-usage
+        # phrases - "did not use OMH", "OMH was not used", "OMH 안 썼어" - and the
+        # bare word is a substring of all three, so it collected +6 apiece and
+        # typing the product's own name opened "record a missed-route
+        # improvement candidate". `oh-my-hermes` carries a real bare `omh`
+        # trigger and is where the word belongs.
+        self.assertEqual(route_chat_message("omh")["selected_skill"], "oh-my-hermes")
 
 
 if __name__ == "__main__":

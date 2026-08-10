@@ -984,6 +984,108 @@ _PRODUCT_SHAPING_PHRASES = (
     "어디서 시작",
     "어디부터 시작",
 )
+# Creation openers, kept to the shape rather than the noun. The indefinite
+# article is the whole signal: "build a X" introduces something, "build the X"
+# and "build this X" point at something already agreed. Verbs whose objects are
+# usually documents rather than software ("write a ...") are deliberately absent
+# - they belong to the materials lane, not the interview lane.
+_GREENFIELD_CREATION_PHRASES = (
+    "build a ",
+    "build an ",
+    "build me a ",
+    "build me an ",
+    "create a ",
+    "create an ",
+    "create me a ",
+    "make me a ",
+    "make me an ",
+    "develop a ",
+    "develop an ",
+    "i want a ",
+    "i want an ",
+    "i need a ",
+    "i need an ",
+    "i want to build",
+    "i want to make",
+    "let's build",
+    "lets build",
+    "let us build",
+    "let's make",
+    "lets make",
+    "let's create",
+    "lets create",
+    "from scratch",
+    "greenfield",
+    "new project",
+    "만들어줘",
+    "만들어 줘",
+    "만들고 싶",
+    "만들어보고 싶",
+    "개발해줘",
+    "새로 만들",
+    "처음부터",
+)
+# A question about how something is created is a request for an explanation,
+# not for the thing. These openers keep "how do I create a virtualenv in
+# Python?" - a negative-control case in ROUTING_PRECISION_CASES - answering
+# directly instead of opening an interview.
+_GREENFIELD_QUESTION_OPENERS = (
+    "how do i",
+    "how do you",
+    "how can i",
+    "how to",
+    "what is",
+    "what's the best way",
+    "whats the best way",
+    "어떻게 만들",
+    "어떻게 하면",
+    "뭐야",
+    "무엇인가",
+)
+# Any of these means the object already exists, so the request is an edit, a
+# copy, or a report on prior work - none of which need an interview.
+_GREENFIELD_EXISTING_REFERENT_PHRASES = (
+    "this file",
+    "this page",
+    "this component",
+    "this repo",
+    "this project",
+    "the existing",
+    "a copy of",
+    "a backup",
+    "a branch",
+    "a commit",
+    "a pr",
+    "a pull request",
+    "이 파일",
+    "이 프로젝트",
+    "기존",
+)
+# Creation vocabulary that belongs to a lane other than product shaping: a plan,
+# a report, a deck, or a test is a request OMH already routes precisely, and an
+# interview in front of it would be a detour.
+_GREENFIELD_OTHER_LANE_TOKENS = _normalized_token_set(
+    {
+        "plan",
+        "report",
+        "deck",
+        "slide",
+        "slides",
+        "pdf",
+        "spreadsheet",
+        "test",
+        "tests",
+        "commit",
+        "branch",
+        "pr",
+        "issue",
+        "ticket",
+        "계획",
+        "보고서",
+        "발표자료",
+        "테스트",
+    }
+)
 _PRODUCT_SHAPING_CONTEXT_TOKENS = _normalized_token_set(
     {
         "onboarding",
@@ -4269,6 +4371,29 @@ PRODUCT_SHAPING_GUARD = RoutingGuardRule(
     why="Matched guard/trigger metadata; fuzzy product-shaping requests need one clarifying interview before plan or execution.",
     activation_status="active",
 )
+GREENFIELD_BUILD_GUARD = RoutingGuardRule(
+    id="greenfield_build_before_generic_picker",
+    rule=(
+        "A request to build something that does not exist yet should start with one clarifying "
+        "interview instead of falling back to the generic picker."
+    ),
+    matched_label="guard:greenfield_build",
+    preferred_skills=("deep-interview",),
+    # A floor for the empty field, not an override - deliberately the smallest
+    # boost of any guard here. The creation shape is weak evidence: it says the
+    # object is new, not which lane owns it. Because the candidate is injected
+    # at score 0, this number IS the score of an unclaimed greenfield request,
+    # so it is chosen against the measured bands rather than picked round:
+    # a request nothing claimed lands at 3-7 (`build a todo list` scored 4,
+    # `build a CLI tool` 7), while a genuine multi-signal match starts at 10
+    # (`여러 Hermes agent가 같이 일할 board 만들어줘` scores `agent-board` 10 off four
+    # separate signals). 8 sits between them. At 30 the guard overrode
+    # `frontend` (15) and `websearch-setup` (18); at 10 it tied `agent-board`
+    # and turned a correct dispatch into a clarify.
+    score_boost=8,
+    why="Matched greenfield creation language with no existing surface named; clarify the product before planning or handoff.",
+    activation_status="active",
+)
 DEEP_INTERVIEW_GUARD = RoutingGuardRule(
     id="deep_interview_before_generic_plan",
     rule="Explicit deep-interview or interview-before-planning requests should route to deep-interview before generic planning.",
@@ -5250,6 +5375,19 @@ def _active_routing_guard_rules_cached(
     # specific lane that already claimed the message.
     if named_coding_agent_delivery_applies:
         rules.append(NAMED_CODING_AGENT_DELIVERY_GUARD)
+    # Truly last. The order of this list is precedence, not just presentation:
+    # the guarded fast path takes the FIRST entry, so a low `score_boost` alone
+    # does not make a guard a fallback. Registered mid-list, this one selected
+    # `deep-interview` for "...create a research brief" over `research-brief`,
+    # whose own guard sat two places behind it with a boost of 38. The creation
+    # shape is the weakest signal here; anything that claimed the message on
+    # actual vocabulary should be reached first.
+    if _greenfield_build_guard_applies(
+        normalized_query,
+        query_tokens,
+        direct_coding_task_applies=direct_coding_task_applies,
+    ):
+        rules.append(GREENFIELD_BUILD_GUARD)
     return tuple(rules)
 
 
@@ -5271,6 +5409,50 @@ def _product_shaping_guard_applies(normalized_query: str, query_tokens: set[str]
     product_context = bool(_PRODUCT_SHAPING_CONTEXT_TOKENS & query_tokens)
     shaping_uncertainty = bool(_PRODUCT_SHAPING_UNCERTAINTY_TOKENS & query_tokens)
     return product_context and shaping_uncertainty
+
+
+def _greenfield_build_guard_applies(
+    normalized_query: str,
+    query_tokens: set[str],
+    *,
+    direct_coding_task_applies: bool | None = None,
+) -> bool:
+    """"Build me an X" where X does not exist yet belongs in the interview lane.
+
+    `_direct_coding_task_guard_applies` reads as the lane for build requests, but
+    its `concrete_surface` set enumerates surfaces you EDIT - `navbar`, `readme`,
+    `variable`, `toggle` - not products you CREATE. So the product noun decided
+    the lane, and it decided arbitrarily: with the verb and sentence shape held
+    constant, `build a navbar` reached the delivery cycle at 44 while
+    `build a todo list`, `build a react app`, and `build a dashboard` all
+    collapsed to the generic picker at 4, because `navbar` is in the set and
+    `app` is not.
+
+    The fix is not a longer noun list. What actually separates the two is
+    whether the thing already exists: an edit request points at a surface the
+    repo can be read for, a creation request names something no amount of repo
+    inspection can answer. The second is the definition of a materially
+    ambiguous product request, which is what `deep-interview` is for.
+    """
+    if direct_coding_task_applies is None:
+        direct_coding_task_applies = _direct_coding_task_guard_applies(normalized_query, query_tokens)
+    if direct_coding_task_applies:
+        return False
+    # An explicit delivery ask ("implement", "open a PR") means the caller has
+    # already decided; clarification would be a detour, not a service.
+    if _delivery_cycle_terms(normalized_query, query_tokens):
+        return False
+    # "how do I create a virtualenv" asks for instructions; the creation phrase
+    # is incidental to a question about how something is done.
+    if _contains_phrase(normalized_query, _GREENFIELD_QUESTION_OPENERS):
+        return False
+    if not _contains_phrase(normalized_query, _GREENFIELD_CREATION_PHRASES):
+        return False
+    # A referent that points back at existing work is an edit, however it is
+    # phrased: "make a copy of this file" is not a greenfield product request.
+    if _contains_phrase(normalized_query, _GREENFIELD_EXISTING_REFERENT_PHRASES):
+        return False
+    return not bool(_GREENFIELD_OTHER_LANE_TOKENS & query_tokens)
 
 
 def _deep_interview_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:
