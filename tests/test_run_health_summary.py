@@ -23,6 +23,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from _cli_harness import run_cli
+from _credential_fixtures import AWS_ACCESS_KEY_ID
 from _local_package import load_local_package
 
 load_local_package()
@@ -459,7 +460,7 @@ class RunHealthInputBoundsTests(unittest.TestCase):
             parse_run_health_input(too_many)
 
     def test_the_parser_refuses_secret_shaped_references(self) -> None:
-        for secret in ("AKIAIOSFODNN7EXAMPLE", "gho_12345678901234567890", "AIzaSyDUMMYABCDEFGHIJKLMNOPQRSTUVWX123"):
+        for secret in (AWS_ACCESS_KEY_ID, "gho_12345678901234567890", "AIzaSyDUMMYABCDEFGHIJKLMNOPQRSTUVWX123"):
             with self.subTest(secret=secret):
                 with self.assertRaisesRegex(ValueError, "safe opaque metadata reference"):
                     parse_run_health_input(

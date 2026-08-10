@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from _credential_fixtures import AWS_ACCESS_KEY_ID
 from _local_package import load_local_package
 
 load_local_package()
@@ -168,7 +169,7 @@ class ProjectGovernanceTests(unittest.TestCase):
         self.assertEqual(discovery["status"], "existing_project_governance")
 
     def test_sensitive_governance_source_is_blocked_before_attachment(self) -> None:
-        for content in ("AWS_SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE", "secret=topsecret", "-----BEGIN PRIVATE KEY-----"):
+        for content in (f"AWS_SECRET_ACCESS_KEY={AWS_ACCESS_KEY_ID}", "secret=topsecret", "-----BEGIN PRIVATE KEY-----"):
             with self.subTest(content=content), TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 (root / "AGENTS.md").write_text(content, encoding="utf-8")

@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+from _credential_fixtures import AWS_ACCESS_KEY_ID
 from src.quality import cross_harness_benchmark as benchmark
 from src.quality.cross_harness_benchmark import (
     BenchmarkValidationError,
@@ -204,7 +205,7 @@ class CrossHarnessBenchmarkSecurityTests(unittest.TestCase):
         for secret in (
             "person@example.test",
             "ghp_abcdefghijklmnopqrstuvwxyz1234567890",
-            "AKIAIOSFODNN7EXAMPLE",
+            AWS_ACCESS_KEY_ID,
         ):
             with self.subTest(secret_shape=secret[:4]):
                 benchmark_input = _benchmark_input()

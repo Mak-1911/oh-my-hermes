@@ -30,6 +30,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
+from _credential_fixtures import AWS_ACCESS_KEY_ID, AWS_TEMPORARY_ACCESS_KEY_ID
 from _local_package import load_local_package
 
 load_local_package()
@@ -1019,7 +1020,7 @@ class AccountAuthorizationTests(unittest.TestCase):
     def test_a_credential_value_that_matches_the_name_shape_is_still_refused(self) -> None:
         """An AWS key id is upper-case alphanumerics; the shape alone accepted it verbatim."""
         envelope = _envelope()
-        for value in ("AKIAIOSFODNN7EXAMPLE", "ASIAIOSFODNN7EXAMPLE"):
+        for value in (AWS_ACCESS_KEY_ID, AWS_TEMPORARY_ACCESS_KEY_ID):
             with self.subTest(value=value):
                 self.assertTrue(is_secret_value_shaped(value))
                 block = build_account_authorization(
