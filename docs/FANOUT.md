@@ -223,17 +223,33 @@ goal to Hermes in chat; these commands are the backend surface.
   dispatch base and attaches a `recovery` record to the unit result:
   `outcome` (`recovery_available`, `no_changes`, or `capture_failed`),
   the changed path count and names (capped, with `paths_truncated`),
-  `lines_changed`, `diff_bytes`, `diff_sha256`, and a `recover_with`
-  command. Units whose outcome is `recovery_available` are rolled up in
-  the summary's `recovery_available_units`, the counterpart to
-  `merge_ready_units`, and the record also persists to
-  `~/.omh/coding/fanout/<id>/recovery/<unit>.json`. The probe runs
-  `git add -N` in that unit's worktree first so files the unit *created*
-  are measured too, and so the printed `recover_with` command produces a
-  complete patch; it stages no content and makes no commit. The record is
-  metadata only — the diff is hashed for size and digest, then dropped,
-  and never leaves the worktree. Successful units are never probed: their
-  work is reached by merging their branch, not by salvage. A failed probe
+  `lines_changed`, `diff_bytes`, `diff_sha256`, `recovery_ref`, and a
+  `recover_with` command. Units whose outcome is `recovery_available` are
+  rolled up in the summary's `recovery_available_units`, the counterpart
+  to `merge_ready_units`, and `omh coding fanout brief` carries a compact
+  `recovery` line per unit so the signal survives after the dispatch JSON
+  scrolls past. The record also persists to
+  `~/.omh/coding/fanout/<id>/recovery/<unit>.json`, byte-for-byte the same
+  keys as the summary's copy.
+  The probe runs `git add -N` in that unit's worktree first so files the
+  unit *created* are measured too, and so the printed `recover_with`
+  command produces a complete patch; it stages no content and makes no
+  commit, and a `rev-parse --show-toplevel` check first proves the probe
+  is standing in the unit's own worktree. If `add -N` fails, the outcome
+  is `capture_failed` with `tracked_paths_seen` — never
+  `recovery_available`, because a patch missing the created files is not
+  the complete one the record advertises. Paths and the patch are both
+  read as raw bytes, so a non-ASCII filename is recorded as written
+  rather than mangled through the host locale. The record is metadata
+  only — the diff is hashed for size and digest, then dropped, and never
+  leaves the worktree.
+  Lifecycle: any stored record is cleared before a unit re-runs, so one
+  cannot outlive the worktree it points at; a unit that re-runs and
+  succeeds ends with no record and drops out of the rollup; and a unit
+  that could not re-run at all (`worktree_failed`) keeps the earlier
+  record, because failing to start says nothing about what the last
+  attempt left behind. Successful units are never probed: their work is
+  reached by merging their branch, not by salvage. A failed probe
   degrades to `capture_failed` and never changes the unit's own result.
 - **Limit signals.** A failed spawn whose bounded output matches a fixed,
   context-anchored limit-shape pattern (rate limit, usage limit, quota

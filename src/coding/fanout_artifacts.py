@@ -62,6 +62,19 @@ def write_fanout_unit_recovery(
     return recovery_path
 
 
+def clear_fanout_unit_recovery(paths: OmhPaths, fanout_id: str, unit_id: str) -> None:
+    """Drop a unit's stored recovery record, if it has one.
+
+    Called before a unit re-runs, so a record describing an earlier attempt
+    cannot outlive the worktree it points at. Same posture as the in-flight
+    marker: best effort, never blocks a dispatch.
+    """
+    try:
+        fanout_unit_recovery_path(paths, fanout_id, unit_id).unlink(missing_ok=True)
+    except (OSError, ValueError):
+        return
+
+
 def read_fanout_contract(paths: OmhPaths, fanout_id: str) -> dict[str, object]:
     import json
 

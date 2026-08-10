@@ -461,12 +461,7 @@ def dispatch_fanout(
         "merge_ready_units": [entry["unit_id"] for entry in summary_units if entry.get("merge_ready")],
         # The counterpart to merge_ready: units that failed but left work worth
         # looking at before anyone re-runs them from scratch.
-        "recovery_available_units": [
-            entry["unit_id"]
-            for entry in summary_units
-            if isinstance(entry.get("recovery"), Mapping)
-            and entry["recovery"].get("outcome") == "recovery_available"
-        ],
+        "recovery_available_units": _recovery_available(summary_units),
         "auto_merge": False,
         "dependency_bar": (
             "A satisfied dependency means only that the owner agent process exited 0. "
@@ -488,7 +483,41 @@ def dispatch_fanout(
         summary_path = fanout_dispatch_summary_path(paths, fanout_id)
         stored = _merged_dispatch_summary(summary_path, summary)
         atomic_write_json(summary_path, stored, private=True)
+        # The CLI prints what this returns, so the rollups it carries have to
+        # agree with the file just written — an operator who re-ran one unit
+        # was being told nothing was salvageable while the stored summary said
+        # otherwise. Only the rollups and the carried-forward `recovery` are
+        # taken from the merged view: per-unit `status` stays THIS run's answer,
+        # so `already_completed` still means "I did not re-run this".
+        summary["units"] = _with_carried_recovery(summary["units"], stored.get("units", []))
+        summary["recovery_available_units"] = _recovery_available(summary["units"])
     return summary
+
+
+def _with_carried_recovery(
+    units: list[dict[str, Any]],
+    merged_units: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """This run's entries, plus the recovery a unit that did not re-run still has."""
+    merged_by_id = {str(entry.get("unit_id", "")): entry for entry in merged_units if isinstance(entry, Mapping)}
+    carried: list[dict[str, Any]] = []
+    for entry in units:
+        merged = merged_by_id.get(str(entry.get("unit_id", "")))
+        if "recovery" not in entry and isinstance(merged, Mapping) and isinstance(merged.get("recovery"), Mapping):
+            carried.append({**entry, "recovery": dict(merged["recovery"])})
+        else:
+            carried.append(entry)
+    return carried
+
+
+def _recovery_available(units: Sequence[Mapping[str, Any]]) -> list[str]:
+    return [
+        str(entry.get("unit_id"))
+        for entry in units
+        if isinstance(entry, Mapping)
+        and isinstance(entry.get("recovery"), Mapping)
+        and entry["recovery"].get("outcome") == "recovery_available"
+    ]
 
 
 _DISPATCH_SKIP_STATUSES = frozenset({"already_completed", "not_selected"})
@@ -513,6 +542,20 @@ def _merged_dispatch_summary(summary_path: Path, summary: dict[str, Any]) -> dic
             # A skipped unit carries no telemetry; the earlier observed entry
             # is the richer record and stays.
             merged_units.append(earlier)
+        elif (
+            isinstance(earlier, dict)
+            and "recovery" in earlier
+            and "recovery" not in entry
+            and "exit_code" not in entry
+        ):
+            # The unit did not actually re-run: no exit code means no spawn, so
+            # statuses like `worktree_failed` or `executor_not_ready` say
+            # nothing about what the earlier attempt left behind. Carrying the
+            # earlier recovery forward keeps a salvageable unit from vanishing
+            # from the rollup while its record is still on disk. A unit that
+            # DID run replaces the answer, which is how a later success clears
+            # a stale one.
+            merged_units.append({**entry, "recovery": earlier["recovery"]})
         else:
             merged_units.append(entry)
     merged = dict(summary)
@@ -525,13 +568,7 @@ def _merged_dispatch_summary(summary_path: Path, summary: dict[str, Any]) -> dic
     # would erase an earlier run's salvageable unit from the one field an
     # operator reads first — while that unit's own `recovery` record, merged
     # just above, still says otherwise.
-    merged["recovery_available_units"] = [
-        str(entry.get("unit_id"))
-        for entry in merged_units
-        if isinstance(entry, dict)
-        and isinstance(entry.get("recovery"), Mapping)
-        and entry["recovery"].get("outcome") == "recovery_available"
-    ]
+    merged["recovery_available_units"] = _recovery_available(merged_units)
     return merged
 
 
@@ -724,6 +761,15 @@ def _dispatch_unit(
             "merge_ready": False,
         }
     worktree = Path(str(worktree_record["worktree_path"]))
+    if fanout_id:
+        # Before the spawn, like the in-flight marker below. A record from an
+        # earlier attempt describes a worktree that has just been rebuilt from
+        # base, so leaving it would advertise a stale digest and a recover_with
+        # pointing at work that no longer exists. If this run also fails, the
+        # probe writes a fresh one.
+        from .fanout_artifacts import clear_fanout_unit_recovery
+
+        clear_fanout_unit_recovery(paths, fanout_id, unit_id)
     _ensure_unit_run(paths, unit, owner)
     append_journal_observation(
         paths,
@@ -903,7 +949,12 @@ def _capture_unit_recovery(
     # makes the `recover_with` command below actually produce a full patch.
     # It respects .gitignore, so build output stays out of the report.
     untracked_measured = _git_text(runner, worktree, ["git", "add", "-N", "--", "."]) is not None
-    numstat = _git_text(runner, worktree, ["git", "diff", "--numstat", "-z", base_sha])
+    # Bytes, not text. `-z` deliberately disables git's C-quoting so paths are
+    # emitted raw, and decoding them through the host locale (cp1252 on the
+    # enforcing Windows job) silently rewrites a non-ASCII filename into
+    # mojibake the operator then cannot find. Decoded strictly as UTF-8 below,
+    # which is what git records paths as.
+    numstat_bytes = _git_bytes(runner, worktree, ["git", "diff", "--numstat", "-z", base_sha])
     # Captured as BYTES, never decoded. A partial file in a non-UTF-8 encoding
     # is ordinary debris in a failed unit, and `text=True` would raise
     # UnicodeDecodeError straight through this function and abort the whole
@@ -911,15 +962,23 @@ def _capture_unit_recovery(
     # actually emits, rather than a decode/re-encode round trip through
     # whatever the host locale happens to be.
     patch_bytes = _git_bytes(runner, worktree, ["git", "diff", base_sha])
-    if numstat is None or patch_bytes is None:
+    if numstat_bytes is None or patch_bytes is None:
         return _capture_failed("git refused to diff the unit worktree against the dispatch base")
-    paths_changed, lines_changed = _parse_numstat(numstat)
+    paths_changed, lines_changed = _parse_numstat(numstat_bytes.decode("utf-8", "surrogateescape"))
+    if not untracked_measured:
+        # `add -N` failed, so anything the unit CREATED is invisible to
+        # `git diff`. Whatever the tracked diff shows, this record cannot make
+        # the completeness promise its `recover_with` command advertises, and a
+        # partial answer an operator acts on is worse than an honest refusal.
+        # `tracked_paths_seen` says the worktree is not empty so nobody deletes
+        # it on the strength of this record.
+        failed = _capture_failed(
+            "git add -N failed, so files the unit created could not be measured; "
+            "the tracked diff alone is not a complete patch"
+        )
+        failed["tracked_paths_seen"] = len(paths_changed)
+        return failed
     if not paths_changed and not patch_bytes:
-        if not untracked_measured:
-            # `add -N` failed, so files the unit created are invisible to
-            # `git diff`. "Nothing here" and "nothing I could see" are
-            # different answers, and only one of them is safe to act on.
-            return _capture_failed("git add -N failed, so files the unit created could not be measured")
         return {
             "schema_version": RECOVERY_SCHEMA_VERSION,
             "outcome": "no_changes",
@@ -935,17 +994,22 @@ def _capture_unit_recovery(
         "lines_changed": lines_changed,
         "paths": paths_changed[:_MAX_RECOVERY_PATHS],
         "paths_truncated": len(paths_changed) > _MAX_RECOVERY_PATHS,
-        "untracked_measured": untracked_measured,
         "diff_bytes": len(patch_bytes),
         "diff_sha256": sha256(patch_bytes).hexdigest(),
         "recover_with": f"git -C {shlex.quote(str(worktree))} diff {shlex.quote(base_sha)}",
         "claim_boundary": RECOVERY_CLAIM_BOUNDARY,
     }
     if fanout_id:
-        from .fanout_artifacts import write_fanout_unit_recovery
+        from .fanout_artifacts import fanout_unit_recovery_path, write_fanout_unit_recovery
 
         try:
-            record["recovery_ref"] = str(write_fanout_unit_recovery(paths, fanout_id, unit_id, record))
+            # The ref goes INTO the record before it is serialized. Writing
+            # first and assigning after left the on-disk file missing a key the
+            # summary's copy carried, so two shapes advertised the same
+            # schema_version and a consumer reading the documented path got a
+            # KeyError.
+            record["recovery_ref"] = str(fanout_unit_recovery_path(paths, fanout_id, unit_id))
+            write_fanout_unit_recovery(paths, fanout_id, unit_id, record)
         except (OSError, ValueError):
             # Same posture as the in-flight marker: a persistence failure is
             # reported by omission, never by losing the unit result.
@@ -988,11 +1052,14 @@ def _git_text(runner: Callable[..., Any], worktree: Path, argv: list[str]) -> st
         completed = runner(
             argv, cwd=str(worktree), text=True, errors="replace", capture_output=True, timeout=60
         )
-    except (OSError, subprocess.SubprocessError, ValueError):
+        # Inside the try: a runner that reports a non-numeric returncode makes
+        # `int(...)` raise TypeError, which would escape this "never raises"
+        # helper exactly the way UnicodeDecodeError used to.
+        if int(getattr(completed, "returncode", 1)) != 0:
+            return None
+        stdout = getattr(completed, "stdout", "") or ""
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
         return None
-    if int(getattr(completed, "returncode", 1)) != 0:
-        return None
-    stdout = getattr(completed, "stdout", "") or ""
     return stdout if isinstance(stdout, str) else stdout.decode("utf-8", "replace")
 
 
@@ -1005,12 +1072,12 @@ def _git_bytes(runner: Callable[..., Any], worktree: Path, argv: list[str]) -> b
     """
     try:
         completed = runner(argv, cwd=str(worktree), capture_output=True, timeout=60)
-    except (OSError, subprocess.SubprocessError, ValueError):
+        if int(getattr(completed, "returncode", 1)) != 0:
+            return None
+        stdout = getattr(completed, "stdout", b"") or b""
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
         return None
-    if int(getattr(completed, "returncode", 1)) != 0:
-        return None
-    stdout = getattr(completed, "stdout", b"") or b""
-    return stdout if isinstance(stdout, bytes) else str(stdout).encode("utf-8", "replace")
+    return stdout if isinstance(stdout, bytes) else str(stdout).encode("utf-8", "surrogateescape")
 
 
 def _parse_numstat(numstat: str) -> tuple[list[str], int]:

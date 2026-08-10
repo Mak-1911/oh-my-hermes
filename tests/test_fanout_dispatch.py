@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 from tempfile import TemporaryDirectory
 import unittest
@@ -105,6 +106,7 @@ def _writing_runner(
     break_git_diff: bool = False,
     break_git_add: bool = False,
     latin1_units: set[str] | None = None,
+    unicode_units: set[str] | None = None,
     wide_units: set[str] | None = None,
     rename_units: set[str] | None = None,
 ):
@@ -143,6 +145,9 @@ def _writing_runner(
                 # (binary detection needs a NUL in the first 8000 bytes). This
                 # is what used to abort the whole dispatch.
                 (cwd / f"{unit_id}_latin1.txt").write_bytes("caf\xe9 partial work\n".encode("latin-1"))
+        for unit_id in unicode_units or set():
+            if owns(prompt, unit_id):
+                (cwd / "análisis_你好.py").write_text("value = 1\n", encoding="utf-8")
         for unit_id in wide_units or set():
             if owns(prompt, unit_id):
                 for index in range(_MAX_RECOVERY_PATHS + 3):
@@ -823,6 +828,139 @@ class FanoutUnitRecoveryTests(unittest.TestCase):
             by_unit = {entry["unit_id"]: entry for entry in stored["units"]}
             self.assertEqual(by_unit["docs"]["recovery"]["outcome"], "recovery_available")
             self.assertEqual(stored["recovery_available_units"], ["docs"])
+
+    def test_a_partial_measurement_is_never_reported_as_recoverable(self) -> None:
+        # `git add -N` failing plus ANY tracked change used to yield
+        # `recovery_available` whose paths and recover_with omitted every file
+        # the unit created -- a patch that deletes a file and salvages nothing.
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+
+            summary = self._dispatch(
+                paths, repo, sha, contract,
+                _writing_runner(
+                    fail_units={"docs"}, write_units={"docs"}, rename_units={"docs"}, break_git_add=True
+                ),
+            )
+
+            recovery = {entry["unit_id"]: entry for entry in summary["units"]}["docs"]["recovery"]
+            self.assertEqual(recovery["outcome"], "capture_failed")
+            self.assertIn("not a complete patch", recovery["reason"])
+            # The worktree is not empty, and the record says so, so nobody
+            # deletes it on the strength of a "nothing here" answer.
+            self.assertGreater(recovery["tracked_paths_seen"], 0)
+            self.assertNotIn("recover_with", recovery)
+            self.assertEqual(summary["recovery_available_units"], [])
+
+    def test_a_non_utf8_path_survives_the_probe_intact(self) -> None:
+        # `-z` disables git's C-quoting, so paths arrive as raw bytes. Decoding
+        # them through the host locale silently renamed them in the record.
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+
+            summary = self._dispatch(
+                paths, repo, sha, contract,
+                _writing_runner(fail_units={"docs"}, unicode_units={"docs"}),
+            )
+
+            recovery = {entry["unit_id"]: entry for entry in summary["units"]}["docs"]["recovery"]
+            self.assertEqual(recovery["outcome"], "recovery_available")
+            self.assertEqual(recovery["paths"], ["análisis_你好.py"])
+
+    def test_the_persisted_record_carries_the_same_keys_as_the_summary_copy(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+
+            summary = self._dispatch(
+                paths, repo, sha, contract,
+                _writing_runner(fail_units={"docs"}, write_units={"docs"}),
+            )
+
+            recovery = {entry["unit_id"]: entry for entry in summary["units"]}["docs"]["recovery"]
+            stored = json.loads(Path(recovery["recovery_ref"]).read_text(encoding="utf-8"))
+            # One schema_version must mean one shape. The ref used to be
+            # assigned after the file was already written.
+            self.assertEqual(sorted(stored), sorted(recovery))
+            self.assertEqual(stored["recovery_ref"], recovery["recovery_ref"])
+
+    def test_a_unit_that_could_not_rerun_keeps_its_earlier_recovery(self) -> None:
+        # `worktree_failed` says nothing about what the earlier attempt left,
+        # so the rollup must not drop the unit -- its record is still on disk.
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            first = self._dispatch(
+                paths, repo, sha, contract,
+                _writing_runner(fail_units={"docs"}, write_units={"docs"}),
+            )
+            self.assertEqual(first["recovery_available_units"], ["docs"])
+
+            # The worktree still exists, so re-dispatch cannot create it.
+            second = dispatch_fanout(
+                paths, contract, goal_text=_GOAL, repo_root=repo, base_sha=sha,
+                runner=_writing_runner(), readiness=_ready, only_units=["docs"],
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in second["units"]}
+            self.assertEqual(by_unit["docs"]["status"], "worktree_failed")
+            self.assertEqual(by_unit["docs"]["recovery"]["outcome"], "recovery_available")
+            self.assertEqual(second["recovery_available_units"], ["docs"])
+            stored = json.loads(
+                fanout_dispatch_summary_path(paths, contract["fanout_id"]).read_text(encoding="utf-8")
+            )
+            self.assertEqual(stored["recovery_available_units"], ["docs"])
+
+    def test_a_later_success_clears_the_stale_recovery_record(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            first = self._dispatch(
+                paths, repo, sha, contract,
+                _writing_runner(fail_units={"docs"}, write_units={"docs"}),
+            )
+            record_path = Path({e["unit_id"]: e for e in first["units"]}["docs"]["recovery"]["recovery_ref"])
+            self.assertTrue(record_path.is_file())
+
+            # Operator salvages, then clears the worktree AND its branch so a
+            # re-dispatch can create both (the creator refuses to reuse either).
+            shutil.rmtree(Path(repo).parent / "repo-fanout-docs")
+            _git(repo, "worktree", "prune")
+            _git(repo, "branch", "-D", "agent/docs")
+            second = dispatch_fanout(
+                paths, contract, goal_text=_GOAL, repo_root=repo, base_sha=sha,
+                runner=_writing_runner(), readiness=_ready, only_units=["docs"],
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in second["units"]}
+            self.assertEqual(by_unit["docs"]["status"], "completed")
+            self.assertNotIn("recovery", by_unit["docs"])
+            self.assertEqual(second["recovery_available_units"], [])
+            # The stale file is gone, not left advertising a dead worktree.
+            self.assertFalse(record_path.is_file())
+
+    def test_a_runner_with_a_non_numeric_returncode_does_not_abort_the_dispatch(self) -> None:
+        # Same failure family as the UnicodeDecodeError fixed earlier: an
+        # exception escaping the probe takes the whole batch down.
+        class _NoReturnCode:
+            returncode = None
+            stdout = ""
+            stderr = ""
+
+        def runner(argv, **kwargs):
+            # argv[:2], so `git worktree add` (which creates the unit worktree)
+            # is not caught by the `add` arm and the probe is actually reached.
+            if argv[:2] in (["git", "diff"], ["git", "add"], ["git", "rev-parse"]):
+                return _NoReturnCode()
+            if argv[0] == "git":
+                return subprocess.run(argv, **kwargs)
+            return _FakeCompleted(1, "boom")
+
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+
+            summary = self._dispatch(paths, repo, sha, contract, runner)
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["docs"]["recovery"]["outcome"], "capture_failed")
+            self.assertEqual(by_unit["docs"]["status"], "failed")
 
     def test_recovery_paths_reject_ids_that_would_escape_the_fanout_directory(self) -> None:
         with TemporaryDirectory() as tmp:
