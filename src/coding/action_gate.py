@@ -1772,10 +1772,10 @@ def _is_env_var_name(value: str) -> bool:
 
     Same shape and the same reason: an environment variable *name* is safe to
     carry because it is not the value. The shape alone is not enough — plenty of
-    issued credentials are upper-case alphanumerics too, and
-    `AKIAIOSFODNN7EXAMPLE` satisfies every character rule below — so the value
-    is also screened through the credential boundary's own value detectors
-    before it is accepted as a name.
+    issued credentials are upper-case alphanumerics too, and an `AKIA`-prefixed
+    AWS access key id satisfies every character rule below — so the value is
+    also screened through the credential boundary's own value detectors before
+    it is accepted as a name.
 
     `is_secret_value_shaped` rather than `is_sensitive_metadata_text`: the wider
     predicate flags anything *named* like a secret, and an environment variable

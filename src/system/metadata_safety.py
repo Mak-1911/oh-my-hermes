@@ -41,7 +41,8 @@ def is_secret_value_shaped(value: str) -> bool:
     is an environment variable *name*, since such a name legitimately contains
     them. These four patterns flag the issued material itself, and a name can
     never match one, so a field that must accept `GITHUB_TOKEN` while refusing
-    `AKIAIOSFODNN7EXAMPLE` reads this predicate instead of the wider one.
+    an issued `AKIA`-prefixed access key id reads this predicate instead of
+    the wider one.
 
     No new pattern is introduced here: these are exactly the detectors this
     module already owned, which also bounds what the screen can catch. A

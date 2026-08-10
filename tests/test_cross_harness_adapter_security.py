@@ -13,6 +13,7 @@ from threading import Thread
 import unittest
 from unittest.mock import patch
 
+from _credential_fixtures import AWS_ACCESS_KEY_ID
 from src.quality import cross_harness_adapter_io as adapter_io
 from src.quality.cross_harness_adapter_sandbox import ChildContext, ProcessObservation, environment_is_safe, observe_process, preflight, sandbox_command
 from src.quality.cross_harness_adapters import ExecutionSpec, _artifact_result, runner_receipt_payload
@@ -122,7 +123,7 @@ class AdapterSandboxSecurityTests(_RunnerMixin, unittest.TestCase):
     def test_secret_shaped_values_are_rejected_but_numeric_listener_values_are_allowed(self) -> None:
         rejected = (
             "ghp_abcdefghijklmnopqrstuvwxyz1234567890",
-            "AKIAIOSFODNN7EXAMPLE",
+            AWS_ACCESS_KEY_ID,
             "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
             "Bearer opaque-credential",
             "-----BEGIN PRIVATE KEY-----",

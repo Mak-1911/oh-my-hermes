@@ -21,6 +21,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from _cli_harness import run_cli
+from _credential_fixtures import AWS_ACCESS_KEY_ID
 from _local_package import load_local_package
 
 load_local_package()
@@ -372,7 +373,7 @@ class NoMutatingWriterTests(unittest.TestCase):
                 context_pack={
                     "included_context": [
                         {
-                            "item_id": "AKIAIOSFODNN7EXAMPLE",
+                            "item_id": AWS_ACCESS_KEY_ID,
                             "key": "k",
                             "summary": "s",
                             "source": "wrapper_snapshot",

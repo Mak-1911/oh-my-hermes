@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+from _credential_fixtures import AWS_ACCESS_KEY_ID
 from src.quality.cross_harness_adapter_evidence import (
     adapter_request_payload,
     adapter_result_payload,
@@ -199,7 +200,7 @@ class AdapterBoundaryFailingFirstTests(unittest.TestCase):
     def test_recursive_raw_keys_secret_vectors_and_credential_paths_are_rejected(self) -> None:
         secret_values = (
             "ghp_1234567890abcdefghijklmnopqrstuvwxyz",
-            "AKIAIOSFODNN7EXAMPLE",
+            AWS_ACCESS_KEY_ID,
             "sk-attacker",
             "-----BEGIN EC PRIVATE KEY-----",
             "/home/alice/.aws/credentials",

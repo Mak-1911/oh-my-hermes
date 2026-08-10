@@ -23,6 +23,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from _credential_fixtures import AWS_ACCESS_KEY_ID
 from _local_package import load_local_package
 
 load_local_package()
@@ -353,7 +354,7 @@ class ReferenceGuardTests(unittest.TestCase):
     def test_redacted_ref_keeps_opaque_handles_and_folds_everything_else(self) -> None:
         self.assertEqual(redacted_ref("slack:message-1", field="ref"), "slack:message-1")
         self.assertEqual(redacted_ref("", field="ref"), "")
-        for unsafe in ("https://example.com/x", "AKIAIOSFODNN7EXAMPLE", "bad\x1bref", "a" * 200):
+        for unsafe in ("https://example.com/x", AWS_ACCESS_KEY_ID, "bad\x1bref", "a" * 200):
             with self.subTest(unsafe=unsafe):
                 folded = redacted_ref(unsafe, field="ref")
                 self.assertTrue(folded.startswith("ref-"))
@@ -371,7 +372,7 @@ class BoundedTextTests(unittest.TestCase):
             "erase\x1b[2K\r",
             "C:\\Users\\me",
             "\\\\host\\share",
-            "AKIAIOSFODNN7EXAMPLE",
+            AWS_ACCESS_KEY_ID,
         ):
             with self.subTest(unsafe=unsafe):
                 self.assertTrue(is_unsafe_metadata_line(unsafe))

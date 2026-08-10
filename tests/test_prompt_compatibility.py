@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from _cli_harness import run_cli
+from _credential_fixtures import AWS_ACCESS_KEY_ID
 from _local_package import load_local_package
 from _platform_support import requires_posix, requires_secure_dir_io
 
@@ -68,13 +69,13 @@ class PromptCompatibilityAuditTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             prompt = root / "secure.md"
-            prompt.write_text("Do not retain AKIAIOSFODNN7EXAMPLE.\n", encoding="utf-8")
+            prompt.write_text(f"Do not retain {AWS_ACCESS_KEY_ID}.\n", encoding="utf-8")
 
             payload = audit_prompt_compatibility((prompt,))
 
             source = payload["sources"]["files"][0]
             self.assertIn("secret_like_text", source["trust_review"]["reasons"])
-            self.assertNotIn("AKIAIOSFODNN7EXAMPLE", json.dumps(payload, sort_keys=True))
+            self.assertNotIn(AWS_ACCESS_KEY_ID, json.dumps(payload, sort_keys=True))
             with self.assertRaisesRegex(ValueError, "regular file"):
                 audit_prompt_compatibility((root,))
 
@@ -94,11 +95,11 @@ class PromptCompatibilityAuditTests(unittest.TestCase):
     def test_audit_rejects_sensitive_metadata_and_symlinks_at_every_path_component(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            secret_filename = root / "AKIAIOSFODNN7EXAMPLE.md"
+            secret_filename = root / f"{AWS_ACCESS_KEY_ID}.md"
             secret_filename.write_text("Safe prompt body.\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "safe metadata") as raised:
                 audit_prompt_compatibility((secret_filename,))
-            self.assertNotIn("AKIAIOSFODNN7EXAMPLE", str(raised.exception))
+            self.assertNotIn(AWS_ACCESS_KEY_ID, str(raised.exception))
 
             named_secret = root / "named.md"
             named_secret.write_text("---\nname: secret\n---\nSafe prompt body.\n", encoding="utf-8")
@@ -160,12 +161,12 @@ class PromptCompatibilityAuditTests(unittest.TestCase):
             self.assertEqual(payload["sources"]["files"][0]["proposed_command"], "review")
             self.assertEqual(payload["not_observed"]["slash_command_registration"]["status"], "not_observed")
 
-            secret_named = root / "AKIAIOSFODNN7EXAMPLE.md"
+            secret_named = root / f"{AWS_ACCESS_KEY_ID}.md"
             secret_named.write_text("Safe prompt body.\n", encoding="utf-8")
             status, stdout, stderr = run_cli(["ops", "prompt-compatibility-audit", "--path", str(secret_named)])
             self.assertEqual(status, 2)
             self.assertEqual(stdout, "")
-            self.assertNotIn("AKIAIOSFODNN7EXAMPLE", stderr)
+            self.assertNotIn(AWS_ACCESS_KEY_ID, stderr)
 
 
 if __name__ == "__main__":
