@@ -913,7 +913,7 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
     from ..coding.fanout_contracts import FanoutContractError
     from ..coding.model_routing import EXECUTOR_MODEL_OPTIONS
 
-    units = _read_fanout_units(args.units)
+    units, spawn_plan = _read_fanout_payload(args.units)
     if is_degenerate_single_unit(units):
         _print_json(single_unit_redirect(units))
         return 0
@@ -933,6 +933,7 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
             source=args.source,
             source_metadata=_explicit_source_metadata(args),
             local_catalogs=_local_model_catalogs() if needs_inventory else {},
+            spawn_plan=spawn_plan,
         )
     except FanoutContractError as exc:
         raise OmhError(str(exc)) from exc
@@ -943,12 +944,23 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
 
 
 def cmd_coding_fanout_validate(args: argparse.Namespace) -> int:
-    from ..coding.fanout import detect_boundary_overlaps, merge_order, validate_fanout_units, _normalized_unit
+    from ..coding.fanout import (
+        detect_boundary_overlaps,
+        merge_order,
+        require_spawn_plan,
+        spawn_plan_required,
+        validate_fanout_units,
+        _normalized_unit,
+    )
     from ..coding.fanout_contracts import FanoutContractError
 
-    units = [_normalized_unit(unit, index) for index, unit in enumerate(_read_fanout_units(args.units))]
+    raw_units, spawn_plan = _read_fanout_payload(args.units)
+    units = [_normalized_unit(unit, index) for index, unit in enumerate(raw_units)]
     try:
         validate_fanout_units(units)
+        # Same gate `prepare` runs, in the same order, so `validate` cannot
+        # report a split that `prepare` will then refuse to freeze.
+        require_spawn_plan(len(units), spawn_plan)
         notes = detect_boundary_overlaps(units)
         order = merge_order(units)
     except FanoutContractError as exc:
@@ -959,6 +971,7 @@ def cmd_coding_fanout_validate(args: argparse.Namespace) -> int:
             "schema_version": "fanout_validation/v1",
             "ok": True,
             "unit_count": len(units),
+            "spawn_plan_required": spawn_plan_required(len(units)),
             "merge_order": order,
             "conflict_risk_notes": notes,
         }
@@ -1386,12 +1399,24 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
 
 
 def _read_fanout_units(units_arg: str) -> list[dict[str, object]]:
+    units, _spawn_plan = _read_fanout_payload(units_arg)
+    return units
+
+
+def _read_fanout_payload(units_arg: str) -> tuple[list[dict[str, object]], dict[str, object] | None]:
+    """The unit list, plus the spawn plan when the object form carries one.
+
+    The plan rides in the same payload rather than behind a second flag: it
+    justifies this exact split, and an operator who edits the units without
+    editing the justification is the case the gate exists to catch.
+    """
     raw = sys.stdin.read() if units_arg == "-" else Path(units_arg).expanduser().read_text(encoding="utf-8")
     payload = json.loads(raw)
     units = payload.get("units") if isinstance(payload, dict) else payload
     if not isinstance(units, list):
         raise OmhError("fanout units input must be a JSON list (or an object with a 'units' list)")
-    return units
+    spawn_plan = payload.get("spawn_plan") if isinstance(payload, dict) else None
+    return units, spawn_plan if isinstance(spawn_plan, dict) else None
 
 
 def _add_coding_commands(sub) -> None:

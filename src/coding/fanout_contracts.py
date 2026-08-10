@@ -21,6 +21,30 @@ FANOUT_FINAL_INTEGRATION_GATE = (
     "git diff --check",
 )
 
+FANOUT_SPAWN_PLAN_SCHEMA_VERSION = "fanout_spawn_plan/v1"
+# Up to four units a split is small enough to read at a glance. Past that the
+# contract stops recording an obvious decomposition and starts recording a
+# guess, so the operator has to say why out loud. The threshold is locked
+# rather than configurable on purpose: a threshold that can be raised is a
+# threshold that gets raised instead of answered.
+FANOUT_SPAWN_PLAN_THRESHOLD = 4
+FANOUT_SPAWN_PLAN_TEXT_FIELDS = (
+    "why_parallel",
+    "why_not_single_unit",
+    "independence",
+    "expected_evidence_shape",
+)
+FANOUT_SPAWN_PLAN_FIELDS = (*FANOUT_SPAWN_PLAN_TEXT_FIELDS, "max_inline_tokens")
+# Bounded for the reason every operator-typed contract string is bounded here:
+# a field with no ceiling is a field that eventually carries a pasted
+# transcript. One or two sentences is the whole intent.
+MAX_SPAWN_PLAN_FIELD_CHARS = 280
+FANOUT_SPAWN_PLAN_CLAIM_BOUNDARY = (
+    "A spawn plan is the operator's prepared justification for splitting one goal across several units. "
+    "It is not evidence that the split is correct, that the units are independent, that the named evidence "
+    "shape was produced, or that any unit ran."
+)
+
 
 class FanoutContractError(ValueError):
     """Raised when a proposed fanout unit list cannot be frozen into a contract."""

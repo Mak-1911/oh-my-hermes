@@ -16,10 +16,19 @@ from omh.coding.fanout import (  # noqa: E402
     detect_boundary_overlaps,
     is_degenerate_single_unit,
     merge_order,
+    missing_spawn_plan_fields,
+    normalized_spawn_plan,
+    require_spawn_plan,
     single_unit_redirect,
+    spawn_plan_required,
 )
 from omh.coding.fanout_artifacts import read_fanout_contract, write_fanout_contract  # noqa: E402
-from omh.coding.fanout_contracts import FanoutContractError  # noqa: E402
+from omh.coding.fanout_contracts import (  # noqa: E402
+    FANOUT_SPAWN_PLAN_FIELDS,
+    FANOUT_SPAWN_PLAN_THRESHOLD,
+    FanoutContractError,
+    MAX_SPAWN_PLAN_FIELD_CHARS,
+)
 from omh.system.paths import OmhPaths  # noqa: E402
 
 
@@ -28,6 +37,22 @@ _UNITS = [
     {"unit_id": "tests", "title": "Add tests", "owner": "claude-code", "file_scope": ["tests/auth/"], "depends_on": ["core"]},
     {"unit_id": "docs", "title": "Update docs", "owner": None, "file_scope": ["docs/auth.md"], "depends_on": []},
 ]
+
+_SPAWN_PLAN = {
+    "why_parallel": "Five disjoint subsystems each own their own test lane.",
+    "why_not_single_unit": "One executor would serialize five unrelated verification loops.",
+    "independence": "No unit reads or writes another unit's file_scope.",
+    "expected_evidence_shape": "Per-unit run record plus the unit's own focused test command.",
+    "max_inline_tokens": 4000,
+}
+
+
+def _wide_units(count: int = FANOUT_SPAWN_PLAN_THRESHOLD + 1) -> list[dict[str, object]]:
+    """A split one unit wider than the threshold, with disjoint boundaries."""
+    return [
+        {"unit_id": f"u{index}", "title": f"Unit {index}", "owner": None, "file_scope": [f"src/u{index}/"], "depends_on": []}
+        for index in range(count)
+    ]
 
 
 class FanoutEngineTests(unittest.TestCase):
@@ -161,6 +186,119 @@ class FanoutEngineTests(unittest.TestCase):
             self.assertEqual(stored["schema_version"], "fanout_contract/v1")
 
 
+class FanoutSpawnPlanTests(unittest.TestCase):
+    """The gate that refuses a wide split nobody justified (#gajae spawn-gate)."""
+
+    def test_a_split_at_or_below_the_threshold_needs_no_plan(self) -> None:
+        for count in (2, FANOUT_SPAWN_PLAN_THRESHOLD):
+            with self.subTest(count=count):
+                self.assertFalse(spawn_plan_required(count))
+                contract = build_fanout_contract("split work", _wide_units(count))
+                self.assertNotIn("spawn_plan", contract)
+
+    def test_a_contract_under_the_threshold_is_byte_identical_to_a_pre_gate_freeze(self) -> None:
+        # The gate is additive: the three-unit contract every existing caller
+        # freezes must not gain a key, or every stored contract reads as drift.
+        contract = build_fanout_contract("refactor auth and cover it", _UNITS, source="discord")
+        self.assertEqual(
+            sorted(contract),
+            [
+                "board_projection",
+                "claim_boundary",
+                "fanout_id",
+                "goal",
+                "merge_plan",
+                "observed_evidence_required",
+                "safety_profile_revision",
+                "schema_version",
+                "source",
+                "source_metadata",
+                "status",
+                "units",
+            ],
+        )
+
+    def test_a_wide_split_without_a_plan_is_rejected_by_name(self) -> None:
+        units = _wide_units()
+        self.assertTrue(spawn_plan_required(len(units)))
+
+        with self.assertRaises(FanoutContractError) as caught:
+            build_fanout_contract("split work five ways", units)
+
+        message = str(caught.exception)
+        self.assertIn(f"{len(units)}-unit split", message)
+        self.assertIn(f"{FANOUT_SPAWN_PLAN_THRESHOLD}-unit spawn-plan threshold", message)
+        for field in FANOUT_SPAWN_PLAN_FIELDS:
+            self.assertIn(field, message)
+
+    def test_a_wide_split_with_a_complete_plan_freezes_and_records_it(self) -> None:
+        units = _wide_units()
+
+        contract = build_fanout_contract("split work five ways", units, spawn_plan=_SPAWN_PLAN)
+
+        plan = contract["spawn_plan"]
+        self.assertEqual(plan["schema_version"], "fanout_spawn_plan/v1")
+        self.assertEqual(plan["unit_count"], len(units))
+        self.assertEqual(plan["threshold"], FANOUT_SPAWN_PLAN_THRESHOLD)
+        self.assertEqual(plan["max_inline_tokens"], 4000)
+        self.assertEqual(plan["why_parallel"], _SPAWN_PLAN["why_parallel"])
+        # A justification is not evidence, and the contract has to say so.
+        self.assertIn("not evidence", plan["claim_boundary"])
+
+    def test_an_incomplete_plan_names_only_the_fields_still_unanswered(self) -> None:
+        units = _wide_units()
+        partial = {**_SPAWN_PLAN, "independence": "   ", "max_inline_tokens": 0}
+
+        with self.assertRaises(FanoutContractError) as caught:
+            build_fanout_contract("split work five ways", units, spawn_plan=partial)
+
+        message = str(caught.exception)
+        self.assertIn("independence", message)
+        self.assertIn("max_inline_tokens", message)
+        self.assertNotIn("why_parallel", message)
+        self.assertNotIn("expected_evidence_shape", message)
+
+    def test_max_inline_tokens_rejects_every_answer_that_is_not_a_positive_int(self) -> None:
+        # `True` is the one that matters: bool subclasses int, so an unguarded
+        # check would silently accept it as the budget 1.
+        for value in (0, -1, True, False, "4000", 4000.0, None):
+            with self.subTest(value=value):
+                self.assertIn(
+                    "max_inline_tokens",
+                    missing_spawn_plan_fields({**_SPAWN_PLAN, "max_inline_tokens": value}),
+                )
+        self.assertEqual(missing_spawn_plan_fields(_SPAWN_PLAN), [])
+
+    def test_plan_fields_are_bounded_and_collapsed(self) -> None:
+        collapsed = normalized_spawn_plan({**_SPAWN_PLAN, "why_parallel": "  two   lines\n  here  "})
+        self.assertEqual(collapsed["why_parallel"], "two lines here")
+
+        with self.assertRaises(FanoutContractError) as caught:
+            normalized_spawn_plan({**_SPAWN_PLAN, "independence": "x" * (MAX_SPAWN_PLAN_FIELD_CHARS + 1)})
+        self.assertIn(str(MAX_SPAWN_PLAN_FIELD_CHARS), str(caught.exception))
+
+    def test_a_non_object_plan_is_a_shape_error_not_a_missing_field_list(self) -> None:
+        with self.assertRaises(FanoutContractError) as caught:
+            normalized_spawn_plan(["why_parallel"])
+        self.assertIn("must be an object", str(caught.exception))
+
+    def test_a_plan_supplied_under_the_threshold_is_kept_rather_than_dropped(self) -> None:
+        contract = build_fanout_contract("split work", _UNITS, spawn_plan=_SPAWN_PLAN)
+
+        self.assertEqual(contract["spawn_plan"]["unit_count"], len(_UNITS))
+        self.assertEqual(contract["spawn_plan"]["why_parallel"], _SPAWN_PLAN["why_parallel"])
+
+    def test_the_gate_stays_deterministic(self) -> None:
+        units = _wide_units()
+        first = build_fanout_contract("split work five ways", units, spawn_plan=_SPAWN_PLAN)
+        second = build_fanout_contract("split work five ways", units, spawn_plan=_SPAWN_PLAN)
+
+        self.assertEqual(first, second)
+
+    def test_require_spawn_plan_returns_none_when_nothing_was_supplied(self) -> None:
+        self.assertIsNone(require_spawn_plan(FANOUT_SPAWN_PLAN_THRESHOLD, None))
+
+
 class FanoutArtifactTests(unittest.TestCase):
     def test_writer_persists_metadata_only_contract_under_omh_home(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -254,6 +392,72 @@ class FanoutCliTests(unittest.TestCase):
             self.assertFalse(payload["ok"])
             self.assertIn("depends_on edge", payload["error"])
             self.assertFalse((root / ".omh" / "coding").exists())
+
+    def test_fanout_prepare_refuses_a_wide_split_without_a_plan(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wide = root / "wide.json"
+            wide.write_text(json.dumps(_wide_units()), encoding="utf-8")
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+
+            status, stdout, stderr = run_cli(
+                base
+                + ["coding", "fanout", "prepare", "--goal", "split", "five", "ways", "--units", str(wide), "--record"]
+            )
+
+            # `prepare` reports contract errors the way every other one is
+            # reported: OmhError to stderr, exit 2. `validate` is the surface
+            # that answers with a JSON verdict and exit 1.
+            self.assertEqual(status, 2)
+            self.assertIn("spawn-plan threshold", stderr)
+            # A refused freeze writes nothing.
+            self.assertFalse((root / ".omh" / "coding").exists())
+
+    def test_fanout_prepare_accepts_a_plan_carried_in_the_units_payload(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wide = root / "wide.json"
+            wide.write_text(
+                json.dumps({"units": _wide_units(), "spawn_plan": _SPAWN_PLAN}),
+                encoding="utf-8",
+            )
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+
+            status, stdout, stderr = run_cli(
+                base
+                + ["coding", "fanout", "prepare", "--goal", "split", "five", "ways", "--units", str(wide), "--record"]
+            )
+
+            self.assertEqual(status, 0, stderr)
+            payload = json.loads(stdout)
+            self.assertEqual(payload["spawn_plan"]["unit_count"], FANOUT_SPAWN_PLAN_THRESHOLD + 1)
+            stored = read_fanout_contract(
+                OmhPaths(root / ".omh", root / ".hermes"), payload["fanout_id"]
+            )
+            self.assertEqual(stored["spawn_plan"], payload["spawn_plan"])
+
+    def test_fanout_validate_reports_the_requirement_before_prepare_refuses(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+
+            narrow = root / "narrow.json"
+            narrow.write_text(json.dumps(_UNITS), encoding="utf-8")
+            status, stdout, stderr = run_cli(base + ["coding", "fanout", "validate", "--units", str(narrow)])
+            self.assertEqual(status, 0, stderr)
+            self.assertFalse(json.loads(stdout)["spawn_plan_required"])
+
+            wide = root / "wide.json"
+            wide.write_text(json.dumps(_wide_units()), encoding="utf-8")
+            status, stdout, _ = run_cli(base + ["coding", "fanout", "validate", "--units", str(wide)])
+            self.assertEqual(status, 1)
+            self.assertIn("spawn-plan threshold", json.loads(stdout)["error"])
+
+            planned = root / "planned.json"
+            planned.write_text(json.dumps({"units": _wide_units(), "spawn_plan": _SPAWN_PLAN}), encoding="utf-8")
+            status, stdout, stderr = run_cli(base + ["coding", "fanout", "validate", "--units", str(planned)])
+            self.assertEqual(status, 0, stderr)
+            self.assertTrue(json.loads(stdout)["spawn_plan_required"])
 
     def test_fanout_show_projects_not_observed_units(self) -> None:
         with TemporaryDirectory() as tmp:
