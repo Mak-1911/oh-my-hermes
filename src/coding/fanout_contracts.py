@@ -48,13 +48,18 @@ FANOUT_SPAWN_PLAN_SCHEMA_VERSION = "fanout_spawn_plan/v1"
 # rather than configurable on purpose: a threshold that can be raised is a
 # threshold that gets raised instead of answered.
 FANOUT_SPAWN_PLAN_THRESHOLD = 4
-FANOUT_SPAWN_PLAN_TEXT_FIELDS = (
+# Four questions, all prose. Gajae-Code's receipt carries a fifth,
+# `maxInlineTokens`, because its parent agent enforces an inline-output budget
+# on the child. OMH has no such consumer — the units are foreign CLI processes
+# whose output it does not bound — so requiring the operator to invent a number
+# nothing reads would be a mandatory unbounded field with no reader. Left out
+# until something needs it.
+FANOUT_SPAWN_PLAN_FIELDS = (
     "why_parallel",
     "why_not_single_unit",
     "independence",
     "expected_evidence_shape",
 )
-FANOUT_SPAWN_PLAN_FIELDS = (*FANOUT_SPAWN_PLAN_TEXT_FIELDS, "max_inline_tokens")
 # Bounded for the reason every operator-typed contract string is bounded here:
 # a field with no ceiling is a field that eventually carries a pasted
 # transcript. One or two sentences is the whole intent.

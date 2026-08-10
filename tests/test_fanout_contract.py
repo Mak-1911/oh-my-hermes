@@ -45,7 +45,6 @@ _SPAWN_PLAN = {
     "why_not_single_unit": "One executor would serialize five unrelated verification loops.",
     "independence": "No unit reads or writes another unit's file_scope.",
     "expected_evidence_shape": "Per-unit run record plus the unit's own focused test command.",
-    "max_inline_tokens": 4000,
 }
 
 
@@ -214,7 +213,7 @@ class FanoutSpawnPlanTests(unittest.TestCase):
         # be truthy, so it added a `spawn_plan` key full of empty strings to a
         # contract that had none -- drift AND a receipt asserting a
         # justification nobody wrote. Refusing keeps both from happening.
-        for hollow in ({}, {"why_parallel": "four disjoint subsystems"}, {"max_inline_tokens": 4000}):
+        for hollow in ({}, {"why_parallel": "four disjoint subsystems"}, {"independence": "   "}):
             with self.subTest(plan=hollow):
                 with self.assertRaises(FanoutContractError) as caught:
                     build_fanout_contract("split work", _UNITS, spawn_plan=hollow)
@@ -228,8 +227,33 @@ class FanoutSpawnPlanTests(unittest.TestCase):
         with self.assertRaises(FanoutContractError) as caught:
             build_fanout_contract("split work five ways", _wide_units(), spawn_plan={})
         message = str(caught.exception)
-        self.assertIn("spawn-plan threshold", message)
+        self.assertIn("threshold", message)
+        # The plan IS present, so neither branch may tell the operator to add
+        # one -- they are looking straight at it.
+        self.assertNotIn("add a spawn_plan", message)
+        self.assertIn("incomplete", message)
+        # Above the threshold, deleting the key is not a remedy.
         self.assertNotIn("remove the spawn_plan", message)
+
+    def test_a_structurally_invalid_wide_split_fails_on_structure_not_on_the_plan(self) -> None:
+        # The gate must run LAST. Otherwise an operator writes four paragraphs
+        # of justification for a decomposition that can never be frozen, and
+        # only learns it is invalid on the next attempt.
+        overlapping = [
+            {"unit_id": f"u{i}", "file_scope": ["src/shared/"], "depends_on": []}
+            for i in range(FANOUT_SPAWN_PLAN_THRESHOLD + 1)
+        ]
+        with self.assertRaises(FanoutContractError) as caught:
+            build_fanout_contract("split work five ways", overlapping)
+        self.assertIn("depends_on edge", str(caught.exception))
+        self.assertNotIn("spawn-plan", str(caught.exception))
+
+        cyclic = _wide_units()
+        cyclic[0]["depends_on"] = [cyclic[1]["unit_id"]]
+        cyclic[1]["depends_on"] = [cyclic[0]["unit_id"]]
+        with self.assertRaises(FanoutContractError) as caught:
+            build_fanout_contract("split work five ways", cyclic)
+        self.assertIn("cycle", str(caught.exception))
 
     def test_a_wide_split_without_a_plan_is_rejected_by_name(self) -> None:
         units = _wide_units()
@@ -253,33 +277,38 @@ class FanoutSpawnPlanTests(unittest.TestCase):
         self.assertEqual(plan["schema_version"], "fanout_spawn_plan/v1")
         self.assertEqual(plan["unit_count"], len(units))
         self.assertEqual(plan["threshold"], FANOUT_SPAWN_PLAN_THRESHOLD)
-        self.assertEqual(plan["max_inline_tokens"], 4000)
         self.assertEqual(plan["why_parallel"], _SPAWN_PLAN["why_parallel"])
         # A justification is not evidence, and the contract has to say so.
         self.assertIn("not evidence", plan["claim_boundary"])
 
     def test_an_incomplete_plan_names_only_the_fields_still_unanswered(self) -> None:
         units = _wide_units()
-        partial = {**_SPAWN_PLAN, "independence": "   ", "max_inline_tokens": 0}
+        partial = {**_SPAWN_PLAN, "independence": "   ", "expected_evidence_shape": ""}
 
         with self.assertRaises(FanoutContractError) as caught:
             build_fanout_contract("split work five ways", units, spawn_plan=partial)
 
         message = str(caught.exception)
         self.assertIn("independence", message)
-        self.assertIn("max_inline_tokens", message)
+        self.assertIn("expected_evidence_shape", message)
         self.assertNotIn("why_parallel", message)
-        self.assertNotIn("expected_evidence_shape", message)
+        self.assertNotIn("why_not_single_unit", message)
 
-    def test_max_inline_tokens_rejects_every_answer_that_is_not_a_positive_int(self) -> None:
-        # `True` is the one that matters: bool subclasses int, so an unguarded
-        # check would silently accept it as the budget 1.
-        for value in (0, -1, True, False, "4000", 4000.0, None):
+    def test_a_non_string_answer_is_refused_rather_than_frozen_as_its_repr(self) -> None:
+        # `str(value)` would accept any of these and freeze a Python repr into
+        # a JSON contract -- "['a', 'b']", "True" -- passing the blank check
+        # while being exactly the answer-nobody-wrote the gate refuses.
+        for value in ([ "a", "b" ], 1, True, {"cmd": "pytest"}, 4000.0):
             with self.subTest(value=value):
-                self.assertIn(
-                    "max_inline_tokens",
-                    missing_spawn_plan_fields({**_SPAWN_PLAN, "max_inline_tokens": value}),
-                )
+                with self.assertRaises(FanoutContractError) as caught:
+                    normalized_spawn_plan({**_SPAWN_PLAN, "why_parallel": value})
+                self.assertIn("must be a string", str(caught.exception))
+
+        # None reads as unsupplied, not as a shape error.
+        self.assertEqual(
+            missing_spawn_plan_fields(normalized_spawn_plan({**_SPAWN_PLAN, "independence": None})),
+            ["independence"],
+        )
         self.assertEqual(missing_spawn_plan_fields(_SPAWN_PLAN), [])
 
     def test_plan_fields_are_bounded_and_collapsed(self) -> None:
@@ -490,6 +519,41 @@ class FanoutCliTests(unittest.TestCase):
                     status, stdout, _ = run_cli(base + ["coding", "fanout", "validate", "--units", str(path)])
                     self.assertEqual(status, 1)
                     self.assertIn("spawn_plan must be an object", json.loads(stdout)["error"])
+
+    def test_validate_answers_with_json_even_when_a_unit_is_not_an_object(self) -> None:
+        # `_normalized_unit` used to run outside the try, so this escaped as a
+        # traceback with an empty stdout while still exiting 1 -- the same code
+        # as the documented invalid-payload path, so a wrapper parsed "".
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bad = root / "bad.json"
+            bad.write_text(json.dumps({"units": ["oops", "also-oops"]}), encoding="utf-8")
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+
+            status, stdout, _ = run_cli(base + ["coding", "fanout", "validate", "--units", str(bad)])
+
+            self.assertEqual(status, 1)
+            payload = json.loads(stdout)
+            self.assertFalse(payload["ok"])
+            self.assertIn("must be an object", payload["error"])
+            # The contract this command advertises: both keys on every path.
+            self.assertEqual(payload["unit_count"], 2)
+            self.assertFalse(payload["spawn_plan_required"])
+
+    def test_a_misspelled_spawn_plan_key_is_named_rather_than_dropped(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+            for spelling in ("spawnPlan", "spawn-plan", "SPAWN_PLAN"):
+                path = root / f"{spelling}.json"
+                path.write_text(json.dumps({"units": _UNITS, spelling: _SPAWN_PLAN}), encoding="utf-8")
+                with self.subTest(spelling=spelling):
+                    status, _, stderr = run_cli(
+                        base + ["coding", "fanout", "prepare", "--goal", "split", "it", "--units", str(path)]
+                    )
+                    self.assertEqual(status, 2)
+                    self.assertIn(spelling, stderr)
+                    self.assertIn("did you mean", stderr)
 
     def test_fanout_validate_reports_the_requirement_before_prepare_refuses(self) -> None:
         with TemporaryDirectory() as tmp:

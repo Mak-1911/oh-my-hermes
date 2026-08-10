@@ -12,7 +12,6 @@ from .fanout_contracts import (
     FANOUT_SPAWN_PLAN_CLAIM_BOUNDARY,
     FANOUT_SPAWN_PLAN_FIELDS,
     FANOUT_SPAWN_PLAN_SCHEMA_VERSION,
-    FANOUT_SPAWN_PLAN_TEXT_FIELDS,
     FANOUT_SPAWN_PLAN_THRESHOLD,
     FANOUT_UNIT_OWNERS,
     FanoutContractError,
@@ -38,12 +37,14 @@ def build_fanout_contract(
         raise FanoutContractError("fanout goal is required")
     normalized_units = [_normalized_unit(unit, index) for index, unit in enumerate(units)]
     validate_fanout_units(normalized_units)
-    # Before the boundary scan, and for the same reason it runs before the
-    # merge order: a split nobody can justify should fail on the justification,
-    # not on whichever downstream detail happens to trip first.
-    accepted_spawn_plan = require_spawn_plan(len(normalized_units), spawn_plan)
     conflict_notes = detect_boundary_overlaps(normalized_units)
     order = merge_order(normalized_units)
+    # Last, after every structural check. A split with overlapping boundaries
+    # or a dependency cycle can never be frozen no matter what justifies it,
+    # and asking for four paragraphs first means the operator writes them for
+    # a decomposition they then have to throw away. Structure is cheaper to
+    # fix and is a precondition for the justification being worth anything.
+    accepted_spawn_plan = require_spawn_plan(len(normalized_units), spawn_plan)
     digest = sha256(normalized_goal.encode("utf-8")).hexdigest()
     fanout_id = f"fanout-{digest[:12]}"
     safety_revision = _frozen_safety_profile_revision()
@@ -173,41 +174,35 @@ def normalized_spawn_plan(plan: Mapping[str, object] | None) -> dict[str, object
     if not isinstance(plan, Mapping):
         raise FanoutContractError("spawn_plan must be an object")
     normalized: dict[str, object] = {}
-    for field in FANOUT_SPAWN_PLAN_TEXT_FIELDS:
-        text = " ".join(str(plan.get(field, "") or "").split())
+    for field in FANOUT_SPAWN_PLAN_FIELDS:
+        value = plan.get(field, "")
+        # A justification has to be prose an operator wrote. `str(value)` would
+        # accept a list, a dict, or a bool and freeze its Python repr into the
+        # contract as if it were an answer — single quotes and all — which is
+        # exactly the "answer nobody wrote" this gate exists to refuse.
+        if value is not None and not isinstance(value, str):
+            raise FanoutContractError(
+                f"spawn_plan {field} must be a string; got {type(value).__name__}"
+            )
+        text = " ".join(str(value or "").split())
         if len(text) > MAX_SPAWN_PLAN_FIELD_CHARS:
             raise FanoutContractError(
                 f"spawn_plan {field} must be at most {MAX_SPAWN_PLAN_FIELD_CHARS} chars"
             )
         normalized[field] = text
-    normalized["max_inline_tokens"] = _normalized_max_inline_tokens(plan.get("max_inline_tokens"))
     return normalized
-
-
-def _normalized_max_inline_tokens(value: object) -> int:
-    """A positive integer, or 0 for every answer that is not one.
-
-    `bool` is an `int` in Python, so `True` would otherwise pass as the budget
-    `1`. Zero reads downstream as "field not supplied".
-    """
-    if isinstance(value, bool) or not isinstance(value, int):
-        return 0
-    return value if value > 0 else 0
 
 
 def missing_spawn_plan_fields(plan: Mapping[str, object] | None) -> list[str]:
     """Plan fields still unanswered, in declaration order.
 
-    Answers the *blank* question only. Over-length fields are a shape failure
-    that `normalized_spawn_plan` raises on, so call this on a normalized plan
-    to get a complete verdict.
+    Answers the *blank* question only. Over-length and wrong-typed fields are
+    shape failures that `normalized_spawn_plan` raises on, so call this on a
+    normalized plan to get a complete verdict.
     """
     if plan is None:
         return list(FANOUT_SPAWN_PLAN_FIELDS)
-    missing = [field for field in FANOUT_SPAWN_PLAN_TEXT_FIELDS if not str(plan.get(field, "") or "").strip()]
-    if not _normalized_max_inline_tokens(plan.get("max_inline_tokens")):
-        missing.append("max_inline_tokens")
-    return missing
+    return [field for field in FANOUT_SPAWN_PLAN_FIELDS if not str(plan.get(field, "") or "").strip()]
 
 
 def require_spawn_plan(
@@ -235,10 +230,14 @@ def require_spawn_plan(
     missing = missing_spawn_plan_fields(normalized)
     if not missing:
         return normalized
+    # A plan IS present here, so neither branch tells the operator to add one —
+    # they are looking straight at it. Above the threshold the plan is also
+    # mandatory, so the only remedy offered is completing it.
     if required:
         raise FanoutContractError(
-            f"a {unit_count}-unit split exceeds the {FANOUT_SPAWN_PLAN_THRESHOLD}-unit spawn-plan threshold; "
-            f"add a spawn_plan to the units payload answering: {', '.join(missing)}"
+            f"the supplied spawn_plan is incomplete; answer {', '.join(missing)} "
+            f"(a {unit_count}-unit split exceeds the {FANOUT_SPAWN_PLAN_THRESHOLD}-unit threshold, "
+            f"so the plan is required)"
         )
     raise FanoutContractError(
         f"the supplied spawn_plan is incomplete; answer {', '.join(missing)} or remove the spawn_plan "

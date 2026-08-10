@@ -955,24 +955,31 @@ def cmd_coding_fanout_validate(args: argparse.Namespace) -> int:
     from ..coding.fanout_contracts import FanoutContractError
 
     raw_units, spawn_plan = _read_fanout_payload(args.units)
-    units = [_normalized_unit(unit, index) for index, unit in enumerate(raw_units)]
     # Computed before the gate, and reported on both paths: a wrapper deciding
     # whether to ask the operator for a plan needs this answer most when the
     # gate has just refused. `spawn_plan_required` is pure and cannot raise.
-    requires_plan = spawn_plan_required(len(units))
+    requires_plan = spawn_plan_required(len(raw_units))
     try:
+        # Inside the try, because `_normalized_unit` raises on a non-object
+        # entry too. Outside it, a malformed unit escaped as a traceback with
+        # an empty stdout, and a wrapper following this command's documented
+        # contract parsed that empty string as JSON.
+        units = [_normalized_unit(unit, index) for index, unit in enumerate(raw_units)]
         validate_fanout_units(units)
-        # Same gate `prepare` runs, in the same order, so `validate` cannot
-        # report a split that `prepare` will then refuse to freeze.
-        require_spawn_plan(len(units), spawn_plan)
+        # Same checks `prepare` runs, in the same order, so `validate` cannot
+        # report a split that `prepare` will then refuse to freeze — including
+        # the spawn-plan gate running last, after the structural ones.
         notes = detect_boundary_overlaps(units)
         order = merge_order(units)
+        require_spawn_plan(len(units), spawn_plan)
     except FanoutContractError as exc:
         _print_json(
             {
                 "schema_version": "fanout_validation/v1",
                 "ok": False,
-                "unit_count": len(units),
+                # `raw_units`, not `units`: a malformed entry means `units` was
+                # never bound, and the caller still needs the count it sent.
+                "unit_count": len(raw_units),
                 "spawn_plan_required": requires_plan,
                 "error": str(exc),
             }
@@ -1427,7 +1434,26 @@ def _read_fanout_payload(units_arg: str) -> tuple[list[dict[str, object]], objec
     units = payload.get("units") if isinstance(payload, dict) else payload
     if not isinstance(units, list):
         raise OmhError("fanout units input must be a JSON list (or an object with a 'units' list)")
-    return units, payload.get("spawn_plan") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        return units, None
+    _reject_near_miss_key(payload, "spawn_plan")
+    return units, payload.get("spawn_plan")
+
+
+def _reject_near_miss_key(payload: dict[str, object], expected: str) -> None:
+    """Refuse a key that is the expected one with different punctuation or case.
+
+    `spawnPlan` and `spawn-plan` are both natural spellings, and `.get` drops
+    either without a word — worst below the threshold, where the operator's
+    justification is silently discarded and the frozen contract says nothing
+    was supplied.
+    """
+    if expected in payload:
+        return
+    flattened = expected.replace("_", "")
+    for key in payload:
+        if str(key).replace("_", "").replace("-", "").lower() == flattened:
+            raise OmhError(f"unknown key {key!r} in fanout units payload; did you mean {expected!r}?")
 
 
 def _add_coding_commands(sub) -> None:
