@@ -70,6 +70,10 @@ _GUARDRAIL_CANDIDATE_INJECTION_IDS = frozenset(
         "executor_runtime_readiness_before_generic_advice",
         "feedback_before_coding",
         "gateway_intent_before_feedback_triage",
+        # A greenfield request scores 0 on `deep-interview` by construction - the
+        # user types "build a todo list", never "interview me" - so without
+        # injection the guard's boost has no candidate to land on.
+        "greenfield_build_before_generic_picker",
         "hermes_coding_team_before_generic_clarification",
         "github_event_ops_before_generic_planning",
         "live_info_operator_before_generic_current_facts",
@@ -1641,7 +1645,7 @@ def _score_definition(
         matched.update(("explicit_invocation", f"name:{definition.name}"))
 
     for trigger_phrase in prepared.plain_trigger_phrases:
-        if _phrase_match(normalized_query, trigger_phrase):
+        if _trigger_phrase_match(normalized_query, trigger_phrase):
             score += 6
             matched.add(f"trigger:{trigger_phrase}")
 
@@ -2247,6 +2251,20 @@ def _command_trigger_match(query: str, value: str) -> bool:
 
 def _phrase_match(query: str, value: str) -> bool:
     return bool(query and value and (query in value or value in query))
+
+
+def _trigger_phrase_match(query: str, value: str) -> bool:
+    """A trigger fires when the message contains it, never the reverse.
+
+    `_phrase_match` is bidirectional, which is right for description and
+    use_when - a short query legitimately appears inside a long prose field.
+    For triggers the reverse arm inverts the contract: it makes the message
+    `test` match the triggers `npm test`, `cargo test`, `pytest`, and
+    `python -m unittest` at +6 apiece, so one ambiguous word scored 73 and
+    routed to `command-operator` at high confidence. A trigger is a phrase the
+    user is expected to say; a fragment of one is not evidence they said it.
+    """
+    return bool(query and value and value in query)
 
 
 def _explicit_phrase_match(query: str, value: str) -> bool:

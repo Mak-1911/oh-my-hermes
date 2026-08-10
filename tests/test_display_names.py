@@ -185,19 +185,23 @@ class DisplayNameEchoBackRoutingTests(unittest.TestCase):
     def test_the_display_prefix_alone_never_invents_a_route(self) -> None:
         """Overroute guards: the prefix only counts in front of a real catalog name.
 
-        These four are the pre-change behavior held byte-for-byte. An unresolved
-        `omh-...` token still falls back to the router skill (which renders the
-        picker) or to `workflow-learning`; normalization must never turn one into
-        a real workflow dispatch.
+        An unresolved `omh-...` token falls back to the router skill (which
+        renders the picker) or to `workflow-learning`; normalization must never
+        turn one into a real workflow dispatch.
         """
         for message in ("omh-", "omh-nonexistent", "omh-xyz please help"):
             with self.subTest(message=message):
                 self.assertEqual(awareness_route_hint(message, max_hints=2)["status"], "no_hint")
                 self.assertEqual(route_chat_message(message)["selected_skill"], "oh-my-hermes")
 
-        # The bare word, and a hyphenated non-name, keep what they already did.
+        # The bare word reaches the router skill, not `workflow-learning`. It
+        # used to reach the latter only because that skill's `omh` triggers are
+        # all negative-usage phrases ("did not use OMH") that the bare word was
+        # a substring of; the word itself is a real `oh-my-hermes` trigger.
+        # Either way it opens the picker rather than dispatching real work,
+        # which is what this guard is about.
         self.assertEqual(awareness_route_hint("omh", max_hints=2)["status"], "no_hint")
-        self.assertEqual(route_chat_message("omh")["selected_skill"], "workflow-learning")
+        self.assertEqual(route_chat_message("omh")["selected_skill"], "oh-my-hermes")
         self.assertEqual(route_chat_message("omh-not-a-real-workflow")["selected_skill"], "workflow-learning")
 
     def test_existing_canonical_triggers_are_unaffected(self) -> None:
