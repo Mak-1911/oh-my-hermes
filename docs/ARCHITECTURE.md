@@ -1087,6 +1087,64 @@ in `coding_progress_policy_enforcement()["bounded_surfaces"]`: its output is one
 verdict, at most eight rejected rows, and at most eight store faults, however
 large the stores grow.
 
+### Source Trust
+
+`workflows/source_trust.py` carries the other half of the evidence question.
+Everything above answers *did OMH observe this*; `evidence/labels.py` renders
+that as Phase × Confidence, and every wire value on it is a statement about
+observation. Knowledge that arrived from outside — an upstream document, a
+practitioner's write-up — has no place on that axis, which left it two ways to be
+handled and both were wrong: drop it, or let it ride into a report beside
+observed facts where a reader cannot tell the two apart. The second is
+laundering, and prose telling an agent not to do it is not a guard.
+
+Two axes, kept apart for the same reason as above:
+
+- **Observation** — did OMH see it. Owned by `evidence/labels.py` and the
+  observed-claim guards in `workflows/operator_productivity.py`. `source_trust`
+  does not touch it.
+- **Source trust** — what class of source stands behind a claim OMH never
+  observed. `upstream_official` is primary or maintainer-published material;
+  `practitioner_heuristic` is a named practitioner's report of what works for
+  them, useful and unverified; `unattributed` is a claim with no identifiable
+  source behind it.
+
+The ceiling is mechanical rather than advisory. `TRUST_CLAIM_CEILING` declares
+which claim kinds each tier may back — `approach` informs a plan, `finding`
+enters a report as established, `completion` says work is done — and
+`build_source_trust_claim()` refuses rather than recording a claim the tier
+cannot support. A `practitioner_heuristic` may back `approach` and nothing
+further, so a tip structurally cannot appear as an established finding. An
+`unattributed` source backs nothing at all; it stays recordable so it is visible
+rather than silently dropped, which is the difference between discarding
+knowledge and refusing to let it vote.
+
+The refusal is a rejection, never a silent downgrade to the nearest kind the
+tier could carry: a downgraded record reads later as though the caller had
+claimed correctly. The same check runs again in `source_trust_claim_errors()`,
+so a hand-written record cannot route around the builder.
+
+The strongest rule falls out of the table instead of sitting on top of it: no
+tier reaches `completion`, not even `upstream_official`. What is done, passing,
+verified, reviewed, or merged is settled by observation alone.
+`completion_is_never_source_backed()` re-derives that from
+`TRUST_CLAIM_CEILING` rather than asserting it, so widening a tier cannot leave
+a stale guarantee behind, and `validate_source_trust_summary()` rejects a
+summary whose `strongest_claim_kind` reads `completion`.
+
+Unrecognised tiers fall closed to `unattributed`, the way
+`source_finder.normalize_observation_provenance` falls back to `unknown` — an
+unreadable tier must lose authority, never borrow it. `summarize_source_trust()`
+rejects invalid claims before deriving anything, so malformed input structurally
+cannot raise what a set of claims supports, and reports the gap through a
+bounded `rejected_claims` list.
+
+The module is pure: OMH fetches nothing, subscribes to nothing, and ranks no
+publisher. A caller states the tier; `source_trust` decides only what that tier
+is permitted to claim. Judging *which* sources deserve trust is the reader's
+call and stays outside OMH, per the ownership boundary in `docs/DIRECTION.md`
+that puts source-backed research on the Hermes side.
+
 ### Approval Receipts
 
 `runtime/journal/approval_receipts.jsonl` is an append-only store of
