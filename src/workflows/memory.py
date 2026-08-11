@@ -431,7 +431,7 @@ def build_hermes_memory_bridge(paths: OmhPaths) -> dict[str, object]:
 
 def build_project_memory_status(paths: OmhPaths) -> dict[str, object]:
     candidates = _read_project_memory_candidates(paths)
-    records = _read_project_memory_records(paths)
+    records, unreadable_records = scan_project_memory_records(paths)
     reviews = _read_project_memory_reviews(paths)
     now = datetime.now(timezone.utc)
     evaluations = [_evaluate_memory_artifact(record, paths=paths, now=now, review_resolver=_project_memory_review_resolver(paths)) for record in records]
@@ -460,9 +460,14 @@ def build_project_memory_status(paths: OmhPaths) -> dict[str, object]:
             "eligible_records": sum(1 for evaluation in evaluations if evaluation["eligible"]),
             "ineligible_records": sum(1 for evaluation in evaluations if not evaluation["eligible"]),
             "review_required_legacy": sum(1 for evaluation in evaluations if evaluation["reason_code"] == "review_required_legacy"),
+            # Record files on disk that this build cannot admit. They used to be
+            # dropped by the reader with no count anywhere, so a store that had
+            # silently shrunk looked exactly like a smaller store.
+            "unreadable_records": len(unreadable_records),
             "review_records": len(reviews),
             "candidate_statuses": candidate_status_counts,
         },
+        "unreadable_records": unreadable_records,
         "hermes_memory": build_hermes_memory_bridge(paths),
         "redaction_policy": "metadata_only",
         "claim_boundary": "Project memory status is prepared local context only; it is not execution, review, CI, merge, or Hermes internal-memory evidence.",
@@ -3316,16 +3321,68 @@ def _read_project_memory_candidates(paths: OmhPaths) -> list[dict[str, Any]]:
 
 
 def _read_project_memory_records(paths: OmhPaths) -> list[dict[str, Any]]:
+    return scan_project_memory_records(paths)[0]
+
+
+UNREADABLE_RECORD_REASONS = ("unsupported_record_schema", "legacy_review_status_missing", "unreadable_file")
+
+
+def scan_project_memory_records(paths: OmhPaths) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Approved records, and the record files this reader cannot answer for.
+
+    Failing closed on an unrecognized record is right. Failing closed *silently*
+    is what this exists to stop: a v1 record without an approved review status
+    and any record from a newer schema were dropped here with no count, no
+    exclusion entry, and nothing in `omh doctor`, so four files on disk read as
+    two and the store simply got smaller. The forward case is the one that will
+    happen -- the record schema has already moved once, and a shared `~/.omh`
+    across two machines on different `omh` versions, a downgrade, or a partly
+    finished migration all produce records this build cannot admit.
+
+    The rest of the module already holds this line: the archive attention tier
+    leaves the working context NAMED, never silently, and retirement reports a
+    corrupt or malformed file per path with its reason. This is the same
+    courtesy for the read every other surface goes through.
+    """
     records: list[dict[str, Any]] = []
-    for record in _read_memory_json_files(paths, _memory_records_dir(paths)):
-        schema_version = record.get("schema_version")
+    unreadable: list[dict[str, str]] = []
+    directory = _memory_records_dir(paths)
+    for record, path_name in _read_memory_record_files(paths, directory):
+        if record is None:
+            unreadable.append({"path_name": path_name, "reason": "unreadable_file", "schema_version": ""})
+            continue
+        schema_version = str(record.get("schema_version", "") or "")
         if schema_version == PROJECT_MEMORY_RECORD_SCHEMA_VERSION:
             records.append(record)
-        elif schema_version == LEGACY_PROJECT_MEMORY_RECORD_SCHEMA_VERSION and record.get("review_status") == "approved":
-            # Legacy records stay review/status visible, but the evaluator will
-            # fail them closed as review_required_legacy before any replay.
-            records.append(record)
-    return records
+        elif schema_version == LEGACY_PROJECT_MEMORY_RECORD_SCHEMA_VERSION:
+            if record.get("review_status") == "approved":
+                # Legacy records stay review/status visible, but the evaluator
+                # will fail them closed as review_required_legacy before replay.
+                records.append(record)
+            else:
+                unreadable.append({"path_name": path_name, "reason": "legacy_review_status_missing", "schema_version": schema_version})
+        else:
+            unreadable.append({"path_name": path_name, "reason": "unsupported_record_schema", "schema_version": schema_version})
+    return records, unreadable
+
+
+def _read_memory_record_files(paths: OmhPaths, directory: Path) -> list[tuple[dict[str, Any] | None, str]]:
+    """Every record file with its name, `None` for the ones that would not parse.
+
+    `_read_memory_json_files` drops an unparseable file and keeps no trace of
+    it, which is correct for a reader that only wants the good rows and wrong
+    for one that has to say what it skipped.
+    """
+    if not directory.exists():
+        return []
+    items: list[tuple[dict[str, Any] | None, str]] = []
+    for path in sorted(directory.glob("*.json")):
+        if path.is_symlink() or not path.is_file():
+            continue
+        _assert_under_memory_root(paths, path)
+        data, _error = read_json_object_result(path)
+        items.append((data if isinstance(data, dict) else None, path.name))
+    return items
 
 
 def _read_project_memory_reviews(paths: OmhPaths) -> list[dict[str, Any]]:

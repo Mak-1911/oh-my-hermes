@@ -1190,5 +1190,85 @@ def _wrapper_snapshot(items: list[dict[str, object]]) -> dict[str, object]:
     }
 
 
+class UnreadableRecordVisibilityTests(unittest.TestCase):
+    """A record this build cannot admit must be named, not lost.
+
+    Failing closed on an unrecognized record is right. Failing closed silently
+    is the defect: a v1 record without an approved review status and any record
+    from a newer schema were dropped by the store reader with no count in
+    `memory status` and nothing in `omh doctor`, so four files on disk read as
+    two and a store that had quietly shrunk looked exactly like a smaller one.
+    The forward case is the one that will happen -- the record schema has moved
+    once already, and a shared `~/.omh` across two `omh` versions, a downgrade,
+    or a half-finished migration all produce records this build refuses.
+    """
+
+    def _store(self, root: Path):
+        paths = resolve_paths(root / ".omh", root / ".hermes")
+        write_setup_profile(paths, memory_mode="auto-safe")
+        capture_project_memory_candidate(paths, "api gateway timeout is 30 seconds", tags=["api"])
+        records_dir = paths.memory_dir / "records"
+        records_dir.mkdir(parents=True, exist_ok=True)
+        base = {
+            "record_type": "fact",
+            "scope": {"kind": "project", "ref": "default"},
+            "tags": ["api"],
+            "source": "cli",
+            "created_at": "2026-01-01T00:00:00Z",
+            "approved_at": "2026-01-01T00:00:00Z",
+            "ttl": {"ttl_days": None, "expires_at": ""},
+        }
+        for record_id, extra in (
+            ("mem_v1approved", {"schema_version": "project_memory_record/v1", "review_status": "approved"}),
+            ("mem_v1noreview", {"schema_version": "project_memory_record/v1"}),
+            ("mem_futurev3", {"schema_version": "project_memory_record/v3"}),
+        ):
+            payload = {**base, **extra, "record_id": record_id, "summary": f"{record_id} fact"}
+            (records_dir / f"{record_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+        (records_dir / "mem_corrupt.json").write_text("{", encoding="utf-8")
+        return paths
+
+    def test_every_record_file_is_accounted_for_by_status(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = self._store(Path(tmp))
+            status = build_project_memory_status(paths)
+            self.assertEqual(status["counts"]["unreadable_records"], 3)
+            by_name = {item["path_name"]: item["reason"] for item in status["unreadable_records"]}
+            self.assertEqual(by_name["mem_corrupt.json"], "unreadable_file")
+            self.assertEqual(by_name["mem_futurev3.json"], "unsupported_record_schema")
+            self.assertEqual(by_name["mem_v1noreview.json"], "legacy_review_status_missing")
+            # The schema version is reported so an operator can tell a newer
+            # OMH's record from a corrupt file without opening either.
+            versions = {item["path_name"]: item["schema_version"] for item in status["unreadable_records"]}
+            self.assertEqual(versions["mem_futurev3.json"], "project_memory_record/v3")
+
+            # Nothing that used to be admitted stopped being admitted: the
+            # approved v1 record still counts and still fails closed on replay.
+            self.assertEqual(status["counts"]["approved_records"], 1)
+            self.assertEqual(status["counts"]["review_required_legacy"], 1)
+
+    def test_a_healthy_store_reports_nothing_unreadable(self) -> None:
+        # Overroute guard: the count must stay zero for an ordinary store, or
+        # it is noise an operator learns to ignore.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(paths, "a perfectly ordinary fact", tags=["api"])
+            status = build_project_memory_status(paths)
+            self.assertEqual(status["counts"]["unreadable_records"], 0)
+            self.assertEqual(status["unreadable_records"], [])
+
+    def test_doctor_names_the_files_it_cannot_admit(self) -> None:
+        from omh.maintenance.doctor import run_doctor
+
+        with TemporaryDirectory() as tmp:
+            paths = self._store(Path(tmp))
+            check = next(item for item in run_doctor(paths) if item.name == "memory_records")
+            self.assertTrue(check.ok, "an unadmitted record is a thing to know, never a fault")
+            self.assertEqual(check.severity, "warning")
+            self.assertIn("mem_futurev3.json", check.message)
+            self.assertIn("not admitted by this build", check.message)
+
+
 if __name__ == "__main__":
     unittest.main()
