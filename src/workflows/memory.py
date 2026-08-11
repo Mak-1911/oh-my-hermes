@@ -2984,13 +2984,41 @@ def _memory_recall_score(record: dict[str, Any], query: str) -> int:
 
 
 _MEMORY_ASCII_TOKEN = re.compile(r"[a-z0-9_/-]{3,}")
+# A whole two-character word, never a fragment of a longer one: the lookarounds
+# keep "ru" out of "runs" while letting "ci" out of "ci failures".
+_MEMORY_SHORT_ASCII_TOKEN = re.compile(r"(?<![a-z0-9_/-])[a-z0-9]{2}(?![a-z0-9_/-])")
+# The length floor was doing two jobs: keeping English function words out of the
+# index, and -- as a side effect nobody chose -- keeping every two-letter
+# technical term out with them. Only the first job is wanted, so it is done by
+# naming the function words rather than by measuring length.
+#
+# The list is deliberately short and holds only words that are never a subject.
+# `go`, `id`, `db`, `ci`, `ui`, `qa`, `ml`, `pr`, `js`, `ts`, `vm`, `s3`, `k8`,
+# `ai`, `ux`, and `vs` are all real terms in some project and stay indexable: a
+# stopword that costs a real search is worse than the noise it removes.
+_MEMORY_SHORT_STOPWORDS = frozenset(
+    {
+        "am", "an", "as", "at", "be", "by", "do", "he", "if", "in", "is", "it",
+        "me", "my", "no", "of", "oh", "on", "or", "so", "to", "up", "us", "we",
+    }
+)
 _MEMORY_CJK_RUN = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7a3]+")
 
 
 def _memory_tokens(value: str) -> set[str]:
     """Index tokens for recall scoring, covering ASCII and CJK text.
 
-    ASCII words keep the >=3 length floor. CJK runs are indexed as the whole
+    ASCII words of three characters or more are indexed whole. Two-character
+    words are indexed unless they are one of the named function words. The old
+    >=3 floor made every two-letter technical term unreachable, and the two
+    failure modes it produced were opposites: "CI" tokenized to nothing, so the
+    no-indexable-tokens fallback handed back the whole store with no exclusion
+    reason, while "ci failures" tokenized to {failures}, so every record came
+    back no_query_overlap -- including one whose summary began with "CI" and
+    carried `ci` as a tag, which the tag bonus could not rescue because the
+    query token had already been dropped.
+
+    CJK runs are indexed as the whole
     run plus its character bigrams: Korean particles glue to the noun
     ("배포는"), so whole-word overlap alone would miss "배포" in a query.
     The previous ASCII-only split tokenized any CJK query to the empty set,
@@ -2999,6 +3027,7 @@ def _memory_tokens(value: str) -> set[str]:
     """
     lowered = unicodedata.normalize("NFC", value).lower()
     tokens = set(_MEMORY_ASCII_TOKEN.findall(lowered))
+    tokens.update(token for token in _MEMORY_SHORT_ASCII_TOKEN.findall(lowered) if token not in _MEMORY_SHORT_STOPWORDS)
     for run in _MEMORY_CJK_RUN.findall(lowered):
         if len(run) >= 2:
             tokens.add(run)
