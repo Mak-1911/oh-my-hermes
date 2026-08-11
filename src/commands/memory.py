@@ -45,6 +45,7 @@ from ..memory import (
     build_project_memory_recall_pack,
     build_project_memory_review,
     build_project_memory_status,
+    MAX_RETENTION_DAYS,
     capture_project_memory_candidate,
     read_memory_snapshot_file,
     reject_project_memory_candidate,
@@ -718,8 +719,8 @@ def _validate_capture_governance_args(args: argparse.Namespace) -> None:
         raise ValueError("unsupported memory source class")
     if args.source_class != "omh_local":
         raise ValueError("memory capture accepts only omh_local source class; external context is not OMH-reviewed")
-    _optional_positive_int(args.ttl_days, "--ttl-days")
-    _optional_positive_int(args.stale_after_days, "--stale-after-days")
+    _optional_positive_int(args.ttl_days, "--ttl-days", maximum=MAX_RETENTION_DAYS)
+    _optional_positive_int(args.stale_after_days, "--stale-after-days", maximum=MAX_RETENTION_DAYS)
     if args.retention_class == "volatile" and args.stale_after_days is not None:
         raise ValueError("volatile memory cannot set --stale-after-days")
     if args.retention_class == "durable" and args.ttl_days is not None:
@@ -756,11 +757,17 @@ def _read_required_json(path: str) -> dict[str, object]:
     return data
 
 
-def _optional_positive_int(value: int | None, flag: str) -> int | None:
+def _optional_positive_int(value: int | None, flag: str, *, maximum: int | None = None) -> int | None:
     if value is None:
         return None
     if value < 1:
         raise ValueError(f"{flag} must be at least 1")
+    # An unbounded day count reached `_days_after`, where
+    # `created_at + timedelta(days=N)` raises OverflowError -- which is not a
+    # ValueError, so it escaped this surface's error handling and printed a raw
+    # Python traceback where every other bad flag prints `omh: ...`.
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{flag} must be at most {maximum}")
     return value
 
 
