@@ -821,30 +821,66 @@ class MemoryCliTests(unittest.TestCase):
             self.assertEqual([block["label"] for block in payload["blocks"]], ["sometimes"])
 
     def test_dream_reports_without_evaluating_unless_asked(self) -> None:
+        # The fixture writes a nearly-full Hermes memory file on purpose. With
+        # an empty one nothing is ever due, the write branch is never taken,
+        # and the assertions below pass for a reason that has nothing to do
+        # with the command being read-only.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
+            _write_hermes_memory(root / ".hermes", "x" * 2100)
             status, payload, stderr = self._json(run_cli(self._base(root) + ["memory", "dream"]))
             self.assertEqual(status, 0, stderr)
             self.assertFalse(payload["evaluated"])
             self.assertNotIn("due", payload)
             self.assertFalse((root / ".omh" / "memory" / "consolidation.json").exists())
+            self.assertFalse((root / ".omh" / "memory" / "dreaming.json").exists())
 
-    def test_dream_evaluate_weighs_the_triggers_and_never_consolidates(self) -> None:
+    def test_the_status_question_does_not_consume_the_next_brief(self) -> None:
+        # Asking "is consolidation due" must not answer "no" to the next asker
+        # by having silently fired the reason itself. The condition here --
+        # a Hermes memory file with no headroom left -- is standing: it stays
+        # true until somebody consolidates, which OMH cannot do.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_hermes_memory(root / ".hermes", "x" * 2100)
+            run_cli(self._base(root) + ["memory", "dream"])
+            _, payload, stderr = self._json(run_cli(self._base(root) + ["memory", "dream", "--evaluate"]))
+            self.assertTrue(payload["due"], stderr)
+            self.assertTrue(any(reason.startswith("headroom_below_floor") for reason in payload["reasons"]))
+
+    def test_dream_evaluate_reports_its_own_evaluation_under_the_manual_trigger(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             _write_hermes_memory(root / ".hermes", "x" * 2100)
             status, payload, stderr = self._json(run_cli(self._base(root) + ["memory", "dream", "--evaluate"]))
             self.assertEqual(status, 0, stderr)
             self.assertIn("not evidence that memory was consolidated", payload["claim_boundary"])
-            # The brief lands on disk whether or not this particular call is the
-            # one that weighed the trigger: `initialize` evaluates first, and a
-            # standing condition is not restated once it has been reported.
+            # The trigger names what actually happened. It used to read
+            # `session_start_recovery` -- "a previous session ended without
+            # consolidating" -- because `initialize` ran first and evaluated on
+            # the way past, leaving this payload as the second, always-not-due
+            # reading of a session start that was really a CLI question.
+            self.assertEqual(payload["trigger"], "manual")
+            self.assertTrue(payload["due"])
             self.assertTrue((root / ".omh" / "memory" / "consolidation.json").is_file())
 
             # Asking twice does not write twice, which is the whole point.
             before = (root / ".omh" / "memory" / "consolidation.jsonl").read_text(encoding="utf-8")
             run_cli(self._base(root) + ["memory", "dream", "--evaluate"])
             self.assertEqual((root / ".omh" / "memory" / "consolidation.jsonl").read_text(encoding="utf-8"), before)
+
+    def test_a_pending_compaction_flag_survives_the_status_question(self) -> None:
+        # `compaction_pending` records that Hermes discarded messages. A status
+        # query that lowers it destroys the only trace of a real trigger.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_hermes_memory(root / ".hermes", "x" * 2100)
+            omh_home = root / ".omh"
+            write_dreaming_state(omh_home, record_compaction(record_turn(empty_dreaming_state())))
+            run_cli(self._base(root) + ["memory", "dream"])
+            state = read_dreaming_state(omh_home)
+            self.assertTrue(state["compaction_pending"])
+            self.assertEqual(state["turns_since_consolidation"], 1)
 
     def test_the_provider_slot_can_be_taken_and_handed_back(self) -> None:
         with TemporaryDirectory() as tmp:

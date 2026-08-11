@@ -531,11 +531,26 @@ def cmd_memory_block_remove(args: argparse.Namespace) -> int:
 
 
 def cmd_memory_dream(args: argparse.Namespace) -> int:
-    """Report whether consolidation is due. Never consolidates: that needs a model."""
+    """Report whether consolidation is due. Never consolidates: that needs a model.
+
+    Without `--evaluate` this reads the counters and writes nothing. It used to
+    build a provider and `initialize` it before looking at `args.evaluate`, and
+    `initialize` ends by settling the previous session's unconsolidated turns --
+    so asking the status question raised a brief, stamped its reasons as fired,
+    zeroed the turn counter, and lowered `compaction_pending`. The standing
+    conditions (`headroom_below_floor`, `duplicate_records`, `expiring_records`)
+    are suppressed while their exact string is unchanged, so the next real brief
+    stayed silent about a condition nobody had cleared.
+
+    `--evaluate` no longer initializes either. The evaluation it reports is now
+    its own first one, under the `manual` trigger it actually is, rather than
+    the second reading of a `session_start_recovery` that never happened.
+    """
     paths = _paths(args)
-    provider = OmhMemoryProvider(paths.omh_home)
-    provider.initialize("", hermes_home=str(paths.hermes_home))
-    payload = dict(provider.consolidation_due()) if args.evaluate else {}
+    payload: dict[str, object] = {}
+    if args.evaluate:
+        provider = OmhMemoryProvider(paths.omh_home, hermes_home=paths.hermes_home)
+        payload = dict(provider.consolidation_due())
     payload["state"] = read_dreaming_state(paths.omh_home)
     payload["evaluated"] = bool(args.evaluate)
     _print_json(payload)

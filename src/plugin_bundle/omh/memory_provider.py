@@ -87,9 +87,15 @@ _SESSION_ENDING_TRIGGERS = frozenset({"session_end", "shutdown", "session_start_
 class OmhMemoryProvider(_MemoryProviderBase):
     """Deterministic, file-backed recall for Hermes. No model call, no network."""
 
-    def __init__(self, omh_home: str | Path | None = None) -> None:
+    def __init__(self, omh_home: str | Path | None = None, *, hermes_home: str | Path | None = None) -> None:
+        # `hermes_home` is also settable here, not only through `initialize`,
+        # so a caller that wants one reading -- `omh memory dream --evaluate`
+        # asking whether consolidation is due -- can get a configured provider
+        # without entering the session lifecycle. `initialize` is a session
+        # start: it renders the pack and settles the previous session's
+        # unconsolidated turns. A question is not a session start.
         self._omh_home = Path(omh_home).expanduser() if omh_home else _default_omh_home()
-        self._hermes_home: Path | None = None
+        self._hermes_home = Path(str(hermes_home)).expanduser() if hermes_home else None
         self._session_id = ""
         self._writes_enabled = True
         # prefetch() is called before every API call and the base class asks for
