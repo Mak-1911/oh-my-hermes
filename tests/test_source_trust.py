@@ -276,5 +276,55 @@ class SummaryTests(unittest.TestCase):
         self.assertTrue(any("frozen boundary sentence" in error for error in errors), errors)
 
 
+class CatalogWiringTests(unittest.TestCase):
+    """The research lane's prose must name the same tiers the module enforces.
+
+    Without this the two drift: the catalog tells Hermes one vocabulary while
+    `TRUST_CLAIM_CEILING` enforces another, and the guidance quietly stops
+    describing the guard. Derived from `SOURCE_TRUST_TIERS` rather than
+    hardcoded, so renaming a tier fails here instead of going unnoticed.
+    """
+
+    @staticmethod
+    def _prose(definition: object) -> str:
+        parts: list[str] = []
+        for field in ("safety_rules", "quality_bar", "expected_outputs"):
+            parts.extend(getattr(definition, field, ()) or ())
+        return " ".join(parts).lower()
+
+    def setUp(self) -> None:
+        from omh.skills.catalog import builtin_definitions
+
+        self.definitions = {definition.name: definition for definition in builtin_definitions()}
+
+    def test_research_names_every_source_trust_tier(self) -> None:
+        prose = self._prose(self.definitions["research"])
+        for tier in SOURCE_TRUST_TIERS:
+            with self.subTest(tier=tier):
+                self.assertIn(tier.replace("_", " "), prose)
+
+    def test_research_brief_claim_row_carries_the_source_class(self) -> None:
+        prose = self._prose(self.definitions["research-brief"])
+        self.assertIn("source class", prose)
+        for tier in SOURCE_TRUST_TIERS:
+            with self.subTest(tier=tier):
+                self.assertIn(tier.replace("_", " "), prose)
+
+    def test_best_practice_research_denies_itself_completion(self) -> None:
+        """The strongest tier is the one most likely to be read as done."""
+        prose = self._prose(self.definitions["best-practice-research"])
+        self.assertIn("not completion evidence", prose)
+
+    def test_no_research_lane_prose_promises_a_completion_claim(self) -> None:
+        """The negative case: no lane may describe a source as settling completion."""
+        for name in ("research", "research-brief", "best-practice-research"):
+            with self.subTest(name=name):
+                prose = self._prose(self.definitions[name])
+                for tier in SOURCE_TRUST_TIERS:
+                    readable = tier.replace("_", " ")
+                    self.assertNotIn(f"{readable} confirms completion", prose)
+                    self.assertNotIn(f"{readable} is completion evidence", prose)
+
+
 if __name__ == "__main__":
     unittest.main()

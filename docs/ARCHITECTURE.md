@@ -1145,6 +1145,40 @@ is permitted to claim. Judging *which* sources deserve trust is the reader's
 call and stays outside OMH, per the ownership boundary in `docs/DIRECTION.md`
 that puts source-backed research on the Hermes side.
 
+#### How this relates to the vocabularies already in the repo
+
+OMH carries three other trichotomies that sound adjacent and are not. They
+answer different questions about different objects, and conflating any two of
+them is the confusion `source_trust` exists to remove. Read them as four
+independent axes over one claim:
+
+| Axis | Object | Question | Where |
+| --- | --- | --- | --- |
+| Observation | A state of work | Did OMH see it happen? | `evidence/labels.py`, `workflows/operator_productivity.py` |
+| Source trust | A claim | What class of source stands behind it? | `workflows/source_trust.py` |
+| Derivation | A figure | Was it measured, assumed, or derived? | `research` / `research-brief` quality bars |
+| Acquisition provenance | A state transition | Which actor moved this source through its lifecycle? | `SOURCE_FINDER_OBSERVATION_PROVENANCE` in `workflows/source_finder.py` |
+
+The subordination that matters:
+
+- **Derivation is orthogonal to source trust, not a weaker form of it.** A
+  measured figure from a practitioner blog and a measured figure from an
+  upstream spec are both `measured`; only the source-trust axis separates them.
+  A research claim carries a value on both axes, never one standing in for the
+  other.
+- **Acquisition provenance is about a document, source trust is about a
+  claim.** `source_finder` records that a `user` supplied a link or a
+  `runtime_observation` saw a download — facts about how a source entered the
+  workflow. It says nothing about what a claim drawn from that source may
+  assert. A `download_observed` PDF still yields `practitioner_heuristic`
+  claims if a practitioner wrote it.
+- **Observation outranks all three on completion only.** No value on any other
+  axis reaches `completion`; that is the floor `TRUST_CLAIM_CEILING` enforces
+  and it is why the three axes can coexist without competing.
+
+Do not add a fifth vocabulary over claims without stating here which of these
+four it subordinates to or replaces.
+
 ### Approval Receipts
 
 `runtime/journal/approval_receipts.jsonl` is an append-only store of
