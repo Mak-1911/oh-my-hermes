@@ -12,11 +12,12 @@ from ..plugin_bundle.omh.memory_governance import (
     build_retention,
     canonical_memory_scope,
     canonical_payload_digest,
+    resolve_record_expiry_deadline,
     stable_artifact_identity,
 )
 from ..system.paths import OmhPaths
 from ._memory_lifecycle_model import LifecycleMutation, LifecyclePlan, LifecycleTransactionExecutor
-from ._memory_lifecycle_scan import ScanFinding, journal_findings, linked_to, matching_json_findings, matching_scope_findings, parse_time, read_json, safe_token, stamp
+from ._memory_lifecycle_scan import ScanFinding, journal_findings, linked_to, matching_json_findings, matching_scope_findings, read_json, safe_token, stamp
 from .memory import MEMORY_ATTENTION_SCHEMA_VERSION, MEMORY_ATTENTION_TIERS
 
 
@@ -38,13 +39,27 @@ def _retention_class(value: Mapping[str, object]) -> str:
 
 
 def _expiry_reason(value: Mapping[str, object], now: datetime) -> str:
+    """Whether this revision is past its deadline, on the one deadline there is.
+
+    This used to read `retention.expires_at` alone while recall, retirement,
+    status, and the dreaming counts read `ttl.expires_at`. Both fields are
+    written from a single value at approval and nothing enforced that they stay
+    equal, so one record could be expired for half the system and eligible for
+    the other half at the same moment -- `memory retire` reporting `expired: 1`
+    for the record `memory prune` was rejecting as
+    `prune_requires_expired_approved_volatile`.
+
+    `resolve_record_expiry_deadline` reads both spellings and takes the earlier,
+    which is what `classify_record_expiry` now reads too, so the claim in its
+    docstring -- that recall and retirement "can never disagree" -- is true of
+    the lifecycle plans as well.
+    """
     retention = value.get("retention")
     if not isinstance(retention, Mapping) or _retention_class(value) not in {"volatile", "standard", "durable"}:
         return "retention_invalid"
-    expires_at = retention.get("expires_at")
-    if not expires_at:
+    deadline, state = resolve_record_expiry_deadline(value)
+    if state == "absent":
         return "eligible"
-    deadline = parse_time(expires_at)
     if deadline is None:
         return "retention_parse_error"
     current = now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc)

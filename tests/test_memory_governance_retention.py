@@ -148,5 +148,94 @@ class RetentionPolicyTests(unittest.TestCase):
         self.assertEqual(_evaluate(artifact, review)["reason_code"], "stale_review_required")
 
 
+class RecordExpiryDeadlineTests(unittest.TestCase):
+    """One record carries its deadline twice; both halves must read one date.
+
+    `ttl.expires_at` is what recall exclusion, `memory retire`, `memory status`,
+    and the dreaming counts read. `retention.expires_at` is what the lifecycle
+    plans (`prune`, `restore`, the standard-retirement guard) read. They are
+    written from a single value at approval and nothing enforced that they stay
+    equal, so `memory retire` could report `expired: 1` for the very record
+    `memory prune` rejected as `prune_requires_expired_approved_volatile`.
+
+    `ttl` is authoritative wherever it speaks -- including when it speaks by
+    being empty, which says this record never expires.
+    """
+
+    PAST = _iso(NOW - timedelta(days=5))
+    FUTURE = _iso(NOW + timedelta(days=30))
+
+    @staticmethod
+    def _record(ttl: dict[str, object] | None, retention_expires: str) -> dict[str, object]:
+        record: dict[str, object] = {"retention": {"class": "volatile", "expires_at": retention_expires}}
+        if ttl is not None:
+            record["ttl"] = ttl
+        return record
+
+    def test_ttl_decides_whenever_the_record_states_it(self) -> None:
+        for label, ttl, retention_expires, expected, state in (
+            ("ttl past, retention future", {"expires_at": self.PAST}, self.FUTURE, self.PAST, "expired"),
+            ("ttl future, retention past", {"expires_at": self.FUTURE}, self.PAST, self.FUTURE, "fresh"),
+            ("both agree", {"expires_at": self.PAST}, self.PAST, self.PAST, "expired"),
+        ):
+            with self.subTest(label):
+                record = self._record(ttl, retention_expires)
+                deadline, resolution = governance.resolve_record_expiry_deadline(record)
+                self.assertEqual(resolution, "resolved")
+                self.assertEqual(_iso(deadline), expected)
+                self.assertEqual(governance.classify_record_expiry_v1_compat(record, now=NOW), state)
+
+    def test_retention_answers_only_when_ttl_has_no_expires_at_key(self) -> None:
+        record = self._record({"ttl_days": 7}, self.PAST)
+        deadline, resolution = governance.resolve_record_expiry_deadline(record)
+        self.assertEqual((resolution, _iso(deadline)), ("resolved", self.PAST))
+        no_ttl_mapping = {"retention": {"class": "volatile", "expires_at": self.PAST}}
+        deadline, resolution = governance.resolve_record_expiry_deadline(no_ttl_mapping)
+        self.assertEqual((resolution, _iso(deadline)), ("resolved", self.PAST))
+
+    def test_an_empty_ttl_says_this_record_never_expires(self) -> None:
+        # Not the same as saying nothing: a retention deadline must not overrule
+        # a record that has explicitly declared it has no deadline.
+        record = self._record({"expires_at": ""}, self.PAST)
+        self.assertEqual(governance.resolve_record_expiry_deadline(record), (None, "absent"))
+        self.assertEqual(governance.classify_record_expiry_v1_compat(record, now=NOW), "no_ttl")
+
+    def test_an_unreadable_ttl_is_never_acted_on(self) -> None:
+        # `build_memory_retirement` reports this as `malformed_expires_at` and
+        # refuses to move the record. A fallback that reached past it to
+        # `retention` would turn a deadline nobody can defend into a deletion.
+        record = self._record({"expires_at": "garbage"}, self.PAST)
+        self.assertEqual(governance.resolve_record_expiry_deadline(record), (None, "unreadable"))
+        self.assertEqual(governance.classify_record_expiry_v1_compat(record, now=NOW), "malformed")
+
+    def test_a_record_with_neither_spelling_has_no_deadline(self) -> None:
+        for record in ({}, {"ttl": {}}, {"retention": {"class": "durable"}}):
+            with self.subTest(repr(record)):
+                self.assertEqual(governance.resolve_record_expiry_deadline(record), (None, "absent"))
+                self.assertEqual(governance.classify_record_expiry_v1_compat(record, now=NOW), "no_ttl")
+
+    def test_the_writer_keeps_both_spellings_equal(self) -> None:
+        # The invariant that made the divergence unreachable through capture,
+        # asserted out loud so a future writer cannot drop it silently.
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        from omh.memory import approve_project_memory_candidate, capture_project_memory_candidate
+        from omh.paths import resolve_paths
+
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            for retention_class, ttl_days in (("volatile", None), ("volatile", 3), ("standard", 7), ("standard", None)):
+                with self.subTest(f"{retention_class}/{ttl_days}"):
+                    captured = capture_project_memory_candidate(
+                        paths,
+                        f"expiry invariant probe {retention_class} {ttl_days}",
+                        retention_class=retention_class,
+                        ttl_days=ttl_days,
+                    )
+                    record = approve_project_memory_candidate(paths, str(captured["candidate"]["candidate_id"]))["record"]
+                    self.assertEqual(record["ttl"]["expires_at"], record["retention"].get("expires_at", ""))
+
+
 if __name__ == "__main__":
     unittest.main()

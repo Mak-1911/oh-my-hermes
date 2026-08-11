@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "build_retention",
     "canonical_payload_digest",
     "classify_memory_admission",
+    "resolve_record_expiry_deadline",
     "stable_artifact_identity",
     "evaluate_memory_replay",
     "external_context_label",
@@ -258,6 +260,65 @@ def validate_replay_evaluation(result: dict[str, object]) -> list[str]:
     return errors
 
 
+# The two spellings of one record's deadline. `ttl.expires_at` is the one recall,
+# retirement, status, and the dreaming counts read; `retention.expires_at` is the
+# one the lifecycle plans read. Both are written from a single value at approval
+# and nothing enforced that they stay equal, so the two halves of the system
+# could reach opposite verdicts about the same record in the same second:
+# `memory retire` reported `expired: 1` for the record `memory prune` was
+# rejecting as `prune_requires_expired_approved_volatile`.
+#
+# `ttl` wins wherever it speaks, and an empty `expires_at` is it speaking: it
+# says this record never expires, which is not the same as saying nothing. So is
+# an unreadable one, which says the deadline cannot be defended and must not be
+# acted on. `retention.expires_at` is consulted only when the `ttl` mapping
+# carries no `expires_at` key at all.
+DEADLINE_ABSENT = "absent"
+DEADLINE_UNREADABLE = "unreadable"
+DEADLINE_RESOLVED = "resolved"
+
+
+def _parse_deadline(raw: object) -> tuple[datetime | None, str]:
+    text = str(raw or "").strip() if raw else ""
+    if not text:
+        return None, DEADLINE_ABSENT
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None, DEADLINE_UNREADABLE
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc), DEADLINE_RESOLVED
+
+
+def resolve_record_expiry_deadline(record: dict[str, object] | Mapping[str, object]) -> tuple[datetime | None, str]:
+    """One record's deadline, so every caller reads the same date.
+
+    Returns ``(deadline, state)`` where state is ``absent`` (this record does
+    not expire), ``unreadable`` (a deadline is present but cannot be parsed and
+    must not be acted on), or ``resolved``.
+
+    ``ttl.expires_at`` is authoritative whenever the record states it, including
+    when it states it as empty. ``retention.expires_at`` answers only for a
+    record whose ``ttl`` mapping has no ``expires_at`` key at all -- a legacy
+    shape, or one half of a hand edit. Preferring the earlier of the two instead
+    was the first attempt and it is wrong: it lets a retention deadline overrule
+    a record that has explicitly said it never expires, and it turns an
+    unreadable TTL -- which retirement reports as `malformed_expires_at` and
+    refuses to move -- into an expiry somebody acts on.
+
+    Naive timestamps are UTC by definition; the local host's zone would move the
+    verdict by up to 14 hours depending on where the machine happens to be.
+    """
+    ttl = record.get("ttl")
+    if isinstance(ttl, Mapping) and "expires_at" in ttl:
+        return _parse_deadline(ttl.get("expires_at"))
+    retention = record.get("retention")
+    if isinstance(retention, Mapping):
+        return _parse_deadline(retention.get("expires_at"))
+    return None, DEADLINE_ABSENT
+
+
 def classify_record_expiry_v1_compat(
     record: dict[str, object],
     *,
@@ -265,37 +326,27 @@ def classify_record_expiry_v1_compat(
     window_days: int = 7,
 ) -> str:
     """V1 compatibility function for record expiry classification.
-    
+
     N5 integration: Moved from hermes_memory.py. Returns one of:
     - "fresh": not expired, not expiring soon
     - "expiring": approaching deadline within window_days
     - "expired": deadline passed
     - "no_ttl": no deadline set
     - "malformed": deadline present but unparseable
-    
+
+    The deadline comes from `resolve_record_expiry_deadline`, so this and the
+    lifecycle plans read the same date rather than one field each.
+
     Naive timestamps (without tzinfo) are treated as UTC by definition.
     """
-    ttl = record.get("ttl") if isinstance(record.get("ttl"), dict) else {}
-    expires_at_str = ttl.get("expires_at")
-    
-    text = str(expires_at_str or "").strip() if expires_at_str else ""
-    if not text:
+    expires_at, state = resolve_record_expiry_deadline(record)
+    if state == DEADLINE_ABSENT:
         return "no_ttl"
-    
-    try:
-        # Parse ISO timestamp (strip Z if present)
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        # Naive timestamps are UTC by definition
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        
-        expires_at = parsed.astimezone(timezone.utc)
-        now_utc = now.astimezone(timezone.utc)
-        
-        if expires_at <= now_utc:
-            return "expired"
-        if expires_at <= now_utc + timedelta(days=max(window_days, 0)):
-            return "expiring"
-        return "fresh"
-    except (ValueError, TypeError):
+    if expires_at is None:
         return "malformed"
+    now_utc = now.astimezone(timezone.utc)
+    if expires_at <= now_utc:
+        return "expired"
+    if expires_at <= now_utc + timedelta(days=max(window_days, 0)):
+        return "expiring"
+    return "fresh"
