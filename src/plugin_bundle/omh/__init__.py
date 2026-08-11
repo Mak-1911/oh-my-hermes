@@ -60,6 +60,7 @@ def register(ctx):
     from .tools.probe_tool import OMH_PROBE_SCHEMA, omh_probe_handler
     from .tools.recommend_tool import OMH_RECOMMEND_SCHEMA, omh_recommend_handler
     from .tools.role_tool import OMH_ROLE_SCHEMA, omh_role_handler
+    from .tools.source_trust_tool import OMH_SOURCE_TRUST_SCHEMA, omh_source_trust_handler
     from .tools.status_tool import OMH_STATUS_SCHEMA, omh_status_handler
 
     ctx.register_tool(
@@ -124,6 +125,13 @@ def register(ctx):
         OMH_ROLE_SCHEMA,
         omh_role_handler,
         description=OMH_ROLE_SCHEMA["description"],
+    )
+    ctx.register_tool(
+        "omh_source_trust",
+        _TOOLSET,
+        OMH_SOURCE_TRUST_SCHEMA,
+        omh_source_trust_handler,
+        description=OMH_SOURCE_TRUST_SCHEMA["description"],
     )
     ctx.register_tool(
         "omh_status",
