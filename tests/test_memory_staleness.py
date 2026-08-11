@@ -508,5 +508,78 @@ class RetentionDayBoundsTests(unittest.TestCase):
                     self.assertEqual(candidate["ttl"]["ttl_days"], record["ttl"]["ttl_days"])
 
 
+class DurableRecordsAreActuallyPermanentTests(unittest.TestCase):
+    """`durable` is the class for a record that does not expire. It has to mean it.
+
+    The 90-day review default keyed off `record_type` alone, so a durable
+    record read `stale/review_due` after 90 days and carried a freshness
+    warning into every recall from then on -- identical to a standard record,
+    which made declaring one durable buy nothing. `build_retention` had always
+    said otherwise ("durable: no default expiry; revalidation deadline is
+    optional"); the staleness layer never read the class.
+
+    The only escape was to guess a large `stale_after_days`. With zero and
+    negative counts refused and `None` meaning "apply the type default", there
+    was no value that meant *no review deadline*.
+    """
+
+    LATER = timedelta(days=100)
+
+    def _record(self, paths, summary: str, **kwargs):
+        captured = capture_project_memory_candidate(paths, summary, **kwargs)
+        return approve_project_memory_candidate(paths, str(captured["candidate"]["candidate_id"]))["record"]
+
+    def test_a_durable_record_never_falls_due_for_review_on_its_own(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            for record_type in ("fact", "decision", "lesson", "procedure"):
+                with self.subTest(record_type):
+                    record = self._record(paths, f"durable {record_type}", record_type=record_type, retention_class="durable")
+                    self.assertEqual(record["staleness"]["review_due_at"], "")
+                    self.assertEqual(record["staleness"]["stale_after"], "")
+                    state = memory_workflow._record_staleness(record, now=datetime.now(timezone.utc) + self.LATER)
+                    self.assertEqual(state["state"], "fresh")
+
+    def test_a_durable_record_still_honours_a_deadline_it_was_given(self) -> None:
+        # The class says the deadline is optional, not forbidden.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            record = self._record(paths, "durable but worth rereading", retention_class="durable", stale_after_days=30)
+            self.assertTrue(record["staleness"]["review_due_at"])
+            state = memory_workflow._record_staleness(record, now=datetime.now(timezone.utc) + self.LATER)
+            self.assertEqual((state["state"], state["reason"]), ("stale", "review_due"))
+
+    def test_standard_and_volatile_records_keep_their_deadlines(self) -> None:
+        # Overroute guard: the fix must not quietly make everything permanent.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            for label, kwargs, expected in (
+                ("standard fact", {}, "review_due"),
+                ("standard decision", {"record_type": "decision"}, "review_due"),
+                # Volatile carries a review date too, but a 7-day TTL reaches it
+                # first and expiry outranks review-due in the one verdict.
+                ("volatile fact", {"retention_class": "volatile"}, "retention_expired"),
+            ):
+                with self.subTest(label):
+                    record = self._record(paths, f"{label} keeps its deadline", **kwargs)
+                    self.assertTrue(record["staleness"]["review_due_at"], "a non-durable record keeps its review date")
+                    state = memory_workflow._record_staleness(record, now=datetime.now(timezone.utc) + self.LATER)
+                    self.assertEqual(state["reason"], expected)
+
+    def test_a_durable_record_is_not_an_immortal_one_by_accident(self) -> None:
+        # Durable removes the review prompt, never the other freshness checks:
+        # a moved or unreadable cited source still lowers trust.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            source = root / "cited.md"
+            atomic_write_text(source, "the original claim\n")
+            record = self._record(paths, "durable with a cited source", retention_class="durable", source_ref=str(source))
+            self.assertEqual(memory_workflow._record_staleness(record)["state"], "fresh")
+            atomic_write_text(source, "the claim, edited\n")
+            changed = memory_workflow._record_staleness(record)
+            self.assertEqual((changed["state"], changed["reason"]), ("stale", "source_changed"))
+
+
 if __name__ == "__main__":
     unittest.main()
