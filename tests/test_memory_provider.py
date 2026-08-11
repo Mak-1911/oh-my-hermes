@@ -1194,6 +1194,55 @@ class ChatNoticeOnEveryMessengerTests(unittest.TestCase):
             self.assertEqual(noticed["headline"], control["headline"])
             self.assertTrue(str(noticed["body"]).startswith(str(control["body"])))
 
+    CALL_TO_ACTION_KO = "기억을 검토하고 정리해 달라고 말씀해 주세요"
+    MEMORY_SYNC_MESSAGE = "내 기억 검토하고 정리해줘"
+
+    def test_a_memory_review_card_does_not_ask_for_a_memory_review(self) -> None:
+        """The loop this closes: the notice told a user who had just asked for a
+        memory review to ask for a memory review."""
+        with TemporaryDirectory() as tmp:
+            _, paths = self._due_paths(Path(tmp))
+            payload = self._payload(paths, "generic", self.MEMORY_SYNC_MESSAGE)
+            body = str(payload["chat_response"]["body"])
+            state = payload["chat_response"]["state"]
+
+            self.assertEqual(state["next_action"], "prepare_memory_sync")
+            self.assertNotIn(self.CALL_TO_ACTION_KO, body)
+            self.assertTrue(payload["memory_consolidation_notice"]["call_to_action_suppressed"])
+
+    def test_the_status_clause_survives_suppression(self) -> None:
+        """Only the imperative is wrong on this card. The status clause says
+        headroom is the reason, which changes what the review has to achieve."""
+        with TemporaryDirectory() as tmp:
+            _, paths = self._due_paths(Path(tmp))
+            payload = self._payload(paths, "generic", self.MEMORY_SYNC_MESSAGE)
+
+            self.assertIn(self.NOTICE_KO, str(payload["chat_response"]["body"]))
+            self.assertTrue(payload["memory_consolidation_notice"]["due"])
+            self.assertTrue(payload["chat_response"]["state"]["memory_consolidation"]["due"])
+
+    def test_a_card_that_does_not_review_memory_still_gets_the_imperative(self) -> None:
+        """The negative case: suppression must be scoped to cards that already ask."""
+        with TemporaryDirectory() as tmp:
+            _, paths = self._due_paths(Path(tmp))
+            payload = self._payload(paths, "generic", self.KO_MESSAGE)
+            body = str(payload["chat_response"]["body"])
+
+            self.assertNotEqual(payload["chat_response"]["state"].get("next_action"), "prepare_memory_sync")
+            self.assertIn(self.CALL_TO_ACTION_KO, body)
+            self.assertFalse(payload["memory_consolidation_notice"]["call_to_action_suppressed"])
+
+    def test_suppression_keys_on_the_remedy_map_not_the_skill_name(self) -> None:
+        """A skill rename must not silently re-arm the loop, so the map is keyed
+        on `next_action` ids, which coverage fixtures already pin."""
+        from omh.wrapper.contract import _CONSOLIDATION_REMEDY_ACTIONS
+
+        self.assertIn("prepare_memory_sync", _CONSOLIDATION_REMEDY_ACTIONS["ask_hermes_to_consolidate_memory"])
+        # The two namespaces never intersect; comparing them directly would be a
+        # permanent no-op that still looked like a fix.
+        for notice_action, card_actions in _CONSOLIDATION_REMEDY_ACTIONS.items():
+            self.assertNotIn(notice_action, card_actions)
+
     def test_no_brief_means_no_notice_anywhere(self) -> None:
         with TemporaryDirectory() as tmp:
             from omh.paths import resolve_paths
@@ -1487,13 +1536,18 @@ class NoticeLocaleCoverageTests(unittest.TestCase):
         # regress the notice to English; this is that gate.
         from omh.wrapper.localized_copy import (
             _CONSOLIDATION_FALLBACK_SUMMARY,
-            _CONSOLIDATION_NOTICE_SENTENCES,
+            _CONSOLIDATION_NOTICE_CALL_TO_ACTION,
+            _CONSOLIDATION_NOTICE_STATUS,
             _CONSOLIDATION_REASON_PHRASES,
             SUPPORTED_COPY_LOCALES,
         )
 
         expected = set(SUPPORTED_COPY_LOCALES)
-        self.assertEqual(set(_CONSOLIDATION_NOTICE_SENTENCES), expected)
+        # The notice sentence is two tables since the call to action became
+        # suppressible; both are parallel and both are gated, or a locale could
+        # lose only its imperative and read as a truncated sentence.
+        self.assertEqual(set(_CONSOLIDATION_NOTICE_STATUS), expected)
+        self.assertEqual(set(_CONSOLIDATION_NOTICE_CALL_TO_ACTION), expected)
         self.assertEqual(set(_CONSOLIDATION_FALLBACK_SUMMARY), expected)
         for family, phrases in _CONSOLIDATION_REASON_PHRASES.items():
             self.assertEqual(set(phrases), expected, family)
