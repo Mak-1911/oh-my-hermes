@@ -13,6 +13,7 @@ load_local_package()
 from omh.capabilities.families import capability_family_projection, family_for_workflow
 from omh.capabilities.registry import capability_snapshot, capability_summary, inspect_capability, list_capabilities
 from omh.capabilities.schema import normalize_capability_section
+from omh.capabilities.skills import skill_capabilities
 from omh.skills.catalog import builtin_definitions, installable_skill_names
 
 
@@ -340,6 +341,28 @@ class CapabilityManifestTests(unittest.TestCase):
         self.assertIn("build-failure-triage", context_cards["coding_handoff"]["representative_workflows"])
         self.assertIn("implementation", context_cards["coding_handoff"]["not_evidence_until_observed"])
 
+    def test_the_skill_payload_carries_no_field_that_restates_another(self) -> None:
+        """Every skill item is stamped 103 times into a budgeted payload.
+
+        `display_name` was `id`, `exposure` was `surface_exposure`, and
+        `tool_requirements` was a constant stub superseded by the real manifest
+        one key away in the same snapshot. None of them carried information, and
+        together they cost about 16.5k characters of a shared budget that had
+        under 2k left. Re-adding any of them is the regression this catches; the
+        surviving twin is named so the fix is obvious.
+        """
+        skills = skill_capabilities()
+        self.assertTrue(skills)
+        twin = {
+            "display_name": "id",
+            "exposure": "surface_exposure",
+            "tool_requirements": "the snapshot's own tool_requirements section",
+        }
+        for item in skills:
+            for removed, survivor in twin.items():
+                with self.subTest(skill=item["id"], field=removed):
+                    self.assertNotIn(removed, item, f"use {survivor} instead of {removed}")
+
     def test_capability_inspect_finds_skill_and_role_without_runtime_claim(self) -> None:
         skill = inspect_capability("ultragoal", section="skills")["capability"]
         wiki_skill = inspect_capability("wiki", section="skills")["capability"]
@@ -353,7 +376,6 @@ class CapabilityManifestTests(unittest.TestCase):
         legacy_role = inspect_capability("coding-handoff", section="agent_roles")
 
         self.assertEqual(skill["schema_version"], "skill_capability/v1")
-        self.assertEqual(skill["tool_requirements"]["derivation_status"], "partial")
         self.assertIn("prepared_not_observed", skill["evidence_boundary"])
         self.assertEqual(skill["awareness_lane"], "intent_to_plan")
         self.assertIn("Use `ultragoal`", skill["workflow_routing_hint"])
@@ -366,7 +388,7 @@ class CapabilityManifestTests(unittest.TestCase):
         self.assertIn("omh_context", awareness["tool_hints"][0])
         self.assertIn("omh_capabilities", " ".join(awareness["tool_hints"]))
         self.assertIn("ambitious goal -> loopability check", " ".join(skill["cross_lane_examples"]))
-        self.assertEqual(ops_surface["exposure"], "workflow_skill")
+        self.assertEqual(ops_surface["surface_exposure"], "workflow_skill")
         self.assertEqual(awareness["schema_version"], "omh_awareness/v1")
         # The rule discriminates by the shape of the result, not by a list of
         # subjects. It used to enumerate planning/research/knowledge/ops/

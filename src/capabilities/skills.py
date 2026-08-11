@@ -38,14 +38,12 @@ def _skill_capability(
     return {
         "schema_version": SKILL_CAPABILITY_SCHEMA_VERSION,
         "id": definition.name,
-        "display_name": definition.name,
         "description": definition.description,
         "category": definition.category,
         "phase": definition.phase,
         "hermes_role": definition.hermes_role,
         "primary_harness": harness,
         "surface_exposure": exposure["exposure"],
-        "exposure": exposure["exposure"],
         "install_visibility": exposure["install_visibility"],
         "docs_visibility": exposure["docs_visibility"],
         "preferred_usage": exposure["preferred_usage"],
@@ -70,11 +68,6 @@ def _skill_capability(
         "cross_lane_examples": _capability_lane_examples(lane_id, definition.name),
         "do_not_use_when": _bounded_list(definition.do_not_use_when, 1),
         "orchestration_eligibility": _orchestration_eligibility(definition),
-        "tool_requirements": {
-            "derivation_status": "partial",
-            "required_tools": [],
-            "fallback": "none",
-        },
         "evidence_boundary": _skill_evidence_boundary(definition),
     }
 
