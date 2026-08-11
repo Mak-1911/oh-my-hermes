@@ -55,6 +55,7 @@ from ..system.append_only_store import (
     opaque_ref,
     reference_errors,
 )
+from .source_finder import SOURCE_CANDIDATE_SCHEMA_VERSION
 
 
 SOURCE_TRUST_CLAIM_SCHEMA_VERSION: Final = "source_trust_claim/v1"
@@ -328,6 +329,63 @@ def validate_source_trust_summary(summary: Any) -> list[str]:
     if summary.get("claim_boundary") != SOURCE_TRUST_CLAIM_BOUNDARY:
         errors.append(f"{_SUMMARY_LABEL} claim_boundary must be the frozen boundary sentence")
     return errors
+
+
+def claim_from_source_candidate(
+    *,
+    candidate: Mapping[str, Any],
+    tier: str,
+    claim_kind: str,
+    claim: str,
+    recorded_at: str,
+) -> dict[str, Any]:
+    """Bind one claim to a `source_candidate/v1` that `source_finder` already minted.
+
+    This is the producer the ceiling was missing. :func:`build_source_trust_claim`
+    can only refuse a claim someone hands it; until something in OMH actually
+    mints one, the ceiling is a guard with nothing to guard. `source_finder`
+    already produces the one thing a claim needs and a caller usually does not
+    have: an opaque identifier for a source.
+
+    **`candidate_id` is the source reference, and `uri` is never read.** The two
+    fields sit side by side in a candidate (``source_finder.build_source_candidate``
+    keeps the raw ``uri`` verbatim), and passing the wrong one is the mistake this
+    function exists to make impossible. ``source_ref`` goes through
+    ``reference_errors``, which refuses anything URL-shaped, so a ``uri`` would be
+    rejected -- but at the far end of a pipeline, where the failure is hardest to
+    read. Reading only ``candidate_id`` moves that from a late refusal to a
+    structural impossibility.
+
+    The tier is stated by the caller and never inferred from the candidate.
+    Deriving trust from a source's kind -- treating a `docs_spec` as official or a
+    `web_link` as a heuristic -- would make OMH the judge of which sources deserve
+    trust, which `docs/DIRECTION.md` puts on the Hermes side. OMH decides only
+    what a stated tier may claim.
+
+    ``unattributed`` is refused here even though it is a valid tier elsewhere: a
+    candidate is a named, identified source, so claiming there is no identifiable
+    source behind it contradicts the record being cited.
+    """
+    if not isinstance(candidate, Mapping):
+        raise SourceTrustError("source trust claim requires a source candidate object")
+    if candidate.get("schema_version") != SOURCE_CANDIDATE_SCHEMA_VERSION:
+        raise SourceTrustError(
+            f"source trust claim requires a {SOURCE_CANDIDATE_SCHEMA_VERSION} candidate"
+        )
+    candidate_id = str(candidate.get("candidate_id", "") or "").strip()
+    if not candidate_id:
+        raise SourceTrustError("source trust claim requires the candidate's candidate_id")
+    if tier == "unattributed":
+        raise SourceTrustError(
+            "source trust tier unattributed cannot cite a source candidate; the candidate is the attribution"
+        )
+    return build_source_trust_claim(
+        tier=tier,
+        claim_kind=claim_kind,
+        claim=claim,
+        recorded_at=recorded_at,
+        source_ref=candidate_id,
+    )
 
 
 def _bounded_claim(claim: str) -> str:
