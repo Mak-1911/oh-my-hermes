@@ -3181,17 +3181,60 @@ def _looks_like_full_transcript(value: str) -> bool:
     return "full transcript" in lowered or "chat transcript" in lowered or speaker_lines >= 4
 
 
+# The longest deadline a retention policy can express. Past this the value is a
+# typo rather than an intent, and `created_at + timedelta(days=N)` starts
+# raising OverflowError out of `_days_after` -- which reached the CLI as a raw
+# Python traceback instead of an `omh:` error.
+MAX_RETENTION_DAYS = 36500
+
+_EPISODE_DEFAULT_TTL_DAYS = 30
+_REVIEW_DEFAULT_DAYS = 90
+
+
+def _validated_day_count(days: int | None, *, field: str) -> int | None:
+    """A day count that can express a deadline, or None for "no deadline".
+
+    The `>= 1` guard used to live only in the argparse layer, so the CLI
+    rejected `--ttl-days 0` and `--ttl-days -5` while the workflow function
+    behind it accepted both from the plugin bundle, the wrapper, or any future
+    caller. `-5` minted a record that was already expired at creation, and `0`
+    made the candidate and its own approved record disagree about the same
+    input: the candidate read `expires_at: ""`, which means never expires, and
+    the record read `expires_at == created_at`, which means expired the instant
+    it was written.
+
+    Zero is rejected rather than reinterpreted. It is not a shorter TTL and it
+    is not the absence of one; it is an input nobody meant.
+    """
+    if days is None:
+        return None
+    if isinstance(days, bool) or not isinstance(days, int):
+        raise ValueError(f"{field} must be a whole number of days")
+    if days < 1 or days > MAX_RETENTION_DAYS:
+        raise ValueError(f"{field} must be between 1 and {MAX_RETENTION_DAYS} days; got {days}")
+    return days
+
+
 def _ttl_metadata(ttl_days: int | None, *, record_type: str, created_at: str) -> dict[str, object]:
-    default_days = 30 if record_type == "episode" and ttl_days is None else ttl_days
+    days = _validated_day_count(ttl_days, field="ttl_days")
+    if days is None and record_type == "episode":
+        days = _EPISODE_DEFAULT_TTL_DAYS
+    # `is None` rather than falsiness: "no deadline" and "zero days" are
+    # different statements, and only the first one may produce an empty
+    # `expires_at`. The falsy test is what let a rejected-at-the-CLI zero
+    # become a candidate that claimed to never expire.
     return {
-        "ttl_days": default_days,
-        "expires_at": _days_after(created_at, default_days) if default_days else "",
+        "ttl_days": days,
+        "expires_at": _days_after(created_at, days) if days is not None else "",
     }
 
 
 def _staleness_metadata(stale_after_days: int | None, *, record_type: str, created_at: str) -> dict[str, object]:
-    default_days = 90 if record_type in {"fact", "decision", "lesson", "procedure"} and stale_after_days is None else stale_after_days
-    deadline = _days_after(created_at, default_days) if default_days else ""
+    days = _validated_day_count(stale_after_days, field="stale_after_days")
+    if days is None and record_type in {"fact", "decision", "lesson", "procedure"}:
+        days = _REVIEW_DEFAULT_DAYS
+    default_days = days
+    deadline = _days_after(created_at, days) if days is not None else ""
     # `review_due_at` is the readable name for the date `stale_after` always
     # held. Both are written so older readers keep working; nothing derives a
     # second deadline from the new spelling.
@@ -3203,7 +3246,7 @@ def _staleness_metadata(stale_after_days: int | None, *, record_type: str, creat
 
 
 def _days_after(created_at: str, days: int | None) -> str:
-    if not days:
+    if days is None:
         return ""
     base = _parse_utc(created_at) or datetime.now(timezone.utc)
     return (base + timedelta(days=int(days))).replace(microsecond=0).isoformat().replace("+00:00", "Z")

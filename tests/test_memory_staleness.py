@@ -444,5 +444,69 @@ class DeterministicFreshnessTests(unittest.TestCase):
             self.assertEqual(verdict["review_due_at"], PAST, "the old spelling still supplies the deadline")
 
 
+class RetentionDayBoundsTests(unittest.TestCase):
+    """A deadline nobody meant must be refused, not reinterpreted.
+
+    The `>= 1` guard lived only in the argparse layer, so the CLI rejected
+    `--ttl-days 0` and `--ttl-days -5` while `capture_project_memory_candidate`
+    behind it accepted both from the plugin bundle, the wrapper, or any other
+    caller. There was no upper bound anywhere, and a large value reached
+    `created_at + timedelta(days=N)`, whose OverflowError is not a ValueError
+    and so escaped the CLI's error handling as a raw Python traceback.
+    """
+
+    def _capture(self, paths, **kwargs):
+        return capture_project_memory_candidate(paths, "retention bound probe", **kwargs)
+
+    def test_zero_and_negative_day_counts_are_refused_at_the_workflow_boundary(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            for field, kwargs in (("ttl_days", {"ttl_days": 0}), ("ttl_days", {"ttl_days": -5}),
+                                  ("stale_after_days", {"stale_after_days": 0}),
+                                  ("stale_after_days", {"stale_after_days": -5})):
+                with self.subTest(str(kwargs)):
+                    with self.assertRaises(ValueError) as caught:
+                        self._capture(paths, **kwargs)
+                    self.assertIn(field, str(caught.exception))
+
+    def test_an_unbounded_day_count_is_a_value_error_not_an_overflow(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            for days in (memory_workflow.MAX_RETENTION_DAYS + 1, 10**9, 10**12):
+                with self.subTest(days):
+                    with self.assertRaises(ValueError):
+                        self._capture(paths, ttl_days=days)
+
+    def test_the_longest_expressible_deadline_is_accepted(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            captured = self._capture(paths, ttl_days=memory_workflow.MAX_RETENTION_DAYS)
+            self.assertTrue(captured["candidate"]["ttl"]["expires_at"])
+
+    def test_no_ttl_still_means_a_record_that_never_expires(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            candidate = self._capture(paths, record_type="fact")["candidate"]
+            self.assertEqual(candidate["ttl"], {"ttl_days": None, "expires_at": ""})
+            # An episode keeps its 30-day default rather than inheriting None.
+            episode = capture_project_memory_candidate(paths, "episode bound probe", record_type="episode")
+            self.assertEqual(episode["candidate"]["ttl"]["ttl_days"], 30)
+            self.assertTrue(episode["candidate"]["ttl"]["expires_at"])
+
+    def test_a_candidate_and_its_approved_record_state_the_same_deadline(self) -> None:
+        # `ttl_days=0` used to produce a candidate reading `expires_at: ""`
+        # (never expires) and a record reading `expires_at == created_at`
+        # (expired on arrival). A reviewer approved one and got the other.
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            for kwargs in ({}, {"ttl_days": 7}, {"record_type": "episode"}, {"ttl_days": 1}):
+                with self.subTest(str(kwargs)):
+                    captured = capture_project_memory_candidate(paths, f"parity probe {kwargs}", **kwargs)
+                    candidate = captured["candidate"]
+                    record = approve_project_memory_candidate(paths, str(candidate["candidate_id"]))["record"]
+                    self.assertEqual(candidate["ttl"]["expires_at"], record["ttl"]["expires_at"])
+                    self.assertEqual(candidate["ttl"]["ttl_days"], record["ttl"]["ttl_days"])
+
+
 if __name__ == "__main__":
     unittest.main()
