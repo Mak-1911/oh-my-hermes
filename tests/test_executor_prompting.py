@@ -173,6 +173,120 @@ class ExecutorPromptingTests(unittest.TestCase):
                 self.assertIn(payload["delegation"]["acceptance_criteria"][0], handoff["prompt_template"])
                 self.assertIn(payload["delegation"]["verification"][0], handoff["prompt_template"])
 
+    def test_gpt_sol_codex_handoff_adds_parallel_execution_overlay(self) -> None:
+        payload = build_coding_delegation_payload(
+            "Implement src/example.py",
+            executor_target="codex",
+            main_agent_model="gpt-5.6-sol",
+        )
+        handoff = payload["executor_handoff"]
+
+        self.assertEqual(
+            handoff["executor_prompting_contract"]["throughput_overlay"]["mode"],
+            "gpt_sol_codex_handoff",
+        )
+        for rule in handoff["executor_prompting_contract"]["throughput_overlay"]["rules"]:
+            self.assertIn(rule, handoff["prompt_template"])
+        self.assertEqual(validate_coding_executor_handoff(handoff), [])
+
+    def test_gpt_sol_codex_handoff_adds_eval_batching_guidance(self) -> None:
+        payload = build_coding_delegation_payload(
+            "Implement src/example.py",
+            executor_target="codex",
+            main_agent_model="gpt-5.6-sol",
+        )
+        overlay = payload["executor_handoff"]["executor_prompting_contract"]["throughput_overlay"]
+
+        self.assertEqual(overlay["mode"], "gpt_sol_codex_handoff")
+        self.assertEqual(overlay["eval_strategy"], "single_cell_internal_parallel")
+
+    def test_gpt_sol_hermes_ulw_handoff_adds_parallel_execution_overlay(self) -> None:
+        payload = build_coding_delegation_payload(
+            "Run this goal to completion.",
+            executor_target="hermes",
+            preferred_workflow="ultrawork",
+            preferred_workflow_score=10,
+            force_coding_handoff=True,
+            main_agent_model="openai/gpt-5.6-sol",
+        )
+        handoff = payload["runtime_handoff"]
+
+        self.assertEqual(payload["delegation"]["recommended_workflow"], "ultrawork")
+        self.assertEqual(
+            handoff["executor_prompting_contract"]["throughput_overlay"]["mode"],
+            "gpt_hermes_ulw",
+        )
+        for rule in handoff["executor_prompting_contract"]["throughput_overlay"]["rules"]:
+            self.assertIn(rule, handoff["prompt_template"])
+        self.assertEqual(validate_coding_runtime_handoff(handoff), [])
+
+    def test_parallel_execution_overlay_is_scoped_to_gpt_sol_routes(self) -> None:
+        cases = (
+            (
+                build_coding_delegation_payload(
+                    "Implement src/example.py",
+                    executor_target="codex",
+                    main_agent_model="claude-fable-5",
+                )["executor_handoff"],
+                "claude Codex handoff",
+            ),
+            (
+                build_coding_delegation_payload(
+                    "Review src/example.py.",
+                    executor_target="hermes",
+                    preferred_workflow="code-review",
+                    preferred_workflow_score=10,
+                    force_coding_handoff=True,
+                    main_agent_model="gpt-5.6-sol",
+                )["runtime_handoff"],
+                "GPT Hermes non-ULW handoff",
+            ),
+            (
+                build_coding_delegation_payload(
+                    "Run this goal to completion.",
+                    executor_target="hermes",
+                    preferred_workflow="ultrawork",
+                    preferred_workflow_score=10,
+                    force_coding_handoff=True,
+                    main_agent_model="claude-fable-5",
+                )["runtime_handoff"],
+                "Claude Hermes ULW handoff",
+            ),
+        )
+
+        for handoff, label in cases:
+            with self.subTest(label=label):
+                overlay = handoff["executor_prompting_contract"]["throughput_overlay"]
+                self.assertEqual(overlay["mode"], "parallel_handoff")
+                self.assertNotIn("eval_strategy", overlay)
+                for rule in overlay["rules"]:
+                    self.assertIn(rule, handoff["prompt_template"])
+
+    def test_parallel_guidance_reaches_non_gpt_handoffs(self) -> None:
+        cases = (
+            (
+                build_coding_delegation_payload(
+                    "Implement src/example.py",
+                    executor_target="claude-code",
+                    main_agent_model="claude-fable-5",
+                )["prompt_handoff"],
+                "claude-code",
+            ),
+            (
+                build_coding_delegation_payload(
+                    "Implement src/example.py",
+                    executor_target="generic",
+                )["prompt_handoff"],
+                "generic",
+            ),
+        )
+
+        for handoff, profile in cases:
+            with self.subTest(profile=profile):
+                overlay = handoff["executor_prompting_contract"]["throughput_overlay"]
+                self.assertEqual(overlay["mode"], "parallel_handoff")
+                self.assertNotIn("eval_strategy", overlay)
+
     def test_strategy_selection_distinguishes_plan_risk_and_repair(self) -> None:
         self.assertEqual(
             select_executor_prompting_strategy(
