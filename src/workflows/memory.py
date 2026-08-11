@@ -720,6 +720,7 @@ def build_project_memory_recall_pack(
     run_id: str | None = None,
     observer: str | None = None,
     observed: str | None = None,
+    query_intent: str | None = None,
 ) -> dict[str, object]:
     policy = read_project_memory_policy(paths)
     # Lens labels normalize exactly like capture labels: capture lowercases
@@ -817,7 +818,7 @@ def build_project_memory_recall_pack(
             excluded.append(_recall_exclusion(record, evaluation, staleness=staleness, reason="no_query_overlap"))
             continue
         included.append(_recall_item(record, score=score, staleness=staleness, evaluation=evaluation, attention_tier=attention_tier))
-    query_intent = _recall_query_intent(query)
+    query_intent = _resolve_query_intent(query, query_intent)
     _attach_recall_ranking(
         included,
         read_recall_usage(paths),
@@ -1371,6 +1372,36 @@ def _recall_query_intent(query: str) -> str:
         return "temporal"
     normalized = f" {' '.join(query.lower().split())} "
     return "temporal" if any(f" {phrase} " in normalized for phrase in _TEMPORAL_QUERY_PHRASES) else "default"
+
+
+def _resolve_query_intent(query: str, supplied: str | None) -> str:
+    """The caller's stated intent when there is one, else the English cues.
+
+    The cue table is English-only and stays that way. Per the routing-language
+    policy (`tests/test_routing_language_policy.py`, `src/routing/input_language.py`)
+    per-language trigger tables do not scale to a global product, and non-English
+    intent resolution belongs to model selection over supplied candidates rather
+    than to more tokens. Measured before this existed: every Korean and Japanese
+    phrasing of "recently" -- `어제 뭐 정했지`, `최근 배포 결정`, `3일 전에 정한 거`,
+    `最近の変更` -- resolved to `default`, so recency weighting never engaged for
+    them while `recent changes` got it.
+
+    Adding those words to the table would have fixed five languages and left the
+    rest, which is the habit the policy exists to stop. So the caller states it
+    instead: Hermes read the message and already knows whether the user asked
+    for the latest, in any language, and now has somewhere to say so.
+
+    An unrecognized value is refused rather than ignored. A caller that
+    misspells its intent should learn that, not silently get the default.
+    """
+    if supplied is None:
+        return _recall_query_intent(query)
+    normalized = str(supplied).strip().lower()
+    if normalized in {"", "auto"}:
+        return _recall_query_intent(query)
+    if normalized not in {"default", "temporal"}:
+        raise ValueError(f"query_intent must be one of auto, default, temporal; got {supplied!r}")
+    return normalized
 
 
 def _memory_pins_path(paths: OmhPaths) -> Path:

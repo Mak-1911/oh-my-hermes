@@ -1270,5 +1270,78 @@ class UnreadableRecordVisibilityTests(unittest.TestCase):
             self.assertIn("not admitted by this build", check.message)
 
 
+class CallerSuppliedQueryIntentTests(unittest.TestCase):
+    """Recency intent a non-English speaker can actually reach.
+
+    `_TEMPORAL_QUERY_CUES` is English-only, so every non-English phrasing of
+    "recently" resolved to `default` and never got the doubled recency weight:
+    `어제 뭐 정했지`, `최근 배포 결정`, `3일 전에 정한 거`, `最近の変更`.
+
+    Growing the cue table is the fix the routing-language policy exists to stop
+    (`tests/test_routing_language_policy.py`): per-language trigger tables do
+    not scale, and non-English intent resolution belongs to model selection
+    over supplied candidates. So the caller states the intent instead -- Hermes
+    read the message and knows, in any language.
+    """
+
+    def _store(self, root: Path):
+        paths = resolve_paths(root / ".omh", root / ".hermes")
+        write_setup_profile(paths, memory_mode="auto-safe")
+        capture_project_memory_candidate(paths, "배포는 블루그린 방식으로 적용한다", tags=["deploy"])
+        return paths
+
+    def test_a_stated_intent_reaches_the_pack_in_any_language(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = self._store(Path(tmp))
+            for query in ("어제 뭐 정했지", "最近の変更", "3일 전에 정한 거", ""):
+                with self.subTest(query):
+                    derived = build_project_memory_recall_pack(paths, query)
+                    self.assertEqual(derived["query_intent"], "default")
+                    stated = build_project_memory_recall_pack(paths, query, query_intent="temporal")
+                    self.assertEqual(stated["query_intent"], "temporal")
+                    self.assertEqual(validate_project_memory_recall_pack(stated), [])
+
+    def test_the_english_cue_table_still_answers_when_nothing_is_stated(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = self._store(Path(tmp))
+            for query, expected in (("recent changes", "temporal"), ("the most recent deploy", "temporal"),
+                                    ("deploy strategy", "default"), ("배포 방식", "default")):
+                with self.subTest(query):
+                    self.assertEqual(build_project_memory_recall_pack(paths, query)["query_intent"], expected)
+                    # `auto` is the same thing said out loud.
+                    self.assertEqual(
+                        build_project_memory_recall_pack(paths, query, query_intent="auto")["query_intent"], expected
+                    )
+
+    def test_a_stated_default_overrides_an_english_cue(self) -> None:
+        # The caller read the message; a cue word inside it does not outrank
+        # that. "recent" appears here and the caller says it is not the point.
+        with TemporaryDirectory() as tmp:
+            paths = self._store(Path(tmp))
+            pack = build_project_memory_recall_pack(paths, "recent deploy strategy", query_intent="default")
+            self.assertEqual(pack["query_intent"], "default")
+
+    def test_an_unrecognized_intent_is_refused_not_ignored(self) -> None:
+        # A caller that misspells its intent should learn that, rather than
+        # silently receive the default ranking it did not ask for.
+        with TemporaryDirectory() as tmp:
+            paths = self._store(Path(tmp))
+            with self.assertRaises(ValueError):
+                build_project_memory_recall_pack(paths, "배포", query_intent="recent")
+
+    def test_intent_reorders_peers_and_never_changes_what_matches(self) -> None:
+        # The whole reason this is safe: intent only weights recency inside
+        # rank fusion. If it could change the matched set it would be a
+        # second, undeclared, retrieval policy.
+        with TemporaryDirectory() as tmp:
+            paths = self._store(Path(tmp))
+            capture_project_memory_candidate(paths, "결제 실패가 나면 즉시 롤백한다", tags=["payment"])
+            default = build_project_memory_recall_pack(paths, "배포")
+            temporal = build_project_memory_recall_pack(paths, "배포", query_intent="temporal")
+            self.assertEqual(
+                {item["record_id"] for item in default["included_records"]},
+                {item["record_id"] for item in temporal["included_records"]},
+            )
+
 if __name__ == "__main__":
     unittest.main()

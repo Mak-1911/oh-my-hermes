@@ -80,6 +80,16 @@ def add_memory_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
         action="store_true",
         help="Also recall archive-tier records. They are excluded by default as archived_tier, never deleted.",
     )
+    recall.add_argument(
+        "--intent",
+        choices=("auto", "default", "temporal"),
+        default="auto",
+        help=(
+            "State whether the query asks for the most recent, instead of leaving it to the English cue table. "
+            "temporal doubles the recency weight inside rank fusion; it never changes which records match. "
+            "auto keeps the existing English-cue derivation."
+        ),
+    )
     recall.add_argument("--observer", default=None, help="Perspective lens: only unscoped records and records with this observer pass.")
     recall.add_argument("--observed", default=None, help="Perspective lens: only unscoped records and records about this actor pass.")
     recall.set_defaults(func=memory.cmd_memory_recall)
