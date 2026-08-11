@@ -365,6 +365,60 @@ class MemoryContractTests(unittest.TestCase):
             self.assertEqual(miss["record_count"], 0)
             self.assertEqual(miss["excluded_records"][0]["reason"], "no_query_overlap")
 
+    def test_project_memory_recall_reaches_two_letter_technical_terms(self) -> None:
+        """CI, DB, UI, QA and friends must be findable.
+
+        The >=3 ASCII length floor dropped every two-letter word, which produced
+        two opposite failures against the same store. "CI" tokenized to nothing,
+        so the no-indexable-tokens fallback returned every record with no
+        exclusion reason at all; "ci failures" tokenized to {failures}, so the
+        record whose summary began with "CI" and carried `ci` as a tag came back
+        as no_query_overlap. The tag bonus could not save it either -- the query
+        token was dropped before the tag comparison ran.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            write_setup_profile(paths, memory_mode="auto-safe")
+            capture_project_memory_candidate(paths, "CI runs on GitHub Actions for every push", tags=["ci"])
+            capture_project_memory_candidate(paths, "Postgres is the primary DB for the api service", tags=["db"])
+            capture_project_memory_candidate(paths, "Terraform provisions the staging cluster", tags=["infra"])
+
+            recall = build_project_memory_recall_pack(paths, "ci failures")
+            self.assertEqual([item["summary"] for item in recall["included_records"]],
+                             ["CI runs on GitHub Actions for every push"])
+            self.assertEqual(validate_project_memory_recall_pack(recall), [])
+
+            # The bare term used to return the whole store through the fallback.
+            bare = build_project_memory_recall_pack(paths, "CI")
+            self.assertEqual(bare["record_count"], 1)
+
+            natural = build_project_memory_recall_pack(paths, "which DB do we use")
+            self.assertEqual([item["summary"] for item in natural["included_records"]],
+                             ["Postgres is the primary DB for the api service"])
+
+            # Overroute guard: an unrelated query still recalls nothing.
+            miss = build_project_memory_recall_pack(paths, "quantum tunnelling")
+            self.assertEqual(miss["record_count"], 0)
+            self.assertEqual(miss["excluded_records"][0]["reason"], "no_query_overlap")
+
+    def test_two_letter_function_words_stay_out_of_the_recall_index(self) -> None:
+        """The floor kept English filler out; naming it must keep doing that.
+
+        Without the stopword list, "we", "do", "is", "of" would index and a
+        query built only from them would match every record that contains one.
+        """
+        from omh.workflows.memory import _memory_tokens
+
+        self.assertEqual(_memory_tokens("we do it"), set())
+        self.assertEqual(_memory_tokens("is it up to us"), set())
+        # Real two-letter terms are not filler and stay indexable.
+        for term in ("ci", "db", "ui", "qa", "ml", "pr", "js", "go", "s3", "ai", "ux", "vs", "id"):
+            self.assertIn(term, _memory_tokens(f"the {term} thing"), term)
+        # A short token is a whole word, never a fragment of a longer one.
+        self.assertNotIn("ru", _memory_tokens("runs"))
+        self.assertNotIn("ci", _memory_tokens("circular"))
+        self.assertNotIn("db", _memory_tokens("dbname"))
+
     def test_project_memory_recall_treats_nfd_and_nfc_queries_alike(self) -> None:
         """macOS pipelines hand over decomposed Hangul; ranking must not differ."""
         import unicodedata
