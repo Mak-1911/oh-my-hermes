@@ -2578,7 +2578,9 @@ def _build_project_memory_candidate(
     safety = _project_memory_safety(summary, content_text, tags=normalized_tags)
     now = utc_now()
     ttl = _ttl_metadata(ttl_days, record_type=normalized_type, created_at=now)
-    staleness = _staleness_metadata(stale_after_days, record_type=normalized_type, created_at=now)
+    staleness = _staleness_metadata(
+        stale_after_days, record_type=normalized_type, retention_class=retention_class, created_at=now
+    )
     candidate_id = "cand_" + os.urandom(8).hex()
     status = "blocked_review_required" if safety["status"] == "blocked" else "pending_review"
     # Digest the ref exactly as it will be stored, not as it was passed:
@@ -3265,9 +3267,33 @@ def _ttl_metadata(ttl_days: int | None, *, record_type: str, created_at: str) ->
     }
 
 
-def _staleness_metadata(stale_after_days: int | None, *, record_type: str, created_at: str) -> dict[str, object]:
+def _staleness_metadata(
+    stale_after_days: int | None,
+    *,
+    record_type: str,
+    created_at: str,
+    retention_class: str = "standard",
+) -> dict[str, object]:
+    """The review-due deadline, or none for a record declared durable.
+
+    The 90-day default used to key off `record_type` alone, so a `durable`
+    record -- the class that exists to say this does not expire -- still read
+    `stale/review_due` after 90 days and carried a freshness warning into every
+    recall from then on. `build_retention` has always been explicit that the
+    class does not work that way ("durable: no default expiry; revalidation
+    deadline is optional"); the two layers simply never spoke.
+
+    A 90-day re-read is right for a claim that rots -- an API timeout, an
+    on-call rotation, a deploy procedure. It is noise on a founding date, a
+    chosen license, a settled architecture, or a post-mortem lesson, and noise
+    on those trains operators to ignore the warning on the records where it was
+    the point.
+
+    An explicitly supplied deadline is still honoured for a durable record: the
+    class says the deadline is optional, not forbidden.
+    """
     days = _validated_day_count(stale_after_days, field="stale_after_days")
-    if days is None and record_type in {"fact", "decision", "lesson", "procedure"}:
+    if days is None and retention_class != "durable" and record_type in {"fact", "decision", "lesson", "procedure"}:
         days = _REVIEW_DEFAULT_DAYS
     default_days = days
     deadline = _days_after(created_at, days) if days is not None else ""
