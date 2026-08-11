@@ -183,6 +183,7 @@ def cmd_memory_recall(args: argparse.Namespace) -> int:
             include_archived=args.include_archived,
             observer=args.observer,
             observed=args.observed,
+            query_intent=args.intent,
         )
     except (OSError, ValueError) as exc:
         raise OmhError(str(exc)) from exc
