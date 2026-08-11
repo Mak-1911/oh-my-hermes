@@ -22,6 +22,7 @@ from ..install.identity_conflicts import build_identity_conflict_report
 from ..manifest import local_modifications, read_manifest
 from ..paths import OmhPaths
 from ..plugin_bundle.omh.memory_dreaming import read_dreaming_state, read_latest_consolidation
+from ..workflows.memory import scan_project_memory_records
 from ..plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
 from ..plugin_observations import (
     PLUGIN_HOST_ACTIVE_OBSERVATION_EVENTS,
@@ -143,6 +144,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
     checks.append(_identity_conflicts_check(paths, dirs if hermes_config_present else None, manifest))
     checks.append(_memory_provider_check(config_text))
     checks.append(_memory_consolidation_check(paths))
+    checks.append(_memory_record_readability_check(paths))
     checks.append(
         Check(
             "runtime_context",
@@ -335,6 +337,35 @@ def _memory_consolidation_check(paths: OmhPaths) -> Check:
         True,
         f"Memory consolidation is due ({', '.join(reasons)}), raised at {at} by {brief.get('trigger', 'unknown')}. "
         + remedy,
+        severity="warning",
+        observed=True,
+    )
+
+
+def _memory_record_readability_check(paths: OmhPaths) -> Check:
+    """Name the record files this build cannot admit, instead of losing them.
+
+    Refusing an unrecognized record is right; refusing it silently is not. A v1
+    record without an approved review status, and any record written by a newer
+    schema, were dropped by the store reader with no count in `memory status`,
+    no entry in a recall pack's exclusions, and nothing here -- so a store that
+    had quietly shrunk was indistinguishable from a smaller store.
+
+    Never a fault. The records are intact on disk and nothing is lost by
+    reporting them; what is lost is the operator not knowing.
+    """
+    _records, unreadable = scan_project_memory_records(paths)
+    if not unreadable:
+        return Check("memory_records", True, "Every memory record file is readable by this build", observed=True)
+    by_reason: dict[str, list[str]] = {}
+    for item in unreadable:
+        by_reason.setdefault(str(item.get("reason", "")), []).append(str(item.get("path_name", "")))
+    detail = "; ".join(f"{reason}: {', '.join(sorted(names)[:5])}" for reason, names in sorted(by_reason.items()))
+    return Check(
+        "memory_records",
+        True,
+        f"{len(unreadable)} memory record file(s) are on disk but not admitted by this build ({detail}). "
+        "Run `omh memory inventory` for the full ledger; nothing was deleted.",
         severity="warning",
         observed=True,
     )
