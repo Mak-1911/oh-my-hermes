@@ -714,6 +714,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Assert contested claims only after cross-source verification; keep unresolved and refuted claims in an explicit annex - abstention is a correct outcome.
   - Separate quoted evidence from inference.
   - Separate measured, assumed, and derived figures in any estimate.
+  - Name the source class behind each claim - upstream official, practitioner heuristic, or unattributed - as an axis separate from measured/assumed/derived: a practitioner heuristic may inform approach but never enters as an established finding, and no source class settles completion.
   - Parallel lanes widen coverage, not authority: each lane's findings stay claims until merged and verified, and lane count or wave count never substitutes for the declared depth budget.
   - State retrieval limits, dates, and missing-source gaps for unstable facts.
   - product_evidence_loop/v1 is prepared-only opaque references, not observed evidence or execution.
@@ -820,7 +821,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Why: The request lacks the required inputs or would overclaim work that Hermes did not observe.
 - Quality bar:
   - State the research question, source boundaries, and recency assumptions before synthesis.
-  - Record each material claim as a compact evidence row: claim, source, source date, confidence, and unresolved conflict.
+  - Record each material claim as a compact evidence row: claim, source, source class (upstream official, practitioner heuristic, or unattributed), source date, confidence, and unresolved conflict.
   - Keep claims that lack corroboration in an explicit unresolved list instead of asserting or silently dropping them.
   - Separate observed sources, source quality, source diversity, inferred trends, and unresolved uncertainty.
   - Use the brief to feed strategy or meeting work without calling it execution evidence.
@@ -3686,6 +3687,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Use official or upstream sources first and name the version/environment assumptions.
   - Map applicability to the user's local context before recommending action.
   - Preserve residual uncertainty instead of overstating best practice.
+  - Upstream guidance is the strongest source class and still not completion evidence: that the docs prescribe something is never that it was done, verified, or is passing here.
 - Completion checklist:
   - The research question, source boundaries, recency assumptions, and confidence level are named.
   - Observed sources, inference, synthesis, and unresolved retrieval gaps are separated.
