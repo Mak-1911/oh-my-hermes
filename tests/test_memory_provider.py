@@ -62,7 +62,7 @@ from omh.plugin_bundle.omh.memory_dreaming import (
 )
 from omh.plugin_bundle.omh.memory_eviction import build_eviction_plan, eviction_plan_summary
 from omh.plugin_bundle.omh.memory_provider import PROVIDER_NAME, OmhMemoryProvider
-from omh.plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
+from omh.plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME, PROVIDED_TOOLS
 from omh.plugin_bundle.omh.tools.memory_tool import MEMORY_ACTIONS, OMH_MEMORY_SCHEMA, omh_memory_handler
 
 HERMES_DELIMITER = "§"
@@ -381,7 +381,7 @@ class ProviderRegistrationTests(unittest.TestCase):
         collector = self._Collector()
         register(collector)
         self.assertIsInstance(collector.provider, OmhMemoryProvider)
-        # Registering ten tools into a collector that discards them is work the
+        # Registering every tool into a collector that discards them is work the
         # provider load should never do.
         self.assertEqual(collector.tools, [])
 
@@ -389,7 +389,10 @@ class ProviderRegistrationTests(unittest.TestCase):
         ctx = self._PluginCtx()
         register(ctx)
         self.assertIn("omh_memory", ctx.tools)
-        self.assertEqual(len(ctx.tools), 10)
+        # Derived from the declared set rather than a literal: this assertion
+        # exists to catch a tool that is declared but never registered, and a
+        # hardcoded count turns that into a chore every time a tool is added.
+        self.assertEqual(sorted(ctx.tools), sorted(PROVIDED_TOOLS))
         self.assertIn("on_session_end", ctx.hooks)
 
     def test_the_provider_exposes_no_tool_schemas(self) -> None:

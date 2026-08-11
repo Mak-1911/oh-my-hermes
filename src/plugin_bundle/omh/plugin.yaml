@@ -14,6 +14,7 @@ provides_tools:
   - omh_probe
   - omh_recommend
   - omh_role
+  - omh_source_trust
   - omh_status
 provides_hooks:
   - on_session_end

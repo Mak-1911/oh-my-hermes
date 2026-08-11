@@ -10,6 +10,7 @@ PROVIDED_TOOLS = (
     "omh_probe",
     "omh_recommend",
     "omh_role",
+    "omh_source_trust",
     "omh_status",
 )
 REQUIRED_HOOKS = ("on_session_end", "pre_llm_call", "pre_tool_call")
@@ -26,6 +27,7 @@ TOOL_FILE_STEMS = {
     "omh_probe": "probe_tool",
     "omh_recommend": "recommend_tool",
     "omh_role": "role_tool",
+    "omh_source_trust": "source_trust_tool",
     "omh_status": "status_tool",
 }
 
