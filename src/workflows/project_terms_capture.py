@@ -8,6 +8,7 @@ import re
 import stat
 
 from ..paths import OmhPaths, find_project_root, project_identity
+from ..system.binary_io import open_binary
 from ..system.local_store import utc_now
 from .domain_intelligence_contracts import (
     CLAIM_BOUNDARY,
@@ -49,7 +50,6 @@ _NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
 _DIRECTORY_FLAG = getattr(os, "O_DIRECTORY", 0)
 _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
 _NONBLOCK_FLAG = getattr(os, "O_NONBLOCK", 0)
-_BINARY_FLAG = getattr(os, "O_BINARY", 0)
 _PROJECT_TERMS_SOURCE_REF = re.compile(r"^pt_sha256:([0-9a-f]{64})$")
 _CAPTURE_OPERATION_SCHEMA_VERSION = "project_terms_candidate_batch_operation/v1"
 _CAPTURE_OPERATION_PREFIX = "project_terms_"
@@ -228,13 +228,9 @@ def _read_repository_project_terms_at(root: Path) -> bytes:
         source_before = _stat_source_at(root_fd)
         _validate_source_entry(source_before)
         try:
-            source_fd = os.open(
+            source_fd = open_binary(
                 _SOURCE_NAME,
-                os.O_RDONLY
-                | _CLOEXEC_FLAG
-                | _NONBLOCK_FLAG
-                | _NOFOLLOW_FLAG
-                | _BINARY_FLAG,
+                os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG | _NOFOLLOW_FLAG,
                 dir_fd=root_fd,
             )
         except OSError as exc:
@@ -262,9 +258,9 @@ def _read_repository_project_terms_with_identity_checks(root: Path) -> bytes:
     source_before = _stat_source_path(source_path)
     _validate_source_entry(source_before)
     try:
-        source_fd = os.open(
+        source_fd = open_binary(
             source_path,
-            os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG | _BINARY_FLAG,
+            os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG,
         )
     except OSError as exc:
         raise _source_open_error(exc) from exc

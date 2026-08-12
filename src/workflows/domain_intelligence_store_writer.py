@@ -9,6 +9,7 @@ import secrets
 import stat
 
 from ..paths import OmhPaths
+from ..system.binary_io import open_binary
 from .domain_intelligence_bounded_json import (
     decode_bounded_json_object,
     read_limited_bytes,
@@ -18,7 +19,6 @@ from .domain_intelligence_bounded_json import (
 _NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
 _DIRECTORY_FLAG = getattr(os, "O_DIRECTORY", 0)
 _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
-_BINARY_FLAG = getattr(os, "O_BINARY", 0)
 _MANAGED_DIRECTORIES = frozenset(
     {"candidates", "history", "operations", "profiles", "reviews"}
 )
@@ -79,9 +79,9 @@ def read_managed_json_at(
             max_depth=max_depth,
             max_nodes=max_nodes,
         )
-    flags = os.O_RDONLY | _CLOEXEC_FLAG | _NOFOLLOW_FLAG | _BINARY_FLAG
+    flags = os.O_RDONLY | _CLOEXEC_FLAG | _NOFOLLOW_FLAG
     try:
-        descriptor = os.open(filename, flags, dir_fd=directory_fd)
+        descriptor = open_binary(filename, flags, dir_fd=directory_fd)
     except FileNotFoundError:
         return None
     except OSError as exc:
@@ -133,9 +133,8 @@ def atomic_write_managed_json(
             | os.O_EXCL
             | _CLOEXEC_FLAG
             | _NOFOLLOW_FLAG
-            | _BINARY_FLAG
         )
-        temporary_fd = os.open(temporary_name, flags, 0o600, dir_fd=directory_fd)
+        temporary_fd = open_binary(temporary_name, flags, 0o600, dir_fd=directory_fd)
         temporary_created = True
         try:
             temporary_identity = os.fstat(temporary_fd)
@@ -213,9 +212,9 @@ def _read_managed_json_at_portable(
     _validate_portable_regular(before, "managed source")
     if before.st_size > max_bytes:
         raise ValueError("artifact_too_large")
-    descriptor = os.open(
+    descriptor = open_binary(
         path,
-        os.O_RDONLY | _CLOEXEC_FLAG | _BINARY_FLAG,
+        os.O_RDONLY | _CLOEXEC_FLAG,
     )
     try:
         opened = os.fstat(descriptor)
@@ -262,9 +261,9 @@ def _atomic_write_managed_json_portable(
     temporary_created = False
     descriptor = -1
     try:
-        descriptor = os.open(
+        descriptor = open_binary(
             temporary,
-            os.O_RDWR | os.O_CREAT | os.O_EXCL | _CLOEXEC_FLAG | _BINARY_FLAG,
+            os.O_RDWR | os.O_CREAT | os.O_EXCL | _CLOEXEC_FLAG,
             0o600,
         )
         temporary_created = True
@@ -330,9 +329,9 @@ def _verify_temporary_at(
     _validate_portable_regular(before, "temporary path")
     if _portable_identity(before) != expected_identity:
         raise ValueError("domain-intelligence temporary path changed before replacement")
-    descriptor = os.open(
+    descriptor = open_binary(
         temporary_name,
-        os.O_RDONLY | _CLOEXEC_FLAG | _NOFOLLOW_FLAG | _BINARY_FLAG,
+        os.O_RDONLY | _CLOEXEC_FLAG | _NOFOLLOW_FLAG,
         dir_fd=directory_fd,
     )
     try:
@@ -365,7 +364,7 @@ def _verify_portable_temporary(
     _validate_portable_regular(before, "temporary path")
     if _portable_identity(before) != expected_identity:
         raise ValueError("domain-intelligence temporary path changed before replacement")
-    descriptor = os.open(temporary, os.O_RDONLY | _CLOEXEC_FLAG | _BINARY_FLAG)
+    descriptor = open_binary(temporary, os.O_RDONLY | _CLOEXEC_FLAG)
     try:
         _verify_temporary_descriptor(
             descriptor,

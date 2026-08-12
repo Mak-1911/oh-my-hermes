@@ -10,6 +10,7 @@ import time
 from typing import Iterator
 
 from ..paths import OmhPaths
+from ..system.binary_io import open_binary, set_binary_mode
 from ..system.local_store import FileLockTimeout
 from .domain_intelligence_store_writer import (
     _managed_home_from_directory,
@@ -36,7 +37,6 @@ except ImportError:
 
 _NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
 _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
-_BINARY_FLAG = getattr(os, "O_BINARY", 0)
 _MANAGED_DIRECTORIES = frozenset(
     {"candidates", "history", "operations", "profiles", "reviews"}
 )
@@ -259,23 +259,23 @@ def _open_store_lock_path(lock_path: Path, flags: int) -> int:
     except FileNotFoundError:
         before = None
         try:
-            descriptor = os.open(
+            descriptor = open_binary(
                 lock_path,
-                flags | os.O_EXCL | _BINARY_FLAG,
+                flags | os.O_EXCL,
                 0o600,
             )
         except FileExistsError:
             before = _lock_path_stat(lock_path)
             _validate_lock_metadata(before)
-            descriptor = os.open(
+            descriptor = open_binary(
                 lock_path,
-                (flags & ~(os.O_CREAT | os.O_EXCL)) | _BINARY_FLAG,
+                flags & ~(os.O_CREAT | os.O_EXCL),
             )
     else:
         _validate_lock_metadata(before)
-        descriptor = os.open(
+        descriptor = open_binary(
             lock_path,
-            (flags & ~(os.O_CREAT | os.O_EXCL)) | _BINARY_FLAG,
+            flags & ~(os.O_CREAT | os.O_EXCL),
         )
 
     with os.fdopen(descriptor, "r+b", closefd=True):
@@ -293,7 +293,7 @@ def _open_store_lock_path(lock_path: Path, flags: int) -> int:
             and _lock_identity(before) != _lock_identity(opened)
         ):
             raise ValueError("domain-intelligence lock path changed while opening")
-        return os.dup(descriptor)
+        return set_binary_mode(os.dup(descriptor))
 
 
 def _validate_open_lock_path(lock_path: Path, descriptor: int) -> None:
@@ -311,7 +311,7 @@ def _validate_open_lock_path(lock_path: Path, descriptor: int) -> None:
 def _open_store_lock_descriptor(directory_fd: int, flags: int) -> int:
     if _NOFOLLOW_FLAG:
         try:
-            return os.open(
+            return open_binary(
                 ".store.lock",
                 flags | _NOFOLLOW_FLAG,
                 0o600,
@@ -330,7 +330,7 @@ def _open_store_lock_descriptor(directory_fd: int, flags: int) -> int:
     except FileNotFoundError:
         before = None
         try:
-            descriptor = os.open(
+            descriptor = open_binary(
                 ".store.lock",
                 flags | os.O_EXCL,
                 0o600,
@@ -339,14 +339,14 @@ def _open_store_lock_descriptor(directory_fd: int, flags: int) -> int:
         except FileExistsError:
             before = _lock_stat(directory_fd)
             _validate_lock_metadata(before)
-            descriptor = os.open(
+            descriptor = open_binary(
                 ".store.lock",
                 flags & ~(os.O_CREAT | os.O_EXCL),
                 dir_fd=directory_fd,
             )
     else:
         _validate_lock_metadata(before)
-        descriptor = os.open(
+        descriptor = open_binary(
             ".store.lock",
             flags & ~(os.O_CREAT | os.O_EXCL),
             dir_fd=directory_fd,
@@ -385,9 +385,9 @@ def _lock_descriptor(
         os.fchmod(descriptor, 0o600)
         mechanism = "fcntl"
     elif msvcrt is not None:
+        # Native msvcrt materializes the locked byte as NUL when this sidecar
+        # is empty. That byte belongs to synchronization, not store content.
         mechanism = "msvcrt"
-        if os.fstat(descriptor).st_size == 0:
-            os.write(descriptor, b"\0")
     else:
         return None
     deadline = time.monotonic() + max(timeout_seconds, 0.0)

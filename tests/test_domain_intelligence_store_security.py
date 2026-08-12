@@ -13,6 +13,10 @@ from unittest.mock import patch
 
 from _local_package import load_local_package
 from _platform_support import requires_domain_intelligence_store
+from domain_store_snapshot_support import (
+    domain_store_snapshot,
+    repository_tree_snapshot,
+)
 
 load_local_package()
 from omh.paths import resolve_paths
@@ -30,6 +34,7 @@ class FakeMsvcrt:
         self._guard = threading.Lock()
         self._held: dict[tuple[int, int], int] = {}
         self.calls: list[tuple[int, int, int]] = []
+        self.materialized_lock_bytes = 0
 
     def locking(self, descriptor: int, mode: int, nbytes: int) -> None:
         metadata = os.fstat(descriptor)
@@ -39,6 +44,12 @@ class FakeMsvcrt:
             if mode == self.LK_NBLCK:
                 if identity in self._held:
                     raise OSError(errno.EACCES, "region already locked")
+                # Native msvcrt extends an empty file with a NUL when locking
+                # its first byte. Reproduce that Windows-only filesystem side
+                # effect so semantic snapshot tests execute on every host.
+                if metadata.st_size == 0:
+                    os.write(descriptor, b"\0")
+                    self.materialized_lock_bytes += 1
                 self._held[identity] = descriptor
             elif mode == self.LK_UNLCK:
                 if self._held.get(identity) == descriptor:
@@ -97,6 +108,35 @@ class WindowsDomainStoreLockTests(unittest.TestCase):
                 [mode for _, mode, size in fake.calls if size == 1],
                 [fake.LK_NBLCK, fake.LK_UNLCK, fake.LK_NBLCK, fake.LK_UNLCK],
             )
+
+    def test_windows_nul_lock_is_neutral_to_store_snapshots(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            domain_root = paths.memory_dir / "domain-intelligence"
+            fake = FakeMsvcrt()
+            before = domain_store_snapshot(root)
+            tree_before = repository_tree_snapshot(root)
+
+            patches = self._windows_lock_patches(domain_root, fake)
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+                with security.domain_store_lock(paths) as acquired:
+                    self.assertTrue(acquired["locked"])
+
+            lock_path = domain_root / ".store.lock"
+            self.assertEqual(lock_path.read_bytes(), b"\0")
+            self.assertEqual(fake.materialized_lock_bytes, 1)
+            self.assertEqual(domain_store_snapshot(root), before)
+            self.assertEqual(repository_tree_snapshot(root), tree_before)
+
+            candidate = domain_root / "candidates" / "candidate.json"
+            candidate.parent.mkdir()
+            candidate.write_bytes(b'{"candidate_id":"changed"}\n')
+            self.assertEqual(
+                domain_store_snapshot(root),
+                {"candidates/candidate.json": candidate.read_bytes()},
+            )
+            self.assertEqual(list(domain_root.rglob(".*.tmp")), [])
 
     def test_windows_two_contenders_timeout_then_release_and_reacquire(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -472,6 +512,12 @@ class PosixManagedJsonWriteTests(unittest.TestCase):
 class PortableDomainStoreLockTests(unittest.TestCase):
     _FLAGS = os.O_RDWR | os.O_CREAT | os.O_APPEND
 
+    def _assert_private_lock_mode(self, lock_path: Path) -> None:
+        # The Windows CRT reports regular writable files as 0o666 regardless
+        # of the creation mode; POSIX mode bits are not a Windows ACL signal.
+        expected = 0o666 if os.name == "nt" else 0o600
+        self.assertEqual(stat.S_IMODE(lock_path.stat().st_mode), expected)
+
     @staticmethod
     def _metadata(*, inode: int = 7, mode: int = stat.S_IFREG | 0o600):
         return SimpleNamespace(st_dev=3, st_ino=inode, st_mode=mode)
@@ -494,7 +540,7 @@ class PortableDomainStoreLockTests(unittest.TestCase):
             lock_path = paths.memory_dir / "domain-intelligence" / ".store.lock"
             self.assertTrue(lock_path.is_file())
             self.assertFalse(lock_path.is_symlink())
-            self.assertEqual(lock_path.stat().st_mode & 0o777, 0o600)
+            self._assert_private_lock_mode(lock_path)
 
     def test_public_lock_fallback_opens_an_existing_regular_lock(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -513,7 +559,7 @@ class PortableDomainStoreLockTests(unittest.TestCase):
                     self.assertTrue(state["locked"])
 
             self.assertEqual(lock_path.read_text(encoding="utf-8"), "existing")
-            self.assertEqual(lock_path.stat().st_mode & 0o777, 0o600)
+            self._assert_private_lock_mode(lock_path)
 
     def test_public_lock_fallback_refuses_a_lock_symlink(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -1029,7 +1075,8 @@ class DomainIntelligenceStoreSecurityTests(unittest.TestCase):
             lock_path = paths.memory_dir / "domain-intelligence" / ".store.lock"
             self.assertTrue(lock_path.is_file())
             self.assertFalse(lock_path.is_symlink())
-            self.assertEqual(lock_path.stat().st_mode & 0o777, 0o600)
+            expected_mode = 0o666 if os.name == "nt" else 0o600
+            self.assertEqual(stat.S_IMODE(lock_path.stat().st_mode), expected_mode)
 
     def test_bulk_readers_reject_filename_mismatch_and_duplicate_embedded_ids(
         self,

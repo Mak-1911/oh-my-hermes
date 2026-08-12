@@ -39,6 +39,7 @@ from omh.coding.handoff_input_manifest import (  # noqa: E402
 )
 from omh.coding_delegation import build_coding_delegation_payload  # noqa: E402
 from omh.local_store import atomic_write_text  # noqa: E402
+from omh.system import binary_io  # noqa: E402
 from omh.runtime.records import validate_coding_delegation_record  # noqa: E402
 from _platform_support import requires_symlinks  # noqa: E402
 
@@ -457,38 +458,79 @@ class WorkspaceFileSelectionSecurityTests(_WorkspaceCase):
         source = b"first line\r\nsecond line\r\n"
         candidate = self.workspace.root / "src" / "windows-lines.txt"
         candidate.write_bytes(source)
+        (self.workspace.root / "src" / "unsafe.py").write_bytes(b'api_key = "value"\r\n')
+        (self.workspace.root / "src" / "large.py").write_bytes(b"x" * 257)
         real_open = os.open
+        real_dup = os.dup
         real_read = os.read
         binary_flag = 1 << 29
-        binary_fds: set[int] = set()
+        descriptor_generations: dict[int, int] = {}
+        opened_descriptors: set[tuple[int, int]] = set()
+        binary_descriptors: set[tuple[int, int]] = set()
+        native_setmode = binary_io._msvcrt.setmode if binary_io._msvcrt is not None else None
+        native_binary_flag = getattr(os, "O_BINARY", 0)
+
+        class FakeMsvcrt:
+            @staticmethod
+            def setmode(descriptor: int, mode: int) -> int:
+                self.assertEqual(mode, binary_flag)
+                prior = native_setmode(descriptor, native_binary_flag) if native_setmode else 0
+                binary_descriptors.add((descriptor, descriptor_generations[descriptor]))
+                return prior
 
         def windows_open(path: object, flags: int, *args: object, **kwargs: object) -> int:
-            binary = bool(flags & binary_flag)
+            requested_binary = bool(flags & binary_flag)
             descriptor = real_open(path, flags & ~binary_flag, *args, **kwargs)  # type: ignore[arg-type]
-            if binary:
-                binary_fds.add(descriptor)
+            generation = descriptor_generations.get(descriptor, 0) + 1
+            descriptor_generations[descriptor] = generation
+            opened_descriptors.add((descriptor, generation))
+            if requested_binary:
+                binary_descriptors.add((descriptor, generation))
             return descriptor
 
         def windows_read(descriptor: int, size: int) -> bytes:
             data = real_read(descriptor, size)
-            return data if descriptor in binary_fds else data.replace(b"\r\n", b"\n")
+            token = (descriptor, descriptor_generations[descriptor])
+            return data if token in binary_descriptors else data.replace(b"\r\n", b"\n")
 
-        selection = [ManifestSelection("file", "path", "src/windows-lines.txt")]
+        def windows_dup(descriptor: int) -> int:
+            duplicate = real_dup(descriptor)
+            generation = descriptor_generations.get(duplicate, 0) + 1
+            descriptor_generations[duplicate] = generation
+            opened_descriptors.add((duplicate, generation))
+            return duplicate
+
+        selection = [
+            ManifestSelection("file", "path", "src/windows-lines.txt"),
+            ManifestSelection("file", "path", "src/unsafe.py"),
+            ManifestSelection("file", "path", "src/large.py"),
+        ]
         with (
             patch.object(manifest_module, "_NOFOLLOW_FLAG", 0),
-            patch.object(manifest_module, "_BINARY_FLAG", binary_flag),
-            patch.object(manifest_module.os, "open", side_effect=windows_open),
-            patch.object(manifest_module.os, "read", side_effect=windows_read),
+            patch.object(binary_io, "_BINARY_FLAG", binary_flag),
+            patch.object(binary_io, "_msvcrt", FakeMsvcrt()),
+            patch.object(os, "open", side_effect=windows_open),
+            patch.object(os, "dup", side_effect=windows_dup),
+            patch.object(os, "read", side_effect=windows_read),
         ):
-            first = self.build(selections=selection)
-            second = self.build(selections=selection)
+            first = self.build(selections=selection, budget_bytes=256)
+            second = self.build(selections=selection, budget_bytes=256)
 
+        self.assertTrue(opened_descriptors)
+        self.assertEqual(opened_descriptors, binary_descriptors)
         self.assertEqual(first, second)
-        self.assertEqual(first["excluded_items"], [])
         item = first["items"][0]  # type: ignore[index]
         self.assertEqual(item["byte_cost"], len(source))
         self.assertEqual(item["hash"], "sha256:" + hashlib.sha256(source).hexdigest())
-        self.assertTrue(input_manifest_pin_matches(input_manifest_pin(first), first))
+        self.assertEqual(
+            [row["reason"] for row in first["excluded_items"]],  # type: ignore[index]
+            ["over_budget", "unsafe_content"],
+        )
+        pin = input_manifest_pin(first)
+        self.assertTrue(input_manifest_pin_matches(pin, first))
+        changed = deepcopy(first)
+        changed["items"][0]["hash"] = "sha256:" + "0" * 64  # type: ignore[index]
+        self.assertFalse(input_manifest_pin_matches(pin, changed))
 
     def test_fallback_preserves_multiple_selection_safety_and_budget_contracts(self) -> None:
         self.workspace.write("src/unsafe.py", 'api_key = "value"\n')

@@ -14,8 +14,13 @@ import unittest
 from unittest.mock import patch
 
 from _cli_harness import run_cli
+from domain_store_snapshot_support import (
+    domain_store_snapshot,
+    repository_tree_snapshot,
+)
 
 from omh.paths import project_identity, resolve_paths
+from omh.system import binary_io
 from omh.workflows import domain_intelligence_store
 from omh.workflows.domain_intelligence_store import MAX_DOMAIN_CANDIDATE_FILES
 from omh.routing.chat import route_chat_message
@@ -82,22 +87,11 @@ def _repository(root: Path) -> Path:
 
 
 def _tree_snapshot(root: Path) -> dict[str, bytes]:
-    return {
-        str(path.relative_to(root)): path.read_bytes()
-        for path in sorted(root.rglob("*"))
-        if path.is_file() and not path.is_symlink()
-    }
+    return repository_tree_snapshot(root)
 
 
 def _store_snapshot(root: Path) -> dict[str, bytes]:
-    store = root / ".omh" / "memory" / "domain-intelligence"
-    if not store.exists():
-        return {}
-    return {
-        str(path.relative_to(store)): path.read_bytes()
-        for path in sorted(store.rglob("*"))
-        if path.is_file() and not path.is_symlink()
-    }
+    return domain_store_snapshot(root)
 
 
 def _run_project_cli(root: Path, arguments: list[str]) -> tuple[int, str, str]:
@@ -405,14 +399,28 @@ class ProjectTermsCaptureTests(unittest.TestCase):
         source = _VALID_DOCUMENT.replace(b"\n", b"\r\n")
         binary_flag = 1 << 29
         real_open = os.open
+        real_dup = os.dup
         real_read = os.read
+        real_write = os.write
 
         for stage in (False, True):
             with self.subTest(stage=stage), TemporaryDirectory() as temporary:
                 root = _repository(Path(temporary) / f"binary-{stage}-repo")
                 (root / "PROJECT_TERMS.md").write_bytes(source)
                 paths = resolve_paths(root / ".omh", root / ".hermes")
-                binary_fds: set[int] = set()
+                descriptor_generations: dict[int, int] = {}
+                opened_descriptors: set[tuple[int, int]] = set()
+                binary_descriptors: set[tuple[int, int]] = set()
+                native_setmode = binary_io._msvcrt.setmode if binary_io._msvcrt is not None else None
+                native_binary_flag = getattr(os, "O_BINARY", 0)
+
+                class FakeMsvcrt:
+                    @staticmethod
+                    def setmode(descriptor: int, mode: int) -> int:
+                        self.assertEqual(mode, binary_flag)
+                        prior = native_setmode(descriptor, native_binary_flag) if native_setmode else 0
+                        binary_descriptors.add((descriptor, descriptor_generations[descriptor]))
+                        return prior
 
                 def windows_open(
                     path: object,
@@ -420,24 +428,50 @@ class ProjectTermsCaptureTests(unittest.TestCase):
                     *args: object,
                     **kwargs: object,
                 ) -> int:
-                    binary = bool(flags & binary_flag)
+                    requested_binary = bool(flags & binary_flag)
                     descriptor = real_open(
                         path, flags & ~binary_flag, *args, **kwargs  # type: ignore[arg-type]
                     )
-                    if binary:
-                        binary_fds.add(descriptor)
+                    generation = descriptor_generations.get(descriptor, 0) + 1
+                    descriptor_generations[descriptor] = generation
+                    opened_descriptors.add((descriptor, generation))
+                    if requested_binary:
+                        binary_descriptors.add((descriptor, generation))
                     return descriptor
 
                 def windows_read(descriptor: int, size: int) -> bytes:
                     data = real_read(descriptor, size)
-                    return data if descriptor in binary_fds else data.replace(b"\r\n", b"\n")
+                    token = (descriptor, descriptor_generations[descriptor])
+                    return data if token in binary_descriptors else data.replace(b"\r\n", b"\n")
+
+                def windows_dup(descriptor: int) -> int:
+                    duplicate = real_dup(descriptor)
+                    generation = descriptor_generations.get(duplicate, 0) + 1
+                    descriptor_generations[duplicate] = generation
+                    opened_descriptors.add((duplicate, generation))
+                    return duplicate
+
+                def windows_write(descriptor: int, data: bytes) -> int:
+                    raw = bytes(data)
+                    token = (descriptor, descriptor_generations[descriptor])
+                    translated = (
+                        raw if token in binary_descriptors else raw.replace(b"\n", b"\r\n")
+                    )
+                    written = real_write(descriptor, translated)
+                    return len(raw) if written == len(translated) else written
 
                 with (
                     patch.object(project_terms_capture, "_NOFOLLOW_FLAG", 0),
                     patch.object(project_terms_capture, "_DIRECTORY_FLAG", 0),
-                    patch.object(project_terms_capture, "_BINARY_FLAG", binary_flag),
-                    patch.object(project_terms_capture.os, "open", side_effect=windows_open),
-                    patch.object(project_terms_capture.os, "read", side_effect=windows_read),
+                    patch.object(domain_intelligence_store_writer, "_NOFOLLOW_FLAG", 0),
+                    patch.object(domain_intelligence_store_writer, "_DIRECTORY_FLAG", 0),
+                    patch.object(domain_intelligence_store_security, "_NOFOLLOW_FLAG", 0),
+                    patch.object(binary_io, "_BINARY_FLAG", binary_flag),
+                    patch.object(binary_io, "_msvcrt", FakeMsvcrt()),
+                    patch.object(os, "open", side_effect=windows_open),
+                    patch.object(os, "dup", side_effect=windows_dup),
+                    patch.object(os, "read", side_effect=windows_read),
+                    patch.object(os, "write", side_effect=windows_write),
                     _WorkingDirectory(root),
                 ):
                     payload = project_terms_capture.capture_project_terms_file(
@@ -445,12 +479,31 @@ class ProjectTermsCaptureTests(unittest.TestCase):
                         from_file="PROJECT_TERMS.md",
                         stage=stage,
                     )
+                    if stage:
+                        candidate_ids = payload["candidate_ids"]
+                        self.assertIsInstance(candidate_ids, list)
+                        for candidate_id in candidate_ids:
+                            candidate = domain_intelligence_store.read_candidate_or_raise(
+                                paths, str(candidate_id)
+                            )
+                            self.assertEqual(candidate["candidate_id"], candidate_id)
+                        self.assertEqual(
+                            build_domain_review(paths)["counts"]["pending_review"],
+                            2,
+                        )
 
+                self.assertTrue(opened_descriptors)
+                self.assertLessEqual(opened_descriptors, binary_descriptors)
                 self.assertEqual(payload["source_sha256"], hashlib.sha256(source).hexdigest())
                 self.assertEqual(
                     payload["reason"],
                     "pending_review_staged" if stage else "preview_ready",
                 )
+                if stage:
+                    store = paths.memory_dir / "domain-intelligence"
+                    self.assertEqual(list((store / "operations").glob("*.json")), [])
+                    for candidate_path in (store / "candidates").glob("*.json"):
+                        self.assertNotIn(b"\r\n", candidate_path.read_bytes())
 
     def test_native_windows_public_lifecycle_uses_only_path_operations(self) -> None:
         with TemporaryDirectory() as temporary:

@@ -92,6 +92,7 @@ import stat
 from typing import Any, Sequence
 
 from ..plugin_bundle.omh._governance_safety import classify_memory_admission
+from ..system.binary_io import open_binary
 from ..workflows.domain_intelligence_admission import ensure_safe_opaque_ref_content
 from .action_gate import AUTHORITY_CLASSIFIERS
 from .context_safety import RUN_CONTEXT_BUDGET_BYTES
@@ -224,10 +225,6 @@ _NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
 _DIRECTORY_FLAG = getattr(os, "O_DIRECTORY", 0)
 _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
 _NONBLOCK_FLAG = getattr(os, "O_NONBLOCK", 0)
-# The Windows CRT otherwise permits text-mode reads, which translate CRLF to
-# LF. A manifest hashes and budgets exact source bytes, so every final source
-# descriptor must be binary even when descriptor-relative no-follow is absent.
-_BINARY_FLAG = getattr(os, "O_BINARY", 0)
 
 
 class _WorkspaceFileRefusal(Exception):
@@ -909,9 +906,9 @@ def _read_final_at(name: str, directory_fd: int, budget_bytes: int) -> bytes:
     if stat.S_ISLNK(before.st_mode):
         raise _WorkspaceFileRefusal("The selected path contains a symlink and was refused.")
     try:
-        source_fd = os.open(
+        source_fd = open_binary(
             name,
-            os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG | _NOFOLLOW_FLAG | _BINARY_FLAG,
+            os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG | _NOFOLLOW_FLAG,
             dir_fd=directory_fd,
         )
     except OSError as exc:
@@ -951,9 +948,9 @@ def _read_workspace_bytes_with_identity_checks(
             if index < len(parts) - 1 and not stat.S_ISDIR(metadata.st_mode):
                 raise _WorkspaceFileRefusal("The selected path contains a non-directory component.")
             component_identities.append((path, _identity(metadata)))
-        source_fd = os.open(
+        source_fd = open_binary(
             path,
-            os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG | _BINARY_FLAG,
+            os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG,
         )
     except _WorkspaceFileRefusal:
         raise

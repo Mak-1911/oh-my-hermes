@@ -9,6 +9,7 @@ import unittest
 
 from _cli_harness import run_cli
 from _local_package import load_local_package
+from domain_store_snapshot_support import domain_store_snapshot
 
 load_local_package()
 
@@ -60,14 +61,7 @@ def _repository(root: Path, *, source: bytes = _VALID_SOURCE) -> Path:
 
 
 def _store_snapshot(root: Path) -> dict[str, bytes]:
-    store = root / ".omh" / "memory" / "domain-intelligence"
-    if not store.exists():
-        return {}
-    return {
-        path.relative_to(store).as_posix(): path.read_bytes()
-        for path in sorted(store.rglob("*"))
-        if path.is_file() and not path.is_symlink()
-    }
+    return domain_store_snapshot(root)
 
 
 def _run(root: Path, arguments: list[str]) -> tuple[int, dict[str, object] | None, str]:
