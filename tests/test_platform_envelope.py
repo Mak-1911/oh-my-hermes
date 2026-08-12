@@ -2,7 +2,7 @@
 
 The envelope is the one shape every channel adapter hands the core: who the
 platform is, what it can render, what it can carry, and where session
-ownership stops. These tests pin the registry contents (exactly 22 platforms,
+ownership stops. These tests pin the registry contents (exactly 23 platforms,
 three with verified limits), the transport-source mapping and the source
 check that enforces it, ref safety (phone/email/secret/body-shaped values
 never leave the process), renderer limit keys shared with

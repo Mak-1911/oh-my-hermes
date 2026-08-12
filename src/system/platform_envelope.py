@@ -1,6 +1,6 @@
 """Build and validate ``omh_platform_envelope/v1`` payloads.
 
-Safety rules: ``platform`` is required, one of the 22 registered ids, and no
+Safety rules: ``platform`` is required, one of the 23 registered ids, and no
 other top-level context key is accepted. ``source`` must equal the profile's
 ``transport_source`` -- an adapter cannot speak for a transport it is not.
 Every provided ref passes safe-opaque validation and is not a raw phone
