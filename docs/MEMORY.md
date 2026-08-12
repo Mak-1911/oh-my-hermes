@@ -147,8 +147,8 @@ hints are advisory identifiers, not instructions or dispatch authority.
 
 Project terms do not execute work, perform code review, run tests, invoke CI,
 approve a plan, establish merge readiness, or merge code. Preview, staging,
-review cards, approval records, profile matches, freshness, and future prepared
-context are not evidence that Hermes, a model, provider, executor, or coding
+review cards, approval records, profile matches, freshness, and prepared context
+packs are not evidence that Hermes, a model, provider, executor, or coding
 owner read or used the terms. OMH persists neither the human definitions nor
 raw prompts, transcripts, hidden reasoning, logs, or task progress through this
 capture path.
@@ -157,13 +157,31 @@ The generated `ulw-context` skill is the Hermes workflow surface for direct
 terminology lookup, explicitly confirmed pending-candidate capture, and
 confirmed dependency-frontier interviewing before a separate planning or
 handoff transition. Its catalog id is `context`; it does not make glossary prose
-a routing input or change the lifecycle above. The current lifecycle does not
-automatically place this file in sessions, runtime records, or coding handoffs.
-Future reviewed-term delivery must remain executor-neutral and bounded. Exact
-source bytes may be delivered later only through explicit workspace-relative
-file selection in `handoff_input_manifest/v1`, subject to its hash, safety, and
-byte-budget checks. Manifest preparation or inclusion is still not model-use or
-execution evidence.
+a routing input or change the lifecycle above. Generated name and description
+metadata make it eligible for host semantic nomination, but live Hermes
+semantic nomination is `not_tested`: the installed host profile used for QA did
+not contain `ulw-context`, and no profile mutation was made. Explicit invocation
+and deterministic lexical-proxy results are the only current selection
+evidence. The lexical proxy measures metadata token competition; it is not
+semantic nomination evidence.
+
+Reviewed active project-domain profiles are now projected read-only into the
+existing handoff context and role packs. Only validated, approved summaries for
+the current project are included; pending, rejected, retired, malformed,
+digest- or review-mismatched, and scope-mismatched artifacts are excluded. The
+projection has identical semantics for Codex, Claude Code, Hermes, and generic
+executor targets. It stores no exact source-file bytes. A projected summary is
+prepared context only, not evidence that an executor or model received, read,
+or used it, and not dispatch, execution, review, CI, merge-readiness, or merge
+evidence.
+
+The lifecycle still does not automatically place `PROJECT_TERMS.md` in
+sessions, runtime records, or coding handoffs. Exact source bytes can be
+included only through explicit workspace-relative file selection in
+`handoff_input_manifest/v1`, subject to content hashing, safety classification,
+item limits, and byte-budget checks. Manifest preparation or inclusion is
+prepared context only; it is not proof of dispatch, receipt, reading, model
+use, execution, review, CI, merge-readiness, or merge.
 
 The workflow adapts dependency-frontier interviewing and the
 separation of terminology from implementation decisions from Matt Pocock's

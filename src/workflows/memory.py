@@ -34,7 +34,7 @@ from ..plugin_bundle.omh.memory_governance import (
     evaluate_memory_replay,
     stable_artifact_identity,
 )
-from ..paths import OmhPaths
+from ..paths import OmhPaths, project_identity
 from ..profiles.setup import read_setup_profile
 from ..targets import summarize_target_registry
 
@@ -936,11 +936,14 @@ def memory_recall_pack_for_handoff(
     # The executor target is the handoff's perspective lens: unscoped records
     # pass as always, and records observed for this executor join them --
     # while a record about any other executor stays out of this pack.
+    pack_scope = _handoff_pack_scope(paths, scope_kind=None, scope_ref=None)
     pack = build_project_memory_recall_pack(
         paths,
         query,
         executor_target=executor_target,
         session_id=session_id,
+        scope_kind=pack_scope["kind"],
+        scope_ref=pack_scope["ref"],
         limit=limit,
         observed=_handoff_perspective_lens(executor_target),
     )
@@ -2369,6 +2372,7 @@ def build_handoff_context_pack(
     stale_override: dict[str, object] | None = None,
     run_id: str | None = None,
 ) -> dict[str, object]:
+    pack_scope = _handoff_pack_scope(paths, scope_kind=scope_kind, scope_ref=scope_ref)
     if inspection is None:
         snapshots = _local_snapshots(paths, scope_kind=scope_kind, scope_ref=scope_ref, session_limit=session_limit, now=now)
         inspection = {"snapshots": snapshots, "conflicts": _detect_conflicts(snapshots)}
@@ -2465,11 +2469,11 @@ def build_handoff_context_pack(
                 **({"replay_evaluation": item["replay_evaluation"]} if "replay_evaluation" in item else {}),
             }
         )
-    return {
+    pack = {
         "schema_version": HANDOFF_CONTEXT_PACK_SCHEMA_VERSION,
         "executor_target": executor_target,
         "session_id": session_id,
-        "scope": _scope("project", "default"),
+        "scope": pack_scope,
         "source_refs": _source_refs(inspection),
         "included_context": kept,
         "excluded_context": excluded,
@@ -2477,6 +2481,10 @@ def build_handoff_context_pack(
         "redaction_policy": "metadata_only",
         "claim_boundary": "Context packs contain evaluator-approved summaries only; they are prepared context, not observed executor or model use.",
     }
+    errors = validate_handoff_context_pack(pack, require_conflict_free=False)
+    if errors:
+        raise ValueError("; ".join(errors))
+    return pack
 
 
 def apply_memory_update_batch(paths: OmhPaths, batch: dict[str, Any], *, dry_run: bool = False) -> dict[str, object]:
@@ -2520,6 +2528,7 @@ def validate_handoff_context_pack(value: Any, *, require_conflict_free: bool, la
     _validate_context_list(value.get("source_refs"), _HANDOFF_CONTEXT_SOURCE_REF_KEYS, errors, f"{label}.source_refs")
     included_context = value.get("included_context")
     _validate_context_list(included_context, _HANDOFF_CONTEXT_INCLUDED_KEYS, errors, f"{label}.included_context", scope_key="scope")
+    _validate_handoff_item_scopes(value.get("scope"), included_context, errors, label)
     _validate_domain_handoff_items(included_context, errors, f"{label}.included_context")
     _validate_context_list(value.get("excluded_context"), _HANDOFF_CONTEXT_EXCLUDED_KEYS, errors, f"{label}.excluded_context")
     _validate_context_list(value.get("blocked_by_conflicts"), _HANDOFF_CONTEXT_CONFLICT_KEYS, errors, f"{label}.blocked_by_conflicts")
@@ -4014,6 +4023,30 @@ def _validate_context_list(
                 errors.append(f"{nested_label} must be scalar metadata")
 
 
+def _validate_handoff_item_scopes(pack_scope: Any, value: Any, errors: list[str], label: str) -> None:
+    if not isinstance(pack_scope, dict) or not isinstance(value, list):
+        return
+    expected = {"kind": pack_scope.get("kind"), "ref": pack_scope.get("ref")}
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            continue
+        if item.get("source") != "omh_memory" and item.get("source_kind") != "domain_intelligence_profile":
+            continue
+        item_scope = item.get("scope")
+        actual = (
+            {"kind": item_scope.get("kind"), "ref": item_scope.get("ref")}
+            if isinstance(item_scope, dict)
+            else None
+        )
+        # Target/thread/run memory remains task-local context inside a project
+        # handoff. The isolation boundary here is repository identity: every
+        # project-scoped reviewed item must name the same repository as the
+        # pack, and a domain profile is always project-scoped.
+        project_scoped = bool(actual and actual.get("kind") == "project")
+        if (item.get("source_kind") == "domain_intelligence_profile" or project_scoped) and actual != expected:
+            errors.append(f"{label}.included_context[{index}].scope must match {label}.scope")
+
+
 def _validate_domain_handoff_items(value: Any, errors: list[str], label: str) -> None:
     if not isinstance(value, list):
         return
@@ -4353,6 +4386,15 @@ def _assert_under_memory_root(paths: OmhPaths, path: Path) -> None:
 
 def _memory_root(paths: OmhPaths) -> Path:
     return paths.memory_dir.resolve(strict=False)
+
+
+def _handoff_pack_scope(paths: OmhPaths, *, scope_kind: str | None, scope_ref: str | None) -> dict[str, str]:
+    if bool(scope_kind) != bool(scope_ref):
+        raise ValueError("handoff context scope_kind and scope_ref must be supplied together")
+    if scope_kind and scope_ref:
+        return _scope(str(scope_kind), str(scope_ref))
+    project_root = paths.omh_home.parent
+    return _scope("project", project_identity(project_root))
 
 
 def _normalize_scope(value: Any) -> dict[str, str]:

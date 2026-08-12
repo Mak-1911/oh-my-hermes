@@ -43,17 +43,19 @@ __all__ = (
 def read_candidate_or_raise(paths: OmhPaths, candidate_id: str) -> dict[str, object]:
     if not SAFE_REF.match(candidate_id):
         raise ValueError("unsafe_candidate_id")
-    candidate, error = resolve_authoritative_artifact(
-        candidates_dir(paths),
-        candidate_id,
-        "candidate_id",
-        file_limit=MAX_DOMAIN_ARTIFACT_FILES,
-    )
-    if error:
-        raise ValueError(error)
-    if candidate is None:
-        raise FileNotFoundError(candidate_id)
-    return candidate
+    with domain_store_lock(paths):
+        _recover_project_terms_candidate_batches(paths)
+        candidate, error = resolve_authoritative_artifact(
+            candidates_dir(paths),
+            candidate_id,
+            "candidate_id",
+            file_limit=MAX_DOMAIN_ARTIFACT_FILES,
+        )
+        if error:
+            raise ValueError(error)
+        if candidate is None:
+            raise FileNotFoundError(candidate_id)
+        return candidate
 
 
 def read_profile(paths: OmhPaths, profile_id: str) -> dict[str, object] | None:
@@ -133,13 +135,22 @@ def write_review(paths: OmhPaths, review_id: str, review: dict[str, object]) -> 
 
 
 def read_candidates(paths: OmhPaths, diagnostics: list[dict[str, str]]) -> list[tuple[dict[str, object], Path]]:
-    return read_identity_artifacts(
-        candidates_dir(paths),
-        diagnostics,
-        "candidate_id",
-        file_limit=MAX_DOMAIN_ARTIFACT_FILES,
-        capacity_limit=MAX_DOMAIN_CANDIDATE_FILES,
-    )
+    with domain_store_lock(paths):
+        _recover_project_terms_candidate_batches(paths)
+        return read_identity_artifacts(
+            candidates_dir(paths),
+            diagnostics,
+            "candidate_id",
+            file_limit=MAX_DOMAIN_ARTIFACT_FILES,
+            capacity_limit=MAX_DOMAIN_CANDIDATE_FILES,
+        )
+
+
+def _recover_project_terms_candidate_batches(paths: OmhPaths) -> None:
+    # Delayed to avoid a module cycle: project-terms staging uses this store.
+    from .project_terms_capture import _recover_project_terms_candidate_batches_locked
+
+    _recover_project_terms_candidate_batches_locked(paths)
 
 
 def read_profiles(paths: OmhPaths, diagnostics: list[dict[str, str]]) -> list[tuple[dict[str, object], Path]]:

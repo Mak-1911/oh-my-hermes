@@ -10,7 +10,13 @@ from _local_package import load_local_package
 
 load_local_package()
 
-from omh.memory import build_handoff_context_pack, validate_handoff_context_pack  # noqa: E402
+from omh.memory import (  # noqa: E402
+    approve_project_memory_candidate,
+    build_handoff_context_pack,
+    capture_project_memory_candidate,
+    memory_recall_pack_for_handoff,
+    validate_handoff_context_pack,
+)
 from omh.paths import OmhPaths, project_identity, resolve_paths  # noqa: E402
 from omh.workflows.domain_intelligence import (  # noqa: E402
     approve_domain_candidate,
@@ -114,7 +120,9 @@ class ReviewedDomainHandoffProjectionTests(unittest.TestCase):
             self.assertIn("handoff bundle=handoff", row["summary"])
             self.assertIn("workflow hints: ralplan", row["summary"])
             self.assertNotIn(source_only_sentinel, json.dumps(packs, sort_keys=True))
+            expected_scope = {"kind": "project", "ref": project_identity(root)}
             for pack in packs.values():
+                self.assertEqual(pack["scope"], expected_scope)
                 self.assertEqual(validate_handoff_context_pack(pack, require_conflict_free=True), [])
 
             damaged = deepcopy(packs["generic"])
@@ -149,6 +157,8 @@ class ReviewedDomainHandoffProjectionTests(unittest.TestCase):
             self.assertEqual(record["profile_revision"], approved["profile"]["revision"])
             self.assertEqual(record["profile_digest"], approved["profile"]["payload_digest"])
             self.assertEqual(record["review_id"], approved["review"]["review_id"])
+            self.assertEqual(record["scope"], {"kind": "project", "ref": project_identity(root)})
+            self.assertTrue(all(pack["scope"] == record["scope"] for pack in role_packs.values()))
 
             changed_context = build_handoff_context_pack(paths, executor_target="generic")
             _domain_rows(changed_context)[0]["review_id"] = "direview_changed"
@@ -172,6 +182,63 @@ class ReviewedDomainHandoffProjectionTests(unittest.TestCase):
                 json.dumps(second, sort_keys=True, separators=(",", ":")),
             )
             self.assertEqual(build_role_context_pack(context_pack=first), build_role_context_pack(context_pack=second))
+
+    def test_repository_scoped_project_memory_survives_handoff_and_role_boundaries(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root, paths = _repository(Path(temporary) / "project-memory")
+            scope = {"kind": "project", "ref": project_identity(root)}
+            captured = capture_project_memory_candidate(
+                paths,
+                "Repository verification uses the focused domain handoff tests",
+                scope_kind=scope["kind"],
+                scope_ref=scope["ref"],
+            )
+            record = approve_project_memory_candidate(paths, captured["candidate"]["candidate_id"])["record"]
+
+            handoff = build_handoff_context_pack(paths, executor_target="codex")
+            memory_item = next(item for item in handoff["included_context"] if item["item_id"] == record["record_id"])
+            role = build_role_context_pack(context_pack=handoff)
+            role_record = next(item for item in role["records"] if item["record_id"] == record["record_id"])
+            recall = memory_recall_pack_for_handoff(paths, "focused domain handoff", executor_target="codex")
+            assert recall is not None
+            recall_role = build_role_context_pack(memory_recall_pack=recall)
+
+            self.assertEqual(handoff["scope"], scope)
+            self.assertEqual(memory_item["scope"], scope)
+            self.assertEqual(role["scope"], scope)
+            self.assertEqual(role_record["scope"], scope)
+            self.assertEqual(recall["scope"], scope)
+            self.assertEqual(recall_role["scope"], scope)
+            self.assertEqual(recall_role["records"][0]["scope"], scope)
+
+    def test_mixed_or_default_leakage_is_rejected_fail_closed(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root, paths = _repository(Path(temporary) / "project")
+            approve_domain_candidate(paths, _capture(paths, root)["candidate_id"])
+            context = build_handoff_context_pack(paths, executor_target="generic")
+            expected_scope = {"kind": "project", "ref": project_identity(root)}
+
+            mixed = deepcopy(context)
+            _domain_rows(mixed)[0]["scope"] = {"kind": "project", "ref": "another-project"}
+            errors = validate_handoff_context_pack(mixed, require_conflict_free=True)
+            self.assertTrue(any("scope must match context_pack.scope" in error for error in errors), errors)
+            with self.assertRaisesRegex(ValueError, "scope must match"):
+                build_role_context_pack(context_pack=mixed)
+
+            role = build_role_context_pack(context_pack=context)
+            default_leak = deepcopy(role)
+            default_leak["scope"] = {"kind": "project", "ref": "default"}
+            errors = validate_role_context_pack(default_leak)
+            self.assertTrue(any("scope must match role_context_pack.scope" in error for error in errors), errors)
+
+            missing = deepcopy(role)
+            domain_record = next(
+                item for item in missing["records"] if item.get("source_kind") == "domain_intelligence_profile"
+            )
+            del domain_record["scope"]
+            errors = validate_role_context_pack(missing)
+            self.assertTrue(any("scope" in error for error in errors), errors)
+            self.assertEqual(context["scope"], expected_scope)
 
 
 class IneligibleDomainProfileTests(unittest.TestCase):

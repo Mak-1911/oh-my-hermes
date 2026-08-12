@@ -21,6 +21,8 @@ from .domain_intelligence_contracts import (
     normalize_workflow_hints,
     stable_profile_id,
 )
+from . import domain_intelligence_operation_store as operation_journal
+from . import domain_intelligence_store_security as store_security
 from .domain_intelligence_store import (
     MAX_DOMAIN_CANDIDATE_FILES,
     bounded_json_paths,
@@ -47,6 +49,11 @@ _NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
 _DIRECTORY_FLAG = getattr(os, "O_DIRECTORY", 0)
 _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
 _PROJECT_TERMS_SOURCE_REF = re.compile(r"^pt_sha256:([0-9a-f]{64})$")
+_CAPTURE_OPERATION_SCHEMA_VERSION = "project_terms_candidate_batch_operation/v1"
+_CAPTURE_OPERATION_PREFIX = "project_terms_"
+_CAPTURE_OPERATION_KEYS = frozenset(
+    {"schema_version", "operation_id", "candidates", "claim_boundary", "operation_digest"}
+)
 
 
 def capture_project_terms_file(
@@ -280,11 +287,10 @@ def _stage_candidates(
 ) -> list[dict[str, object]]:
     # Validate the complete batch before acquiring the mutation lock.
     prepared = [_normalized_capture_input(capture_input) for capture_input in inputs]
-    if _candidate_capacity_available(paths) < len(prepared):
-        raise ValueError("candidate_capacity_exceeded")
 
     created_at = utc_now()
     with domain_store_lock(paths):
+        _recover_project_terms_candidate_batches_locked(paths)
         ensure_candidate_capacity(paths, required=len(prepared))
         candidates: list[dict[str, object]] = []
         reserved_ids: set[str] = set()
@@ -343,21 +349,166 @@ def _new_candidate_id(paths: OmhPaths, reserved: set[str]) -> str:
 
 
 def _write_candidate_batch(paths: OmhPaths, candidates: list[dict[str, object]]) -> None:
-    written: list[Path] = []
+    operation = _build_capture_operation(candidates)
     try:
+        _write_capture_operation(paths, operation)
         for candidate in candidates:
             candidate_id = str(candidate["candidate_id"])
             write_candidate(paths, candidate_id, candidate)
-            written.append(candidate_path(paths, candidate_id))
-    except Exception:
-        cleanup_failed = False
-        for path in reversed(written):
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
-            except OSError:
-                cleanup_failed = True
-        if cleanup_failed:
-            raise ValueError("candidate_batch_atomic_rollback_failed")
+        _delete_capture_operation(paths, str(operation["operation_id"]))
+    except BaseException as interruption:
+        # Preserve the original interruption. If rollback is itself interrupted,
+        # the durable operation remains for the next locked reader or writer.
+        try:
+            _recover_capture_operation(paths, operation)
+        except BaseException as recovery_interruption:
+            interruption.add_note(
+                "candidate batch recovery interrupted: "
+                f"{type(recovery_interruption).__name__}: {recovery_interruption}"
+            )
         raise
+
+
+def _build_capture_operation(
+    candidates: list[dict[str, object]],
+) -> dict[str, object]:
+    if not candidates:
+        raise ValueError("candidate_batch_empty")
+    first_id = str(candidates[0]["candidate_id"])
+    operation_id = f"{_CAPTURE_OPERATION_PREFIX}{first_id}"
+    operation = operation_journal.seal_operation(
+        {
+            "schema_version": _CAPTURE_OPERATION_SCHEMA_VERSION,
+            "operation_id": operation_id,
+            "candidates": candidates,
+            "claim_boundary": CLAIM_BOUNDARY,
+        }
+    )
+    _validate_capture_operation(None, operation)
+    return operation
+
+
+def _write_capture_operation(
+    paths: OmhPaths,
+    operation: dict[str, object],
+) -> None:
+    operation_journal.write_operation(paths, operation, _validate_capture_operation)
+
+
+def _delete_capture_operation(paths: OmhPaths, operation_id: str) -> None:
+    operation_journal.delete_operation(paths, operation_id, _validate_capture_operation)
+
+
+def _validate_capture_operation(
+    paths: OmhPaths | None,
+    operation: dict[str, object],
+) -> None:
+    if (
+        set(operation) != _CAPTURE_OPERATION_KEYS
+        or operation.get("schema_version") != _CAPTURE_OPERATION_SCHEMA_VERSION
+    ):
+        raise ValueError("candidate_batch_operation_schema_mismatch")
+    operation_id = operation.get("operation_id")
+    if not isinstance(operation_id, str) or not operation_id.startswith(
+        _CAPTURE_OPERATION_PREFIX
+    ):
+        raise ValueError("candidate_batch_operation_identity_mismatch")
+    operation_journal.validate_operation_envelope(
+        operation,
+        operation_id=operation_id,
+    )
+    candidates = operation.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        raise ValueError("candidate_batch_operation_candidates")
+    candidate_ids: set[str] = set()
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            raise ValueError("candidate_batch_operation_candidates")
+        validate_candidate_artifact(candidate)
+        candidate_id = str(candidate["candidate_id"])
+        if candidate_id in candidate_ids:
+            raise ValueError("candidate_batch_operation_duplicate_candidate")
+        candidate_ids.add(candidate_id)
+        if paths is not None:
+            existing = store_security.read_bounded_json(
+                candidate_path(paths, candidate_id)
+            )
+            if existing not in (None, candidate):
+                raise ValueError("candidate_batch_recovery_state_conflict")
+    if operation_id != f"{_CAPTURE_OPERATION_PREFIX}{candidates[0]['candidate_id']}":
+        raise ValueError("candidate_batch_operation_identity_mismatch")
+
+
+def _recover_project_terms_candidate_batches_locked(paths: OmhPaths) -> None:
+    operations = store_security.secure_managed_dir(paths, "operations")
+    records, overflow = bounded_json_paths(
+        operations,
+        limit=store_security.MAX_DOMAIN_ARTIFACT_FILES,
+    )
+    if overflow:
+        raise ValueError("candidate_batch_operation_capacity_exceeded")
+    for path in records:
+        if not path.stem.startswith(_CAPTURE_OPERATION_PREFIX):
+            continue
+        operation = operation_journal.load_operation(
+            paths,
+            path.stem,
+            _validate_capture_operation,
+        )
+        if operation is None:
+            continue
+        _recover_capture_operation(paths, operation)
+
+
+def _recover_capture_operation(
+    paths: OmhPaths,
+    operation: dict[str, object],
+) -> None:
+    operation_id = str(operation["operation_id"])
+    persisted = operation_journal.load_operation(
+        paths,
+        operation_id,
+        _validate_capture_operation,
+    )
+    if persisted is None:
+        return
+    if persisted != operation:
+        raise ValueError("candidate_batch_operation_state_conflict")
+    _validate_capture_operation(paths, persisted)
+    candidates = persisted["candidates"]
+    assert isinstance(candidates, list)
+    for candidate in reversed(candidates):
+        assert isinstance(candidate, dict)
+        _remove_candidate_for_recovery(
+            paths,
+            str(candidate["candidate_id"]),
+            candidate,
+        )
+    _delete_capture_operation(paths, operation_id)
+
+
+def _remove_candidate_for_recovery(
+    paths: OmhPaths,
+    candidate_id: str,
+    candidate: dict[str, object],
+) -> None:
+    _remove_candidate_for_recovery_impl(paths, candidate_id, candidate)
+
+
+def _remove_candidate_for_recovery_impl(
+    paths: OmhPaths,
+    candidate_id: str,
+    candidate: dict[str, object],
+) -> None:
+    filename = f"{candidate_id}.json"
+    with store_security.anchored_managed_directory(
+        paths,
+        "candidates",
+    ) as directory_fd:
+        existing = store_security.read_bounded_json_at(directory_fd, filename)
+        if existing is None:
+            return
+        if existing != candidate:
+            raise ValueError("candidate_batch_recovery_state_conflict")
+        os.unlink(filename, dir_fd=directory_fd)
+        os.fsync(directory_fd)

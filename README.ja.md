@@ -137,11 +137,12 @@ omh doctor
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-11 の `ulw-` workflow。チャットでトリガーを言えば Hermes がルーティング —
+12 個の `ulw-` workflow。チャットでトリガーを言えば Hermes がルーティング —
 全カタログは [Workflow Reference](docs/WORKFLOWS.md)。
 
 | Skill | 何をするか |
 | --- | --- |
+| ⚡ `ulw-context` | レビュー済みのプロジェクト用語を揃え、確認済み候補を取り込み、用語にルーティング権限を与えず次の判断点を質問します。 |
 | ⚡ `ulw-interview` | 何が欲しいのか正確に分かるまで、一度に一つずつ質問します。 |
 | ⚡ `ulw-research` | 実際のコードとウェブを調べ、出典を残し、怪しければ裏取りします。 |
 | ⚡ `ulw-plan` | 選択肢の比較、リスク、完了基準まで合意したレビュー済み計画を作ります。 |
@@ -162,7 +163,7 @@ OMH は **104 個**のインストール可能な workflow skill を、理解し
 機能ファミリーとして提供します。
 
 そのうち 12 個は workflow engine で - `context`, `deep-interview`, `loop`, `ralph`, `ralplan`, `research`, `team`, `ultragoal`, `ultraperf`, `ultraprocess`, `ultraqa`, `ultrawork` - `ulw-` ラベルで表示され、
-ステータス行だけでどの種類の skill が動いているか分かります。残り 90 個は `omh-`
+ステータス行だけでどの種類の skill が動いているか分かります。残り 92 個は `omh-`
 を付けます。canonical name はどちらも変わりません。
 
 | 機能ファミリー | Hermes ができること |

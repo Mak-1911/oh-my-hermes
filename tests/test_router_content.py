@@ -3251,8 +3251,8 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("**104 個**", localized_readmes["ja"])
         self.assertIn("**104 个**", localized_readmes["zh"])
         self.assertIn("나머지 92개", localized_readmes["ko"])
-        self.assertIn("残り 90 個", localized_readmes["ja"])
-        self.assertIn("其余 90 个", localized_readmes["zh"])
+        self.assertIn("残り 92 個", localized_readmes["ja"])
+        self.assertIn("其余 92 个", localized_readmes["zh"])
         for localized_readme in localized_readmes.values():
             # A localized README stays a trimmed landing page, never a full
             # translation of every English section. The budget grew from 240

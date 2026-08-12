@@ -5,16 +5,21 @@ import importlib
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 from tempfile import TemporaryDirectory
+import threading
 import unittest
+from unittest.mock import patch
 
 from _cli_harness import run_cli
 
-from omh.paths import project_identity
+from omh.paths import project_identity, resolve_paths
 from omh.workflows.domain_intelligence_store import MAX_DOMAIN_CANDIDATE_FILES
 from omh.routing.chat import route_chat_message
 from omh.routing.domain_context_eligibility import classify_domain_context_eligibility
-from omh.workflows.domain_intelligence import canonical_profile_digest
+from omh.workflows.domain_intelligence import build_domain_review, canonical_profile_digest
+from omh.workflows import domain_intelligence_store_security, project_terms_capture
 from omh.workflows.domain_intelligence_profile_resolution import (
     resolve_domain_clarification_target_result,
 )
@@ -389,6 +394,348 @@ class ProjectTermsCaptureTests(unittest.TestCase):
             self.assertNotEqual(status, 0)
             self.assertIn("project_terms_source_must_not_be_symlink", stderr)
             self.assertEqual(_tree_snapshot(root), before)
+
+    def test_keyboard_interrupt_at_each_candidate_write_is_all_or_none(self) -> None:
+        for interrupted_index in range(2):
+            with self.subTest(interrupted_index=interrupted_index), TemporaryDirectory() as temporary:
+                root = _repository(Path(temporary) / "interrupted-write-repo")
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                real_write = project_terms_capture.write_candidate
+                writes = 0
+
+                def interrupt_write(
+                    paths: object,
+                    candidate_id: str,
+                    candidate: dict[str, object],
+                ) -> None:
+                    nonlocal writes
+                    current = writes
+                    writes += 1
+                    if current == interrupted_index:
+                        raise KeyboardInterrupt(f"candidate-write-{current}")
+                    real_write(paths, candidate_id, candidate)
+
+                with (
+                    _WorkingDirectory(root),
+                    patch.object(
+                        project_terms_capture,
+                        "write_candidate",
+                        side_effect=interrupt_write,
+                    ),
+                    self.assertRaisesRegex(
+                        KeyboardInterrupt,
+                        f"candidate-write-{interrupted_index}",
+                    ),
+                ):
+                    project_terms_capture.capture_project_terms_file(
+                        paths,
+                        from_file="PROJECT_TERMS.md",
+                        stage=True,
+                    )
+
+                store = root / ".omh" / "memory" / "domain-intelligence"
+                self.assertEqual(list((store / "candidates").glob("*.json")), [])
+                self.assertEqual(list((store / "operations").glob("*.json")), [])
+
+    def test_base_exception_after_each_batch_write_boundary_rolls_back(self) -> None:
+        boundaries = ("operation", "candidate-0", "candidate-1")
+        for boundary in boundaries:
+            with self.subTest(boundary=boundary), TemporaryDirectory() as temporary:
+                root = _repository(Path(temporary) / f"after-{boundary}-repo")
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                real_operation_write = project_terms_capture._write_capture_operation
+                real_candidate_write = project_terms_capture.write_candidate
+                candidate_writes = 0
+
+                def write_operation_then_interrupt(
+                    paths: object,
+                    operation: dict[str, object],
+                ) -> None:
+                    real_operation_write(paths, operation)
+                    raise KeyboardInterrupt("after-operation-write")
+
+                def write_candidate_then_maybe_interrupt(
+                    paths: object,
+                    candidate_id: str,
+                    candidate: dict[str, object],
+                ) -> None:
+                    nonlocal candidate_writes
+                    current = candidate_writes
+                    candidate_writes += 1
+                    real_candidate_write(paths, candidate_id, candidate)
+                    if boundary == f"candidate-{current}":
+                        raise KeyboardInterrupt(f"after-candidate-write-{current}")
+
+                operation_patch = (
+                    patch.object(
+                        project_terms_capture,
+                        "_write_capture_operation",
+                        side_effect=write_operation_then_interrupt,
+                    )
+                    if boundary == "operation"
+                    else patch.object(
+                        project_terms_capture,
+                        "write_candidate",
+                        side_effect=write_candidate_then_maybe_interrupt,
+                    )
+                )
+                with (
+                    _WorkingDirectory(root),
+                    operation_patch,
+                    self.assertRaises(KeyboardInterrupt),
+                ):
+                    project_terms_capture.capture_project_terms_file(
+                        paths,
+                        from_file="PROJECT_TERMS.md",
+                        stage=True,
+                    )
+
+                store = root / ".omh" / "memory" / "domain-intelligence"
+                self.assertEqual(list((store / "candidates").glob("*.json")), [])
+                self.assertEqual(list((store / "operations").glob("*.json")), [])
+
+    def test_ordinary_exception_on_second_write_rolls_back_and_preserves_reason(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = _repository(Path(temporary) / "ordinary-exception-repo")
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            real_write = project_terms_capture.write_candidate
+            writes = 0
+
+            def fail_second_write(
+                paths: object,
+                candidate_id: str,
+                candidate: dict[str, object],
+            ) -> None:
+                nonlocal writes
+                writes += 1
+                if writes == 2:
+                    raise OSError("stable-candidate-write-reason")
+                real_write(paths, candidate_id, candidate)
+
+            with (
+                _WorkingDirectory(root),
+                patch.object(
+                    project_terms_capture,
+                    "write_candidate",
+                    side_effect=fail_second_write,
+                ),
+                self.assertRaisesRegex(OSError, "^stable-candidate-write-reason$"),
+            ):
+                project_terms_capture.capture_project_terms_file(
+                    paths,
+                    from_file="PROJECT_TERMS.md",
+                    stage=True,
+                )
+
+            store = root / ".omh" / "memory" / "domain-intelligence"
+            self.assertEqual(list((store / "candidates").glob("*.json")), [])
+            self.assertEqual(list((store / "operations").glob("*.json")), [])
+
+    def test_restart_recovers_after_each_candidate_rollback_boundary(self) -> None:
+        for interrupted_index in range(2):
+            with self.subTest(interrupted_index=interrupted_index), TemporaryDirectory() as temporary:
+                root = _repository(Path(temporary) / "interrupted-recovery-repo")
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                removals = 0
+
+                def interrupt_recovery(
+                    paths: object,
+                    candidate_id: str,
+                    candidate: dict[str, object],
+                ) -> None:
+                    nonlocal removals
+                    current = removals
+                    removals += 1
+                    if current == interrupted_index:
+                        raise KeyboardInterrupt(f"candidate-recovery-{current}")
+                    project_terms_capture._remove_candidate_for_recovery_impl(
+                        paths,
+                        candidate_id,
+                        candidate,
+                    )
+
+                with (
+                    _WorkingDirectory(root),
+                    patch.object(
+                        project_terms_capture,
+                        "_delete_capture_operation",
+                        side_effect=KeyboardInterrupt("commit-boundary"),
+                    ),
+                    patch.object(
+                        project_terms_capture,
+                        "_remove_candidate_for_recovery",
+                        side_effect=interrupt_recovery,
+                    ),
+                    self.assertRaises(KeyboardInterrupt),
+                ):
+                    project_terms_capture.capture_project_terms_file(
+                        paths,
+                        from_file="PROJECT_TERMS.md",
+                        stage=True,
+                    )
+
+                restarted_paths = resolve_paths(root / ".omh", root / ".hermes")
+                review = build_domain_review(restarted_paths)
+                store = root / ".omh" / "memory" / "domain-intelligence"
+                self.assertEqual(review["cards"], [])
+                self.assertEqual(review["counts"]["pending_review"], 0)
+                self.assertEqual(list((store / "candidates").glob("*.json")), [])
+                self.assertEqual(list((store / "operations").glob("*.json")), [])
+
+    def test_restart_recovers_after_operation_cleanup_interruption(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = _repository(Path(temporary) / "interrupted-cleanup-repo")
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            with (
+                _WorkingDirectory(root),
+                patch.object(
+                    project_terms_capture,
+                    "_delete_capture_operation",
+                    side_effect=KeyboardInterrupt("operation-cleanup"),
+                ),
+                self.assertRaisesRegex(KeyboardInterrupt, "operation-cleanup"),
+            ):
+                project_terms_capture.capture_project_terms_file(
+                    paths,
+                    from_file="PROJECT_TERMS.md",
+                    stage=True,
+                )
+
+            package_root = Path(__file__).resolve().parents[1] / "src"
+            environment = {**os.environ, "PYTHONPATH": os.fspath(package_root)}
+            restarted = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "from pathlib import Path; "
+                        "from omh.paths import resolve_paths; "
+                        "from omh.workflows.domain_intelligence import build_domain_review; "
+                        "paths = resolve_paths(Path('.omh'), Path('.hermes')); "
+                        "print(build_domain_review(paths)['counts']['pending_review'])"
+                    ),
+                ],
+                cwd=root,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            store = root / ".omh" / "memory" / "domain-intelligence"
+            self.assertEqual((restarted.returncode, restarted.stdout, restarted.stderr), (0, "0\n", ""))
+            self.assertEqual(list((store / "candidates").glob("*.json")), [])
+            self.assertEqual(list((store / "operations").glob("*.json")), [])
+
+    def test_candidate_reader_is_lock_fenced_until_complete_batch_commit(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = _repository(Path(temporary) / "reader-fence-repo")
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            first_written = threading.Event()
+            release_writer = threading.Event()
+            reader_lock_attempted = threading.Event()
+            reader_done = threading.Event()
+            writer_errors: list[BaseException] = []
+            reader_results: list[dict[str, object]] = []
+            real_write = project_terms_capture.write_candidate
+            real_lock = domain_intelligence_store_security._lock_descriptor
+            writes = 0
+
+            def pause_after_first_candidate(
+                paths: object,
+                candidate_id: str,
+                candidate: dict[str, object],
+            ) -> None:
+                nonlocal writes
+                real_write(paths, candidate_id, candidate)
+                writes += 1
+                if writes == 1:
+                    first_written.set()
+                    if not release_writer.wait(timeout=5):
+                        raise AssertionError("writer release signal not received")
+
+            def observed_lock(*args: object, **kwargs: object) -> None:
+                if threading.current_thread().name == "candidate-reader":
+                    reader_lock_attempted.set()
+                real_lock(*args, **kwargs)
+
+            def stage() -> None:
+                try:
+                    with _WorkingDirectory(root):
+                        project_terms_capture.capture_project_terms_file(
+                            paths,
+                            from_file="PROJECT_TERMS.md",
+                            stage=True,
+                        )
+                except BaseException as exc:
+                    writer_errors.append(exc)
+
+            def read() -> None:
+                reader_results.append(build_domain_review(paths))
+                reader_done.set()
+
+            with (
+                patch.object(
+                    project_terms_capture,
+                    "write_candidate",
+                    side_effect=pause_after_first_candidate,
+                ),
+                patch.object(
+                    domain_intelligence_store_security,
+                    "_lock_descriptor",
+                    side_effect=observed_lock,
+                ),
+            ):
+                writer = threading.Thread(target=stage, name="candidate-writer")
+                writer.start()
+                self.assertTrue(first_written.wait(timeout=5))
+                reader = threading.Thread(target=read, name="candidate-reader")
+                reader.start()
+                self.assertTrue(reader_lock_attempted.wait(timeout=5))
+                self.assertFalse(reader_done.is_set())
+                release_writer.set()
+                writer.join(timeout=5)
+                reader.join(timeout=5)
+
+            self.assertFalse(writer.is_alive())
+            self.assertFalse(reader.is_alive())
+            self.assertEqual(writer_errors, [])
+            self.assertEqual(reader_results[0]["counts"]["pending_review"], 2)
+
+    def test_interruption_after_commit_cleanup_leaves_complete_pending_batch(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = _repository(Path(temporary) / "committed-interruption-repo")
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            real_delete = project_terms_capture._delete_capture_operation
+
+            def delete_then_interrupt(paths: object, operation_id: str) -> None:
+                real_delete(paths, operation_id)
+                raise KeyboardInterrupt("after-commit-cleanup")
+
+            with (
+                _WorkingDirectory(root),
+                patch.object(
+                    project_terms_capture,
+                    "_delete_capture_operation",
+                    side_effect=delete_then_interrupt,
+                ),
+                self.assertRaisesRegex(KeyboardInterrupt, "after-commit-cleanup"),
+            ):
+                project_terms_capture.capture_project_terms_file(
+                    paths,
+                    from_file="PROJECT_TERMS.md",
+                    stage=True,
+                )
+
+            restarted_paths = resolve_paths(root / ".omh", root / ".hermes")
+            review = build_domain_review(restarted_paths)
+            store = root / ".omh" / "memory" / "domain-intelligence"
+            self.assertEqual(review["counts"]["pending_review"], 2)
+            self.assertEqual(
+                {card["domain_id"] for card in review["cards"]},
+                {"delivery", "sales"},
+            )
+            self.assertEqual(list((store / "operations").glob("*.json")), [])
 
     def test_batch_capacity_refusal_is_all_or_none(self) -> None:
         with TemporaryDirectory() as temporary:

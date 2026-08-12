@@ -81,11 +81,14 @@ stored value, so the mismatch is detectable rather than merely likely.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
+import os
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
+import stat
 from typing import Any, Sequence
 
 from ..plugin_bundle.omh._governance_safety import classify_memory_admission
@@ -217,6 +220,18 @@ _MANIFEST_PIN_KEYS = {"schema_version", "manifest_id", "revision", "digest"}
 # is excluded because a value cannot hash itself.
 _DIGEST_EXCLUDED_KEYS = frozenset({"digest"})
 _SHA256_PREFIX = "sha256:"
+_NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
+_DIRECTORY_FLAG = getattr(os, "O_DIRECTORY", 0)
+_CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
+_NONBLOCK_FLAG = getattr(os, "O_NONBLOCK", 0)
+
+
+class _WorkspaceFileRefusal(Exception):
+    def __init__(self, detail: str, *, byte_cost: int = 0, over_budget: bool = False) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.byte_cost = byte_cost
+        self.over_budget = over_budget
 
 
 @dataclass(frozen=True)
@@ -622,7 +637,10 @@ def _resolve_files(
     if selection.selector_kind == "path":
         candidates = [root / expression]
     else:
-        candidates = sorted((path for path in root.glob(expression) if path.is_file()), key=lambda path: path.as_posix())
+        try:
+            candidates = sorted(root.glob(expression), key=lambda path: path.as_posix())
+        except OSError:
+            candidates = []
     rows: list[dict[str, Any]] = []
     failures: list[dict[str, object]] = []
     for candidate in candidates:
@@ -737,42 +755,32 @@ def _read_workspace_file(
     truth_level: str,
 ) -> tuple[dict[str, Any] | None, dict[str, object] | None]:
     try:
-        resolved = candidate.resolve()
-    except OSError:
-        resolved = candidate
-    if not _inside(resolved, root):
+        relative_path = candidate.relative_to(root)
+    except ValueError:
         return None, _exclusion(
             _item_id(item_kind, candidate.name),
             item_kind,
             selector,
             "outside_workspace",
             0,
-            "The resolved path lies outside the declared workspace root.",
+            "The selected path lies outside the declared workspace root.",
         )
-    relative = _relative_ref(resolved, root)
-    item_id = _item_id(item_kind, relative)
-    try:
-        size = resolved.stat().st_size
-    except OSError:
-        return None, _exclusion(item_id, item_kind, selector, "unreadable_source", 0, "The local source could not be inspected.")
-    if not resolved.is_file():
-        return None, _exclusion(item_id, item_kind, selector, "unreadable_source", 0, "The local source is not a readable file.")
-    # Measured before reading. A source larger than the whole budget can never
-    # fit, and reading it to learn that would be the cost the budget exists to
-    # avoid; the exclusion still carries both numbers.
-    if size > budget_bytes:
+    relative = relative_path.as_posix()
+    item_id = _item_id(item_kind, relative or candidate.name)
+    if not relative_path.parts or any(part in {"", ".", ".."} for part in relative_path.parts):
         return None, _exclusion(
             item_id,
             item_kind,
             selector,
-            "over_budget",
-            int(size),
-            f"This source costs {int(size)} byte(s), over the whole manifest budget of {budget_bytes} byte(s).",
+            "unreadable_source",
+            0,
+            "The local source is not a readable file.",
         )
     try:
-        data = resolved.read_bytes()
-    except OSError:
-        return None, _exclusion(item_id, item_kind, selector, "unreadable_source", 0, "The local source could not be read.")
+        data = _read_workspace_bytes(root, relative_path.parts, budget_bytes)
+    except _WorkspaceFileRefusal as exc:
+        reason = "over_budget" if exc.over_budget else "unreadable_source"
+        return None, _exclusion(item_id, item_kind, selector, reason, exc.byte_cost, exc.detail)
     return (
         _row(
             item_id=item_id,
@@ -787,6 +795,232 @@ def _read_workspace_file(
             digest=_sha256_ref(data),
         ),
         None,
+    )
+
+
+def _read_workspace_bytes(root: Path, parts: tuple[str, ...], budget_bytes: int) -> bytes:
+    if _descriptor_relative_reads_supported():
+        return _read_workspace_bytes_at(root, parts, budget_bytes)
+    return _read_workspace_bytes_with_identity_checks(root, parts, budget_bytes)
+
+
+def _descriptor_relative_reads_supported() -> bool:
+    return bool(
+        _NOFOLLOW_FLAG
+        and _DIRECTORY_FLAG
+        and os.open in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd
+        and os.stat in os.supports_follow_symlinks
+    )
+
+
+def _read_workspace_bytes_at(root: Path, parts: tuple[str, ...], budget_bytes: int) -> bytes:
+    try:
+        root_before = root.lstat()
+        root_fd = os.open(
+            root,
+            os.O_RDONLY | _DIRECTORY_FLAG | _CLOEXEC_FLAG | _NOFOLLOW_FLAG,
+        )
+    except OSError as exc:
+        raise _WorkspaceFileRefusal("The workspace root could not be safely opened.") from exc
+    directory_fds = [root_fd]
+    edges: list[tuple[int, str, os.stat_result]] = []
+    try:
+        root_opened = os.fstat(root_fd)
+        if stat.S_ISLNK(root_before.st_mode) or not _same_identity(root_before, root_opened):
+            raise _WorkspaceFileRefusal("The workspace root changed or is a symlink.")
+        for part in parts[:-1]:
+            parent_fd = directory_fds[-1]
+            before = _stat_at(part, parent_fd)
+            if stat.S_ISLNK(before.st_mode):
+                raise _WorkspaceFileRefusal("The selected path contains a symlink and was refused.")
+            if not stat.S_ISDIR(before.st_mode):
+                raise _WorkspaceFileRefusal("The selected path contains a non-directory component.")
+            try:
+                child_fd = os.open(
+                    part,
+                    os.O_RDONLY | _DIRECTORY_FLAG | _CLOEXEC_FLAG | _NOFOLLOW_FLAG,
+                    dir_fd=parent_fd,
+                )
+            except OSError as exc:
+                raise _open_refusal(exc) from exc
+            directory_fds.append(child_fd)
+            opened = os.fstat(child_fd)
+            after = _stat_at(part, parent_fd)
+            if not _same_identity(before, opened) or not _same_identity(opened, after):
+                raise _WorkspaceFileRefusal(
+                    "The local source changed or was replaced while it was selected."
+                )
+            edges.append((parent_fd, part, opened))
+        data = _read_final_at(parts[-1], directory_fds[-1], budget_bytes)
+        for parent_fd, part, opened in edges:
+            if not _same_identity(opened, _stat_at(part, parent_fd)):
+                raise _WorkspaceFileRefusal(
+                    "The local source changed or was replaced while it was selected."
+                )
+        try:
+            root_after = root.lstat()
+        except OSError as exc:
+            raise _WorkspaceFileRefusal(
+                "The workspace root changed or was replaced while the source was selected."
+            ) from exc
+        if not _same_identity(root_opened, root_after):
+            raise _WorkspaceFileRefusal(
+                "The workspace root changed or was replaced while the source was selected."
+            )
+        return data
+    finally:
+        for directory_fd in reversed(directory_fds):
+            os.close(directory_fd)
+
+
+def _read_final_at(name: str, directory_fd: int, budget_bytes: int) -> bytes:
+    before = _stat_at(name, directory_fd)
+    if stat.S_ISLNK(before.st_mode):
+        raise _WorkspaceFileRefusal("The selected path contains a symlink and was refused.")
+    try:
+        source_fd = os.open(
+            name,
+            os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG | _NOFOLLOW_FLAG,
+            dir_fd=directory_fd,
+        )
+    except OSError as exc:
+        raise _open_refusal(exc) from exc
+    try:
+        opened = os.fstat(source_fd)
+        if not _same_identity(before, opened):
+            raise _WorkspaceFileRefusal(
+                "The local source changed or was replaced while it was selected."
+            )
+        return _read_validated_descriptor(
+            source_fd,
+            opened,
+            budget_bytes,
+            final_stat=lambda: _stat_at(name, directory_fd),
+        )
+    finally:
+        os.close(source_fd)
+
+
+def _read_workspace_bytes_with_identity_checks(
+    root: Path,
+    parts: tuple[str, ...],
+    budget_bytes: int,
+) -> bytes:
+    path = root
+    component_identities: list[tuple[Path, tuple[int, int, int]]] = []
+    try:
+        for index, part in enumerate(parts):
+            path = path / part
+            metadata = path.lstat()
+            if stat.S_ISLNK(metadata.st_mode):
+                raise _WorkspaceFileRefusal("The selected path contains a symlink and was refused.")
+            if index < len(parts) - 1 and not stat.S_ISDIR(metadata.st_mode):
+                raise _WorkspaceFileRefusal("The selected path contains a non-directory component.")
+            component_identities.append((path, _identity(metadata)))
+        source_fd = os.open(path, os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG | _NOFOLLOW_FLAG)
+    except _WorkspaceFileRefusal:
+        raise
+    except OSError as exc:
+        raise _open_refusal(exc) from exc
+    try:
+        opened = os.fstat(source_fd)
+        if component_identities[-1][1] != _identity(opened):
+            raise _WorkspaceFileRefusal(
+                "The local source changed or was replaced while it was selected."
+            )
+        data = _read_validated_descriptor(
+            source_fd,
+            opened,
+            budget_bytes,
+            final_stat=path.lstat,
+        )
+        for component, identity in component_identities[:-1]:
+            if _identity(component.lstat()) != identity:
+                raise _WorkspaceFileRefusal(
+                    "The local source changed or was replaced while it was selected."
+                )
+        return data
+    except OSError as exc:
+        raise _WorkspaceFileRefusal("The local source could not be safely read.") from exc
+    finally:
+        os.close(source_fd)
+
+
+def _read_validated_descriptor(
+    source_fd: int,
+    opened: os.stat_result,
+    budget_bytes: int,
+    *,
+    final_stat: Any,
+) -> bytes:
+    if not stat.S_ISREG(opened.st_mode):
+        raise _WorkspaceFileRefusal("The local source is not a readable regular file.")
+    if opened.st_size > budget_bytes:
+        raise _WorkspaceFileRefusal(
+            f"This source costs {int(opened.st_size)} byte(s), over the whole manifest budget of {budget_bytes} byte(s).",
+            byte_cost=int(opened.st_size),
+            over_budget=True,
+        )
+    chunks: list[bytes] = []
+    remaining = budget_bytes + 1
+    try:
+        while remaining:
+            chunk = os.read(source_fd, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        after = os.fstat(source_fd)
+        named_after = final_stat()
+    except OSError as exc:
+        raise _WorkspaceFileRefusal("The local source could not be safely read.") from exc
+    data = b"".join(chunks)
+    if len(data) > budget_bytes:
+        measured = max(len(data), int(after.st_size))
+        raise _WorkspaceFileRefusal(
+            f"This source costs {measured} byte(s), over the whole manifest budget of {budget_bytes} byte(s).",
+            byte_cost=measured,
+            over_budget=True,
+        )
+    if (
+        _file_snapshot(opened) != _file_snapshot(after)
+        or _file_snapshot(after) != _file_snapshot(named_after)
+        or len(data) != after.st_size
+    ):
+        raise _WorkspaceFileRefusal(
+            "The local source changed or was replaced while it was selected."
+        )
+    return data
+
+
+def _stat_at(name: str, directory_fd: int) -> os.stat_result:
+    try:
+        return os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    except OSError as exc:
+        raise _open_refusal(exc) from exc
+
+
+def _open_refusal(exc: OSError) -> _WorkspaceFileRefusal:
+    if exc.errno in {errno.ELOOP, errno.EMLINK}:
+        return _WorkspaceFileRefusal("The selected path contains a symlink and was refused.")
+    return _WorkspaceFileRefusal("The local source could not be safely opened.")
+
+
+def _identity(metadata: os.stat_result) -> tuple[int, int, int]:
+    return (int(metadata.st_dev), int(metadata.st_ino), stat.S_IFMT(metadata.st_mode))
+
+
+def _same_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    return _identity(left) == _identity(right)
+
+
+def _file_snapshot(metadata: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    return (
+        *_identity(metadata),
+        int(metadata.st_size),
+        int(metadata.st_mtime_ns),
+        int(metadata.st_ctime_ns),
     )
 
 
@@ -946,17 +1180,10 @@ def _escapes_workspace(expression: str) -> bool:
     return absolute or ".." in text.replace("\\", "/").split("/")
 
 
-def _inside(candidate: Path, root: Path) -> bool:
-    try:
-        return candidate == root or candidate.is_relative_to(root)
-    except (OSError, ValueError):
-        return False
-
-
 def _relative_ref(candidate: Path, root: Path) -> str:
     try:
-        return candidate.resolve().relative_to(root).as_posix()
-    except (OSError, ValueError):
+        return candidate.relative_to(root).as_posix()
+    except ValueError:
         return candidate.name
 
 

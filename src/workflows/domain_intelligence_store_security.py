@@ -5,6 +5,7 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 import stat
+import threading
 import time
 from typing import Iterator
 
@@ -30,6 +31,7 @@ _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
 _MANAGED_DIRECTORIES = frozenset(
     {"candidates", "history", "operations", "profiles", "reviews"}
 )
+_LOCK_STATE = threading.local()
 
 # These bounds keep local reviewed metadata cheap to inspect and diagnose.
 MAX_DOMAIN_ARTIFACT_BYTES = 256 * 1024
@@ -198,6 +200,22 @@ def domain_store_lock(
     poll_interval: float = 0.05,
 ) -> Iterator[dict[str, object]]:
     target = paths.memory_dir / "domain-intelligence" / "store"
+    lock_key = os.fspath(target.absolute())
+    depths = getattr(_LOCK_STATE, "depths", None)
+    if depths is None:
+        depths = {}
+        _LOCK_STATE.depths = depths
+    if depths.get(lock_key, 0):
+        depths[lock_key] += 1
+        try:
+            yield {
+                "locked": fcntl is not None,
+                "reason": "" if fcntl else "fcntl_unavailable",
+            }
+        finally:
+            depths[lock_key] -= 1
+        return
+
     flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | _CLOEXEC_FLAG
     if not _NOFOLLOW_FLAG:
         raise ValueError("domain-intelligence safe lock requires O_NOFOLLOW")
@@ -217,12 +235,14 @@ def domain_store_lock(
             raise
         try:
             _lock_descriptor(descriptor, target, timeout_seconds, poll_interval)
+            depths[lock_key] = 1
             try:
                 yield {
                     "locked": fcntl is not None,
                     "reason": "" if fcntl else "fcntl_unavailable",
                 }
             finally:
+                depths.pop(lock_key, None)
                 if fcntl is not None:
                     fcntl.flock(descriptor, fcntl.LOCK_UN)
         finally:

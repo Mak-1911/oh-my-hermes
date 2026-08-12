@@ -134,11 +134,12 @@ omh doctor
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-十一个 `ulw-` workflow。说出触发词，其余交给 Hermes —— 完整目录见
+十二个 `ulw-` workflow。说出触发词，其余交给 Hermes —— 完整目录见
 [Workflow Reference](docs/WORKFLOWS.md)。
 
 | Skill | 做什么 |
 | --- | --- |
+| ⚡ `ulw-context` | 对齐经审查的项目术语，捕获已确认的候选项，并在不赋予术语路由权的前提下追问下一个决策点。 |
 | ⚡ `ulw-interview` | 一次问一个问题，直到确切知道你要什么。 |
 | ⚡ `ulw-research` | 翻真实代码和网页做调研，留下出处，可疑就核实。 |
 | ⚡ `ulw-plan` | 做一份评审过的计划：比过方案、点明风险、定好完成标准。 |
@@ -158,7 +159,7 @@ omh doctor
 OMH 将 **104 个**可安装的 workflow skill 组织为6个容易理解的能力族。
 
 其中 12 个是 workflow engine - `context`, `deep-interview`, `loop`, `ralph`, `ralplan`, `research`, `team`, `ultragoal`, `ultraperf`, `ultraprocess`, `ultraqa`, `ultrawork` - 它们渲染为 `ulw-` 标签，
-只看状态行就能知道正在运行哪一类 skill。其余 90 个使用 `omh-`。
+只看状态行就能知道正在运行哪一类 skill。其余 92 个使用 `omh-`。
 两者的 canonical name 都保持不变。
 
 | 能力族 | Hermes 可以做得更好的事情 |

@@ -166,11 +166,12 @@ Maintenance paths such as reconciling a `--full` install back to core live in
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-Eleven `ulw-` workflows. Say the trigger in chat — Hermes routes the
+Twelve `ulw-` workflows. Say the trigger in chat — Hermes routes the
 rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
 
 | Skill | What it does |
 | --- | --- |
+| ⚡ `ulw-context` | Aligns reviewed project terms, captures confirmed candidates, and interviews the next decision frontier without giving terminology routing authority. |
 | ⚡ `ulw-interview` | Asks one question at a time until it knows exactly what you want. |
 | ⚡ `ulw-research` | Digs through real code and the live web, keeps sources, and verifies anything doubtful. |
 | ⚡ `ulw-plan` | Builds a reviewed plan: options compared, risks named, done-criteria agreed. |
@@ -194,8 +195,10 @@ rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
 <p align="center"><strong>Mixture of Models</strong></p>
 
 OMH packages **104 installable workflow skills** behind six human-readable
-capability families. The family is the front door; exact skill names remain
-available when a wrapper or operator needs precise control.
+capability families: 12 workflow engines use `ulw-` labels, including
+`ulw-context`, and the remaining 92 skills use `omh-` labels. The family is the
+front door; exact skill names remain available when a wrapper or operator needs
+precise control.
 
 The full generated catalog, triggers, harnesses, and evidence rules live in
 [Workflow Reference](docs/WORKFLOWS.md).

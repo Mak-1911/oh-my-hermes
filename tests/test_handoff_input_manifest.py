@@ -11,9 +11,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 import hashlib
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from _local_package import load_local_package
 
@@ -37,6 +39,7 @@ from omh.coding.handoff_input_manifest import (  # noqa: E402
 from omh.coding_delegation import build_coding_delegation_payload  # noqa: E402
 from omh.local_store import atomic_write_text  # noqa: E402
 from omh.runtime.records import validate_coding_delegation_record  # noqa: E402
+from _platform_support import requires_symlinks  # noqa: E402
 
 
 PLAN_TEXT = "\n".join(
@@ -446,6 +449,69 @@ class BudgetReportingTests(_WorkspaceCase):
         self.assertEqual(summary["excluded_count"], 1)
         self.assertEqual(summary["digest"], manifest["digest"])
         self.assertNotIn("items", summary)
+
+
+class WorkspaceFileSelectionSecurityTests(_WorkspaceCase):
+    @requires_symlinks
+    def test_final_symlink_is_refused_without_including_target_bytes(self) -> None:
+        target = self.workspace.write("src/symlink-target.py", "def target():\n    return True\n")
+        (self.workspace.root / "src/linked.py").symlink_to(target)
+
+        first = self.build(selections=[ManifestSelection("file", "path", "src/linked.py")])
+        second = self.build(selections=[ManifestSelection("file", "path", "src/linked.py")])
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["items"], [])
+        row = self.only_exclusion(first, "unreadable_source")
+        self.assertEqual(row["item_id"], "file:src/linked.py")
+        self.assertIn("symlink", str(row["detail"]).lower())
+
+    @requires_symlinks
+    def test_intermediate_symlink_is_refused_without_including_target_bytes(self) -> None:
+        real = self.workspace.root / "real-source"
+        real.mkdir()
+        self.workspace.write("real-source/nested.py", "def nested():\n    return True\n")
+        (self.workspace.root / "linked-source").symlink_to(real, target_is_directory=True)
+
+        manifest = self.build(
+            selections=[ManifestSelection("file", "path", "linked-source/nested.py")]
+        )
+
+        self.assertEqual(manifest["items"], [])
+        row = self.only_exclusion(manifest, "unreadable_source")
+        self.assertEqual(row["item_id"], "file:linked-source/nested.py")
+        self.assertIn("symlink", str(row["detail"]).lower())
+
+    def test_replacement_between_validation_and_open_is_refused(self) -> None:
+        candidate = self.workspace.write("src/race.py", "def original():\n    return True\n")
+        original = self.workspace.root / "src/original-race.py"
+        replacement = b"def replacement():\n    return False\n"
+        real_stat = os.stat
+        swapped = False
+
+        def swap_after_stat(path: object, *args: object, **kwargs: object) -> os.stat_result:
+            nonlocal swapped
+            result = real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+            dir_fd = kwargs.get("dir_fd")
+            is_candidate = Path(path) == candidate if isinstance(path, (str, os.PathLike)) and dir_fd is None else False
+            is_descriptor_leaf = path == "race.py" and dir_fd is not None
+            if not swapped and (is_candidate or is_descriptor_leaf):
+                swapped = True
+                os.replace(candidate, original)
+                candidate.write_bytes(replacement)
+            return result
+
+        with patch("pathlib.os.stat", side_effect=swap_after_stat):
+            manifest = self.build(
+                selections=[ManifestSelection("file", "path", "src/race.py")]
+            )
+
+        self.assertTrue(swapped, "the deterministic race seam must replace the validated name")
+        self.assertEqual(manifest["items"], [])
+        row = self.only_exclusion(manifest, "unreadable_source")
+        self.assertEqual(row["item_id"], "file:src/race.py")
+        self.assertIn("changed", str(row["detail"]).lower())
+        self.assertNotIn(hashlib.sha256(replacement).hexdigest(), str(manifest))
 
 
 class ProjectTermsExplicitSelectionTests(_WorkspaceCase):

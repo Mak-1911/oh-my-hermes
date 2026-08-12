@@ -196,16 +196,33 @@ retire a profile.
 
 The generated `ulw-context` workflow is the public Hermes surface for safe
 terminology lookup, explicitly confirmed reviewed capture, and dependency-ready
-frontier interviewing. Its canonical catalog id is `context`; host semantic
-nomination uses generated name and description metadata, while deterministic
-OMH routing remains limited to explicit workflow invocation and catalog cues.
-The workflow adds no project-term, glossary, or per-language routing table.
-Future handoff work may project reviewed mappings through bounded context packs.
-Exact `PROJECT_TERMS.md` bytes may reach a selected coding owner only after
-explicit, bounded file-manifest selection; they must never be copied into every
-session, runtime record, or handoff automatically. These contracts are
-executor-neutral across Codex, Claude Code, Hermes runtime/handoff paths, and
-generic executor profiles.
+frontier interviewing. Its canonical catalog id is `context`. Generated name
+and description metadata make it eligible for host semantic nomination, but
+live Hermes semantic nomination is `not_tested`: the installed host profile
+used for QA did not contain `ulw-context`, and no profile mutation was made.
+Current selection evidence is limited to explicit workflow invocation and a
+deterministic lexical proxy over catalog metadata. That proxy measures lexical
+competition; it is not evidence of semantic nomination by Hermes. Deterministic
+OMH routing remains limited to explicit workflow invocation and catalog cues,
+and the workflow adds no project-term, glossary, or per-language routing table.
+
+Reviewed active project-domain mappings now reach coding handoffs through the
+existing bounded context-pack lane. OMH resolves them read-only from its own
+validated store and includes only approved summaries for the current project;
+pending, rejected, retired, malformed, review-mismatched, digest-mismatched,
+and scope-mismatched artifacts remain excluded. The same projection is used
+for Codex, Claude Code, Hermes, and generic executor role packs. These packs are
+prepared context only, not evidence that an executor or model received, read,
+or used a mapping, and not dispatch, execution, review, CI, merge-readiness, or
+merge evidence.
+
+Exact `PROJECT_TERMS.md` bytes can reach a selected coding owner only through
+explicit workspace-relative file selection in `handoff_input_manifest/v1`,
+subject to content hashing, safety classification, item limits, and byte-budget
+checks. They are not copied into every session, runtime record, or handoff
+automatically. Manifest preparation or inclusion is likewise prepared context,
+not proof of dispatch, receipt, reading, model use, execution, review, CI,
+merge-readiness, or merge.
 
 This direction adapts the dependency-frontier and terminology-separation ideas
 from Matt Pocock's `grilling` and `domain-modeling` skills at revision
