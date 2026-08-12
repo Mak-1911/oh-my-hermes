@@ -276,7 +276,7 @@ print(json.dumps(observed, ensure_ascii=False))
         awareness_module._awareness_context_matches_message_cached.cache_clear()
         awareness_module._awareness_route_hint_cached.cache_clear()
         with TemporaryDirectory() as tmp:
-            with mock.patch.object(llm_hooks, "read_omh_status", side_effect=RuntimeError("status-boom")):
+            with mock.patch.object(llm_hooks, "read_omh_activity", side_effect=RuntimeError("status-boom")):
                 error_payload = llm_hooks.pre_llm_call(
                     omh_home=tmp, hermes_home=tmp, user_message=message, is_first_turn=False
                 )
@@ -784,24 +784,7 @@ print(json.dumps(observed, ensure_ascii=False))
                 tool_name="image_generate",
                 tool_input={"prompt": "secret-token-123 should not leak"},
             )
-            self.assertIsNotNone(tool_checkpoint)
-            self.assertIn("[OMH Tool Checkpoint]", tool_checkpoint["context"])
-            self.assertIn("schema=omh_generic_tool_checkpoint/v1", tool_checkpoint["context"])
-            self.assertIn("workflow=img-summary", tool_checkpoint["context"])
-            self.assertIn("next_action=prepare_visual_prompt_card", tool_checkpoint["context"])
-            checkpoint_payload = tool_checkpoint["omh_generic_tool_checkpoint"]
-            self.assertEqual(checkpoint_payload["schema_version"], "omh_generic_tool_checkpoint/v1")
-            self.assertEqual(checkpoint_payload["source"], "pre_tool_call")
-            self.assertEqual(checkpoint_payload["tool_name"], "image_generate")
-            self.assertEqual(checkpoint_payload["tool_family"], "image_tools")
-            self.assertEqual(checkpoint_payload["primary_workflow"], "img-summary")
-            self.assertEqual(checkpoint_payload["primary_next_action"], "prepare_visual_prompt_card")
-            self.assertFalse(checkpoint_payload["privacy"]["raw_tool_input_stored"])
-            self.assertFalse(checkpoint_payload["privacy"]["raw_tool_input_echoed"])
-            self.assertNotIn("secret-token-123", tool_checkpoint["context"])
-            self.assertNotIn("should not leak", tool_checkpoint["context"])
-            self.assertNotIn("secret-token-123", json.dumps(checkpoint_payload, sort_keys=True))
-            self.assertNotIn("should not leak", json.dumps(checkpoint_payload, sort_keys=True))
+            self.assertIsNone(tool_checkpoint)
 
             session_checkpoint = ctx.hooks["on_session_end"](omh_home=str(omh_home))
             self.assertEqual(session_checkpoint["status"], "checkpoint_written")

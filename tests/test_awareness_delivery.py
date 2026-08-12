@@ -154,6 +154,7 @@ class AwarenessDeliveryLedgerTests(unittest.TestCase):
                 {
                     "schema_version", "delivery_count", "route_hint_count", "suppressed_count",
                     "first_attempted_at", "first_delivered_at", "last_delivered_at", "last_context_chars",
+                    "accumulated_context_chars", "session_route_fingerprints",
                 },
             )
             self.assertNotIn("2768 chars of prompt", written)

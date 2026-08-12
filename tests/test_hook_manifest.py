@@ -161,7 +161,7 @@ class HookManifestTests(unittest.TestCase):
                 )
 
             self.assertIsNone(result)
-            status_read.assert_called_once()
+            status_read.assert_not_called()
             hud_read.assert_not_called()
             self.assertEqual(read_awareness_delivery(omh_home)["suppressed_count"], 1)
 

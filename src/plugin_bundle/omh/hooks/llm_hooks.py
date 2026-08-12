@@ -156,7 +156,13 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     try:
         omh_home = str(kwargs.get("omh_home", "") or "") or None
         hermes_home = str(kwargs.get("hermes_home", "") or "") or None
-        activity = read_omh_activity(omh_home=omh_home, limit=3)
+        try:
+            activity = read_omh_activity(omh_home=omh_home, limit=3)
+        except Exception:
+            # Keep the historical degradation component stable while moving
+            # the hot path from full status to the active-only projection.
+            degraded.append((COMPONENT_RUNTIME_STATUS_READ, safe_error_type()))
+            activity = {"active_executors": []}
         if activity.get("active_executors"):
             status = read_omh_status(omh_home=omh_home, limit=3)
             hud = read_omh_hud(
