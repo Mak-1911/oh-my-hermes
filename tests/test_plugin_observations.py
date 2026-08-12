@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+import os
 import sys
 from concurrent.futures import ProcessPoolExecutor
 import unittest
@@ -85,7 +86,11 @@ class PluginHostObservationTests(unittest.TestCase):
             self.assertEqual(state["last_plugin_host_observation"], rows[-1])
             self.assertEqual(state["last_plugin_runtime_observed"], rows[-1])
             self.assertEqual(state["last_plugin_runtime_readiness"], "active_runtime_observed")
-            self.assertEqual((runtime_dir / ".plugin_host_observations.jsonl.lock").stat().st_mode & 0o777, 0o600)
+            if os.name != "nt":
+                self.assertEqual(
+                    (runtime_dir / ".plugin_host_observations.jsonl.lock").stat().st_mode & 0o777,
+                    0o600,
+                )
             self.assertEqual(list(runtime_dir.glob("*.tmp")), [])
 
     def test_standalone_observation_lock_uses_windows_backend_without_core_imports(self) -> None:
@@ -110,7 +115,11 @@ class PluginHostObservationTests(unittest.TestCase):
                 pass
 
             self.assertEqual(fake_msvcrt.modes, [fake_msvcrt.LK_NBLCK, fake_msvcrt.LK_UNLCK])
-            self.assertEqual(observation_path.with_name(f".{observation_path.name}.lock").stat().st_mode & 0o777, 0o600)
+            if os.name != "nt":
+                self.assertEqual(
+                    observation_path.with_name(f".{observation_path.name}.lock").stat().st_mode & 0o777,
+                    0o600,
+                )
 
     def test_standalone_lock_failure_does_not_escape_the_hook(self) -> None:
         with TemporaryDirectory() as tmp:
