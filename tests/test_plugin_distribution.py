@@ -816,7 +816,7 @@ print(json.dumps(observed, ensure_ascii=False))
 
             hook_payload = ctx.hooks["pre_llm_call"](
                 omh_home=str(omh_home),
-                user_message="this raw prompt should not leak",
+                user_message="review this PR; this raw prompt should not leak",
                 is_first_turn=True,
             )
             self.assertIsNotNone(hook_payload)
@@ -832,8 +832,7 @@ print(json.dumps(observed, ensure_ascii=False))
             self.assertIn("omh_capabilities", context)
             self.assertIn("omh_context", context)
             self.assertIn("omh_status/omh_hud", context)
-            self.assertIn("[omh]", context)
-            self.assertIn("prepared handoffs are not execution", context)
+            self.assertNotIn("Native bridge status context", context)
             self.assertNotIn("Pattern cards:", context)
             self.assertNotIn("Common cues:", context)
             self.assertNotIn("Tools:", context)

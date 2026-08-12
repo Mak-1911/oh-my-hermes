@@ -146,6 +146,233 @@ class HookManifestTests(unittest.TestCase):
             self.assertEqual(read_awareness_delivery(explicit_home)["suppressed_count"], 1)
             self.assertEqual(read_awareness_delivery(env_home)["suppressed_count"], 0)
 
+    def test_generic_first_turn_skips_setup_only_context_and_hud(self) -> None:
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value={"runtime_state_present": True, "runs": []},
+                ) as status_read,
+                patch("omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_hud") as hud_read,
+            ):
+                result = pre_llm_call(
+                    user_message="Hello, how are you?",
+                    is_first_turn=True,
+                    omh_home=omh_home,
+                )
+
+            self.assertIsNone(result)
+            status_read.assert_called_once()
+            hud_read.assert_not_called()
+            self.assertEqual(read_awareness_delivery(omh_home)["suppressed_count"], 1)
+
+    def test_relevant_first_turn_keeps_route_hint_without_setup_status(self) -> None:
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value={"runtime_state_present": True, "runs": []},
+                ),
+                patch("omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_hud") as hud_read,
+            ):
+                result = pre_llm_call(
+                    user_message="make an image explaining the cron feature",
+                    is_first_turn=True,
+                    omh_home=omh_home,
+                )
+
+            self.assertIsNotNone(result)
+            self.assertIn("[OMH Awareness]", result["context"])
+            self.assertIn("selected=img-summary", result["context"])
+            self.assertNotIn("Native bridge status context", result["context"])
+            hud_read.assert_not_called()
+
+    def test_first_turn_task_routes_do_not_depend_on_mid_session_matcher(self) -> None:
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.awareness_context_matches_message",
+                    return_value=False,
+                ) as matcher,
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value={"runtime_state_present": True, "runs": []},
+                ),
+            ):
+                results = [
+                    pre_llm_call(
+                        user_message=message,
+                        is_first_turn=True,
+                        omh_home=omh_home,
+                    )
+                    for message in ("prepare a safe feature plan", "implement this", "review this PR")
+                ]
+
+            matcher.assert_not_called()
+            self.assertTrue(all(result is not None for result in results))
+            self.assertTrue(all("[OMH Route Hint]" in result["context"] for result in results if result))
+
+    def test_first_turn_route_failure_keeps_degradation_signal(self) -> None:
+        route_failure = {
+            "status": "no_hint",
+            "degradation": {
+                "components": [
+                    {
+                        "component": "localized_routing_text",
+                        "error_type": "RuntimeError",
+                    }
+                ]
+            },
+        }
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.awareness_route_hint",
+                    return_value=route_failure,
+                ),
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value={"runtime_state_present": True, "runs": []},
+                ),
+            ):
+                result = pre_llm_call(
+                    user_message="Hello, how are you?",
+                    is_first_turn=True,
+                    omh_home=omh_home,
+                )
+
+            self.assertIsNotNone(result)
+            self.assertEqual(
+                result["omh_degradation"]["components"],
+                [{"component": "localized_routing_text", "error_type": "RuntimeError"}],
+            )
+            self.assertIn("[OMH Degraded] components=localized_routing_text", result["context"])
+
+    def test_historical_runs_do_not_trigger_status_context(self) -> None:
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_activity",
+                    return_value={"active_executors": []},
+                ),
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value={
+                        "runtime_state_present": True,
+                        "runs": [{"run_id": "old-run", "phase": "completed"}],
+                        "active_executors": [],
+                    },
+                ),
+                patch("omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_hud") as hud_read,
+            ):
+                result = pre_llm_call(
+                    user_message="Hello, how are you?",
+                    is_first_turn=True,
+                    omh_home=omh_home,
+                )
+
+            self.assertIsNone(result)
+            hud_read.assert_not_called()
+
+    def test_active_executor_triggers_status_context(self) -> None:
+        active_executor = {
+            "executor_profile": "codex",
+            "target_type": "wrapper_session",
+            "state": "active",
+            "latest_event": {"status": "running"},
+        }
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_activity",
+                    return_value={"active_executors": [active_executor]},
+                ),
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value={
+                        "runtime_state_present": True,
+                        "runs": [],
+                        "active_executors": [active_executor],
+                    },
+                ),
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_hud",
+                    return_value={"display": {"line": "[omh] active"}},
+                ) as hud_read,
+            ):
+                result = pre_llm_call(
+                    user_message="Hello, how are you?",
+                    is_first_turn=True,
+                    omh_home=omh_home,
+                )
+
+            self.assertIsNotNone(result)
+            self.assertIn("[omh] active", result["context"])
+            self.assertIn(
+                "- active executor: profile=codex, target_type=wrapper_session, state=active, status=running.",
+                result["context"],
+            )
+            hud_read.assert_called_once()
+
+    def test_active_executor_reuses_single_status_snapshot(self) -> None:
+        status = {
+            "runtime_state_present": True,
+            "runs": [],
+            "active_executors": [
+                {
+                    "executor_profile": "codex",
+                    "target_type": "wrapper_session",
+                    "state": "active",
+                    "latest_event": {"status": "running"},
+                }
+            ],
+        }
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_activity",
+                    return_value={"active_executors": status["active_executors"]},
+                ),
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value=status,
+                ) as status_read,
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_hud",
+                    return_value={"display": {"line": "[omh] active"}},
+                ) as hud_read,
+            ):
+                result = pre_llm_call(
+                    user_message="implement this feature",
+                    is_first_turn=True,
+                    omh_home=omh_home,
+                )
+
+            self.assertIsNotNone(result)
+            status_read.assert_called_once()
+            self.assertIs(hud_read.call_args.kwargs["status"], status)
+
+    def test_idle_turn_skips_full_status_projection(self) -> None:
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_activity",
+                    return_value={"active_executors": []},
+                ),
+                patch("omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status") as status_read,
+                patch("omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_hud") as hud_read,
+            ):
+                result = pre_llm_call(
+                    user_message="Hello, how are you?",
+                    is_first_turn=False,
+                    omh_home=omh_home,
+                    include_omh_awareness=False,
+                )
+
+            self.assertIsNone(result)
+            status_read.assert_not_called()
+            hud_read.assert_not_called()
+
     def test_awareness_route_hint_is_metadata_only_and_message_specific(self) -> None:
         message = "make an image explaining the cron feature with secret-token-123"
 

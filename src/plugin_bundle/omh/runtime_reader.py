@@ -423,6 +423,7 @@ def read_omh_hud(
     omh_home: str | Path | None = None,
     hermes_home: str | Path | None = None,
     *,
+    status: dict[str, Any] | None = None,
     preset: str = "focused",
     limit: int = 3,
     token_metadata: dict[str, Any] | None = None,
@@ -432,11 +433,11 @@ def read_omh_hud(
     home = _expand_path(omh_home) if omh_home else _default_omh_home()
     hermes = _expand_path(hermes_home) if hermes_home else _default_hermes_home()
     safe_limit = _safe_limit(limit, default=3)
-    status = read_omh_status(home, limit=safe_limit)
+    status_payload = status if status is not None else read_omh_status(home, limit=safe_limit)
     state = _read_json(home / "runtime" / "state.json")
     profile = _read_json(home / "setup-profile.json")
     target_registry = _read_json(home / "targets.json")
-    runs = status.get("runs", [])
+    runs = status_payload.get("runs", [])
     latest_run = runs[0] if runs else {}
     payload: dict[str, Any] = {
         "schema_version": HUD_SCHEMA_VERSION,
@@ -448,7 +449,7 @@ def read_omh_hud(
         "plugin": _plugin_summary(hermes, state),
         "target_topology": _target_topology_summary(target_registry),
         "executor": _executor_summary(profile),
-        "runtime": _hud_runtime_summary(status, latest_run),
+        "runtime": _hud_runtime_summary(status_payload, latest_run),
         "achievements": _achievements_summary(hermes),
         "tokens": _token_summary(token_metadata or {}),
         "evidence_boundary": (
@@ -923,6 +924,23 @@ def read_omh_status(omh_home: str | Path | None = None, limit: int = 5) -> dict[
             "merge": "requires separate merge record and an external effect receipt naming the surface that merged it",
         },
         "privacy": "metadata_only",
+    }
+
+
+def read_omh_activity(omh_home: str | Path | None = None, limit: int = 5) -> dict[str, Any]:
+    """Project only live executor state for latency-sensitive hook routing."""
+    safe_limit = _safe_limit(limit, default=5)
+    home = _expand_path(omh_home) if omh_home else _default_omh_home()
+    runtime_dir = home / "runtime"
+    progress = _executor_progress_projection(runtime_dir, limit=max(safe_limit * 10, safe_limit))
+    return {
+        "schema_version": STATUS_SCHEMA_VERSION,
+        "omh_home": str(home),
+        "runtime_dir": str(runtime_dir),
+        "runs": [],
+        "active_executors": progress["active_executors"],
+        "stale_executors": progress["stale_executors"],
+        "latest_progress_events": progress["latest_progress_events"],
     }
 
 
