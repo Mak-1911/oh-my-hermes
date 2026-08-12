@@ -166,6 +166,94 @@ def _validate_lock_entry(directory_fd: int) -> None:
         raise ValueError("domain-intelligence lock path must be a regular file")
 
 
+def _lock_identity(metadata: os.stat_result) -> tuple[int, int, int]:
+    return (
+        int(metadata.st_dev),
+        int(metadata.st_ino),
+        stat.S_IFMT(metadata.st_mode),
+    )
+
+
+def _validate_lock_metadata(metadata: os.stat_result) -> None:
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ValueError("domain-intelligence lock path must not be a symlink")
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError("domain-intelligence lock path must be a regular file")
+
+
+def _lock_stat(directory_fd: int) -> os.stat_result:
+    return os.stat(
+        ".store.lock",
+        dir_fd=directory_fd,
+        follow_symlinks=False,
+    )
+
+
+def _open_store_lock_descriptor(directory_fd: int, flags: int) -> int:
+    if _NOFOLLOW_FLAG:
+        try:
+            return os.open(
+                ".store.lock",
+                flags | _NOFOLLOW_FLAG,
+                0o600,
+                dir_fd=directory_fd,
+            )
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.EMLINK}:
+                raise ValueError(
+                    "domain-intelligence lock path must not be a symlink"
+                ) from exc
+            raise
+
+    before: os.stat_result | None
+    try:
+        before = _lock_stat(directory_fd)
+    except FileNotFoundError:
+        before = None
+        try:
+            descriptor = os.open(
+                ".store.lock",
+                flags | os.O_EXCL,
+                0o600,
+                dir_fd=directory_fd,
+            )
+        except FileExistsError:
+            before = _lock_stat(directory_fd)
+            _validate_lock_metadata(before)
+            descriptor = os.open(
+                ".store.lock",
+                flags & ~(os.O_CREAT | os.O_EXCL),
+                dir_fd=directory_fd,
+            )
+    else:
+        _validate_lock_metadata(before)
+        descriptor = os.open(
+            ".store.lock",
+            flags & ~(os.O_CREAT | os.O_EXCL),
+            dir_fd=directory_fd,
+        )
+
+    try:
+        opened = os.fstat(descriptor)
+        _validate_lock_metadata(opened)
+        try:
+            after = _lock_stat(directory_fd)
+        except FileNotFoundError as exc:
+            raise ValueError(
+                "domain-intelligence lock path changed while opening"
+            ) from exc
+        _validate_lock_metadata(after)
+        if _lock_identity(opened) != _lock_identity(after) or (
+            before is not None
+            and _lock_identity(before) != _lock_identity(opened)
+        ):
+            raise ValueError("domain-intelligence lock path changed while opening")
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
 def _lock_descriptor(
     descriptor: int,
     target: Path,
@@ -217,22 +305,8 @@ def domain_store_lock(
         return
 
     flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | _CLOEXEC_FLAG
-    if not _NOFOLLOW_FLAG:
-        raise ValueError("domain-intelligence safe lock requires O_NOFOLLOW")
     with _domain_root_descriptor(paths) as root_fd:
-        try:
-            descriptor = os.open(
-                ".store.lock",
-                flags | _NOFOLLOW_FLAG,
-                0o600,
-                dir_fd=root_fd,
-            )
-        except OSError as exc:
-            if exc.errno in {errno.ELOOP, errno.EMLINK}:
-                raise ValueError(
-                    "domain-intelligence lock path must not be a symlink"
-                ) from exc
-            raise
+        descriptor = _open_store_lock_descriptor(root_fd, flags)
         try:
             _lock_descriptor(descriptor, target, timeout_seconds, poll_interval)
             depths[lock_key] = 1

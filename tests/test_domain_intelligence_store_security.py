@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import stat
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +18,69 @@ from omh.system.local_store import file_lock
 from omh.workflows import domain_intelligence_store as store
 from omh.workflows import domain_intelligence_store_security as security
 from omh.workflows import domain_intelligence_store_writer as store_writer
+
+
+class PortableDomainStoreLockTests(unittest.TestCase):
+    _FLAGS = os.O_RDWR | os.O_CREAT | os.O_APPEND
+
+    @staticmethod
+    def _metadata(*, inode: int = 7, mode: int = stat.S_IFREG | 0o600):
+        return SimpleNamespace(st_dev=3, st_ino=inode, st_mode=mode)
+
+    def test_fallback_safely_creates_a_missing_lock(self) -> None:
+        opened = self._metadata()
+        with (
+            patch.object(security, "_NOFOLLOW_FLAG", 0),
+            patch.object(
+                security.os,
+                "stat",
+                side_effect=[FileNotFoundError, opened],
+            ),
+            patch.object(security.os, "open", return_value=19) as open_lock,
+            patch.object(security.os, "fstat", return_value=opened),
+        ):
+            self.assertEqual(security._open_store_lock_descriptor(11, self._FLAGS), 19)
+
+        self.assertTrue(open_lock.call_args.args[1] & os.O_EXCL)
+
+    def test_fallback_safely_opens_an_existing_regular_lock(self) -> None:
+        existing = self._metadata()
+        with (
+            patch.object(security, "_NOFOLLOW_FLAG", 0),
+            patch.object(security.os, "stat", side_effect=[existing, existing]),
+            patch.object(security.os, "open", return_value=23) as open_lock,
+            patch.object(security.os, "fstat", return_value=existing),
+        ):
+            self.assertEqual(security._open_store_lock_descriptor(11, self._FLAGS), 23)
+
+        self.assertFalse(open_lock.call_args.args[1] & os.O_CREAT)
+
+    def test_fallback_refuses_a_lock_symlink_without_opening_it(self) -> None:
+        linked = self._metadata(mode=stat.S_IFLNK | 0o777)
+        with (
+            patch.object(security, "_NOFOLLOW_FLAG", 0),
+            patch.object(security.os, "stat", return_value=linked),
+            patch.object(security.os, "open") as open_lock,
+            self.assertRaisesRegex(ValueError, "must not be a symlink"),
+        ):
+            security._open_store_lock_descriptor(11, self._FLAGS)
+
+        open_lock.assert_not_called()
+
+    def test_fallback_refuses_a_lock_replaced_while_opening(self) -> None:
+        before = self._metadata(inode=7)
+        replacement = self._metadata(inode=8)
+        with (
+            patch.object(security, "_NOFOLLOW_FLAG", 0),
+            patch.object(security.os, "stat", side_effect=[before, replacement]),
+            patch.object(security.os, "open", return_value=29),
+            patch.object(security.os, "fstat", return_value=before),
+            patch.object(security.os, "close") as close_lock,
+            self.assertRaisesRegex(ValueError, "changed while opening"),
+        ):
+            security._open_store_lock_descriptor(11, self._FLAGS)
+
+        close_lock.assert_called_once_with(29)
 
 
 @requires_domain_intelligence_store
