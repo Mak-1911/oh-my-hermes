@@ -113,7 +113,7 @@ class DegradationSignalTestCase(unittest.TestCase):
 
     def status_failure(self) -> mock._patch:
         return mock.patch.object(
-            llm_hooks_module, "read_omh_status", side_effect=RuntimeError(STATUS_BOOM)
+            llm_hooks_module, "read_omh_activity", side_effect=RuntimeError(STATUS_BOOM)
         )
 
     def call_pre_llm(self, message: str, **kwargs: object) -> dict | None:

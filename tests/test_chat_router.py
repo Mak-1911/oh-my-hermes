@@ -1251,6 +1251,57 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 self.assertEqual(decision["action"], "dispatch")
                 self.assertEqual(decision["selected_skill"], selected_skill)
 
+    def test_buzz_explicit_and_semantic_routes_use_one_public_skill(self) -> None:
+        names = {definition.name for definition in routable_definitions()}
+        for message in (
+            "/omh-buzz connect this Hermes gateway to my Buzz community",
+            "$buzz attach this video to the current Buzz conversation",
+        ):
+            with self.subTest(message=message):
+                decision = route_chat_message(message, source="hermes")
+                self.assertEqual(decision["selected_skill"], "buzz")
+                self.assertTrue(decision["explicit"])
+
+        semantic_cases = (
+            "Connect this remote Hermes gateway as a native agent in my Buzz community.",
+            "Attach this MP4 to the active Buzz conversation and verify relay acceptance.",
+            "Diagnose my self-hosted Buzz relay Compose stack without changing it.",
+            "내 헤르메스를 Buzz 커뮤니티 에이전트로 연결하고 실제 수신 발신을 확인해줘.",
+        )
+        for message in semantic_cases:
+            with self.subTest(message=message):
+                self.assertIsNone(explicit_skill_invocation(message, names))
+                self.assertEqual(recommend_skills(message, limit=1)[0]["skill"], "buzz")
+                self.assertEqual(route_chat_message(message, source="hermes")["selected_skill"], "buzz")
+
+        self.assertEqual(
+            recommend_skills("Connect an external API that still needs credentials.", limit=1)[0]["skill"],
+            "toolbelt-readiness",
+        )
+
+    def test_named_workflows_do_not_bypass_explicit_dependency_readiness(self) -> None:
+        for message in (
+            "The buzz gateway needs a missing API key.",
+            "The plan workflow connector needs credentials configured.",
+            "The ultraqa connector is missing its API key.",
+        ):
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+
+                self.assertEqual(decision["selected_skill"], "toolbelt-readiness")
+                self.assertIn("guard:toolbelt_readiness", decision["recommendations"][0]["matched"])
+
+    def test_semantically_negated_buzz_mentions_do_not_route_to_buzz(self) -> None:
+        for message in (
+            "Do not use buzz, just write a generic Nostr relay from scratch instead.",
+            "Buzz 말고 그냥 일반 Nostr 릴레이를 처음부터 작성해줘.",
+        ):
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+
+                self.assertNotEqual(decision["selected_skill"], "buzz")
+                self.assertNotIn("buzz", [item["skill"] for item in decision["recommendations"]])
+
     def test_explicit_alias_missed_route_feedback_selects_workflow_learning(self) -> None:
         cases = (
             "missed route: ulw split this accepted plan into lanes",

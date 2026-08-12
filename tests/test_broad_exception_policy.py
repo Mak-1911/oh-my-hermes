@@ -135,10 +135,10 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
         "src/plugin_bundle/omh/hooks/llm_hooks.py",
         "pre_llm_call",
         INTENTIONAL,
-        "Still sets status={} and hud={}, but appends `runtime_status_read` plus a sanitized "
-        "error type, so the return carries `omh_degradation` and one bounded `[OMH Degraded]` "
-        "context line where a genuinely idle host still returns None. A failed status read is "
-        "no longer readable as a host with nothing to report.",
+        "The activity fast path and the enclosing status/HUD projection both append "
+        "`runtime_status_read` plus a sanitized error type before returning a bounded "
+        "`omh_degradation` block. A genuinely idle host still returns None, while either "
+        "projection failing remains distinguishable from absence.",
     ),
     ClassifiedSite(
         "src/plugin_bundle/omh/host_observation.py",

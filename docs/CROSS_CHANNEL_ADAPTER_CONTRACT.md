@@ -30,11 +30,12 @@ local contracts only: the adapter still owns transport and delivery, and their
 presence is not posting or delivery evidence.
 
 `source="generic"` is required for platforms without an existing core source.
-Discord, Slack, and Telegram keep their existing `source` values. Do not add a
-new source registry entry merely to identify a host: `platform_context.platform`
-is the platform identity.
+Discord, Slack, and Telegram keep their existing source values. Buzz uses
+`source="hermes"` because Hermes owns its transport while
+`platform_context.platform="buzz"` preserves the platform identity. Do not add
+a new source registry entry merely to identify a host.
 
-The supported platform ids are exactly these 22, in registry order:
+The supported platform ids are exactly these 23, in registry order:
 
 1. `telegram`
 2. `discord`
@@ -58,6 +59,7 @@ The supported platform ids are exactly these 22, in registry order:
 20. `line`
 21. `simplex`
 22. `api_server`
+23. `buzz`
 
 ## Opaque identity and session isolation
 
@@ -91,12 +93,13 @@ The shipped matrix is
 [`examples/wrapper-golden/platform-capability-matrix.json`](../examples/wrapper-golden/platform-capability-matrix.json).
 It records profile defaults, not live vendor truth.
 
-`render_profile` controls OMH's generic rendering behavior. Only Mattermost,
-Matrix, email, Microsoft Teams, and API Server default to `rich_markdown`; all
+`render_profile` controls OMH's generic rendering behavior. Mattermost, Matrix,
+email, Microsoft Teams, API Server, and Buzz default to `rich_markdown`; all
 other registered platforms default to `limited_markdown`. `format_family`
 labels the adapter's intended native surface (`matrix/matrix_html`,
-`microsoft_teams/adaptive_card`, `line/flex_message`, and so on). A format label
-does not mean OMH serializes, posts, or validates that vendor format.
+`microsoft_teams/adaptive_card`, `line/flex_message`, `buzz/markdown`, and so
+on). A format label does not mean OMH serializes, posts, or validates that
+vendor format.
 
 Discord, Slack, and Telegram retain their verified core renderer limits. Every
 other profile defaults to the conservative OMH pair of 1600 recommended and

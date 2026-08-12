@@ -19,9 +19,13 @@ from _local_package import load_local_package
 
 load_local_package()
 
+from omh.commands import setup as setup_module
 from omh.paths import resolve_paths
+from omh.install.plugin_loader_observation import observe_real_loader_registration
 from omh.plugin_pack import inspect_plugin_bundle
+from omh.plugin_bundle.omh.tools import evidence_tool
 from omh.plugin_bundle.omh.metadata import PROVIDED_HOOKS, PROVIDED_TOOLS, TOOL_FILE_STEMS
+from omh.release_smoke_core import CommandResult
 
 
 class FakeHermesContext:
@@ -55,6 +59,288 @@ def load_installed_plugin(plugin_dir: Path):
 
 
 class PluginDistributionTests(unittest.TestCase):
+    def test_plugin_manifest_conformance_catches_missing_kind(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            self.assertEqual(
+                run_cli(
+                    [
+                        "--omh-home",
+                        str(omh_home),
+                        "--hermes-home",
+                        str(hermes_home),
+                        "setup",
+                        "--with-plugin",
+                    ]
+                )[0],
+                0,
+            )
+            plugin_yaml = hermes_home / "plugins" / "omh" / "plugin.yaml"
+            plugin_yaml.write_text(
+                "\n".join(
+                    line
+                    for line in plugin_yaml.read_text(encoding="utf-8").splitlines()
+                    if not line.startswith("kind:")
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            inspection = inspect_plugin_bundle(resolve_paths(omh_home, hermes_home))
+
+            conformance = inspection["plugin_manifest_conformance"]
+            self.assertFalse(conformance["ok"])
+            self.assertEqual(conformance["kind"], "")
+            self.assertIn("kind", conformance["invalid_fields"])
+            status, stdout, stderr = run_cli(
+                [
+                    "--omh-home",
+                    str(omh_home),
+                    "--hermes-home",
+                    str(hermes_home),
+                    "doctor",
+                ]
+            )
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 1)
+            check = next(
+                item
+                for item in json.loads(stdout)["checks"]
+                if item["name"] == "plugin_manifest_conformance"
+            )
+            self.assertFalse(check["ok"])
+
+    def test_plugin_manifest_conformance_matches_registered_surface(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            self.assertEqual(
+                run_cli(
+                    [
+                        "--omh-home",
+                        str(omh_home),
+                        "--hermes-home",
+                        str(hermes_home),
+                        "setup",
+                        "--with-plugin",
+                    ]
+                )[0],
+                0,
+            )
+
+            inspection = inspect_plugin_bundle(resolve_paths(omh_home, hermes_home))
+
+            conformance = inspection["plugin_manifest_conformance"]
+            self.assertTrue(conformance["ok"])
+            self.assertEqual(conformance["kind"], "standalone")
+            self.assertEqual(conformance["declared_tools"], list(PROVIDED_TOOLS))
+            self.assertEqual(conformance["declared_hooks"], list(PROVIDED_HOOKS))
+            self.assertEqual(conformance["invalid_fields"], [])
+
+    def test_real_loader_observation_names_absent_hermes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            plugin_dir = Path(tmp) / "plugins" / "omh"
+            plugin_dir.mkdir(parents=True)
+
+            observation = observe_real_loader_registration(
+                plugin_dir,
+                python_executable=Path(tmp) / "missing-python",
+            )
+
+            self.assertFalse(observation["observed"])
+            self.assertEqual(observation["reason"], "hermes_not_installed")
+
+    def test_real_loader_observation_uses_isolated_home(self) -> None:
+        with TemporaryDirectory() as tmp:
+            plugin_dir = Path(tmp) / "source" / "omh"
+            plugin_dir.mkdir(parents=True)
+            (plugin_dir / "plugin.yaml").write_text("name: omh\nkind: standalone\n", encoding="utf-8")
+            (plugin_dir / "__init__.py").write_text("", encoding="utf-8")
+            seen: dict[str, object] = {}
+
+            def runner(command, timeout_seconds, env):
+                seen["command"] = list(command)
+                seen["timeout_seconds"] = timeout_seconds
+                seen["env"] = dict(env or {})
+                isolated_home = Path(str((env or {})["HERMES_HOME"]))
+                self.assertNotEqual(isolated_home, plugin_dir.parent.parent)
+                self.assertTrue((isolated_home / "plugins" / "omh" / "plugin.yaml").is_file())
+                return CommandResult(
+                    command=command,
+                    returncode=0,
+                    stdout=(
+                        'OMH_PLUGIN_LOADER_OBSERVATION={"enabled":true,"error":null,'
+                        f'"tools":{json.dumps(list(PROVIDED_TOOLS))},'
+                        f'"hooks":{json.dumps(list(PROVIDED_HOOKS))}'
+                        "}\n"
+                    ),
+                )
+
+            observation = observe_real_loader_registration(
+                plugin_dir,
+                python_executable=Path(sys.executable),
+                runner=runner,
+            )
+
+            self.assertTrue(observation["observed"])
+            self.assertTrue(observation["ok"])
+            self.assertEqual(observation["registered_tools"], list(PROVIDED_TOOLS))
+            self.assertEqual(observation["registered_hooks"], list(PROVIDED_HOOKS))
+            self.assertEqual(seen["timeout_seconds"], 120)
+
+    def test_real_loader_observation_detects_zero_registered_tools(self) -> None:
+        with TemporaryDirectory() as tmp:
+            plugin_dir = Path(tmp) / "omh"
+            plugin_dir.mkdir()
+            (plugin_dir / "plugin.yaml").write_text("name: omh\n", encoding="utf-8")
+            (plugin_dir / "__init__.py").write_text("", encoding="utf-8")
+
+            def runner(command, timeout_seconds, env):
+                return CommandResult(
+                    command=command,
+                    returncode=0,
+                    stdout=(
+                        "OMH_PLUGIN_LOADER_OBSERVATION="
+                        '{"enabled":false,"error":"exclusive plugin","tools":[],"hooks":[]}\n'
+                    ),
+                )
+
+            observation = observe_real_loader_registration(
+                plugin_dir,
+                python_executable=Path(sys.executable),
+                runner=runner,
+            )
+
+            self.assertTrue(observation["observed"])
+            self.assertFalse(observation["ok"])
+            self.assertEqual(observation["registered_tools"], [])
+            self.assertEqual(observation["registered_hooks"], [])
+            self.assertEqual(observation["error"], "exclusive plugin")
+
+    def test_doctor_names_fake_context_and_unobserved_real_loader(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            self.assertEqual(
+                run_cli(
+                    [
+                        "--omh-home",
+                        str(omh_home),
+                        "--hermes-home",
+                        str(hermes_home),
+                        "setup",
+                        "--with-plugin",
+                    ]
+                )[0],
+                0,
+            )
+
+            with mock.patch(
+                "omh.maintenance.doctor.observe_real_loader_registration",
+                return_value={
+                    "observed": False,
+                    "ok": False,
+                    "reason": "hermes_not_installed",
+                    "registered_tools": [],
+                    "registered_hooks": [],
+                },
+            ):
+                status, stdout, stderr = run_cli(
+                    [
+                        "--omh-home",
+                        str(omh_home),
+                        "--hermes-home",
+                        str(hermes_home),
+                        "doctor",
+                    ]
+                )
+
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            checks = {item["name"]: item for item in json.loads(stdout)["checks"]}
+            self.assertTrue(checks["plugin_register_smoke"]["ok"])
+            loader = checks["plugin_loader_observed"]
+            self.assertTrue(loader["ok"])
+            self.assertFalse(loader["observed"])
+            self.assertEqual(loader["severity"], "warning")
+
+    def test_doctor_human_summary_distinguishes_loader_observation(self) -> None:
+        checks = [
+            {"name": "plugin_register_smoke", "ok": True},
+            {
+                "name": "plugin_loader_observed",
+                "ok": True,
+                "observed": True,
+                "severity": "ok",
+            },
+        ]
+        with mock.patch.object(
+            setup_module,
+            "tr",
+            side_effect=lambda language, key: key,
+        ):
+            lines = setup_module._doctor_observation_boundary_lines(checks, language="en")
+
+        self.assertEqual(
+            lines,
+            [
+                "doctor_plugin_bridge_ready",
+                "doctor_plugin_loader_observed",
+            ],
+        )
+
+    def test_doctor_fails_when_real_loader_registers_zero_tools(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            self.assertEqual(
+                run_cli(
+                    [
+                        "--omh-home",
+                        str(omh_home),
+                        "--hermes-home",
+                        str(hermes_home),
+                        "setup",
+                        "--with-plugin",
+                    ]
+                )[0],
+                0,
+            )
+
+            with mock.patch(
+                "omh.maintenance.doctor.observe_real_loader_registration",
+                return_value={
+                    "observed": True,
+                    "ok": False,
+                    "reason": "registration_mismatch",
+                    "error": "exclusive plugin",
+                    "registered_tools": [],
+                    "registered_hooks": [],
+                },
+            ):
+                status, stdout, stderr = run_cli(
+                    [
+                        "--omh-home",
+                        str(omh_home),
+                        "--hermes-home",
+                        str(hermes_home),
+                        "doctor",
+                    ]
+                )
+
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 1)
+            checks = {item["name"]: item for item in json.loads(stdout)["checks"]}
+            loader = checks["plugin_loader_observed"]
+            self.assertFalse(loader["ok"])
+            self.assertTrue(loader["observed"])
+            self.assertEqual(loader["severity"], "blocking")
+
     def test_bundled_plugin_resource_is_packaged(self) -> None:
         root = resources.files("omh.plugin_bundle.omh")
         self.assertTrue(root.joinpath("plugin.yaml").is_file())
@@ -276,7 +562,7 @@ print(json.dumps(observed, ensure_ascii=False))
         awareness_module._awareness_context_matches_message_cached.cache_clear()
         awareness_module._awareness_route_hint_cached.cache_clear()
         with TemporaryDirectory() as tmp:
-            with mock.patch.object(llm_hooks, "read_omh_status", side_effect=RuntimeError("status-boom")):
+            with mock.patch.object(llm_hooks, "read_omh_activity", side_effect=RuntimeError("status-boom")):
                 error_payload = llm_hooks.pre_llm_call(
                     omh_home=tmp, hermes_home=tmp, user_message=message, is_first_turn=False
                 )
@@ -702,6 +988,49 @@ print(json.dumps(observed, ensure_ascii=False))
             self.assertEqual(evidence["results"][0]["evidence_type"], "observed_local_command")
             self.assertIn("not executor dispatch", evidence["claim_boundary"])
 
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "OPENAI_API_KEY": "model-secret-do-not-print",
+                    "AWS_SECRET_ACCESS_KEY": "cloud-secret-do-not-print",
+                    "BUZZ_PRIVATE_KEY": "buzz-secret-do-not-print",
+                    "PYTHONPATH": "/tmp/inject",
+                    "DYLD_INSERT_LIBRARIES": "/tmp/inject.dylib",
+                },
+                clear=False,
+            ), mock.patch.object(evidence_tool.subprocess, "run") as run:
+                run.return_value.returncode = 0
+                run.return_value.stdout = ""
+                run.return_value.stderr = ""
+                safe = json.loads(
+                    evidence_handler(
+                        {
+                            "commands": ["python3 -m compileall -q ."],
+                            "project_root": str(root),
+                            "workdir": str(root),
+                        }
+                    )
+                )
+            self.assertTrue(safe["all_pass"])
+            child_env = run.call_args.kwargs["env"]
+            self.assertEqual(
+                set(child_env),
+                {
+                    "HOME",
+                    "LANG",
+                    "LC_ALL",
+                    "PATH",
+                    "PYTHONNOUSERSITE",
+                    "PYTHONPYCACHEPREFIX",
+                    "TMPDIR",
+                },
+            )
+            self.assertNotIn("OPENAI_API_KEY", child_env)
+            self.assertNotIn("AWS_SECRET_ACCESS_KEY", child_env)
+            self.assertNotIn("BUZZ_PRIVATE_KEY", child_env)
+            self.assertNotIn("PYTHONPATH", child_env)
+            self.assertNotIn("DYLD_INSERT_LIBRARIES", child_env)
+
             rejected = json.loads(
                 evidence_handler(
                     {
@@ -784,24 +1113,7 @@ print(json.dumps(observed, ensure_ascii=False))
                 tool_name="image_generate",
                 tool_input={"prompt": "secret-token-123 should not leak"},
             )
-            self.assertIsNotNone(tool_checkpoint)
-            self.assertIn("[OMH Tool Checkpoint]", tool_checkpoint["context"])
-            self.assertIn("schema=omh_generic_tool_checkpoint/v1", tool_checkpoint["context"])
-            self.assertIn("workflow=img-summary", tool_checkpoint["context"])
-            self.assertIn("next_action=prepare_visual_prompt_card", tool_checkpoint["context"])
-            checkpoint_payload = tool_checkpoint["omh_generic_tool_checkpoint"]
-            self.assertEqual(checkpoint_payload["schema_version"], "omh_generic_tool_checkpoint/v1")
-            self.assertEqual(checkpoint_payload["source"], "pre_tool_call")
-            self.assertEqual(checkpoint_payload["tool_name"], "image_generate")
-            self.assertEqual(checkpoint_payload["tool_family"], "image_tools")
-            self.assertEqual(checkpoint_payload["primary_workflow"], "img-summary")
-            self.assertEqual(checkpoint_payload["primary_next_action"], "prepare_visual_prompt_card")
-            self.assertFalse(checkpoint_payload["privacy"]["raw_tool_input_stored"])
-            self.assertFalse(checkpoint_payload["privacy"]["raw_tool_input_echoed"])
-            self.assertNotIn("secret-token-123", tool_checkpoint["context"])
-            self.assertNotIn("should not leak", tool_checkpoint["context"])
-            self.assertNotIn("secret-token-123", json.dumps(checkpoint_payload, sort_keys=True))
-            self.assertNotIn("should not leak", json.dumps(checkpoint_payload, sort_keys=True))
+            self.assertIsNone(tool_checkpoint)
 
             session_checkpoint = ctx.hooks["on_session_end"](omh_home=str(omh_home))
             self.assertEqual(session_checkpoint["status"], "checkpoint_written")
@@ -816,7 +1128,7 @@ print(json.dumps(observed, ensure_ascii=False))
 
             hook_payload = ctx.hooks["pre_llm_call"](
                 omh_home=str(omh_home),
-                user_message="this raw prompt should not leak",
+                user_message="review this PR; this raw prompt should not leak",
                 is_first_turn=True,
             )
             self.assertIsNotNone(hook_payload)
@@ -832,8 +1144,7 @@ print(json.dumps(observed, ensure_ascii=False))
             self.assertIn("omh_capabilities", context)
             self.assertIn("omh_context", context)
             self.assertIn("omh_status/omh_hud", context)
-            self.assertIn("[omh]", context)
-            self.assertIn("prepared handoffs are not execution", context)
+            self.assertNotIn("Native bridge status context", context)
             self.assertNotIn("Pattern cards:", context)
             self.assertNotIn("Common cues:", context)
             self.assertNotIn("Tools:", context)

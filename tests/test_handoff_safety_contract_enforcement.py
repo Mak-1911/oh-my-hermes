@@ -154,8 +154,16 @@ PROCESS_SPAWN_ALLOWLIST: dict[str, str] = {
     "src/install/release_smoke_core.py": (
         "release smoke runner; executes the smoke commands an operator asked for."
     ),
+    "src/install/plugin_loader_observation.py": (
+        "`omh doctor` isolated real-Hermes registration probe; reads registered tool/hook names, "
+        "dispatches no agent work, and writes only inside a temporary HERMES_HOME."
+    ),
     "src/plugin_bundle/omh/tools/evidence_tool.py": (
         "allowlisted local verification-command runner; its allowlist is itself gated below."
+    ),
+    "src/plugin_bundle/omh/buzz_diagnostics.py": (
+        "`omh probe` and `omh_probe` run the exact local `buzz --version` read-only readiness check; "
+        "the argv and secret-free child environment are locked by tests/test_buzz_diagnostics.py."
     ),
     "src/surfaces/menubar_app.py": (
         "`swiftc` compile plus `launchctl` load for the opt-in macOS menubar helper install."

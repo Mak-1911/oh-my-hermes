@@ -756,6 +756,39 @@ class RouterContentTests(unittest.TestCase):
         for name in hidden:
             self.assertFalse((Path("skills") / name / "SKILL.md").exists(), f"{name} should stay routable only")
 
+    def test_buzz_is_one_public_skill_with_internal_reference_lanes(self) -> None:
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        self.assertIn("buzz", definitions)
+        self.assertNotIn("buzz-setup", definitions)
+        self.assertNotIn("buzz-media", definitions)
+        self.assertNotIn("buzz-self-host", definitions)
+
+        templates = {template.name: template for template in builtin_skill_templates()}
+        body = templates["buzz"].content
+        self.assertIn("name: omh-buzz", body)
+        self.assertIn("references/setup.md", body)
+        self.assertIn("references/media.md", body)
+        self.assertIn("references/self-host.md", body)
+
+        references = {
+            reference.relative_path: reference.content
+            for reference in builtin_skill_reference_templates()
+            if reference.skill_name == "buzz"
+        }
+        self.assertEqual(
+            set(references),
+            {
+                "references/setup.md",
+                "references/media.md",
+                "references/self-host.md",
+            },
+        )
+        self.assertIn("Hermes Native Buzz Gateway", references["references/setup.md"])
+        self.assertIn("delivery evidence", references["references/media.md"])
+        self.assertIn("omh_buzz_delivery_evidence/v1", references["references/media.md"])
+        self.assertIn("receipt_missing_event_id", references["references/media.md"])
+        self.assertIn("guide, don't drive", references["references/self-host.md"].lower())
+
     def test_display_name_prefix_does_not_degrade_frontmatter_metadata(self) -> None:
         """The `omh-` display prefix must be applied AFTER the definition lookup.
 
@@ -3246,19 +3279,19 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[GitHub Pages site](site/index.html)", readme)
         self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal", readme)
         self.assertIn("replacing Hermes or hiding a coding executor", readme)
-        self.assertIn("**104 installable workflow skills**", readme)
-        self.assertIn("**104개**", localized_readmes["ko"])
-        self.assertIn("**104 個**", localized_readmes["ja"])
-        self.assertIn("**104 个**", localized_readmes["zh"])
-        self.assertIn("나머지 92개", localized_readmes["ko"])
-        self.assertIn("残り 92 個", localized_readmes["ja"])
-        self.assertIn("其余 92 个", localized_readmes["zh"])
+        self.assertIn("**105 installable workflow skills**", readme)
+        self.assertIn("**105개**", localized_readmes["ko"])
+        self.assertIn("**105 個**", localized_readmes["ja"])
+        self.assertIn("**105 个**", localized_readmes["zh"])
+        self.assertIn("나머지 93개", localized_readmes["ko"])
+        self.assertIn("残り 93 個", localized_readmes["ja"])
+        self.assertIn("其余 93 个", localized_readmes["zh"])
         for localized_readme in localized_readmes.values():
             # A localized README stays a trimmed landing page, never a full
             # translation of every English section. The budget grew from 240
             # when the four-surface demo table (22 lines) was added above the
             # h1 in every language, and from 260 when the Ultra-Skills section
-            # (h2 + badge + 11-row table, ~26 lines) landed in every language;
+            # (h2 + badge + 12-row table, ~27 lines) landed in every language;
             # it still sits below README.md's length.
             self.assertLess(len(localized_readme.splitlines()), 290)
             # The trust surface is the evidence table, not the wire token that

@@ -218,9 +218,8 @@ def _matches_allowlist(tokens: list[str], allowlist: tuple[str, ...]) -> bool:
 
 def _run_command(command_text: str, tokens: list[str], *, workdir: Path, timeout: int, truncate: int) -> dict[str, object]:
     try:
-        env = os.environ.copy()
         with tempfile.TemporaryDirectory(prefix="omh-evidence-pycache-") as pycache_dir:
-            env["PYTHONPYCACHEPREFIX"] = pycache_dir
+            env = _minimal_child_environment(pycache_dir)
             proc = subprocess.run(
                 tokens,
                 cwd=str(workdir),
@@ -244,6 +243,20 @@ def _run_command(command_text: str, tokens: list[str], *, workdir: Path, timeout
         "truncated": truncated,
         "passed": proc.returncode == 0,
         "evidence_type": "observed_local_command",
+    }
+
+
+def _minimal_child_environment(pycache_dir: str) -> dict[str, str]:
+    """Return only non-secret process basics for allowlisted evidence probes."""
+
+    return {
+        "HOME": str(Path.home()),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "LC_ALL": os.environ.get("LC_ALL", os.environ.get("LANG", "C.UTF-8")),
+        "PATH": os.environ.get("PATH", os.defpath),
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONPYCACHEPREFIX": pycache_dir,
+        "TMPDIR": os.environ.get("TMPDIR", tempfile.gettempdir()),
     }
 
 

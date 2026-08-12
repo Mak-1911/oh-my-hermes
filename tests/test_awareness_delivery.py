@@ -4,6 +4,7 @@ import json
 import os
 import stat
 import threading
+import time
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,6 +20,7 @@ from omh.plugin_bundle.omh.awareness_delivery import (
     AWARENESS_DELIVERY_SCHEMA_VERSION,
     _awareness_delivery_lock,
     awareness_delivery_path,
+    claim_route_guidance_delivery,
     read_awareness_delivery,
     record_awareness_delivery,
 )
@@ -27,12 +29,11 @@ from omh.plugin_bundle.omh.awareness_delivery import (
 class AwarenessDeliveryLedgerTests(unittest.TestCase):
     """Whether OMH's awareness hook returned a payload for model input.
 
-    Nothing recorded this. `host_observation` drops a record unless the caller
-    supplies `host` and `session_id`, and Hermes passes neither to
-    `pre_llm_call`, so its ledger sat at eight rows from a single day while live
-    turns kept running. Hermes also swallows hook exceptions with a log warning.
-    Awareness could be dead for weeks and the only symptom would be a user
-    learning to type "load OMH" by hand.
+    `host_observation` drops a record unless the caller supplies both `host`
+    and `session_id`. Hermes does pass `session_id` to `pre_llm_call`, but not
+    `host`, so awareness delivery uses its own private metadata ledger rather
+    than claiming a native host-observation row. Hermes also swallows hook
+    exceptions with a log warning, so the ledger must remain fail-open.
     """
 
     def test_an_empty_ledger_reads_as_zero(self) -> None:
@@ -42,6 +43,29 @@ class AwarenessDeliveryLedgerTests(unittest.TestCase):
             self.assertEqual(record["route_hint_count"], 0)
             self.assertEqual(record["last_delivered_at"], "")
             self.assertFalse(record["unreadable"])
+
+    def test_busy_lock_drops_best_effort_counter_without_waiting(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with patch(
+                "omh.plugin_bundle.omh.awareness_delivery._acquire_delivery_lock",
+                return_value="none",
+            ):
+                lock_path = awareness_delivery_path(tmp).with_suffix(".lock")
+                lock_path.parent.mkdir(parents=True, exist_ok=True)
+                handle = lock_path.open("a+b")
+                handle.close()
+                started = time.monotonic()
+                result = record_awareness_delivery(
+                    delivered=False,
+                    route_hint=False,
+                    context_chars=0,
+                    observed_at="2026-08-12T00:00:00Z",
+                    omh_home=tmp,
+                )
+                elapsed = time.monotonic() - started
+
+            self.assertIsNotNone(result)
+            self.assertLess(elapsed, 0.1)
 
     def test_a_delivery_is_counted_with_its_size(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -130,6 +154,7 @@ class AwarenessDeliveryLedgerTests(unittest.TestCase):
                 {
                     "schema_version", "delivery_count", "route_hint_count", "suppressed_count",
                     "first_attempted_at", "first_delivered_at", "last_delivered_at", "last_context_chars",
+                    "accumulated_context_chars", "session_route_fingerprints",
                 },
             )
             self.assertNotIn("2768 chars of prompt", written)
@@ -257,6 +282,96 @@ class AwarenessDeliveryLedgerTests(unittest.TestCase):
 
             self.assertIsNotNone(repaired)
             self.assertEqual(read_awareness_delivery(str(paths.omh_home))["delivery_count"], 1)
+
+    def test_route_claim_hashes_session_identity_and_preserves_route_scope(self) -> None:
+        with TemporaryDirectory() as tmp:
+            session_id = "raw-session-secret"
+
+            self.assertTrue(
+                claim_route_guidance_delivery(
+                    session_id=session_id,
+                    route_fingerprint="route-a",
+                    omh_home=tmp,
+                )
+            )
+            self.assertFalse(
+                claim_route_guidance_delivery(
+                    session_id=session_id,
+                    route_fingerprint="route-a",
+                    omh_home=tmp,
+                )
+            )
+            self.assertTrue(
+                claim_route_guidance_delivery(
+                    session_id=session_id,
+                    route_fingerprint="route-b",
+                    omh_home=tmp,
+                )
+            )
+            self.assertTrue(
+                claim_route_guidance_delivery(
+                    session_id="other-session-secret",
+                    route_fingerprint="route-a",
+                    omh_home=tmp,
+                )
+            )
+            record_awareness_delivery(
+                delivered=True,
+                route_hint=True,
+                context_chars=10,
+                observed_at="2026-08-12T00:00:00Z",
+                omh_home=tmp,
+                session_id="recorded-session-secret",
+                route_fingerprint="route-c",
+            )
+
+            written = awareness_delivery_path(tmp).read_text(encoding="utf-8")
+            fingerprints = read_awareness_delivery(tmp)["session_route_fingerprints"]
+            self.assertNotIn(session_id, written)
+            self.assertNotIn("other-session-secret", written)
+            self.assertNotIn("recorded-session-secret", written)
+            self.assertEqual(len(fingerprints), 3)
+            self.assertTrue(all(key.startswith("sha256:") and len(key) == 71 for key in fingerprints))
+
+    def test_route_claims_keep_only_64_hashed_session_identifiers(self) -> None:
+        with TemporaryDirectory() as tmp:
+            for index in range(65):
+                self.assertTrue(
+                    claim_route_guidance_delivery(
+                        session_id=f"session-{index}",
+                        route_fingerprint="route-a",
+                        omh_home=tmp,
+                    )
+                )
+
+            fingerprints = read_awareness_delivery(tmp)["session_route_fingerprints"]
+            self.assertEqual(len(fingerprints), 64)
+            self.assertTrue(all(key.startswith("sha256:") and len(key) == 71 for key in fingerprints))
+
+    def test_same_session_same_route_claim_is_atomic_for_concurrent_calls(self) -> None:
+        with TemporaryDirectory() as tmp:
+            ready = threading.Barrier(3)
+            results: list[bool] = []
+
+            def claim() -> None:
+                ready.wait(timeout=1)
+                results.append(
+                    claim_route_guidance_delivery(
+                        session_id="shared-session",
+                        route_fingerprint="shared-route",
+                        omh_home=tmp,
+                    )
+                )
+
+            threads = [threading.Thread(target=claim) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            ready.wait(timeout=1)
+            for thread in threads:
+                thread.join(timeout=1)
+                self.assertFalse(thread.is_alive())
+
+            self.assertEqual(sorted(results), [False, True])
 
     def test_delivery_lock_serializes_concurrent_writers(self) -> None:
         with TemporaryDirectory() as tmp:

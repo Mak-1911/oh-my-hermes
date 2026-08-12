@@ -6,6 +6,8 @@ from .catalog import installable_skill_definitions
 from .render import (
     SkillReferenceTemplate,
     SkillTemplate,
+    buzz_reference_templates,
+    buzz_skill,
     code_review_reference_templates,
     context_reference_templates,
     context_skill,
@@ -30,6 +32,7 @@ def builtin_skill_reference_templates() -> list[SkillReferenceTemplate]:
         *wiki_reference_templates(),
         *code_review_reference_templates(),
         *context_reference_templates(),
+        *buzz_reference_templates(),
     ]
 
 
@@ -44,6 +47,8 @@ def _skill_template_for(name: str) -> SkillTemplate:
         return memory_sync_skill()
     if name == "wiki":
         return wiki_skill()
+    if name == "buzz":
+        return buzz_skill()
     return workflow_skill(name)
 
 

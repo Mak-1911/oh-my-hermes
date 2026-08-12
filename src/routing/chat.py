@@ -48,7 +48,7 @@ from .policy import _doctor_health_guard_applies
 from .policy import _explicit_skill_candidate_is_negated
 from .policy import _hermes_setup_guide_requested
 from .policy import _invocation_token
-from .recommend import recommendation_for_definition, recommend_skills
+from .recommend import has_strong_named_catalog_owner, recommendation_for_definition, recommend_skills
 from .route_plan import build_workflow_route_plan, compact_workflow_route_plan
 from .task_cards import classify_task, task_card_recommendation
 from .visual_qa_cues import (
@@ -4637,6 +4637,11 @@ def _guarded_operator_fast_path_decision(
         return None
     guard = _preferred_guarded_operator_fast_path_guard(guards, routing_message)
     if guard is None or not guard.preferred_skills:
+        return None
+    if (
+        guard.id == "toolbelt_readiness_before_generic_or_visual_fallback"
+        and has_strong_named_catalog_owner(routing_message)
+    ):
         return None
     if guard.preferred_skills[0] == "feedback-triage" and _feedback_triage_fast_path_blocked(routing_message):
         return None

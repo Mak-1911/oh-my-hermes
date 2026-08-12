@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 
 from ..awareness import (
     awareness_context_match_degradation,
@@ -16,11 +17,11 @@ from ..degradation import (
     degradation_payload,
     safe_error_type,
 )
-from ..awareness_delivery import record_awareness_delivery
+from ..awareness_delivery import claim_route_guidance_delivery, record_awareness_delivery
 from ..host_context import record_active_main_agent_model
 from ..host_observation import observe_plugin_hook_call
 from ..omh_roles import extract_role_marker, role_context_payload
-from ..runtime_reader import read_omh_hud, read_omh_status
+from ..runtime_reader import read_omh_activity, read_omh_hud, read_omh_status
 from ..status_board_reader import (
     last_running_work_board_fingerprint,
     read_running_work_board,
@@ -41,7 +42,15 @@ def _token_metadata_from_kwargs(kwargs: dict) -> dict[str, object]:
     return {key: kwargs[key] for key in keys if kwargs.get(key) is not None}
 
 
-def _record_delivery(*, delivered: bool, route_hint: bool, context_chars: int, omh_home: str | None) -> None:
+def _record_delivery(
+    *,
+    delivered: bool,
+    route_hint: bool,
+    context_chars: int,
+    omh_home: str | None,
+    session_id: str = "",
+    route_fingerprint: str = "",
+) -> None:
     """Note that this hook ran. Never let bookkeeping break the hook itself."""
     try:
         record_awareness_delivery(
@@ -50,6 +59,8 @@ def _record_delivery(*, delivered: bool, route_hint: bool, context_chars: int, o
             context_chars=context_chars,
             observed_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             omh_home=omh_home or "",
+            session_id=session_id,
+            route_fingerprint=route_fingerprint,
         )
     except (OSError, ValueError, TypeError):
         return
@@ -66,11 +77,20 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     include_awareness = kwargs.get("include_omh_awareness", True) is not False
     route_hint_context = ""
     route_hint_payload: dict[str, object] | None = None
+    route_fingerprint = ""
+    session_id = str(kwargs.get("session_id", "") or "")
     message_matches_awareness = False
     degraded: list[tuple[str, str]] = []
     if include_awareness:
         if is_first_turn:
-            message_matches_awareness = True
+            route_hint_payload = awareness_route_hint(user_message)
+            route_hint_context = awareness_route_hint_context_from_payload(route_hint_payload)
+            message_matches_awareness = bool(route_hint_context)
+            route_degradation = route_hint_payload.get("degradation")
+            if isinstance(route_degradation, dict):
+                for row in route_degradation.get("components", []):
+                    if isinstance(row, dict):
+                        degraded.append((str(row.get("component", "")), str(row.get("error_type", ""))))
         else:
             # The matcher is called exactly when it is called today; the
             # `is_first_turn` short circuit is preserved because the cache-count
@@ -80,12 +100,21 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
             match_error = awareness_context_match_degradation(user_message)
             if match_error:
                 degraded.append((COMPONENT_LOCALIZED_ROUTING_TEXT, match_error))
-        if message_matches_awareness:
+        if message_matches_awareness and route_hint_payload is None:
             route_hint_payload = awareness_route_hint(user_message)
             route_hint_context = awareness_route_hint_context_from_payload(route_hint_payload)
+        if route_hint_context:
+            route_fingerprint = hashlib.sha256(route_hint_context.encode("utf-8")).hexdigest()
+            if not claim_route_guidance_delivery(
+                session_id=session_id,
+                route_fingerprint=route_fingerprint,
+                omh_home=str(kwargs.get("omh_home", "") or ""),
+            ):
+                route_hint_context = ""
+                message_matches_awareness = False
     should_include_awareness = (
         include_awareness
-        and (is_first_turn or bool(route_hint_context) or message_matches_awareness)
+        and (bool(route_hint_context) or message_matches_awareness)
     )
     if should_include_awareness:
         context_parts.append(awareness_primer_context())
@@ -127,14 +156,26 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     try:
         omh_home = str(kwargs.get("omh_home", "") or "") or None
         hermes_home = str(kwargs.get("hermes_home", "") or "") or None
-        status = read_omh_status(omh_home=omh_home, limit=3)
-        hud = read_omh_hud(
-            omh_home=omh_home,
-            hermes_home=hermes_home,
-            preset="focused",
-            limit=3,
-            token_metadata=_token_metadata_from_kwargs(kwargs),
-        )
+        try:
+            activity = read_omh_activity(omh_home=omh_home, limit=3)
+        except Exception as exc:
+            # Keep the historical degradation component stable while moving
+            # the hot path from full status to the active-only projection.
+            degraded.append((COMPONENT_RUNTIME_STATUS_READ, safe_error_type(type(exc).__name__)))
+            activity = {"active_executors": []}
+        if activity.get("active_executors"):
+            status = read_omh_status(omh_home=omh_home, limit=3)
+            hud = read_omh_hud(
+                omh_home=omh_home,
+                hermes_home=hermes_home,
+                status=status,
+                preset="focused",
+                limit=3,
+                token_metadata=_token_metadata_from_kwargs(kwargs),
+            )
+        else:
+            status = activity
+            hud = {}
     except Exception as exc:
         # The read raised. Without this the next branch reads the empty status
         # as `runtime_state_present` being false, so a failed status read looks
@@ -142,6 +183,21 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         status = {}
         hud = {}
         degraded.append((COMPONENT_RUNTIME_STATUS_READ, safe_error_type(type(exc).__name__)))
+
+    if include_awareness and is_first_turn and status.get("active_executors") and not should_include_awareness:
+        context_parts.insert(0, awareness_primer_context())
+        payload["omh_context_brief"] = build_context_brief(
+            user_message,
+            source=str(kwargs.get("source") or kwargs.get("host") or "pre_llm_call"),
+            max_hints=2,
+            include_prompt_context=False,
+            route_hint_payload=route_hint_payload,
+        )
+        brief = payload.get("omh_context_brief")
+        if isinstance(brief, dict):
+            for row in brief.get("degradation", {}).get("components", []):
+                if isinstance(row, dict):
+                    degraded.append((str(row.get("component", "")), str(row.get("error_type", ""))))
 
     board = read_running_work_board(omh_home, limit=6)
     running_count = int(board.get("running_count", 0) or 0)
@@ -158,14 +214,12 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     if (
         not context_parts
         and not degradation
-        and not status.get("runtime_state_present")
-        and not status.get("runs")
+        and not status.get("active_executors")
         and not show_running_work
     ):
-        _record_delivery(delivered=False, route_hint=False, context_chars=0, omh_home=omh_home)
         return None
 
-    if status.get("runtime_state_present") or status.get("runs"):
+    if status.get("active_executors"):
         lines = [
             str(hud.get("display", {}).get("line", "[omh] status unavailable")),
             "[OMH] Native bridge status context.",
@@ -174,6 +228,16 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         latest_run_id = status.get("latest_run_id")
         if latest_run_id:
             lines.append(f"Latest runtime run: {latest_run_id}.")
+        for executor in status.get("active_executors", [])[:3]:
+            profile = executor.get("executor_profile") or executor.get("executor") or "unknown"
+            target_type = executor.get("target_type") or "unknown"
+            state = executor.get("state") or "active"
+            latest_event = executor.get("latest_event", {})
+            event_status = latest_event.get("status", "") if isinstance(latest_event, dict) else ""
+            suffix = f", status={event_status}" if event_status else ""
+            lines.append(
+                f"- active executor: profile={profile}, target_type={target_type}, state={state}{suffix}."
+            )
         for run in status.get("runs", [])[:3]:
             run_id = run.get("run_id", "unknown")
             workflow = run.get("workflow", "unknown")
@@ -210,5 +274,7 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         route_hint=bool(route_hint_context),
         context_chars=len(payload["context"]),
         omh_home=omh_home,
+        session_id=session_id,
+        route_fingerprint=route_fingerprint,
     )
     return payload

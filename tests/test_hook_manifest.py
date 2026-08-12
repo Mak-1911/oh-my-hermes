@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import unittest
 from tempfile import TemporaryDirectory
@@ -78,9 +77,8 @@ class HookManifestTests(unittest.TestCase):
         self.assertIn("omh_context_brief", hooks["pre_llm_call"]["payload_fields"])
         self.assertIn("omh_route_hint", hooks["pre_llm_call"]["payload_fields"])
         self.assertIn("bounded_status_context", hooks["pre_llm_call"]["payload_fields"])
-        self.assertIn("omh_generic_tool_checkpoint", hooks["pre_tool_call"]["payload_fields"])
-        self.assertIn("tool_family_hint", hooks["pre_tool_call"]["payload_fields"])
-        self.assertIn("redacted", hooks["pre_tool_call"]["payload_fields"])
+        self.assertNotIn("omh_generic_tool_checkpoint", hooks["pre_tool_call"]["payload_fields"])
+        self.assertEqual(hooks["pre_tool_call"]["payload_fields"], ["context"])
         self.assertIn("executor_opened", events)
         self.assertIn("selected_executor_profile", events["executor_opened"]["payload_fields"])
         self.assertIn("native_command_registered", events)
@@ -133,18 +131,306 @@ class HookManifestTests(unittest.TestCase):
             self.assertEqual(read_awareness_delivery(explicit_home)["delivery_count"], 1)
             self.assertEqual(read_awareness_delivery(env_home)["delivery_count"], 0)
 
-    def test_pre_llm_call_records_suppression_in_explicit_omh_home(self) -> None:
+    def test_pre_llm_call_does_not_rewrite_delivery_ledger_for_idle_turns(self) -> None:
         with TemporaryDirectory() as explicit_home, TemporaryDirectory() as env_home:
             with patch.dict(os.environ, {"OMH_HOME": env_home}):
                 result = pre_llm_call(
                     user_message="",
                     is_first_turn=False,
+                    session_id="session-idle",
+                    task_id="task-idle",
+                    turn_id="turn-idle",
                     omh_home=explicit_home,
                 )
 
             self.assertIsNone(result)
-            self.assertEqual(read_awareness_delivery(explicit_home)["suppressed_count"], 1)
-            self.assertEqual(read_awareness_delivery(env_home)["suppressed_count"], 0)
+            self.assertFalse(os.path.exists(os.path.join(explicit_home, "runtime", "awareness_delivery.json")))
+            self.assertEqual(read_awareness_delivery(env_home)["delivery_count"], 0)
+
+    def test_generic_first_turn_skips_setup_only_context_and_hud(self) -> None:
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value={"runtime_state_present": True, "runs": []},
+                ) as status_read,
+                patch("omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_hud") as hud_read,
+            ):
+                result = pre_llm_call(
+                    user_message="Hello, how are you?",
+                    is_first_turn=True,
+                    omh_home=omh_home,
+                )
+
+            self.assertIsNone(result)
+            status_read.assert_not_called()
+            hud_read.assert_not_called()
+            self.assertFalse(os.path.exists(os.path.join(omh_home, "runtime", "awareness_delivery.json")))
+
+    def test_relevant_first_turn_keeps_route_hint_without_setup_status(self) -> None:
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value={"runtime_state_present": True, "runs": []},
+                ),
+                patch("omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_hud") as hud_read,
+            ):
+                result = pre_llm_call(
+                    user_message="make an image explaining the cron feature",
+                    is_first_turn=True,
+                    omh_home=omh_home,
+                )
+
+            self.assertIsNotNone(result)
+            self.assertIn("[OMH Awareness]", result["context"])
+            self.assertIn("selected=img-summary", result["context"])
+            self.assertNotIn("Native bridge status context", result["context"])
+            hud_read.assert_not_called()
+
+    def test_first_turn_task_routes_do_not_depend_on_mid_session_matcher(self) -> None:
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.awareness_context_matches_message",
+                    return_value=False,
+                ) as matcher,
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value={"runtime_state_present": True, "runs": []},
+                ),
+            ):
+                results = [
+                    pre_llm_call(
+                        user_message=message,
+                        is_first_turn=True,
+                        omh_home=omh_home,
+                    )
+                    for message in ("prepare a safe feature plan", "implement this", "review this PR")
+                ]
+
+            matcher.assert_not_called()
+            self.assertTrue(all(result is not None for result in results))
+            self.assertTrue(all("[OMH Route Hint]" in result["context"] for result in results if result))
+
+    def test_repeated_route_guidance_is_suppressed_within_one_session(self) -> None:
+        with TemporaryDirectory() as omh_home:
+            first = pre_llm_call(
+                user_message="review this PR",
+                is_first_turn=True,
+                session_id="session-a",
+                task_id="task-a",
+                turn_id="turn-1",
+                omh_home=omh_home,
+            )
+            with open(
+                os.path.join(omh_home, "runtime", "awareness_delivery.json"), "rb"
+            ) as handle:
+                before_suppression = handle.read()
+            second = pre_llm_call(
+                user_message="review this PR",
+                is_first_turn=False,
+                session_id="session-a",
+                task_id="task-a",
+                turn_id="turn-2",
+                omh_home=omh_home,
+            )
+            with open(
+                os.path.join(omh_home, "runtime", "awareness_delivery.json"), "rb"
+            ) as handle:
+                after_suppression = handle.read()
+            different_route = pre_llm_call(
+                user_message="make an image explaining the cron feature",
+                is_first_turn=False,
+                session_id="session-a",
+                task_id="task-a",
+                turn_id="turn-3",
+                omh_home=omh_home,
+            )
+            other_session = pre_llm_call(
+                user_message="review this PR",
+                is_first_turn=True,
+                session_id="session-b",
+                task_id="task-b",
+                turn_id="turn-1",
+                omh_home=omh_home,
+            )
+
+            self.assertIsNotNone(first)
+            self.assertIsNone(second)
+            self.assertEqual(after_suppression, before_suppression)
+            self.assertIsNotNone(different_route)
+            self.assertIsNotNone(other_session)
+            delivery = read_awareness_delivery(omh_home)
+            self.assertEqual(delivery["delivery_count"], 3)
+            self.assertEqual(delivery["suppressed_count"], 0)
+            self.assertGreater(delivery["accumulated_context_chars"], 0)
+            written = os.path.join(omh_home, "runtime", "awareness_delivery.json")
+            with open(written, encoding="utf-8") as handle:
+                serialized = handle.read()
+            for raw_identifier in ("session-a", "session-b", "task-a", "task-b", "turn-1"):
+                self.assertNotIn(raw_identifier, serialized)
+
+    def test_first_turn_route_failure_keeps_degradation_signal(self) -> None:
+        route_failure = {
+            "status": "no_hint",
+            "degradation": {
+                "components": [
+                    {
+                        "component": "localized_routing_text",
+                        "error_type": "RuntimeError",
+                    }
+                ]
+            },
+        }
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.awareness_route_hint",
+                    return_value=route_failure,
+                ),
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value={"runtime_state_present": True, "runs": []},
+                ),
+            ):
+                result = pre_llm_call(
+                    user_message="Hello, how are you?",
+                    is_first_turn=True,
+                    omh_home=omh_home,
+                )
+
+            self.assertIsNotNone(result)
+            self.assertEqual(
+                result["omh_degradation"]["components"],
+                [{"component": "localized_routing_text", "error_type": "RuntimeError"}],
+            )
+            self.assertIn("[OMH Degraded] components=localized_routing_text", result["context"])
+
+    def test_historical_runs_do_not_trigger_status_context(self) -> None:
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_activity",
+                    return_value={"active_executors": []},
+                ),
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value={
+                        "runtime_state_present": True,
+                        "runs": [{"run_id": "old-run", "phase": "completed"}],
+                        "active_executors": [],
+                    },
+                ),
+                patch("omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_hud") as hud_read,
+            ):
+                result = pre_llm_call(
+                    user_message="Hello, how are you?",
+                    is_first_turn=True,
+                    omh_home=omh_home,
+                )
+
+            self.assertIsNone(result)
+            hud_read.assert_not_called()
+
+    def test_active_executor_triggers_status_context(self) -> None:
+        active_executor = {
+            "executor_profile": "codex",
+            "target_type": "wrapper_session",
+            "state": "active",
+            "latest_event": {"status": "running"},
+        }
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_activity",
+                    return_value={"active_executors": [active_executor]},
+                ),
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value={
+                        "runtime_state_present": True,
+                        "runs": [],
+                        "active_executors": [active_executor],
+                    },
+                ),
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_hud",
+                    return_value={"display": {"line": "[omh] active"}},
+                ) as hud_read,
+            ):
+                result = pre_llm_call(
+                    user_message="Hello, how are you?",
+                    is_first_turn=True,
+                    omh_home=omh_home,
+                )
+
+            self.assertIsNotNone(result)
+            self.assertIn("[omh] active", result["context"])
+            self.assertIn(
+                "- active executor: profile=codex, target_type=wrapper_session, state=active, status=running.",
+                result["context"],
+            )
+            hud_read.assert_called_once()
+
+    def test_active_executor_reuses_single_status_snapshot(self) -> None:
+        status = {
+            "runtime_state_present": True,
+            "runs": [],
+            "active_executors": [
+                {
+                    "executor_profile": "codex",
+                    "target_type": "wrapper_session",
+                    "state": "active",
+                    "latest_event": {"status": "running"},
+                }
+            ],
+        }
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_activity",
+                    return_value={"active_executors": status["active_executors"]},
+                ),
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status",
+                    return_value=status,
+                ) as status_read,
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_hud",
+                    return_value={"display": {"line": "[omh] active"}},
+                ) as hud_read,
+            ):
+                result = pre_llm_call(
+                    user_message="implement this feature",
+                    is_first_turn=True,
+                    omh_home=omh_home,
+                )
+
+            self.assertIsNotNone(result)
+            status_read.assert_called_once()
+            self.assertIs(hud_read.call_args.kwargs["status"], status)
+
+    def test_idle_turn_skips_full_status_projection(self) -> None:
+        with TemporaryDirectory() as omh_home:
+            with (
+                patch(
+                    "omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_activity",
+                    return_value={"active_executors": []},
+                ),
+                patch("omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_status") as status_read,
+                patch("omh.plugin_bundle.omh.hooks.llm_hooks.read_omh_hud") as hud_read,
+            ):
+                result = pre_llm_call(
+                    user_message="Hello, how are you?",
+                    is_first_turn=False,
+                    omh_home=omh_home,
+                    include_omh_awareness=False,
+                )
+
+            self.assertIsNone(result)
+            status_read.assert_not_called()
+            hud_read.assert_not_called()
 
     def test_awareness_route_hint_is_metadata_only_and_message_specific(self) -> None:
         message = "make an image explaining the cron feature with secret-token-123"
@@ -323,6 +609,10 @@ class HookManifestTests(unittest.TestCase):
         self.assertIn("not_evidence_yet=file export, image generation", context)
         self.assertEqual(context_brief["schema_version"], "omh_context_brief/v1")
         self.assertEqual(context_brief["source"], "pre_llm_call")
+        self.assertEqual(
+            context_brief["generic_tool_checkpoint"]["schema_version"],
+            "omh_generic_tool_checkpoint/v1",
+        )
         self.assertEqual(context_brief["route_hint"]["primary_workflow"], "img-summary")
         self.assertEqual(context_brief["route_hint"]["primary_next_action"], "prepare_visual_prompt_card")
         self.assertEqual(
@@ -368,51 +658,31 @@ class HookManifestTests(unittest.TestCase):
         self.assertNotIn(message, str(context_brief))
         self.assertNotIn("secret-token-123", str(context_brief))
 
-    def test_pre_tool_call_injects_generic_tool_checkpoint_without_raw_input(self) -> None:
+    def test_pre_tool_call_does_not_emit_unsupported_observer_context(self) -> None:
         cases = (
-            ("image_generate", {}, "image_tools", "img-summary", "prepare_visual_prompt_card"),
-            ("write_file", {}, "file_tools", "materials-package", "prepare_material_package"),
-            ("web_search", {}, "search_tools", "research", "gather_source_backed_evidence"),
-            ("codex_session_open", {}, "coding_tools", "ultraprocess", "prepare_one_cycle_delivery"),
-            ("python_runner", {"tool_family": "search"}, "search_tools", "research", "gather_source_backed_evidence"),
+            ("image_generate", {}),
+            ("write_file", {}),
+            ("web_search", {}),
+            ("codex_session_open", {}),
+            ("python_runner", {"tool_family": "search"}),
         )
 
-        for tool_name, extra_kwargs, tool_family, workflow, next_action in cases:
+        for tool_name, extra_kwargs in cases:
             with self.subTest(tool_name=tool_name):
                 result = pre_tool_call(
                     tool_name=tool_name,
                     tool_input={"prompt": "secret-token-123 should never appear"},
                     **extra_kwargs,
                 )
-                context = result["context"] if result else ""
-                checkpoint = result["omh_generic_tool_checkpoint"] if result else {}
-                serialized_checkpoint = json.dumps(checkpoint, sort_keys=True)
+                self.assertIsNone(result)
 
-                self.assertIn("[OMH Tool Checkpoint]", context)
-                self.assertIn("schema=omh_generic_tool_checkpoint/v1", context)
-                self.assertIn(f"tool_family={tool_family}", context)
-                self.assertIn(f"workflow={workflow}", context)
-                self.assertIn(f"next_action={next_action}", context)
-                self.assertIn("advisory tool-use context only", context)
-                self.assertEqual(checkpoint["schema_version"], "omh_generic_tool_checkpoint/v1")
-                self.assertEqual(checkpoint["source"], "pre_tool_call")
-                self.assertEqual(checkpoint["tool_name"], tool_name)
-                self.assertEqual(checkpoint["tool_family"], tool_family)
-                self.assertEqual(checkpoint["primary_workflow"], workflow)
-                self.assertEqual(checkpoint["primary_next_action"], next_action)
-                self.assertFalse(checkpoint["privacy"]["raw_tool_input_stored"])
-                self.assertFalse(checkpoint["privacy"]["raw_tool_input_echoed"])
-                self.assertIn("Advisory tool-use context only", checkpoint["claim_boundary"])
-                self.assertNotIn("secret-token-123", context)
-                self.assertNotIn("should never appear", context)
-                self.assertNotIn("secret-token-123", serialized_checkpoint)
-                self.assertNotIn("should never appear", serialized_checkpoint)
-
-    def test_pre_tool_call_checkpoint_can_be_disabled(self) -> None:
+    def test_pre_tool_call_preserves_delegate_role_warning(self) -> None:
         result = pre_tool_call(
-            tool_name="image_generate",
-            tool_input={"prompt": "secret-token-123"},
-            include_omh_tool_checkpoint=False,
+            tool_name="delegate_task",
+            tool_input={"goal": "[omh-role:not-a-role] prepare a plan"},
         )
 
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertEqual(set(result or {}), {"context"})
+        self.assertIn("[OMH Role Warning]", str((result or {}).get("context", "")))
+        self.assertIn("Unknown role 'not-a-role'", str((result or {}).get("context", "")))

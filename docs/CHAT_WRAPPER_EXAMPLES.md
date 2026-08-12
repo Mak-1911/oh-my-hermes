@@ -388,13 +388,10 @@ These routes are advisory. They tell Hermes which OMH workflow to consider
 before a generic tool, while image generation, file export, search retrieval,
 coding dispatch, review, CI, and merge remain observed-only claims.
 
-When the managed OMH plugin is loaded, its `pre_tool_call` hook can emit the
-same checkpoint before image, file, search, or coding tool calls. It returns the
-legacy text context plus a structured `omh_generic_tool_checkpoint/v1` payload
-with the tool family, preferred workflow, next action, fallback action, and
-not-yet-evidence list. The hook uses tool metadata such as `tool_name` or
-`tool_family`; it does not copy the raw image prompt, file body, search query,
-or coding task into the context or structured payload.
+The managed plugin does not mirror this checkpoint from its `pre_tool_call`
+hook. That hook is limited to validating `delegate_task` role markers and
+warning when a requested OMH role is unknown; it does not copy raw tool input
+into injected context.
 
 Capability-specific catalog questions and short image requests should also stay
 workflow-native. If the user asks "이미지 생성 기능 뭐 있어?", "이미지 생성해줘",

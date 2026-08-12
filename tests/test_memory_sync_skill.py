@@ -227,7 +227,7 @@ class MemorySyncSkillTests(unittest.TestCase):
     def test_memory_sync_full_only(self) -> None:
         self.assertNotIn("memory-sync", CORE_PROFILE_SKILLS)
         self.assertEqual(len(CORE_SKILLS), 5)
-        self.assertEqual(len(CORE_PROFILE_SKILLS), 9)
+        self.assertEqual(len(CORE_PROFILE_SKILLS), 10)
 
 
 class DocsRolesCommandTests(unittest.TestCase):

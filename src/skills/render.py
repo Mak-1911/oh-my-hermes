@@ -1029,7 +1029,11 @@ Use lifecycle words literally: expire removes influence only; retire archives re
 
 An attention tier is not a lifecycle state, and the two uses of "archive" are different: the `archive` tier only stops a record from occupying the default working context, leaving it in the store, readable, and answerable by `omh memory recall --include-archived`, while `retire` moves an expired revision into the local archive directory. Neither is deletion; never describe either as one.
 
-Legacy v1 material is migration/review-required. Present `memory inventory` counts and the report-first per-artifact `memory reactivate ... --apply` path; inventory and reactivation never silently grant replay eligibility. Dreaming remains reminder-only: it prepares reminders for `stale_review_required` and `expired_volatile_records`, never consolidation, retirement, restore, or prune.
+Legacy v1 material is migration/review-required. Present `memory inventory` counts and the report-first per-artifact `memory reactivate ... --apply` path; inventory and reactivation never silently grant replay eligibility.
+
+Dreaming runs automatically in reminder mode at five scheduler points: `turn` when the interval is due (default five turns), `compaction` before compression discards messages, `session_end` after a productive session, `shutdown` as the final process opportunity, and `session_start_recovery` when the prior session ended without consolidation. It prepares reminders for duplicate clusters, records at or near their deadline, headroom below the configured floor, `stale_review_required`, and `expired_volatile_records`; an unchanged standing condition is suppressed until its value changes. Anything whose source OMH cannot explain is not a candidate. Dreaming never invokes a model or performs consolidation, retirement, restore, or prune.
+
+Treat ranking signals within their limits: pins guarantee inclusion but never override expiry, scope, perspective, or review eligibility; attention tiers control working-context occupancy, not truth; `approved_manual` has 100% veracity weight and `approved_auto_safe` 90%, while an unknown approval mode fails closed to the lower weight; age only breaks ties within an equal relevance rank; and usage uses saturating buckets so repeated delivery cannot compound into a permanent lead.
 
 Normal users use natural-language Hermes chat. `omh memory ...` commands are agent/operator control-plane references, not normal-user setup.
 
@@ -1365,6 +1369,224 @@ def _wiki_ecosystem_reference() -> str:
     lines.append(catalog.source.claim_boundary)
     return "\n".join(lines) + "\n"
 
+
+def buzz_skill() -> SkillTemplate:
+    template = workflow_skill("buzz")
+    lane_section = """## Choose One Internal Lane
+
+`omh-buzz` is the only public skill. Choose exactly one reference from the
+request's meaning after this skill is selected:
+
+- Load `references/setup.md` to connect or repair Hermes' native Buzz gateway.
+- Load `references/media.md` to deliver a local attachment to the active Buzz
+  conversation and report staged delivery evidence.
+- Load `references/self-host.md` to inspect or guide a self-hosted Buzz relay.
+
+Do not expose these references as separate skills and do not select them with
+a hard-coded keyword branch. If the request genuinely spans lanes, start with
+setup/readiness, then load only the next reference required by observed state.
+
+## Ownership Boundary
+
+Hermes owns the native Buzz transport, authentication, inbound subscriptions,
+and outbound CLI invocation. OMH owns this operator workflow, the `buzz`
+platform identity layered over source `hermes`, safe evidence boundaries, and
+progressive guidance. Block's Buzz relay and CLI own their runtime semantics.
+
+"""
+    content = template.content.replace("## Use When\n", lane_section + "## Use When\n", 1)
+    return SkillTemplate(template.name, content)
+
+
+def buzz_reference_templates() -> list[SkillReferenceTemplate]:
+    return list(_buzz_reference_templates_cached())
+
+
+@lru_cache(maxsize=1)
+def _buzz_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
+    return (
+        SkillReferenceTemplate("buzz", "references/setup.md", _setup_reference()),
+        SkillReferenceTemplate("buzz", "references/media.md", _media_reference()),
+        SkillReferenceTemplate("buzz", "references/self-host.md", _self_host_reference()),
+    )
+
+
+def _setup_reference() -> str:
+    return """# Hermes Native Buzz Gateway Setup
+
+Use this lane to connect or repair a Hermes gateway that should participate as
+a native agent in a Buzz community. Hermes owns the adapter; do not build a
+second transport in OMH.
+
+## Inputs
+
+- The target Hermes home/profile.
+- The Buzz community relay URL.
+- A dedicated agent identity that is already admitted to the community.
+- The intended access policy: owner-only, allowlist, or open.
+- An observable verification target: inbound message, outbound message, or
+  both.
+
+Do not ask the user to paste a private key into chat. A private key belongs in
+the target Hermes `.env`; non-secret gateway settings belong in Hermes config.
+
+## Safe Setup
+
+1. Read the current official Hermes Buzz guide and the stable Buzz release
+   notes when they conflict with this reference.
+2. Check whether `hermes` and the configured Buzz CLI executable exist.
+   Presence is installation evidence, not relay readiness.
+3. Confirm that the agent identity is separate from the human owner identity
+   and is already a member of the target community.
+4. Prefer `hermes gateway setup` and select Buzz. Use direct config editing
+   only when the guided setup cannot express the accepted configuration.
+5. Keep `BUZZ_PRIVATE_KEY` in the Hermes `.env`. Never put it in argv, logs,
+   diagnostic output, workflow artifacts, or version-control.
+6. Configure the relay URL, agent display name, optional channel/DM scope,
+   transport mode, and access policy. Do not silently broaden `allow_from`.
+7. Start or restart the Hermes gateway only when the user asked for execution.
+
+## Read-only Diagnosis
+
+Observe these independently:
+
+| Stage | Passing evidence |
+|---|---|
+| configuration | Buzz is enabled and required non-secret fields are present |
+| executable | the exact configured CLI path resolves and reports a version |
+| identity | a public identity can be derived without printing the private key |
+| membership | the agent identity is admitted to the intended community |
+| transport | Hermes reports WebSocket or polling activity for Buzz |
+| inbound | a new addressed event reaches Hermes without history replay |
+| outbound | the send receipt has `accepted=true` and a non-empty event id |
+
+Report missing or inaccessible evidence as `not_observed`; do not turn it into
+success. Keep raw relay URLs, account identifiers, channel ids, event ids, and
+filesystem paths out of reusable workflow artifacts unless the user explicitly
+requests an operator-local artifact.
+
+## Recovery
+
+- Authentication failure: separate key format, relay membership, NIP-42, and
+  owner-attestation evidence before changing configuration.
+- No inbound messages: distinguish connection state, channel scope, mention
+  policy, DM discovery, and self-echo/de-duplication behavior.
+- Outbound ambiguity: do not auto-retry when the relay may have accepted an
+  event but the response was lost.
+- CLI absent: stop at installation guidance; never claim gateway readiness.
+"""
+
+
+def _media_reference() -> str:
+    return """# Buzz Media Delivery
+
+Use this lane only for a local attachment destined for the active Buzz
+conversation. General media editing belongs to the media workflows.
+
+## Preflight
+
+1. Confirm the source path exists, is readable, and is the file the user meant.
+2. Use the live Hermes Buzz context or gateway evidence to obtain the current
+   channel/conversation id. Never guess it.
+3. Inspect relevant media metadata. For video, use `ffprobe` when available.
+4. Preserve the private key in the subprocess environment only; never add it
+   to command arguments or rendered output.
+
+## Delivery
+
+Prefer Hermes' normal `MEDIA:/absolute/path` delivery. If the native response
+path cannot deliver the file and the user still wants direct Buzz delivery,
+use the documented Buzz CLI attachment command against the observed active
+channel.
+
+Treat the receipt as valid delivery evidence only when it parses as an object,
+contains `accepted=true`, and includes a non-empty event id. Empty stdout,
+empty objects, malformed JSON, `accepted=false`, or an accepted response
+without an event id are failures or ambiguous outcomes, never success.
+
+When a raw receipt is available, classify it with
+`omh.system.buzz_delivery.parse_buzz_delivery_receipt`. Its
+`omh_buzz_delivery_evidence/v1` reason codes include
+`receipt_not_json_object`, `receipt_missing_accepted`, `receipt_rejected`,
+`receipt_missing_event_id`, and `event_accepted`.
+
+Do not auto-retry an ambiguous write: the relay may have accepted the first
+event and lost only the response.
+
+## Evidence Ladder
+
+Report the highest observed stage and leave later stages unobserved:
+
+1. `prepared` — file and target validated.
+2. `uploaded` — bytes were accepted by the upload surface.
+3. `event_accepted` — relay receipt has `accepted=true` and an event id.
+4. `retrievable` — the attachment URL can be fetched.
+5. `subscription_observed` — the event appears on a subscribed Buzz client.
+6. `client_rendered` — the intended client rendered the attachment.
+
+An event id does not prove client rendering. A local CLI exit code does not
+prove relay acceptance.
+
+## Media Recovery
+
+- MP4 rejected or not rendered: first try a fast-start remux when the codecs
+  are already compatible; re-encode only when necessary.
+- Animation rejected: convert to a supported format only with the user's
+  approval because conversion changes the artifact.
+- Oversized file: report the observed limit and ask before transcoding.
+- Wrong channel evidence: stop and recover the current live context instead of
+  sending to a guessed destination.
+"""
+
+
+def _self_host_reference() -> str:
+    return """# Self-hosted Buzz Relay
+
+Use this lane to inspect or guide a Buzz relay deployed with the official
+Compose topology. Guide, don't drive: present state-changing commands and let
+the user approve and run them unless execution was explicitly requested.
+
+## Read-only Failure Tree
+
+Inspect the stack in this order:
+
+1. Compose resolution and exact image/component versions.
+2. Relay process state and logs.
+3. Postgres connectivity and migration state.
+4. Redis connectivity.
+5. MinIO/S3 reachability, bucket policy, and upload path.
+6. Persistent disk availability and ownership.
+7. Relay readiness endpoint.
+8. External client and Hermes connectivity.
+
+A green relay readiness response does not prove MinIO, upload, or disk health.
+Name those blind spots instead of collapsing the stack into one boolean.
+
+## Safety Gates
+
+- Treat non-loopback database, cache, object-store admin, or management binds
+  as a blocking exposure unless an accepted network policy proves otherwise.
+- Resolve Compose overlays before judging the effective bind or environment.
+- Never print secret values or copy an entire dotenv into a diagnostic child.
+- Do not recommend plaintext backups for private keys or owner-attestation
+  material.
+- Record exact component versions before migrations, upgrades, or restores.
+
+## Mutating Operations
+
+For start, stop, upgrade, membership change, backup, or restore:
+
+1. Name the exact target and expected state transition.
+2. Capture the version and persistence layout.
+3. Require the user's approval.
+4. Name rollback and data-loss boundaries.
+5. Run one bounded operation.
+6. Re-observe every affected layer; do not infer recovery from command exit.
+
+Target-deployment auth, route, media, backup, and restore remain unverified
+until executed against that deployment. Static Compose inspection is not E2E
+evidence.
+"""
 
 def workflow_skill(name: str) -> SkillTemplate:
     definition = _definitions_by_name()[name]
