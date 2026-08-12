@@ -81,6 +81,7 @@ class WindowsDomainStoreLockTests(unittest.TestCase):
                 security.os,
                 "fchmod",
                 side_effect=AssertionError("os.fchmod is unavailable on Windows"),
+                create=True,
             ),
         )
 

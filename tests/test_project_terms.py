@@ -10,6 +10,7 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -247,6 +248,45 @@ class ProjectTermsCharacterizationTests(unittest.TestCase):
 
 
 class ProjectTermsCaptureTests(unittest.TestCase):
+    def test_windows_cross_api_snapshots_ignore_only_incompatible_ctime(self) -> None:
+        before = SimpleNamespace(
+            st_dev=1,
+            st_ino=2,
+            st_mode=stat.S_IFREG | 0o600,
+            st_size=3,
+            st_mtime_ns=4,
+            st_ctime_ns=5,
+        )
+        ctime_only = SimpleNamespace(**{**vars(before), "st_ctime_ns": 6})
+        size_changed = SimpleNamespace(**{**vars(before), "st_size": 7})
+        with (
+            patch.object(
+                project_terms_capture,
+                "_WINDOWS_PATH_CTIME_IS_BIRTHTIME",
+                True,
+            ),
+            patch.object(
+                domain_intelligence_store_writer,
+                "_WINDOWS_PATH_CTIME_IS_BIRTHTIME",
+                True,
+            ),
+        ):
+            self.assertTrue(
+                project_terms_capture._same_cross_api_file_snapshot(before, ctime_only)
+            )
+            self.assertFalse(
+                project_terms_capture._same_cross_api_file_snapshot(before, size_changed)
+            )
+            self.assertEqual(
+                domain_intelligence_store_writer._portable_cross_api_snapshot(before),
+                domain_intelligence_store_writer._portable_cross_api_snapshot(ctime_only),
+            )
+            self.assertNotEqual(
+                domain_intelligence_store_writer._portable_cross_api_snapshot(before),
+                domain_intelligence_store_writer._portable_cross_api_snapshot(size_changed),
+            )
+        self.assertFalse(project_terms_capture._same_file_snapshot(before, ctime_only))
+
     def test_cli_file_preview_is_stable_and_never_mutates_the_store(self) -> None:
         with TemporaryDirectory() as temporary:
             root = _repository(Path(temporary) / "preview-repo")

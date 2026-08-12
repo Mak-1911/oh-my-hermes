@@ -50,6 +50,7 @@ _NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
 _DIRECTORY_FLAG = getattr(os, "O_DIRECTORY", 0)
 _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
 _NONBLOCK_FLAG = getattr(os, "O_NONBLOCK", 0)
+_WINDOWS_PATH_CTIME_IS_BIRTHTIME = os.name == "nt"
 _PROJECT_TERMS_SOURCE_REF = re.compile(r"^pt_sha256:([0-9a-f]{64})$")
 _CAPTURE_OPERATION_SCHEMA_VERSION = "project_terms_candidate_batch_operation/v1"
 _CAPTURE_OPERATION_PREFIX = "project_terms_"
@@ -269,7 +270,10 @@ def _read_repository_project_terms_with_identity_checks(root: Path) -> bytes:
         if not _same_identity(source_before, source_opened):
             raise ValueError("project_terms_source_changed_while_reading")
         source = _read_project_terms_descriptor(source_fd, source_opened)
-        if not _same_file_snapshot(source_opened, _stat_source_path_after_read(source_path)):
+        if not _same_cross_api_file_snapshot(
+            source_opened,
+            _stat_source_path_after_read(source_path),
+        ):
             raise ValueError("project_terms_source_changed_while_reading")
         if not _same_identity(root_before, _stat_without_symlinks(root)):
             raise ValueError("project_terms_repository_root_changed_while_reading")
@@ -396,6 +400,18 @@ def _file_snapshot(metadata: os.stat_result) -> tuple[int, int, int, int, int, i
 
 def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
     return _file_snapshot(left) == _file_snapshot(right)
+
+
+def _same_cross_api_file_snapshot(
+    left: os.stat_result,
+    right: os.stat_result,
+) -> bool:
+    left_snapshot = _file_snapshot(left)
+    right_snapshot = _file_snapshot(right)
+    if _WINDOWS_PATH_CTIME_IS_BIRTHTIME:
+        left_snapshot = (*left_snapshot[:-1], 0)
+        right_snapshot = (*right_snapshot[:-1], 0)
+    return left_snapshot == right_snapshot
 
 
 def _preview_domains(

@@ -19,6 +19,7 @@ from .domain_intelligence_bounded_json import (
 _NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
 _DIRECTORY_FLAG = getattr(os, "O_DIRECTORY", 0)
 _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
+_WINDOWS_PATH_CTIME_IS_BIRTHTIME = os.name == "nt"
 _MANAGED_DIRECTORIES = frozenset(
     {"candidates", "history", "operations", "profiles", "reviews"}
 )
@@ -227,7 +228,8 @@ def _read_managed_json_at_portable(
         _validate_portable_regular(named_after, "managed source")
         if (
             _portable_snapshot(opened) != _portable_snapshot(after)
-            or _portable_snapshot(after) != _portable_snapshot(named_after)
+            or _portable_cross_api_snapshot(after)
+            != _portable_cross_api_snapshot(named_after)
             or len(raw) != after.st_size
         ):
             raise ValueError("domain-intelligence managed source changed while reading")
@@ -512,6 +514,15 @@ def _portable_snapshot(metadata: os.stat_result) -> tuple[int, int, int, int, in
         int(metadata.st_mtime_ns),
         int(metadata.st_ctime_ns),
     )
+
+
+def _portable_cross_api_snapshot(
+    metadata: os.stat_result,
+) -> tuple[int, int, int, int, int, int]:
+    snapshot = _portable_snapshot(metadata)
+    if not _WINDOWS_PATH_CTIME_IS_BIRTHTIME:
+        return snapshot
+    return (*snapshot[:-1], 0)
 
 
 def _same_optional_portable_identity(

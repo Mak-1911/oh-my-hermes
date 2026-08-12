@@ -13,7 +13,9 @@ from copy import deepcopy
 import hashlib
 import os
 from pathlib import Path
+import stat
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -454,6 +456,31 @@ class BudgetReportingTests(_WorkspaceCase):
 
 
 class WorkspaceFileSelectionSecurityTests(_WorkspaceCase):
+    def test_windows_cross_api_snapshot_ignores_only_incompatible_ctime(self) -> None:
+        before = SimpleNamespace(
+            st_dev=1,
+            st_ino=2,
+            st_mode=stat.S_IFREG | 0o600,
+            st_size=3,
+            st_mtime_ns=4,
+            st_ctime_ns=5,
+        )
+        ctime_only = SimpleNamespace(**{**vars(before), "st_ctime_ns": 6})
+        mtime_changed = SimpleNamespace(**{**vars(before), "st_mtime_ns": 7})
+        with patch.object(manifest_module, "_WINDOWS_PATH_CTIME_IS_BIRTHTIME", True):
+            self.assertEqual(
+                manifest_module._cross_api_file_snapshot(before),
+                manifest_module._cross_api_file_snapshot(ctime_only),
+            )
+            self.assertNotEqual(
+                manifest_module._cross_api_file_snapshot(before),
+                manifest_module._cross_api_file_snapshot(mtime_changed),
+            )
+        self.assertNotEqual(
+            manifest_module._file_snapshot(before),
+            manifest_module._file_snapshot(ctime_only),
+        )
+
     def test_fallback_reads_windows_text_files_as_exact_binary_bytes(self) -> None:
         source = b"first line\r\nsecond line\r\n"
         candidate = self.workspace.root / "src" / "windows-lines.txt"

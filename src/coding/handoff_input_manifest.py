@@ -225,6 +225,7 @@ _NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
 _DIRECTORY_FLAG = getattr(os, "O_DIRECTORY", 0)
 _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
 _NONBLOCK_FLAG = getattr(os, "O_NONBLOCK", 0)
+_WINDOWS_PATH_CTIME_IS_BIRTHTIME = os.name == "nt"
 
 
 class _WorkspaceFileRefusal(Exception):
@@ -1022,7 +1023,7 @@ def _read_validated_descriptor(
         )
     if (
         _file_snapshot(opened) != _file_snapshot(after)
-        or _file_snapshot(after) != _file_snapshot(named_after)
+        or _cross_api_file_snapshot(after) != _cross_api_file_snapshot(named_after)
         or len(data) != after.st_size
     ):
         raise _WorkspaceFileRefusal(
@@ -1059,6 +1060,15 @@ def _file_snapshot(metadata: os.stat_result) -> tuple[int, int, int, int, int, i
         int(metadata.st_mtime_ns),
         int(metadata.st_ctime_ns),
     )
+
+
+def _cross_api_file_snapshot(
+    metadata: os.stat_result,
+) -> tuple[int, int, int, int, int, int]:
+    snapshot = _file_snapshot(metadata)
+    if not _WINDOWS_PATH_CTIME_IS_BIRTHTIME:
+        return snapshot
+    return (*snapshot[:-1], 0)
 
 
 def _resolve_context_pack(
