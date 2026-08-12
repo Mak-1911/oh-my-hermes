@@ -1251,6 +1251,34 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 self.assertEqual(decision["action"], "dispatch")
                 self.assertEqual(decision["selected_skill"], selected_skill)
 
+    def test_buzz_explicit_and_semantic_routes_use_one_public_skill(self) -> None:
+        names = {definition.name for definition in routable_definitions()}
+        for message in (
+            "/omh-buzz connect this Hermes gateway to my Buzz community",
+            "$buzz attach this video to the current Buzz conversation",
+        ):
+            with self.subTest(message=message):
+                decision = route_chat_message(message, source="hermes")
+                self.assertEqual(decision["selected_skill"], "buzz")
+                self.assertTrue(decision["explicit"])
+
+        semantic_cases = (
+            "Connect this remote Hermes gateway as a native agent in my Buzz community.",
+            "Attach this MP4 to the active Buzz conversation and verify relay acceptance.",
+            "Diagnose my self-hosted Buzz relay Compose stack without changing it.",
+            "내 헤르메스를 Buzz 커뮤니티 에이전트로 연결하고 실제 수신 발신을 확인해줘.",
+        )
+        for message in semantic_cases:
+            with self.subTest(message=message):
+                self.assertIsNone(explicit_skill_invocation(message, names))
+                self.assertEqual(recommend_skills(message, limit=1)[0]["skill"], "buzz")
+                self.assertEqual(route_chat_message(message, source="hermes")["selected_skill"], "buzz")
+
+        self.assertEqual(
+            recommend_skills("Connect an external API that still needs credentials.", limit=1)[0]["skill"],
+            "toolbelt-readiness",
+        )
+
     def test_explicit_alias_missed_route_feedback_selects_workflow_learning(self) -> None:
         cases = (
             "missed route: ulw split this accepted plan into lanes",

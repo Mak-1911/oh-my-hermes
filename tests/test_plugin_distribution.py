@@ -23,6 +23,7 @@ from omh.commands import setup as setup_module
 from omh.paths import resolve_paths
 from omh.install.plugin_loader_observation import observe_real_loader_registration
 from omh.plugin_pack import inspect_plugin_bundle
+from omh.plugin_bundle.omh.tools import evidence_tool
 from omh.plugin_bundle.omh.metadata import PROVIDED_HOOKS, PROVIDED_TOOLS, TOOL_FILE_STEMS
 from omh.release_smoke_core import CommandResult
 
@@ -986,6 +987,49 @@ print(json.dumps(observed, ensure_ascii=False))
             self.assertTrue(evidence["all_pass"])
             self.assertEqual(evidence["results"][0]["evidence_type"], "observed_local_command")
             self.assertIn("not executor dispatch", evidence["claim_boundary"])
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "OPENAI_API_KEY": "model-secret-do-not-print",
+                    "AWS_SECRET_ACCESS_KEY": "cloud-secret-do-not-print",
+                    "BUZZ_PRIVATE_KEY": "buzz-secret-do-not-print",
+                    "PYTHONPATH": "/tmp/inject",
+                    "DYLD_INSERT_LIBRARIES": "/tmp/inject.dylib",
+                },
+                clear=False,
+            ), mock.patch.object(evidence_tool.subprocess, "run") as run:
+                run.return_value.returncode = 0
+                run.return_value.stdout = ""
+                run.return_value.stderr = ""
+                safe = json.loads(
+                    evidence_handler(
+                        {
+                            "commands": ["python3 -m compileall -q ."],
+                            "project_root": str(root),
+                            "workdir": str(root),
+                        }
+                    )
+                )
+            self.assertTrue(safe["all_pass"])
+            child_env = run.call_args.kwargs["env"]
+            self.assertEqual(
+                set(child_env),
+                {
+                    "HOME",
+                    "LANG",
+                    "LC_ALL",
+                    "PATH",
+                    "PYTHONNOUSERSITE",
+                    "PYTHONPYCACHEPREFIX",
+                    "TMPDIR",
+                },
+            )
+            self.assertNotIn("OPENAI_API_KEY", child_env)
+            self.assertNotIn("AWS_SECRET_ACCESS_KEY", child_env)
+            self.assertNotIn("BUZZ_PRIVATE_KEY", child_env)
+            self.assertNotIn("PYTHONPATH", child_env)
+            self.assertNotIn("DYLD_INSERT_LIBRARIES", child_env)
 
             rejected = json.loads(
                 evidence_handler(

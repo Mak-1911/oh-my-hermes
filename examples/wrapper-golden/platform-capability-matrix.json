@@ -1430,6 +1430,71 @@
         }
       },
       "claim_boundary": "adapter_owns_transport_core_owns_response"
+    },
+    {
+      "platform_id": "buzz",
+      "transport_source": "hermes",
+      "render_profile": "rich_markdown",
+      "format_family": "buzz/markdown",
+      "field_provenance": {
+        "transport_source": "profile_registry",
+        "render_profile": "profile_registry",
+        "format_family": "approved_architecture_user_surface"
+      },
+      "limits": {
+        "max_recommended_chars": 1600,
+        "hard_limit_chars": 1800
+      },
+      "limit_provenance": "conservative_default",
+      "capabilities": {
+        "media": {
+          "images": false,
+          "files": false,
+          "voice": false,
+          "video": false,
+          "captions": false
+        },
+        "reply": {
+          "threads": false,
+          "quotes": false,
+          "edit": false,
+          "delete": false
+        },
+        "reactions": {
+          "native": false,
+          "custom_emoji": false
+        },
+        "actions": {
+          "buttons": false,
+          "forms": false,
+          "typing_indicator": false
+        }
+      },
+      "capability_provenance": {
+        "media": {
+          "images": "unverified_default_false",
+          "files": "unverified_default_false",
+          "voice": "unverified_default_false",
+          "video": "unverified_default_false",
+          "captions": "unverified_default_false"
+        },
+        "reply": {
+          "threads": "unverified_default_false",
+          "quotes": "unverified_default_false",
+          "edit": "unverified_default_false",
+          "delete": "unverified_default_false"
+        },
+        "reactions": {
+          "native": "unverified_default_false",
+          "custom_emoji": "unverified_default_false"
+        },
+        "actions": {
+          "buttons": "unverified_default_false",
+          "forms": "unverified_default_false",
+          "typing_indicator": "unverified_default_false"
+        }
+      },
+      "claim_boundary": "adapter_owns_transport_core_owns_response"
     }
   ],
   "claim_boundary": "This matrix ships core profile defaults and provenance only; it is not live vendor, transport, authentication, posting, or delivery evidence."

@@ -679,6 +679,7 @@ CORE_PROFILE_SKILLS = tuple(
         + (
             "plan",
             "gateway-intent-card",
+            "buzz",
             "executor-runtime-readiness",
             "ops-observability-card",
         )

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ..buzz_diagnostics import probe_buzz
 from ..host_observation import PLUGIN_HOST_ACTIVE_OBSERVATION_EVENTS
 from ..host_observation import OBSERVATION_SCHEMA, attach_public_observation, observe_plugin_tool_call
 from ..runtime_reader import read_omh_hud, read_omh_status
@@ -104,6 +105,7 @@ def _standalone_probe(
         plugin_runtime_observed and str(plugin_observation.get("runtime_readiness", "")) == "active_runtime_observed"
     )
     capabilities = _standalone_capabilities(home, hermes, status, hud, plugin_observation=plugin_observation)
+    buzz = probe_buzz(_StandaloneBuzzPaths(hermes))
     payload: dict[str, Any] = {
         "schema_version": 1,
         "source": "standalone_plugin_bundle_fallback",
@@ -112,6 +114,7 @@ def _standalone_probe(
         "omh_home": str(home),
         "hermes_home": str(hermes),
         "capabilities": capabilities,
+        "buzz": buzz,
         "target_topology": hud.get("target_topology", {}),
         "plugin_distribution_ready": _capability_status(capabilities, "omh_plugin_bundle") == "available",
         "plugin_runtime_observed": plugin_runtime_observed,
@@ -155,6 +158,7 @@ def _standalone_capabilities(
     hermes_config = hermes / "config.yaml"
     config_text = _read_text(hermes_config)
     plugin_dir = hermes / "plugins" / "omh"
+    buzz = probe_buzz(_StandaloneBuzzPaths(hermes))
     target_topology = hud.get("target_topology", {}) if isinstance(hud, dict) else {}
     wrapper_paths = []
     runs_dir = home / "runtime" / "runs"
@@ -164,6 +168,16 @@ def _standalone_capabilities(
     if sessions_dir.exists():
         wrapper_paths.extend(sorted(sessions_dir.glob("*/session.json")))
     return [
+        _capability(
+            "buzz_platform_diagnostics",
+            str(buzz["status"]),
+            str(buzz["reason_code"]),
+            (
+                f"Buzz local probe: configured={str(buzz['configured']).lower()}; "
+                f"credential_present={str(buzz['credential_present']).lower()}; "
+                f"cli={buzz['status']}"
+            ),
+        ),
         _capability(
             "external_skill_dirs",
             "available" if str(skills_dir) in config_text else ("missing" if hermes_config.exists() else "unknown"),
@@ -315,6 +329,12 @@ def _optional_path_arg(value: Any) -> str | None:
 
 def _expand_path(value: str | Path) -> Path:
     return Path(os.path.expandvars(str(value))).expanduser().resolve()
+
+
+class _StandaloneBuzzPaths:
+    def __init__(self, hermes_home: Path) -> None:
+        self.hermes_home = hermes_home
+        self.hermes_config_path = hermes_home / "config.yaml"
 
 
 def _plugin_bundle_ready(plugin_dir: Path) -> bool:
