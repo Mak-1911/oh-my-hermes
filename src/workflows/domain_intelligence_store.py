@@ -152,13 +152,17 @@ def read_reviews(paths: OmhPaths, diagnostics: list[dict[str, str]]) -> list[tup
     return read_identity_artifacts(reviews_dir(paths), diagnostics, "review_id", file_limit=MAX_DOMAIN_ARTIFACT_FILES)
 
 
-def ensure_candidate_capacity(paths: OmhPaths) -> None:
+def ensure_candidate_capacity(paths: OmhPaths, *, required: int = 1) -> None:
+    if isinstance(required, bool) or not isinstance(required, int) or required < 1:
+        raise ValueError("invalid_candidate_capacity_requirement")
+    if required > MAX_DOMAIN_CANDIDATE_FILES:
+        raise ValueError("candidate_capacity_exceeded")
     directory = candidates_dir(paths)
     existing, overflow = bounded_json_paths(
         directory,
-        limit=MAX_DOMAIN_CANDIDATE_FILES - 1,
+        limit=MAX_DOMAIN_CANDIDATE_FILES - required,
     )
-    if overflow or len(existing) >= MAX_DOMAIN_CANDIDATE_FILES:
+    if overflow or len(existing) + required > MAX_DOMAIN_CANDIDATE_FILES:
         raise ValueError("candidate_capacity_exceeded")
 
 
