@@ -92,6 +92,8 @@ def _empty() -> dict[str, Any]:
         "first_delivered_at": "",
         "last_delivered_at": "",
         "last_context_chars": 0,
+        "accumulated_context_chars": 0,
+        "session_route_fingerprints": {},
         "unreadable": False,
     }
 
@@ -99,13 +101,24 @@ def _empty() -> dict[str, Any]:
 def _valid_delivery_record(data: dict[str, Any]) -> bool:
     if data.get("schema_version") != AWARENESS_DELIVERY_SCHEMA_VERSION:
         return False
-    for key in ("delivery_count", "route_hint_count", "suppressed_count", "last_context_chars"):
+    for key in (
+        "delivery_count",
+        "route_hint_count",
+        "suppressed_count",
+        "last_context_chars",
+        "accumulated_context_chars",
+    ):
         value = data.get(key, 0)
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             return False
     for key in ("first_attempted_at", "first_delivered_at", "last_delivered_at"):
         if not isinstance(data.get(key, ""), str):
             return False
+    fingerprints = data.get("session_route_fingerprints", {})
+    if not isinstance(fingerprints, dict):
+        return False
+    if any(not isinstance(key, str) or not isinstance(value, str) for key, value in fingerprints.items()):
+        return False
     return int(data.get("route_hint_count", 0)) <= int(data.get("delivery_count", 0))
 
 
@@ -199,6 +212,8 @@ def record_awareness_delivery(
     context_chars: int,
     observed_at: str,
     omh_home: str = "",
+    session_id: str = "",
+    route_fingerprint: str = "",
 ) -> dict[str, Any] | None:
     """Bump counters for one `pre_llm_call` hook result. Best-effort and metadata-only.
 
@@ -213,6 +228,11 @@ def record_awareness_delivery(
     try:
         with _awareness_delivery_lock(path):
             current = read_awareness_delivery(omh_home)
+            fingerprints = dict(current.get("session_route_fingerprints", {}))
+            if delivered and route_hint and session_id and route_fingerprint:
+                fingerprints[session_id] = route_fingerprint
+                while len(fingerprints) > 64:
+                    fingerprints.pop(next(iter(fingerprints)))
             updated = {
                 "schema_version": AWARENESS_DELIVERY_SCHEMA_VERSION,
                 "delivery_count": int(current["delivery_count"]) + (1 if delivered else 0),
@@ -224,8 +244,24 @@ def record_awareness_delivery(
                 "last_context_chars": (
                     max(0, int(context_chars)) if delivered else int(current["last_context_chars"])
                 ),
+                "accumulated_context_chars": int(current["accumulated_context_chars"])
+                + (max(0, int(context_chars)) if delivered else 0),
+                "session_route_fingerprints": fingerprints,
             }
             _write_delivery_record(path, updated)
     except (OSError, TypeError, ValueError):
         return None
     return updated
+
+
+def route_guidance_already_delivered(
+    *,
+    session_id: str,
+    route_fingerprint: str,
+    omh_home: str = "",
+) -> bool:
+    if not session_id or not route_fingerprint:
+        return False
+    current = read_awareness_delivery(omh_home)
+    fingerprints = current.get("session_route_fingerprints", {})
+    return isinstance(fingerprints, dict) and fingerprints.get(session_id) == route_fingerprint

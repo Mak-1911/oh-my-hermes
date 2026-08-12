@@ -212,6 +212,35 @@ class HookManifestTests(unittest.TestCase):
             self.assertTrue(all(result is not None for result in results))
             self.assertTrue(all("[OMH Route Hint]" in result["context"] for result in results if result))
 
+    def test_repeated_route_guidance_is_suppressed_within_one_session(self) -> None:
+        with TemporaryDirectory() as omh_home:
+            first = pre_llm_call(
+                user_message="review this PR",
+                is_first_turn=True,
+                session_id="session-a",
+                omh_home=omh_home,
+            )
+            second = pre_llm_call(
+                user_message="review this PR",
+                is_first_turn=False,
+                session_id="session-a",
+                omh_home=omh_home,
+            )
+            other_session = pre_llm_call(
+                user_message="review this PR",
+                is_first_turn=True,
+                session_id="session-b",
+                omh_home=omh_home,
+            )
+
+            self.assertIsNotNone(first)
+            self.assertIsNone(second)
+            self.assertIsNotNone(other_session)
+            delivery = read_awareness_delivery(omh_home)
+            self.assertEqual(delivery["delivery_count"], 2)
+            self.assertEqual(delivery["suppressed_count"], 1)
+            self.assertGreater(delivery["accumulated_context_chars"], 0)
+
     def test_first_turn_route_failure_keeps_degradation_signal(self) -> None:
         route_failure = {
             "status": "no_hint",

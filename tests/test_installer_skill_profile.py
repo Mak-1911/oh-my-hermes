@@ -580,6 +580,15 @@ class SkillProfileReconcileTests(unittest.TestCase):
             report = json.loads(stdout)
             self.assertEqual(report["profile_state"]["effective_profile"], "full")
             self.assertEqual(set(report["reconcilable_skills"]), full_only_names)
+            prompt_cost = report["profile_state"]["prompt_cost"]
+            self.assertEqual(prompt_cost["visibility"], "name_and_description_index_only")
+            self.assertEqual(prompt_cost["progressive_skill_body_bytes"], 0)
+            self.assertGreater(prompt_cost["fixed_index_bytes"], 0)
+            self.assertGreater(prompt_cost["full_only_fixed_index_bytes"], 0)
+            self.assertGreater(
+                prompt_cost["fixed_index_bytes"],
+                prompt_cost["core_fixed_index_bytes"],
+            )
 
             status, stdout, stderr = run_cli(
                 base + ["skill-profile", "reconcile", "--to", "core", "--dry-run", "--json"],

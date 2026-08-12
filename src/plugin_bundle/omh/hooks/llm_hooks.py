@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 
 from ..awareness import (
     awareness_context_match_degradation,
@@ -16,7 +17,7 @@ from ..degradation import (
     degradation_payload,
     safe_error_type,
 )
-from ..awareness_delivery import record_awareness_delivery
+from ..awareness_delivery import record_awareness_delivery, route_guidance_already_delivered
 from ..host_context import record_active_main_agent_model
 from ..host_observation import observe_plugin_hook_call
 from ..omh_roles import extract_role_marker, role_context_payload
@@ -41,7 +42,15 @@ def _token_metadata_from_kwargs(kwargs: dict) -> dict[str, object]:
     return {key: kwargs[key] for key in keys if kwargs.get(key) is not None}
 
 
-def _record_delivery(*, delivered: bool, route_hint: bool, context_chars: int, omh_home: str | None) -> None:
+def _record_delivery(
+    *,
+    delivered: bool,
+    route_hint: bool,
+    context_chars: int,
+    omh_home: str | None,
+    session_id: str = "",
+    route_fingerprint: str = "",
+) -> None:
     """Note that this hook ran. Never let bookkeeping break the hook itself."""
     try:
         record_awareness_delivery(
@@ -50,6 +59,8 @@ def _record_delivery(*, delivered: bool, route_hint: bool, context_chars: int, o
             context_chars=context_chars,
             observed_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             omh_home=omh_home or "",
+            session_id=session_id,
+            route_fingerprint=route_fingerprint,
         )
     except (OSError, ValueError, TypeError):
         return
@@ -66,6 +77,8 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
     include_awareness = kwargs.get("include_omh_awareness", True) is not False
     route_hint_context = ""
     route_hint_payload: dict[str, object] | None = None
+    route_fingerprint = ""
+    session_id = str(kwargs.get("session_id", "") or "")
     message_matches_awareness = False
     degraded: list[tuple[str, str]] = []
     if include_awareness:
@@ -90,6 +103,15 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         if message_matches_awareness and route_hint_payload is None:
             route_hint_payload = awareness_route_hint(user_message)
             route_hint_context = awareness_route_hint_context_from_payload(route_hint_payload)
+        if route_hint_context:
+            route_fingerprint = hashlib.sha256(route_hint_context.encode("utf-8")).hexdigest()
+            if route_guidance_already_delivered(
+                session_id=session_id,
+                route_fingerprint=route_fingerprint,
+                omh_home=str(kwargs.get("omh_home", "") or ""),
+            ):
+                route_hint_context = ""
+                message_matches_awareness = False
     should_include_awareness = (
         include_awareness
         and (bool(route_hint_context) or message_matches_awareness)
@@ -189,7 +211,13 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         and not status.get("active_executors")
         and not show_running_work
     ):
-        _record_delivery(delivered=False, route_hint=False, context_chars=0, omh_home=omh_home)
+        _record_delivery(
+            delivered=False,
+            route_hint=False,
+            context_chars=0,
+            omh_home=omh_home,
+            session_id=session_id,
+        )
         return None
 
     if status.get("active_executors"):
@@ -247,5 +275,7 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         route_hint=bool(route_hint_context),
         context_chars=len(payload["context"]),
         omh_home=omh_home,
+        session_id=session_id,
+        route_fingerprint=route_fingerprint,
     )
     return payload
