@@ -16,7 +16,7 @@ from omh.system.platform_profiles import CAPABILITY_GROUPS, PLATFORM_IDS
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX_PATH = ROOT / "examples" / "wrapper-golden" / "platform-capability-matrix.json"
 CORE_LIMITS = {"telegram": (3700, 3900), "discord": (1700, 1900), "slack": (2700, 2900)}
-RICH_PLATFORMS = {"mattermost", "matrix", "email", "microsoft_teams", "api_server"}
+RICH_PLATFORMS = {"mattermost", "matrix", "email", "microsoft_teams", "api_server", "buzz"}
 
 
 class PlatformCapabilityMatrixGoldenTests(unittest.TestCase):
@@ -32,9 +32,22 @@ class PlatformCapabilityMatrixGoldenTests(unittest.TestCase):
         profiles = self.shipped["profiles"]
         ids = [profile["platform_id"] for profile in profiles]
         self.assertEqual(ids, list(PLATFORM_IDS))
-        self.assertEqual(len(ids), 22)
-        self.assertEqual(len(set(ids)), 22)
+        self.assertEqual(len(ids), 23)
+        self.assertEqual(len(set(ids)), 23)
         self.assertNotIn("identity", json.dumps(self.shipped, sort_keys=True))
+
+    def test_buzz_profile_reuses_hermes_transport_without_claiming_adapter_capabilities(self) -> None:
+        profile = next(profile for profile in self.shipped["profiles"] if profile["platform_id"] == "buzz")
+        self.assertEqual(profile["transport_source"], "hermes")
+        self.assertEqual(profile["format_family"], "buzz/markdown")
+        self.assertEqual(profile["limit_provenance"], "conservative_default")
+        self.assertTrue(
+            all(
+                value is False
+                for group in profile["capabilities"].values()
+                for value in group.values()
+            )
+        )
 
     def test_limits_and_provenance_preserve_core_contract(self) -> None:
         for profile in self.shipped["profiles"]:

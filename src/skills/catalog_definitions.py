@@ -5271,3 +5271,95 @@ _DEFINITIONS.append(
         ),
     )
 )
+
+
+_DEFINITIONS.append(
+    SkillDefinition(
+        "buzz",
+        (
+            "Connect and operate Hermes as a native Buzz community agent, deliver local media with verified relay "
+            "receipts, or diagnose a self-hosted Buzz relay without inventing transport evidence."
+        ),
+        (
+            "connect Hermes to Buzz",
+            "Buzz community agent",
+            "Buzz gateway setup",
+            "Buzz media attachment",
+            "Buzz relay self-hosting",
+            "Buzz connection diagnostics",
+            "버즈 커뮤니티 연결",
+            "Buzz 메시지 첨부",
+        ),
+        (
+            "Use when the user wants to configure or troubleshoot Hermes' native Buzz gateway, attach local media to "
+            "the active Buzz conversation, or inspect a self-hosted Buzz relay. Select the setup, media, or self-host "
+            "reference from the request's meaning after this single public skill is selected."
+        ),
+        category="operator",
+        phase="messaging-integration",
+        hermes_role="retained-operator",
+        handoff_policy=(
+            "Operate through Hermes' native Buzz adapter and official Buzz surfaces. Keep state-changing self-host "
+            "commands user-driven and delegate repository code changes only when the user explicitly asks for them."
+        ),
+        required_inputs=(
+            "Buzz task: gateway setup, media delivery, or self-host diagnosis",
+            "target Hermes home or active Buzz conversation",
+            "observable stop condition",
+        ),
+        expected_outputs=(
+            "selected Buzz workflow lane",
+            "bounded setup or diagnostic evidence",
+            "observed delivery stage or explicit unobserved boundary",
+        ),
+        artifact_expectations=(
+            "redacted Buzz readiness summary when setup is inspected",
+            "delivery receipt with accepted event id when media is sent",
+            "self-host failure-tree evidence when relay health is diagnosed",
+        ),
+        safety_rules=(
+            "Reuse Hermes' native Buzz transport; do not implement or imply an OMH-owned Nostr transport.",
+            "Never print, persist in workflow artifacts, or place the Buzz private key in argv or shell history.",
+            "Do not treat CLI presence, configuration presence, or a prepared command as live relay readiness.",
+            "Do not claim message delivery without accepted=true and a non-empty event id from the send receipt.",
+            "Guide, don't drive state-changing self-host operations unless the user explicitly approves each action.",
+        ),
+        why_this_exists=(
+            "Hermes already owns the Buzz transport, but users need one discoverable OMH entry point that safely "
+            "selects setup, attachment, or self-host operations and reports only the evidence actually observed."
+        ),
+        do_not_use_when=(
+            "The user wants a Buzz-managed ACP runtime rather than Hermes' native Buzz gateway.",
+            "The request is general media editing with no Buzz delivery target.",
+            "The request is generic Docker or Nostr advice unrelated to a Buzz relay.",
+            "The user is only asking whether OMH supports Buzz, with no request to run the workflow.",
+        ),
+        good_example=SkillExample(
+            prompt="Connect this Hermes gateway to my Buzz community and verify one inbound and outbound message.",
+            expected=(
+                "Load the setup reference, collect the relay and membership inputs without exposing the private key, "
+                "use Hermes' guided gateway setup, then report each observed verification stage."
+            ),
+            why="The request names the native gateway task and an observable end-to-end stop condition.",
+        ),
+        bad_example=SkillExample(
+            prompt="Write a generic Nostr relay from scratch for OMH.",
+            expected="Route to planning or coding rather than presenting that transport as part of omh-buzz.",
+            why="OMH reuses Hermes' native Buzz adapter and does not own a second Nostr transport.",
+        ),
+        final_checklist=(
+            "Exactly one of setup, media, or self-host is selected from request meaning; no internal lane is public.",
+            "Secrets remain out of argv, logs, rendered output, and workflow artifacts.",
+            "Configuration, process, relay, event acceptance, subscription, and client rendering are separate claims.",
+            "Any state-changing self-host command remains user-driven and has an explicit rollback or backup boundary.",
+            "The final answer names what was observed, what remains unobserved, and the next smallest proof action.",
+        ),
+        recovery_notes=(
+            "If the Buzz CLI is missing, stop at installation guidance and do not claim gateway readiness.",
+            "If relay authentication fails, separate membership, identity, and NIP-42 evidence before changing config.",
+            "If a send receipt is malformed or lacks an event id, report ambiguous delivery and do not auto-retry.",
+            "If self-host readiness is green but media fails, inspect MinIO and disk separately from relay readiness.",
+        ),
+        aliases=("omh-buzz",),
+    )
+)

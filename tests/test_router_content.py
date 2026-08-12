@@ -712,6 +712,39 @@ class RouterContentTests(unittest.TestCase):
         for name in hidden:
             self.assertFalse((Path("skills") / name / "SKILL.md").exists(), f"{name} should stay routable only")
 
+    def test_buzz_is_one_public_skill_with_internal_reference_lanes(self) -> None:
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        self.assertIn("buzz", definitions)
+        self.assertNotIn("buzz-setup", definitions)
+        self.assertNotIn("buzz-media", definitions)
+        self.assertNotIn("buzz-self-host", definitions)
+
+        templates = {template.name: template for template in builtin_skill_templates()}
+        body = templates["buzz"].content
+        self.assertIn("name: omh-buzz", body)
+        self.assertIn("references/setup.md", body)
+        self.assertIn("references/media.md", body)
+        self.assertIn("references/self-host.md", body)
+
+        references = {
+            reference.relative_path: reference.content
+            for reference in builtin_skill_reference_templates()
+            if reference.skill_name == "buzz"
+        }
+        self.assertEqual(
+            set(references),
+            {
+                "references/setup.md",
+                "references/media.md",
+                "references/self-host.md",
+            },
+        )
+        self.assertIn("Hermes Native Buzz Gateway", references["references/setup.md"])
+        self.assertIn("delivery evidence", references["references/media.md"])
+        self.assertIn("omh_buzz_delivery_evidence/v1", references["references/media.md"])
+        self.assertIn("receipt_missing_event_id", references["references/media.md"])
+        self.assertIn("guide, don't drive", references["references/self-host.md"].lower())
+
     def test_display_name_prefix_does_not_degrade_frontmatter_metadata(self) -> None:
         """The `omh-` display prefix must be applied AFTER the definition lookup.
 
@@ -3200,13 +3233,13 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[GitHub Pages site](site/index.html)", readme)
         self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal", readme)
         self.assertIn("replacing Hermes or hiding a coding executor", readme)
-        self.assertIn("**103 installable workflow skills**", readme)
-        self.assertIn("**103개**", localized_readmes["ko"])
-        self.assertIn("**103 個**", localized_readmes["ja"])
-        self.assertIn("**103 个**", localized_readmes["zh"])
-        self.assertIn("나머지 90개", localized_readmes["ko"])
-        self.assertIn("残り 90 個", localized_readmes["ja"])
-        self.assertIn("其余 90 个", localized_readmes["zh"])
+        self.assertIn("**104 installable workflow skills**", readme)
+        self.assertIn("**104개**", localized_readmes["ko"])
+        self.assertIn("**104 個**", localized_readmes["ja"])
+        self.assertIn("**104 个**", localized_readmes["zh"])
+        self.assertIn("나머지 91개", localized_readmes["ko"])
+        self.assertIn("残り 91 個", localized_readmes["ja"])
+        self.assertIn("其余 91 个", localized_readmes["zh"])
         for localized_readme in localized_readmes.values():
             # A localized README stays a trimmed landing page, never a full
             # translation of every English section. The budget grew from 240
@@ -3395,7 +3428,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[Roles](ROLES.md)", docs_readme)
         self.assertIn("Agent Install Protocol", docs_readme)
         self.assertIn("`deep-interview`, `ralplan`, `ultragoal`, `loop`", docs_readme)
-        self.assertIn("**103 installable skills**", docs_readme)
+        self.assertIn("**104 installable skills**", docs_readme)
         self.assertIn("**Retain knowledge**", docs_readme)
         self.assertIn("python -m unittest discover -s tests", ci)
         self.assertIn("python -m compileall src", ci)

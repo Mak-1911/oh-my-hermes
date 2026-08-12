@@ -22,6 +22,7 @@ from .policy import (
     SKILL_SCOUT_CANDIDATE_ALIAS_PHRASES,
     SKILL_SCOUT_CANDIDATE_BLOCKER_PHRASES,
     SKILL_SCOUT_CANDIDATE_INTENT_PHRASES,
+    _explicit_skill_candidate_is_negated,
     active_routing_guard_rules,
     explicit_skill_invocation,
     is_explicit_one_off_request,
@@ -1385,6 +1386,41 @@ def recommend_skills(query: str, *, limit: int = 5, apply_guardrails: bool = Tru
     return [recommendation.to_dict() for recommendation in _recommend_skills_cached(query, apply_guardrails)[:limit]]
 
 
+def has_strong_named_catalog_owner(query: str) -> bool:
+    """Return whether one catalog name and a second semantic signal match."""
+
+    routing_text = prepare_routing_text(_strip_path_like_fragments(scrub_diagnostic_status_text(query)))
+    normalized_query = normalized_phrase(routing_text.scoring_text)
+    query_tokens = _tokens(normalized_query)
+    if (
+        any(guard.id == _TOOLBELT_READINESS_GUARD_ID for guard in active_routing_guard_rules(normalized_query, query_tokens))
+        and query_tokens
+        & {
+            "api",
+            "credential",
+            "credentials",
+            "key",
+            "missing",
+            "mcp",
+            "unavailable",
+            "자격증명",
+            "키",
+            "없어",
+            "없어서",
+        }
+    ):
+        return False
+    for prepared in _prepared_routable_definitions():
+        if not _phrase_match(normalized_query, prepared.name_phrase):
+            continue
+        if _explicit_skill_candidate_is_negated(query, prepared.definition.name):
+            continue
+        name_tokens = _tokens(prepared.name_phrase)
+        if query_tokens & (prepared.trigger_tokens - name_tokens - _GENERIC_TRIGGER_TOKENS):
+            return True
+    return False
+
+
 def recommendation_for_definition(
     definition: SkillDefinition,
     query: str,
@@ -1508,7 +1544,11 @@ def _scored_field(
     if apply_guardrails:
         guards = active_routing_guard_rules(normalized_query, query_tokens, explicit_skill=explicit_skill)
         public_plugin_connector_match = _public_plugin_connector_readiness_match(normalized_query)
-        if ecosystem_identity_connector_match or public_plugin_connector_match:
+        if (
+            ecosystem_identity_connector_match
+            or public_plugin_connector_match
+            or _has_strong_named_catalog_owner(matches)
+        ):
             guards = tuple(guard for guard in guards if guard.id != _TOOLBELT_READINESS_GUARD_ID)
         if public_plugin_connector_match or _skill_scout_candidate_alias_intent_match(normalized_query):
             guards = tuple(guard for guard in guards if guard.id != "ops_observability_before_generic_loop")
@@ -1587,6 +1627,8 @@ def _score_definition(
 ) -> Recommendation | None:
     definition = prepared.definition
     policy = prepared.policy
+    if explicit_skill != definition.name and _explicit_skill_candidate_is_negated(original_query, definition.name):
+        return None
     score = 0
     matched: set[str] = set()
     ecosystem_identity_connector_match = definition.name == "external-connector-readiness" and (
@@ -2121,6 +2163,25 @@ def _apply_guardrail_reranking(
     for recommendation in recommendations:
         reranked.append(_apply_guard_rules_to_recommendation(recommendation, guards))
     return reranked
+
+
+def _has_strong_named_catalog_owner(recommendations: list[Recommendation]) -> bool:
+    """Keep generic readiness guards behind a strongly matched named workflow.
+
+    This is catalog evidence, not a product-name keyword branch: every
+    routable definition gets the same threshold and exact-name requirement.
+    """
+
+    for recommendation in recommendations:
+        names = {label.removeprefix("name:") for label in recommendation.matched if label.startswith("name:")}
+        triggers = {
+            label.removeprefix("trigger:")
+            for label in recommendation.matched
+            if label.startswith("trigger:")
+        }
+        if recommendation.score >= 12 and names and triggers - names:
+            return True
+    return False
 
 
 def _apply_guard_rules_to_recommendation(

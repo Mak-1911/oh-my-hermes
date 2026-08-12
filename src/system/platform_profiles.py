@@ -144,6 +144,7 @@ PLATFORM_IDS: tuple[str, ...] = (
     "line",
     "simplex",
     "api_server",
+    "buzz",
 )
 
 PLATFORM_PROFILES: Mapping[str, PlatformProfile] = MappingProxyType(
@@ -190,6 +191,7 @@ PLATFORM_PROFILES: Mapping[str, PlatformProfile] = MappingProxyType(
             _profile("line", format_family="line/flex_message"),
             _profile("simplex", format_family="simplex/plain_text"),
             _profile("api_server", render_profile=RENDER_PROFILE_RICH_MARKDOWN, format_family="api_server/structured_json"),
+            _profile("buzz", transport_source="hermes", render_profile=RENDER_PROFILE_RICH_MARKDOWN, format_family="buzz/markdown"),
         )
     }
 )

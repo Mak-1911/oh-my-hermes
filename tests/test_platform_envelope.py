@@ -2,7 +2,7 @@
 
 The envelope is the one shape every channel adapter hands the core: who the
 platform is, what it can render, what it can carry, and where session
-ownership stops. These tests pin the registry contents (exactly 22 platforms,
+ownership stops. These tests pin the registry contents (exactly 23 platforms,
 three with verified limits), the transport-source mapping and the source
 check that enforces it, ref safety (phone/email/secret/body-shaped values
 never leave the process), renderer limit keys shared with
@@ -52,6 +52,7 @@ _EXPECTED_PLATFORM_IDS = (
     "line",
     "simplex",
     "api_server",
+    "buzz",
 )
 
 _VERIFIED_LIMIT_SOURCES = ("telegram", "discord", "slack")
@@ -59,7 +60,11 @@ _VERIFIED_LIMIT_SOURCES = ("telegram", "discord", "slack")
 #: transport_source each platform requires as the envelope ``source``.
 _SOURCE_FOR = {
     platform_id: (
-        platform_id if platform_id in _VERIFIED_LIMIT_SOURCES else "generic"
+        platform_id
+        if platform_id in _VERIFIED_LIMIT_SOURCES
+        else "hermes"
+        if platform_id == "buzz"
+        else "generic"
     )
     for platform_id in _EXPECTED_PLATFORM_IDS
 }
@@ -76,10 +81,10 @@ def _envelope(platform: str = "discord", **context: object) -> dict:
 
 
 class PlatformProfileRegistryTests(unittest.TestCase):
-    def test_exactly_22_platform_ids_in_order(self) -> None:
-        self.assertEqual(len(PLATFORM_IDS), 22)
+    def test_exactly_23_platform_ids_in_order(self) -> None:
+        self.assertEqual(len(PLATFORM_IDS), 23)
         self.assertEqual(tuple(PLATFORM_IDS), _EXPECTED_PLATFORM_IDS)
-        self.assertEqual(len(set(PLATFORM_IDS)), 22)
+        self.assertEqual(len(set(PLATFORM_IDS)), 23)
 
     def test_every_id_has_a_frozen_profile(self) -> None:
         self.assertEqual(tuple(PLATFORM_PROFILES), _EXPECTED_PLATFORM_IDS)
@@ -94,14 +99,32 @@ class PlatformProfileRegistryTests(unittest.TestCase):
         self.assertEqual(PLATFORM_PROFILES["telegram"].transport_source, "telegram")
         self.assertEqual(PLATFORM_PROFILES["discord"].transport_source, "discord")
         self.assertEqual(PLATFORM_PROFILES["slack"].transport_source, "slack")
+        self.assertEqual(PLATFORM_PROFILES["buzz"].transport_source, "hermes")
         for platform_id in _EXPECTED_PLATFORM_IDS:
-            if platform_id in _VERIFIED_LIMIT_SOURCES:
+            if platform_id in (*_VERIFIED_LIMIT_SOURCES, "buzz"):
                 continue
             self.assertEqual(
                 PLATFORM_PROFILES[platform_id].transport_source,
                 "generic",
                 platform_id,
             )
+
+    def test_buzz_reuses_the_hermes_transport(self) -> None:
+        profile = PLATFORM_PROFILES["buzz"]
+        self.assertEqual(profile.format_family, "buzz/markdown")
+        envelope = build_platform_envelope(
+            {"platform": "buzz", "conversation_ref": "conv-buzz-1234"},
+            source="hermes",
+        )
+        self.assertEqual(envelope["platform_id"], "buzz")
+        self.assertEqual(envelope["transport_source"], "hermes")
+        for wrong_source in ("generic", "buzz"):
+            with self.subTest(source=wrong_source):
+                with self.assertRaises(PlatformContextError):
+                    build_platform_envelope(
+                        {"platform": "buzz", "conversation_ref": "conv-buzz-1234"},
+                        source=wrong_source,
+                    )
 
     def test_verified_core_limits_use_renderer_keys(self) -> None:
         self.assertEqual(PLATFORM_PROFILES["discord"].limits.max_recommended_chars, 1700)

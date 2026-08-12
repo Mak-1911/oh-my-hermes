@@ -19,6 +19,7 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-best-practice-research`: [omh] Hermes adaptation for bounded official/upstream best-practice research.
 - `omh-browser`: [omh] Policy overlay for browser tasks - add auth, confirmation, and observed-trace gates after preferring the native browser for ordinary URL, click, login, and form actions.
 - `omh-build-failure-triage`: [omh] Hermes Build Failure Triage workflow: classify build, typecheck, lint, test, CI, and DCO failures into minimal safe fix handoffs.
+- `omh-buzz`: [omh] Connect and operate Hermes as a native Buzz community agent, deliver local media with verified relay receipts, or diagnose a self-hosted Buzz relay without inventing transport evidence.
 - `omh-cancel`: [omh] Hermes adaptation for ending active workflow state cleanly.
 - `omh-capability-toggle`: [omh] Hermes adaptation for turning one OMH capability family on or off so an install can be tailored instead of taken whole.
 - `omh-code-review`: [omh] Hermes Code Review workflow: bug-first review with evidence.

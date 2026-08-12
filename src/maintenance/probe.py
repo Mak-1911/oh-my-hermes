@@ -23,6 +23,7 @@ from ..plugin_observations import (
     plugin_host_runtime_readiness,
     read_plugin_host_observations,
 )
+from ..plugin_bundle.omh.buzz_diagnostics import probe_buzz
 from ..plugin_pack import inspect_plugin_bundle
 from ..runtime.artifacts import read_state_result
 from ..targets import summarize_target_registry
@@ -458,6 +459,19 @@ def probe_capabilities(paths: OmhPaths, *, include_parity: bool = False, include
     # config.yaml stores external_dirs in POSIX form (config_adapter._normalize).
     skills_registered = paths.skills_dir.as_posix() in configured_dirs
     capabilities: list[Capability] = []
+    buzz = probe_buzz(paths)
+    capabilities.append(
+        Capability(
+            "buzz_platform_diagnostics",
+            str(buzz["status"]),
+            str(buzz["reason_code"]),
+            (
+                f"Buzz local probe: configured={str(buzz['configured']).lower()}; "
+                f"credential_present={str(buzz['credential_present']).lower()}; "
+                f"cli={buzz['status']}"
+            ),
+        )
+    )
     managed_skill_path = paths.skills_dir / omh_skill_display_name("oh-my-hermes") / "SKILL.md"
 
     capabilities.append(
@@ -597,6 +611,7 @@ def probe_capabilities(paths: OmhPaths, *, include_parity: bool = False, include
         "omh_home": str(paths.omh_home),
         "hermes_home": str(paths.hermes_home),
         "capabilities": [capability.to_dict() for capability in capabilities],
+        "buzz": buzz,
         "target_topology": target_topology,
         "plugin_distribution_ready": bool(plugin["plugin_distribution_ready"]),
         "plugin_runtime_observed": plugin_runtime_observed,
