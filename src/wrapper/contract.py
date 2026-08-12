@@ -6963,6 +6963,21 @@ def _chat_response_with_goal_quality_coaching(
 MEMORY_CONSOLIDATION_NOTICE_SCHEMA_VERSION = "omh_memory_consolidation_notice/v1"
 
 
+# Which routed cards already ask for what the notice is about to ask for.
+# Keyed by the notice's own `next_action`, because the two namespaces never
+# intersect: the notice emits `ask_hermes_to_consolidate_memory`, the card emits
+# `prepare_memory_sync`. Comparing them directly would be a permanent no-op that
+# still looks like a fix.
+#
+# Keyed on `next_action` rather than on the selected skill deliberately. A skill
+# rename would silently re-arm the loop with nothing failing, while these ids are
+# contract identifiers already pinned by the chat-card and common-request
+# coverage fixtures.
+_CONSOLIDATION_REMEDY_ACTIONS: dict[str, frozenset[str]] = {
+    "ask_hermes_to_consolidate_memory": frozenset({"prepare_memory_sync"}),
+}
+
+
 def _with_memory_consolidation_notice(
     payload: dict[str, object], paths: OmhPaths, message: str = ""
 ) -> dict[str, object]:
@@ -7003,6 +7018,8 @@ def _with_memory_consolidation_notice(
         if int(record_expiry.get("expired", 0) or 0) > 0
         else "ask_hermes_to_consolidate_memory"
     )
+    routed_next_action = str(_nested(_nested(payload, "chat_response"), "state").get("next_action", ""))
+    already_asked = routed_next_action in _CONSOLIDATION_REMEDY_ACTIONS.get(next_action, frozenset())
     payload["memory_consolidation_notice"] = {
         "schema_version": MEMORY_CONSOLIDATION_NOTICE_SCHEMA_VERSION,
         "due": True,
@@ -7010,6 +7027,7 @@ def _with_memory_consolidation_notice(
         "reasons": reasons,
         "raised_at": str(brief.get("raised_at", "")),
         "next_action": next_action,
+        "call_to_action_suppressed": already_asked,
         "redaction_policy": "metadata_only",
         "claim_boundary": (
             "A consolidation notice is prepared context. It is not evidence that memory was "
@@ -7028,7 +7046,9 @@ def _with_memory_consolidation_notice(
     # declarative card copy does not contain, so es/fr/de cards read as English
     # and got an English suffix -- the exact glitch this line exists to avoid.
     notice_line = consolidation_notice_line(
-        detect_copy_locale(message or f"{updated.get('headline', '')} {body}"), reasons
+        detect_copy_locale(message or f"{updated.get('headline', '')} {body}"),
+        reasons,
+        suppress_call_to_action=already_asked,
     )
     if notice_line not in body:
         updated["body"] = f"{body} {notice_line}".strip()

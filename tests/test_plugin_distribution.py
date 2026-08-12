@@ -343,6 +343,7 @@ print(json.dumps(observed, ensure_ascii=False))
                     "omh_probe",
                     "omh_recommend",
                     "omh_role",
+                    "omh_source_trust",
                     "omh_status",
                 ],
             )

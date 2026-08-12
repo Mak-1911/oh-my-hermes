@@ -36,6 +36,7 @@ from omh.workflows.source_trust import (
     TRUST_CLAIM_CEILING,
     SourceTrustError,
     build_source_trust_claim,
+    claim_from_source_candidate,
     claim_kinds_for_tier,
     completion_is_never_source_backed,
     normalize_source_trust_tier,
@@ -274,6 +275,144 @@ class SummaryTests(unittest.TestCase):
         summary["claim_boundary"] = "checked and verified"
         errors = validate_source_trust_summary(summary)
         self.assertTrue(any("frozen boundary sentence" in error for error in errors), errors)
+
+
+class ProducerTests(unittest.TestCase):
+    """Binding a claim to a source candidate — the link that makes the ceiling reachable.
+
+    Before this, `build_source_trust_claim` could only refuse claims someone else
+    minted, and nothing in OMH minted one: `source_ref` refuses URL-shaped values
+    and a URL is the only form a source arrives in. `source_finder` already mints
+    the opaque id that fits, so these tests pin the binding and — most importantly
+    — that the raw `uri` can never travel into a claim.
+    """
+
+    @staticmethod
+    def _candidate(uri: str = "https://example.invalid/spec") -> dict[str, object]:
+        from omh.workflows.source_finder import build_source_candidate
+
+        return build_source_candidate(
+            title="Runtime handoff spec",
+            kind="docs_spec",
+            uri=uri,
+            summary="Upstream spec for handoff owners.",
+        )
+
+    def test_candidate_id_becomes_the_source_reference(self) -> None:
+        candidate = self._candidate()
+        record = claim_from_source_candidate(
+            candidate=candidate,
+            tier="upstream_official",
+            claim_kind="finding",
+            claim="The runtime rejects a handoff without an owner.",
+            recorded_at=STAMP,
+        )
+        self.assertEqual(record["source_ref"], candidate["candidate_id"])
+        self.assertEqual(source_trust_claim_errors(record), [])
+
+    def test_the_raw_uri_never_reaches_the_claim(self) -> None:
+        """The whole point: a candidate carries `uri` and `candidate_id` side by side."""
+        candidate = self._candidate(uri="https://example.invalid/very-distinctive-path")
+        self.assertEqual(candidate["uri"], "https://example.invalid/very-distinctive-path")
+        record = claim_from_source_candidate(
+            candidate=candidate,
+            tier="practitioner_heuristic",
+            claim_kind="approach",
+            claim="Set the owner before preparing the handoff.",
+            recorded_at=STAMP,
+        )
+        serialized = " ".join(str(value) for value in record.values())
+        self.assertNotIn("example.invalid", serialized)
+        self.assertNotIn("very-distinctive-path", serialized)
+        self.assertNotIn("http", serialized)
+
+    def test_the_ceiling_still_applies_through_the_producer(self) -> None:
+        """The adapter must not become a way around the refusal."""
+        with self.assertRaises(SourceTrustError) as raised:
+            claim_from_source_candidate(
+                candidate=self._candidate(),
+                tier="practitioner_heuristic",
+                claim_kind="finding",
+                claim="Warming the cache halves p99.",
+                recorded_at=STAMP,
+            )
+        self.assertIn("may not back a finding claim", str(raised.exception))
+
+    def test_completion_is_still_unreachable_through_the_producer(self) -> None:
+        for tier in SOURCE_TRUST_TIERS:
+            with self.subTest(tier=tier):
+                with self.assertRaises(SourceTrustError):
+                    claim_from_source_candidate(
+                        candidate=self._candidate(),
+                        tier=tier,
+                        claim_kind="completion",
+                        claim="The migration shipped and the suite is green.",
+                        recorded_at=STAMP,
+                    )
+
+    def test_unattributed_cannot_cite_a_candidate(self) -> None:
+        with self.assertRaises(SourceTrustError) as raised:
+            claim_from_source_candidate(
+                candidate=self._candidate(),
+                tier="unattributed",
+                claim_kind="approach",
+                claim="Somebody said the scheduler retries twice.",
+                recorded_at=STAMP,
+            )
+        self.assertIn("the candidate is the attribution", str(raised.exception))
+
+    def test_a_foreign_record_is_refused(self) -> None:
+        for bad in ({"schema_version": "source_candidate/v2", "candidate_id": "source-abc"},
+                    {"schema_version": "source_trust_claim/v1", "candidate_id": "source-abc"},
+                    ["not", "a", "candidate"]):
+            with self.subTest(bad=bad):
+                with self.assertRaises(SourceTrustError):
+                    claim_from_source_candidate(
+                        candidate=bad,  # type: ignore[arg-type]
+                        tier="upstream_official",
+                        claim_kind="finding",
+                        claim="The runtime rejects a handoff without an owner.",
+                        recorded_at=STAMP,
+                    )
+
+    def test_a_candidate_without_an_id_is_refused(self) -> None:
+        candidate = dict(self._candidate())
+        candidate["candidate_id"] = ""
+        with self.assertRaises(SourceTrustError) as raised:
+            claim_from_source_candidate(
+                candidate=candidate,
+                tier="upstream_official",
+                claim_kind="finding",
+                claim="The runtime rejects a handoff without an owner.",
+                recorded_at=STAMP,
+            )
+        self.assertIn("candidate_id", str(raised.exception))
+
+    def test_produced_claims_flow_into_a_summary(self) -> None:
+        """End to end: candidate -> claim -> summary, with the ceiling holding."""
+        candidate = self._candidate()
+        claims = [
+            claim_from_source_candidate(
+                candidate=candidate,
+                tier="upstream_official",
+                claim_kind="finding",
+                claim="The runtime rejects a handoff without an owner.",
+                recorded_at=STAMP,
+            ),
+            claim_from_source_candidate(
+                candidate=candidate,
+                tier="practitioner_heuristic",
+                claim_kind="approach",
+                claim="Set the owner before preparing the handoff.",
+                recorded_at=STAMP,
+            ),
+        ]
+        summary = summarize_source_trust(topic="handoff owner requirement", claims=claims)
+        self.assertEqual(summary["accepted_count"], 2)
+        self.assertEqual(summary["rejected_count"], 0)
+        self.assertEqual(summary["strongest_claim_kind"], "finding")
+        self.assertNotEqual(summary["strongest_claim_kind"], "completion")
+        self.assertEqual(validate_source_trust_summary(summary), [])
 
 
 class CatalogWiringTests(unittest.TestCase):

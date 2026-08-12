@@ -686,14 +686,31 @@ def skill_picker_body(
 # chose, and that card's copy is already in the reader's language. An English
 # suffix on a Korean body reads as a glitch, so the sentence and its reason
 # phrases localize through the same locale the card used.
-_CONSOLIDATION_NOTICE_SENTENCES = {
-    "en": "Memory tidy-up is pending ({summary}). Ask me to review and consolidate memory.",
-    "ko": "기억 정리가 밀려 있습니다 ({summary}). 기억을 검토하고 정리해 달라고 말씀해 주세요.",
-    "ja": "メモリ整理が保留中です（{summary}）。メモリの確認と整理を依頼してください。",
-    "zh": "记忆整理待处理（{summary}）。请让我审查并整理记忆。",
-    "es": "La consolidación de memoria está pendiente ({summary}). Pídeme revisar y consolidar la memoria.",
-    "fr": "Le rangement de la mémoire est en attente ({summary}). Demandez-moi de revoir et consolider la mémoire.",
-    "de": "Das Aufräumen des Gedächtnisses steht aus ({summary}). Bitte mich, das Gedächtnis zu prüfen und zu konsolidieren.",
+# Two clauses, kept apart because only one of them can be wrong. The status
+# clause reports a fact the reader always needs -- consolidation is pending, and
+# why. The call to action asks them to request a review, which is correct on a
+# card about something else and absurd on a card that is already the review: it
+# told a user who just asked for a memory review to ask for a memory review.
+# `consolidation_notice_line` drops the second clause when the routed card
+# already satisfies it.
+_CONSOLIDATION_NOTICE_STATUS = {
+    "en": "Memory tidy-up is pending ({summary}).",
+    "ko": "기억 정리가 밀려 있습니다 ({summary}).",
+    "ja": "メモリ整理が保留中です（{summary}）。",
+    "zh": "记忆整理待处理（{summary}）。",
+    "es": "La consolidación de memoria está pendiente ({summary}).",
+    "fr": "Le rangement de la mémoire est en attente ({summary}).",
+    "de": "Das Aufräumen des Gedächtnisses steht aus ({summary}).",
+}
+
+_CONSOLIDATION_NOTICE_CALL_TO_ACTION = {
+    "en": "Ask me to review and consolidate memory.",
+    "ko": "기억을 검토하고 정리해 달라고 말씀해 주세요.",
+    "ja": "メモリの確認と整理を依頼してください。",
+    "zh": "请让我审查并整理记忆。",
+    "es": "Pídeme revisar y consolidar la memoria.",
+    "fr": "Demandez-moi de revoir et consolider la mémoire.",
+    "de": "Bitte mich, das Gedächtnis zu prüfen und zu konsolidieren.",
 }
 
 _CONSOLIDATION_REASON_PHRASES = {
@@ -764,15 +781,25 @@ _CONSOLIDATION_FALLBACK_SUMMARY = {
 }
 
 
-def consolidation_notice_line(locale: str, reasons: list[str]) -> str:
+def consolidation_notice_line(
+    locale: str,
+    reasons: list[str],
+    *,
+    suppress_call_to_action: bool = False,
+) -> str:
     """The pending-consolidation sentence in the card's language.
 
     ``reasons`` are the scheduler's own strings (``headroom_below_floor:289<=300``);
     the value suffix is detail for wrappers, so only the family selects a phrase
     and an unknown family simply contributes nothing.
+
+    ``suppress_call_to_action`` drops the closing imperative while keeping the
+    status clause. The status clause is never dropped: a card that reviews memory
+    still needs to know consolidation is pending and that headroom is the reason,
+    because that changes what the review has to accomplish.
     """
     resolved = _normalize_locale(locale)
-    if resolved not in _CONSOLIDATION_NOTICE_SENTENCES:
+    if resolved not in _CONSOLIDATION_NOTICE_STATUS:
         resolved = "en"
     phrases: list[str] = []
     for reason in reasons:
@@ -781,4 +808,7 @@ def consolidation_notice_line(locale: str, reasons: list[str]) -> str:
         if phrase and phrase not in phrases:
             phrases.append(phrase)
     summary = "; ".join(phrases) if phrases else _CONSOLIDATION_FALLBACK_SUMMARY[resolved]
-    return _CONSOLIDATION_NOTICE_SENTENCES[resolved].format(summary=summary)
+    status = _CONSOLIDATION_NOTICE_STATUS[resolved].format(summary=summary)
+    if suppress_call_to_action:
+        return status
+    return f"{status} {_CONSOLIDATION_NOTICE_CALL_TO_ACTION[resolved]}"
