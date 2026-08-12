@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import unittest
 from tempfile import TemporaryDirectory
@@ -624,45 +623,23 @@ class HookManifestTests(unittest.TestCase):
         self.assertNotIn(message, str(context_brief))
         self.assertNotIn("secret-token-123", str(context_brief))
 
-    def test_pre_tool_call_injects_generic_tool_checkpoint_without_raw_input(self) -> None:
+    def test_pre_tool_call_does_not_emit_unsupported_observer_context(self) -> None:
         cases = (
-            ("image_generate", {}, "image_tools", "img-summary", "prepare_visual_prompt_card"),
-            ("write_file", {}, "file_tools", "materials-package", "prepare_material_package"),
-            ("web_search", {}, "search_tools", "research", "gather_source_backed_evidence"),
-            ("codex_session_open", {}, "coding_tools", "ultraprocess", "prepare_one_cycle_delivery"),
-            ("python_runner", {"tool_family": "search"}, "search_tools", "research", "gather_source_backed_evidence"),
+            ("image_generate", {}),
+            ("write_file", {}),
+            ("web_search", {}),
+            ("codex_session_open", {}),
+            ("python_runner", {"tool_family": "search"}),
         )
 
-        for tool_name, extra_kwargs, tool_family, workflow, next_action in cases:
+        for tool_name, extra_kwargs in cases:
             with self.subTest(tool_name=tool_name):
                 result = pre_tool_call(
                     tool_name=tool_name,
                     tool_input={"prompt": "secret-token-123 should never appear"},
                     **extra_kwargs,
                 )
-                context = result["context"] if result else ""
-                checkpoint = result["omh_generic_tool_checkpoint"] if result else {}
-                serialized_checkpoint = json.dumps(checkpoint, sort_keys=True)
-
-                self.assertIn("[OMH Tool Checkpoint]", context)
-                self.assertIn("schema=omh_generic_tool_checkpoint/v1", context)
-                self.assertIn(f"tool_family={tool_family}", context)
-                self.assertIn(f"workflow={workflow}", context)
-                self.assertIn(f"next_action={next_action}", context)
-                self.assertIn("advisory tool-use context only", context)
-                self.assertEqual(checkpoint["schema_version"], "omh_generic_tool_checkpoint/v1")
-                self.assertEqual(checkpoint["source"], "pre_tool_call")
-                self.assertEqual(checkpoint["tool_name"], tool_name)
-                self.assertEqual(checkpoint["tool_family"], tool_family)
-                self.assertEqual(checkpoint["primary_workflow"], workflow)
-                self.assertEqual(checkpoint["primary_next_action"], next_action)
-                self.assertFalse(checkpoint["privacy"]["raw_tool_input_stored"])
-                self.assertFalse(checkpoint["privacy"]["raw_tool_input_echoed"])
-                self.assertIn("Advisory tool-use context only", checkpoint["claim_boundary"])
-                self.assertNotIn("secret-token-123", context)
-                self.assertNotIn("should never appear", context)
-                self.assertNotIn("secret-token-123", serialized_checkpoint)
-                self.assertNotIn("should never appear", serialized_checkpoint)
+                self.assertIsNone(result)
 
     def test_pre_tool_call_checkpoint_can_be_disabled(self) -> None:
         result = pre_tool_call(

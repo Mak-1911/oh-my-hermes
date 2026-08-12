@@ -8,20 +8,13 @@ from ..omh_roles import extract_role_marker, resolve_role_name, role_aliases, ro
 
 
 def pre_tool_call(**kwargs) -> dict[str, object] | None:
-    """Inject bounded OMH context before tool calls without exposing tool input."""
+    """Return only host-supported pre-tool directives or role warnings."""
     observe_plugin_hook_call("pre_tool_call", kwargs)
     context_parts: list[str] = []
     payload: dict[str, object] = {}
     role_warning = _delegate_role_warning(kwargs)
     if role_warning:
         context_parts.append(role_warning)
-
-    checkpoint = _generic_tool_checkpoint_context(kwargs)
-    if checkpoint:
-        context_parts.append(checkpoint)
-        structured_checkpoint = _generic_tool_checkpoint_payload(kwargs)
-        if structured_checkpoint:
-            payload["omh_generic_tool_checkpoint"] = structured_checkpoint
 
     if not context_parts:
         return None
