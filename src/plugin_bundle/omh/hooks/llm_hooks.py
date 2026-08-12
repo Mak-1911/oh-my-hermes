@@ -17,6 +17,7 @@ from ..degradation import (
     safe_error_type,
 )
 from ..awareness_delivery import record_awareness_delivery
+from ..host_context import record_active_main_agent_model
 from ..host_observation import observe_plugin_hook_call
 from ..omh_roles import extract_role_marker, role_context_payload
 from ..runtime_reader import read_omh_hud, read_omh_status
@@ -56,6 +57,7 @@ def _record_delivery(*, delivered: bool, route_hint: bool, context_chars: int, o
 
 def pre_llm_call(**kwargs) -> dict[str, object] | None:
     """Inject bounded OMH role/status context without storing prompts."""
+    record_active_main_agent_model(kwargs.get("model"))
     observe_plugin_hook_call("pre_llm_call", kwargs)
     context_parts: list[str] = []
     payload: dict[str, object] = {}

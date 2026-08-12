@@ -7,6 +7,7 @@ from typing import Any
 
 from ..awareness import awareness_route_hint
 from ..degradation import safe_error_type as _safe_error_type
+from ..host_context import active_main_agent_model
 from ..host_observation import OBSERVATION_SCHEMA, attach_public_observation, observe_plugin_tool_call
 
 OMH_INTERACT_SCHEMA = {
@@ -148,6 +149,7 @@ def _package_interaction(
     min_confidence = _min_confidence(args)
     executor_target = str(args.get("executor_target") or "choose")
     source_metadata = _source_metadata(args)
+    main_agent_model = active_main_agent_model()
     host_values = host_kwargs or {}
     if bool(args.get("record_session", True)):
         result = create_or_resume_wrapper_session(
@@ -159,6 +161,7 @@ def _package_interaction(
             min_confidence=min_confidence,
             source_metadata=source_metadata,
             executor_target=executor_target,
+            main_agent_model=main_agent_model,
             record_provenance={
                 "producer": "plugin_tool",
                 "producer_detail": "omh_interact plugin tool",
@@ -191,6 +194,7 @@ def _package_interaction(
         include_message=False,
         executor_target=executor_target,
         source_metadata=source_metadata,
+        main_agent_model=main_agent_model,
         paths=paths,
         _host_project_binding_factory=lambda: bind_plugin_project(host_values),
     )

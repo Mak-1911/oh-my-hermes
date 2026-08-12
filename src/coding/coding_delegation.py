@@ -323,6 +323,7 @@ def build_coding_delegation_payload(
     limit: int = 3,
     include_message: bool = False,
     source_metadata: dict[str, str] | None = None,
+    main_agent_model: str = "",
     executor_target: str = "generic",
     context_pack: dict[str, object] | None = None,
     input_manifest: dict[str, object] | None = None,
@@ -331,6 +332,7 @@ def build_coding_delegation_payload(
     preferred_workflow: str | None = None,
     preferred_workflow_score: int | None = None,
     prefer_direct_coding_handoff: bool = True,
+    preserve_preferred_workflow: bool = False,
     force_coding_handoff: bool = False,
     capability_snapshot_directory: Path | None = None,
     project_root: str | Path | None = None,
@@ -352,6 +354,9 @@ def build_coding_delegation_payload(
         raise ValueError(f"unsupported coding delegate executor: {executor_target}")
     if limit < 1:
         raise ValueError("coding delegate --limit must be at least 1")
+    resolved_main_agent_model = str(
+        main_agent_model or (source_metadata or {}).get("main_agent_model", "")
+    ).strip()
     governance = discover_project_governance(project_root, decision=governance_default) if project_root else None
     family_template = product_family_template(product_family) if product_family else None
     quality_harness = product_quality_harness(product_family) if product_family else None
@@ -369,6 +374,7 @@ def build_coding_delegation_payload(
     intent = _intent_for(message, workflow, score)
     if (
         prefer_direct_coding_handoff
+        and not preserve_preferred_workflow
         and score >= 4
         and workflow in _RETAINED_HERMES_WORKFLOWS
         and intent == "coding"
@@ -557,6 +563,7 @@ def build_coding_delegation_payload(
             isolation_plan=isolation_plan,
             has_plan_artifact=bool(plan_artifact),
             plan_artifact_status=str(plan_artifact.get("status", "")) if plan_artifact else "",
+            main_agent_model=resolved_main_agent_model,
         )
         payload["executor_handoff"] = _executor_handoff(
             executor_target,
@@ -577,6 +584,7 @@ def build_coding_delegation_payload(
             isolation_plan=isolation_plan,
             has_plan_artifact=bool(plan_artifact),
             plan_artifact_status=str(plan_artifact.get("status", "")) if plan_artifact else "",
+            main_agent_model=resolved_main_agent_model,
         )
         payload["runtime_handoff"] = _runtime_handoff(
             selection.selected_executor_profile,
@@ -597,6 +605,7 @@ def build_coding_delegation_payload(
             isolation_plan=isolation_plan,
             has_plan_artifact=bool(plan_artifact),
             plan_artifact_status=str(plan_artifact.get("status", "")) if plan_artifact else "",
+            main_agent_model=resolved_main_agent_model,
         )
         payload["prompt_handoff"] = _prompt_handoff(
             selection.selected_executor_profile,
@@ -1865,6 +1874,7 @@ def _executor_prompting_contract(
     isolation_plan: dict[str, object],
     has_plan_artifact: bool,
     plan_artifact_status: str,
+    main_agent_model: str,
 ) -> dict[str, object]:
     return build_executor_prompting_contract(
         profile,
@@ -1873,6 +1883,8 @@ def _executor_prompting_contract(
         has_plan_artifact=has_plan_artifact,
         plan_artifact_status=plan_artifact_status,
         isolation_plan=isolation_plan,
+        recommended_workflow=delegation.recommended_workflow,
+        main_agent_model=main_agent_model,
     )
 
 

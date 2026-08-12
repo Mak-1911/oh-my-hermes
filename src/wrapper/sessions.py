@@ -118,6 +118,7 @@ def create_or_resume_wrapper_session(
     min_confidence: str = "high",
     source_metadata: dict[str, str] | None = None,
     executor_target: str = "choose",
+    main_agent_model: str = "",
     target_notice: dict[str, object] | None = None,
     record_provenance: dict[str, object] | None = None,
     _host_project_binding_factory: HostProjectBindingFactory | None = None,
@@ -137,6 +138,7 @@ def create_or_resume_wrapper_session(
         include_message=False,
         source_metadata=source_metadata,
         executor_target=executor_target,
+        main_agent_model=main_agent_model,
         target_notice=target_notice,
         paths=paths,
         _host_project_binding_factory=build_session_project_binding_factory(

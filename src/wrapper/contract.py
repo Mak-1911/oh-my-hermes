@@ -3272,6 +3272,7 @@ def build_chat_interaction_payload(
     include_message: bool = False,
     executor_target: str = "choose",
     source_metadata: dict[str, str] | None = None,
+    main_agent_model: str = "",
     target_notice: dict[str, object] | None = None,
     paths: OmhPaths | None = None,
     skill_policy: dict[str, object] | None = None,
@@ -3289,6 +3290,7 @@ def build_chat_interaction_payload(
         event_or_message,
         include_message=include_message,
         source_metadata=source_metadata,
+        main_agent_model=main_agent_model,
         target_notice=target_notice,
         paths=paths,
         skill_policy=skill_policy,
@@ -3314,6 +3316,7 @@ def build_chat_interaction_payload(
         include_message=include_message,
         executor_target=executor_target,
         source_metadata=source_metadata,
+        main_agent_model=main_agent_model,
         target_notice=target_notice,
         paths=paths,
         skill_policy=skill_policy,
@@ -3334,6 +3337,7 @@ def _can_use_chat_interaction_cache(
     *,
     include_message: bool,
     source_metadata: dict[str, str] | None,
+    main_agent_model: str,
     target_notice: dict[str, object] | None,
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
@@ -3343,6 +3347,7 @@ def _can_use_chat_interaction_cache(
         isinstance(event_or_message, str)
         and not include_message
         and source_metadata is None
+        and not main_agent_model
         and target_notice is None
         and paths is None
         and skill_policy is None
@@ -3808,6 +3813,7 @@ def _build_chat_interaction_payload_cached(
         include_message=False,
         executor_target=executor_target,
         source_metadata=None,
+        main_agent_model="",
         target_notice=None,
         paths=None,
         skill_policy=None,
@@ -3825,6 +3831,7 @@ def _build_chat_interaction_payload_uncached(
     include_message: bool,
     executor_target: str,
     source_metadata: dict[str, str] | None,
+    main_agent_model: str,
     target_notice: dict[str, object] | None,
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
@@ -3940,6 +3947,7 @@ def _build_chat_interaction_payload_uncached(
             include_message=include_message,
             source_metadata=metadata,
             executor_target=resolved_executor_target,
+            main_agent_model=main_agent_model,
             memory_recall_pack=memory_recall_pack_for_handoff(
                 paths,
                 message,
@@ -4007,6 +4015,7 @@ def _build_chat_interaction_payload_uncached(
                     limit=limit,
                     include_message=include_message,
                     source_metadata=metadata,
+                    main_agent_model=main_agent_model,
                     resolved_executor_target=resolved_executor_target,
                     executor_resolution=executor_resolution,
                     route_payload=route_payload,
@@ -4106,6 +4115,7 @@ def _attach_coding_owner_handoff(
     limit: int,
     include_message: bool,
     source_metadata: dict[str, str],
+    main_agent_model: str,
     resolved_executor_target: str,
     executor_resolution: dict[str, object],
     route_payload: dict[str, object],
@@ -4118,9 +4128,11 @@ def _attach_coding_owner_handoff(
         include_message=include_message,
         source_metadata=source_metadata,
         executor_target=resolved_executor_target,
+        main_agent_model=main_agent_model,
         force_coding_handoff=True,
         preferred_workflow=str(route_payload.get("selected_skill", "")),
         preferred_workflow_score=_intish(route_payload.get("score", 0)),
+        preserve_preferred_workflow=resolved_executor_target == "hermes",
         memory_recall_pack=memory_recall_pack_for_handoff(
             paths,
             message,
