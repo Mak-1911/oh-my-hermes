@@ -207,17 +207,15 @@ class WindowsDomainStoreLockTests(unittest.TestCase):
             domain_root = paths.memory_dir / "domain-intelligence"
             fake = FakeMsvcrt()
             real_validate = security._validate_portable_directory_chain
-            displaced = paths.memory_dir / "domain-intelligence-displaced"
-            replacement = root / "replacement"
-            replacement.mkdir()
             validation_count = 0
 
-            def replace_root(chain):
+            def replace_root_identity(chain):
                 nonlocal validation_count
                 validation_count += 1
                 if validation_count == 2:
-                    domain_root.rename(displaced)
-                    domain_root.symlink_to(replacement, target_is_directory=True)
+                    root_path, identity = chain[-1]
+                    changed_identity = (identity[0], identity[1] + 1, identity[2])
+                    chain = (*chain[:-1], (root_path, changed_identity))
                 return real_validate(chain)
 
             patches = self._windows_lock_patches(domain_root, fake)
@@ -232,20 +230,22 @@ class WindowsDomainStoreLockTests(unittest.TestCase):
                 patch.object(
                     security,
                     "_validate_portable_directory_chain",
-                    side_effect=replace_root,
+                    side_effect=replace_root_identity,
                 ),
-                self.assertRaisesRegex(ValueError, "symlink|changed while writing"),
+                self.assertRaisesRegex(ValueError, "changed while writing"),
             ):
                 with security.domain_store_lock(paths):
                     pass
 
+            lock_path = domain_root / ".store.lock"
             self.assertEqual(validation_count, 2)
-            self.assertEqual(list(replacement.iterdir()), [])
-            self.assertTrue((displaced / ".store.lock").is_file())
+            self.assertTrue(lock_path.is_file())
             self.assertEqual(
                 [mode for _, mode, size in fake.calls if size == 1],
                 [fake.LK_NBLCK, fake.LK_UNLCK],
             )
+            lock_path.unlink()
+            self.assertFalse(lock_path.exists())
 
     def test_windows_path_refuses_lock_identity_replacement(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -255,24 +255,13 @@ class WindowsDomainStoreLockTests(unittest.TestCase):
             domain_root.mkdir(parents=True)
             lock_path = domain_root / ".store.lock"
             lock_path.write_bytes(b"original")
-            displaced = domain_root / ".store.lock-opened"
+            before = lock_path.stat()
+            named_after = SimpleNamespace(
+                st_dev=before.st_dev,
+                st_ino=before.st_ino + 1,
+                st_mode=before.st_mode,
+            )
             fake = FakeMsvcrt()
-            real_open = os.open
-            swapped = False
-
-            def windows_open(path, flags, mode=0o777, *, dir_fd=None):
-                nonlocal swapped
-                if dir_fd is not None:
-                    raise NotImplementedError("dir_fd is unavailable on Windows")
-                candidate = Path(path)
-                if candidate == domain_root or candidate.is_dir():
-                    raise PermissionError("the Windows CRT does not open directories")
-                descriptor = real_open(path, flags, mode)
-                if candidate == lock_path and not swapped:
-                    swapped = True
-                    lock_path.rename(displaced)
-                    lock_path.write_bytes(b"replacement")
-                return descriptor
 
             with (
                 patch.object(security, "fcntl", None),
@@ -280,15 +269,21 @@ class WindowsDomainStoreLockTests(unittest.TestCase):
                 patch.object(security, "_NOFOLLOW_FLAG", 0),
                 patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
                 patch.object(store_writer, "_DIRECTORY_FLAG", 0),
-                patch.object(security.os, "open", side_effect=windows_open),
+                patch.object(
+                    security,
+                    "_lock_path_stat",
+                    side_effect=[before, named_after],
+                ) as lock_stat,
                 self.assertRaisesRegex(ValueError, "changed while opening"),
             ):
                 with security.domain_store_lock(paths):
                     pass
 
-            self.assertTrue(swapped)
-            self.assertEqual(lock_path.read_bytes(), b"replacement")
+            self.assertEqual(lock_stat.call_count, 2)
+            self.assertEqual(lock_path.read_bytes(), b"original")
             self.assertEqual(fake.calls, [])
+            lock_path.unlink()
+            self.assertFalse(lock_path.exists())
 
 
 class PortableManagedJsonWriteTests(unittest.TestCase):
@@ -628,31 +623,31 @@ class PortableDomainStoreLockTests(unittest.TestCase):
             lock_path = paths.memory_dir / "domain-intelligence" / ".store.lock"
             lock_path.parent.mkdir(parents=True)
             lock_path.write_text("original", encoding="utf-8")
-            displaced = lock_path.with_name(".store.lock-opened")
-            real_open = security.os.open
-            swapped = False
-
-            def swap_open(path, flags, mode=0o777, *, dir_fd=None):
-                nonlocal swapped
-                descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
-                if Path(path) == lock_path and dir_fd is None and not swapped:
-                    swapped = True
-                    lock_path.rename(displaced)
-                    lock_path.write_text("replacement", encoding="utf-8")
-                return descriptor
+            before = lock_path.stat()
+            named_after = SimpleNamespace(
+                st_dev=before.st_dev,
+                st_ino=before.st_ino + 1,
+                st_mode=before.st_mode,
+            )
 
             with (
                 patch.object(security, "_NOFOLLOW_FLAG", 0),
                 patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
                 patch.object(store_writer, "_DIRECTORY_FLAG", 0),
-                patch.object(security.os, "open", side_effect=swap_open),
+                patch.object(
+                    security,
+                    "_lock_path_stat",
+                    side_effect=[before, named_after],
+                ) as lock_stat,
                 self.assertRaisesRegex(ValueError, "changed while opening"),
             ):
                 with security.domain_store_lock(paths):
                     pass
 
-            self.assertTrue(swapped)
-            self.assertEqual(lock_path.read_text(encoding="utf-8"), "replacement")
+            self.assertEqual(lock_stat.call_count, 2)
+            self.assertEqual(lock_path.read_text(encoding="utf-8"), "original")
+            lock_path.unlink()
+            self.assertFalse(lock_path.exists())
 
     def test_fallback_safely_creates_a_missing_lock(self) -> None:
         opened = self._metadata()
@@ -663,7 +658,7 @@ class PortableDomainStoreLockTests(unittest.TestCase):
                 "stat",
                 side_effect=[FileNotFoundError, opened],
             ),
-            patch.object(security.os, "open", return_value=19) as open_lock,
+            patch.object(security, "open_binary", return_value=19) as open_lock,
             patch.object(security.os, "fstat", return_value=opened),
         ):
             self.assertEqual(security._open_store_lock_descriptor(11, self._FLAGS), 19)
@@ -675,7 +670,7 @@ class PortableDomainStoreLockTests(unittest.TestCase):
         with (
             patch.object(security, "_NOFOLLOW_FLAG", 0),
             patch.object(security.os, "stat", side_effect=[existing, existing]),
-            patch.object(security.os, "open", return_value=23) as open_lock,
+            patch.object(security, "open_binary", return_value=23) as open_lock,
             patch.object(security.os, "fstat", return_value=existing),
         ):
             self.assertEqual(security._open_store_lock_descriptor(11, self._FLAGS), 23)
@@ -700,7 +695,7 @@ class PortableDomainStoreLockTests(unittest.TestCase):
         with (
             patch.object(security, "_NOFOLLOW_FLAG", 0),
             patch.object(security.os, "stat", side_effect=[before, replacement]),
-            patch.object(security.os, "open", return_value=29),
+            patch.object(security, "open_binary", return_value=29),
             patch.object(security.os, "fstat", return_value=before),
             patch.object(security.os, "close") as close_lock,
             self.assertRaisesRegex(ValueError, "changed while opening"),
