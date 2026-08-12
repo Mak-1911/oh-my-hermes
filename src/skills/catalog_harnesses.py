@@ -3013,6 +3013,7 @@ _FEATURE_SURFACE_HARNESSES = (
 _PRIMARY_HARNESSES = {
     "ralph": "goal-execution",
     "ultragoal": "goal-execution",
+    "context": "deep-interview",
     "deep-interview": "deep-interview",
     "team": "goal-execution",
     "ultrawork": "goal-execution",

@@ -19,24 +19,24 @@ class HermesUxQualityTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["passing_gate_count"], 9)
         self.assertEqual(payload["summary"]["grounded_score_scenarios"], 50)
         self.assertEqual(payload["summary"]["grounded_score_average"], 10.0)
-        self.assertEqual(payload["summary"]["chat_card_cases"], 74)
+        self.assertEqual(payload["summary"]["chat_card_cases"], 75)
         self.assertEqual(payload["summary"]["chat_card_generic_ack_count"], 0)
-        self.assertEqual(payload["summary"]["route_hint_cases"], 194)
-        self.assertEqual(payload["summary"]["route_hint_aligned_count"], 194)
+        self.assertEqual(payload["summary"]["route_hint_cases"], 195)
+        self.assertEqual(payload["summary"]["route_hint_aligned_count"], 195)
         self.assertEqual(payload["summary"]["route_hint_missing_count"], 0)
         self.assertEqual(payload["summary"]["route_hint_mismatch_count"], 0)
         self.assertEqual(payload["summary"]["context_brief_cases"], 10)
         self.assertEqual(payload["summary"]["context_brief_passing_count"], 10)
-        self.assertEqual(payload["summary"]["routing_precision_cases"], 57)
-        self.assertEqual(payload["summary"]["routing_precision_passing_count"], 57)
+        self.assertEqual(payload["summary"]["routing_precision_cases"], 62)
+        self.assertEqual(payload["summary"]["routing_precision_passing_count"], 62)
         self.assertEqual(payload["summary"]["routing_precision_overroute_count"], 0)
         self.assertEqual(payload["summary"]["routing_precision_catalog_picker_count"], 0)
         self.assertEqual(payload["summary"]["routing_precision_generic_ack_count"], 0)
-        self.assertEqual(payload["summary"]["routing_precision_intervention_cases"], 157)
-        self.assertEqual(payload["summary"]["routing_precision_intervention_passing_count"], 157)
+        self.assertEqual(payload["summary"]["routing_precision_intervention_cases"], 160)
+        self.assertEqual(payload["summary"]["routing_precision_intervention_passing_count"], 160)
         self.assertEqual(payload["summary"]["routing_precision_missed_intervention_count"], 0)
-        self.assertEqual(payload["summary"]["native_competition_cases"], 8)
-        self.assertEqual(payload["summary"]["native_competition_passing_count"], 8)
+        self.assertEqual(payload["summary"]["native_competition_cases"], 12)
+        self.assertEqual(payload["summary"]["native_competition_passing_count"], 12)
         self.assertEqual(payload["summary"]["localized_chat_copy_cases"], 8)
         self.assertEqual(payload["summary"]["localized_chat_copy_passing_count"], 8)
         self.assertEqual(payload["summary"]["localized_chat_copy_locale_count"], 6)
@@ -80,8 +80,8 @@ class HermesUxQualityTests(unittest.TestCase):
             source="discord",
             native_competition={
                 "schema_version": "wrong",
-                "case_count": 8,
-                "passed_count": 8,
+                "case_count": 12,
+                "passed_count": 12,
                 "failed_count": 0,
                 "all_passing": True,
                 "failures": "not-a-list",

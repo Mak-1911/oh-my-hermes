@@ -18,39 +18,47 @@ def add_domain_intelligence_commands(
         "domain-capture",
         help="Capture an agent/operator supplied domain vocabulary candidate for manual review.",
     )
-    domain_capture.add_argument("--scope-kind", choices=("user", "organization", "project"), required=True)
-    domain_capture.add_argument("--scope-ref", required=True, help="Explicit opaque operator/wrapper supplied scope key.")
-    domain_capture.add_argument("--domain", required=True, help="Normalized domain identifier, e.g. sales or payments.")
+    domain_capture.add_argument("--from-file", default=None, help="Preview repository-root PROJECT_TERMS.md for pending project capture.")
+    domain_capture.add_argument("--stage", action="store_true", help="Stage every file domain as pending review after atomic preflight.")
+    domain_capture.add_argument("--json", action="store_true", help="Print the machine-readable capture payload (the command default).")
+    domain_capture.add_argument("--scope-kind", choices=("user", "organization", "project"), default=None)
+    domain_capture.add_argument("--scope-ref", default=None, help="Explicit opaque operator/wrapper supplied scope key.")
+    domain_capture.add_argument("--domain", default=None, help="Normalized domain identifier, e.g. sales or payments.")
     domain_capture.add_argument(
         "--mapping",
         action="append",
-        required=True,
+        default=None,
         metavar="PHRASE=CANONICAL_TERM",
         help="Bounded phrase-to-canonical-term mapping; repeat for multiple mappings.",
     )
     domain_capture.add_argument(
         "--workflow-hint",
         action="append",
-        default=[],
+        default=None,
         help="Optional identifier-like workflow hint; repeatable.",
     )
     domain_capture.add_argument(
         "--source-class",
         choices=("operator_supplied", "wrapper_supplied", "omh_local"),
-        default="operator_supplied",
+        default=None,
     )
     domain_capture.add_argument(
         "--source-ref",
-        default="",
+        default=None,
         help="Optional safe opaque source reference: letters, digits, _ . : - only.",
     )
-    domain_capture.add_argument("--observation-count", type=int, default=1)
-    domain_capture.add_argument("--confidence", type=float, default=0.5)
+    domain_capture.add_argument("--observation-count", type=int, default=None)
+    domain_capture.add_argument("--confidence", type=float, default=None)
     domain_capture.set_defaults(func=domain_intelligence.cmd_memory_domain_capture)
 
     domain_review = memory_sub.add_parser("domain-review", help="Return review cards for pending domain vocabulary candidates.")
     domain_review.add_argument("--candidate", default=None, help="Limit review output to one candidate id.")
     domain_review.add_argument("--limit", type=int, default=20)
+    domain_review.add_argument(
+        "--source-freshness",
+        action="store_true",
+        help="Derive read-only repository-root PROJECT_TERMS.md freshness (requires --scope project).",
+    )
     domain_review.set_defaults(func=domain_intelligence.cmd_memory_domain_review)
 
     domain_approve = memory_sub.add_parser("domain-approve", help="Manually approve one pending domain vocabulary candidate.")
@@ -81,6 +89,11 @@ def add_domain_intelligence_commands(
     domain_list.add_argument("--scope-ref", default=None)
     domain_list.add_argument("--domain", default=None)
     domain_list.add_argument("--include-retired", action="store_true")
+    domain_list.add_argument(
+        "--source-freshness",
+        action="store_true",
+        help="Derive read-only repository-root PROJECT_TERMS.md freshness (requires --scope project).",
+    )
     domain_list.set_defaults(func=domain_intelligence.cmd_memory_domain_list)
 
     domain_retire = memory_sub.add_parser("domain-retire", help="Retire one active domain vocabulary profile without deleting history.")

@@ -749,7 +749,7 @@ def _standalone_skill_capabilities() -> list[dict[str, object]]:
                     "awareness_lane": lane_id,
                     "awareness_lane_label": lane_label,
                     "use_for": str(lane.get("use_for") or ""),
-                    "workflow_routing_hint": f"Use `{skill_id}`; lane={lane_label}; name adjacent.",
+                    "workflow_routing_hint": f"Use `{skill_id}` in {lane_label}.",
                     "workflow_context_rule": context_rule,
                     "chat_rule": chat_rule,
                     "fallback_rule": fallback_rule,

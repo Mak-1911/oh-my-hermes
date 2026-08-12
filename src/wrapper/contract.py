@@ -113,6 +113,7 @@ VISIBLE_ACTIONS = (
     "revise_plan",
     "present_plan",
     "prepare_handoff",
+    "prepare_project_terms_context",
     "choose_executor",
     "show_prompt_handoff",
     "copy_prompt_handoff",
@@ -896,6 +897,7 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "run_setup_guide": ("run_setup_guide", "Start setup guide"),
     "prepare_operating_workflow": ("prepare_operating_workflow", "Prepare workflow"),
     "prepare_memory_review": ("prepare_memory_review", "Review memory"),
+    "prepare_project_terms_context": ("prepare_project_terms_context", "Align project terms"),
     "prepare_coding_handoff": ("prepare_coding_handoff", "Prepare coding handoff"),
     "prepare_coding_runtime_handoff": ("prepare_coding_runtime_handoff", "Prepare runtime handoff"),
     "prepare_operating_record": ("prepare_operating_record", "Prepare rhythm"),
@@ -976,6 +978,37 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
 }
 
 _OPERATING_BRIEF_CHAT_CARDS: dict[str, dict[str, object]] = {
+    "context": {
+        "kind": "project_terms_context",
+        "headline": "I can align this repository's terminology before planning.",
+        "body": (
+            "I will inspect repository evidence, the optional project-terms source, and active reviewed terminology; "
+            "answer settled lookups directly; and ask only dependency-ready unresolved decisions after you confirm "
+            "interview entry. Staging, profile approval, planning, and coding handoff each require their own confirmation."
+        ),
+        "phase": "project_terms_context_prepared",
+        "next_action": "prepare_project_terms_context",
+        "artifact_schema": "project_terms_context_card/v1",
+        "actions": [
+            {"id": "prepare_project_terms_context", "label": "Align project terms", "style": "primary"},
+            {"id": "answer:clarify", "label": "Ask one question", "style": "secondary"},
+            {"id": "show_status", "label": "Show source status", "style": "secondary"},
+        ],
+        "recommended_flow": [
+            "inspect_repository_and_reviewed_terms",
+            "answer_safe_lookup_directly",
+            "confirm_candidate_staging_or_frontier_entry",
+            "exhaust_dependency_ready_frontier",
+            "confirm_shared_understanding_before_plan_or_handoff",
+        ],
+        "evidence_not_observed": [
+            "candidate staging",
+            "profile approval",
+            "model use",
+            "planning handoff",
+            "executor dispatch",
+        ],
+    },
     "ops-review": {
         "kind": "ops_review",
         "headline": "I can turn this into an operating review.",

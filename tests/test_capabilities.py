@@ -100,6 +100,32 @@ class CapabilityManifestTests(unittest.TestCase):
             "belongs to in awareness_primer_payload()).",
         )
 
+    def test_ulw_context_projects_through_awareness_and_default_capability_family(self) -> None:
+        from omh.plugin_bundle.omh.awareness import (
+            _DIRECT_WORKFLOW_NEXT_ACTIONS,
+            _ULW_ENGINE_WORKFLOWS,
+            _canonical_workflow_by_display_name,
+            awareness_primer_payload,
+            workflow_context_card_for_workflow,
+        )
+
+        awareness = awareness_primer_payload()
+        lanes = {lane["id"]: lane for lane in awareness["lanes"]}
+        self.assertEqual(
+            sum("context" in lane["skills"] for lane in awareness["lanes"]),
+            1,
+        )
+        self.assertIn("context", lanes["intent_to_plan"]["skills"])
+        self.assertEqual(workflow_context_card_for_workflow("context")["id"], "intent_to_plan")
+        self.assertEqual(_DIRECT_WORKFLOW_NEXT_ACTIONS["context"], "prepare_project_terms_context")
+        self.assertIn("context", _ULW_ENGINE_WORKFLOWS)
+        self.assertEqual(_canonical_workflow_by_display_name()["ulw-context"], "context")
+
+        projection = capability_family_projection()
+        self.assertEqual(projection["workflow_to_family"]["context"], "plan_and_decide")
+        family = next(item for item in projection["families"] if item["id"] == "plan_and_decide")
+        self.assertEqual(family["primary_workflows"].count("context"), 1)
+
     def test_capability_families_are_user_facing_front_door_projection(self) -> None:
         projection = capability_family_projection()
         families = {family["id"]: family for family in projection["families"]}

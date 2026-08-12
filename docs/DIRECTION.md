@@ -167,6 +167,69 @@ The policy:
 This keeps the "not an LLM router" boundary above intact: the selection happens
 in Hermes, and core `omh` still makes no LLM, API, or network call.
 
+## Project Terms Authority
+
+A repository may carry an optional root-level `PROJECT_TERMS.md` as a portable,
+human-reviewed source for project terminology. Its absence is a clean no-op:
+setup and health checks must not create it, import it, or warn about it. The
+file is project-scoped and has no direct machine authority. Editing, reviewing,
+or committing it does not change routing or activate terminology in OMH.
+
+Machine-readable terminology continues to use the existing reviewed
+`domain_intelligence_profile/v1` lifecycle. A strict file preview may project
+only phrase-to-canonical mappings and existing catalog workflow hints. Explicit
+staging creates pending candidates only; a separate review and approval is
+required before a profile becomes active. Human definitions, localized labels,
+`distinct-from` notes, and `say-instead` guidance remain source prose and never
+enter the profile. The profile schema, digest, and claim boundary remain
+unchanged.
+
+An active reviewed mapping is advisory clarification context, not authority.
+The ordinary router decides first; project terminology may clarify only an
+otherwise unresolved, router-owned interaction. A file, mapping, workflow hint,
+or freshness result must never select or rerank a route, dispatch or execute
+work, perform review or testing, run CI, approve a plan, merge code, or prove
+that Hermes, a model, provider, or selected coding owner used the context.
+Freshness is derived only during explicit project-scoped inspection and is not
+persisted; source edits or deletion do not synchronize, replace, approve, or
+retire a profile.
+
+The generated `ulw-context` workflow is the public Hermes surface for safe
+terminology lookup, explicitly confirmed reviewed capture, and dependency-ready
+frontier interviewing. Its canonical catalog id is `context`. Generated name
+and description metadata make it eligible for host semantic nomination, but
+live Hermes semantic nomination is `not_tested`: the installed host profile
+used for QA did not contain `ulw-context`, and no profile mutation was made.
+Current selection evidence is limited to explicit workflow invocation and a
+deterministic lexical proxy over catalog metadata. That proxy measures lexical
+competition; it is not evidence of semantic nomination by Hermes. Deterministic
+OMH routing remains limited to explicit workflow invocation and catalog cues,
+and the workflow adds no project-term, glossary, or per-language routing table.
+
+Reviewed active project-domain mappings now reach coding handoffs through the
+existing bounded context-pack lane. OMH resolves them read-only from its own
+validated store and includes only approved summaries for the current project;
+pending, rejected, retired, malformed, review-mismatched, digest-mismatched,
+and scope-mismatched artifacts remain excluded. The same projection is used
+for Codex, Claude Code, Hermes, and generic executor role packs. These packs are
+prepared context only, not evidence that an executor or model received, read,
+or used a mapping, and not dispatch, execution, review, CI, merge-readiness, or
+merge evidence.
+
+Exact `PROJECT_TERMS.md` bytes can reach a selected coding owner only through
+explicit workspace-relative file selection in `handoff_input_manifest/v1`,
+subject to content hashing, safety classification, item limits, and byte-budget
+checks. They are not copied into every session, runtime record, or handoff
+automatically. Manifest preparation or inclusion is likewise prepared context,
+not proof of dispatch, receipt, reading, model use, execution, review, CI,
+merge-readiness, or merge.
+
+This direction adapts the dependency-frontier and terminology-separation ideas
+from Matt Pocock's `grilling` and `domain-modeling` skills at revision
+`84fdeffd12f2ee307994d1eb6feb48173b6e0502`, used under the MIT License
+(Copyright 2026 Matt Pocock). It does not copy the upstream wrapper or make its
+runtime behavior part of OMH.
+
 ## Ownership Boundary
 
 Hermes owns:

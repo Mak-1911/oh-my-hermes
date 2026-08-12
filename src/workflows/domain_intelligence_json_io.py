@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import os
+from pathlib import Path
 import stat
 
 from .domain_intelligence_bounded_json import (
@@ -13,13 +14,25 @@ from .domain_intelligence_store_security import (
     MAX_DOMAIN_JSON_DEPTH,
     MAX_DOMAIN_JSON_NODES,
 )
+from .domain_intelligence_store_writer import read_managed_json_at
 
 
 _NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
 _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
 
 
-def read_stable_json_at(directory_fd: int, filename: str) -> dict[str, object]:
+def read_stable_json_at(directory_fd: int | Path, filename: str) -> dict[str, object]:
+    if isinstance(directory_fd, Path):
+        value = read_managed_json_at(
+            directory_fd,
+            filename,
+            max_bytes=MAX_DOMAIN_ARTIFACT_BYTES,
+            max_depth=MAX_DOMAIN_JSON_DEPTH,
+            max_nodes=MAX_DOMAIN_JSON_NODES,
+        )
+        if value is None:
+            raise FileNotFoundError(filename)
+        return value
     if not _NOFOLLOW_FLAG:
         raise ValueError("domain-intelligence safe reads require O_NOFOLLOW")
     flags = os.O_RDONLY | _CLOEXEC_FLAG | _NOFOLLOW_FLAG

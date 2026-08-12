@@ -10,13 +10,19 @@ line ending rather than the contract.
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
+import os
 from pathlib import Path
+import stat
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from _local_package import load_local_package
 
 load_local_package()
+from omh.coding import handoff_input_manifest as manifest_module  # noqa: E402
 from omh.coding.handoff_input_manifest import (  # noqa: E402
     HANDOFF_INPUT_MANIFEST_PIN_SCHEMA_VERSION,
     HANDOFF_INPUT_MANIFEST_SCHEMA_VERSION,
@@ -35,7 +41,9 @@ from omh.coding.handoff_input_manifest import (  # noqa: E402
 )
 from omh.coding_delegation import build_coding_delegation_payload  # noqa: E402
 from omh.local_store import atomic_write_text  # noqa: E402
+from omh.system import binary_io  # noqa: E402
 from omh.runtime.records import validate_coding_delegation_record  # noqa: E402
+from _platform_support import requires_symlinks  # noqa: E402
 
 
 PLAN_TEXT = "\n".join(
@@ -445,6 +453,370 @@ class BudgetReportingTests(_WorkspaceCase):
         self.assertEqual(summary["excluded_count"], 1)
         self.assertEqual(summary["digest"], manifest["digest"])
         self.assertNotIn("items", summary)
+
+
+class WorkspaceFileSelectionSecurityTests(_WorkspaceCase):
+    def test_windows_cross_api_snapshot_ignores_only_incompatible_ctime(self) -> None:
+        before = SimpleNamespace(
+            st_dev=1,
+            st_ino=2,
+            st_mode=stat.S_IFREG | 0o600,
+            st_size=3,
+            st_mtime_ns=4,
+            st_ctime_ns=5,
+        )
+        ctime_only = SimpleNamespace(**{**vars(before), "st_ctime_ns": 6})
+        mtime_changed = SimpleNamespace(**{**vars(before), "st_mtime_ns": 7})
+        with patch.object(manifest_module, "_WINDOWS_PATH_CTIME_IS_BIRTHTIME", True):
+            self.assertEqual(
+                manifest_module._cross_api_file_snapshot(before),
+                manifest_module._cross_api_file_snapshot(ctime_only),
+            )
+            self.assertNotEqual(
+                manifest_module._cross_api_file_snapshot(before),
+                manifest_module._cross_api_file_snapshot(mtime_changed),
+            )
+        self.assertNotEqual(
+            manifest_module._file_snapshot(before),
+            manifest_module._file_snapshot(ctime_only),
+        )
+
+    def test_fallback_reads_windows_text_files_as_exact_binary_bytes(self) -> None:
+        source = b"first line\r\nsecond line\r\n"
+        candidate = self.workspace.root / "src" / "windows-lines.txt"
+        candidate.write_bytes(source)
+        (self.workspace.root / "src" / "unsafe.py").write_bytes(b'api_key = "value"\r\n')
+        (self.workspace.root / "src" / "large.py").write_bytes(b"x" * 257)
+        real_open = os.open
+        real_dup = os.dup
+        real_read = os.read
+        binary_flag = 1 << 29
+        descriptor_generations: dict[int, int] = {}
+        opened_descriptors: set[tuple[int, int]] = set()
+        binary_descriptors: set[tuple[int, int]] = set()
+        native_setmode = binary_io._msvcrt.setmode if binary_io._msvcrt is not None else None
+        native_binary_flag = getattr(os, "O_BINARY", 0)
+
+        class FakeMsvcrt:
+            @staticmethod
+            def setmode(descriptor: int, mode: int) -> int:
+                self.assertEqual(mode, binary_flag)
+                prior = native_setmode(descriptor, native_binary_flag) if native_setmode else 0
+                binary_descriptors.add((descriptor, descriptor_generations[descriptor]))
+                return prior
+
+        def windows_open(path: object, flags: int, *args: object, **kwargs: object) -> int:
+            requested_binary = bool(flags & binary_flag)
+            descriptor = real_open(path, flags & ~binary_flag, *args, **kwargs)  # type: ignore[arg-type]
+            generation = descriptor_generations.get(descriptor, 0) + 1
+            descriptor_generations[descriptor] = generation
+            opened_descriptors.add((descriptor, generation))
+            if requested_binary:
+                binary_descriptors.add((descriptor, generation))
+            return descriptor
+
+        def windows_read(descriptor: int, size: int) -> bytes:
+            data = real_read(descriptor, size)
+            token = (descriptor, descriptor_generations[descriptor])
+            return data if token in binary_descriptors else data.replace(b"\r\n", b"\n")
+
+        def windows_dup(descriptor: int) -> int:
+            duplicate = real_dup(descriptor)
+            generation = descriptor_generations.get(duplicate, 0) + 1
+            descriptor_generations[duplicate] = generation
+            opened_descriptors.add((duplicate, generation))
+            return duplicate
+
+        selection = [
+            ManifestSelection("file", "path", "src/windows-lines.txt"),
+            ManifestSelection("file", "path", "src/unsafe.py"),
+            ManifestSelection("file", "path", "src/large.py"),
+        ]
+        with (
+            patch.object(manifest_module, "_NOFOLLOW_FLAG", 0),
+            patch.object(binary_io, "_BINARY_FLAG", binary_flag),
+            patch.object(binary_io, "_msvcrt", FakeMsvcrt()),
+            patch.object(os, "open", side_effect=windows_open),
+            patch.object(os, "dup", side_effect=windows_dup),
+            patch.object(os, "read", side_effect=windows_read),
+        ):
+            first = self.build(selections=selection, budget_bytes=256)
+            second = self.build(selections=selection, budget_bytes=256)
+
+        self.assertTrue(opened_descriptors)
+        self.assertEqual(opened_descriptors, binary_descriptors)
+        self.assertEqual(first, second)
+        item = first["items"][0]  # type: ignore[index]
+        self.assertEqual(item["byte_cost"], len(source))
+        self.assertEqual(item["hash"], "sha256:" + hashlib.sha256(source).hexdigest())
+        self.assertEqual(
+            [row["reason"] for row in first["excluded_items"]],  # type: ignore[index]
+            ["over_budget", "unsafe_content"],
+        )
+        pin = input_manifest_pin(first)
+        self.assertTrue(input_manifest_pin_matches(pin, first))
+        changed = deepcopy(first)
+        changed["items"][0]["hash"] = "sha256:" + "0" * 64  # type: ignore[index]
+        self.assertFalse(input_manifest_pin_matches(pin, changed))
+
+    def test_fallback_preserves_multiple_selection_safety_and_budget_contracts(self) -> None:
+        self.workspace.write("src/unsafe.py", 'api_key = "value"\n')
+        self.workspace.write("src/large.py", "x" * 80)
+        selections = [
+            ManifestSelection("file", "path", "src/client.py"),
+            ManifestSelection("file", "path", "src/helper.py"),
+            ManifestSelection("file", "path", "src/unsafe.py"),
+            ManifestSelection("file", "path", "src/large.py"),
+        ]
+
+        with patch.object(manifest_module, "_NOFOLLOW_FLAG", 0):
+            first = self.build(selections=selections, budget_bytes=64)
+            second = self.build(selections=selections, budget_bytes=64)
+
+        self.assertEqual(first, second)
+        self.assertEqual(
+            [item["item_id"] for item in first["items"]],  # type: ignore[index]
+            ["file:src/client.py", "file:src/helper.py"],
+        )
+        self.assertEqual(
+            [row["reason"] for row in first["excluded_items"]],  # type: ignore[index]
+            ["over_budget", "unsafe_content"],
+        )
+        self.assertEqual(validate_handoff_input_manifest(first), [])
+        pin = input_manifest_pin(first)
+        self.assertEqual(validate_handoff_input_manifest_pin(pin), [])
+        self.assertTrue(input_manifest_pin_matches(pin, pinned_input_manifest(first)))
+
+    @requires_symlinks
+    def test_symlinked_workspace_root_is_refused_without_including_target_bytes(self) -> None:
+        real_root = self.workspace.root / "real-workspace"
+        real_root.mkdir()
+        secret = "def from_symlinked_root():\n    return True\n"
+        atomic_write_text(real_root / "secret.py", secret)
+        linked_root = self.workspace.root / "linked-workspace"
+        linked_root.symlink_to(real_root, target_is_directory=True)
+        selection = [ManifestSelection("file", "path", "secret.py")]
+
+        first = self.build(workspace_root=linked_root, selections=selection)
+        with patch.object(manifest_module, "_NOFOLLOW_FLAG", 0):
+            second = self.build(workspace_root=linked_root, selections=selection)
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["items"], [])
+        self.assertEqual(first["budget"]["used_bytes"], 0)  # type: ignore[index]
+        row = self.only_exclusion(first, "unreadable_source")
+        self.assertEqual(row["item_id"], "file:secret.py")
+        self.assertEqual(row["byte_cost"], 0)
+        self.assertIn("workspace root", str(row["detail"]).lower())
+        self.assertIn("symlink", str(row["detail"]).lower())
+        self.assertNotIn(hashlib.sha256(secret.encode("utf-8")).hexdigest(), str(first))
+
+    @requires_symlinks
+    def test_final_symlink_is_refused_without_including_target_bytes(self) -> None:
+        target = self.workspace.write("src/symlink-target.py", "def target():\n    return True\n")
+        (self.workspace.root / "src/linked.py").symlink_to(target)
+
+        selection = [ManifestSelection("file", "path", "src/linked.py")]
+        first = self.build(selections=selection)
+        with patch.object(manifest_module, "_NOFOLLOW_FLAG", 0):
+            second = self.build(selections=selection)
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["items"], [])
+        row = self.only_exclusion(first, "unreadable_source")
+        self.assertEqual(row["item_id"], "file:src/linked.py")
+        self.assertIn("symlink", str(row["detail"]).lower())
+
+    @requires_symlinks
+    def test_intermediate_symlink_is_refused_without_including_target_bytes(self) -> None:
+        real = self.workspace.root / "real-source"
+        real.mkdir()
+        self.workspace.write("real-source/nested.py", "def nested():\n    return True\n")
+        (self.workspace.root / "linked-source").symlink_to(real, target_is_directory=True)
+
+        selection = [ManifestSelection("file", "path", "linked-source/nested.py")]
+        first = self.build(selections=selection)
+        with patch.object(manifest_module, "_NOFOLLOW_FLAG", 0):
+            manifest = self.build(selections=selection)
+
+        self.assertEqual(first, manifest)
+        self.assertEqual(manifest["items"], [])
+        row = self.only_exclusion(manifest, "unreadable_source")
+        self.assertEqual(row["item_id"], "file:linked-source/nested.py")
+        self.assertIn("symlink", str(row["detail"]).lower())
+
+    def test_fallback_replacement_between_validation_and_open_is_refused(self) -> None:
+        candidate = self.workspace.write("src/race.py", "def original():\n    return True\n")
+        original = self.workspace.root / "src/original-race.py"
+        replacement = b"def replacement():\n    return False\n"
+        real_lstat = Path.lstat
+        swapped = False
+
+        def swap_after_lstat(path: Path) -> os.stat_result:
+            nonlocal swapped
+            result = real_lstat(path)
+            if not swapped and path == candidate:
+                swapped = True
+                os.replace(candidate, original)
+                candidate.write_bytes(replacement)
+            return result
+
+        with (
+            patch.object(manifest_module, "_NOFOLLOW_FLAG", 0),
+            patch.object(Path, "lstat", autospec=True, side_effect=swap_after_lstat),
+        ):
+            manifest = self.build(
+                selections=[ManifestSelection("file", "path", "src/race.py")]
+            )
+
+        self.assertTrue(swapped, "the deterministic race seam must replace the validated name")
+        self.assertEqual(manifest["items"], [])
+        row = self.only_exclusion(manifest, "unreadable_source")
+        self.assertEqual(row["item_id"], "file:src/race.py")
+        self.assertIn("changed", str(row["detail"]).lower())
+        self.assertNotIn(hashlib.sha256(replacement).hexdigest(), str(manifest))
+
+    def test_descriptor_nofollow_replacement_between_validation_and_open_is_refused(self) -> None:
+        if not manifest_module._descriptor_relative_reads_supported():
+            self.skipTest("descriptor-relative no-follow is unavailable")
+        candidate = self.workspace.write("src/descriptor-race.py", "def original():\n    return True\n")
+        original = self.workspace.root / "src/original-descriptor-race.py"
+        replacement = b"def replacement():\n    return False\n"
+        real_stat_at = manifest_module._stat_at
+        swapped = False
+
+        def swap_after_stat(name: str, directory_fd: int) -> os.stat_result:
+            nonlocal swapped
+            result = real_stat_at(name, directory_fd)
+            if not swapped and name == "descriptor-race.py":
+                swapped = True
+                os.replace(candidate, original)
+                candidate.write_bytes(replacement)
+            return result
+
+        with patch.object(manifest_module, "_stat_at", side_effect=swap_after_stat):
+            manifest = self.build(
+                selections=[ManifestSelection("file", "path", "src/descriptor-race.py")]
+            )
+
+        self.assertTrue(swapped)
+        self.assertEqual(manifest["items"], [])
+        row = self.only_exclusion(manifest, "unreadable_source")
+        self.assertIn("changed", str(row["detail"]).lower())
+        self.assertNotIn(hashlib.sha256(replacement).hexdigest(), str(manifest))
+
+    def test_fallback_refuses_workspace_root_replacement_during_selection(self) -> None:
+        selected_root = self.workspace.root / "selected-root"
+        selected_root.mkdir()
+        candidate = selected_root / "source.py"
+        atomic_write_text(candidate, "def original():\n    return True\n")
+        moved_root = self.workspace.root / "moved-root"
+        replacement = b"def replacement():\n    return False\n"
+        real_lstat = Path.lstat
+        root_stats = 0
+
+        def replace_after_root_validation(path: Path) -> os.stat_result:
+            nonlocal root_stats
+            result = real_lstat(path)
+            if path == selected_root:
+                root_stats += 1
+                if root_stats == 2:
+                    selected_root.rename(moved_root)
+                    selected_root.mkdir()
+                    (selected_root / "source.py").write_bytes(replacement)
+            return result
+
+        with (
+            patch.object(manifest_module, "_NOFOLLOW_FLAG", 0),
+            patch.object(Path, "lstat", autospec=True, side_effect=replace_after_root_validation),
+        ):
+            manifest = self.build(
+                workspace_root=selected_root,
+                selections=[ManifestSelection("file", "path", "source.py")],
+            )
+
+        self.assertEqual(manifest["items"], [])
+        row = self.only_exclusion(manifest, "unreadable_source")
+        self.assertIn("workspace root changed", str(row["detail"]).lower())
+        self.assertNotIn(hashlib.sha256(replacement).hexdigest(), str(manifest))
+
+    def test_fallback_refuses_intermediate_replacement_during_selection(self) -> None:
+        directory = self.workspace.root / "race-directory"
+        directory.mkdir()
+        candidate = directory / "source.py"
+        atomic_write_text(candidate, "def original():\n    return True\n")
+        moved_directory = self.workspace.root / "moved-directory"
+        replacement = b"def replacement():\n    return False\n"
+        real_lstat = Path.lstat
+        swapped = False
+
+        def replace_after_component_validation(path: Path) -> os.stat_result:
+            nonlocal swapped
+            result = real_lstat(path)
+            if not swapped and path == directory:
+                swapped = True
+                directory.rename(moved_directory)
+                directory.mkdir()
+                (directory / "source.py").write_bytes(replacement)
+            return result
+
+        with (
+            patch.object(manifest_module, "_NOFOLLOW_FLAG", 0),
+            patch.object(Path, "lstat", autospec=True, side_effect=replace_after_component_validation),
+        ):
+            manifest = self.build(
+                selections=[ManifestSelection("file", "path", "race-directory/source.py")]
+            )
+
+        self.assertTrue(swapped)
+        self.assertEqual(manifest["items"], [])
+        row = self.only_exclusion(manifest, "unreadable_source")
+        self.assertIn("changed", str(row["detail"]).lower())
+        self.assertNotIn(hashlib.sha256(replacement).hexdigest(), str(manifest))
+
+
+class ProjectTermsExplicitSelectionTests(_WorkspaceCase):
+    def test_project_terms_source_uses_only_the_explicit_bounded_file_path(self) -> None:
+        source = "# Project Terms\n\n- dispatch packet means handoff\n"
+        self.workspace.write("PROJECT_TERMS.md", source)
+
+        first = self.build(
+            selections=[ManifestSelection("file", "path", "PROJECT_TERMS.md")]
+        )
+        second = self.build(
+            selections=[ManifestSelection("file", "path", "PROJECT_TERMS.md")]
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["excluded_items"], [])
+        self.assertEqual(len(first["items"]), 1)
+        item = first["items"][0]
+        self.assertEqual(item["item_kind"], "file")
+        self.assertEqual(item["selector"], {"kind": "path", "expression": "PROJECT_TERMS.md"})
+        self.assertEqual(item["provenance"]["local_ref"], "PROJECT_TERMS.md")
+        self.assertEqual(item["byte_cost"], len(source.encode("utf-8")))
+        self.assertEqual(item["inclusion_reason"], "explicit_selection")
+        self.assertEqual(item["safety_result"]["status"], "safe")
+        self.assertEqual(item["hash"], "sha256:" + hashlib.sha256(source.encode("utf-8")).hexdigest())
+        self.assertNotIn("content", item, "the manifest records exact-byte identity, not a second source copy")
+
+    def test_project_terms_source_is_refused_whole_when_over_budget_or_unsafe(self) -> None:
+        cases = (
+            ("over_budget", "x" * 257, 256),
+            ("unsafe_content", 'api_key = "value"\n', 256),
+        )
+        for reason, source, budget in cases:
+            with self.subTest(reason=reason):
+                self.workspace.write("PROJECT_TERMS.md", source)
+                manifest = self.build(
+                    selections=[ManifestSelection("file", "path", "PROJECT_TERMS.md")],
+                    budget_bytes=budget,
+                )
+                self.assertEqual(manifest["items"], [])
+                exclusion = self.only_exclusion(manifest, reason)
+                self.assertEqual(exclusion["item_id"], "file:PROJECT_TERMS.md")
+                self.assertEqual(exclusion["byte_cost"], len(source.encode("utf-8")))
+                self.assertNotIn("truncated", str(exclusion).lower())
 
 
 class PackSupersetTests(_WorkspaceCase):

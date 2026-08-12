@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..system.paths import OmhPaths
 from .domain_intelligence_artifacts import candidate_card, profile_projection
 from .domain_intelligence_contracts import (
@@ -27,6 +29,7 @@ from .domain_intelligence_validation import (
     validate_profile_artifact,
 )
 from .domain_intelligence_validation_state import profile_key
+from .project_terms_capture import project_terms_source_freshness
 
 
 def build_domain_review(
@@ -34,6 +37,7 @@ def build_domain_review(
     *,
     candidate_id: str | None = None,
     limit: int = 20,
+    source_freshness_root: str | Path | None = None,
 ) -> dict[str, object]:
     diagnostics: list[dict[str, str]] = []
     cards: list[dict[str, object]] = []
@@ -47,7 +51,13 @@ def build_domain_review(
             continue
         if candidate.get("status") != "pending_review":
             continue
-        cards.append(candidate_card(candidate))
+        card = candidate_card(candidate)
+        if source_freshness_root is not None:
+            card["source_freshness"] = project_terms_source_freshness(
+                candidate,
+                invocation_cwd=source_freshness_root,
+            )
+        cards.append(card)
         if len(cards) >= max(1, limit):
             break
     return {
@@ -69,6 +79,7 @@ def list_domain_profiles(
     scope_ref: str | None = None,
     domain_id: str | None = None,
     include_retired: bool = False,
+    source_freshness_root: str | Path | None = None,
 ) -> dict[str, object]:
     scope_filter = (
         normalize_scope(scope_kind, scope_ref) if scope_kind or scope_ref else None
@@ -89,7 +100,13 @@ def list_domain_profiles(
             continue
         if domain_filter and profile.get("domain_id") != domain_filter:
             continue
-        profiles.append(profile_projection(profile))
+        projection = profile_projection(profile)
+        if source_freshness_root is not None:
+            projection["source_freshness"] = project_terms_source_freshness(
+                profile,
+                invocation_cwd=source_freshness_root,
+            )
+        profiles.append(projection)
     profiles.sort(key=_profile_sort_key)
     return {
         "schema_version": DOMAIN_LIST_SCHEMA_VERSION,

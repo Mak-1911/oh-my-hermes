@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 import os
 from pathlib import Path
-import re
-import subprocess
-import tempfile
 from typing import Protocol
 
 
 BUZZ_PROBE_SCHEMA_VERSION = "omh_buzz_probe/v1"
-_VERSION_PATTERN = re.compile(r"(?<!\d)(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)")
 _SECRET_KEYS = ("BUZZ_PRIVATE_KEY", "BUZZ_CREDENTIALS_FILE")
 
 
@@ -19,14 +15,10 @@ class _Paths(Protocol):
     hermes_config_path: Path
 
 
-Runner = Callable[..., tuple[int, str, str]]
-
-
 def probe_buzz(
     paths: _Paths,
     *,
     environ: Mapping[str, str] | None = None,
-    runner: Runner | None = None,
 ) -> dict[str, object]:
     """Inspect local Buzz readiness without network access or state mutation."""
 
@@ -44,32 +36,14 @@ def probe_buzz(
             configured=configured,
             credential_present=credential_present,
             executable=None,
-            version=None,
         )
 
-    invoke = _subprocess_runner if runner is None else runner
-    code, stdout, _stderr = invoke(
-        (str(executable), "--version"),
-        env=_minimal_env(source_env, paths.hermes_home),
-        timeout=5,
-    )
-    version = _version(stdout) if code == 0 else None
-    if code != 0:
-        status = "unknown"
-        reason_code = "buzz_cli_version_failed"
-    elif version is None:
-        status = "unknown"
-        reason_code = "buzz_cli_version_unparseable"
-    else:
-        status = "available"
-        reason_code = "buzz_cli_observed"
     return _payload(
-        status=status,
-        reason_code=reason_code,
+        status="unverified",
+        reason_code="buzz_cli_present_not_executed",
         configured=configured,
         credential_present=credential_present,
         executable=str(executable),
-        version=version,
     )
 
 
@@ -80,7 +54,6 @@ def _payload(
     configured: bool,
     credential_present: bool,
     executable: str | None,
-    version: str | None,
 ) -> dict[str, object]:
     return {
         "schema_version": BUZZ_PROBE_SCHEMA_VERSION,
@@ -88,13 +61,15 @@ def _payload(
         "reason_code": reason_code,
         "configured": configured,
         "credential_present": credential_present,
+        "installed": executable is not None,
         "executable": executable,
-        "version": version,
-        "observed": status == "available",
+        "version": None,
+        "observed": False,
         "read_only": True,
         "claim_boundary": (
-            "This probe observes local configuration presence and an exact Buzz CLI version command only. "
-            "It does not prove relay authentication, membership, message delivery, media rendering, or restore readiness."
+            "This probe inspects local configuration and executable filesystem metadata only. It does not execute "
+            "the Buzz CLI, contact a relay or model, or prove authentication, membership, message delivery, media "
+            "rendering, or restore readiness."
         ),
     }
 
@@ -184,39 +159,3 @@ def _resolve_cli(environ: Mapping[str, str], config_text: str, hermes_home: Path
         return path.resolve() if path.is_file() and os.access(path, os.X_OK) else None
     fallback = hermes_home.parent / "bin" / "buzz"
     return fallback.resolve() if fallback.is_file() and os.access(fallback, os.X_OK) else None
-
-
-def _minimal_env(environ: Mapping[str, str], hermes_home: Path) -> dict[str, str]:
-    return {
-        "HOME": str(hermes_home.parent),
-        "LANG": environ.get("LANG", "C.UTF-8"),
-        "LC_ALL": environ.get("LC_ALL", environ.get("LANG", "C.UTF-8")),
-        "PATH": environ.get("PATH", os.defpath),
-        "TMPDIR": environ.get("TMPDIR", tempfile.gettempdir()),
-    }
-
-
-def _subprocess_runner(
-    argv: tuple[str, ...],
-    *,
-    env: dict[str, str],
-    timeout: int,
-) -> tuple[int, str, str]:
-    try:
-        process = subprocess.run(
-            argv,
-            shell=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-            env=env,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return 1, "", ""
-    return process.returncode, process.stdout[:512], process.stderr[:512]
-
-
-def _version(output: str) -> str | None:
-    match = _VERSION_PATTERN.search(output[:512])
-    return match.group(1) if match is not None else None

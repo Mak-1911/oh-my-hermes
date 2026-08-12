@@ -1,14 +1,58 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from _cli_harness import run_cli
 
 
 class ProbeCliTests(unittest.TestCase):
+    def test_read_only_probe_does_not_execute_configured_buzz_cli(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hermes_home = root / ".hermes"
+            hermes_home.mkdir()
+            marker = root / "buzz-executed"
+            executable = root / "buzz"
+            executable.write_text(f"#!/bin/sh\n: > '{marker}'\n", encoding="utf-8")
+            executable.chmod(0o755)
+            (hermes_home / "config.yaml").write_text(
+                "gateway:\n"
+                "  platforms:\n"
+                "    buzz:\n"
+                "      enabled: true\n"
+                "      extra:\n"
+                f"        cli_path: {executable}\n",
+                encoding="utf-8",
+            )
+
+            with patch.dict(os.environ, {"BUZZ_CLI_PATH": ""}):
+                status, stdout, stderr = run_cli(
+                    ["--omh-home", str(root / ".omh"), "--hermes-home", str(hermes_home), "probe"]
+                )
+
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            self.assertFalse(marker.exists())
+            buzz = json.loads(stdout)["buzz"]
+            self.assertTrue(buzz["read_only"])
+            self.assertTrue(buzz["configured"])
+            self.assertTrue(buzz["installed"])
+            self.assertEqual(buzz["status"], "unverified")
+            self.assertEqual(buzz["reason_code"], "buzz_cli_present_not_executed")
+            self.assertEqual(buzz["executable"], str(executable.resolve()))
+            self.assertIsNone(buzz["version"])
+            self.assertFalse(buzz["observed"])
+            capability = next(
+                item for item in json.loads(stdout)["capabilities"] if item["name"] == "buzz_platform_diagnostics"
+            )
+            self.assertEqual(capability["status"], "unverified")
+            self.assertEqual(capability["evidence"], "buzz_cli_present_not_executed")
+
     def test_probe_reports_unknown_and_missing_without_install(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

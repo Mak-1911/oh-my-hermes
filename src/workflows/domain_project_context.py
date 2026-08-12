@@ -12,7 +12,12 @@ from .domain_intelligence_bound_store import (
     open_domain_directory_at,
     shared_domain_store_lock_at,
 )
-from .domain_intelligence_store_writer import open_domain_directory
+from .domain_intelligence_store_writer import (
+    _managed_home_from_directory,
+    _portable_directory_chain,
+    _validate_portable_directory_chain,
+    open_domain_directory,
+)
 
 
 _BINDING_TOKEN = object()
@@ -26,14 +31,18 @@ class HostProjectBinding:
         self,
         project_root: Path,
         project_paths: OmhPaths,
-        domain_store_fd: int,
+        domain_store_fd: int | Path,
         surface: str,
         *,
         _token: object,
     ) -> None:
         if _token is not _BINDING_TOKEN:
             raise TypeError("HostProjectBinding is minted only by trusted host surfaces")
-        root_stat = os.fstat(domain_store_fd)
+        root_stat = (
+            os.fstat(domain_store_fd)
+            if isinstance(domain_store_fd, int)
+            else os.stat(domain_store_fd, follow_symlinks=False)
+        )
         if not stat.S_ISDIR(root_stat.st_mode):
             raise ValueError("bound domain store is not a directory")
         self.project_root = project_root
@@ -41,6 +50,7 @@ class HostProjectBinding:
         self.domain_store_fd = domain_store_fd
         self.surface = surface
         self._root_identity = (root_stat.st_dev, root_stat.st_ino, root_stat.st_mode)
+        self._closed = False
 
     def __enter__(self) -> HostProjectBinding:
         self._require_open()
@@ -50,14 +60,14 @@ class HostProjectBinding:
         self.close()
 
     def close(self) -> None:
-        descriptor = self.domain_store_fd
-        if descriptor < 0:
+        if self._closed:
             return
-        self.domain_store_fd = -1
-        os.close(descriptor)
+        self._closed = True
+        if isinstance(self.domain_store_fd, int):
+            os.close(self.domain_store_fd)
 
     @contextmanager
-    def open_directory(self, name: str) -> Iterator[int]:
+    def open_directory(self, name: str) -> Iterator[int | Path]:
         if name not in _HEALTH_DIRECTORIES:
             raise ValueError("unsafe_domain_health_directory")
         self._require_open()
@@ -65,7 +75,8 @@ class HostProjectBinding:
         try:
             yield descriptor
         finally:
-            os.close(descriptor)
+            if isinstance(descriptor, int):
+                os.close(descriptor)
 
     @contextmanager
     def shared_store_lock(
@@ -83,9 +94,18 @@ class HostProjectBinding:
             yield state
 
     def _require_open(self) -> None:
-        if self.domain_store_fd < 0:
+        if self._closed:
             raise ValueError("host_project_binding_closed")
-        current = os.fstat(self.domain_store_fd)
+        if isinstance(self.domain_store_fd, int):
+            current = os.fstat(self.domain_store_fd)
+        else:
+            chain = _portable_directory_chain(
+                self.domain_store_fd,
+                home=_managed_home_from_directory(self.domain_store_fd),
+                create=False,
+            )
+            _validate_portable_directory_chain(chain)
+            current = os.stat(self.domain_store_fd, follow_symlinks=False)
         identity = (current.st_dev, current.st_ino, current.st_mode)
         if identity != self._root_identity or not stat.S_ISDIR(current.st_mode):
             raise ValueError("host_project_binding_changed")
@@ -127,13 +147,20 @@ def bind_session_project(
         return None
     if host_binding.surface not in {"cli", "plugin"}:
         return None
-    descriptor: int | None = None
+    descriptor: int | Path | None = None
     binding: HostProjectBinding | None = None
     try:
         host_binding._require_open()
-        descriptor = os.dup(host_binding.domain_store_fd)
-        os.set_inheritable(descriptor, False)
-        duplicate_stat = os.fstat(descriptor)
+        descriptor = (
+            os.dup(host_binding.domain_store_fd)
+            if isinstance(host_binding.domain_store_fd, int)
+            else host_binding.domain_store_fd
+        )
+        if isinstance(descriptor, int):
+            os.set_inheritable(descriptor, False)
+            duplicate_stat = os.fstat(descriptor)
+        else:
+            duplicate_stat = os.stat(descriptor, follow_symlinks=False)
         duplicate_identity = (
             duplicate_stat.st_dev,
             duplicate_stat.st_ino,
@@ -154,7 +181,7 @@ def bind_session_project(
     except (OSError, ValueError):
         return None
     finally:
-        if descriptor is not None and binding is None:
+        if isinstance(descriptor, int) and binding is None:
             os.close(descriptor)
 
 
@@ -183,7 +210,7 @@ def _bind_root(root: Path, *, surface: str) -> HostProjectBinding | None:
         )
         return binding
     finally:
-        if binding is None:
+        if binding is None and isinstance(descriptor, int):
             os.close(descriptor)
 
 

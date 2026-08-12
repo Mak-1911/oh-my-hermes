@@ -68,6 +68,26 @@ class ClassifiedSite(NamedTuple):
 
 CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
     ClassifiedSite(
+        "src/workflows/domain_intelligence_store_security.py",
+        "_open_store_lock_descriptor",
+        INTENTIONAL,
+        "The portable no-O_NOFOLLOW fallback closes the opened lock descriptor after any "
+        "interruption during metadata and identity validation, then immediately re-raises the "
+        "same BaseException so cancellation cannot become a successful lock acquisition. A "
+        "safely created regular lock remains as the stable synchronization inode.",
+    ),
+    ClassifiedSite(
+        "src/workflows/project_terms_capture.py",
+        "_write_candidate_batch",
+        INTENTIONAL,
+        "Two handlers in one function, classified together. The outer handler catches any "
+        "interruption after the durable batch journal is written, invokes idempotent recovery, "
+        "and always re-raises the original interruption. The inner handler catches an "
+        "interruption of that recovery attempt, attaches its type and message as a note to the "
+        "original interruption, leaves the durable journal for the next locked reader or "
+        "writer, and then lets the outer handler re-raise the original interruption.",
+    ),
+    ClassifiedSite(
         "src/quality/cross_harness_adapter_io.py",
         "_open_directory",
         INTENTIONAL,
@@ -185,10 +205,11 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
 )
 
 # Ruff reports one hit per handler; the inventory is keyed per enclosing
-# function. `_is_catalog_question` and `_resume_unlocked` each hold two
-# handlers, so the handler count is two above the anchor count.
-EXPECTED_HANDLER_COUNT = 17
-EXPECTED_ANCHOR_COUNT = 14
+# function. `_write_candidate_batch`, `_is_catalog_question`, `pre_llm_call`,
+# and `_resume_unlocked` each hold two handlers, so the handler count is four
+# above the anchor count.
+EXPECTED_HANDLER_COUNT = 20
+EXPECTED_ANCHOR_COUNT = 16
 
 
 class DerivedSite(NamedTuple):

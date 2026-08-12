@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import ExitStack
 from dataclasses import dataclass
 import os
+from pathlib import Path
 import stat
 from typing import TYPE_CHECKING
 
@@ -74,7 +75,7 @@ def read_validated_domain_profiles_at(
 
 
 def _read_budgeted_records(
-    directories: dict[str, int],
+    directories: dict[str, int | Path],
     snapshots: dict[str, _DirectorySnapshot],
     budget: DomainSnapshotBudget,
 ) -> dict[str, tuple[tuple[str, dict[str, object]], ...]]:
@@ -89,15 +90,23 @@ def _read_budgeted_records(
     return records
 
 
-def _snapshot_directory(directory_fd: int) -> _DirectorySnapshot:
-    directory_stat = os.fstat(directory_fd)
+def _snapshot_directory(directory_fd: int | Path) -> _DirectorySnapshot:
+    directory_stat = (
+        os.fstat(directory_fd)
+        if isinstance(directory_fd, int)
+        else os.stat(directory_fd, follow_symlinks=False)
+    )
     if not stat.S_ISDIR(directory_stat.st_mode):
         raise ValueError("domain_health_directory_invalid")
     names = _bounded_json_names(directory_fd)
     manifest: list[tuple[str, int, int, int, int, int, int]] = []
     total_bytes = 0
     for name in names:
-        item = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        item = (
+            os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            if isinstance(directory_fd, int)
+            else os.stat(directory_fd / name, follow_symlinks=False)
+        )
         if not stat.S_ISREG(item.st_mode):
             raise ValueError("symlink_or_not_file")
         manifest.append((name, *stable_file_identity(item)))
@@ -109,7 +118,7 @@ def _snapshot_directory(directory_fd: int) -> _DirectorySnapshot:
     )
 
 
-def _bounded_json_names(directory_fd: int) -> tuple[str, ...]:
+def _bounded_json_names(directory_fd: int | Path) -> tuple[str, ...]:
     names: list[str] = []
     scan_limit = max(MAX_DOMAIN_ARTIFACT_FILES * 2 + 1, 1)
     scanned = 0
@@ -125,9 +134,21 @@ def _bounded_json_names(directory_fd: int) -> tuple[str, ...]:
     return tuple(sorted(names))
 
 
-def _require_bound_directory(root_fd: int, name: str, directory_fd: int) -> None:
-    bound = os.fstat(directory_fd)
-    current = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+def _require_bound_directory(
+    root_fd: int | Path,
+    name: str,
+    directory_fd: int | Path,
+) -> None:
+    bound = (
+        os.fstat(directory_fd)
+        if isinstance(directory_fd, int)
+        else os.stat(directory_fd, follow_symlinks=False)
+    )
+    current = (
+        os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+        if isinstance(root_fd, int)
+        else os.stat(root_fd / name, follow_symlinks=False)
+    )
     if stable_file_identity(bound) != stable_file_identity(current):
         raise ValueError("domain_health_directory_changed")
 

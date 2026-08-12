@@ -18,12 +18,13 @@ Role selection is prepared guidance only. It is not worker dispatch, tool execut
 
 ## Owns
 
-- One-question clarification when scope is ambiguous
+- One-question clarification or dependency-ready terminology frontier when scope or project language is ambiguous
 - Plan artifact with goals, non-goals, risks, and verification
 - Decision gate before handoff or execution
 
 ## Primary Skills
 
+- `context`
 - `deep-interview`
 - `plan`
 - `ralplan`

@@ -45,6 +45,7 @@ OMH_SKILL_DISPLAY_NAME_OVERRIDES = {
     # `ulw` already carries the "ultra". `ulw-ultrawork` says it twice, and the
     # duplicated syllable is the part a reader has to skip past to reach the
     # word that means something. Canonical names are untouched.
+    "context": "ulw-context",
     "deep-interview": "ulw-interview",
     "ralplan": "ulw-plan",
     "ultragoal": "ulw-goal",
@@ -89,6 +90,7 @@ ULW_SKILL_NAME_PREFIX = "ulw-"
 # distinction meaningless, which is the only thing the split is buying.
 ULW_ENGINE_SKILL_NAMES = frozenset(
     {
+        "context",
         "deep-interview",
         "loop",
         "ralph",
@@ -896,6 +898,7 @@ CODING_REVIEW_TERMS = (
 _CODING_INTENT_BY_SKILL = {
     "ai-slop-cleaner": "cleanup",
     "code-review": "review",
+    "context": "planning",
     "plan": "planning",
     "ralplan": "planning",
     "research-brief": "planning",

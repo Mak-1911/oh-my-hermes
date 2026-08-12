@@ -84,7 +84,22 @@ _ROLE_CONTEXT_PACK_KEYS = {
     "redaction_policy",
     "claim_boundary",
 }
-_ROLE_CONTEXT_PACK_RECORD_KEYS = ("position", "record_id", "record_hash", "origin", "label", "reason_code", "reason")
+_ROLE_CONTEXT_PACK_RECORD_KEYS = {
+    "position",
+    "record_id",
+    "record_hash",
+    "origin",
+    "label",
+    "reason_code",
+    "reason",
+}
+_ROLE_CONTEXT_PACK_MEMORY_RECORD_KEYS = _ROLE_CONTEXT_PACK_RECORD_KEYS | {"source_kind", "scope"}
+_ROLE_CONTEXT_PACK_DOMAIN_RECORD_KEYS = _ROLE_CONTEXT_PACK_MEMORY_RECORD_KEYS | {
+    "profile_id",
+    "profile_revision",
+    "profile_digest",
+    "review_id",
+}
 _ROLE_CONTEXT_PACK_SCOPE_KEYS = {"kind", "ref"}
 _DEFAULT_SCOPE = {"kind": "project", "ref": "default"}
 
@@ -148,15 +163,7 @@ def build_role_context_pack(
         if entry["record_id"] not in dropped:
             records.append(entry)
     positioned = [
-        {
-            "position": index,
-            "record_id": entry["record_id"],
-            "record_hash": entry["record_hash"],
-            "origin": entry["origin"],
-            "label": entry["label"],
-            "reason_code": entry["reason_code"],
-            "reason": entry["reason"],
-        }
+        {"position": index, **entry}
         for index, entry in enumerate(records)
     ]
     pack: dict[str, object] = {
@@ -222,7 +229,7 @@ def validate_role_context_pack(value: Any, *, label: str = "role_context_pack") 
     if not isinstance(value.get("claim_boundary"), str) or not value.get("claim_boundary"):
         errors.append(f"{label} claim_boundary must be a non-empty string")
     _validate_pack_scope(value.get("scope"), errors, f"{label}.scope")
-    errors.extend(_validate_pack_records(value.get("records"), f"{label}.records"))
+    errors.extend(_validate_pack_records(value.get("records"), value.get("scope"), f"{label}.records", label))
     records = value.get("records")
     if isinstance(records, list) and value.get("record_count") != len(records):
         errors.append(f"{label}.record_count must equal the number of records")
@@ -366,44 +373,74 @@ def read_role_context_pack(paths: OmhPaths, pack_hash: str) -> dict[str, Any] | 
     return pack
 
 
-def _context_pack_entries(context_pack: Any) -> list[dict[str, str]]:
+def _context_pack_entries(context_pack: Any) -> list[dict[str, object]]:
     if not isinstance(context_pack, dict):
         return []
-    entries: list[dict[str, str]] = []
+    entries: list[dict[str, object]] = []
     for item in context_pack.get("included_context", []) or []:
         if not isinstance(item, dict):
             continue
         reason_code = _context_item_reason_code(item)
-        entries.append(
-            _entry(
-                origin=HANDOFF_CONTEXT_PACK_SCHEMA_VERSION,
-                record_id=str(item.get("item_id", "")),
-                label=str(item.get("key", "")),
-                summary=str(item.get("summary", "")),
-                source=str(item.get("source", "")),
-                reason_code=reason_code,
-            )
+        entry: dict[str, object] = _entry(
+            origin=HANDOFF_CONTEXT_PACK_SCHEMA_VERSION,
+            record_id=str(item.get("item_id", "")),
+            label=str(item.get("key", "")),
+            summary=str(item.get("summary", "")),
+            source=str(item.get("source", "")),
+            reason_code=reason_code,
         )
+        if item.get("source") == "omh_memory":
+            memory_identity: dict[str, object] = {
+                "source_kind": str(item.get("source_kind", "") or "project_memory"),
+                "scope": _scope_value(item.get("scope")),
+            }
+            if item.get("source_kind") == "domain_intelligence_profile":
+                memory_identity.update(
+                    {
+                        "profile_id": str(item.get("profile_id", "")),
+                        "profile_revision": int(item.get("profile_revision", 0) or 0),
+                        "profile_digest": str(item.get("profile_digest", "")),
+                        "review_id": str(item.get("review_id", "")),
+                    }
+                )
+            entry.update(memory_identity)
+            entry["record_hash"] = _canonical_digest(
+                {
+                    "base_record_hash": entry["record_hash"],
+                    **memory_identity,
+                }
+            )
+        entries.append(entry)
     return entries
 
 
-def _recall_pack_entries(memory_recall_pack: Any) -> list[dict[str, str]]:
+def _recall_pack_entries(memory_recall_pack: Any) -> list[dict[str, object]]:
     if not isinstance(memory_recall_pack, dict):
         return []
-    entries: list[dict[str, str]] = []
+    entries: list[dict[str, object]] = []
     for item in memory_recall_pack.get("included_records", []) or []:
         if not isinstance(item, dict):
             continue
-        entries.append(
-            _entry(
-                origin=PROJECT_MEMORY_RECALL_PACK_SCHEMA_VERSION,
-                record_id=str(item.get("record_id", "")),
-                label=str(item.get("record_type", "")),
-                summary=str(item.get("summary", "")),
-                source=str(item.get("source", "")),
-                reason_code=str(item.get("eligibility_reason", "") or ""),
-            )
+        entry = _entry(
+            origin=PROJECT_MEMORY_RECALL_PACK_SCHEMA_VERSION,
+            record_id=str(item.get("record_id", "")),
+            label=str(item.get("record_type", "")),
+            summary=str(item.get("summary", "")),
+            source=str(item.get("source", "")),
+            reason_code=str(item.get("eligibility_reason", "") or ""),
         )
+        memory_identity: dict[str, object] = {
+            "source_kind": "project_memory",
+            "scope": _scope_value(item.get("scope")),
+        }
+        entry.update(memory_identity)
+        entry["record_hash"] = _canonical_digest(
+            {
+                "base_record_hash": entry["record_hash"],
+                **memory_identity,
+            }
+        )
+        entries.append(entry)
     return entries
 
 
@@ -458,10 +495,40 @@ def _is_stale_reason(reason_code: str) -> bool:
 
 
 def _pack_scope(scope: Any, context_pack: Any, memory_recall_pack: Any) -> dict[str, str]:
+    candidates: list[dict[str, str]] = []
     for candidate in (scope, _pack_field(context_pack, "scope"), _pack_field(memory_recall_pack, "scope")):
-        if isinstance(candidate, dict) and str(candidate.get("kind", "")) and str(candidate.get("ref", "")):
-            return {"kind": str(candidate["kind"]), "ref": str(candidate["ref"])}
-    return dict(_DEFAULT_SCOPE)
+        if candidate is not None:
+            candidates.append(_scope_value(candidate))
+    candidates.extend(_source_item_scopes(context_pack, memory_recall_pack))
+    if not candidates:
+        return dict(_DEFAULT_SCOPE)
+    first = candidates[0]
+    if any(candidate != first for candidate in candidates[1:]):
+        raise ValueError("role context guidance scope must match across packs and included records")
+    return first
+
+
+def _source_item_scopes(context_pack: Any, memory_recall_pack: Any) -> list[dict[str, str]]:
+    scopes: list[dict[str, str]] = []
+    if isinstance(context_pack, dict):
+        for item in context_pack.get("included_context", []) or []:
+            if isinstance(item, dict) and item.get("source") == "omh_memory":
+                scopes.append(_scope_value(item.get("scope")))
+    if isinstance(memory_recall_pack, dict):
+        for item in memory_recall_pack.get("included_records", []) or []:
+            if isinstance(item, dict):
+                scopes.append(_scope_value(item.get("scope")))
+    return scopes
+
+
+def _scope_value(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise ValueError("role context guidance scope must be an object")
+    kind = value.get("kind")
+    ref = value.get("ref")
+    if not isinstance(kind, str) or not kind or not isinstance(ref, str) or not ref:
+        raise ValueError("role context guidance scope kind and ref must be non-empty strings")
+    return {"kind": kind, "ref": ref}
 
 
 def _pack_field(pack: Any, key: str) -> Any:
@@ -480,7 +547,7 @@ def _validate_pack_scope(value: Any, errors: list[str], label: str) -> None:
             errors.append(f"{label}.{key} must be a non-empty string")
 
 
-def _validate_pack_records(value: Any, label: str) -> list[str]:
+def _validate_pack_records(value: Any, pack_scope: Any, label: str, pack_label: str) -> list[str]:
     errors: list[str] = []
     if not isinstance(value, list):
         return [f"{label} must be a list"]
@@ -493,8 +560,15 @@ def _validate_pack_records(value: Any, label: str) -> list[str]:
         # `json.dumps(sort_keys=True)`, so insertion order does not survive the
         # round trip. Record ORDER is carried by `position`, which is checked
         # below and is inside the hash seed.
-        if set(item) != set(_ROLE_CONTEXT_PACK_RECORD_KEYS):
-            errors.append(f"{item_label} must carry exactly {sorted(_ROLE_CONTEXT_PACK_RECORD_KEYS)}")
+        expected_keys = (
+            _ROLE_CONTEXT_PACK_DOMAIN_RECORD_KEYS
+            if item.get("source_kind") == "domain_intelligence_profile"
+            else _ROLE_CONTEXT_PACK_MEMORY_RECORD_KEYS
+            if item.get("origin") == PROJECT_MEMORY_RECALL_PACK_SCHEMA_VERSION or "source_kind" in item or "scope" in item
+            else _ROLE_CONTEXT_PACK_RECORD_KEYS
+        )
+        if set(item) != expected_keys:
+            errors.append(f"{item_label} must carry exactly {sorted(expected_keys)}")
             continue
         if item.get("position") != index:
             errors.append(f"{item_label}.position must equal its index")
@@ -511,6 +585,29 @@ def _validate_pack_records(value: Any, label: str) -> list[str]:
                 errors.append(f"{item_label}.{key} must be a bounded, non-credential metadata reference")
         if not str(item.get("record_id", "")):
             errors.append(f"{item_label}.record_id must be a non-empty string")
+        if expected_keys == _ROLE_CONTEXT_PACK_MEMORY_RECORD_KEYS or expected_keys == _ROLE_CONTEXT_PACK_DOMAIN_RECORD_KEYS:
+            source_kind = item.get("source_kind")
+            if source_kind not in {"project_memory", "domain_intelligence_profile"}:
+                errors.append(f"{item_label}.source_kind must identify reviewed project memory")
+            record_scope = item.get("scope")
+            scope_errors: list[str] = []
+            _validate_pack_scope(record_scope, scope_errors, f"{item_label}.scope")
+            errors.extend(scope_errors)
+            if not scope_errors and isinstance(pack_scope, dict) and record_scope != pack_scope:
+                errors.append(f"{item_label}.scope must match {pack_label}.scope")
+        if item.get("source_kind") == "domain_intelligence_profile":
+            if isinstance(item.get("scope"), dict) and item["scope"].get("ref") == "default":
+                errors.append(f"{item_label}.scope.ref must not be default for a domain profile")
+            for key in ("profile_id", "review_id"):
+                text = item.get(key)
+                if not isinstance(text, str) or not text or len(text) > _MAX_PACK_REF_LENGTH:
+                    errors.append(f"{item_label}.{key} must be a bounded non-empty string")
+            revision = item.get("profile_revision")
+            if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+                errors.append(f"{item_label}.profile_revision must be a positive integer")
+            digest = item.get("profile_digest")
+            if not isinstance(digest, str) or not _PACK_HASH.match(digest):
+                errors.append(f"{item_label}.profile_digest must be a lowercase sha256 hex digest")
     return errors
 
 

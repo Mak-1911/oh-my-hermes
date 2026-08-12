@@ -9,6 +9,8 @@ from .render import (
     buzz_reference_templates,
     buzz_skill,
     code_review_reference_templates,
+    context_reference_templates,
+    context_skill,
     deep_interview_skill,
     memory_new_skill,
     memory_sync_skill,
@@ -29,11 +31,14 @@ def builtin_skill_reference_templates() -> list[SkillReferenceTemplate]:
         *router_reference_templates(),
         *wiki_reference_templates(),
         *code_review_reference_templates(),
+        *context_reference_templates(),
         *buzz_reference_templates(),
     ]
 
 
 def _skill_template_for(name: str) -> SkillTemplate:
+    if name == "context":
+        return context_skill()
     if name == "deep-interview":
         return deep_interview_skill()
     if name == "memory-new":

@@ -137,11 +137,12 @@ omh doctor
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-11개의 `ulw-` workflow. 대화에서 트리거만 말하면 Hermes가 라우팅합니다 —
+12개의 `ulw-` workflow. 대화에서 트리거만 말하면 Hermes가 라우팅합니다 —
 전체 카탈로그는 [Workflow Reference](docs/WORKFLOWS.md).
 
 | Skill | 무엇을 하나 |
 | --- | --- |
+| ⚡ `ulw-context` | 검토된 프로젝트 용어를 맞추고, 확인된 후보를 캡처하며, 용어에 라우팅 권한을 주지 않은 채 다음 결정 지점을 질문합니다. |
 | ⚡ `ulw-interview` | 원하는 게 정확히 뭔지 알 때까지 한 번에 하나씩 묻습니다. |
 | ⚡ `ulw-research` | 실제 코드와 웹을 뒤져 조사하고, 출처를 남기고, 의심스러우면 검증합니다. |
 | ⚡ `ulw-plan` | 선택지 비교, 리스크, 완료 기준까지 합의된 검토 계획을 만듭니다. |
@@ -158,11 +159,11 @@ omh doctor
 
 ## OMH가 더하는 것
 
-OMH는 **104개**의 설치형 workflow skill을 사람이 이해하기 쉬운 6개 기능군으로
+OMH는 **105개**의 설치형 workflow skill을 사람이 이해하기 쉬운 6개 기능군으로
 제공합니다.
 
-그중 11개는 workflow engine입니다 - `deep-interview`, `loop`, `ralph`, `ralplan`, `research`, `team`, `ultragoal`, `ultraperf`, `ultraprocess`, `ultraqa`, `ultrawork` - 이들은 `ulw-` 라벨로 렌더링되어
-상태 줄만 봐도 어떤 종류의 skill이 도는지 알 수 있습니다. 나머지 91개는 `omh-`를
+그중 12개는 workflow engine입니다 - `context`, `deep-interview`, `loop`, `ralph`, `ralplan`, `research`, `team`, `ultragoal`, `ultraperf`, `ultraprocess`, `ultraqa`, `ultrawork` - 이들은 `ulw-` 라벨로 렌더링되어
+상태 줄만 봐도 어떤 종류의 skill이 도는지 알 수 있습니다. 나머지 93개는 `omh-`를
 붙입니다. canonical name은 어느 쪽도 바뀌지 않습니다.
 
 | 기능군 | Hermes가 더 잘할 수 있는 일 |

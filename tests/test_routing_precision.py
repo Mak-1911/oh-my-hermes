@@ -15,21 +15,21 @@ class RoutingPrecisionTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], "routing_precision/v1")
         self.assertEqual(payload["source"], "discord")
         self.assertTrue(payload["summary"]["all_passing"])
-        self.assertEqual(payload["summary"]["case_count"], 57)
-        self.assertEqual(payload["summary"]["passing_count"], 57)
-        self.assertEqual(payload["summary"]["negative_case_count"], 57)
-        self.assertEqual(payload["summary"]["negative_passing_count"], 57)
-        self.assertEqual(payload["summary"]["direct_answer_count"], 54)
-        self.assertEqual(payload["summary"]["file_lookup_count"], 3)
+        self.assertEqual(payload["summary"]["case_count"], 62)
+        self.assertEqual(payload["summary"]["passing_count"], 62)
+        self.assertEqual(payload["summary"]["negative_case_count"], 62)
+        self.assertEqual(payload["summary"]["negative_passing_count"], 62)
+        self.assertEqual(payload["summary"]["direct_answer_count"], 58)
+        self.assertEqual(payload["summary"]["file_lookup_count"], 4)
         self.assertEqual(payload["summary"]["overroute_count"], 0)
         self.assertEqual(payload["summary"]["catalog_picker_count"], 0)
         self.assertEqual(payload["summary"]["generic_ack_count"], 0)
-        self.assertEqual(payload["summary"]["intervention_case_count"], 157)
-        self.assertEqual(payload["summary"]["intervention_passing_count"], 157)
+        self.assertEqual(payload["summary"]["intervention_case_count"], 160)
+        self.assertEqual(payload["summary"]["intervention_passing_count"], 160)
         self.assertEqual(payload["summary"]["missed_intervention_count"], 0)
         self.assertEqual(payload["summary"]["intervention_generic_ack_count"], 0)
-        self.assertEqual(payload["summary"]["total_case_count"], 214)
-        self.assertEqual(payload["summary"]["total_passing_count"], 214)
+        self.assertEqual(payload["summary"]["total_case_count"], 222)
+        self.assertEqual(payload["summary"]["total_passing_count"], 222)
         self.assertEqual(routing_precision_errors(payload), [])
         self.assertIn("over-intervention and missed-intervention guards", payload["claim_boundary"])
 
@@ -87,6 +87,27 @@ class RoutingPrecisionTests(unittest.TestCase):
             self.assertEqual(case["observed"]["route_workflow"], "oh-my-hermes")
 
         interventions = {case["id"]: case for case in payload["intervention_cases"]}
+        for case_id in (
+            "context-canonical-explicit",
+            "context-public-label-explicit",
+            "context-fuzzy-project-language",
+        ):
+            with self.subTest(case_id=case_id):
+                self.assertEqual(interventions[case_id]["observed"]["route_workflow"], "context")
+                self.assertEqual(
+                    interventions[case_id]["observed"]["next_action"],
+                    "prepare_project_terms_context",
+                )
+        for case_id in (
+            "project-glossary-definition-only",
+            "project-glossary-say-instead-only",
+            "project-glossary-localized-label-only",
+            "project-glossary-distinct-from-only",
+            "project-terms-file-lookup",
+        ):
+            with self.subTest(case_id=case_id):
+                self.assertFalse(cases[case_id]["observed"]["overrouted"])
+                self.assertNotEqual(cases[case_id]["observed"]["route_workflow"], "context")
         self.assertEqual(interventions["safe-feature-plan"]["observed"]["route_workflow"], "ralplan")
         self.assertEqual(interventions["hindi-safe-feature-plan"]["observed"]["route_workflow"], "ralplan")
         self.assertEqual(interventions["korean-omh-response-slow"]["observed"]["route_workflow"], "ops-observability-card")
@@ -368,8 +389,8 @@ class RoutingPrecisionTests(unittest.TestCase):
         self.assertEqual(status, 0, stderr)
         self.assertEqual(stderr, "")
         self.assertIn("OMH routing precision", stdout)
-        self.assertIn("57/57 negative-control cases passing", stdout)
-        self.assertIn("Interventions: 157/157 expected workflow cases passing", stdout)
+        self.assertIn("62/62 negative-control cases passing", stdout)
+        self.assertIn("Interventions: 160/160 expected workflow cases passing", stdout)
         self.assertIn("overroutes: 0", stdout)
         self.assertIn("catalog pickers: 0", stdout)
         self.assertIn("generic ack: 0", stdout)

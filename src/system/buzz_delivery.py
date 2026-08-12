@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Final, cast
 
 
 BUZZ_DELIVERY_EVIDENCE_SCHEMA: Final = "omh_buzz_delivery_evidence/v1"
 _MAX_EVENT_ID_LENGTH: Final = 256
+_SAFE_EVENT_ID: Final = re.compile(rf"[A-Za-z0-9][A-Za-z0-9._:-]{{0,{_MAX_EVENT_ID_LENGTH - 1}}}")
 
 
 def parse_buzz_delivery_receipt(stdout: str) -> dict[str, object]:
@@ -35,7 +37,7 @@ def _event_id(value: object) -> str | None:
     if not isinstance(value, str):
         return None
     event_id = value.strip()
-    if not event_id or len(event_id) > _MAX_EVENT_ID_LENGTH:
+    if _SAFE_EVENT_ID.fullmatch(event_id) is None:
         return None
     return event_id
 

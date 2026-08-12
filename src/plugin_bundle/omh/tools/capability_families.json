@@ -12,6 +12,7 @@
   "owner_role": "planner",
   "primary_workflows": [
    "deep-interview",
+   "context",
    "ralplan",
    "codebase-onboarding",
    "codegraph-refresh",

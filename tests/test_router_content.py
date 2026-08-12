@@ -112,6 +112,50 @@ FEATURE_SURFACE_EXPOSURES = {
 
 
 class RouterContentTests(unittest.TestCase):
+    def test_ulw_context_is_a_workflow_engine(self) -> None:
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        definition = definitions["context"]
+
+        self.assertEqual(omh_skill_display_name("context"), "ulw-context")
+        self.assertIn("context", installable_skill_names())
+        self.assertEqual(definition.hermes_role, "planner")
+        self.assertEqual(definition.category, "clarification")
+        self.assertEqual(definition.phase, "terminology-alignment")
+        self.assertEqual(definition.capability_family, "")
+        self.assertIn("PROJECT_TERMS.md", " ".join(definition.required_inputs))
+        self.assertIn("prepared_not_observed", " ".join(definition.final_checklist))
+
+        templates = {template.name: template.content for template in builtin_skill_templates()}
+        self.assertIn("context", templates)
+        self.assertIn("name: ulw-context", templates["context"])
+        references = {
+            (template.skill_name, template.relative_path): template.content
+            for template in builtin_skill_reference_templates()
+        }
+        self.assertEqual(
+            {
+                path
+                for skill, path in references
+                if skill == "context"
+            },
+            {"references/project-terms.md", "references/decision-frontier.md"},
+        )
+        self.assertIn("omh-project-terms/v1", references[("context", "references/project-terms.md")])
+        self.assertIn("dependency-ready frontier", references[("context", "references/decision-frontier.md")])
+
+    def test_ulw_context_has_reciprocal_sibling_boundaries(self) -> None:
+        definitions = {definition.name: definition for definition in builtin_definitions()}
+        context = definitions["context"]
+        context_boundaries = " ".join(context.do_not_use_when).casefold()
+
+        for sibling in ("deep-interview", "ralplan", "memory-new", "memory-sync", "oh-my-hermes"):
+            with self.subTest(sibling=sibling):
+                self.assertIn(sibling, context_boundaries)
+        self.assertIn("context", " ".join(definitions["deep-interview"].do_not_use_when).casefold())
+        self.assertIn("context", " ".join(definitions["ralplan"].do_not_use_when).casefold())
+        self.assertNotIn("dispatch packet", frontmatter_description(context).casefold())
+        self.assertNotIn("핸드오프", frontmatter_description(context).casefold())
+
     def test_docs_readme_does_not_reference_removed_readme_anchors(self) -> None:
         docs_index = Path("docs/README.md").read_text(encoding="utf-8")
         root_readme = Path("README.md").read_text(encoding="utf-8")
@@ -850,6 +894,7 @@ class RouterContentTests(unittest.TestCase):
                 'browser-operator': 'omh-browser',
                 'command-operator': 'omh-terminal',
                 'connector-operator': 'omh-apps',
+                'context': 'ulw-context',
                 'deep-interview': 'ulw-interview',
                 'img-summary': 'omh-image-cards',
                 'live-info-operator': 'omh-live-info',
@@ -872,6 +917,7 @@ class RouterContentTests(unittest.TestCase):
         # `web-research`, but now derives it from the workflow-engine prefix
         # rule instead of a hand-picked override.
         self.assertEqual(omh_skill_display_name("research"), "ulw-research")
+        self.assertEqual(omh_skill_display_name("context"), "ulw-context")
         self.assertEqual(omh_skill_display_name("ultrawork"), "ulw-work")
         self.assertEqual(omh_skill_display_name("browser-operator"), "omh-browser")
         self.assertEqual(omh_skill_display_name("voice-operator"), "omh-voice-input")
@@ -3233,19 +3279,19 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[GitHub Pages site](site/index.html)", readme)
         self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal", readme)
         self.assertIn("replacing Hermes or hiding a coding executor", readme)
-        self.assertIn("**104 installable workflow skills**", readme)
-        self.assertIn("**104개**", localized_readmes["ko"])
-        self.assertIn("**104 個**", localized_readmes["ja"])
-        self.assertIn("**104 个**", localized_readmes["zh"])
-        self.assertIn("나머지 91개", localized_readmes["ko"])
-        self.assertIn("残り 91 個", localized_readmes["ja"])
-        self.assertIn("其余 91 个", localized_readmes["zh"])
+        self.assertIn("**105 installable workflow skills**", readme)
+        self.assertIn("**105개**", localized_readmes["ko"])
+        self.assertIn("**105 個**", localized_readmes["ja"])
+        self.assertIn("**105 个**", localized_readmes["zh"])
+        self.assertIn("나머지 93개", localized_readmes["ko"])
+        self.assertIn("残り 93 個", localized_readmes["ja"])
+        self.assertIn("其余 93 个", localized_readmes["zh"])
         for localized_readme in localized_readmes.values():
             # A localized README stays a trimmed landing page, never a full
             # translation of every English section. The budget grew from 240
             # when the four-surface demo table (22 lines) was added above the
             # h1 in every language, and from 260 when the Ultra-Skills section
-            # (h2 + badge + 11-row table, ~26 lines) landed in every language;
+            # (h2 + badge + 12-row table, ~27 lines) landed in every language;
             # it still sits below README.md's length.
             self.assertLess(len(localized_readme.splitlines()), 290)
             # The trust surface is the evidence table, not the wire token that
@@ -3428,7 +3474,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[Roles](ROLES.md)", docs_readme)
         self.assertIn("Agent Install Protocol", docs_readme)
         self.assertIn("`deep-interview`, `ralplan`, `ultragoal`, `loop`", docs_readme)
-        self.assertIn("**104 installable skills**", docs_readme)
+        self.assertIn("**105 installable skills**", docs_readme)
         self.assertIn("**Retain knowledge**", docs_readme)
         self.assertIn("python -m unittest discover -s tests", ci)
         self.assertIn("python -m compileall src", ci)
@@ -3504,7 +3550,7 @@ class RouterContentTests(unittest.TestCase):
             self.assertIn(f'data-lang="{lang}"', site)
         self.assertIn('src="i18n.js"', site)
         self.assertIn('src="app.js"', site)
-        self.assertIn("103", site)
+        self.assertIn("104", site)
         self.assertIn("omh update", site)
         self.assertIn("omh doctor", site)
         # All eleven flagship workflows are named by exact skill name.

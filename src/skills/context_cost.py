@@ -37,6 +37,8 @@ SKILL_CONTEXT_COST_SCHEMA_VERSION = "omh_skill_context_cost/v1"
 # the usual English-prose approximation; it is a comparison unit for before/after
 # work in this repo, not a tokenizer result.
 CHARS_PER_TOKEN_ESTIMATE = 4
+ULW_CONTEXT_SKILL_BODY_BYTE_CEILING = 24_000
+ULW_CONTEXT_REFERENCE_BYTE_CEILING = 24_000
 
 
 @dataclass(frozen=True)
@@ -174,6 +176,34 @@ def skill_context_cost_profile(profile: str) -> dict[str, object]:
     return _skill_context_cost_profile(profile, builtin_skill_templates(), builtin_skill_reference_templates())
 
 
+def _ulw_context_increment(
+    templates: list[_SkillTemplate],
+    reference_templates: list[_SkillReferenceTemplate],
+) -> dict[str, object]:
+    skill = next((template for template in templates if template.name == "context"), None)
+    references = [template for template in reference_templates if template.skill_name == "context"]
+    skill_body_bytes = len(skill.content) if skill is not None else 0
+    reference_bytes = sum(len(template.content) for template in references)
+    ceilings = {
+        "skill_body_bytes": ULW_CONTEXT_SKILL_BODY_BYTE_CEILING,
+        "reference_bytes": ULW_CONTEXT_REFERENCE_BYTE_CEILING,
+    }
+    return {
+        "skill_body_bytes": skill_body_bytes,
+        "reference_file_count": len(references),
+        "reference_bytes": reference_bytes,
+        "project_specific_bytes": 0,
+        "source_class": "static_catalog_templates_only",
+        "ceilings": ceilings,
+        "ceilings_pass": (
+            skill_body_bytes > 0
+            and len(references) == 2
+            and skill_body_bytes <= ceilings["skill_body_bytes"]
+            and reference_bytes <= ceilings["reference_bytes"]
+        ),
+    }
+
+
 def skill_context_cost_payload() -> dict[str, object]:
     templates = builtin_skill_templates()
     reference_templates = builtin_skill_reference_templates()
@@ -186,6 +216,9 @@ def skill_context_cost_payload() -> dict[str, object]:
             "always-loaded skill-body total."
         ),
         "chars_per_token_estimate": CHARS_PER_TOKEN_ESTIMATE,
+        "catalog_increment": {
+            "ulw-context": _ulw_context_increment(templates, reference_templates),
+        },
         "profiles": [
             _skill_context_cost_profile(profile, templates, reference_templates) for profile in ("core", "full")
         ],
