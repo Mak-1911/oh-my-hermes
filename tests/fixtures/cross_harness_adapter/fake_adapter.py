@@ -74,16 +74,29 @@ def _write_result(*, child_result: str = "pass", artifact_type: str = "cross_har
 
 def _spawn_descendant(*, inherit_stdio: bool) -> None:
     pid_path = Path(os.environ["OMH_DESCENDANT_PID"])
-    child_code = "import os,signal,sys;open(sys.argv[1],'w').write(str(os.getpid()));signal.pause()"
+    read_fd, write_fd = os.pipe()
+    child_code = (
+        "import os,signal,sys,tempfile;"
+        "target=sys.argv[1];ready=int(sys.argv[2]);"
+        "fd,tmp=tempfile.mkstemp(dir=os.path.dirname(target) or '.');"
+        "os.write(fd,str(os.getpid()).encode());os.fsync(fd);os.close(fd);"
+        "os.replace(tmp,target);os.write(ready,b'1');os.close(ready);signal.pause()"
+    )
     stream = None if inherit_stdio else subprocess.DEVNULL
-    child = subprocess.Popen(
-        (sys.executable, "-c", child_code, str(pid_path)),
+    subprocess.Popen(
+        (sys.executable, "-c", child_code, str(pid_path), str(write_fd)),
         stdin=subprocess.DEVNULL,
         stdout=stream,
         stderr=stream,
+        close_fds=True,
+        pass_fds=(write_fd,),
     )
-    while not pid_path.exists():
-        os.kill(child.pid, 0)
+    os.close(write_fd)
+    try:
+        if os.read(read_fd, 1) != b"1":
+            raise RuntimeError("descendant_pid_not_published")
+    finally:
+        os.close(read_fd)
 
 
 def main() -> int:

@@ -634,6 +634,17 @@ def _resolve_files(
                 "The selector is absolute or walks above the workspace root.",
             )
         ]
+    if _workspace_root_is_symlink(root):
+        return [], [
+            _exclusion(
+                _item_id("file", expression),
+                "file",
+                selector,
+                "unreadable_source",
+                0,
+                "The workspace root changed or is a symlink.",
+            )
+        ]
     if selection.selector_kind == "path":
         candidates = [root / expression]
     else:
@@ -701,6 +712,17 @@ def _resolve_plan_section(
                 "outside_workspace",
                 0,
                 "The plan path is absolute or walks above the workspace root.",
+            )
+        ]
+    if _workspace_root_is_symlink(root):
+        return [], [
+            _exclusion(
+                item_id,
+                "plan_section",
+                selector,
+                "unreadable_source",
+                0,
+                "The workspace root changed or is a symlink.",
             )
         ]
     row, failure = _read_workspace_file(
@@ -817,10 +839,14 @@ def _descriptor_relative_reads_supported() -> bool:
 def _read_workspace_bytes_at(root: Path, parts: tuple[str, ...], budget_bytes: int) -> bytes:
     try:
         root_before = root.lstat()
+        if stat.S_ISLNK(root_before.st_mode):
+            raise _WorkspaceFileRefusal("The workspace root changed or is a symlink.")
         root_fd = os.open(
             root,
             os.O_RDONLY | _DIRECTORY_FLAG | _CLOEXEC_FLAG | _NOFOLLOW_FLAG,
         )
+    except _WorkspaceFileRefusal:
+        raise
     except OSError as exc:
         raise _WorkspaceFileRefusal("The workspace root could not be safely opened.") from exc
     directory_fds = [root_fd]
@@ -910,6 +936,9 @@ def _read_workspace_bytes_with_identity_checks(
     path = root
     component_identities: list[tuple[Path, tuple[int, int, int]]] = []
     try:
+        root_before = root.lstat()
+        if stat.S_ISLNK(root_before.st_mode):
+            raise _WorkspaceFileRefusal("The workspace root changed or is a symlink.")
         for index, part in enumerate(parts):
             path = path / part
             metadata = path.lstat()
@@ -940,6 +969,10 @@ def _read_workspace_bytes_with_identity_checks(
                 raise _WorkspaceFileRefusal(
                     "The local source changed or was replaced while it was selected."
                 )
+        if not _same_identity(root_before, root.lstat()):
+            raise _WorkspaceFileRefusal(
+                "The workspace root changed or was replaced while the source was selected."
+            )
         return data
     except OSError as exc:
         raise _WorkspaceFileRefusal("The local source could not be safely read.") from exc
@@ -1163,7 +1196,14 @@ def _normalized_scope(scope: dict[str, str] | None) -> dict[str, str]:
 def _resolved_workspace_root(workspace_root: str | Path | None) -> Path | None:
     if workspace_root is None:
         return None
-    return Path(workspace_root).expanduser().resolve()
+    return Path(os.path.abspath(Path(workspace_root).expanduser()))
+
+
+def _workspace_root_is_symlink(root: Path) -> bool:
+    try:
+        return stat.S_ISLNK(root.lstat().st_mode)
+    except OSError:
+        return False
 
 
 def _escapes_workspace(expression: str) -> bool:

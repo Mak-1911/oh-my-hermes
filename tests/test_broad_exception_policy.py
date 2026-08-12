@@ -196,10 +196,10 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
 )
 
 # Ruff reports one hit per handler; the inventory is keyed per enclosing
-# function. `_write_candidate_batch`, `_is_catalog_question`, and
-# `_resume_unlocked` each hold two handlers, so the handler count is three above
-# the anchor count.
-EXPECTED_HANDLER_COUNT = 18
+# function. `_write_candidate_batch`, `_is_catalog_question`, `pre_llm_call`,
+# and `_resume_unlocked` each hold two handlers, so the handler count is four
+# above the anchor count.
+EXPECTED_HANDLER_COUNT = 19
 EXPECTED_ANCHOR_COUNT = 15
 
 

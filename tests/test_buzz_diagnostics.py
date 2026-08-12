@@ -50,25 +50,15 @@ class BuzzDiagnosticsTests(unittest.TestCase):
             self.assertNotIn("model-secret-do-not-print", rendered)
             self.assertNotIn("https://relay.example", rendered)
 
-    def test_version_probe_uses_exact_argv_and_minimal_environment(self) -> None:
+    def test_executable_metadata_is_reported_without_executing_cli(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             paths = OmhPaths(root / ".omh", root / ".hermes")
             paths.hermes_home.mkdir()
+            marker = root / "buzz-executed"
             executable = root / "buzz"
-            executable.write_text("", encoding="utf-8")
+            executable.write_text(f"#!/bin/sh\n: > '{marker}'\n", encoding="utf-8")
             executable.chmod(0o755)
-
-            seen: dict[str, object] = {}
-
-            def runner(
-                argv: tuple[str, ...],
-                *,
-                env: dict[str, str],
-                timeout: int,
-            ) -> tuple[int, str, str]:
-                seen.update(argv=argv, env=env, timeout=timeout)
-                return 0, "buzz-cli 0.5.10\n", ""
 
             with patch.dict(
                 os.environ,
@@ -76,19 +66,18 @@ class BuzzDiagnosticsTests(unittest.TestCase):
                     "BUZZ_CLI_PATH": str(executable),
                     "BUZZ_PRIVATE_KEY": "nsec-secret-do-not-print",
                     "OPENAI_API_KEY": "model-secret-do-not-print",
-                    "AWS_SECRET_ACCESS_KEY": "cloud-secret-do-not-print",
-                    "PYTHONPATH": "/tmp/inject",
-                    "DYLD_INSERT_LIBRARIES": "/tmp/inject.dylib",
                 },
                 clear=False,
             ):
-                payload = probe_buzz(paths, runner=runner)
+                payload = probe_buzz(paths)
 
-            self.assertEqual(seen["argv"], (str(executable.resolve()), "--version"))
-            self.assertEqual(set(seen["env"]), {"HOME", "LANG", "LC_ALL", "PATH", "TMPDIR"})
-            self.assertEqual(seen["timeout"], 5)
-            self.assertEqual(payload["status"], "available")
-            self.assertEqual(payload["version"], "0.5.10")
+            self.assertFalse(marker.exists())
+            self.assertEqual(payload["status"], "unverified")
+            self.assertEqual(payload["reason_code"], "buzz_cli_present_not_executed")
+            self.assertTrue(payload["installed"])
+            self.assertEqual(payload["executable"], str(executable.resolve()))
+            self.assertIsNone(payload["version"])
+            self.assertFalse(payload["observed"])
             self.assertNotIn("nsec-secret-do-not-print", json.dumps(payload))
 
     def test_probe_never_discovers_buzz_from_ambient_path(self) -> None:

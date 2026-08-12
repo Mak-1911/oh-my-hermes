@@ -453,6 +453,29 @@ class BudgetReportingTests(_WorkspaceCase):
 
 class WorkspaceFileSelectionSecurityTests(_WorkspaceCase):
     @requires_symlinks
+    def test_symlinked_workspace_root_is_refused_without_including_target_bytes(self) -> None:
+        real_root = self.workspace.root / "real-workspace"
+        real_root.mkdir()
+        secret = "def from_symlinked_root():\n    return True\n"
+        atomic_write_text(real_root / "secret.py", secret)
+        linked_root = self.workspace.root / "linked-workspace"
+        linked_root.symlink_to(real_root, target_is_directory=True)
+        selection = [ManifestSelection("file", "path", "secret.py")]
+
+        first = self.build(workspace_root=linked_root, selections=selection)
+        second = self.build(workspace_root=linked_root, selections=selection)
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["items"], [])
+        self.assertEqual(first["budget"]["used_bytes"], 0)  # type: ignore[index]
+        row = self.only_exclusion(first, "unreadable_source")
+        self.assertEqual(row["item_id"], "file:secret.py")
+        self.assertEqual(row["byte_cost"], 0)
+        self.assertIn("workspace root", str(row["detail"]).lower())
+        self.assertIn("symlink", str(row["detail"]).lower())
+        self.assertNotIn(hashlib.sha256(secret.encode("utf-8")).hexdigest(), str(first))
+
+    @requires_symlinks
     def test_final_symlink_is_refused_without_including_target_bytes(self) -> None:
         target = self.workspace.write("src/symlink-target.py", "def target():\n    return True\n")
         (self.workspace.root / "src/linked.py").symlink_to(target)

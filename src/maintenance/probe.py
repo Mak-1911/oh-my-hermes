@@ -468,7 +468,7 @@ def probe_capabilities(paths: OmhPaths, *, include_parity: bool = False, include
             (
                 f"Buzz local probe: configured={str(buzz['configured']).lower()}; "
                 f"credential_present={str(buzz['credential_present']).lower()}; "
-                f"cli={buzz['status']}"
+                f"installed={str(buzz['installed']).lower()}; cli_execution=not_attempted"
             ),
         )
     )
