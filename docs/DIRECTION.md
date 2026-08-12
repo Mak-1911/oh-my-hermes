@@ -167,6 +167,50 @@ The policy:
 This keeps the "not an LLM router" boundary above intact: the selection happens
 in Hermes, and core `omh` still makes no LLM, API, or network call.
 
+## Project Terms Authority
+
+A repository may carry an optional root-level `PROJECT_TERMS.md` as a portable,
+human-reviewed source for project terminology. Its absence is a clean no-op:
+setup and health checks must not create it, import it, or warn about it. The
+file is project-scoped and has no direct machine authority. Editing, reviewing,
+or committing it does not change routing or activate terminology in OMH.
+
+Machine-readable terminology continues to use the existing reviewed
+`domain_intelligence_profile/v1` lifecycle. A strict file preview may project
+only phrase-to-canonical mappings and existing catalog workflow hints. Explicit
+staging creates pending candidates only; a separate review and approval is
+required before a profile becomes active. Human definitions, localized labels,
+`distinct-from` notes, and `say-instead` guidance remain source prose and never
+enter the profile. The profile schema, digest, and claim boundary remain
+unchanged.
+
+An active reviewed mapping is advisory clarification context, not authority.
+The ordinary router decides first; project terminology may clarify only an
+otherwise unresolved, router-owned interaction. A file, mapping, workflow hint,
+or freshness result must never select or rerank a route, dispatch or execute
+work, perform review or testing, run CI, approve a plan, merge code, or prove
+that Hermes, a model, provider, or selected coding owner used the context.
+Freshness is derived only during explicit project-scoped inspection and is not
+persisted; source edits or deletion do not synchronize, replace, approve, or
+retire a profile.
+
+The planned `ulw-context` workflow is a future generated catalog surface for
+terminology lookup, reviewed capture, and dependency-frontier interviewing. It
+is not part of the currently shipped project-terms lifecycle and must not be
+documented as available until its catalog and generated projections land.
+Future handoff work may project reviewed mappings through bounded context packs.
+Exact `PROJECT_TERMS.md` bytes may reach a selected coding owner only after
+explicit, bounded file-manifest selection; they must never be copied into every
+session, runtime record, or handoff automatically. These contracts are
+executor-neutral across Codex, Claude Code, Hermes runtime/handoff paths, and
+generic executor profiles.
+
+This direction adapts the dependency-frontier and terminology-separation ideas
+from Matt Pocock's `grilling` and `domain-modeling` skills at revision
+`84fdeffd12f2ee307994d1eb6feb48173b6e0502`, used under the MIT License
+(Copyright 2026 Matt Pocock). It does not copy the upstream wrapper or make its
+runtime behavior part of OMH.
+
 ## Ownership Boundary
 
 Hermes owns:

@@ -8,6 +8,167 @@ normal chat users.
 
 OMH does not read, patch, or mutate opaque Hermes internal memory.
 
+## Optional Project Terms Source
+
+A repository may have one optional `PROJECT_TERMS.md` at its root. It is a
+portable, repository-reviewed human source for the words that project uses. If
+it is absent, nothing happens: OMH does not create it, import it, scan for an
+alternative, or treat its absence as a setup or health problem. OMH never
+rewrites, commits, reverse-generates, or keeps the file synchronized.
+
+The file and the machine store have different authority:
+
+- `PROJECT_TERMS.md` is human-readable source material. Editing or committing it
+  does not activate a mapping or change OMH behavior.
+- An active, reviewed, project-scoped `domain_intelligence_profile/v1` is the
+  machine-readable terminology source. It is reached only through preview,
+  pending staging, separate review, and explicit approval.
+- Reviewed mappings remain advisory clarification context with the claim
+  boundary `routing_prior_not_override`. The ordinary router remains
+  authoritative.
+
+### Strict `omh-project-terms/v1` grammar
+
+The parser accepts UTF-8 without a byte-order mark, no more than 65,536 exact
+source bytes, and either LF throughout or CRLF throughout. The preamble,
+including blank lines, is exact:
+
+```markdown
+# Project Terms
+
+Project terminology only. This file is not agent instructions, routing rules, approval, execution, or evidence. Changes affect OMH only after explicit review.
+
+<!-- omh-project-terms/v1 -->
+
+## domain: delivery
+
+- term: `dispatch packet` = `handoff`
+  definition: A prepared package of coding work for one selected owner.
+  say-instead: handoff
+  localized[ko]: 핸드오프
+  distinct-from: `dispatch` - Dispatch is observed execution, not preparation.
+- workflow-hint: `ralplan`
+```
+
+After the preamble, the only accepted constructs are:
+
+- `## domain: <domain_id>` for a unique normalized domain. Every domain must
+  contain at least one term mapping.
+- ``- term: `phrase` = `canonical_term` `` for at most 40 mappings per domain.
+- Two-space-indented human metadata immediately below a term:
+  `definition:` (at most 240 code points), repeatable `say-instead:` values (at
+  most 80 each), `localized[<locale>]:` labels (at most 80 each and one per
+  locale), and one ``distinct-from: `canonical_term` - note`` (note at most 240).
+- ``- workflow-hint: `existing-installable-id` `` for at most 20 unique existing
+  catalog workflow ids per domain.
+
+Values are normalized and checked with the domain-vocabulary safety rules.
+Unknown lines, keys, locales, or workflow ids; duplicate or conflicting domains,
+mappings, or metadata; mixed line endings; unsafe values; and size/count
+violations fail the whole parse before any write. Definitions, `say-instead`
+guidance, localized labels, and `distinct-from` notes are retained only in the
+read-only human parse view. File capture projects only phrase-to-canonical
+mappings and workflow hints into the unchanged profile-v1 candidate shape. The
+SHA-256 covers the exact source bytes, so accepted LF and CRLF files can have
+different source digests without their bytes being rewritten.
+
+### Reviewed lifecycle
+
+Normal users can ask Hermes to inspect or align project terminology without
+learning commands. The commands below are an agent/operator control-plane
+reference. Run them from inside the repository; file mode is bound to the
+canonical project root and accepts exactly the regular, non-symlink root file
+named `PROJECT_TERMS.md`. Absolute paths, traversal, alternate names, and mixed
+file/direct-capture arguments fail closed.
+
+```sh
+# Agent/operator only: parse and preview; writes neither the source nor the store.
+omh --scope project memory domain-capture \
+  --from-file PROJECT_TERMS.md --json
+
+# Agent/operator only: atomically stage one pending candidate per file domain.
+omh --scope project memory domain-capture \
+  --from-file PROJECT_TERMS.md --stage --json
+
+# Agent/operator only: inspect a pending card and derive current source freshness.
+omh --scope project memory domain-review \
+  --candidate <candidate-id> --source-freshness
+
+# Agent/operator only: make the separately reviewed candidate active.
+omh --scope project memory domain-approve <candidate-id>
+
+# Agent/operator only: list active project profiles and derive source freshness.
+omh --scope project memory domain-list \
+  --scope-kind project --scope-ref <project-ref> --source-freshness
+
+# Agent/operator only: retire one active profile while preserving review/history.
+omh --scope project memory domain-retire \
+  --scope-kind project --scope-ref <project-ref> --domain <domain-id> \
+  --reason superseded
+```
+
+Preview returns `project_terms_capture/v1` in `prepared_not_observed` state with
+stable profile ids, exact source SHA-256, current base revisions, capacity, and
+an empty `mutation_set`. It does not invent future candidate ids. `--stage`
+preflights the complete file and capacity, rechecks revisions under the store
+lock, and then writes all pending candidates or none. It does not write an
+active profile. Review and approval remain separate actions; approval writes
+the existing active profile and immutable review record. A competing approval
+or retirement makes an older candidate fail closed as `stale_candidate`.
+Listing observes active profiles. Retirement records a retired revision and
+preserves review and history; later activation requires another reviewed
+candidate.
+
+File-derived candidates store only bounded provenance:
+`source_class="omh_local"` and `source_ref="pt_sha256:<exact-byte-sha256>"`.
+With explicit `--source-freshness`, project-scoped review and list derive one of
+four states against the current root file:
+
+- `unchanged`: current exact bytes match the recorded digest.
+- `changed`: current exact bytes have a different digest.
+- `missing`: the tracked root file is absent.
+- `untracked`: the artifact is not valid provenance for this repository's
+  project-terms source.
+
+Freshness is computed for that response only. It is not persisted and does not
+stage, approve, reject, replace, retire, rewrite, or delete anything. `changed`
+and `missing` are review-needed information, not synchronization and not a
+claim that the active profile changed. The file remains project-only: this path
+cannot import user or organization vocabulary into the repository source.
+
+### Behavior and evidence boundaries
+
+Neither the source prose nor a reviewed mapping routes, reranks, or dispatches a
+request. Only an eligible, genuinely unresolved router-owned interaction may
+receive one bounded advisory clarification from an active reviewed profile.
+Explicit workflows, dispatch, status, help, file lookup, maintenance, direct
+answers, task cards, and already selected routes remain protected. Workflow
+hints are advisory identifiers, not instructions or dispatch authority.
+
+Project terms do not execute work, perform code review, run tests, invoke CI,
+approve a plan, establish merge readiness, or merge code. Preview, staging,
+review cards, approval records, profile matches, freshness, and future prepared
+context are not evidence that Hermes, a model, provider, executor, or coding
+owner read or used the terms. OMH persists neither the human definitions nor
+raw prompts, transcripts, hidden reasoning, logs, or task progress through this
+capture path.
+
+The planned generated `ulw-context` workflow is a future catalog surface, not a
+currently shipped command or skill. Likewise, the current lifecycle does not
+automatically place this file in sessions, runtime records, or coding handoffs.
+Future reviewed-term delivery must remain executor-neutral and bounded. Exact
+source bytes may be delivered later only through explicit workspace-relative
+file selection in `handoff_input_manifest/v1`, subject to its hash, safety, and
+byte-budget checks. Manifest preparation or inclusion is still not model-use or
+execution evidence.
+
+The future workflow direction adapts dependency-frontier interviewing and the
+separation of terminology from implementation decisions from Matt Pocock's
+`grilling` and `domain-modeling` skills at revision
+`84fdeffd12f2ee307994d1eb6feb48173b6e0502`, under the MIT License (Copyright
+2026 Matt Pocock). The strict file grammar and reviewed OMH lifecycle above are
+OMH-specific adaptations rather than copied upstream prose or runtime behavior.
+
 ## Reviewed Domain Intelligence
 
 Domain intelligence is a separate reviewed vocabulary store for agents,
