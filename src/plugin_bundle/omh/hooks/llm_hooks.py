@@ -17,7 +17,7 @@ from ..degradation import (
     degradation_payload,
     safe_error_type,
 )
-from ..awareness_delivery import record_awareness_delivery, route_guidance_already_delivered
+from ..awareness_delivery import claim_route_guidance_delivery, record_awareness_delivery
 from ..host_context import record_active_main_agent_model
 from ..host_observation import observe_plugin_hook_call
 from ..omh_roles import extract_role_marker, role_context_payload
@@ -105,7 +105,7 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
             route_hint_context = awareness_route_hint_context_from_payload(route_hint_payload)
         if route_hint_context:
             route_fingerprint = hashlib.sha256(route_hint_context.encode("utf-8")).hexdigest()
-            if route_guidance_already_delivered(
+            if not claim_route_guidance_delivery(
                 session_id=session_id,
                 route_fingerprint=route_fingerprint,
                 omh_home=str(kwargs.get("omh_home", "") or ""),
@@ -217,13 +217,6 @@ def pre_llm_call(**kwargs) -> dict[str, object] | None:
         and not status.get("active_executors")
         and not show_running_work
     ):
-        _record_delivery(
-            delivered=False,
-            route_hint=False,
-            context_chars=0,
-            omh_home=omh_home,
-            session_id=session_id,
-        )
         return None
 
     if status.get("active_executors"):

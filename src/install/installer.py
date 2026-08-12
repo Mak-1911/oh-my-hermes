@@ -374,9 +374,11 @@ def _skill_prompt_cost(
     fixed_index_bytes = 0
     core_fixed_index_bytes = 0
     full_only_fixed_index_bytes = 0
+    installed_skill_body_bytes = 0
     for skill_file in skills_dir.glob("*/SKILL.md"):
         bytes_count = _skill_index_line_bytes(skill_file)
         fixed_index_bytes += bytes_count
+        installed_skill_body_bytes += skill_file.stat().st_size
         canonical_name = next(
             (
                 name
@@ -390,14 +392,17 @@ def _skill_prompt_cost(
         elif canonical_name in full_only_names:
             full_only_fixed_index_bytes += bytes_count
     return {
-        "schema_version": "omh_skill_prompt_cost/v1",
-        "visibility": "name_and_description_index_only",
-        "fixed_index_bytes": fixed_index_bytes,
+        "schema_version": "omh_skill_prompt_cost_estimate/v1",
+        "evidence_status": "prepared_estimate_not_host_observed",
+        "estimated_index_line_bytes": fixed_index_bytes,
         "core_fixed_index_bytes": core_fixed_index_bytes,
         "full_only_fixed_index_bytes": full_only_fixed_index_bytes,
-        "progressive_skill_body_bytes": 0,
-        "progressive_loading_note": (
-            "SKILL.md bodies and references load on demand; they are not fixed per-request prompt bytes."
+        "installed_skill_body_bytes": installed_skill_body_bytes,
+        "observation_command": "hermes prompt-size --json",
+        "claim_boundary": (
+            "These are OMH-local filesystem estimates, not observed serialized request bytes, "
+            "selected skill bodies, provider input tokens, or cache counters. Use "
+            "`hermes prompt-size --json` for host-observed prompt accounting."
         ),
     }
 

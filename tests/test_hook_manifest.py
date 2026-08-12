@@ -77,9 +77,8 @@ class HookManifestTests(unittest.TestCase):
         self.assertIn("omh_context_brief", hooks["pre_llm_call"]["payload_fields"])
         self.assertIn("omh_route_hint", hooks["pre_llm_call"]["payload_fields"])
         self.assertIn("bounded_status_context", hooks["pre_llm_call"]["payload_fields"])
-        self.assertIn("omh_generic_tool_checkpoint", hooks["pre_tool_call"]["payload_fields"])
-        self.assertIn("tool_family_hint", hooks["pre_tool_call"]["payload_fields"])
-        self.assertIn("redacted", hooks["pre_tool_call"]["payload_fields"])
+        self.assertNotIn("omh_generic_tool_checkpoint", hooks["pre_tool_call"]["payload_fields"])
+        self.assertEqual(hooks["pre_tool_call"]["payload_fields"], ["context"])
         self.assertIn("executor_opened", events)
         self.assertIn("selected_executor_profile", events["executor_opened"]["payload_fields"])
         self.assertIn("native_command_registered", events)
@@ -132,18 +131,21 @@ class HookManifestTests(unittest.TestCase):
             self.assertEqual(read_awareness_delivery(explicit_home)["delivery_count"], 1)
             self.assertEqual(read_awareness_delivery(env_home)["delivery_count"], 0)
 
-    def test_pre_llm_call_records_suppression_in_explicit_omh_home(self) -> None:
+    def test_pre_llm_call_does_not_rewrite_delivery_ledger_for_idle_turns(self) -> None:
         with TemporaryDirectory() as explicit_home, TemporaryDirectory() as env_home:
             with patch.dict(os.environ, {"OMH_HOME": env_home}):
                 result = pre_llm_call(
                     user_message="",
                     is_first_turn=False,
+                    session_id="session-idle",
+                    task_id="task-idle",
+                    turn_id="turn-idle",
                     omh_home=explicit_home,
                 )
 
             self.assertIsNone(result)
-            self.assertEqual(read_awareness_delivery(explicit_home)["suppressed_count"], 1)
-            self.assertEqual(read_awareness_delivery(env_home)["suppressed_count"], 0)
+            self.assertFalse(os.path.exists(os.path.join(explicit_home, "runtime", "awareness_delivery.json")))
+            self.assertEqual(read_awareness_delivery(env_home)["delivery_count"], 0)
 
     def test_generic_first_turn_skips_setup_only_context_and_hud(self) -> None:
         with TemporaryDirectory() as omh_home:
@@ -163,7 +165,7 @@ class HookManifestTests(unittest.TestCase):
             self.assertIsNone(result)
             status_read.assert_not_called()
             hud_read.assert_not_called()
-            self.assertEqual(read_awareness_delivery(omh_home)["suppressed_count"], 1)
+            self.assertFalse(os.path.exists(os.path.join(omh_home, "runtime", "awareness_delivery.json")))
 
     def test_relevant_first_turn_keeps_route_hint_without_setup_status(self) -> None:
         with TemporaryDirectory() as omh_home:
@@ -217,28 +219,57 @@ class HookManifestTests(unittest.TestCase):
                 user_message="review this PR",
                 is_first_turn=True,
                 session_id="session-a",
+                task_id="task-a",
+                turn_id="turn-1",
                 omh_home=omh_home,
             )
+            with open(
+                os.path.join(omh_home, "runtime", "awareness_delivery.json"), "rb"
+            ) as handle:
+                before_suppression = handle.read()
             second = pre_llm_call(
                 user_message="review this PR",
                 is_first_turn=False,
                 session_id="session-a",
+                task_id="task-a",
+                turn_id="turn-2",
+                omh_home=omh_home,
+            )
+            with open(
+                os.path.join(omh_home, "runtime", "awareness_delivery.json"), "rb"
+            ) as handle:
+                after_suppression = handle.read()
+            different_route = pre_llm_call(
+                user_message="make an image explaining the cron feature",
+                is_first_turn=False,
+                session_id="session-a",
+                task_id="task-a",
+                turn_id="turn-3",
                 omh_home=omh_home,
             )
             other_session = pre_llm_call(
                 user_message="review this PR",
                 is_first_turn=True,
                 session_id="session-b",
+                task_id="task-b",
+                turn_id="turn-1",
                 omh_home=omh_home,
             )
 
             self.assertIsNotNone(first)
             self.assertIsNone(second)
+            self.assertEqual(after_suppression, before_suppression)
+            self.assertIsNotNone(different_route)
             self.assertIsNotNone(other_session)
             delivery = read_awareness_delivery(omh_home)
-            self.assertEqual(delivery["delivery_count"], 2)
-            self.assertEqual(delivery["suppressed_count"], 1)
+            self.assertEqual(delivery["delivery_count"], 3)
+            self.assertEqual(delivery["suppressed_count"], 0)
             self.assertGreater(delivery["accumulated_context_chars"], 0)
+            written = os.path.join(omh_home, "runtime", "awareness_delivery.json")
+            with open(written, encoding="utf-8") as handle:
+                serialized = handle.read()
+            for raw_identifier in ("session-a", "session-b", "task-a", "task-b", "turn-1"):
+                self.assertNotIn(raw_identifier, serialized)
 
     def test_first_turn_route_failure_keeps_degradation_signal(self) -> None:
         route_failure = {
@@ -578,6 +609,10 @@ class HookManifestTests(unittest.TestCase):
         self.assertIn("not_evidence_yet=file export, image generation", context)
         self.assertEqual(context_brief["schema_version"], "omh_context_brief/v1")
         self.assertEqual(context_brief["source"], "pre_llm_call")
+        self.assertEqual(
+            context_brief["generic_tool_checkpoint"]["schema_version"],
+            "omh_generic_tool_checkpoint/v1",
+        )
         self.assertEqual(context_brief["route_hint"]["primary_workflow"], "img-summary")
         self.assertEqual(context_brief["route_hint"]["primary_next_action"], "prepare_visual_prompt_card")
         self.assertEqual(
@@ -641,11 +676,13 @@ class HookManifestTests(unittest.TestCase):
                 )
                 self.assertIsNone(result)
 
-    def test_pre_tool_call_checkpoint_can_be_disabled(self) -> None:
+    def test_pre_tool_call_preserves_delegate_role_warning(self) -> None:
         result = pre_tool_call(
-            tool_name="image_generate",
-            tool_input={"prompt": "secret-token-123"},
-            include_omh_tool_checkpoint=False,
+            tool_name="delegate_task",
+            tool_input={"goal": "[omh-role:not-a-role] prepare a plan"},
         )
 
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertEqual(set(result or {}), {"context"})
+        self.assertIn("[OMH Role Warning]", str((result or {}).get("context", "")))
+        self.assertIn("Unknown role 'not-a-role'", str((result or {}).get("context", "")))

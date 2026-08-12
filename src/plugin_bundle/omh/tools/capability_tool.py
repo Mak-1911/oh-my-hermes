@@ -689,7 +689,7 @@ def _standalone_hook_payload_fields(name: str) -> list[str]:
             "redacted",
         ]
     if name == "pre_tool_call":
-        return ["tool_name", "tool_family_hint", "omh_generic_tool_checkpoint", "claim_boundary", "redacted"]
+        return ["context"]
     if name == "on_session_end":
         return ["session_summary", "metadata_only"]
     if name == "pre_verify":

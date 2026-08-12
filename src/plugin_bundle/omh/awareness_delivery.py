@@ -3,10 +3,9 @@
 `pre_llm_call` is how OMH gets its primer and route hint in front of Hermes.
 Nothing recorded whether that ever happened:
 
-- `host_observation` drops a record entirely unless the caller supplies `host`
-  and `session_id`, and Hermes does not pass either to `pre_llm_call`. The
-  ledger therefore stayed at eight `pre_verify` rows from a single day while
-  live turns ran.
+- `host_observation` is invocation evidence, not evidence that this hook
+  returned awareness content. The delivery path therefore needs its own
+  metadata-only signal even though Hermes supplies session/task/turn identity.
 - Hermes wraps every hook callback in try/except and only logs a warning, so a
   hook that raises disappears without a user-visible trace.
 
@@ -26,6 +25,7 @@ cannot grow.
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import os
 import secrets
@@ -58,6 +58,17 @@ _LOCK_POLL_INTERVAL = 0.001
 
 AWARENESS_DELIVERY_SCHEMA_VERSION = "omh_awareness_delivery/v1"
 AWARENESS_DELIVERY_FILE = "awareness_delivery.json"
+_SESSION_FINGERPRINT_PREFIX = "sha256:"
+_MAX_SESSION_ROUTE_FINGERPRINTS = 64
+
+
+def _is_session_fingerprint(value: str) -> bool:
+    digest = value.removeprefix(_SESSION_FINGERPRINT_PREFIX)
+    return (
+        value.startswith(_SESSION_FINGERPRINT_PREFIX)
+        and len(digest) == 64
+        and all(character in "0123456789abcdef" for character in digest)
+    )
 
 
 def _runtime_dir(omh_home: str = "") -> Path:
@@ -117,7 +128,14 @@ def _valid_delivery_record(data: dict[str, Any]) -> bool:
     fingerprints = data.get("session_route_fingerprints", {})
     if not isinstance(fingerprints, dict):
         return False
-    if any(not isinstance(key, str) or not isinstance(value, str) for key, value in fingerprints.items()):
+    if len(fingerprints) > _MAX_SESSION_ROUTE_FINGERPRINTS:
+        return False
+    if any(
+        not isinstance(key, str)
+        or not _is_session_fingerprint(key)
+        or not isinstance(value, str)
+        for key, value in fingerprints.items()
+    ):
         return False
     return int(data.get("route_hint_count", 0)) <= int(data.get("delivery_count", 0))
 
@@ -211,6 +229,71 @@ def _write_delivery_record(path: Path, data: dict[str, Any]) -> None:
         raise
 
 
+def _session_fingerprint(session_id: str) -> str:
+    digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+    return f"{_SESSION_FINGERPRINT_PREFIX}{digest}"
+
+
+def _normalized_session_routes(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, str] = {}
+    for key, route_fingerprint in value.items():
+        if not isinstance(key, str) or not isinstance(route_fingerprint, str):
+            continue
+        session_fingerprint = key if _is_session_fingerprint(key) else _session_fingerprint(key)
+        normalized[session_fingerprint] = route_fingerprint
+    while len(normalized) > _MAX_SESSION_ROUTE_FINGERPRINTS:
+        normalized.pop(next(iter(normalized)))
+    return normalized
+
+
+def _record_from_current(
+    current: dict[str, Any],
+    fingerprints: dict[str, str],
+) -> dict[str, Any]:
+    return {
+        "schema_version": AWARENESS_DELIVERY_SCHEMA_VERSION,
+        "delivery_count": int(current["delivery_count"]),
+        "route_hint_count": int(current["route_hint_count"]),
+        "suppressed_count": int(current["suppressed_count"]),
+        "first_attempted_at": current["first_attempted_at"],
+        "first_delivered_at": current["first_delivered_at"],
+        "last_delivered_at": current["last_delivered_at"],
+        "last_context_chars": int(current["last_context_chars"]),
+        "accumulated_context_chars": int(current["accumulated_context_chars"]),
+        "session_route_fingerprints": fingerprints,
+    }
+
+
+def claim_route_guidance_delivery(
+    *,
+    session_id: str,
+    route_fingerprint: str,
+    omh_home: str = "",
+) -> bool:
+    """Atomically claim one session/route pair, failing open on ledger faults."""
+    if not session_id or not route_fingerprint:
+        return True
+    path = awareness_delivery_path(omh_home)
+    try:
+        with _awareness_delivery_lock(path):
+            current = read_awareness_delivery(omh_home)
+            fingerprints = _normalized_session_routes(
+                current.get("session_route_fingerprints", {})
+            )
+            session_fingerprint = _session_fingerprint(session_id)
+            if fingerprints.get(session_fingerprint) == route_fingerprint:
+                return False
+            fingerprints[session_fingerprint] = route_fingerprint
+            while len(fingerprints) > _MAX_SESSION_ROUTE_FINGERPRINTS:
+                fingerprints.pop(next(iter(fingerprints)))
+            _write_delivery_record(path, _record_from_current(current, fingerprints))
+    except (OSError, TimeoutError, TypeError, ValueError):
+        return True
+    return True
+
+
 def record_awareness_delivery(
     *,
     delivered: bool,
@@ -234,10 +317,12 @@ def record_awareness_delivery(
     try:
         with _awareness_delivery_lock(path):
             current = read_awareness_delivery(omh_home)
-            fingerprints = dict(current.get("session_route_fingerprints", {}))
+            fingerprints = _normalized_session_routes(
+                current.get("session_route_fingerprints", {})
+            )
             if delivered and route_hint and session_id and route_fingerprint:
-                fingerprints[session_id] = route_fingerprint
-                while len(fingerprints) > 64:
+                fingerprints[_session_fingerprint(session_id)] = route_fingerprint
+                while len(fingerprints) > _MAX_SESSION_ROUTE_FINGERPRINTS:
                     fingerprints.pop(next(iter(fingerprints)))
             updated = {
                 "schema_version": AWARENESS_DELIVERY_SCHEMA_VERSION,
@@ -269,5 +354,5 @@ def route_guidance_already_delivered(
     if not session_id or not route_fingerprint:
         return False
     current = read_awareness_delivery(omh_home)
-    fingerprints = current.get("session_route_fingerprints", {})
-    return isinstance(fingerprints, dict) and fingerprints.get(session_id) == route_fingerprint
+    fingerprints = _normalized_session_routes(current.get("session_route_fingerprints", {}))
+    return fingerprints.get(_session_fingerprint(session_id)) == route_fingerprint

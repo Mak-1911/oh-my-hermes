@@ -581,14 +581,18 @@ class SkillProfileReconcileTests(unittest.TestCase):
             self.assertEqual(report["profile_state"]["effective_profile"], "full")
             self.assertEqual(set(report["reconcilable_skills"]), full_only_names)
             prompt_cost = report["profile_state"]["prompt_cost"]
-            self.assertEqual(prompt_cost["visibility"], "name_and_description_index_only")
-            self.assertEqual(prompt_cost["progressive_skill_body_bytes"], 0)
-            self.assertGreater(prompt_cost["fixed_index_bytes"], 0)
+            self.assertEqual(prompt_cost["schema_version"], "omh_skill_prompt_cost_estimate/v1")
+            self.assertEqual(prompt_cost["evidence_status"], "prepared_estimate_not_host_observed")
+            self.assertGreater(prompt_cost["estimated_index_line_bytes"], 0)
             self.assertGreater(prompt_cost["full_only_fixed_index_bytes"], 0)
             self.assertGreater(
-                prompt_cost["fixed_index_bytes"],
+                prompt_cost["estimated_index_line_bytes"],
                 prompt_cost["core_fixed_index_bytes"],
             )
+            self.assertGreater(prompt_cost["installed_skill_body_bytes"], 0)
+            self.assertIn("hermes prompt-size --json", prompt_cost["observation_command"])
+            self.assertNotIn("visibility", prompt_cost)
+            self.assertNotIn("progressive_skill_body_bytes", prompt_cost)
 
             status, stdout, stderr = run_cli(
                 base + ["skill-profile", "reconcile", "--to", "core", "--dry-run", "--json"],

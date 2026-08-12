@@ -47,13 +47,26 @@ Boundaries, in order of importance:
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import secrets
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Iterator
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - absent on Windows.
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - present only on Windows.
+    msvcrt = None
 
 RUNNING_WORK_BOARD_SCHEMA_VERSION: Final[str] = "omh_running_work_board/v1"
 
@@ -99,6 +112,11 @@ _MODEL_DEFAULT_LABEL: Final[str] = "executor default"
 # second one.
 _CONTEXT_BUDGET_LEDGER_NAME: Final[str] = "context_budget.json"
 _CONTEXT_BUDGET_SCHEMA_VERSION: Final[str] = "omh_run_context_budget/v1"
+_CONTEXT_BUDGET_LOCK_TIMEOUT_SECONDS: Final[float] = 0.1
+_CONTEXT_BUDGET_LOCK_POLL_INTERVAL: Final[float] = 0.001
+_LOCK_BUSY_ERRNOS: Final[frozenset[int]] = frozenset(
+    {errno.EACCES, errno.EAGAIN, errno.EDEADLK, getattr(errno, "EDEADLOCK", errno.EDEADLK)}
+)
 
 # Not a real fanout/run id -- `FANOUT_ID_PATTERN` and unit-id patterns never
 # produce a dunder-wrapped string, so this bucket can never collide with a
@@ -203,28 +221,36 @@ def record_running_work_board_emission(omh_home: str | Path | None, *, byte_coun
     the same cost the suppression exists to avoid, not a broken hook.
     """
     path = _context_budget_ledger_path(omh_home)
-    ledger = _read_context_budget_ledger(path)
-    runs = ledger.get("runs")
-    runs = dict(runs) if isinstance(runs, dict) else {}
-    entry = runs.get(RUNNING_WORK_LEDGER_KEY)
-    entry = dict(entry) if isinstance(entry, dict) else {}
-    surfaces = dict(entry.get("surfaces")) if isinstance(entry.get("surfaces"), dict) else {}
-    fingerprints = dict(entry.get("payload_fingerprints")) if isinstance(entry.get("payload_fingerprints"), dict) else {}
-    entry["emitted_bytes"] = _safe_int(entry.get("emitted_bytes")) + max(0, int(byte_count))
-    entry["call_count"] = _safe_int(entry.get("call_count")) + 1
-    surfaces[RUNNING_WORK_SURFACE] = _safe_int(surfaces.get(RUNNING_WORK_SURFACE)) + 1
-    entry["surfaces"] = surfaces
-    if fingerprint:
-        fingerprints[RUNNING_WORK_SURFACE] = fingerprint
-    entry["payload_fingerprints"] = fingerprints
-    entry["updated_at"] = _utc_now()
-    runs[RUNNING_WORK_LEDGER_KEY] = entry
-    payload = {
-        "schema_version": _CONTEXT_BUDGET_SCHEMA_VERSION,
-        "updated_at": entry["updated_at"],
-        "runs": runs,
-    }
-    _write_json_best_effort(path, payload)
+    try:
+        with _context_budget_ledger_lock(path):
+            ledger = _read_context_budget_ledger(path)
+            runs = ledger.get("runs")
+            runs = dict(runs) if isinstance(runs, dict) else {}
+            entry = runs.get(RUNNING_WORK_LEDGER_KEY)
+            entry = dict(entry) if isinstance(entry, dict) else {}
+            surfaces = dict(entry.get("surfaces")) if isinstance(entry.get("surfaces"), dict) else {}
+            fingerprints = (
+                dict(entry.get("payload_fingerprints"))
+                if isinstance(entry.get("payload_fingerprints"), dict)
+                else {}
+            )
+            entry["emitted_bytes"] = _safe_int(entry.get("emitted_bytes")) + max(0, int(byte_count))
+            entry["call_count"] = _safe_int(entry.get("call_count")) + 1
+            surfaces[RUNNING_WORK_SURFACE] = _safe_int(surfaces.get(RUNNING_WORK_SURFACE)) + 1
+            entry["surfaces"] = surfaces
+            if fingerprint:
+                fingerprints[RUNNING_WORK_SURFACE] = fingerprint
+            entry["payload_fingerprints"] = fingerprints
+            entry["updated_at"] = _utc_now()
+            runs[RUNNING_WORK_LEDGER_KEY] = entry
+            payload = {
+                "schema_version": _CONTEXT_BUDGET_SCHEMA_VERSION,
+                "updated_at": entry["updated_at"],
+                "runs": runs,
+            }
+            _write_json_best_effort(path, payload)
+    except (OSError, ValueError, TypeError):
+        return
 
 
 def _list_fanout_dirs(fanout_root: Path) -> tuple[str, list[tuple[Path, str]]]:
@@ -487,6 +513,48 @@ def _context_budget_ledger_path(omh_home: str | Path | None) -> Path:
 def _read_context_budget_ledger(path: Path) -> dict[str, Any]:
     payload, status = _read_json_object_result(path)
     return payload if status == "present" and payload is not None else {}
+
+
+@contextmanager
+def _context_budget_ledger_lock(path: Path) -> Iterator[None]:
+    """Hold the same cross-process sidecar lock as core's `locked_json_update`."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(f".{path.name}.lock")
+    lock_path.touch(exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        mechanism = _acquire_context_budget_lock(handle, lock_path)
+        try:
+            yield
+        finally:
+            _release_context_budget_lock(handle, mechanism)
+
+
+def _acquire_context_budget_lock(handle: Any, lock_path: Path) -> str:
+    deadline = time.monotonic() + _CONTEXT_BUDGET_LOCK_TIMEOUT_SECONDS
+    while True:
+        try:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return "fcntl"
+            if msvcrt is None:
+                return "none"
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            return "msvcrt"
+        except OSError as exc:
+            if exc.errno not in _LOCK_BUSY_ERRNOS:
+                raise
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"timed out waiting for context budget lock: {lock_path}") from exc
+            time.sleep(_CONTEXT_BUDGET_LOCK_POLL_INTERVAL)
+
+
+def _release_context_budget_lock(handle: Any, mechanism: str) -> None:
+    if mechanism == "fcntl":
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    elif mechanism == "msvcrt":
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def _safe_int(value: Any) -> int:

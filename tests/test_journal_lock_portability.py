@@ -27,11 +27,17 @@ SRC_ROOT = REPO_ROOT / "src"
 #   local_store          - the shared two-backend implementation itself
 #   awareness_delivery   - vendored into the user's Hermes install, imports
 #                          nothing from omh core, so it carries its own copy
+#   host_observation     - same standalone plugin boundary; protects host
+#                          evidence append + state projection across processes
+#   status_board_reader - same standalone plugin boundary; interoperates with
+#                          core's context-budget sidecar lock
 #   domain_intelligence* - fails closed off POSIX by design, so a single
 #                          backend is the contract rather than a gap
 FCNTL_FLOCK_ALLOWED = {
     "src/system/local_store.py",
     "src/plugin_bundle/omh/awareness_delivery.py",
+    "src/plugin_bundle/omh/host_observation.py",
+    "src/plugin_bundle/omh/status_board_reader.py",
     "src/workflows/domain_intelligence_bound_store.py",
     "src/workflows/domain_intelligence_store_security.py",
 }

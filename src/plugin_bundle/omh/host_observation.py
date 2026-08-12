@@ -1,12 +1,25 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
+import errno
 import json
 import os
 from pathlib import Path
 import threading
-from typing import Any
+import time
+from typing import Any, Iterator
 import uuid
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - absent on Windows.
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - present only on Windows.
+    msvcrt = None
 
 
 PLUGIN_HOST_OBSERVATION_SCHEMA_VERSION = "omh_plugin_host_observation/v1"
@@ -41,6 +54,11 @@ PLUGIN_HOST_OBSERVATION_CLAIM_BOUNDARY = (
     "dispatch, implementation, verification, review, CI, merge, or unrecorded tool/hook calls."
 )
 _STANDALONE_OBSERVATION_LOCK = threading.Lock()
+_STANDALONE_LOCK_TIMEOUT_SECONDS = 1.0
+_STANDALONE_LOCK_POLL_INTERVAL = 0.001
+_LOCK_BUSY_ERRNOS = frozenset(
+    {errno.EACCES, errno.EAGAIN, errno.EDEADLK, getattr(errno, "EDEADLOCK", errno.EDEADLK)}
+)
 
 OBSERVATION_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -150,37 +168,38 @@ def _record_observation(metadata: dict[str, Any], *, event: str, tool: str, hook
         )
 
     try:
-        from omh.paths import resolve_paths
-        from omh.plugin_observations import record_plugin_host_observation
+        try:
+            from omh.paths import resolve_paths
+            from omh.plugin_observations import record_plugin_host_observation
 
-        paths = resolve_paths(
-            omh_home=str(metadata.get("omh_home", "") or "") or None,
-            hermes_home=str(metadata.get("hermes_home", "") or "") or None,
-        )
-        return record_plugin_host_observation(
-            paths,
-            host=host,
-            session_id=session_id,
-            event=event,
-            status="observed",
-            source=source,
-            tool=clean_tool,
-            hook=clean_hook,
-            evidence_refs=evidence_refs,
-            message=message,
-        )
-    except (ImportError, ModuleNotFoundError):
-        return _record_standalone_observation(
-            metadata,
-            host=host,
-            session_id=session_id,
-            event=event,
-            source=source,
-            tool=clean_tool,
-            hook=clean_hook,
-            evidence_refs=evidence_refs,
-            message=message,
-        )
+            paths = resolve_paths(
+                omh_home=str(metadata.get("omh_home", "") or "") or None,
+                hermes_home=str(metadata.get("hermes_home", "") or "") or None,
+            )
+            return record_plugin_host_observation(
+                paths,
+                host=host,
+                session_id=session_id,
+                event=event,
+                status="observed",
+                source=source,
+                tool=clean_tool,
+                hook=clean_hook,
+                evidence_refs=evidence_refs,
+                message=message,
+            )
+        except (ImportError, ModuleNotFoundError):
+            return _record_standalone_observation(
+                metadata,
+                host=host,
+                session_id=session_id,
+                event=event,
+                source=source,
+                tool=clean_tool,
+                hook=clean_hook,
+                evidence_refs=evidence_refs,
+                message=message,
+            )
     except Exception as exc:
         return _observation_error(
             event=event,
@@ -266,10 +285,59 @@ def _record_standalone_observation(
         "observed_at": recorded_at,
         "claim_boundary": PLUGIN_HOST_OBSERVATION_CLAIM_BOUNDARY,
     }
-    with _STANDALONE_OBSERVATION_LOCK:
-        _append_jsonl(runtime_dir / "plugin_host_observations.jsonl", record)
+    observations_path = runtime_dir / "plugin_host_observations.jsonl"
+    with _STANDALONE_OBSERVATION_LOCK, _standalone_observation_file_lock(observations_path):
+        _append_jsonl(observations_path, record)
         _update_standalone_state(runtime_dir / "state.json", record, runtime_readiness)
     return record
+
+
+@contextmanager
+def _standalone_observation_file_lock(path: Path) -> Iterator[None]:
+    """Serialize the standalone JSONL/state transaction across host processes."""
+    lock_path = path.with_name(f".{path.name}.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        os.chmod(lock_path, 0o600)
+        with os.fdopen(descriptor, "a+", encoding="utf-8") as handle:
+            descriptor = -1
+            mechanism = _acquire_standalone_file_lock(handle, lock_path)
+            try:
+                yield
+            finally:
+                _release_standalone_file_lock(handle, mechanism)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _acquire_standalone_file_lock(handle: Any, lock_path: Path) -> str:
+    deadline = time.monotonic() + _STANDALONE_LOCK_TIMEOUT_SECONDS
+    while True:
+        try:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return "fcntl"
+            if msvcrt is None:
+                return "none"
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            return "msvcrt"
+        except OSError as exc:
+            if exc.errno not in _LOCK_BUSY_ERRNOS:
+                raise
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"timed out waiting for standalone observation lock: {lock_path}") from exc
+            time.sleep(_STANDALONE_LOCK_POLL_INTERVAL)
+
+
+def _release_standalone_file_lock(handle: Any, mechanism: str) -> None:
+    if mechanism == "fcntl":
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    elif mechanism == "msvcrt":
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
