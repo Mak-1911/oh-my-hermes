@@ -169,6 +169,34 @@ class MemorySyncSkillTests(unittest.TestCase):
         ):
             self.assertIn(anchor, content, anchor)
 
+    def test_memory_sync_skill_names_who_supplies_the_material(self) -> None:
+        """The protocol said "supplied" material and never named a supplier.
+
+        `omh_memory` with `action="status"` has shipped since PR #672 and returns
+        exactly the entry inventory this review needs, but nothing told Hermes to
+        call it, so the review started from nothing and the card asked the user
+        to ask again. One bullet turns a registered tool into a working loop.
+        """
+        content = _template_content("memory-sync")
+        for anchor in (
+            "Inventory (목록)",
+            "omh_memory",
+            'action="status"',
+            "never entry text",
+        ):
+            self.assertIn(anchor, content, anchor)
+
+    def test_memory_sync_skill_requires_entry_by_entry_confirmation(self) -> None:
+        """A summary of the whole file with one question is not a review."""
+        content = _template_content("memory-sync")
+        for anchor in (
+            "Per-entry confirmation (확인)",
+            "quote it back",
+            "keep, revise, or archive it before moving on",
+            "cannot correct entry by entry is not a review",
+        ):
+            self.assertIn(anchor, content, anchor)
+
     def test_memory_sync_skill_teaches_the_preview_then_apply_attention_tier_flow(self) -> None:
         """Without this guidance the tier is a CLI feature Hermes never reaches,
         and the user is back to typing a control-plane command."""
