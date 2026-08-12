@@ -351,7 +351,21 @@ _HANDOFF_CONTEXT_PACK_KEYS = {
 }
 _HANDOFF_CONTEXT_SCOPE_KEYS = {"kind", "ref"}
 _HANDOFF_CONTEXT_SOURCE_REF_KEYS = {"source", "truth_level", "precedence", "item_count"}
-_HANDOFF_CONTEXT_INCLUDED_KEYS = {"item_id", "key", "summary", "source", "truth_level", "scope", "artifact_ref", "replay_evaluation"}
+_HANDOFF_CONTEXT_INCLUDED_KEYS = {
+    "item_id",
+    "key",
+    "summary",
+    "source",
+    "source_kind",
+    "truth_level",
+    "scope",
+    "artifact_ref",
+    "replay_evaluation",
+    "profile_id",
+    "profile_revision",
+    "profile_digest",
+    "review_id",
+}
 _HANDOFF_CONTEXT_EXCLUDED_KEYS = {"item_id", "source", "reason", "replay_evaluation"}
 _HANDOFF_CONTEXT_CONFLICT_KEYS = {
     "item_id",
@@ -2422,6 +2436,25 @@ def build_handoff_context_pack(
                 included.append(context_item)
             else:
                 excluded.append({"item_id": item_id, "source": source, "reason": "not_packable"})
+
+    # Reviewed domain profiles share the existing OMH-memory handoff lane, but
+    # are resolved directly from their own validated store rather than trusted
+    # from a caller-supplied inspection snapshot.
+    if (not scope_kind or scope_kind == "project"):
+        from .domain_handoff_projection import build_domain_handoff_projection
+
+        domain_included, domain_excluded = build_domain_handoff_projection(paths)
+        if scope_ref:
+            domain_included = [
+                item
+                for item in domain_included
+                if isinstance(item.get("scope"), dict) and item["scope"].get("ref") == scope_ref
+            ]
+            if not domain_included:
+                domain_excluded = []
+        included.extend(domain_included)
+        excluded.extend(domain_excluded)
+
     kept = included[: max(context_limit, 0)]
     for item in included[len(kept) :]:
         excluded.append(
@@ -2485,7 +2518,9 @@ def validate_handoff_context_pack(value: Any, *, require_conflict_free: bool, la
         errors.append(f"{label} session_id must be a string")
     _validate_context_scope(value.get("scope"), errors, f"{label}.scope")
     _validate_context_list(value.get("source_refs"), _HANDOFF_CONTEXT_SOURCE_REF_KEYS, errors, f"{label}.source_refs")
-    _validate_context_list(value.get("included_context"), _HANDOFF_CONTEXT_INCLUDED_KEYS, errors, f"{label}.included_context", scope_key="scope")
+    included_context = value.get("included_context")
+    _validate_context_list(included_context, _HANDOFF_CONTEXT_INCLUDED_KEYS, errors, f"{label}.included_context", scope_key="scope")
+    _validate_domain_handoff_items(included_context, errors, f"{label}.included_context")
     _validate_context_list(value.get("excluded_context"), _HANDOFF_CONTEXT_EXCLUDED_KEYS, errors, f"{label}.excluded_context")
     _validate_context_list(value.get("blocked_by_conflicts"), _HANDOFF_CONTEXT_CONFLICT_KEYS, errors, f"{label}.blocked_by_conflicts")
     if require_conflict_free and value.get("blocked_by_conflicts") != []:
@@ -3977,6 +4012,42 @@ def _validate_context_list(
                 continue
             else:
                 errors.append(f"{nested_label} must be scalar metadata")
+
+
+def _validate_domain_handoff_items(value: Any, errors: list[str], label: str) -> None:
+    if not isinstance(value, list):
+        return
+    domain_fields = {
+        "source_kind",
+        "profile_id",
+        "profile_revision",
+        "profile_digest",
+        "review_id",
+    }
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            continue
+        item_label = f"{label}[{index}]"
+        present = domain_fields & set(item)
+        if not present:
+            continue
+        if item.get("source_kind") != "domain_intelligence_profile" or present != domain_fields:
+            errors.append(f"{item_label} must carry the complete domain profile projection")
+            continue
+        if item.get("source") != "omh_memory" or item.get("truth_level") != "approved_context":
+            errors.append(f"{item_label} domain profile must be approved omh_memory context")
+        for key in ("profile_id", "review_id"):
+            if not isinstance(item.get(key), str) or not item.get(key):
+                errors.append(f"{item_label}.{key} must be a non-empty string")
+        revision = item.get("profile_revision")
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+            errors.append(f"{item_label}.profile_revision must be a positive integer")
+        digest = item.get("profile_digest")
+        if not isinstance(digest, str) or len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            errors.append(f"{item_label}.profile_digest must be a lowercase sha256 hex digest")
+        evaluation = item.get("replay_evaluation")
+        if not isinstance(evaluation, dict) or evaluation.get("eligible") is not True or evaluation.get("reason_code") != "eligible":
+            errors.append(f"{item_label}.replay_evaluation must mark the reviewed profile eligible")
 
 
 def _contains_sensitive_text(value: Any) -> bool:

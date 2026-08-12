@@ -84,7 +84,22 @@ _ROLE_CONTEXT_PACK_KEYS = {
     "redaction_policy",
     "claim_boundary",
 }
-_ROLE_CONTEXT_PACK_RECORD_KEYS = ("position", "record_id", "record_hash", "origin", "label", "reason_code", "reason")
+_ROLE_CONTEXT_PACK_RECORD_KEYS = {
+    "position",
+    "record_id",
+    "record_hash",
+    "origin",
+    "label",
+    "reason_code",
+    "reason",
+}
+_ROLE_CONTEXT_PACK_DOMAIN_RECORD_KEYS = _ROLE_CONTEXT_PACK_RECORD_KEYS | {
+    "source_kind",
+    "profile_id",
+    "profile_revision",
+    "profile_digest",
+    "review_id",
+}
 _ROLE_CONTEXT_PACK_SCOPE_KEYS = {"kind", "ref"}
 _DEFAULT_SCOPE = {"kind": "project", "ref": "default"}
 
@@ -148,15 +163,7 @@ def build_role_context_pack(
         if entry["record_id"] not in dropped:
             records.append(entry)
     positioned = [
-        {
-            "position": index,
-            "record_id": entry["record_id"],
-            "record_hash": entry["record_hash"],
-            "origin": entry["origin"],
-            "label": entry["label"],
-            "reason_code": entry["reason_code"],
-            "reason": entry["reason"],
-        }
+        {"position": index, **entry}
         for index, entry in enumerate(records)
     ]
     pack: dict[str, object] = {
@@ -366,24 +373,38 @@ def read_role_context_pack(paths: OmhPaths, pack_hash: str) -> dict[str, Any] | 
     return pack
 
 
-def _context_pack_entries(context_pack: Any) -> list[dict[str, str]]:
+def _context_pack_entries(context_pack: Any) -> list[dict[str, object]]:
     if not isinstance(context_pack, dict):
         return []
-    entries: list[dict[str, str]] = []
+    entries: list[dict[str, object]] = []
     for item in context_pack.get("included_context", []) or []:
         if not isinstance(item, dict):
             continue
         reason_code = _context_item_reason_code(item)
-        entries.append(
-            _entry(
-                origin=HANDOFF_CONTEXT_PACK_SCHEMA_VERSION,
-                record_id=str(item.get("item_id", "")),
-                label=str(item.get("key", "")),
-                summary=str(item.get("summary", "")),
-                source=str(item.get("source", "")),
-                reason_code=reason_code,
-            )
+        entry: dict[str, object] = _entry(
+            origin=HANDOFF_CONTEXT_PACK_SCHEMA_VERSION,
+            record_id=str(item.get("item_id", "")),
+            label=str(item.get("key", "")),
+            summary=str(item.get("summary", "")),
+            source=str(item.get("source", "")),
+            reason_code=reason_code,
         )
+        if item.get("source_kind") == "domain_intelligence_profile":
+            domain_identity = {
+                "source_kind": "domain_intelligence_profile",
+                "profile_id": str(item.get("profile_id", "")),
+                "profile_revision": int(item.get("profile_revision", 0) or 0),
+                "profile_digest": str(item.get("profile_digest", "")),
+                "review_id": str(item.get("review_id", "")),
+            }
+            entry.update(domain_identity)
+            entry["record_hash"] = _canonical_digest(
+                {
+                    "base_record_hash": entry["record_hash"],
+                    **domain_identity,
+                }
+            )
+        entries.append(entry)
     return entries
 
 
@@ -493,8 +514,13 @@ def _validate_pack_records(value: Any, label: str) -> list[str]:
         # `json.dumps(sort_keys=True)`, so insertion order does not survive the
         # round trip. Record ORDER is carried by `position`, which is checked
         # below and is inside the hash seed.
-        if set(item) != set(_ROLE_CONTEXT_PACK_RECORD_KEYS):
-            errors.append(f"{item_label} must carry exactly {sorted(_ROLE_CONTEXT_PACK_RECORD_KEYS)}")
+        expected_keys = (
+            _ROLE_CONTEXT_PACK_DOMAIN_RECORD_KEYS
+            if item.get("source_kind") == "domain_intelligence_profile"
+            else _ROLE_CONTEXT_PACK_RECORD_KEYS
+        )
+        if set(item) != expected_keys:
+            errors.append(f"{item_label} must carry exactly {sorted(expected_keys)}")
             continue
         if item.get("position") != index:
             errors.append(f"{item_label}.position must equal its index")
@@ -511,6 +537,17 @@ def _validate_pack_records(value: Any, label: str) -> list[str]:
                 errors.append(f"{item_label}.{key} must be a bounded, non-credential metadata reference")
         if not str(item.get("record_id", "")):
             errors.append(f"{item_label}.record_id must be a non-empty string")
+        if item.get("source_kind") == "domain_intelligence_profile":
+            for key in ("profile_id", "review_id"):
+                text = item.get(key)
+                if not isinstance(text, str) or not text or len(text) > _MAX_PACK_REF_LENGTH:
+                    errors.append(f"{item_label}.{key} must be a bounded non-empty string")
+            revision = item.get("profile_revision")
+            if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+                errors.append(f"{item_label}.profile_revision must be a positive integer")
+            digest = item.get("profile_digest")
+            if not isinstance(digest, str) or not _PACK_HASH.match(digest):
+                errors.append(f"{item_label}.profile_digest must be a lowercase sha256 hex digest")
     return errors
 
 

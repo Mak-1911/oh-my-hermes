@@ -10,6 +10,7 @@ line ending rather than the contract.
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -445,6 +446,50 @@ class BudgetReportingTests(_WorkspaceCase):
         self.assertEqual(summary["excluded_count"], 1)
         self.assertEqual(summary["digest"], manifest["digest"])
         self.assertNotIn("items", summary)
+
+
+class ProjectTermsExplicitSelectionTests(_WorkspaceCase):
+    def test_project_terms_source_uses_only_the_explicit_bounded_file_path(self) -> None:
+        source = "# Project Terms\n\n- dispatch packet means handoff\n"
+        self.workspace.write("PROJECT_TERMS.md", source)
+
+        first = self.build(
+            selections=[ManifestSelection("file", "path", "PROJECT_TERMS.md")]
+        )
+        second = self.build(
+            selections=[ManifestSelection("file", "path", "PROJECT_TERMS.md")]
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(first["excluded_items"], [])
+        self.assertEqual(len(first["items"]), 1)
+        item = first["items"][0]
+        self.assertEqual(item["item_kind"], "file")
+        self.assertEqual(item["selector"], {"kind": "path", "expression": "PROJECT_TERMS.md"})
+        self.assertEqual(item["provenance"]["local_ref"], "PROJECT_TERMS.md")
+        self.assertEqual(item["byte_cost"], len(source.encode("utf-8")))
+        self.assertEqual(item["inclusion_reason"], "explicit_selection")
+        self.assertEqual(item["safety_result"]["status"], "safe")
+        self.assertEqual(item["hash"], "sha256:" + hashlib.sha256(source.encode("utf-8")).hexdigest())
+        self.assertNotIn("content", item, "the manifest records exact-byte identity, not a second source copy")
+
+    def test_project_terms_source_is_refused_whole_when_over_budget_or_unsafe(self) -> None:
+        cases = (
+            ("over_budget", "x" * 257, 256),
+            ("unsafe_content", 'api_key = "value"\n', 256),
+        )
+        for reason, source, budget in cases:
+            with self.subTest(reason=reason):
+                self.workspace.write("PROJECT_TERMS.md", source)
+                manifest = self.build(
+                    selections=[ManifestSelection("file", "path", "PROJECT_TERMS.md")],
+                    budget_bytes=budget,
+                )
+                self.assertEqual(manifest["items"], [])
+                exclusion = self.only_exclusion(manifest, reason)
+                self.assertEqual(exclusion["item_id"], "file:PROJECT_TERMS.md")
+                self.assertEqual(exclusion["byte_cost"], len(source.encode("utf-8")))
+                self.assertNotIn("truncated", str(exclusion).lower())
 
 
 class PackSupersetTests(_WorkspaceCase):
