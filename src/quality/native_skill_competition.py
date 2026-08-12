@@ -100,6 +100,38 @@ NATIVE_COMPETITION_CASES = (
         "Look up live weather today, forecasts, prices, sports scores, maps, and local time.",
         "omh",
     ),
+    NativeCompetitionCase(
+        "context-explicit-label",
+        "use ulw-context before planning",
+        "context",
+        "memory",
+        "Store durable preferences and recall them across sessions.",
+        "omh",
+    ),
+    NativeCompetitionCase(
+        "context-fuzzy-project-language",
+        "align and correct the terminology and words this repository uses before planning",
+        "context",
+        "memory",
+        "Store durable preferences and recall them across sessions.",
+        "omh",
+    ),
+    NativeCompetitionCase(
+        "context-multilingual-explicit",
+        "ulw-context로 이 프로젝트의 용어를 정리하고 합의하자",
+        "context",
+        "memory",
+        "Store durable preferences and recall them across sessions.",
+        "omh",
+    ),
+    NativeCompetitionCase(
+        "context-memory-neighbor-negative",
+        "remember this preference across sessions and recall it later",
+        "context",
+        "memory",
+        "Store durable preferences and recall them across sessions.",
+        "native",
+    ),
 )
 
 
@@ -161,6 +193,7 @@ def build_native_skill_competition_report() -> dict[str, object]:
                 "native_matches": list(native_matches),
                 "passed": passed,
                 "picker_surface": "generated_frontmatter_name_description",
+                "evidence_kind": "lexical_proxy",
             }
         )
     return {
@@ -173,7 +206,7 @@ def build_native_skill_competition_report() -> dict[str, object]:
         "results": results,
         "claim_boundary": (
             "Deterministic lexical comparison of checked-in representative native descriptions against "
-            "generated OMH frontmatter name+description only; not live Hermes picker, runtime, or market evidence."
+            "generated OMH frontmatter name+description only; this is lexical_proxy evidence, not live Hermes picker, runtime, semantic nomination, or market evidence."
         ),
     }
 
@@ -243,6 +276,7 @@ def native_skill_competition_errors(payload: Mapping[str, object]) -> list[str]:
                 or score_values["loser_score"] != min(score_values["omh_score"], score_values["native_score"])
                 or passed != (derived_winner == expected.expected_winner)
                 or row.get("picker_surface") != "generated_frontmatter_name_description"
+                or row.get("evidence_kind") != "lexical_proxy"
             ):
                 errors.append(f"native competition result {case_id} winner evidence is inconsistent")
                 continue

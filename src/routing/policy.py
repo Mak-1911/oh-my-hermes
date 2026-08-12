@@ -4959,6 +4959,12 @@ def explicit_skill_invocation(message: str, names: set[str]) -> str | None:
             break
     if (
         first in names
+        and not (
+            not used_prefix
+            and first == "context"
+            and len(words) > 1
+            and words[1] == "budget"
+        )
         and not _bare_first_word_reads_as_a_verb(stripped, first, used_prefix)
         and not _bare_first_word_names_a_longer_skill(stripped, first, names, used_prefix)
     ):

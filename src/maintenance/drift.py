@@ -118,7 +118,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             name="chat_card_case_count",
             describe="Chat card coverage cases",
             live=_chat_card_case_count,
-            expected=74,
+            expected=75,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -129,7 +129,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             name="route_hint_case_count",
             describe="Route hint alignment cases",
             live=_route_hint_case_count,
-            expected=194,
+            expected=195,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -140,7 +140,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             name="routing_precision_case_count",
             describe="Routing precision cases",
             live=_routing_precision_case_count,
-            expected=57,
+            expected=62,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -152,7 +152,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             name="installable_skill_count",
             describe="Installable workflow skills quoted in the public READMEs",
             live=_installable_skill_count,
-            expected=103,
+            expected=104,
             sites=(
                 "README.md",
                 "README.ko.md",

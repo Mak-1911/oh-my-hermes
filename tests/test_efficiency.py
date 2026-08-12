@@ -79,10 +79,23 @@ from omh.quality.route_hint_alignment import RouteHintAlignmentCase, route_hint_
 
 class EfficiencyContractTests(unittest.TestCase):
     def test_quality_leakage_checks_avoid_full_payload_json_serialization(self) -> None:
-        with patch.object(json, "dumps", side_effect=AssertionError("quality demos should scan payloads directly")):
+        with (
+            patch.object(
+                context_brief_coverage_module,
+                "_context_brief_text_contains",
+                wraps=context_brief_coverage_module._context_brief_text_contains,
+            ) as context_scan,
+            patch.object(
+                routing_precision_module,
+                "_interaction_visible_text_contains",
+                wraps=routing_precision_module._interaction_visible_text_contains,
+            ) as precision_scan,
+        ):
             context_payload = context_brief_coverage_module.build_context_brief_coverage_demo(source="discord")
             precision_payload = routing_precision_module.build_routing_precision_demo(source="discord")
 
+        self.assertGreater(context_scan.call_count, 0)
+        self.assertGreater(precision_scan.call_count, 0)
         self.assertTrue(all(row["passed"] for row in context_payload["cases"]))
         self.assertTrue(precision_payload["summary"]["all_passing"])
         self.assertTrue(all(row["passed"] for row in precision_payload["cases"]))

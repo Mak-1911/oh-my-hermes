@@ -85,11 +85,11 @@ _ROLES = (
         title="Planner",
         purpose="Own clarification, non-goals, acceptance criteria, tradeoffs, loopability, and verification strategy.",
         owns=(
-            "One-question clarification when scope is ambiguous",
+            "One-question clarification or dependency-ready terminology frontier when scope or project language is ambiguous",
             "Plan artifact with goals, non-goals, risks, and verification",
             "Decision gate before handoff or execution",
         ),
-        primary_skills=("deep-interview", "plan", "ralplan", "loop"),
+        primary_skills=("context", "deep-interview", "plan", "ralplan", "loop"),
         primary_harnesses=("deep-interview", "planning", "strategy-synthesis", "goal-loop"),
         wrapper_actions=("ask_followup", "accept_plan", "revise_plan", "show_status"),
         evidence_boundary="A planner role can make work reviewable; it is not proof that the work was accepted or executed.",

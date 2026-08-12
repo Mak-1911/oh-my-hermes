@@ -25,18 +25,30 @@ class NativeSkillCompetitionTests(unittest.TestCase):
             ("command-operator", "omh"),
             ("live-info-operator", "native"),
             ("live-info-operator", "omh"),
+            ("context", "omh"),
+            ("context", "native"),
         }
         self.assertEqual(
             {(case.omh_skill, case.expected_winner) for case in NATIVE_COMPETITION_CASES},
             expected,
+        )
+        context_case_ids = {case.case_id for case in NATIVE_COMPETITION_CASES if case.omh_skill == "context"}
+        self.assertEqual(
+            context_case_ids,
+            {
+                "context-explicit-label",
+                "context-fuzzy-project-language",
+                "context-multilingual-explicit",
+                "context-memory-neighbor-negative",
+            },
         )
 
     def test_frontmatter_lexical_gate_passes_every_case(self) -> None:
         report = build_native_skill_competition_report()
 
         self.assertEqual(report["schema_version"], "omh_native_skill_competition/v1")
-        self.assertEqual(report["case_count"], 8)
-        self.assertEqual(report["passed_count"], 8)
+        self.assertEqual(report["case_count"], 12)
+        self.assertEqual(report["passed_count"], 12)
         self.assertEqual(report["failed_count"], 0)
         self.assertEqual(report["failures"], [])
         for result in report["results"]:
@@ -44,6 +56,7 @@ class NativeSkillCompetitionTests(unittest.TestCase):
                 self.assertEqual(result["actual_winner"], result["expected_winner"])
                 self.assertGreater(result["winner_score"], result["loser_score"])
                 self.assertEqual(result["picker_surface"], "generated_frontmatter_name_description")
+                self.assertEqual(result["evidence_kind"], "lexical_proxy")
 
     def test_empty_or_row_incoherent_evidence_fails_closed(self) -> None:
         empty = {
@@ -70,7 +83,7 @@ class NativeSkillCompetitionTests(unittest.TestCase):
 
         self.assertEqual(status, 0, stderr)
         self.assertEqual(stderr, "")
-        self.assertIn("cases: 8/8 passing", stdout)
+        self.assertIn("cases: 12/12 passing", stdout)
         self.assertIn("failures: none", stdout)
 
         status, stdout, stderr = run_cli(["demo", "native-competition", "--json"], output_json=False)

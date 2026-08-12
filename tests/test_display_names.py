@@ -38,7 +38,7 @@ class DisplayNamesInBodiesTests(unittest.TestCase):
         # The QA observation: this line used to read "deep-interview, ralplan".
         # Both are workflow engines, so they render the `ulw-` label while the
         # domain skills beside them keep `omh-`.
-        self.assertIn("- Plan and decide: ulw-interview, ulw-plan, omh-codebase-onboarding", body)
+        self.assertIn("- Plan and decide: ulw-interview, ulw-context, ulw-plan, omh-codebase-onboarding", body)
         self.assertIn("omh-visual-qa", body)
 
         # A family card also lists capability phrases that are not installable

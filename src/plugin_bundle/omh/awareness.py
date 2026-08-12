@@ -1026,6 +1026,7 @@ WORKFLOW_CONTEXT_CARDS = (
         "user_signal": "fuzzy goal, ambitious target, safe feature, or one-cycle delivery request",
         "omh_pattern": "clarify or plan first, then move to ultragoal, ultraprocess, loop, or handoff only when concrete and only after the user confirms the recommended follow-on path",
         "representative_workflows": (
+            "context",
             "deep-interview",
             "ralplan",
             "codebase-onboarding",
@@ -1159,6 +1160,7 @@ WORKFLOW_CONTEXT_CARDS = (
 )
 _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW = {
     "meta-router": "intent_to_plan",
+    "context": "intent_to_plan",
     "deep-interview": "intent_to_plan",
     "plan": "intent_to_plan",
     "ralplan": "intent_to_plan",
@@ -1262,6 +1264,7 @@ _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW = {
     "ultrawork": "coding_handoff",
 }
 _AWARENESS_MESSAGE_MARKERS = (
+    "ulw-context",
     # Running-work questions. Every marker must carry the INTERROGATIVE, not
     # just the verb: measured against 14 unrelated messages, a bare `돌고 있어`
     # armed awareness on "서버 돌고 있어", "테스트 돌고 있어서 기다리는 중",
@@ -5372,6 +5375,7 @@ def awareness_primer_payload() -> dict[str, object]:
                 "oh-my-hermes",
                 "meta-router",
                 "deep-interview",
+                "context",
                 "plan",
                 "ralplan",
                 "codebase-onboarding",
@@ -5793,6 +5797,7 @@ def _compact_generic_tool_checkpoint_line() -> str:
 
 
 _DIRECT_WORKFLOW_NEXT_ACTIONS = {
+    "context": "prepare_project_terms_context",
     "deep-interview": "answer_clarification",
     "plan": "present_plan",
     "ralplan": "present_plan",
@@ -5942,6 +5947,7 @@ def _workflow_not_evidence_yet(
 # catalog so the copy cannot drift.
 _ULW_ENGINE_WORKFLOWS = frozenset(
     {
+        "context",
         "deep-interview",
         "loop",
         "ralph",
@@ -5977,6 +5983,7 @@ def _canonical_workflow_by_display_name() -> dict[str, str]:
     # `tests/test_display_names.py` locks the two together.
     for display, workflow in (
         ("omh-decide", "strategy-brief"),
+        ("ulw-context", "context"),
         ("ulw-interview", "deep-interview"),
         ("ulw-plan", "ralplan"),
         ("ulw-goal", "ultragoal"),
@@ -6013,7 +6020,7 @@ def _with_canonical_display_names(value: str) -> str:
 
 def _direct_workflow_prefix(routing_normalized: str) -> str:
     normalized = routing_normalized.strip()
-    for workflow in _DIRECT_WORKFLOW_NEXT_ACTIONS:
+    for workflow in sorted(_DIRECT_WORKFLOW_NEXT_ACTIONS, key=len, reverse=True):
         aliases = (workflow, workflow.replace("-", " "))
         if any(_starts_with_direct_workflow_alias(normalized, alias) for alias in aliases):
             return workflow

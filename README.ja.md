@@ -158,10 +158,10 @@ omh doctor
 
 ## OMH が追加するもの
 
-OMH は **103 個**のインストール可能な workflow skill を、理解しやすい6つの
+OMH は **104 個**のインストール可能な workflow skill を、理解しやすい6つの
 機能ファミリーとして提供します。
 
-そのうち 11 個は workflow engine で - `deep-interview`, `loop`, `ralph`, `ralplan`, `research`, `team`, `ultragoal`, `ultraperf`, `ultraprocess`, `ultraqa`, `ultrawork` - `ulw-` ラベルで表示され、
+そのうち 12 個は workflow engine で - `context`, `deep-interview`, `loop`, `ralph`, `ralplan`, `research`, `team`, `ultragoal`, `ultraperf`, `ultraprocess`, `ultraqa`, `ultrawork` - `ulw-` ラベルで表示され、
 ステータス行だけでどの種類の skill が動いているか分かります。残り 90 個は `omh-`
 を付けます。canonical name はどちらも変わりません。
 

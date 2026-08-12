@@ -193,7 +193,7 @@ rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
 
 <p align="center"><strong>Mixture of Models</strong></p>
 
-OMH packages **103 installable workflow skills** behind six human-readable
+OMH packages **104 installable workflow skills** behind six human-readable
 capability families. The family is the front door; exact skill names remain
 available when a wrapper or operator needs precise control.
 

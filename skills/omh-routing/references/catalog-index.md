@@ -27,6 +27,7 @@ Trigger phrases and the role registry live in `references/workflow-registry.md`;
 - `omh-terminal`: [omh] Policy overlay for terminal commands - add cwd, environment, safety, and result-evidence gates after preferring native shell tools for ordinary CLI, package-manager, and test runs.
 - `omh-apps`: [omh] External app actions - email, Slack, Discord, Notion, Linear, Jira, CRM, and similar providers, scoped with auth, payload, confirmation, and result-evidence gates.
 - `omh-content-operator`: [omh] Hermes content operator workflow: scope publish-ready writing, rewriting, summarization, translation, release-note, newsletter, customer-copy, social-copy, README-copy, and email-draft work with audience, tone, style, source, review, and hallucination gates.
+- `ulw-context`: [omh] Project terminology alignment workflow: look up, capture, correct, and align the words a repository uses before planning or handoff.
 - `omh-context-budget-review`: [omh] Hermes Context Budget Review workflow: plan compact context, token/cost budgets, summarization checkpoints, and overflow recovery before long agent work.
 - `omh-cto-loop`: [omh] Hermes CTO Loop workflow: roadmap, PM, technical tradeoffs, risk, delivery, release, and follow-up operating cadence.
 - `omh-curriculum-design`: [omh] Turn a learning goal into a teachable curriculum, assessment plan, and learner-ready sequence.

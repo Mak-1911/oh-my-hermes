@@ -3537,6 +3537,23 @@ class WrapperContractTests(unittest.TestCase):
                 self.assertNotIn("schema", payload["chat_response"]["body"].lower())
                 self.assertNotIn("artifact", payload["chat_response"]["body"].lower())
 
+    def test_ulw_context_renders_a_visible_project_terms_card(self) -> None:
+        from omh.routing.action_copy import NEXT_ACTION_LABELS
+        from omh.wrapper import contract
+
+        payload = build_chat_interaction_payload("use ulw-context to align the terms this project uses", source="discord")
+
+        self.assertEqual(payload["route"]["selected_skill"], "context")
+        self.assertEqual(payload["next_action"], "prepare_project_terms_context")
+        self.assertEqual(payload["chat_response"]["kind"], "project_terms_context")
+        self.assertEqual(payload["chat_response"]["actions"][0]["id"], "prepare_project_terms_context")
+        self.assertIn("prepare_project_terms_context", contract.VISIBLE_ACTIONS)
+        self.assertIn("prepare_project_terms_context", contract._ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION)
+        self.assertEqual(
+            NEXT_ACTION_LABELS["prepare_project_terms_context"],
+            "preparing project terminology alignment",
+        )
+
     def test_recommendation_policy_next_actions_are_visible_ack_actions(self) -> None:
         from omh.routing import recommend
         from omh.wrapper import contract

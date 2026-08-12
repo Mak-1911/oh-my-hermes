@@ -446,6 +446,41 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         "answer_directly",
         "direct_answer",
     ),
+    RoutingPrecisionCase(
+        "project-glossary-definition-only",
+        "A glossary definition is content, not a workflow request",
+        "What does dispatch packet mean?",
+        "answer_directly",
+        "direct_answer",
+    ),
+    RoutingPrecisionCase(
+        "project-glossary-say-instead-only",
+        "Style guidance in a glossary stays direct",
+        "What phrase should I use instead of dispatch packet?",
+        "answer_directly",
+        "direct_answer",
+    ),
+    RoutingPrecisionCase(
+        "project-glossary-localized-label-only",
+        "A localized glossary label stays direct",
+        "What does 핸드오프 mean?",
+        "answer_directly",
+        "direct_answer",
+    ),
+    RoutingPrecisionCase(
+        "project-glossary-distinct-from-only",
+        "A distinct-from note stays direct",
+        "What is release train distinct from?",
+        "answer_directly",
+        "direct_answer",
+    ),
+    RoutingPrecisionCase(
+        "project-terms-file-lookup",
+        "Project terms file lookup stays a file lookup",
+        "what is in PROJECT_TERMS.md?",
+        "answer_file_lookup",
+        "file_or_text",
+    ),
 )
 
 
@@ -1894,6 +1929,33 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "strategy-brief",
         "prepare_strategy_brief",
         "strategy_brief",
+    ),
+    RoutingInterventionCase(
+        "context-canonical-explicit",
+        "Canonical context invocation opens project terminology alignment",
+        "./context align the terminology this project uses",
+        "dispatch",
+        "context",
+        "prepare_project_terms_context",
+        "project_terms_context",
+    ),
+    RoutingInterventionCase(
+        "context-public-label-explicit",
+        "Public ulw-context invocation opens project terminology alignment",
+        "use ulw-context to align the terms this project uses",
+        "dispatch",
+        "context",
+        "prepare_project_terms_context",
+        "project_terms_context",
+    ),
+    RoutingInterventionCase(
+        "context-fuzzy-project-language",
+        "A fuzzy project-language alignment request reaches ulw-context",
+        "align project terminology across this repository",
+        "dispatch",
+        "context",
+        "prepare_project_terms_context",
+        "project_terms_context",
     ),
 )
 

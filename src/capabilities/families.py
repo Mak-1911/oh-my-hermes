@@ -25,6 +25,7 @@ _FAMILY_DEFINITIONS = (
         "use_for": "Ambiguous goals, planning, decisions, and loopable work before execution.",
         "primary_workflows": (
             "deep-interview",
+            "context",
             "ralplan",
             "codebase-onboarding",
             "codegraph-refresh",

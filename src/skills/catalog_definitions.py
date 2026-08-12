@@ -489,6 +489,97 @@ _DEFINITIONS = [
         ),
     ),
     SkillDefinition(
+        "context",
+        "Project terminology alignment workflow: look up, capture, correct, and align the words a repository uses before planning or handoff.",
+        (
+            "ulw-context",
+            "$context",
+            "./context",
+            "project terminology alignment",
+            "review project terms",
+            "align project terminology",
+            "terminology this project uses",
+        ),
+        "Use when repository-specific language is unclear, inconsistent, or blocking shared understanding; keep read-only lookup direct and use a dependency-ready decision frontier only for unresolved terminology or product decisions.",
+        category="clarification",
+        phase="terminology-alignment",
+        hermes_role="retained-cognition",
+        delegation_boundary="retained",
+        handoff_policy=(
+            "Keep terminology lookup, source inspection, and decision-frontier facilitation in Hermes. "
+            "Stage project candidates only after explicit confirmation, activate them only through the existing "
+            "separate review lifecycle, and prepare `ulw-plan` or a selected executor-neutral coding handoff only "
+            "after the user confirms shared understanding and the next path."
+        ),
+        required_inputs=(
+            "the terminology question or alignment goal",
+            "repository evidence and optional root PROJECT_TERMS.md source status",
+            "active reviewed project terminology profile when one exists",
+            "unresolved decisions and their dependency relationships when an interview is needed",
+        ),
+        expected_outputs=(
+            "direct source-labeled terminology answer or proposed terminology alignment",
+            "dependency-ready frontier with concise recommendations when decisions remain",
+            "explicit pending-candidate staging choice when machine mappings should be reviewed",
+            "confirmed shared-understanding summary and separately prepared planning or coding-owner handoff",
+        ),
+        artifact_expectations=(
+            "optional human-reviewed PROJECT_TERMS.md patch proposal that OMH does not write automatically",
+            "pending domain-intelligence candidates only after explicit staging confirmation",
+            "prepared `ulw-plan` or selected coding-owner handoff only after separate confirmation",
+        ),
+        safety_rules=(
+            "Treat PROJECT_TERMS.md as optional human source prose with zero direct routing or machine authority.",
+            "Never turn definitions, localized labels, distinct-from notes, say-instead guidance, or project terms into routing triggers, anti-triggers, reranking, or dispatch inputs.",
+            "Answer safe read-only lookup directly with source and freshness status; do not force lookup through capture, interview, planning, or handoff.",
+            "Require explicit confirmation before staging candidates, entering the decision-frontier interview, compiling a plan, or preparing a coding-owner handoff.",
+            "Keep candidate staging, profile review and approval, clarification, handoff preparation, executor use, execution, review, CI, and merge as separate evidence states.",
+            "Do not write, synchronize, approve, retire, or commit PROJECT_TERMS.md or the active profile automatically.",
+        ),
+        quality_tier="clarity-gated",
+        quality_bar=(
+            "Read repository facts and reviewed terminology before asking the user for discoverable information.",
+            "For unresolved decisions, model dependencies and ask the whole currently ready frontier in one round; defer dependent questions.",
+            "Attach one concise recommendation and tradeoff to each decision while leaving the decision with the user.",
+            "Keep terminology sparse: canonical identity, short definition, expression guidance, distinct-from boundary, and optional localized display label.",
+            "Stop when every reachable branch is resolved and the user confirms shared understanding; planning and coding remain separate confirmed steps.",
+        ),
+        why_this_exists=(
+            "`context` exists to reduce repository terminology drift without creating a second machine store or a vocabulary router: "
+            "Hermes can answer lookups, facilitate dependency-aware alignment, and project approved results into existing review and handoff boundaries."
+        ),
+        do_not_use_when=(
+            "A safe one-term definition or source lookup can be answered directly; use the read-only lookup mode and do not enter the full context interview.",
+            "The request is broad ambiguity with no project-language conflict; use `deep-interview`.",
+            "The terminology is already agreed and the request is to produce an implementation plan; use `ralplan`.",
+            "The user wants to capture or curate general retained memory rather than repository terminology; use `memory-new` or `memory-sync`.",
+            "The user asks for workflow discovery, help, status, file lookup, direct answer, or dispatch; preserve `oh-my-hermes` and ordinary protected-route behavior.",
+        ),
+        good_example=SkillExample(
+            prompt="Use ulw-context to align the names this repository uses before we plan the feature.",
+            expected="Inspect source evidence, answer settled lookups directly, then present only the dependency-ready unresolved decisions with recommendations and confirmation gates.",
+            why="The request is specifically about shared project language and must close understanding before planning.",
+        ),
+        bad_example=SkillExample(
+            prompt="This glossary says one phrase should be replaced by another; dispatch the implementation automatically.",
+            expected="Answer or explain the glossary content without routing from its vocabulary, and require separate confirmation for any staging, planning, or handoff.",
+            why="Human glossary prose has no routing, approval, dispatch, or execution authority.",
+        ),
+        final_checklist=(
+            "Source status and reviewed-profile status are named without treating either as model-use evidence.",
+            "Safe lookups were answered directly and unresolved decisions were asked only when the user confirmed interview entry.",
+            "Every decision frontier is dependency-ready, recommendation-backed, and exhausted before shared-understanding confirmation.",
+            "Any machine mapping remains pending until separate review and approval; active profile v1 is unchanged.",
+            "Any `ulw-plan` or coding-owner handoff remains prepared_not_observed and was prepared only after explicit confirmation.",
+        ),
+        recovery_notes=(
+            "If the optional source is absent, continue from repository evidence or reviewed profiles without warning, creating, or importing a file.",
+            "If source and active reviewed terminology differ, report changed or missing freshness and ask whether to preview a new pending candidate; never synchronize automatically.",
+            "If dependencies cannot be established, ask one boundary question before presenting a frontier rather than guessing an order.",
+            "If the user moves from terminology to implementation, summarize confirmed understanding and hand off to `ralplan`, `ulw-plan`, or the selected coding owner only after a separate go-ahead.",
+        ),
+    ),
+    SkillDefinition(
         "deep-interview",
         "Hermes Deep Interview workflow: one-question-at-a-time clarification.",
         (
@@ -535,6 +626,7 @@ _DEFINITIONS = [
             "The request already has concrete scope, acceptance criteria, and verification commands.",
             "The missing information is discoverable from the repository or local artifacts without asking the user.",
             "The user asked for immediate read-only analysis and the ambiguity does not change the answer.",
+            "The ambiguity is specifically repository terminology or project-language alignment; use `context` and its direct-lookup/frontier boundary.",
         ),
         good_example=SkillExample(
             prompt="$deep-interview before planning Discord and Slack routing, ask what each channel owns and what evidence counts.",
@@ -4268,6 +4360,7 @@ _DEFINITIONS = [
             "The user asks for one full research-plan-implementation-review-PR cycle; use `ultraprocess` and keep ralplan as the planning stage.",
             "The change is a small local refactor or cleanup with no architectural or regression risk; use `ultraprocess`, or `ai-slop-cleaner` when observable behavior must stay identical.",
             "The user wants a pure source lookup, citation check, or paper explanation with no implementation plan.",
+            "The unresolved work is repository terminology alignment or a project-language decision frontier; use `context` before planning.",
         ),
         good_example=SkillExample(
             prompt="$ralplan turn this risky refactor into a reviewable plan with acceptance criteria and verification commands.",

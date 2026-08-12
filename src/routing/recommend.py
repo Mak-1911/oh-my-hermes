@@ -1601,7 +1601,10 @@ def _score_definition(
     offers_itself = _SKILL_OFFERS_ITSELF.get(definition.name)
     if (
         offers_itself is not None
-        and explicit_skill != definition.name
+        and (
+            explicit_skill != definition.name
+            or (definition.name == "context" and "budget" in query_tokens)
+        )
         and not offers_itself(normalized_query, query_tokens)
     ):
         return None
@@ -2370,6 +2373,16 @@ def _build_failure_triage_offers_itself(normalized_query: str, query_tokens: set
     return not _build_failure_triage_fixed_or_pass_verification_context(normalized_query)
 
 
+def _context_alignment_offers_itself(normalized_query: str, query_tokens: set[str]) -> bool:
+    """Keep generic uses of "context" from offering the terminology workflow."""
+    return (
+        "budget" not in query_tokens
+        and "project" in query_tokens
+        and bool({"terminology", "terms"} & query_tokens)
+        and bool({"align", "alignment", "review"} & query_tokens)
+    )
+
+
 # Skills that withdraw from the shortlist unless their own precondition holds,
 # checked in `_score_definition`. An explicit invocation always overrides this:
 # naming a skill outright is the user overruling its self-assessment.
@@ -2380,6 +2393,7 @@ def _build_failure_triage_offers_itself(normalized_query: str, query_tokens: set
 # as blockers upstream and keep that phrasing in the wrappers above rather than
 # being rewritten, so the predicates here are the same ones as before.
 _SKILL_OFFERS_ITSELF: dict[str, Callable[[str, set[str]], bool]] = {
+    "context": _context_alignment_offers_itself,
     "ops-observability-card": _ops_observability_card_offers_itself,
     "harness-session-inventory": _harness_session_inventory_recommendation_applies,
     "build-failure-triage": _build_failure_triage_offers_itself,

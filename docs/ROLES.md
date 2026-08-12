@@ -85,10 +85,10 @@ prepared handoffs, and observed evidence:
 - Legacy aliases: `planning-lead`
 - Purpose: Own clarification, non-goals, acceptance criteria, tradeoffs, loopability, and verification strategy.
 - Owns:
-  - One-question clarification when scope is ambiguous
+  - One-question clarification or dependency-ready terminology frontier when scope or project language is ambiguous
   - Plan artifact with goals, non-goals, risks, and verification
   - Decision gate before handoff or execution
-- Primary skills: `deep-interview`, `plan`, `ralplan`, `loop`
+- Primary skills: `context`, `deep-interview`, `plan`, `ralplan`, `loop`
 - Primary harnesses: `deep-interview`, `planning`, `strategy-synthesis`, `goal-loop`
 - Wrapper actions: `ask_followup`, `accept_plan`, `revise_plan`, `show_status`
 - Evidence boundary: A planner role can make work reviewable; it is not proof that the work was accepted or executed.

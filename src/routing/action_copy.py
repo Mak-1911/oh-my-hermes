@@ -57,6 +57,7 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "prepare_command_operator_card": "preparing a command operator card",
     "prepare_connector_operator_card": "preparing a connector operator card",
     "prepare_external_connector_readiness": "preparing external connector readiness",
+    "prepare_project_terms_context": "preparing project terminology alignment",
     "prepare_prompt_import_readiness": "preparing prompt import readiness",
     "prepare_physical_device_readiness": "preparing physical device readiness",
     "prepare_live_info_operator_card": "preparing a live information card",

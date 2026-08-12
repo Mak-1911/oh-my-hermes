@@ -194,10 +194,12 @@ Freshness is derived only during explicit project-scoped inspection and is not
 persisted; source edits or deletion do not synchronize, replace, approve, or
 retire a profile.
 
-The planned `ulw-context` workflow is a future generated catalog surface for
-terminology lookup, reviewed capture, and dependency-frontier interviewing. It
-is not part of the currently shipped project-terms lifecycle and must not be
-documented as available until its catalog and generated projections land.
+The generated `ulw-context` workflow is the public Hermes surface for safe
+terminology lookup, explicitly confirmed reviewed capture, and dependency-ready
+frontier interviewing. Its canonical catalog id is `context`; host semantic
+nomination uses generated name and description metadata, while deterministic
+OMH routing remains limited to explicit workflow invocation and catalog cues.
+The workflow adds no project-term, glossary, or per-language routing table.
 Future handoff work may project reviewed mappings through bounded context packs.
 Exact `PROJECT_TERMS.md` bytes may reach a selected coding owner only after
 explicit, bounded file-manifest selection; they must never be copied into every

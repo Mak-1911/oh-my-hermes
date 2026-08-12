@@ -25,6 +25,14 @@ class ChatCardCoverageCase:
 # acknowledgement would make Hermes feel less capable and less explainable.
 CHAT_CARD_COVERAGE_CASES: tuple[ChatCardCoverageCase, ...] = (
     ChatCardCoverageCase(
+        "context",
+        "Project terminology alignment",
+        "use ulw-context to align the terms this project uses",
+        "context",
+        "project_terms_context",
+        "prepare_project_terms_context",
+    ),
+    ChatCardCoverageCase(
         "automation-blueprint",
         "Scheduled ops blueprint",
         "매일 아침 릴리즈 위험을 확인하고 변화가 있으면 슬랙에 알려줘",

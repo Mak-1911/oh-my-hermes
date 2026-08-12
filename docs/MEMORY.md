@@ -153,8 +153,11 @@ owner read or used the terms. OMH persists neither the human definitions nor
 raw prompts, transcripts, hidden reasoning, logs, or task progress through this
 capture path.
 
-The planned generated `ulw-context` workflow is a future catalog surface, not a
-currently shipped command or skill. Likewise, the current lifecycle does not
+The generated `ulw-context` skill is the Hermes workflow surface for direct
+terminology lookup, explicitly confirmed pending-candidate capture, and
+confirmed dependency-frontier interviewing before a separate planning or
+handoff transition. Its catalog id is `context`; it does not make glossary prose
+a routing input or change the lifecycle above. The current lifecycle does not
 automatically place this file in sessions, runtime records, or coding handoffs.
 Future reviewed-term delivery must remain executor-neutral and bounded. Exact
 source bytes may be delivered later only through explicit workspace-relative
@@ -162,7 +165,7 @@ file selection in `handoff_input_manifest/v1`, subject to its hash, safety, and
 byte-budget checks. Manifest preparation or inclusion is still not model-use or
 execution evidence.
 
-The future workflow direction adapts dependency-frontier interviewing and the
+The workflow adapts dependency-frontier interviewing and the
 separation of terminology from implementation decisions from Matt Pocock's
 `grilling` and `domain-modeling` skills at revision
 `84fdeffd12f2ee307994d1eb6feb48173b6e0502`, under the MIT License (Copyright

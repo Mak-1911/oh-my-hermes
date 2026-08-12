@@ -5,7 +5,7 @@ import unittest
 from _local_package import load_local_package
 
 load_local_package()
-from omh.skills.context_cost import skill_context_cost_profile
+from omh.skills.context_cost import skill_context_cost_payload, skill_context_cost_profile
 
 
 class SkillContextCostTests(unittest.TestCase):
@@ -19,6 +19,23 @@ class SkillContextCostTests(unittest.TestCase):
             0,
         )
         self.assertLess(profile["repeated"]["bytes"], 100_000)
+
+    def test_ulw_context_reports_bounded_static_body_and_progressive_references(self) -> None:
+        payload = skill_context_cost_payload()
+
+        self.assertEqual(payload["schema_version"], "omh_skill_context_cost/v1")
+        context = payload["catalog_increment"]["ulw-context"]
+        self.assertGreater(context["skill_body_bytes"], 0)
+        self.assertGreater(context["reference_bytes"], 0)
+        self.assertEqual(context["reference_file_count"], 2)
+        self.assertEqual(context["project_specific_bytes"], 0)
+        self.assertTrue(context["ceilings_pass"])
+        self.assertLessEqual(context["skill_body_bytes"], context["ceilings"]["skill_body_bytes"])
+        self.assertLessEqual(context["reference_bytes"], context["ceilings"]["reference_bytes"])
+
+        serialized = str(payload).casefold()
+        self.assertNotIn("dispatch packet", serialized)
+        self.assertNotIn("핸드오프", serialized)
 
 
 if __name__ == "__main__":
