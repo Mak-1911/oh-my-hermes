@@ -1392,6 +1392,24 @@ def has_strong_named_catalog_owner(query: str) -> bool:
     routing_text = prepare_routing_text(_strip_path_like_fragments(scrub_diagnostic_status_text(query)))
     normalized_query = normalized_phrase(routing_text.scoring_text)
     query_tokens = _tokens(normalized_query)
+    if (
+        any(guard.id == _TOOLBELT_READINESS_GUARD_ID for guard in active_routing_guard_rules(normalized_query, query_tokens))
+        and query_tokens
+        & {
+            "api",
+            "credential",
+            "credentials",
+            "key",
+            "missing",
+            "mcp",
+            "unavailable",
+            "자격증명",
+            "키",
+            "없어",
+            "없어서",
+        }
+    ):
+        return False
     for prepared in _prepared_routable_definitions():
         if not _phrase_match(normalized_query, prepared.name_phrase):
             continue
@@ -1609,6 +1627,8 @@ def _score_definition(
 ) -> Recommendation | None:
     definition = prepared.definition
     policy = prepared.policy
+    if explicit_skill != definition.name and _explicit_skill_candidate_is_negated(original_query, definition.name):
+        return None
     score = 0
     matched: set[str] = set()
     ecosystem_identity_connector_match = definition.name == "external-connector-readiness" and (

@@ -91,6 +91,53 @@ class BuzzDiagnosticsTests(unittest.TestCase):
             self.assertEqual(payload["version"], "0.5.10")
             self.assertNotIn("nsec-secret-do-not-print", json.dumps(payload))
 
+    def test_probe_never_discovers_buzz_from_ambient_path(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OmhPaths(root / ".omh", root / ".hermes")
+            paths.hermes_home.mkdir()
+            hostile_bin = root / "hostile-bin"
+            hostile_bin.mkdir()
+            executable = hostile_bin / "buzz"
+            executable.write_text("#!/bin/sh\nprintf 'owned\\n'\n", encoding="utf-8")
+            executable.chmod(0o755)
+
+            payload = probe_buzz(paths, environ={"HOME": str(root), "PATH": str(hostile_bin)})
+
+            self.assertEqual(payload["status"], "missing")
+            self.assertEqual(payload["reason_code"], "buzz_cli_missing")
+            self.assertIsNone(payload["executable"])
+
+    def test_probe_accepts_only_direct_buzz_config_fields(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OmhPaths(root / ".omh", root / ".hermes")
+            paths.hermes_home.mkdir()
+            executable = root / "buzz"
+            executable.write_text("", encoding="utf-8")
+            executable.chmod(0o755)
+            paths.hermes_config_path.write_text(
+                "gateway:\n"
+                "  platforms:\n"
+                "    buzz:\n"
+                '      enabled: "true"\n'
+                "      extra:\n"
+                "        nested:\n"
+                f"          cli_path: {executable}\n",
+                encoding="utf-8",
+            )
+            (paths.hermes_home / ".env").write_text(
+                "export BUZZ_PRIVATE_KEY=nsec-secret-do-not-print\n",
+                encoding="utf-8",
+            )
+
+            payload = probe_buzz(paths, environ={"HOME": str(root), "PATH": ""})
+
+            self.assertTrue(payload["configured"])
+            self.assertTrue(payload["credential_present"])
+            self.assertEqual(payload["status"], "missing")
+            self.assertIsNone(payload["executable"])
+
 
 if __name__ == "__main__":
     unittest.main()

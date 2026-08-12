@@ -4,7 +4,6 @@ from collections.abc import Callable, Mapping
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import tempfile
 from typing import Protocol
@@ -114,8 +113,11 @@ def _dotenv_keys(path: Path) -> frozenset[str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        if key.strip() and value.strip():
-            keys.add(key.strip())
+        normalized_key = key.strip()
+        if normalized_key.startswith("export "):
+            normalized_key = normalized_key.removeprefix("export ").strip()
+        if normalized_key and value.strip():
+            keys.add(normalized_key)
     return frozenset(keys)
 
 
@@ -136,7 +138,7 @@ def _buzz_enabled(config_text: str) -> bool:
         if indent <= buzz_indent:
             buzz_indent = None
             continue
-        if stripped.casefold() == "enabled: true":
+        if indent == buzz_indent + 2 and _yaml_scalar(stripped.partition(":")[2]).casefold() == "true":
             return True
     return False
 
@@ -163,10 +165,16 @@ def _config_cli_path(config_text: str) -> str:
         if stripped == "extra:":
             extra_indent = indent
             continue
-        if extra_indent is not None and indent > extra_indent and stripped.startswith("cli_path:"):
-            value = stripped.partition(":")[2].strip().strip("'\"")
-            return value
+        if extra_indent is not None and indent == extra_indent + 2 and stripped.startswith("cli_path:"):
+            return _yaml_scalar(stripped.partition(":")[2])
     return ""
+
+
+def _yaml_scalar(value: str) -> str:
+    scalar = value.strip()
+    if len(scalar) >= 2 and scalar[0] == scalar[-1] and scalar[0] in {"'", '"'}:
+        return scalar[1:-1]
+    return scalar
 
 
 def _resolve_cli(environ: Mapping[str, str], config_text: str, hermes_home: Path) -> Path | None:
@@ -174,9 +182,6 @@ def _resolve_cli(environ: Mapping[str, str], config_text: str, hermes_home: Path
     if configured:
         path = Path(os.path.expandvars(configured)).expanduser()
         return path.resolve() if path.is_file() and os.access(path, os.X_OK) else None
-    found = shutil.which("buzz", path=environ.get("PATH"))
-    if found:
-        return Path(found).resolve()
     fallback = hermes_home.parent / "bin" / "buzz"
     return fallback.resolve() if fallback.is_file() and os.access(fallback, os.X_OK) else None
 

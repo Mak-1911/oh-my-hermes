@@ -1279,6 +1279,29 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             "toolbelt-readiness",
         )
 
+    def test_named_workflows_do_not_bypass_explicit_dependency_readiness(self) -> None:
+        for message in (
+            "The buzz gateway needs a missing API key.",
+            "The plan workflow connector needs credentials configured.",
+            "The ultraqa connector is missing its API key.",
+        ):
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+
+                self.assertEqual(decision["selected_skill"], "toolbelt-readiness")
+                self.assertIn("guard:toolbelt_readiness", decision["recommendations"][0]["matched"])
+
+    def test_semantically_negated_buzz_mentions_do_not_route_to_buzz(self) -> None:
+        for message in (
+            "Do not use buzz, just write a generic Nostr relay from scratch instead.",
+            "Buzz 말고 그냥 일반 Nostr 릴레이를 처음부터 작성해줘.",
+        ):
+            with self.subTest(message=message):
+                decision = route_chat_message(message)
+
+                self.assertNotEqual(decision["selected_skill"], "buzz")
+                self.assertNotIn("buzz", [item["skill"] for item in decision["recommendations"]])
+
     def test_explicit_alias_missed_route_feedback_selects_workflow_learning(self) -> None:
         cases = (
             "missed route: ulw split this accepted plan into lanes",
