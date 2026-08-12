@@ -174,6 +174,7 @@ def cmd_chat_interact(args: argparse.Namespace) -> int:
                 target_notice=_target_notice(args, source_metadata),
                 paths=_paths(args),
                 skill_policy=_chat_route_skill_policy(args),
+                platform_context=_platform_context(args),
                 _host_project_binding_factory=lambda: bind_cli_project(invocation_cwd),
             )
     except FileNotFoundError as exc:
@@ -202,6 +203,7 @@ def cmd_chat_session_start(args: argparse.Namespace) -> int:
             source_metadata=source_metadata,
             executor_target=_resolved_executor(args, default="choose"),
             target_notice=_target_notice(args, source_metadata),
+            platform_context=_platform_context(args),
             _host_project_binding_factory=lambda: bind_cli_project(invocation_cwd),
         )
     except (OSError, json.JSONDecodeError, ValueError, WrapperSessionError) as exc:
@@ -682,6 +684,59 @@ def _add_render_profile_option(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_platform_context_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--platform",
+        default="",
+        help=(
+            "Registered platform id (for example whatsapp or signal) the adapter serves. "
+            "Merged into --platform-context-json as platform_context.platform."
+        ),
+    )
+    parser.add_argument(
+        "--platform-context-json",
+        default=None,
+        help=(
+            "Inline JSON object carrying the platform context: platform plus "
+            "conversation_ref/thread_ref/user_ref and optional limits, capabilities, or "
+            "render_profile. Refs must be adapter-generated opaque values -- prefixed or "
+            "hashed by the adapter (for example discord-channel-<snowflake>), never raw "
+            "phone numbers, emails, JIDs, or native numeric IDs. Validated into an "
+            "omh_platform_envelope/v1 before any write; unsafe refs fail closed."
+        ),
+    )
+
+
+def _platform_context(args: argparse.Namespace) -> dict[str, object] | None:
+    """Merge --platform and --platform-context-json into one context mapping.
+
+    Returns None when neither flag is present so legacy calls stay exactly
+    legacy. Fails closed on malformed JSON, a non-object document, or a
+    --platform that contradicts the document's platform key.
+    """
+    platform = str(getattr(args, "platform", "") or "").strip()
+    raw = getattr(args, "platform_context_json", None)
+    context: dict[str, object] = {}
+    if raw is not None:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise OmhError(f"--platform-context-json is not valid JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise OmhError("--platform-context-json must be a JSON object")
+        context = dict(parsed)
+    if platform:
+        declared = context.get("platform")
+        if declared is not None and str(declared) != platform:
+            raise OmhError(
+                f"--platform {platform!r} contradicts --platform-context-json platform {declared!r}"
+            )
+        context["platform"] = platform
+    if not context:
+        return None
+    return context
+
+
 def _add_codex_observation_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--codex-session-ref", default="", help="Observed Codex session id suitable for resume contracts.")
     parser.add_argument("--codex-thread-ref", default="", help="Observed Codex thread/conversation reference when distinct from the session id.")
@@ -1121,6 +1176,7 @@ def _add_chat_commands(sub) -> None:
     )
     _add_render_profile_option(interact)
     _add_target_metadata_options(interact)
+    _add_platform_context_options(interact)
     interact.set_defaults(func=cmd_chat_interact)
 
     native_command = chat_sub.add_parser("native-command", help="Print the platform-native OMH command registration contract.")
@@ -1188,6 +1244,7 @@ def _add_chat_commands(sub) -> None:
     _add_render_profile_option(session_start)
     session_start.add_argument("--executor", choices=CODING_EXECUTOR_TARGETS, default=None)
     _add_target_metadata_options(session_start)
+    _add_platform_context_options(session_start)
     session_start.set_defaults(func=cmd_chat_session_start)
 
     # Every chat session subcommand below reaches a guarded session.json write,

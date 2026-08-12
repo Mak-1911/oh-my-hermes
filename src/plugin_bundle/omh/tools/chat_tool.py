@@ -30,6 +30,15 @@ OMH_INTERACT_SCHEMA = {
                 "default": "hermes",
                 "description": "Host chat surface that produced the request.",
             },
+            "platform_context": {
+                "type": "object",
+                "description": (
+                    "Optional omh platform context: platform (one of the registered platform ids) "
+                    "plus opaque conversation_ref/thread_ref/user_ref and optional limits, "
+                    "capabilities, or render_profile. Validated into an omh_platform_envelope/v1 "
+                    "before any session write; unsafe or contradictory input fails closed."
+                ),
+            },
             "mode": {
                 "type": "string",
                 "enum": ["auto", "route", "plan", "delegate"],
@@ -113,6 +122,15 @@ def omh_interact_handler(args: dict, **kwargs) -> str:
         }
         return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
 
+    # Validate the requested source before any package or fallback work: an
+    # unknown source fails closed here, and every later path -- including the
+    # ImportError fallback -- can trust that `_source(args)` will not raise.
+    try:
+        _source(args)
+    except _UnsupportedSourceError:
+        payload = _invalid_input_interaction(error="unsupported_source")
+        return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
+
     try:
         payload = _package_interaction(
             args,
@@ -120,11 +138,55 @@ def omh_interact_handler(args: dict, **kwargs) -> str:
             host_kwargs=kwargs,
             observation=observation,
         )
+    except _InvalidPlatformContextError:
+        payload = _invalid_input_interaction(error="invalid_platform_context")
     except (ImportError, ModuleNotFoundError) as exc:
         payload = _fallback_interaction(args, message, error=str(exc))
     except Exception as exc:
         payload = _backend_error_interaction(args, message, error_type=type(exc).__name__)
     return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
+
+
+class _UnsupportedSourceError(ValueError):
+    """The caller named a chat source OMH does not serve."""
+
+
+class _InvalidPlatformContextError(ValueError):
+    """The supplied platform_context cannot produce a safe envelope."""
+
+
+#: Fixed safe detail per invalid-input error. The exception text behind
+#: these errors quotes the caller's own source or platform strings, which are
+#: attacker-controlled: echoing them would reflect secrets, phone numbers, or
+#: injection-shaped text into a payload OMH signs with its claim boundary.
+_INVALID_INPUT_DETAILS = {
+    "unsupported_source": "the requested source is not one OMH serves",
+    "invalid_platform_context": "platform_context failed envelope validation",
+}
+
+
+def _invalid_input_interaction(*, error: str) -> dict[str, Any]:
+    """Bounded omh_interact_result/v1 for input OMH refused before any work.
+
+    Deliberately carries no ``source`` and no ``thread_key``: the input failed
+    validation, so there is no verified source to report -- and reporting the
+    ``hermes`` default here would claim a host surface the caller never had.
+    The detail is a fixed safe string, never the validator's message.
+    """
+    return {
+        "schema_version": "omh_interact_result/v1",
+        "status": "error",
+        "error": error,
+        "detail": _INVALID_INPUT_DETAILS.get(error, "invalid input"),
+        "supported_sources": list(_SUPPORTED_SOURCES),
+        "hint": (
+            "Use source=generic (or another supported source) and pass the platform "
+            "identity as platform_context.platform with opaque conversation_ref, "
+            "thread_ref, or user_ref values."
+        ),
+        "redaction_policy": "metadata_only",
+        "claim_boundary": _CLAIM_BOUNDARY,
+    }
 
 
 def _package_interaction(
@@ -135,6 +197,7 @@ def _package_interaction(
     observation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from omh.paths import resolve_paths
+    from omh.system.platform_envelope import PlatformContextError
     from omh.workflows.domain_project_context import bind_plugin_project
     from omh.wrapper.contract import build_chat_interaction_payload
     from omh.wrapper.sessions import create_or_resume_wrapper_session
@@ -149,26 +212,31 @@ def _package_interaction(
     min_confidence = _min_confidence(args)
     executor_target = str(args.get("executor_target") or "choose")
     source_metadata = _source_metadata(args)
+    platform_context = _platform_context(args)
     main_agent_model = active_main_agent_model()
     host_values = host_kwargs or {}
     if bool(args.get("record_session", True)):
-        result = create_or_resume_wrapper_session(
-            paths,
-            message,
-            source=source,
-            mode=mode,
-            limit=limit,
-            min_confidence=min_confidence,
-            source_metadata=source_metadata,
-            executor_target=executor_target,
-            main_agent_model=main_agent_model,
-            record_provenance={
-                "producer": "plugin_tool",
-                "producer_detail": "omh_interact plugin tool",
-                "observed_by_host": bool(observation and observation.get("status") == "observed"),
-            },
-            _host_project_binding_factory=lambda: bind_plugin_project(host_values),
-        )
+        try:
+            result = create_or_resume_wrapper_session(
+                paths,
+                message,
+                source=source,
+                mode=mode,
+                limit=limit,
+                min_confidence=min_confidence,
+                source_metadata=source_metadata,
+                executor_target=executor_target,
+                platform_context=platform_context,
+                main_agent_model=main_agent_model,
+                record_provenance={
+                    "producer": "plugin_tool",
+                    "producer_detail": "omh_interact plugin tool",
+                    "observed_by_host": bool(observation and observation.get("status") == "observed"),
+                },
+                _host_project_binding_factory=lambda: bind_plugin_project(host_values),
+            )
+        except PlatformContextError as exc:
+            raise _InvalidPlatformContextError(str(exc)) from exc
         interaction = dict(result["interaction"])
         session = result["session"]
         interaction["wrapper_session"] = {
@@ -185,19 +253,23 @@ def _package_interaction(
         interaction["wrapper_session_status"] = result.get("status", {})
         return interaction
 
-    interaction = build_chat_interaction_payload(
-        message,
-        source=source,
-        mode=mode,
-        limit=limit,
-        min_confidence=min_confidence,
-        include_message=False,
-        executor_target=executor_target,
-        source_metadata=source_metadata,
-        main_agent_model=main_agent_model,
-        paths=paths,
-        _host_project_binding_factory=lambda: bind_plugin_project(host_values),
-    )
+    try:
+        interaction = build_chat_interaction_payload(
+            message,
+            source=source,
+            mode=mode,
+            limit=limit,
+            min_confidence=min_confidence,
+            include_message=False,
+            executor_target=executor_target,
+            source_metadata=source_metadata,
+            paths=paths,
+            platform_context=platform_context,
+            main_agent_model=main_agent_model,
+            _host_project_binding_factory=lambda: bind_plugin_project(host_values),
+        )
+    except PlatformContextError as exc:
+        raise _InvalidPlatformContextError(str(exc)) from exc
     interaction["wrapper_session"] = {
         "schema_version": "omh_wrapper_session_ref/v1",
         "recorded": False,
@@ -282,9 +354,37 @@ def _fallback_interaction(args: dict[str, Any], message: str, *, error: str) -> 
     return payload
 
 
+#: Chat sources the plugin serves, in the canonical CHAT_SOURCES order.
+_SUPPORTED_SOURCES = ("generic", "discord", "slack", "telegram", "hermes")
+
+
 def _source(args: dict[str, Any]) -> str:
+    """The requested chat source, or raise for one OMH does not serve.
+
+    An unknown source must fail closed: silently rewriting it to ``hermes``
+    would report a host surface the caller never had and key sessions under a
+    source that never produced the event.
+    """
     value = str(args.get("source") or "hermes")
-    return value if value in {"generic", "discord", "slack", "telegram", "hermes"} else "hermes"
+    if value not in _SUPPORTED_SOURCES:
+        raise _UnsupportedSourceError(f"unsupported source: {value!r}")
+    return value
+
+
+def _platform_context(args: dict[str, Any]) -> dict[str, Any] | None:
+    """The optional platform context, type-checked at the plugin boundary.
+
+    Shape and safety validation lives in the envelope builder, which raises
+    ``PlatformContextError``; this boundary only guarantees a mapping (or
+    None) crosses into the package, and translates builder failures into the
+    plugin's own invalid-input error so the handler can classify them.
+    """
+    raw = args.get("platform_context")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise _InvalidPlatformContextError("platform_context must be an object")
+    return dict(raw)
 
 
 def _mode(args: dict[str, Any]) -> str:

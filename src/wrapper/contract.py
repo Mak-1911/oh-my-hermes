@@ -5,7 +5,7 @@ from functools import lru_cache
 import hashlib
 import re
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Mapping
 
 from ..context_safety import MAX_SUMMARY_CHARS, bounded_prompt_preview, compact_progress_events
 from ..coding.action_gate import LADDER_ACTION_IDS
@@ -16,6 +16,7 @@ from ..coding.status_board import model_label_for
 from ..evidence import status_label
 from .message_gate import build_message_gate, fence_marker_for, message_gate_body
 from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_text, extract_source_metadata
+from ..system.platform_envelope import build_platform_envelope, platform_thread_key_scope
 from ..routing.catalog_questions import is_skill_catalog_question as _is_skill_catalog_question
 from ..routing.chat import public_chat_route_payload, route_explanation_payload
 from ..routing.coding_route_actions import coding_route_decision_payload, resolve_coding_route_decision
@@ -89,6 +90,10 @@ CONTEXT_PRIMER_SCHEMA_VERSION = "omh_context_primer/v1"
 USAGE_TRACE_SCHEMA_VERSION = "omh_usage_trace/v1"
 WORKFLOW_EXPLANATION_SCHEMA_VERSION = "omh_workflow_explanation/v1"
 MESSENGER_RENDERING_SCHEMA_VERSION = "omh_messenger_rendering/v1"
+MESSENGER_ADAPTER_PAYLOAD_SCHEMA_VERSION = "omh_messenger_adapter_payload/v1"
+MESSENGER_ADAPTER_CLAIM_BOUNDARY = (
+    "Rendering and capabilities are not execution or delivery evidence."
+)
 DELIVERY_OBLIGATION_SCHEMA_VERSION = "wrapper_delivery_obligation/v1"
 DELIVERY_OBLIGATION_TRIGGERS = ("handoff_ci_pass", "loop_iteration_complete")
 DELIVERY_OBLIGATION_STATE = "prepared_not_delivered"
@@ -3276,6 +3281,7 @@ def build_chat_interaction_payload(
     target_notice: dict[str, object] | None = None,
     paths: OmhPaths | None = None,
     skill_policy: dict[str, object] | None = None,
+    platform_context: Mapping[str, Any] | None = None,
     _host_project_binding_factory: HostProjectBindingFactory | None = None,
 ) -> dict[str, object]:
     if source not in CHAT_SOURCES:
@@ -3284,6 +3290,15 @@ def build_chat_interaction_payload(
         raise ValueError(f"unsupported chat interaction mode: {mode}")
     if limit < 1:
         raise ValueError("chat interact --limit must be at least 1")
+
+    # Build and validate the platform envelope before anything else -- an
+    # unsafe or contradictory context fails closed here, before routing,
+    # rendering, or any persistence the caller may chain onto this payload.
+    platform_envelope = (
+        build_platform_envelope(platform_context, source=source)
+        if platform_context is not None
+        else None
+    )
 
     message = extract_message_text(event_or_message)
     if _can_use_chat_interaction_cache(
@@ -3294,6 +3309,7 @@ def build_chat_interaction_payload(
         target_notice=target_notice,
         paths=paths,
         skill_policy=skill_policy,
+        platform_context=platform_context,
         host_project_binding_factory=_host_project_binding_factory,
     ):
         return _copy_chat_interaction_payload(
@@ -3320,6 +3336,7 @@ def build_chat_interaction_payload(
         target_notice=target_notice,
         paths=paths,
         skill_policy=skill_policy,
+        platform_envelope=platform_envelope,
         host_project_binding_factory=_host_project_binding_factory,
     )
     # Attached at the one point every chat surface passes through -- the plugin
@@ -3341,6 +3358,7 @@ def _can_use_chat_interaction_cache(
     target_notice: dict[str, object] | None,
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
+    platform_context: Mapping[str, Any] | None,
     host_project_binding_factory: HostProjectBindingFactory | None,
 ) -> bool:
     return (
@@ -3351,6 +3369,7 @@ def _can_use_chat_interaction_cache(
         and target_notice is None
         and paths is None
         and skill_policy is None
+        and platform_context is None
         and host_project_binding_factory is None
     )
 
@@ -3785,6 +3804,10 @@ def _copy_messenger_rendering_payload(value: dict[str, object]) -> dict[str, obj
         item = value.get(key)
         if isinstance(item, dict):
             copied[key] = dict(item)
+    for key in ("capabilities", "omh_message_gate", "adapter_payload"):
+        item = value.get(key)
+        if isinstance(item, dict):
+            copied[key] = deepcopy(item)
     # `density_policy` nests a list, so a flat `dict()` would still alias it.
     density_policy = value.get("density_policy")
     if isinstance(density_policy, dict):
@@ -3835,6 +3858,7 @@ def _build_chat_interaction_payload_uncached(
     target_notice: dict[str, object] | None,
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
+    platform_envelope: dict[str, Any] | None = None,
     host_project_binding_factory: HostProjectBindingFactory | None,
 ) -> dict[str, object]:
     message = extract_message_text(event_or_message)
@@ -3862,6 +3886,21 @@ def _build_chat_interaction_payload_uncached(
         paths=paths,
     )
     base = _base_interaction(message, source=source, source_metadata=metadata, mode=resolved_mode, include_message=include_message)
+    if platform_envelope is not None:
+        # One seam: every downstream card and the session store read
+        # base["thread_key"], so the platform-identity key is installed here,
+        # immediately after the legacy base derivation. The legacy key just
+        # computed by _base_interaction is passed through so the
+        # event-fallback path reuses it exactly -- including its message-hash
+        # event substitute -- instead of re-deriving one from an empty
+        # message.
+        base["thread_key"] = _platform_thread_key(
+            source,
+            platform_envelope,
+            metadata,
+            legacy_thread_key=str(base["thread_key"]),
+        )
+        base["platform"] = platform_envelope
     is_catalog_question = _is_generic_skill_catalog_route(message, route_payload)
     if is_catalog_question and _route_recommendation_next_action(route_payload) != "show_command_preview":
         route_payload = _catalog_question_route_payload(route_payload)
@@ -7056,6 +7095,7 @@ def _with_memory_consolidation_notice(
         updated,
         source=str(payload.get("source", "generic")),
         source_metadata=_nested(payload, "source_metadata"),
+        platform_envelope=_nested(payload, "platform") or None,
     )
     return payload
 
@@ -7088,6 +7128,7 @@ def _finish_interaction(payload: dict[str, object], target_notice: dict[str, obj
             response,
             source=str(payload.get("source", "generic")),
             source_metadata=_nested(payload, "source_metadata"),
+            platform_envelope=_nested(payload, "platform") or None,
         )
     return payload
 
@@ -7283,6 +7324,7 @@ def _chat_response_with_render_profile(
     *,
     source: str,
     source_metadata: dict[str, object],
+    platform_envelope: dict[str, object] | None = None,
 ) -> dict[str, object]:
     updated = dict(response)
     trace = updated.get("usage_trace")
@@ -7297,6 +7339,9 @@ def _chat_response_with_render_profile(
             source=source,
             follow_up_texts=_message_gate_follow_ups(updated),
             message_gate=_nested(updated, "message_gate") or None,
+            platform_envelope=platform_envelope,
+            response_actions=updated.get("actions", []),
+            attachments=updated.get("attachments", []),
         )
     return updated
 
@@ -8091,6 +8136,39 @@ def _thread_key(source: str, metadata: dict[str, str], *, message: str = "", run
     return f"{source}:{channel}:{event}"
 
 
+def _platform_thread_key(
+    source: str,
+    envelope: Mapping[str, Any],
+    metadata: dict[str, str],
+    *,
+    legacy_thread_key: str,
+) -> str:
+    """Thread key for a platform-enveloped interaction.
+
+    With a conversation identity the key is
+    ``source:pf-{platform_id}:{conversation_ref}[:{thread_ref}][:{target_scope}]``
+    -- stable across events in one conversation, with no source_event_id or
+    message hash, so two events resume one session while the same refs on two
+    platforms never collide. Without ``conversation_ref`` there is no durable
+    conversation identity, so the already-computed legacy key is returned
+    unchanged -- caller passes the key ``_base_interaction`` derived from the
+    real message, whose event substitute is the message hash, not a hash of
+    an empty string.
+    """
+    identity = envelope.get("identity", {})
+    conversation_ref = identity.get("conversation_ref") if isinstance(identity, Mapping) else None
+    if not conversation_ref:
+        return legacy_thread_key
+    # The platform+conversation+thread segment comes from the envelope
+    # module's own scope helper, so this key and any other consumer of the
+    # envelope derive the same identity string from one implementation.
+    key = f"{source}:pf-{platform_thread_key_scope(envelope)}"
+    target_scope = _target_scope_key(metadata)
+    if target_scope:
+        key = f"{key}:{target_scope}"
+    return key
+
+
 def _source_from_thread_key(thread_key: str) -> str:
     """Recover the ``source`` a ``_thread_key`` was built from.
 
@@ -8366,6 +8444,9 @@ def messenger_rendering_contract(
     source: str = "",
     follow_up_texts: object = (),
     message_gate: dict[str, object] | None = None,
+    platform_envelope: Mapping[str, Any] | None = None,
+    response_actions: object = (),
+    attachments: object = (),
 ) -> dict[str, object]:
     """The platform-shaping rendering payload for one chat/session response.
 
@@ -8375,7 +8456,11 @@ def messenger_rendering_contract(
     ``slack`` source). ``transforms_applied`` describes the TEXT fields only;
     an adapter that consumes blocks applies its own dialect.
     """
-    resolved_profile = _normalize_render_profile(render_profile)
+    resolved_profile = _normalize_render_profile(
+        str(platform_envelope["render_profile"])
+        if platform_envelope is not None
+        else render_profile
+    )
     # The gate header is rendered per profile, here, so the rich body carries the
     # aligned card and every fallback carries bullets. Prepending it upstream
     # would have put one profile's shaping into the canonical body and blocks.
@@ -8428,8 +8513,12 @@ def messenger_rendering_contract(
             body_text, slack_transforms = _slack_dialect_body(body_text)
             transforms = [*transforms, *slack_transforms]
         transforms = sorted(set(transforms))
-    chunking = _messenger_chunking_hint(source)
-    return {
+    chunking = (
+        _platform_envelope_chunking_hint(platform_envelope)
+        if platform_envelope is not None
+        else _messenger_chunking_hint(source)
+    )
+    rendering: dict[str, object] = {
         "schema_version": MESSENGER_RENDERING_SCHEMA_VERSION,
         "render_profile": resolved_profile,
         "visible_prefix": visible_prefix,
@@ -8490,6 +8579,92 @@ def messenger_rendering_contract(
         "table_policy": table_policy,
         "body_preview": _short_text(body_text, limit=180),
         "claim_boundary": claim_boundary,
+    }
+    if isinstance(message_gate, dict) and message_gate:
+        rendering["omh_message_gate"] = deepcopy(message_gate)
+    if platform_envelope is not None:
+        rendering["platform_id"] = str(platform_envelope["platform_id"])
+        rendering["format_family"] = str(platform_envelope["format_family"])
+        rendering["capabilities"] = deepcopy(platform_envelope["capabilities"])
+        rendering["adapter_payload"] = _messenger_adapter_payload(
+            platform_envelope,
+            response_actions=response_actions,
+            attachments=attachments,
+        )
+    return rendering
+
+
+def _platform_envelope_chunking_hint(
+    platform_envelope: Mapping[str, Any],
+) -> dict[str, object]:
+    limits = platform_envelope["limits"]
+    return {
+        "max_recommended_chars": int(limits["max_recommended_chars"]),
+        "hard_limit_chars": int(limits["hard_limit_chars"]),
+        "limit_provenance": str(platform_envelope["limit_provenance"]),
+        "split_on": ["headings", "bullets", "paragraphs"],
+    }
+
+
+def _messenger_adapter_payload(
+    platform_envelope: Mapping[str, Any],
+    *,
+    response_actions: object,
+    attachments: object,
+) -> dict[str, object]:
+    capabilities = platform_envelope["capabilities"]
+    media = capabilities["media"]
+    reply = capabilities["reply"]
+    reactions = capabilities["reactions"]
+    actions = capabilities["actions"]
+    identity = platform_envelope.get("identity", {})
+    reply_contract: dict[str, object] = {
+        "reply_support": reply.get("quotes") is True,
+        "threads_support": reply.get("threads") is True,
+    }
+    thread_ref = identity.get("thread_ref")
+    if thread_ref:
+        reply_contract["thread_ref"] = str(thread_ref)
+    return {
+        "schema_version": MESSENGER_ADAPTER_PAYLOAD_SCHEMA_VERSION,
+        "platform_id": str(platform_envelope["platform_id"]),
+        "transport_source": str(platform_envelope["transport_source"]),
+        "media": {
+            "attachments": list(deepcopy(attachments))
+            if isinstance(attachments, (list, tuple))
+            else [],
+            "image_support": media.get("images") is True,
+            "audio_support": media.get("voice") is True,
+            "video_support": media.get("video") is True,
+            "document_support": media.get("files") is True,
+            "caption_support": media.get("captions") is True,
+        },
+        "reply": reply_contract,
+        "reactions": {
+            "items": [],
+            "native_support": reactions.get("native") is True,
+            "custom_support": reactions.get("custom_emoji") is True,
+        },
+        "actions": {
+            "response_actions": list(deepcopy(response_actions))
+            if isinstance(response_actions, (list, tuple))
+            else [],
+            "button_support": actions.get("buttons") is True,
+            "form_support": actions.get("forms") is True,
+        },
+        "delivery": {
+            "state": "prepared_not_delivered",
+            "observed": False,
+            "adapter_owned_responsibilities": [
+                "auth",
+                "network",
+                "encryption",
+                "media_transfer",
+                "posting",
+                "delivery",
+            ],
+        },
+        "claim_boundary": MESSENGER_ADAPTER_CLAIM_BOUNDARY,
     }
 
 

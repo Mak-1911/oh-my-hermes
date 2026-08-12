@@ -88,13 +88,14 @@ class DomainContextPersistencePrivacyMixin:
         self.assertNotIn("domain_routing_context", second["interaction"])
         self.assertEqual(calls, 2)
         # The privacy property is that the record carries no key outside the
-        # canonical set. `applied_mutations_floor_revision` is written only once
-        # mutation history has actually been evicted, so it is the one key the
-        # canonical set allows and a fresh session legitimately omits.
+        # canonical set. Two canonical keys are optional on a fresh legacy
+        # session: `applied_mutations_floor_revision` is written only once
+        # mutation history has actually been evicted, and `platform` is
+        # written only when the session was opened with a platform envelope.
         self.assertLessEqual(set(second["session"]), set(WRAPPER_SESSION_RECORD_KEYS))
         self.assertEqual(
             set(WRAPPER_SESSION_RECORD_KEYS) - set(second["session"]),
-            {"applied_mutations_floor_revision"},
+            {"applied_mutations_floor_revision", "platform"},
         )
         self.assertEqual(validate_wrapper_session_record(second["session"]), [])
         _assert_no_private_material(

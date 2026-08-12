@@ -19,6 +19,11 @@ questions:
 - Which owner is responsible for each stage?
 - Which status claims are backed by observed evidence, and which are not?
 
+For hosted channels beyond the legacy source set, also follow the
+[Cross-Channel Adapter Contract](CROSS_CHANNEL_ADAPTER_CONTRACT.md) for
+`source="generic"`, opaque platform identity, capability provenance, native
+format labels, and the adapter-owned delivery boundary.
+
 ## Upstream Basis
 
 OMH's model of upstream Hermes Agent (`omh hermes readiness`,
