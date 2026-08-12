@@ -52,8 +52,8 @@ LOCK_MECHANISM_NONE = "none"
 _LOCK_BUSY_ERRNOS = frozenset(
     {errno.EACCES, errno.EAGAIN, errno.EDEADLK, getattr(errno, "EDEADLOCK", errno.EDEADLK)}
 )
-_LOCK_TIMEOUT_SECONDS = 10.0
-_LOCK_POLL_INTERVAL = 0.05
+_LOCK_TIMEOUT_SECONDS = 0.1
+_LOCK_POLL_INTERVAL = 0.001
 
 
 AWARENESS_DELIVERY_SCHEMA_VERSION = "omh_awareness_delivery/v1"
@@ -131,18 +131,24 @@ def _acquire_delivery_lock(handle: Any, lock_path: Path) -> str:
     took no lock at all here, and the read-modify-write below could interleave
     between concurrent turns and lose counter increments with nothing saying so.
 
-    The POSIX path stays a blocking `LOCK_EX`, unchanged: this runs on the
-    hottest path in the system and turning it into a bounded wait would newly
-    let it raise. Windows has no blocking primitive with the same semantics --
-    `LK_LOCK` gives up after ten seconds anyway -- so it polls the non-blocking
-    flag against the same deadline.
+    Both backends use bounded non-blocking attempts. This is best-effort
+    telemetry on the model-dispatch path, so contention drops a counter rather
+    than delaying the user operation.
     """
+    deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
     if fcntl is not None:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        return LOCK_MECHANISM_FCNTL
+        while True:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return LOCK_MECHANISM_FCNTL
+            except OSError as exc:
+                if exc.errno not in _LOCK_BUSY_ERRNOS:
+                    raise
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"timed out waiting for awareness delivery lock: {lock_path}")
+                time.sleep(_LOCK_POLL_INTERVAL)
     if msvcrt is None:
         return LOCK_MECHANISM_NONE
-    deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
     while True:
         try:
             # msvcrt.locking locks a byte range from the current position, so
@@ -249,7 +255,7 @@ def record_awareness_delivery(
                 "session_route_fingerprints": fingerprints,
             }
             _write_delivery_record(path, updated)
-    except (OSError, TypeError, ValueError):
+    except (OSError, TimeoutError, TypeError, ValueError):
         return None
     return updated
 

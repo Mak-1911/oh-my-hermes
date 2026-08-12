@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import threading
 from typing import Any
+import uuid
 
 
 PLUGIN_HOST_OBSERVATION_SCHEMA_VERSION = "omh_plugin_host_observation/v1"
@@ -38,6 +40,7 @@ PLUGIN_HOST_OBSERVATION_CLAIM_BOUNDARY = (
     "that observed plugin load or use. It proves only that host plugin event, not coding "
     "dispatch, implementation, verification, review, CI, merge, or unrecorded tool/hook calls."
 )
+_STANDALONE_OBSERVATION_LOCK = threading.Lock()
 
 OBSERVATION_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -263,8 +266,9 @@ def _record_standalone_observation(
         "observed_at": recorded_at,
         "claim_boundary": PLUGIN_HOST_OBSERVATION_CLAIM_BOUNDARY,
     }
-    _append_jsonl(runtime_dir / "plugin_host_observations.jsonl", record)
-    _update_standalone_state(runtime_dir / "state.json", record, runtime_readiness)
+    with _STANDALONE_OBSERVATION_LOCK:
+        _append_jsonl(runtime_dir / "plugin_host_observations.jsonl", record)
+        _update_standalone_state(runtime_dir / "state.json", record, runtime_readiness)
     return record
 
 
@@ -295,13 +299,19 @@ def _update_standalone_state(path: Path, record: dict[str, Any], runtime_readine
         "updated_at": _utc_now(),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     tmp.write_text(json.dumps({**current, **patch}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     try:
         tmp.chmod(0o600)
     except OSError:
         pass
-    tmp.replace(path)
+    try:
+        tmp.replace(path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _observation_error(

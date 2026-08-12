@@ -1,14 +1,40 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from _cli_harness import run_cli
+from _local_package import load_local_package
+
+load_local_package()
+from omh.plugin_bundle.omh.host_observation import observe_plugin_hook_call
 
 
 class PluginHostObservationTests(unittest.TestCase):
+    def test_concurrent_standalone_hook_observations_keep_valid_state(self) -> None:
+        with TemporaryDirectory() as tmp:
+            def record(index: int) -> dict[str, object] | None:
+                return observe_plugin_hook_call(
+                    "pre_verify",
+                    {
+                        "host": "standalone",
+                        "session_id": f"session-{index}",
+                        "omh_home": tmp,
+                    },
+                )
+
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                results = list(pool.map(record, range(8)))
+
+            self.assertTrue(all(result is not None for result in results))
+            state = json.loads((Path(tmp) / "runtime" / "state.json").read_text())
+            self.assertEqual(state["schema_version"], 1)
+            rows = (Path(tmp) / "runtime" / "plugin_host_observations.jsonl").read_text().splitlines()
+            self.assertEqual(len(rows), 8)
+            self.assertTrue(all(isinstance(json.loads(row), dict) for row in rows))
     def test_plugin_observations_accepts_json_flag_for_operator_smoke_checks(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
