@@ -173,8 +173,13 @@ def _bool_from_record(record: dict[str, Any], key: str = "observed") -> bool:
     return bool(record.get(key, False)) if record else False
 
 
-def _summarize_run(run_dir: Path) -> dict[str, Any]:
-    run = _read_json(run_dir / "run.json")
+def _summarize_run(
+    run_dir: Path,
+    *,
+    run: dict[str, Any],
+    journal_events: list[dict[str, Any]],
+    external_effect_receipts: list[dict[str, Any]],
+) -> dict[str, Any]:
     coding = _read_json(run_dir / "coding_delegation.json")
     delegation = _read_json(run_dir / "delegation.json")
     wrapper = _read_json(run_dir / "wrapper.json")
@@ -200,9 +205,14 @@ def _summarize_run(run_dir: Path) -> dict[str, Any]:
         "merge_observed": _bool_from_record(merge),
         "merge_status": str(merge.get("status", "not_observed" if merge else "unknown")),
     }
-    lifecycle = _journal_projection_for_run(run_dir, legacy)
+    lifecycle = _journal_projection_for_run(run_dir, legacy, journal_events)
     _apply_lifecycle_to_run_summary(legacy, lifecycle)
-    _apply_external_effect_receipts_to_run_summary(run_dir, legacy, lifecycle)
+    _apply_external_effect_receipts_to_run_summary(
+        run_dir,
+        legacy,
+        lifecycle,
+        external_effect_receipts,
+    )
     legacy["lifecycle"] = lifecycle
     legacy["journal_event_count"] = lifecycle["journal_event_count"]
     legacy["latest_event"] = lifecycle["latest_event"]
@@ -213,6 +223,7 @@ def _apply_external_effect_receipts_to_run_summary(
     run_dir: Path,
     summary: dict[str, Any],
     lifecycle: dict[str, Any],
+    receipts: list[dict[str, Any]],
 ) -> None:
     """Withdraw a review, CI, or merge success claim that no receipt backs.
 
@@ -228,7 +239,7 @@ def _apply_external_effect_receipts_to_run_summary(
     The rule is the same one `omh.runtime.claims._receipt_cited` applies on the
     CLI side, so the Hermes-facing surface cannot contradict it.
     """
-    backed = _receipt_backed_effect_kinds(run_dir, str(summary.get("run_id", run_dir.name)))
+    backed = _receipt_backed_effect_kinds(receipts, str(summary.get("run_id", run_dir.name)))
     for key, kind in RECEIPT_BACKED_RUN_CLAIMS.items():
         if kind in backed:
             continue
@@ -246,16 +257,15 @@ def _apply_external_effect_receipts_to_run_summary(
     }
 
 
-def _receipt_backed_effect_kinds(run_dir: Path, run_id: str) -> set[str]:
+def _receipt_backed_effect_kinds(receipts: list[dict[str, Any]], run_id: str) -> set[str]:
     """Effect kinds whose latest receipt for this run succeeded and named an actor.
 
     Latest-wins, not any-wins: a run whose CI succeeded and was then re-run to a
     failure has a `succeeded` receipt on disk that no longer describes the
     current state, because the store is append-only and supersedes by link.
     """
-    runtime_dir = run_dir.parents[1]
     latest: dict[str, dict[str, Any]] = {}
-    for receipt in _read_jsonl(runtime_dir / "journal" / EXTERNAL_EFFECT_RECEIPT_STORE_NAME):
+    for receipt in receipts:
         if receipt.get("schema_version") != EXTERNAL_EFFECT_RECEIPT_SCHEMA_VERSION:
             continue
         if str(receipt.get("run_id", "")) != run_id:
@@ -307,12 +317,15 @@ def _executor_target_from_coding(coding: dict[str, Any]) -> str:
     return value
 
 
-def _journal_projection_for_run(run_dir: Path, legacy: dict[str, Any]) -> dict[str, Any]:
+def _journal_projection_for_run(
+    run_dir: Path,
+    legacy: dict[str, Any],
+    journal_events: list[dict[str, Any]],
+) -> dict[str, Any]:
     run_id = str(legacy.get("run_id", run_dir.name))
-    runtime_dir = run_dir.parents[1]
     events = [
         event
-        for event in _read_jsonl(runtime_dir / "journal" / "events.jsonl")
+        for event in journal_events
         if event.get("schema_version") == OBSERVATION_EVENT_SCHEMA_VERSION
         and str(event.get("run_id", "")) == run_id
     ]
@@ -423,6 +436,7 @@ def read_omh_hud(
     omh_home: str | Path | None = None,
     hermes_home: str | Path | None = None,
     *,
+    status: dict[str, Any] | None = None,
     preset: str = "focused",
     limit: int = 3,
     token_metadata: dict[str, Any] | None = None,
@@ -432,11 +446,11 @@ def read_omh_hud(
     home = _expand_path(omh_home) if omh_home else _default_omh_home()
     hermes = _expand_path(hermes_home) if hermes_home else _default_hermes_home()
     safe_limit = _safe_limit(limit, default=3)
-    status = read_omh_status(home, limit=safe_limit)
+    status_payload = status if status is not None else read_omh_status(home, limit=safe_limit)
     state = _read_json(home / "runtime" / "state.json")
     profile = _read_json(home / "setup-profile.json")
     target_registry = _read_json(home / "targets.json")
-    runs = status.get("runs", [])
+    runs = status_payload.get("runs", [])
     latest_run = runs[0] if runs else {}
     payload: dict[str, Any] = {
         "schema_version": HUD_SCHEMA_VERSION,
@@ -448,7 +462,7 @@ def read_omh_hud(
         "plugin": _plugin_summary(hermes, state),
         "target_topology": _target_topology_summary(target_registry),
         "executor": _executor_summary(profile),
-        "runtime": _hud_runtime_summary(status, latest_run),
+        "runtime": _hud_runtime_summary(status_payload, latest_run),
         "achievements": _achievements_summary(hermes),
         "tokens": _token_summary(token_metadata or {}),
         "evidence_boundary": (
@@ -892,15 +906,41 @@ def _safe_limit(value: Any, *, default: int, maximum: int = 20) -> int:
     return max(0, min(_safe_int(value, default), maximum))
 
 
+def _group_rows_by_run_id(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        value = row.get("run_id")
+        if value is None:
+            continue
+        run_id = str(value)
+        if run_id:
+            grouped.setdefault(run_id, []).append(row)
+    return grouped
+
+
 def read_omh_status(omh_home: str | Path | None = None, limit: int = 5) -> dict[str, Any]:
     safe_limit = _safe_limit(limit, default=5)
     home = _expand_path(omh_home) if omh_home else _default_omh_home()
     runtime_dir = home / "runtime"
     runs_dir = runtime_dir / "runs"
     state = _read_json(runtime_dir / "state.json")
+    journal_dir = runtime_dir / "journal"
+    journal_events_by_run = _group_rows_by_run_id(_read_jsonl(journal_dir / "events.jsonl"))
+    receipts_by_run = _group_rows_by_run_id(
+        _read_jsonl(journal_dir / EXTERNAL_EFFECT_RECEIPT_STORE_NAME)
+    )
     runs: list[dict[str, Any]] = []
     for run_json in sorted(_child_files(runs_dir, "run.json"), reverse=True)[:safe_limit]:
-        runs.append(_summarize_run(run_json.parent))
+        run = _read_json(run_json)
+        run_id = str(run.get("run_id", run_json.parent.name))
+        runs.append(
+            _summarize_run(
+                run_json.parent,
+                run=run,
+                journal_events=journal_events_by_run.get(run_id, []),
+                external_effect_receipts=receipts_by_run.get(run_id, []),
+            )
+        )
     progress = _executor_progress_projection(runtime_dir, limit=max(safe_limit * 10, safe_limit))
     return {
         "schema_version": STATUS_SCHEMA_VERSION,
@@ -923,6 +963,23 @@ def read_omh_status(omh_home: str | Path | None = None, limit: int = 5) -> dict[
             "merge": "requires separate merge record and an external effect receipt naming the surface that merged it",
         },
         "privacy": "metadata_only",
+    }
+
+
+def read_omh_activity(omh_home: str | Path | None = None, limit: int = 5) -> dict[str, Any]:
+    """Project only live executor state for latency-sensitive hook routing."""
+    safe_limit = _safe_limit(limit, default=5)
+    home = _expand_path(omh_home) if omh_home else _default_omh_home()
+    runtime_dir = home / "runtime"
+    progress = _executor_progress_projection(runtime_dir, limit=max(safe_limit * 10, safe_limit))
+    return {
+        "schema_version": STATUS_SCHEMA_VERSION,
+        "omh_home": str(home),
+        "runtime_dir": str(runtime_dir),
+        "runs": [],
+        "active_executors": progress["active_executors"],
+        "stale_executors": progress["stale_executors"],
+        "latest_progress_events": progress["latest_progress_events"],
     }
 
 

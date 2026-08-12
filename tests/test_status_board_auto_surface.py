@@ -16,11 +16,16 @@ neutral message so no test's cached match result leaks into another.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import json
+import multiprocessing
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from _local_package import load_local_package
+from _platform_support import requires_fcntl_locks
 
 load_local_package()
 
@@ -43,6 +48,55 @@ _FANOUT_ID = "fanout-0123456789ab"
 
 def _paths(root: Path) -> OmhPaths:
     return OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+
+
+def _record_core_emission_while_plugin_waits(
+    home: str,
+    lock_held: object,
+    plugin_attempting: object,
+) -> None:
+    from omh.runtime import context_budget
+
+    paths = _paths(Path(home))
+    original_locked_json_update = context_budget.locked_json_update
+
+    def coordinated_locked_json_update(path: Path, mutate_fn: object, **kwargs: object) -> dict[str, object]:
+        def coordinated_mutation(current: dict[str, object]) -> dict[str, object] | None:
+            lock_held.set()
+            if not plugin_attempting.wait(10):
+                raise AssertionError("plugin did not attempt the shared ledger lock")
+            return mutate_fn(current)
+
+        return original_locked_json_update(path, coordinated_mutation, **kwargs)
+
+    context_budget.locked_json_update = coordinated_locked_json_update
+    context_budget.record_context_emission(
+        paths,
+        "run-core",
+        surface="runtime_show",
+        byte_count=11,
+        payload_fingerprint_value="core-latest",
+    )
+
+
+def _record_plugin_emission_after_lock_attempt(home: str, plugin_attempting: object) -> None:
+    from omh.plugin_bundle.omh import status_board_reader
+
+    original_lock = status_board_reader._context_budget_ledger_lock
+    status_board_reader._CONTEXT_BUDGET_LOCK_TIMEOUT_SECONDS = 10
+
+    @contextmanager
+    def coordinated_lock(path: Path):
+        plugin_attempting.set()
+        with original_lock(path):
+            yield
+
+    status_board_reader._context_budget_ledger_lock = coordinated_lock
+    status_board_reader.record_running_work_board_emission(
+        home,
+        byte_count=13,
+        fingerprint="plugin-latest",
+    )
 
 
 def _fields(**overrides: str) -> dict[str, str]:
@@ -152,6 +206,78 @@ class RunningWorkBoardReaderTests(unittest.TestCase):
 
 
 class RunningWorkBoardSuppressionLedgerTests(unittest.TestCase):
+    @requires_fcntl_locks
+    def test_mixed_process_writers_preserve_every_bucket_count_and_latest_fingerprint(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = _paths(root)
+            from omh.runtime.context_budget import record_context_emission
+
+            record_context_emission(
+                paths,
+                "unrelated-run",
+                surface="fanout_show",
+                byte_count=7,
+                payload_fingerprint_value="unrelated-latest",
+            )
+            record_running_work_board_emission(paths.omh_home, byte_count=5, fingerprint="plugin-old")
+
+            context = multiprocessing.get_context("spawn")
+            lock_held = context.Event()
+            plugin_attempting = context.Event()
+            core = context.Process(
+                target=_record_core_emission_while_plugin_waits,
+                args=(str(root), lock_held, plugin_attempting),
+            )
+            plugin = context.Process(
+                target=_record_plugin_emission_after_lock_attempt,
+                args=(str(paths.omh_home), plugin_attempting),
+            )
+
+            core.start()
+            self.assertTrue(lock_held.wait(20))
+            plugin.start()
+            for worker in (core, plugin):
+                worker.join(20)
+                self.assertEqual(worker.exitcode, 0)
+
+            ledger = json.loads((paths.runtime_dir / "context_budget.json").read_text(encoding="utf-8"))
+            self.assertEqual(ledger["schema_version"], "omh_run_context_budget/v1")
+            unrelated = ledger["runs"]["unrelated-run"]
+            self.assertEqual(unrelated["emitted_bytes"], 7)
+            self.assertEqual(unrelated["call_count"], 1)
+            self.assertEqual(unrelated["surfaces"], {"fanout_show": 1})
+            self.assertEqual(unrelated["payload_fingerprints"]["fanout_show"], "unrelated-latest")
+
+            core_entry = ledger["runs"]["run-core"]
+            self.assertEqual(core_entry["emitted_bytes"], 11)
+            self.assertEqual(core_entry["call_count"], 1)
+            self.assertEqual(core_entry["surfaces"], {"runtime_show": 1})
+            self.assertEqual(core_entry["payload_fingerprints"]["runtime_show"], "core-latest")
+
+            plugin_entry = ledger["runs"]["__pre_llm_running_work_board__"]
+            self.assertEqual(plugin_entry["emitted_bytes"], 18)
+            self.assertEqual(plugin_entry["call_count"], 2)
+            self.assertEqual(plugin_entry["surfaces"], {"pre_llm_call_running_work_board": 2})
+            self.assertEqual(
+                plugin_entry["payload_fingerprints"]["pre_llm_call_running_work_board"],
+                "plugin-latest",
+            )
+            self.assertEqual(last_running_work_board_fingerprint(paths.omh_home), "plugin-latest")
+
+    def test_lock_contention_drops_only_the_best_effort_emission(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            record_running_work_board_emission(paths.omh_home, byte_count=5, fingerprint="plugin-old")
+
+            with patch(
+                "omh.plugin_bundle.omh.status_board_reader._context_budget_ledger_lock",
+                side_effect=TimeoutError("ledger busy"),
+            ):
+                record_running_work_board_emission(paths.omh_home, byte_count=13, fingerprint="plugin-new")
+
+            self.assertEqual(last_running_work_board_fingerprint(paths.omh_home), "plugin-old")
+
     def test_fingerprint_changes_when_the_board_changes(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = _paths(Path(tmp))

@@ -3,10 +3,9 @@
 `pre_llm_call` is how OMH gets its primer and route hint in front of Hermes.
 Nothing recorded whether that ever happened:
 
-- `host_observation` drops a record entirely unless the caller supplies `host`
-  and `session_id`, and Hermes does not pass either to `pre_llm_call`. The
-  ledger therefore stayed at eight `pre_verify` rows from a single day while
-  live turns ran.
+- `host_observation` is invocation evidence, not evidence that this hook
+  returned awareness content. The delivery path therefore needs its own
+  metadata-only signal even though Hermes supplies session/task/turn identity.
 - Hermes wraps every hook callback in try/except and only logs a warning, so a
   hook that raises disappears without a user-visible trace.
 
@@ -26,6 +25,7 @@ cannot grow.
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import os
 import secrets
@@ -52,12 +52,23 @@ LOCK_MECHANISM_NONE = "none"
 _LOCK_BUSY_ERRNOS = frozenset(
     {errno.EACCES, errno.EAGAIN, errno.EDEADLK, getattr(errno, "EDEADLOCK", errno.EDEADLK)}
 )
-_LOCK_TIMEOUT_SECONDS = 10.0
-_LOCK_POLL_INTERVAL = 0.05
+_LOCK_TIMEOUT_SECONDS = 0.1
+_LOCK_POLL_INTERVAL = 0.001
 
 
 AWARENESS_DELIVERY_SCHEMA_VERSION = "omh_awareness_delivery/v1"
 AWARENESS_DELIVERY_FILE = "awareness_delivery.json"
+_SESSION_FINGERPRINT_PREFIX = "sha256:"
+_MAX_SESSION_ROUTE_FINGERPRINTS = 64
+
+
+def _is_session_fingerprint(value: str) -> bool:
+    digest = value.removeprefix(_SESSION_FINGERPRINT_PREFIX)
+    return (
+        value.startswith(_SESSION_FINGERPRINT_PREFIX)
+        and len(digest) == 64
+        and all(character in "0123456789abcdef" for character in digest)
+    )
 
 
 def _runtime_dir(omh_home: str = "") -> Path:
@@ -92,6 +103,8 @@ def _empty() -> dict[str, Any]:
         "first_delivered_at": "",
         "last_delivered_at": "",
         "last_context_chars": 0,
+        "accumulated_context_chars": 0,
+        "session_route_fingerprints": {},
         "unreadable": False,
     }
 
@@ -99,13 +112,31 @@ def _empty() -> dict[str, Any]:
 def _valid_delivery_record(data: dict[str, Any]) -> bool:
     if data.get("schema_version") != AWARENESS_DELIVERY_SCHEMA_VERSION:
         return False
-    for key in ("delivery_count", "route_hint_count", "suppressed_count", "last_context_chars"):
+    for key in (
+        "delivery_count",
+        "route_hint_count",
+        "suppressed_count",
+        "last_context_chars",
+        "accumulated_context_chars",
+    ):
         value = data.get(key, 0)
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             return False
     for key in ("first_attempted_at", "first_delivered_at", "last_delivered_at"):
         if not isinstance(data.get(key, ""), str):
             return False
+    fingerprints = data.get("session_route_fingerprints", {})
+    if not isinstance(fingerprints, dict):
+        return False
+    if len(fingerprints) > _MAX_SESSION_ROUTE_FINGERPRINTS:
+        return False
+    if any(
+        not isinstance(key, str)
+        or not _is_session_fingerprint(key)
+        or not isinstance(value, str)
+        for key, value in fingerprints.items()
+    ):
+        return False
     return int(data.get("route_hint_count", 0)) <= int(data.get("delivery_count", 0))
 
 
@@ -118,18 +149,24 @@ def _acquire_delivery_lock(handle: Any, lock_path: Path) -> str:
     took no lock at all here, and the read-modify-write below could interleave
     between concurrent turns and lose counter increments with nothing saying so.
 
-    The POSIX path stays a blocking `LOCK_EX`, unchanged: this runs on the
-    hottest path in the system and turning it into a bounded wait would newly
-    let it raise. Windows has no blocking primitive with the same semantics --
-    `LK_LOCK` gives up after ten seconds anyway -- so it polls the non-blocking
-    flag against the same deadline.
+    Both backends use bounded non-blocking attempts. This is best-effort
+    telemetry on the model-dispatch path, so contention drops a counter rather
+    than delaying the user operation.
     """
+    deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
     if fcntl is not None:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        return LOCK_MECHANISM_FCNTL
+        while True:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return LOCK_MECHANISM_FCNTL
+            except OSError as exc:
+                if exc.errno not in _LOCK_BUSY_ERRNOS:
+                    raise
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"timed out waiting for awareness delivery lock: {lock_path}")
+                time.sleep(_LOCK_POLL_INTERVAL)
     if msvcrt is None:
         return LOCK_MECHANISM_NONE
-    deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
     while True:
         try:
             # msvcrt.locking locks a byte range from the current position, so
@@ -192,6 +229,71 @@ def _write_delivery_record(path: Path, data: dict[str, Any]) -> None:
         raise
 
 
+def _session_fingerprint(session_id: str) -> str:
+    digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+    return f"{_SESSION_FINGERPRINT_PREFIX}{digest}"
+
+
+def _normalized_session_routes(value: object) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, str] = {}
+    for key, route_fingerprint in value.items():
+        if not isinstance(key, str) or not isinstance(route_fingerprint, str):
+            continue
+        session_fingerprint = key if _is_session_fingerprint(key) else _session_fingerprint(key)
+        normalized[session_fingerprint] = route_fingerprint
+    while len(normalized) > _MAX_SESSION_ROUTE_FINGERPRINTS:
+        normalized.pop(next(iter(normalized)))
+    return normalized
+
+
+def _record_from_current(
+    current: dict[str, Any],
+    fingerprints: dict[str, str],
+) -> dict[str, Any]:
+    return {
+        "schema_version": AWARENESS_DELIVERY_SCHEMA_VERSION,
+        "delivery_count": int(current["delivery_count"]),
+        "route_hint_count": int(current["route_hint_count"]),
+        "suppressed_count": int(current["suppressed_count"]),
+        "first_attempted_at": current["first_attempted_at"],
+        "first_delivered_at": current["first_delivered_at"],
+        "last_delivered_at": current["last_delivered_at"],
+        "last_context_chars": int(current["last_context_chars"]),
+        "accumulated_context_chars": int(current["accumulated_context_chars"]),
+        "session_route_fingerprints": fingerprints,
+    }
+
+
+def claim_route_guidance_delivery(
+    *,
+    session_id: str,
+    route_fingerprint: str,
+    omh_home: str = "",
+) -> bool:
+    """Atomically claim one session/route pair, failing open on ledger faults."""
+    if not session_id or not route_fingerprint:
+        return True
+    path = awareness_delivery_path(omh_home)
+    try:
+        with _awareness_delivery_lock(path):
+            current = read_awareness_delivery(omh_home)
+            fingerprints = _normalized_session_routes(
+                current.get("session_route_fingerprints", {})
+            )
+            session_fingerprint = _session_fingerprint(session_id)
+            if fingerprints.get(session_fingerprint) == route_fingerprint:
+                return False
+            fingerprints[session_fingerprint] = route_fingerprint
+            while len(fingerprints) > _MAX_SESSION_ROUTE_FINGERPRINTS:
+                fingerprints.pop(next(iter(fingerprints)))
+            _write_delivery_record(path, _record_from_current(current, fingerprints))
+    except (OSError, TimeoutError, TypeError, ValueError):
+        return True
+    return True
+
+
 def record_awareness_delivery(
     *,
     delivered: bool,
@@ -199,6 +301,8 @@ def record_awareness_delivery(
     context_chars: int,
     observed_at: str,
     omh_home: str = "",
+    session_id: str = "",
+    route_fingerprint: str = "",
 ) -> dict[str, Any] | None:
     """Bump counters for one `pre_llm_call` hook result. Best-effort and metadata-only.
 
@@ -213,6 +317,13 @@ def record_awareness_delivery(
     try:
         with _awareness_delivery_lock(path):
             current = read_awareness_delivery(omh_home)
+            fingerprints = _normalized_session_routes(
+                current.get("session_route_fingerprints", {})
+            )
+            if delivered and route_hint and session_id and route_fingerprint:
+                fingerprints[_session_fingerprint(session_id)] = route_fingerprint
+                while len(fingerprints) > _MAX_SESSION_ROUTE_FINGERPRINTS:
+                    fingerprints.pop(next(iter(fingerprints)))
             updated = {
                 "schema_version": AWARENESS_DELIVERY_SCHEMA_VERSION,
                 "delivery_count": int(current["delivery_count"]) + (1 if delivered else 0),
@@ -224,8 +335,24 @@ def record_awareness_delivery(
                 "last_context_chars": (
                     max(0, int(context_chars)) if delivered else int(current["last_context_chars"])
                 ),
+                "accumulated_context_chars": int(current["accumulated_context_chars"])
+                + (max(0, int(context_chars)) if delivered else 0),
+                "session_route_fingerprints": fingerprints,
             }
             _write_delivery_record(path, updated)
-    except (OSError, TypeError, ValueError):
+    except (OSError, TimeoutError, TypeError, ValueError):
         return None
     return updated
+
+
+def route_guidance_already_delivered(
+    *,
+    session_id: str,
+    route_fingerprint: str,
+    omh_home: str = "",
+) -> bool:
+    if not session_id or not route_fingerprint:
+        return False
+    current = read_awareness_delivery(omh_home)
+    fingerprints = _normalized_session_routes(current.get("session_route_fingerprints", {}))
+    return fingerprints.get(_session_fingerprint(session_id)) == route_fingerprint

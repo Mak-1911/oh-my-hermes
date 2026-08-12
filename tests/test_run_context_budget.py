@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import unittest
 from pathlib import Path
@@ -20,6 +21,24 @@ from omh.runtime.context_budget import (
 
 
 class RunContextBudgetTests(unittest.TestCase):
+    def test_concurrent_emissions_preserve_exact_counts(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+
+            def record(index: int) -> None:
+                record_context_emission(
+                    paths,
+                    "run-1",
+                    surface=f"concurrent-{index}",
+                    byte_count=10,
+                )
+
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                list(pool.map(record, range(8)))
+
+            report = run_context_budget(paths, "run-1")
+            self.assertEqual(report["observe_call_count"], 8)
+            self.assertEqual(report["emitted_bytes"], 80)
     def test_fresh_run_has_full_budget_and_is_not_exhausted(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")

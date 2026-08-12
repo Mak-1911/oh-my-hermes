@@ -348,6 +348,65 @@ def installed_skill_names(skills_dir: Path) -> list[str]:
     return sorted(names)
 
 
+def _skill_index_line_bytes(skill_file: Path) -> int:
+    text = skill_file.read_text(encoding="utf-8")
+    name = skill_file.parent.name
+    description = ""
+    if text.startswith("---\n"):
+        frontmatter = text.split("---\n", 2)[1]
+        for line in frontmatter.splitlines():
+            key, separator, value = line.partition(":")
+            if not separator:
+                continue
+            if key.strip() == "name":
+                name = value.strip().strip("\"'")
+            elif key.strip() == "description":
+                description = value.strip().strip("\"'")
+    line = f"    - {name}: {description}" if description else f"    - {name}"
+    return len(line.encode("utf-8"))
+
+
+def _skill_prompt_cost(
+    skills_dir: Path,
+    core_names: set[str],
+    full_only_names: set[str],
+) -> dict[str, object]:
+    fixed_index_bytes = 0
+    core_fixed_index_bytes = 0
+    full_only_fixed_index_bytes = 0
+    installed_skill_body_bytes = 0
+    for skill_file in skills_dir.glob("*/SKILL.md"):
+        bytes_count = _skill_index_line_bytes(skill_file)
+        fixed_index_bytes += bytes_count
+        installed_skill_body_bytes += skill_file.stat().st_size
+        canonical_name = next(
+            (
+                name
+                for name in core_names | full_only_names
+                if skill_directory_name(name) == skill_file.parent.name
+            ),
+            skill_file.parent.name,
+        )
+        if canonical_name in core_names:
+            core_fixed_index_bytes += bytes_count
+        elif canonical_name in full_only_names:
+            full_only_fixed_index_bytes += bytes_count
+    return {
+        "schema_version": "omh_skill_prompt_cost_estimate/v1",
+        "evidence_status": "prepared_estimate_not_host_observed",
+        "estimated_index_line_bytes": fixed_index_bytes,
+        "core_fixed_index_bytes": core_fixed_index_bytes,
+        "full_only_fixed_index_bytes": full_only_fixed_index_bytes,
+        "installed_skill_body_bytes": installed_skill_body_bytes,
+        "observation_command": "hermes prompt-size --json",
+        "claim_boundary": (
+            "These are OMH-local filesystem estimates, not observed serialized request bytes, "
+            "selected skill bodies, provider input tokens, or cache counters. Use "
+            "`hermes prompt-size --json` for host-observed prompt accounting."
+        ),
+    }
+
+
 def skill_profile_state(skills_dir: Path, manifest: dict | None) -> dict:
     """Describe requested vs. effective profile so status output cannot claim a footprint it does not have.
 
@@ -370,6 +429,11 @@ def skill_profile_state(skills_dir: Path, manifest: dict | None) -> dict:
     else:
         effective = "mixed"
     retained_exception = bool(requested == "core" and full_only_installed)
+    prompt_cost = _skill_prompt_cost(
+        skills_dir,
+        core_names,
+        catalog_names - core_names,
+    )
     return {
         "schema_version": SKILL_PROFILE_STATE_SCHEMA_VERSION,
         "requested_profile": requested,
@@ -383,6 +447,7 @@ def skill_profile_state(skills_dir: Path, manifest: dict | None) -> dict:
         "full_only_installed_skills": full_only_installed,
         "retained_exception": retained_exception,
         "context_cost_note": RECONCILE_CONTEXT_COST_NOTE,
+        "prompt_cost": prompt_cost,
         "non_destructive_default": NON_DESTRUCTIVE_DEFAULT_NOTE,
         "next_action": SKILL_PROFILE_RECONCILE_COMMAND if retained_exception else "",
     }

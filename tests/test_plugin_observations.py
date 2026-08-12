@@ -1,14 +1,149 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
+import os
+import sys
+from concurrent.futures import ProcessPoolExecutor
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
+from unittest import mock
 
 from _cli_harness import run_cli
+from _local_package import load_local_package
+
+load_local_package()
+from omh.plugin_bundle.omh import host_observation
+from omh.plugin_bundle.omh.host_observation import observe_plugin_hook_call
+
+
+def _record_standalone_hooks(
+    work: tuple[int, int, str, Any],
+) -> list[dict[str, object] | None]:
+    process_index, count, omh_home, start_barrier = work
+    # The installed standalone bundle cannot import these core modules. Mask
+    # them here so this regression cannot accidentally exercise the core path.
+    with mock.patch.dict(sys.modules, {"omh.paths": None, "omh.plugin_observations": None}):
+        start_barrier.wait(timeout=20)
+        return [
+            observe_plugin_hook_call(
+                "pre_verify",
+                {
+                    "host": "standalone",
+                    "session_id": f"session-{process_index}-{item_index}",
+                    "omh_home": omh_home,
+                },
+            )
+            for item_index in range(count)
+        ]
 
 
 class PluginHostObservationTests(unittest.TestCase):
+    def test_concurrent_standalone_hook_observations_keep_exact_valid_rows_and_state(self) -> None:
+        process_count = 8
+        # One barrier-released write per process proves the cross-process
+        # transaction without turning a correctness test into a scheduler/
+        # filesystem throughput benchmark that can exhaust the bounded,
+        # best-effort hook lock on slower CI hosts.
+        observations_per_process = 1
+        with TemporaryDirectory() as tmp:
+            context = multiprocessing.get_context("spawn")
+            with context.Manager() as manager:
+                start_barrier = manager.Barrier(process_count)
+                work = [
+                    (index, observations_per_process, tmp, start_barrier)
+                    for index in range(process_count)
+                ]
+                with ProcessPoolExecutor(max_workers=process_count, mp_context=context) as pool:
+                    process_results = list(pool.map(_record_standalone_hooks, work))
+
+            results = [result for process_result in process_results for result in process_result]
+            self.assertEqual(len(results), process_count * observations_per_process)
+            self.assertTrue(
+                all(
+                    result is not None
+                    and result["schema_version"] == "omh_plugin_host_observation/v1"
+                    for result in results
+                )
+            )
+
+            runtime_dir = Path(tmp) / "runtime"
+            rows = [
+                json.loads(row)
+                for row in (runtime_dir / "plugin_host_observations.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual(len(rows), process_count * observations_per_process)
+            self.assertEqual(
+                {row["session_id"] for row in rows},
+                {
+                    f"session-{process_index}-{item_index}"
+                    for process_index in range(process_count)
+                    for item_index in range(observations_per_process)
+                },
+            )
+            self.assertTrue(all(row["schema_version"] == "omh_plugin_host_observation/v1" for row in rows))
+
+            state = json.loads((runtime_dir / "state.json").read_text())
+            self.assertEqual(state["schema_version"], 1)
+            self.assertEqual(state["last_plugin_host_observation"], rows[-1])
+            self.assertEqual(state["last_plugin_runtime_observed"], rows[-1])
+            self.assertEqual(state["last_plugin_runtime_readiness"], "active_runtime_observed")
+            if os.name != "nt":
+                self.assertEqual(
+                    (runtime_dir / ".plugin_host_observations.jsonl.lock").stat().st_mode & 0o777,
+                    0o600,
+                )
+            self.assertEqual(list(runtime_dir.glob("*.tmp")), [])
+
+    def test_standalone_observation_lock_uses_windows_backend_without_core_imports(self) -> None:
+        class FakeMsvcrt:
+            LK_NBLCK = 1
+            LK_UNLCK = 2
+
+            def __init__(self) -> None:
+                self.modes: list[int] = []
+
+            def locking(self, descriptor: int, mode: int, size: int) -> None:
+                self.modes.append(mode)
+
+        fake_msvcrt = FakeMsvcrt()
+        with TemporaryDirectory() as tmp:
+            observation_path = Path(tmp) / "runtime" / "plugin_host_observations.jsonl"
+            with (
+                mock.patch.object(host_observation, "fcntl", None),
+                mock.patch.object(host_observation, "msvcrt", fake_msvcrt),
+                host_observation._standalone_observation_file_lock(observation_path),
+            ):
+                pass
+
+            self.assertEqual(fake_msvcrt.modes, [fake_msvcrt.LK_NBLCK, fake_msvcrt.LK_UNLCK])
+            if os.name != "nt":
+                self.assertEqual(
+                    observation_path.with_name(f".{observation_path.name}.lock").stat().st_mode & 0o777,
+                    0o600,
+                )
+
+    def test_standalone_lock_failure_does_not_escape_the_hook(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with (
+                mock.patch.dict(sys.modules, {"omh.paths": None, "omh.plugin_observations": None}),
+                mock.patch.object(
+                    host_observation,
+                    "_acquire_standalone_file_lock",
+                    side_effect=OSError("lock unavailable"),
+                ),
+            ):
+                result = observe_plugin_hook_call(
+                    "pre_verify",
+                    {"host": "standalone", "session_id": "session-fail-safe", "omh_home": tmp},
+                )
+
+            self.assertIsNotNone(result)
+            self.assertEqual(result["status"], "not_recorded")
+            self.assertEqual(result["runtime_readiness"], "not_observed")
+
     def test_plugin_observations_accepts_json_flag_for_operator_smoke_checks(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

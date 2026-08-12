@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from ..context_safety import RUN_CONTEXT_BUDGET_BYTES
-from ..local_store import atomic_write_json, ensure_dir, read_json_object, utc_now
+from ..local_store import ensure_dir, locked_json_update, read_json_object, utc_now
 from ..paths import OmhPaths
 
 
@@ -175,23 +175,36 @@ def record_context_emission(
     payload_fingerprint_value: str = "",
 ) -> dict[str, Any]:
     """Add one observe/show emission to the run's ledger. Best-effort."""
-    ledger = _ledger(paths)
-    entry = _entry(ledger, run_id)
-    entry["emitted_bytes"] += max(0, int(byte_count))
-    entry["call_count"] += 1
-    entry["surfaces"][surface] = entry["surfaces"].get(surface, 0) + 1
-    if payload_fingerprint_value:
-        entry["payload_fingerprints"][surface] = payload_fingerprint_value
-    entry["updated_at"] = utc_now()
-    ledger["runs"][run_id] = entry
-    payload = {
-        "schema_version": RUN_CONTEXT_BUDGET_SCHEMA_VERSION,
-        "updated_at": entry["updated_at"],
-        "runs": ledger["runs"],
-    }
+    path = context_budget_ledger_path(paths)
+
+    def update(current: dict[str, Any]) -> dict[str, Any]:
+        runs = current.get("runs")
+        ledger = {"runs": runs if isinstance(runs, dict) else {}}
+        entry = _entry(ledger, run_id)
+        entry["emitted_bytes"] += max(0, int(byte_count))
+        entry["call_count"] += 1
+        entry["surfaces"][surface] = entry["surfaces"].get(surface, 0) + 1
+        if payload_fingerprint_value:
+            entry["payload_fingerprints"][surface] = payload_fingerprint_value
+        entry["updated_at"] = utc_now()
+        ledger["runs"][run_id] = entry
+        return {
+            "schema_version": RUN_CONTEXT_BUDGET_SCHEMA_VERSION,
+            "updated_at": entry["updated_at"],
+            "runs": ledger["runs"],
+        }
+
     try:
         ensure_dir(paths.runtime_dir)
-        atomic_write_json(context_budget_ledger_path(paths), payload)
+        locked_json_update(
+            path,
+            update,
+            default={
+                "schema_version": RUN_CONTEXT_BUDGET_SCHEMA_VERSION,
+                "updated_at": "",
+                "runs": {},
+            },
+        )
     except OSError:
         return run_context_budget(paths, run_id, surface=surface)
     return run_context_budget(paths, run_id, surface=surface)
