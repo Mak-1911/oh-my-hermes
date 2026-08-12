@@ -4,7 +4,7 @@ import hashlib
 import json
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_text, extract_source_metadata
 from ..routing.chat import CONFIDENCE_LEVELS
@@ -12,6 +12,7 @@ from ..executors import CODING_EXECUTOR_TARGETS, executor_label, executor_select
 from .lifecycle import report_codex_delegation_lifecycle, start_codex_delegation_lifecycle
 from .session_handoff_projection import project_valid_session_handoffs
 from ..local_store import ensure_dir, ensure_file, read_json_object, read_jsonl_objects, utc_now
+from ..system.platform_envelope import compact_session_platform
 from ..system.record_revision import (
     DuplicateMutationReplay,
     guarded_record_update,
@@ -108,6 +109,30 @@ def session_id_for_thread_key(thread_key: str) -> str:
     return f"ws-{hashlib.sha256(thread_key.encode('utf-8')).hexdigest()[:24]}"
 
 
+#: Typed namespace prefix for platform-envelope session ids. A crafted legacy
+#: channel_ref/source_event_id can reproduce the exact human thread_key bytes
+#: of a platform session; hashing the key inside this canonical JSON envelope
+#: keeps the two session families in separate hash namespaces while the
+#: stored human thread_key stays identical.
+PLATFORM_SESSION_IDENTITY_SCHEMA_VERSION = "omh_platform_session_identity/v1"
+
+
+def platform_session_id_for_thread_key(thread_key: str) -> str:
+    """Session id for a platform-enveloped thread key.
+
+    Same ``ws-<24 hex>`` shape as the legacy derivation, but the hash input
+    is the canonical JSON array ``[schema_version, thread_key]`` rather than
+    the bare key, so no legacy metadata combination can mint the same id.
+    """
+    if not thread_key:
+        raise WrapperSessionError("wrapper session requires a thread_key")
+    basis = json.dumps(
+        [PLATFORM_SESSION_IDENTITY_SCHEMA_VERSION, thread_key],
+        separators=(",", ":"),
+    )
+    return f"ws-{hashlib.sha256(basis.encode('utf-8')).hexdigest()[:24]}"
+
+
 def create_or_resume_wrapper_session(
     paths: OmhPaths,
     event_or_message: dict[str, Any] | str,
@@ -120,6 +145,7 @@ def create_or_resume_wrapper_session(
     executor_target: str = "choose",
     target_notice: dict[str, object] | None = None,
     record_provenance: dict[str, object] | None = None,
+    platform_context: Mapping[str, Any] | None = None,
     _host_project_binding_factory: HostProjectBindingFactory | None = None,
 ) -> dict[str, object]:
     if source not in CHAT_SOURCES:
@@ -128,6 +154,9 @@ def create_or_resume_wrapper_session(
         raise WrapperSessionError(f"unsupported wrapper session mode: {mode}")
     if min_confidence not in CONFIDENCE_LEVELS:
         raise WrapperSessionError(f"unsupported wrapper session confidence threshold: {min_confidence}")
+    # The platform envelope is built and validated inside the payload builder,
+    # before this function touches the session store: an unsafe context fails
+    # closed ahead of any session directory creation.
     interaction = build_chat_interaction_payload(
         event_or_message,
         source=source,
@@ -139,12 +168,20 @@ def create_or_resume_wrapper_session(
         executor_target=executor_target,
         target_notice=target_notice,
         paths=paths,
+        platform_context=platform_context,
         _host_project_binding_factory=build_session_project_binding_factory(
             _host_project_binding_factory,
         ),
     )
     thread_key = str(interaction["thread_key"])
-    session_id = session_id_for_thread_key(thread_key)
+    # The presence of a validated platform envelope on the interaction -- not
+    # the shape of the key -- selects the platform hash namespace, for both
+    # the resume lookup below and the new record built on a miss.
+    session_id = (
+        platform_session_id_for_thread_key(thread_key)
+        if isinstance(interaction.get("platform"), dict)
+        else session_id_for_thread_key(thread_key)
+    )
     existing = read_wrapper_session(paths, session_id)
     session_dir = _session_dir(paths, session_id)
     if existing:
@@ -1393,6 +1430,7 @@ def _session_from_interaction(
     work_owner_mode = str(interaction.get("work_owner_mode", "external_executor"))
     selected_executor = interaction.get("selected_executor_profile")
     dispatch_policy = str(interaction.get("dispatch_policy", "ask_before_dispatch"))
+    platform = interaction.get("platform")
     return build_wrapper_session_record(
         {
             "session_id": session_id,
@@ -1419,6 +1457,9 @@ def _session_from_interaction(
             "runtime_handoff": {},
             "current_run_id": "",
             "record_provenance": record_provenance or {},
+            # Compact platform identity only -- refs, capabilities, and limits
+            # never persist.
+            "platform": compact_session_platform(platform) if isinstance(platform, dict) else None,
         }
     )
 

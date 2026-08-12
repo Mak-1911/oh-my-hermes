@@ -35,6 +35,8 @@ from ..coding.executor_capability_snapshots import (
 )
 from ..coding.executor_local_workflow import validate_executor_local_workflow
 from ..coding.executor_local_workflow_selection import availability_for
+from ..system.platform_envelope import SESSION_SCOPE_CONVERSATION, SESSION_SCOPE_EVENT_FALLBACK
+from ..system.platform_profiles import PLATFORM_PROFILES
 from ..executors import (
     DISPATCH_POLICIES,
     EXECUTOR_PROFILES,
@@ -585,6 +587,11 @@ WRAPPER_SESSION_STATUS_DECISIONS = {
     "cancelled": "plan_cancelled",
     "handoff_prepared": "plan_accepted",
 }
+#: The only keys a persisted compact platform block may carry: platform
+#: identity and session scope, never refs, capabilities, or limits.
+WRAPPER_SESSION_PLATFORM_KEYS = ("platform_id", "transport_source", "session_scope")
+#: Session scopes the platform envelope builder can emit.
+PLATFORM_SESSION_SCOPES = (SESSION_SCOPE_CONVERSATION, SESSION_SCOPE_EVENT_FALLBACK)
 WRAPPER_SESSION_RECORD_KEYS = (
     "schema_version",
     "record_type",
@@ -607,6 +614,7 @@ WRAPPER_SESSION_RECORD_KEYS = (
     "runtime_handoff",
     "current_run_id",
     "record_provenance",
+    "platform",
     "redaction_policy",
     "authority",
     "record_revision",
@@ -964,10 +972,40 @@ def build_wrapper_session_record(session: dict[str, Any]) -> dict[str, Any]:
     floor_revision = applied_mutations_floor_of(session)
     if floor_revision >= 1:
         record[APPLIED_MUTATIONS_FLOOR_KEY] = floor_revision
+    # Same rule for the compact platform block: present only when the session
+    # was opened with a platform envelope, so legacy records stay
+    # byte-identical.
+    platform = _compact_wrapper_session_platform(session.get("platform"))
+    if platform is not None:
+        record["platform"] = platform
     errors = validate_wrapper_session_record(record)
     if errors:
         raise ValueError(errors[0])
     return record
+
+
+def _compact_wrapper_session_platform(platform: Any) -> dict[str, str] | None:
+    """Persisted platform identity: exact compact keys or nothing.
+
+    Anything shaped wrong fails closed here -- before validation -- so a
+    hand-rolled record cannot smuggle refs, capabilities, or limits into the
+    session store under an innocuous key.
+    """
+    if platform is None:
+        return None
+    if not isinstance(platform, dict):
+        raise ValueError("wrapper_session platform must be an object")
+    unknown = sorted(set(platform) - set(WRAPPER_SESSION_PLATFORM_KEYS))
+    if unknown:
+        raise ValueError(f"wrapper_session platform has unsupported keys: {unknown}")
+    missing = [key for key in WRAPPER_SESSION_PLATFORM_KEYS if key not in platform]
+    if missing:
+        raise ValueError(f"wrapper_session platform is missing keys: {missing}")
+    compact = {key: platform[key] for key in WRAPPER_SESSION_PLATFORM_KEYS}
+    for key, value in compact.items():
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"wrapper_session platform.{key} must be a non-empty string")
+    return compact
 
 
 def _compact_routing_recommendations(recommendations: Any) -> list[dict[str, Any]]:
@@ -2596,6 +2634,54 @@ def validate_wrapper_session_record(session: dict[str, Any]) -> list[str]:
             errors,
             "wrapper_session record_provenance.claim_boundary must be a string",
         )
+    platform = session.get("platform")
+    if platform is not None:
+        _require(isinstance(platform, dict), errors, "wrapper_session platform must be an object")
+        if isinstance(platform, dict):
+            extra_platform_keys = sorted(set(platform) - set(WRAPPER_SESSION_PLATFORM_KEYS))
+            _require(
+                not extra_platform_keys,
+                errors,
+                f"wrapper_session platform has unsupported keys: {extra_platform_keys}",
+            )
+            missing_platform_keys = [key for key in WRAPPER_SESSION_PLATFORM_KEYS if key not in platform]
+            _require(
+                not missing_platform_keys,
+                errors,
+                f"wrapper_session platform is missing keys: {missing_platform_keys}",
+            )
+            for key, value in platform.items():
+                _require(
+                    isinstance(value, str) and bool(value),
+                    errors,
+                    f"wrapper_session platform.{key} must be a non-empty string",
+                )
+            profile = PLATFORM_PROFILES.get(str(platform.get("platform_id", "")))
+            _require(
+                profile is not None,
+                errors,
+                f"wrapper_session platform.platform_id is unknown: {platform.get('platform_id')!r}",
+            )
+            if profile is not None:
+                _require(
+                    platform.get("transport_source") == profile.transport_source,
+                    errors,
+                    "wrapper_session platform.transport_source must match the platform profile",
+                )
+            # The session speaks for exactly one transport: the compact
+            # platform block must name the same one the session record
+            # carries, or a hand-crafted record could attribute a session to
+            # a transport that never produced it.
+            _require(
+                platform.get("transport_source") == session.get("source"),
+                errors,
+                "wrapper_session platform.transport_source must match the session source",
+            )
+            _require(
+                platform.get("session_scope") in PLATFORM_SESSION_SCOPES,
+                errors,
+                f"wrapper_session platform.session_scope is invalid: {platform.get('session_scope')!r}",
+            )
     authority = session.get("authority")
     _require(isinstance(authority, dict), errors, "wrapper_session authority must be an object")
     if isinstance(authority, dict):

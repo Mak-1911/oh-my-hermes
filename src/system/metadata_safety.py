@@ -29,6 +29,15 @@ _GOOGLE_API_KEY = re.compile(r"\bAIza[A-Za-z0-9_-]{20,}\b", re.IGNORECASE)
 # marker means the value is carrying a body -- a code block, a raw prompt, a
 # pasted log -- and a rule evaluation must never receive one of those.
 _BODY_SHAPED = re.compile(r"[\r\n\t\f\v\x00]|```")
+# Raw PII: a phone number or an email address is a person, not an opaque
+# platform reference. E.164-ish international, and national shapes with
+# separators, plus the classic local@domain email shape.
+_PHONE_SHAPED = re.compile(
+    r"^\+?\d[\d ().-]{6,}\d$"
+)
+_EMAIL_SHAPED = re.compile(
+    r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
+)
 
 
 def is_secret_value_shaped(value: str) -> bool:
@@ -71,6 +80,18 @@ def redact_metadata_text(value: str, *, limit: int) -> str:
 def is_body_shaped_metadata_text(value: str, *, limit: int) -> bool:
     """True when the text is a body rather than one bounded metadata line."""
     return len(value) > limit or _BODY_SHAPED.search(value) is not None
+
+
+def is_raw_pii_shaped(value: str) -> bool:
+    """True when the text is a raw phone number or email address.
+
+    A platform reference must be an opaque identifier the platform issued,
+    never a raw person identifier typed in by hand. These two detectors flag
+    the shapes a hand-typed identifier takes -- digits with phone punctuation,
+    or local@domain -- so callers can reject them before the value leaves the
+    process.
+    """
+    return bool(_PHONE_SHAPED.fullmatch(value)) or bool(_EMAIL_SHAPED.fullmatch(value))
 
 
 def require_opaque_metadata_ref(value: object, *, field: str) -> str:
