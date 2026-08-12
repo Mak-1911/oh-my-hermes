@@ -772,6 +772,15 @@ class ProviderClaimTests(unittest.TestCase):
         self.assertFalse(change.changed)
         self.assertEqual(change.text, original)
 
+    def test_memory_mode_off_releases_an_existing_omh_provider(self) -> None:
+        from omh.install.config_adapter import maybe_set_memory_provider
+
+        original = "plugins:\n  enabled:\n    - omh\nmemory:\n  provider: omh\n"
+        change = maybe_set_memory_provider(original, "omh", "off")
+        self.assertTrue(change.changed)
+        self.assertNotIn("provider: omh", change.text)
+        self.assertIn("plugins:", change.text)
+
     def test_memory_mode_full_still_writes_the_provider(self) -> None:
         from omh.install.config_adapter import maybe_set_memory_provider
 
