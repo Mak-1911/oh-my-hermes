@@ -8,7 +8,9 @@ picker or a bare fallback.
 
 from __future__ import annotations
 
+import json
 import unittest
+from typing import Any
 
 from omh.routing.candidate_handoff import (
     CANDIDATE_HANDOFF_SCHEMA_VERSION,
@@ -215,6 +217,108 @@ class WrapperPathParityTests(unittest.TestCase):
         tool_lane = [c["skill"] for c in (tool_route.get("candidate_handoff") or {}).get("candidates", [])]
         self.assertEqual(tool_lane, direct_lane)
         self.assertIn("input_language", tool_route)
+
+    def _plugin_ulw_interaction(
+        self,
+        root,
+        *,
+        model: str,
+        workflow: str = "ultrawork",
+    ) -> dict[str, Any]:
+        from omh.plugin_bundle.omh.hooks.llm_hooks import pre_llm_call
+        from omh.plugin_bundle.omh.tools.chat_tool import omh_interact_handler
+
+        message = f"${workflow} implement src/example.py end to end"
+        pre_llm_call(
+            user_message=message,
+            is_first_turn=False,
+            model=model,
+            source="discord",
+            omh_home=str(root / ".omh"),
+            hermes_home=str(root / ".hermes"),
+        )
+        return json.loads(
+            omh_interact_handler(
+                {
+                    "message": message,
+                    "source": "discord",
+                    "mode": "route",
+                    "executor_target": "hermes",
+                    "record_session": False,
+                    "omh_home": str(root / ".omh"),
+                    "hermes_home": str(root / ".hermes"),
+                }
+            )
+        )
+
+    def test_plugin_ultrawork_uses_active_gpt_model_overlay(self) -> None:
+        import os
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with patch.dict(os.environ, {"OMH_HOME": str(root / ".omh"), "HERMES_HOME": str(root / ".hermes")}):
+                interaction = self._plugin_ulw_interaction(root, model="gpt-5.6-sol")
+
+        self.assertEqual(interaction["route"]["selected_skill"], "ultrawork")
+        overlay = interaction["delegation"]["runtime_handoff"]["executor_prompting_contract"]["throughput_overlay"]
+        self.assertEqual(overlay["mode"], "gpt_hermes_ulw")
+        self.assertNotIn("gpt-5.6-sol", json.dumps(interaction, sort_keys=True))
+
+    def test_plugin_ultraprocess_uses_active_gpt_model_overlay(self) -> None:
+        import os
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with patch.dict(os.environ, {"OMH_HOME": str(root / ".omh"), "HERMES_HOME": str(root / ".hermes")}):
+                interaction = self._plugin_ulw_interaction(
+                    root,
+                    model="gpt-5.6-sol",
+                    workflow="ultraprocess",
+                )
+
+        self.assertEqual(interaction["route"]["selected_skill"], "ultraprocess")
+        overlay = interaction["delegation"]["runtime_handoff"]["executor_prompting_contract"]["throughput_overlay"]
+        self.assertEqual(overlay["mode"], "gpt_hermes_ulw")
+
+    def test_plugin_model_context_resets_between_messenger_turns(self) -> None:
+        import os
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with patch.dict(os.environ, {"OMH_HOME": str(root / ".omh"), "HERMES_HOME": str(root / ".hermes")}):
+                gpt_interaction = self._plugin_ulw_interaction(root, model="gpt-5.6-sol")
+                claude_interaction = self._plugin_ulw_interaction(root, model="claude-sonnet-4-5")
+                empty_interaction = self._plugin_ulw_interaction(root, model="")
+
+        gpt_overlay = gpt_interaction["delegation"]["runtime_handoff"]["executor_prompting_contract"][
+            "throughput_overlay"
+        ]
+        claude_overlay = claude_interaction["delegation"]["runtime_handoff"]["executor_prompting_contract"][
+            "throughput_overlay"
+        ]
+        empty_overlay = empty_interaction["delegation"]["runtime_handoff"]["executor_prompting_contract"][
+            "throughput_overlay"
+        ]
+        self.assertEqual(gpt_overlay["mode"], "gpt_hermes_ulw")
+        self.assertEqual(claude_overlay["mode"], "parallel_handoff")
+        self.assertEqual(empty_overlay["mode"], "parallel_handoff")
+        self.assertNotIn("eval_strategy", claude_overlay)
+        self.assertNotIn("eval_strategy", empty_overlay)
+        serialized = json.dumps(
+            [gpt_interaction, claude_interaction, empty_interaction],
+            sort_keys=True,
+        )
+        self.assertNotIn("gpt-5.6-sol", serialized)
+        self.assertNotIn("claude-sonnet-4-5", serialized)
 
 
 if __name__ == "__main__":

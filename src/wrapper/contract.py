@@ -3277,6 +3277,7 @@ def build_chat_interaction_payload(
     include_message: bool = False,
     executor_target: str = "choose",
     source_metadata: dict[str, str] | None = None,
+    main_agent_model: str = "",
     target_notice: dict[str, object] | None = None,
     paths: OmhPaths | None = None,
     skill_policy: dict[str, object] | None = None,
@@ -3304,6 +3305,7 @@ def build_chat_interaction_payload(
         event_or_message,
         include_message=include_message,
         source_metadata=source_metadata,
+        main_agent_model=main_agent_model,
         target_notice=target_notice,
         paths=paths,
         skill_policy=skill_policy,
@@ -3330,6 +3332,7 @@ def build_chat_interaction_payload(
         include_message=include_message,
         executor_target=executor_target,
         source_metadata=source_metadata,
+        main_agent_model=main_agent_model,
         target_notice=target_notice,
         paths=paths,
         skill_policy=skill_policy,
@@ -3351,6 +3354,7 @@ def _can_use_chat_interaction_cache(
     *,
     include_message: bool,
     source_metadata: dict[str, str] | None,
+    main_agent_model: str,
     target_notice: dict[str, object] | None,
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
@@ -3361,6 +3365,7 @@ def _can_use_chat_interaction_cache(
         isinstance(event_or_message, str)
         and not include_message
         and source_metadata is None
+        and not main_agent_model
         and target_notice is None
         and paths is None
         and skill_policy is None
@@ -3831,6 +3836,7 @@ def _build_chat_interaction_payload_cached(
         include_message=False,
         executor_target=executor_target,
         source_metadata=None,
+        main_agent_model="",
         target_notice=None,
         paths=None,
         skill_policy=None,
@@ -3848,6 +3854,7 @@ def _build_chat_interaction_payload_uncached(
     include_message: bool,
     executor_target: str,
     source_metadata: dict[str, str] | None,
+    main_agent_model: str,
     target_notice: dict[str, object] | None,
     paths: OmhPaths | None,
     skill_policy: dict[str, object] | None,
@@ -3979,6 +3986,7 @@ def _build_chat_interaction_payload_uncached(
             include_message=include_message,
             source_metadata=metadata,
             executor_target=resolved_executor_target,
+            main_agent_model=main_agent_model,
             memory_recall_pack=memory_recall_pack_for_handoff(
                 paths,
                 message,
@@ -4046,6 +4054,7 @@ def _build_chat_interaction_payload_uncached(
                     limit=limit,
                     include_message=include_message,
                     source_metadata=metadata,
+                    main_agent_model=main_agent_model,
                     resolved_executor_target=resolved_executor_target,
                     executor_resolution=executor_resolution,
                     route_payload=route_payload,
@@ -4145,6 +4154,7 @@ def _attach_coding_owner_handoff(
     limit: int,
     include_message: bool,
     source_metadata: dict[str, str],
+    main_agent_model: str,
     resolved_executor_target: str,
     executor_resolution: dict[str, object],
     route_payload: dict[str, object],
@@ -4157,9 +4167,11 @@ def _attach_coding_owner_handoff(
         include_message=include_message,
         source_metadata=source_metadata,
         executor_target=resolved_executor_target,
+        main_agent_model=main_agent_model,
         force_coding_handoff=True,
         preferred_workflow=str(route_payload.get("selected_skill", "")),
         preferred_workflow_score=_intish(route_payload.get("score", 0)),
+        preserve_preferred_workflow=resolved_executor_target == "hermes",
         memory_recall_pack=memory_recall_pack_for_handoff(
             paths,
             message,
@@ -6990,6 +7002,21 @@ def _chat_response_with_goal_quality_coaching(
 MEMORY_CONSOLIDATION_NOTICE_SCHEMA_VERSION = "omh_memory_consolidation_notice/v1"
 
 
+# Which routed cards already ask for what the notice is about to ask for.
+# Keyed by the notice's own `next_action`, because the two namespaces never
+# intersect: the notice emits `ask_hermes_to_consolidate_memory`, the card emits
+# `prepare_memory_sync`. Comparing them directly would be a permanent no-op that
+# still looks like a fix.
+#
+# Keyed on `next_action` rather than on the selected skill deliberately. A skill
+# rename would silently re-arm the loop with nothing failing, while these ids are
+# contract identifiers already pinned by the chat-card and common-request
+# coverage fixtures.
+_CONSOLIDATION_REMEDY_ACTIONS: dict[str, frozenset[str]] = {
+    "ask_hermes_to_consolidate_memory": frozenset({"prepare_memory_sync"}),
+}
+
+
 def _with_memory_consolidation_notice(
     payload: dict[str, object], paths: OmhPaths, message: str = ""
 ) -> dict[str, object]:
@@ -7030,6 +7057,8 @@ def _with_memory_consolidation_notice(
         if int(record_expiry.get("expired", 0) or 0) > 0
         else "ask_hermes_to_consolidate_memory"
     )
+    routed_next_action = str(_nested(_nested(payload, "chat_response"), "state").get("next_action", ""))
+    already_asked = routed_next_action in _CONSOLIDATION_REMEDY_ACTIONS.get(next_action, frozenset())
     payload["memory_consolidation_notice"] = {
         "schema_version": MEMORY_CONSOLIDATION_NOTICE_SCHEMA_VERSION,
         "due": True,
@@ -7037,6 +7066,7 @@ def _with_memory_consolidation_notice(
         "reasons": reasons,
         "raised_at": str(brief.get("raised_at", "")),
         "next_action": next_action,
+        "call_to_action_suppressed": already_asked,
         "redaction_policy": "metadata_only",
         "claim_boundary": (
             "A consolidation notice is prepared context. It is not evidence that memory was "
@@ -7055,7 +7085,9 @@ def _with_memory_consolidation_notice(
     # declarative card copy does not contain, so es/fr/de cards read as English
     # and got an English suffix -- the exact glitch this line exists to avoid.
     notice_line = consolidation_notice_line(
-        detect_copy_locale(message or f"{updated.get('headline', '')} {body}"), reasons
+        detect_copy_locale(message or f"{updated.get('headline', '')} {body}"),
+        reasons,
+        suppress_call_to_action=already_asked,
     )
     if notice_line not in body:
         updated["body"] = f"{body} {notice_line}".strip()

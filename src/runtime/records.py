@@ -4,7 +4,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 import hashlib
-from typing import Any, Literal, assert_never
+from typing import Any, Literal, assert_never, cast
 
 from ..coding_contracts import (
     CLAUDE_CODE_SESSION_OBSERVATION_CONTRACT_SCHEMA_VERSION,
@@ -459,6 +459,16 @@ CODING_EXECUTOR_PROMPTING_CONTRACT_KEYS = (
     "steering_delta_template",
     "claim_boundary",
 )
+CODING_EXECUTOR_PROMPTING_CONTRACT_OPTIONAL_KEYS = ("throughput_overlay",)
+CODING_EXECUTOR_THROUGHPUT_OVERLAY_KEYS = (
+    "schema_version",
+    "status",
+    "mode",
+    "model_family",
+    "rules",
+    "claim_boundary",
+)
+CODING_EXECUTOR_THROUGHPUT_OVERLAY_OPTIONAL_KEYS = ("eval_strategy",)
 CODING_EXECUTOR_STEERING_DELTA_CONTRACT_KEYS = (
     "schema_version",
     "status",
@@ -1647,7 +1657,7 @@ def _compact_task_prompt_contract(value: Any) -> dict[str, Any]:
 def _compact_executor_prompting_contract(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict) or not value:
         return {}
-    return {
+    compacted = {
         "schema_version": str(value.get("schema_version", "")),
         "profile": str(value.get("profile", "")),
         "status": str(value.get("status", "")),
@@ -1665,6 +1675,20 @@ def _compact_executor_prompting_contract(value: Any) -> dict[str, Any]:
         "steering_delta_template": str(value.get("steering_delta_template", "")),
         "claim_boundary": str(value.get("claim_boundary", "")),
     }
+    throughput_overlay = value.get("throughput_overlay")
+    if isinstance(throughput_overlay, dict):
+        overlay = cast(dict[str, Any], throughput_overlay)
+        compacted["throughput_overlay"] = {
+            "schema_version": str(overlay.get("schema_version", "")),
+            "status": str(overlay.get("status", "")),
+            "mode": str(overlay.get("mode", "")),
+            "model_family": str(overlay.get("model_family", "")),
+            "rules": _compact_string_list(overlay.get("rules", [])),
+            "claim_boundary": str(overlay.get("claim_boundary", "")),
+        }
+        if "eval_strategy" in overlay:
+            compacted["throughput_overlay"]["eval_strategy"] = str(overlay.get("eval_strategy", ""))
+    return compacted
 
 
 def _compact_executor_steering_delta_contract(value: Any) -> dict[str, Any]:
@@ -2819,7 +2843,11 @@ def validate_executor_prompting_contract(contract: Any, label: str, *, expected_
     _require(isinstance(contract, dict), errors, f"{label} must be an object")
     if not isinstance(contract, dict):
         return errors
-    extra_keys = sorted(set(contract) - set(CODING_EXECUTOR_PROMPTING_CONTRACT_KEYS))
+    extra_keys = sorted(
+        set(contract)
+        - set(CODING_EXECUTOR_PROMPTING_CONTRACT_KEYS)
+        - set(CODING_EXECUTOR_PROMPTING_CONTRACT_OPTIONAL_KEYS)
+    )
     missing_keys = sorted(set(CODING_EXECUTOR_PROMPTING_CONTRACT_KEYS) - set(contract))
     _require(not extra_keys, errors, f"{label} has unsupported keys: {extra_keys}")
     _require(not missing_keys, errors, f"{label} is missing keys: {missing_keys}")
@@ -2889,6 +2917,76 @@ def validate_executor_prompting_contract(contract: Any, label: str, *, expected_
             _require(isinstance(steering.get(key), str) and bool(str(steering.get(key))), errors, f"{label} steering_delta_contract {key} must be a non-empty string")
     boundary = str(contract.get("claim_boundary", "")).lower()
     _require("not dispatch" in boundary and "evidence" in boundary, errors, f"{label} claim_boundary must preserve prepared-only evidence boundary")
+    if "throughput_overlay" in contract:
+        errors.extend(
+            _validate_executor_throughput_overlay(
+                contract["throughput_overlay"],
+                f"{label} throughput_overlay",
+                expected_profile=expected_profile,
+            )
+        )
+    return errors
+
+
+def _validate_executor_throughput_overlay(
+    overlay: Any,
+    label: str,
+    *,
+    expected_profile: str,
+) -> list[str]:
+    errors: list[str] = []
+    _require(isinstance(overlay, dict), errors, f"{label} must be an object")
+    if not isinstance(overlay, dict):
+        return errors
+    overlay_contract = cast(dict[str, Any], overlay)
+    extra_keys = sorted(
+        set(overlay_contract)
+        - set(CODING_EXECUTOR_THROUGHPUT_OVERLAY_KEYS)
+        - set(CODING_EXECUTOR_THROUGHPUT_OVERLAY_OPTIONAL_KEYS)
+    )
+    missing_keys = sorted(set(CODING_EXECUTOR_THROUGHPUT_OVERLAY_KEYS) - set(overlay_contract))
+    _require(not extra_keys, errors, f"{label} has unsupported keys: {extra_keys}")
+    _require(not missing_keys, errors, f"{label} is missing keys: {missing_keys}")
+    _require(
+        overlay_contract.get("schema_version") == "executor_throughput_overlay/v1",
+        errors,
+        f"{label} schema_version is invalid",
+    )
+    _require(overlay_contract.get("status") == "enabled", errors, f"{label} status must be enabled")
+    mode = str(overlay_contract.get("mode", ""))
+    specialized_mode = {
+        "gpt_sol_codex_handoff": "codex",
+        "gpt_hermes_ulw": "hermes",
+    }.get(mode)
+    _require(
+        mode == "parallel_handoff" or specialized_mode == expected_profile,
+        errors,
+        f"{label} mode does not match selected executor",
+    )
+    family = str(overlay_contract.get("model_family", ""))
+    _require(bool(family), errors, f"{label} model_family must be non-empty")
+    if specialized_mode:
+        _require(family == "gpt", errors, f"{label} specialized mode requires gpt model_family")
+    eval_strategy = overlay_contract.get("eval_strategy")
+    if mode == "gpt_sol_codex_handoff":
+        _require(
+            eval_strategy == "single_cell_internal_parallel",
+            errors,
+            f"{label} GPT-Sol Codex mode requires single-cell eval strategy",
+        )
+    else:
+        _require(eval_strategy is None, errors, f"{label} eval_strategy is only valid for GPT-Sol Codex mode")
+    rules = overlay_contract.get("rules")
+    _require(isinstance(rules, list) and bool(rules), errors, f"{label} rules must be a non-empty list")
+    if isinstance(rules, list):
+        for index, rule in enumerate(rules):
+            _require(isinstance(rule, str) and bool(rule.strip()), errors, f"{label} rules[{index}] must be a non-empty string")
+    boundary = str(overlay_contract.get("claim_boundary", "")).casefold()
+    _require(
+        "not proof" in boundary and "completion" in boundary,
+        errors,
+        f"{label} claim_boundary must preserve prepared-only completion evidence",
+    )
     return errors
 
 

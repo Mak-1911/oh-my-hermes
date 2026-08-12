@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable, Mapping
+from typing import Iterable, Mapping, cast
 
 from ..coding_contracts import (
     EXECUTOR_PROMPTING_CONTRACT_SCHEMA_VERSION,
@@ -8,6 +8,7 @@ from ..coding_contracts import (
     EXECUTOR_PROMPTING_STRATEGIES,
     EXECUTOR_STEERING_DELTA_CONTRACT_SCHEMA_VERSION,
 )
+from .throughput_prompting import build_throughput_overlay
 
 
 _RISK_AWARE_CUES = (
@@ -37,6 +38,8 @@ def build_executor_prompting_contract(
     has_plan_artifact: bool,
     plan_artifact_status: str = "",
     isolation_plan: Mapping[str, object] | None = None,
+    recommended_workflow: str = "",
+    main_agent_model: str = "",
 ) -> dict[str, object]:
     """Describe a deterministic executor prompt without storing the task itself."""
     strategy = select_executor_prompting_strategy(
@@ -45,7 +48,7 @@ def build_executor_prompting_contract(
         has_plan_artifact=has_plan_artifact,
         isolation_plan=isolation_plan,
     )
-    return {
+    contract: dict[str, object] = {
         "schema_version": EXECUTOR_PROMPTING_CONTRACT_SCHEMA_VERSION,
         "profile": profile,
         "status": "prepared_not_observed",
@@ -77,6 +80,14 @@ def build_executor_prompting_contract(
             "This is prepared executor-prompt guidance only; it is not dispatch, execution, verification, review, CI, or merge evidence."
         ),
     }
+    throughput_overlay = build_throughput_overlay(
+        profile,
+        main_agent_model=main_agent_model,
+        recommended_workflow=recommended_workflow,
+    )
+    if throughput_overlay:
+        contract["throughput_overlay"] = throughput_overlay
+    return contract
 
 
 def select_executor_prompting_strategy(
@@ -117,6 +128,13 @@ def render_executor_prompt_sections(
         _strategy_instruction(strategy),
         "Implement only the requested scope after repository facts confirm it.",
     ]
+    throughput_overlay = contract.get("throughput_overlay")
+    if isinstance(throughput_overlay, Mapping) and throughput_overlay.get("status") == "enabled":
+        overlay = cast(Mapping[str, object], throughput_overlay)
+        rules = overlay.get("rules")
+        if isinstance(rules, list):
+            typed_rules = cast(list[object], rules)
+            do_items.extend(rule for rule in typed_rules if isinstance(rule, str) and rule.strip())
     if review_required:
         do_items.append("Treat review findings as a separate gate and report unresolved risks explicitly.")
     known_context = [

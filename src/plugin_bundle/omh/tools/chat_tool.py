@@ -7,6 +7,7 @@ from typing import Any
 
 from ..awareness import awareness_route_hint
 from ..degradation import safe_error_type as _safe_error_type
+from ..host_context import active_main_agent_model
 from ..host_observation import OBSERVATION_SCHEMA, attach_public_observation, observe_plugin_tool_call
 
 OMH_INTERACT_SCHEMA = {
@@ -212,6 +213,7 @@ def _package_interaction(
     executor_target = str(args.get("executor_target") or "choose")
     source_metadata = _source_metadata(args)
     platform_context = _platform_context(args)
+    main_agent_model = active_main_agent_model()
     host_values = host_kwargs or {}
     if bool(args.get("record_session", True)):
         try:
@@ -225,6 +227,7 @@ def _package_interaction(
                 source_metadata=source_metadata,
                 executor_target=executor_target,
                 platform_context=platform_context,
+                main_agent_model=main_agent_model,
                 record_provenance={
                     "producer": "plugin_tool",
                     "producer_detail": "omh_interact plugin tool",
@@ -262,6 +265,7 @@ def _package_interaction(
             source_metadata=source_metadata,
             paths=paths,
             platform_context=platform_context,
+            main_agent_model=main_agent_model,
             _host_project_binding_factory=lambda: bind_plugin_project(host_values),
         )
     except PlatformContextError as exc:
