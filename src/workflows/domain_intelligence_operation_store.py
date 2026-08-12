@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 import hashlib
 import json
-import os
 from pathlib import Path
 
 from ..paths import OmhPaths
@@ -99,8 +98,12 @@ def delete_operation(paths: OmhPaths, operation_id: str, validate: OperationVali
         if existing.get("operation_id") != operation_id:
             raise ValueError("decision_operation_identity_mismatch")
         validate(paths, existing)
-        os.unlink(filename, dir_fd=directory_fd)
-        os.fsync(directory_fd)
+    security.unlink_managed_json(
+        paths,
+        "operations",
+        filename,
+        expected=existing,
+    )
 
 
 def require_absent_or_exact(path: Path, target: dict[str, object], *, label: str) -> None:

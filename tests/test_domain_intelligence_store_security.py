@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import errno
 import json
 import os
 from pathlib import Path
 import stat
 from tempfile import TemporaryDirectory
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -20,12 +22,590 @@ from omh.workflows import domain_intelligence_store_security as security
 from omh.workflows import domain_intelligence_store_writer as store_writer
 
 
+class FakeMsvcrt:
+    LK_NBLCK = 2
+    LK_UNLCK = 0
+
+    def __init__(self) -> None:
+        self._guard = threading.Lock()
+        self._held: dict[tuple[int, int], int] = {}
+        self.calls: list[tuple[int, int, int]] = []
+
+    def locking(self, descriptor: int, mode: int, nbytes: int) -> None:
+        metadata = os.fstat(descriptor)
+        identity = (metadata.st_dev, metadata.st_ino)
+        with self._guard:
+            self.calls.append((descriptor, mode, nbytes))
+            if mode == self.LK_NBLCK:
+                if identity in self._held:
+                    raise OSError(errno.EACCES, "region already locked")
+                self._held[identity] = descriptor
+            elif mode == self.LK_UNLCK:
+                if self._held.get(identity) == descriptor:
+                    del self._held[identity]
+            else:
+                raise ValueError(f"unsupported msvcrt mode: {mode}")
+
+
+class WindowsDomainStoreLockTests(unittest.TestCase):
+    def _windows_lock_patches(self, domain_root: Path, fake: FakeMsvcrt):
+        real_open = os.open
+
+        def windows_open(path, flags, mode=0o777, *, dir_fd=None):
+            if dir_fd is not None:
+                raise NotImplementedError("dir_fd is unavailable on Windows")
+            candidate = Path(path)
+            if candidate == domain_root or candidate.is_dir():
+                raise PermissionError("the Windows CRT does not open directories")
+            return real_open(path, flags, mode)
+
+        return (
+            patch.object(security, "fcntl", None),
+            patch.object(security, "msvcrt", fake),
+            patch.object(security, "_NOFOLLOW_FLAG", 0),
+            patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
+            patch.object(store_writer, "_DIRECTORY_FLAG", 0),
+            patch.object(security.os, "open", side_effect=windows_open),
+            patch.object(
+                security.os,
+                "fchmod",
+                side_effect=AssertionError("os.fchmod is unavailable on Windows"),
+            ),
+        )
+
+    def test_windows_path_creates_opens_and_reenters_with_msvcrt(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            domain_root = paths.memory_dir / "domain-intelligence"
+            fake = FakeMsvcrt()
+
+            patches = self._windows_lock_patches(domain_root, fake)
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+                with security.domain_store_lock(paths) as outer:
+                    with security.domain_store_lock(paths) as inner:
+                        self.assertTrue(outer["locked"])
+                        self.assertTrue(inner["locked"])
+
+                lock_path = domain_root / ".store.lock"
+                self.assertTrue(lock_path.is_file())
+                lock_path.write_bytes(b"existing")
+                with security.domain_store_lock(paths) as reopened:
+                    self.assertTrue(reopened["locked"])
+
+            self.assertEqual(
+                [mode for _, mode, size in fake.calls if size == 1],
+                [fake.LK_NBLCK, fake.LK_UNLCK, fake.LK_NBLCK, fake.LK_UNLCK],
+            )
+
+    def test_windows_two_contenders_timeout_then_release_and_reacquire(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            domain_root = paths.memory_dir / "domain-intelligence"
+            fake = FakeMsvcrt()
+            contender_done = threading.Event()
+            contender_errors: list[BaseException] = []
+
+            def contend() -> None:
+                try:
+                    with security.domain_store_lock(paths, timeout_seconds=0):
+                        raise AssertionError("contender acquired an already-held lock")
+                except BaseException as exc:
+                    contender_errors.append(exc)
+                finally:
+                    contender_done.set()
+
+            patches = self._windows_lock_patches(domain_root, fake)
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+                with security.domain_store_lock(paths) as acquired:
+                    self.assertTrue(acquired["locked"])
+                    contender = threading.Thread(target=contend)
+                    contender.start()
+                    self.assertTrue(contender_done.wait(timeout=2.0))
+                    contender.join(timeout=2.0)
+                    self.assertFalse(contender.is_alive())
+                    self.assertEqual(len(contender_errors), 1)
+                    self.assertIsInstance(contender_errors[0], security.FileLockTimeout)
+
+                with security.domain_store_lock(paths, timeout_seconds=0) as reacquired:
+                    self.assertTrue(reacquired["locked"])
+
+    def test_windows_path_refuses_lock_symlink_without_mutating_target(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            domain_root = paths.memory_dir / "domain-intelligence"
+            domain_root.mkdir(parents=True)
+            victim = root / "victim"
+            victim.write_bytes(b"unchanged")
+            (domain_root / ".store.lock").symlink_to(victim)
+            fake = FakeMsvcrt()
+
+            patches = self._windows_lock_patches(domain_root, fake)
+            with (
+                patches[0],
+                patches[1],
+                patches[2],
+                patches[3],
+                patches[4],
+                patches[5],
+                patches[6],
+                self.assertRaisesRegex(ValueError, "symlink"),
+            ):
+                with security.domain_store_lock(paths):
+                    pass
+
+            self.assertEqual(victim.read_bytes(), b"unchanged")
+            self.assertEqual(fake.calls, [])
+
+    def test_windows_path_refuses_domain_root_identity_replacement(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            domain_root = paths.memory_dir / "domain-intelligence"
+            fake = FakeMsvcrt()
+            real_validate = security._validate_portable_directory_chain
+            displaced = paths.memory_dir / "domain-intelligence-displaced"
+            replacement = root / "replacement"
+            replacement.mkdir()
+            validation_count = 0
+
+            def replace_root(chain):
+                nonlocal validation_count
+                validation_count += 1
+                if validation_count == 2:
+                    domain_root.rename(displaced)
+                    domain_root.symlink_to(replacement, target_is_directory=True)
+                return real_validate(chain)
+
+            patches = self._windows_lock_patches(domain_root, fake)
+            with (
+                patches[0],
+                patches[1],
+                patches[2],
+                patches[3],
+                patches[4],
+                patches[5],
+                patches[6],
+                patch.object(
+                    security,
+                    "_validate_portable_directory_chain",
+                    side_effect=replace_root,
+                ),
+                self.assertRaisesRegex(ValueError, "symlink|changed while writing"),
+            ):
+                with security.domain_store_lock(paths):
+                    pass
+
+            self.assertEqual(validation_count, 2)
+            self.assertEqual(list(replacement.iterdir()), [])
+            self.assertTrue((displaced / ".store.lock").is_file())
+            self.assertEqual(
+                [mode for _, mode, size in fake.calls if size == 1],
+                [fake.LK_NBLCK, fake.LK_UNLCK],
+            )
+
+    def test_windows_path_refuses_lock_identity_replacement(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            domain_root = paths.memory_dir / "domain-intelligence"
+            domain_root.mkdir(parents=True)
+            lock_path = domain_root / ".store.lock"
+            lock_path.write_bytes(b"original")
+            displaced = domain_root / ".store.lock-opened"
+            fake = FakeMsvcrt()
+            real_open = os.open
+            swapped = False
+
+            def windows_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                if dir_fd is not None:
+                    raise NotImplementedError("dir_fd is unavailable on Windows")
+                candidate = Path(path)
+                if candidate == domain_root or candidate.is_dir():
+                    raise PermissionError("the Windows CRT does not open directories")
+                descriptor = real_open(path, flags, mode)
+                if candidate == lock_path and not swapped:
+                    swapped = True
+                    lock_path.rename(displaced)
+                    lock_path.write_bytes(b"replacement")
+                return descriptor
+
+            with (
+                patch.object(security, "fcntl", None),
+                patch.object(security, "msvcrt", fake),
+                patch.object(security, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_DIRECTORY_FLAG", 0),
+                patch.object(security.os, "open", side_effect=windows_open),
+                self.assertRaisesRegex(ValueError, "changed while opening"),
+            ):
+                with security.domain_store_lock(paths):
+                    pass
+
+            self.assertTrue(swapped)
+            self.assertEqual(lock_path.read_bytes(), b"replacement")
+            self.assertEqual(fake.calls, [])
+
+
+class PortableManagedJsonWriteTests(unittest.TestCase):
+    @staticmethod
+    def _metadata(*, inode: int = 7, mode: int = stat.S_IFREG | 0o600):
+        return SimpleNamespace(st_dev=3, st_ino=inode, st_mode=mode)
+
+    def test_fallback_creates_a_missing_managed_json_file(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+
+            with (
+                patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_DIRECTORY_FLAG", 0),
+            ):
+                store_writer.atomic_write_managed_json(
+                    paths,
+                    "operations",
+                    "portable.json",
+                    {"state": "created"},
+                )
+
+            target = paths.memory_dir / "domain-intelligence" / "operations" / "portable.json"
+            self.assertEqual(
+                target.read_bytes(),
+                b'{\n  "state": "created"\n}\n',
+            )
+
+    def test_fallback_atomically_replaces_an_existing_regular_file(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            directory = paths.memory_dir / "domain-intelligence" / "operations"
+            directory.mkdir(parents=True)
+            target = directory / "portable.json"
+            target.write_text("old", encoding="utf-8")
+
+            with (
+                patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_DIRECTORY_FLAG", 0),
+            ):
+                store_writer.atomic_write_managed_json(
+                    paths,
+                    "operations",
+                    target.name,
+                    {"state": "replaced"},
+                )
+
+            self.assertEqual(
+                target.read_bytes(),
+                b'{\n  "state": "replaced"\n}\n',
+            )
+
+    def test_fallback_refuses_a_managed_target_symlink(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            linked = self._metadata(mode=stat.S_IFLNK | 0o777)
+
+            with (
+                patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_DIRECTORY_FLAG", 0),
+                patch.object(store_writer, "_portable_directory_chain", return_value=()),
+                patch.object(store_writer.os, "stat", return_value=linked),
+                patch.object(store_writer.os, "open") as open_file,
+                self.assertRaisesRegex(ValueError, "symlink"),
+            ):
+                store_writer.atomic_write_managed_json(
+                    paths,
+                    "operations",
+                    "portable.json",
+                    {"state": "unsafe"},
+                )
+
+            open_file.assert_not_called()
+
+    def test_fallback_refuses_a_nonregular_managed_target(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            target = paths.memory_dir / "domain-intelligence" / "operations" / "portable.json"
+            target.mkdir(parents=True)
+
+            with (
+                patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_DIRECTORY_FLAG", 0),
+                self.assertRaisesRegex(ValueError, "regular file"),
+            ):
+                store_writer.atomic_write_managed_json(
+                    paths,
+                    "operations",
+                    target.name,
+                    {"state": "unsafe"},
+                )
+
+            self.assertTrue(target.is_dir())
+
+    def test_fallback_refuses_temporary_content_mutated_before_replace(self) -> None:
+        mutations = (
+            ("same-size", lambda original: b"x" * len(original)),
+            ("size", lambda original: original + b"attacker"),
+        )
+        for name, mutate in mutations:
+            with self.subTest(name=name), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                directory = paths.memory_dir / "domain-intelligence" / "operations"
+                directory.mkdir(parents=True)
+                target = directory / "portable.json"
+                target.write_bytes(b"trusted-existing")
+                real_target_check = store_writer._portable_regular_target
+                checks = 0
+
+                def mutate_after_final_target_check(path):
+                    nonlocal checks
+                    result = real_target_check(path)
+                    checks += 1
+                    if checks == 2:
+                        temporary = next(directory.glob(".*.tmp"))
+                        temporary.write_bytes(mutate(temporary.read_bytes()))
+                    return result
+
+                with (
+                    patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
+                    patch.object(store_writer, "_DIRECTORY_FLAG", 0),
+                    patch.object(
+                        store_writer,
+                        "_portable_regular_target",
+                        side_effect=mutate_after_final_target_check,
+                    ),
+                    self.assertRaisesRegex(ValueError, "temporary content changed"),
+                ):
+                    store_writer.atomic_write_managed_json(
+                        paths,
+                        "operations",
+                        target.name,
+                        {"state": "trusted-new"},
+                    )
+
+                self.assertEqual(target.read_bytes(), b"trusted-existing")
+                self.assertEqual(list(directory.glob(".*.tmp")), [])
+
+    def test_fallback_refuses_a_target_replaced_while_writing(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            directory = paths.memory_dir / "domain-intelligence" / "operations"
+            directory.mkdir(parents=True)
+            target = directory / "portable.json"
+            target.write_text("original", encoding="utf-8")
+            before = self._metadata(inode=7)
+            replacement = self._metadata(inode=8)
+
+            with (
+                patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_DIRECTORY_FLAG", 0),
+                patch.object(
+                    store_writer,
+                    "_portable_regular_target",
+                    side_effect=[before, replacement],
+                ),
+                self.assertRaisesRegex(ValueError, "changed before replacement"),
+            ):
+                store_writer.atomic_write_managed_json(
+                    paths,
+                    "operations",
+                    target.name,
+                    {"state": "replacement"},
+                )
+
+            self.assertEqual(target.read_text(encoding="utf-8"), "original")
+            self.assertEqual(list(directory.glob(".*.tmp")), [])
+
+
+@requires_domain_intelligence_store
+class PosixManagedJsonWriteTests(unittest.TestCase):
+    def test_refuses_temporary_content_mutated_before_replace(self) -> None:
+        mutations = (
+            ("same-size", lambda original: b"x" * len(original)),
+            ("size", lambda original: original + b"attacker"),
+        )
+        for name, mutate in mutations:
+            with self.subTest(name=name), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                directory = paths.memory_dir / "domain-intelligence" / "operations"
+                directory.mkdir(parents=True)
+                target = directory / "posix.json"
+                target.write_bytes(b"trusted-existing")
+                real_target_check = store_writer._regular_target_at
+                checks = 0
+
+                def mutate_after_final_target_check(directory_fd, filename):
+                    nonlocal checks
+                    result = real_target_check(directory_fd, filename)
+                    checks += 1
+                    if checks == 2:
+                        temporary = next(directory.glob(".*.tmp"))
+                        temporary.write_bytes(mutate(temporary.read_bytes()))
+                    return result
+
+                with (
+                    patch.object(
+                        store_writer,
+                        "_regular_target_at",
+                        side_effect=mutate_after_final_target_check,
+                    ),
+                    self.assertRaisesRegex(ValueError, "temporary content changed"),
+                ):
+                    store_writer.atomic_write_managed_json(
+                        paths,
+                        "operations",
+                        target.name,
+                        {"state": "trusted-new"},
+                    )
+
+                self.assertEqual(target.read_bytes(), b"trusted-existing")
+                self.assertEqual(list(directory.glob(".*.tmp")), [])
+
+
 class PortableDomainStoreLockTests(unittest.TestCase):
     _FLAGS = os.O_RDWR | os.O_CREAT | os.O_APPEND
 
     @staticmethod
     def _metadata(*, inode: int = 7, mode: int = stat.S_IFREG | 0o600):
         return SimpleNamespace(st_dev=3, st_ino=inode, st_mode=mode)
+
+    def test_public_lock_fallback_creates_and_reenters_a_private_lock(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+
+            with (
+                patch.object(security, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_DIRECTORY_FLAG", 0),
+            ):
+                with security.domain_store_lock(paths) as outer:
+                    with security.domain_store_lock(paths) as inner:
+                        self.assertTrue(outer["locked"])
+                        self.assertTrue(inner["locked"])
+
+            lock_path = paths.memory_dir / "domain-intelligence" / ".store.lock"
+            self.assertTrue(lock_path.is_file())
+            self.assertFalse(lock_path.is_symlink())
+            self.assertEqual(lock_path.stat().st_mode & 0o777, 0o600)
+
+    def test_public_lock_fallback_opens_an_existing_regular_lock(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            lock_path = paths.memory_dir / "domain-intelligence" / ".store.lock"
+            lock_path.parent.mkdir(parents=True)
+            lock_path.write_text("existing", encoding="utf-8")
+
+            with (
+                patch.object(security, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_DIRECTORY_FLAG", 0),
+            ):
+                with security.domain_store_lock(paths) as state:
+                    self.assertTrue(state["locked"])
+
+            self.assertEqual(lock_path.read_text(encoding="utf-8"), "existing")
+            self.assertEqual(lock_path.stat().st_mode & 0o777, 0o600)
+
+    def test_public_lock_fallback_refuses_a_lock_symlink(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            lock_path = paths.memory_dir / "domain-intelligence" / ".store.lock"
+            lock_path.parent.mkdir(parents=True)
+            victim = root / "victim"
+            victim.write_text("unchanged", encoding="utf-8")
+            lock_path.symlink_to(victim)
+
+            with (
+                patch.object(security, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_DIRECTORY_FLAG", 0),
+                self.assertRaisesRegex(ValueError, "symlink"),
+            ):
+                with security.domain_store_lock(paths):
+                    pass
+
+            self.assertEqual(victim.read_text(encoding="utf-8"), "unchanged")
+
+    def test_public_lock_fallback_refuses_domain_root_replacement_while_opening(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            domain_root = paths.memory_dir / "domain-intelligence"
+            domain_root.mkdir(parents=True)
+            displaced = domain_root.with_name("domain-intelligence-opened")
+            replacement = root / "replacement-root"
+            replacement.mkdir()
+            real_validate = store_writer._validate_portable_directory_chain
+            swapped = False
+
+            def swap_before_validation(chain):
+                nonlocal swapped
+                if not swapped:
+                    swapped = True
+                    domain_root.rename(displaced)
+                    domain_root.symlink_to(replacement, target_is_directory=True)
+                return real_validate(chain)
+
+            with (
+                patch.object(security, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_DIRECTORY_FLAG", 0),
+                patch.object(
+                    store_writer,
+                    "_validate_portable_directory_chain",
+                    side_effect=swap_before_validation,
+                ),
+                self.assertRaisesRegex(ValueError, "symlink|changed while opening"),
+            ):
+                with security.domain_store_lock(paths):
+                    pass
+
+            self.assertTrue(swapped)
+            self.assertEqual(list(replacement.iterdir()), [])
+            self.assertFalse((displaced / ".store.lock").exists())
+
+    def test_public_lock_fallback_refuses_a_lock_replaced_while_opening(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            lock_path = paths.memory_dir / "domain-intelligence" / ".store.lock"
+            lock_path.parent.mkdir(parents=True)
+            lock_path.write_text("original", encoding="utf-8")
+            displaced = lock_path.with_name(".store.lock-opened")
+            real_open = security.os.open
+            swapped = False
+
+            def swap_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal swapped
+                descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
+                if Path(path) == lock_path and dir_fd is None and not swapped:
+                    swapped = True
+                    lock_path.rename(displaced)
+                    lock_path.write_text("replacement", encoding="utf-8")
+                return descriptor
+
+            with (
+                patch.object(security, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_NOFOLLOW_FLAG", 0),
+                patch.object(store_writer, "_DIRECTORY_FLAG", 0),
+                patch.object(security.os, "open", side_effect=swap_open),
+                self.assertRaisesRegex(ValueError, "changed while opening"),
+            ):
+                with security.domain_store_lock(paths):
+                    pass
+
+            self.assertTrue(swapped)
+            self.assertEqual(lock_path.read_text(encoding="utf-8"), "replacement")
 
     def test_fallback_safely_creates_a_missing_lock(self) -> None:
         opened = self._metadata()

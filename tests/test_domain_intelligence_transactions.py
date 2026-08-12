@@ -839,7 +839,7 @@ class DomainIntelligenceTransactionTests(unittest.TestCase):
                 outside.mkdir(mode=0o755)
                 victim = outside / operation_name
                 victim.write_text("external", encoding="utf-8")
-                real_unlink = operation_store.os.unlink
+                real_unlink = operation_store.security.os.unlink
 
                 def swap_then_unlink(filename, *, dir_fd=None):
                     self.assertIsNotNone(dir_fd)
@@ -848,7 +848,7 @@ class DomainIntelligenceTransactionTests(unittest.TestCase):
                     return real_unlink(filename, dir_fd=dir_fd)
 
                 with patch.object(
-                    operation_store.os, "unlink", side_effect=swap_then_unlink
+                    operation_store.security.os, "unlink", side_effect=swap_then_unlink
                 ):
                     action()
 

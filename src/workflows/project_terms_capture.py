@@ -48,6 +48,8 @@ _SOURCE_NAME = "PROJECT_TERMS.md"
 _NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
 _DIRECTORY_FLAG = getattr(os, "O_DIRECTORY", 0)
 _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
+_NONBLOCK_FLAG = getattr(os, "O_NONBLOCK", 0)
+_BINARY_FLAG = getattr(os, "O_BINARY", 0)
 _PROJECT_TERMS_SOURCE_REF = re.compile(r"^pt_sha256:([0-9a-f]{64})$")
 _CAPTURE_OPERATION_SCHEMA_VERSION = "project_terms_candidate_batch_operation/v1"
 _CAPTURE_OPERATION_PREFIX = "project_terms_"
@@ -194,47 +196,210 @@ def _canonical_repository_root(invocation_cwd: str | Path | None) -> Path:
 def _read_repository_project_terms(root: Path, from_file: str) -> bytes:
     if from_file != _SOURCE_NAME:
         raise ValueError("project_terms_source_must_be_repository_root_PROJECT_TERMS.md")
-    if not _NOFOLLOW_FLAG or not _DIRECTORY_FLAG:
-        raise ValueError("project_terms_safe_source_open_unavailable")
-    root_fd = os.open(
-        root,
-        os.O_RDONLY | _DIRECTORY_FLAG | _CLOEXEC_FLAG | _NOFOLLOW_FLAG,
+    if _descriptor_relative_reads_supported():
+        return _read_repository_project_terms_at(root)
+    return _read_repository_project_terms_with_identity_checks(root)
+
+
+def _descriptor_relative_reads_supported() -> bool:
+    return bool(
+        _NOFOLLOW_FLAG
+        and _DIRECTORY_FLAG
+        and os.open in os.supports_dir_fd
+        and os.stat in os.supports_dir_fd
+        and os.stat in os.supports_follow_symlinks
     )
+
+
+def _read_repository_project_terms_at(root: Path) -> bytes:
+    root_before = _stat_without_symlinks(root)
+    _validate_repository_root(root_before)
     try:
+        root_fd = os.open(
+            root,
+            os.O_RDONLY | _DIRECTORY_FLAG | _CLOEXEC_FLAG | _NOFOLLOW_FLAG,
+        )
+    except OSError as exc:
+        raise _root_open_error(exc) from exc
+    try:
+        root_opened = os.fstat(root_fd)
+        if not _same_identity(root_before, root_opened):
+            raise ValueError("project_terms_repository_root_changed_while_reading")
+        source_before = _stat_source_at(root_fd)
+        _validate_source_entry(source_before)
         try:
             source_fd = os.open(
                 _SOURCE_NAME,
-                os.O_RDONLY | _CLOEXEC_FLAG | _NOFOLLOW_FLAG,
+                os.O_RDONLY
+                | _CLOEXEC_FLAG
+                | _NONBLOCK_FLAG
+                | _NOFOLLOW_FLAG
+                | _BINARY_FLAG,
                 dir_fd=root_fd,
             )
-        except FileNotFoundError as exc:
-            raise ValueError("project_terms_source_not_found") from exc
         except OSError as exc:
-            if exc.errno in {errno.ELOOP, errno.EMLINK}:
-                raise ValueError("project_terms_source_must_not_be_symlink") from exc
-            raise
+            raise _source_open_error(exc) from exc
         try:
-            source_stat = os.fstat(source_fd)
-            if not stat.S_ISREG(source_stat.st_mode):
-                raise ValueError("project_terms_source_must_be_regular_file")
-            if source_stat.st_size > MAX_PROJECT_TERMS_SOURCE_BYTES:
-                raise ValueError("project_terms_source_too_large")
-            chunks: list[bytes] = []
-            remaining = MAX_PROJECT_TERMS_SOURCE_BYTES + 1
-            while remaining:
-                chunk = os.read(source_fd, min(64 * 1024, remaining))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                remaining -= len(chunk)
-            source = b"".join(chunks)
-            if len(source) > MAX_PROJECT_TERMS_SOURCE_BYTES:
-                raise ValueError("project_terms_source_too_large")
-            return source
+            source_opened = os.fstat(source_fd)
+            if not _same_identity(source_before, source_opened):
+                raise ValueError("project_terms_source_changed_while_reading")
+            source = _read_project_terms_descriptor(source_fd, source_opened)
+            if not _same_file_snapshot(source_opened, _stat_source_at_after_read(root_fd)):
+                raise ValueError("project_terms_source_changed_while_reading")
         finally:
             os.close(source_fd)
+        if not _same_identity(root_opened, _stat_without_symlinks(root)):
+            raise ValueError("project_terms_repository_root_changed_while_reading")
+        return source
     finally:
         os.close(root_fd)
+
+
+def _read_repository_project_terms_with_identity_checks(root: Path) -> bytes:
+    source_path = root / _SOURCE_NAME
+    root_before = _stat_without_symlinks(root)
+    _validate_repository_root(root_before)
+    source_before = _stat_source_path(source_path)
+    _validate_source_entry(source_before)
+    try:
+        source_fd = os.open(
+            source_path,
+            os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG | _BINARY_FLAG,
+        )
+    except OSError as exc:
+        raise _source_open_error(exc) from exc
+    try:
+        source_opened = os.fstat(source_fd)
+        if not _same_identity(source_before, source_opened):
+            raise ValueError("project_terms_source_changed_while_reading")
+        source = _read_project_terms_descriptor(source_fd, source_opened)
+        if not _same_file_snapshot(source_opened, _stat_source_path_after_read(source_path)):
+            raise ValueError("project_terms_source_changed_while_reading")
+        if not _same_identity(root_before, _stat_without_symlinks(root)):
+            raise ValueError("project_terms_repository_root_changed_while_reading")
+        return source
+    finally:
+        os.close(source_fd)
+
+
+def _read_project_terms_descriptor(
+    source_fd: int,
+    source_opened: os.stat_result,
+) -> bytes:
+    if not stat.S_ISREG(source_opened.st_mode):
+        raise ValueError("project_terms_source_must_be_regular_file")
+    if source_opened.st_size > MAX_PROJECT_TERMS_SOURCE_BYTES:
+        raise ValueError("project_terms_source_too_large")
+    chunks: list[bytes] = []
+    remaining = MAX_PROJECT_TERMS_SOURCE_BYTES + 1
+    while remaining:
+        chunk = os.read(source_fd, min(64 * 1024, remaining))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    source = b"".join(chunks)
+    source_after = os.fstat(source_fd)
+    if len(source) > MAX_PROJECT_TERMS_SOURCE_BYTES:
+        raise ValueError("project_terms_source_too_large")
+    if (
+        not _same_file_snapshot(source_opened, source_after)
+        or len(source) != source_after.st_size
+    ):
+        raise ValueError("project_terms_source_changed_while_reading")
+    return source
+
+
+def _stat_without_symlinks(path: Path) -> os.stat_result:
+    try:
+        return os.stat(path, follow_symlinks=False)
+    except OSError as exc:
+        raise ValueError("project_terms_repository_root_changed_while_reading") from exc
+
+
+def _stat_source_path(path: Path) -> os.stat_result:
+    try:
+        return os.stat(path, follow_symlinks=False)
+    except FileNotFoundError as exc:
+        raise ValueError("project_terms_source_not_found") from exc
+    except OSError as exc:
+        raise ValueError("project_terms_source_changed_while_reading") from exc
+
+
+def _stat_source_at(root_fd: int) -> os.stat_result:
+    try:
+        return os.stat(_SOURCE_NAME, dir_fd=root_fd, follow_symlinks=False)
+    except FileNotFoundError as exc:
+        raise ValueError("project_terms_source_not_found") from exc
+    except OSError as exc:
+        raise ValueError("project_terms_source_changed_while_reading") from exc
+
+
+def _stat_source_path_after_read(path: Path) -> os.stat_result:
+    try:
+        return _stat_source_path(path)
+    except ValueError as exc:
+        raise ValueError("project_terms_source_changed_while_reading") from exc
+
+
+def _stat_source_at_after_read(root_fd: int) -> os.stat_result:
+    try:
+        return _stat_source_at(root_fd)
+    except ValueError as exc:
+        raise ValueError("project_terms_source_changed_while_reading") from exc
+
+
+def _validate_repository_root(metadata: os.stat_result) -> None:
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ValueError("project_terms_repository_root_must_not_be_symlink")
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError("project_terms_repository_root_required")
+
+
+def _validate_source_entry(metadata: os.stat_result) -> None:
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ValueError("project_terms_source_must_not_be_symlink")
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError("project_terms_source_must_be_regular_file")
+
+
+def _root_open_error(exc: OSError) -> ValueError:
+    if exc.errno in {errno.ELOOP, errno.EMLINK}:
+        return ValueError("project_terms_repository_root_must_not_be_symlink")
+    return ValueError("project_terms_repository_root_changed_while_reading")
+
+
+def _source_open_error(exc: OSError) -> ValueError:
+    if isinstance(exc, FileNotFoundError):
+        return ValueError("project_terms_source_not_found")
+    if exc.errno in {errno.ELOOP, errno.EMLINK}:
+        return ValueError("project_terms_source_must_not_be_symlink")
+    return ValueError("project_terms_source_changed_while_reading")
+
+
+def _identity(metadata: os.stat_result) -> tuple[int, int, int]:
+    return (
+        int(metadata.st_dev),
+        int(metadata.st_ino),
+        stat.S_IFMT(metadata.st_mode),
+    )
+
+
+def _same_identity(left: os.stat_result, right: os.stat_result) -> bool:
+    return _identity(left) == _identity(right)
+
+
+def _file_snapshot(metadata: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    return (
+        *_identity(metadata),
+        int(metadata.st_size),
+        int(metadata.st_mtime_ns),
+        int(metadata.st_ctime_ns),
+    )
+
+
+def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    return _file_snapshot(left) == _file_snapshot(right)
 
 
 def _preview_domains(
@@ -510,5 +675,9 @@ def _remove_candidate_for_recovery_impl(
             return
         if existing != candidate:
             raise ValueError("candidate_batch_recovery_state_conflict")
-        os.unlink(filename, dir_fd=directory_fd)
-        os.fsync(directory_fd)
+    store_security.unlink_managed_json(
+        paths,
+        "candidates",
+        filename,
+        expected=existing,
+    )

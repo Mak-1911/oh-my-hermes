@@ -5,6 +5,7 @@ import importlib
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
@@ -15,11 +16,16 @@ from unittest.mock import patch
 from _cli_harness import run_cli
 
 from omh.paths import project_identity, resolve_paths
+from omh.workflows import domain_intelligence_store
 from omh.workflows.domain_intelligence_store import MAX_DOMAIN_CANDIDATE_FILES
 from omh.routing.chat import route_chat_message
 from omh.routing.domain_context_eligibility import classify_domain_context_eligibility
 from omh.workflows.domain_intelligence import build_domain_review, canonical_profile_digest
-from omh.workflows import domain_intelligence_store_security, project_terms_capture
+from omh.workflows import (
+    domain_intelligence_store_security,
+    domain_intelligence_store_writer,
+    project_terms_capture,
+)
 from omh.workflows.domain_intelligence_profile_resolution import (
     resolve_domain_clarification_target_result,
 )
@@ -394,6 +400,327 @@ class ProjectTermsCaptureTests(unittest.TestCase):
             self.assertNotEqual(status, 0)
             self.assertIn("project_terms_source_must_not_be_symlink", stderr)
             self.assertEqual(_tree_snapshot(root), before)
+
+    def test_windows_binary_fallback_preserves_crlf_preview_and_stage_bytes(self) -> None:
+        source = _VALID_DOCUMENT.replace(b"\n", b"\r\n")
+        binary_flag = 1 << 29
+        real_open = os.open
+        real_read = os.read
+
+        for stage in (False, True):
+            with self.subTest(stage=stage), TemporaryDirectory() as temporary:
+                root = _repository(Path(temporary) / f"binary-{stage}-repo")
+                (root / "PROJECT_TERMS.md").write_bytes(source)
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                binary_fds: set[int] = set()
+
+                def windows_open(
+                    path: object,
+                    flags: int,
+                    *args: object,
+                    **kwargs: object,
+                ) -> int:
+                    binary = bool(flags & binary_flag)
+                    descriptor = real_open(
+                        path, flags & ~binary_flag, *args, **kwargs  # type: ignore[arg-type]
+                    )
+                    if binary:
+                        binary_fds.add(descriptor)
+                    return descriptor
+
+                def windows_read(descriptor: int, size: int) -> bytes:
+                    data = real_read(descriptor, size)
+                    return data if descriptor in binary_fds else data.replace(b"\r\n", b"\n")
+
+                with (
+                    patch.object(project_terms_capture, "_NOFOLLOW_FLAG", 0),
+                    patch.object(project_terms_capture, "_DIRECTORY_FLAG", 0),
+                    patch.object(project_terms_capture, "_BINARY_FLAG", binary_flag),
+                    patch.object(project_terms_capture.os, "open", side_effect=windows_open),
+                    patch.object(project_terms_capture.os, "read", side_effect=windows_read),
+                    _WorkingDirectory(root),
+                ):
+                    payload = project_terms_capture.capture_project_terms_file(
+                        paths,
+                        from_file="PROJECT_TERMS.md",
+                        stage=stage,
+                    )
+
+                self.assertEqual(payload["source_sha256"], hashlib.sha256(source).hexdigest())
+                self.assertEqual(
+                    payload["reason"],
+                    "pending_review_staged" if stage else "preview_ready",
+                )
+
+    def test_native_windows_public_lifecycle_uses_only_path_operations(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = _repository(Path(temporary) / "native-windows-repo")
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            real_open = os.open
+            real_stat = os.stat
+            real_mkdir = os.mkdir
+            real_unlink = os.unlink
+            real_replace = os.replace
+            real_scandir = os.scandir
+
+            def windows_open(path, flags, mode=0o777, *, dir_fd=None):
+                if dir_fd is not None:
+                    raise AssertionError("dir_fd open used on portable path")
+                try:
+                    metadata = real_stat(path, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    if stat.S_ISDIR(metadata.st_mode):
+                        raise PermissionError("the Windows CRT does not open directories")
+                return real_open(path, flags, mode)
+
+            def windows_stat(path, *, dir_fd=None, follow_symlinks=True):
+                if dir_fd is not None:
+                    raise AssertionError("dir_fd stat used on portable path")
+                return real_stat(path, follow_symlinks=follow_symlinks)
+
+            def windows_mkdir(path, mode=0o777, *, dir_fd=None):
+                if dir_fd is not None:
+                    raise AssertionError("dir_fd mkdir used on portable path")
+                return real_mkdir(path, mode)
+
+            def windows_unlink(path, *, dir_fd=None):
+                if dir_fd is not None:
+                    raise AssertionError("dir_fd unlink used on portable path")
+                return real_unlink(path)
+
+            def windows_replace(src, dst, *, src_dir_fd=None, dst_dir_fd=None):
+                if src_dir_fd is not None or dst_dir_fd is not None:
+                    raise AssertionError("dir_fd replace used on portable path")
+                return real_replace(src, dst)
+
+            def windows_scandir(path):
+                if isinstance(path, int):
+                    raise AssertionError("directory descriptor scan used on portable path")
+                return real_scandir(path)
+
+            with (
+                patch.object(project_terms_capture, "_NOFOLLOW_FLAG", 0),
+                patch.object(project_terms_capture, "_DIRECTORY_FLAG", 0),
+                patch.object(domain_intelligence_store_writer, "_NOFOLLOW_FLAG", 0),
+                patch.object(domain_intelligence_store_writer, "_DIRECTORY_FLAG", 0),
+                patch.object(domain_intelligence_store_security, "_NOFOLLOW_FLAG", 0),
+                patch.object(os, "open", side_effect=windows_open),
+                patch.object(os, "stat", side_effect=windows_stat),
+                patch.object(os, "mkdir", side_effect=windows_mkdir),
+                patch.object(os, "unlink", side_effect=windows_unlink),
+                patch.object(os, "replace", side_effect=windows_replace),
+                patch.object(os, "scandir", side_effect=windows_scandir),
+                _WorkingDirectory(root),
+            ):
+                preview = project_terms_capture.capture_project_terms_file(
+                    paths,
+                    from_file="PROJECT_TERMS.md",
+                    stage=False,
+                )
+                staged = project_terms_capture.capture_project_terms_file(
+                    paths,
+                    from_file="PROJECT_TERMS.md",
+                    stage=True,
+                )
+                candidates = staged["candidate_ids"]
+                self.assertIsInstance(candidates, list)
+                self.assertEqual(len(candidates), 2)
+                self.assertEqual(
+                    domain_intelligence_store.read_candidate_or_raise(
+                        paths, str(candidates[0])
+                    )["candidate_id"],
+                    candidates[0],
+                )
+                self.assertEqual(build_domain_review(paths)["counts"]["pending_review"], 2)
+                self.assertTrue(
+                    domain_intelligence_store_security.secure_managed_dir(
+                        paths, "candidates"
+                    ).is_dir()
+                )
+
+            self.assertEqual(preview["reason"], "preview_ready")
+            self.assertEqual(staged["reason"], "pending_review_staged")
+
+    def test_public_capture_supports_preview_and_stage_without_nofollow_or_directory_flags(self) -> None:
+        for stage in (False, True):
+            with self.subTest(stage=stage), TemporaryDirectory() as temporary:
+                root = _repository(Path(temporary) / f"fallback-{stage}-repo")
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+
+                with (
+                    patch.object(project_terms_capture, "_NOFOLLOW_FLAG", 0),
+                    patch.object(project_terms_capture, "_DIRECTORY_FLAG", 0),
+                    patch.object(domain_intelligence_store_writer, "_NOFOLLOW_FLAG", 0),
+                    patch.object(domain_intelligence_store_writer, "_DIRECTORY_FLAG", 0),
+                    patch.object(domain_intelligence_store_security, "_NOFOLLOW_FLAG", 0),
+                    _WorkingDirectory(root),
+                ):
+                    payload = project_terms_capture.capture_project_terms_file(
+                        paths,
+                        from_file="PROJECT_TERMS.md",
+                        stage=stage,
+                    )
+
+                self.assertEqual(
+                    payload["source_sha256"],
+                    hashlib.sha256(_VALID_DOCUMENT).hexdigest(),
+                )
+                self.assertEqual(
+                    payload["reason"],
+                    "pending_review_staged" if stage else "preview_ready",
+                )
+                candidates = list(
+                    (root / ".omh" / "memory" / "domain-intelligence" / "candidates").glob(
+                        "*.json"
+                    )
+                )
+                self.assertEqual(len(candidates), 2 if stage else 0)
+
+    def test_identity_checked_fallback_refuses_root_and_source_symlinks(self) -> None:
+        with TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            root = _repository(base / "real-repo")
+            linked_root = base / "linked-repo"
+            linked_root.symlink_to(root, target_is_directory=True)
+
+            with (
+                patch.object(project_terms_capture, "_NOFOLLOW_FLAG", 0),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "project_terms_repository_root_must_not_be_symlink",
+                ),
+            ):
+                project_terms_capture._read_repository_project_terms(
+                    linked_root,
+                    "PROJECT_TERMS.md",
+                )
+
+            target = base / "outside-project-terms.md"
+            target.write_bytes(_VALID_DOCUMENT)
+            (root / "PROJECT_TERMS.md").unlink()
+            (root / "PROJECT_TERMS.md").symlink_to(target)
+            with (
+                patch.object(project_terms_capture, "_NOFOLLOW_FLAG", 0),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "project_terms_source_must_not_be_symlink",
+                ),
+            ):
+                project_terms_capture._read_repository_project_terms(
+                    root,
+                    "PROJECT_TERMS.md",
+                )
+
+    def test_identity_checked_fallback_preserves_over_budget_and_unsafe_refusals(self) -> None:
+        cases = (
+            (
+                "over-budget",
+                _VALID_DOCUMENT + b" " * (65_537 - len(_VALID_DOCUMENT)),
+                "project_terms_source_too_large",
+            ),
+            (
+                "unsafe",
+                _VALID_DOCUMENT.replace(
+                    b"A quarterly account review.",
+                    b"password=hunter2",
+                ),
+                "unsafe_project_terms_value",
+            ),
+        )
+        for name, source, reason in cases:
+            with self.subTest(name=name), TemporaryDirectory() as temporary:
+                root = _repository(Path(temporary) / f"fallback-{name}-repo")
+                (root / "PROJECT_TERMS.md").write_bytes(source)
+                paths = resolve_paths(root / ".omh", root / ".hermes")
+                before = _tree_snapshot(root)
+
+                with (
+                    patch.object(project_terms_capture, "_NOFOLLOW_FLAG", 0),
+                    _WorkingDirectory(root),
+                    self.assertRaisesRegex(ValueError, reason),
+                ):
+                    project_terms_capture.capture_project_terms_file(
+                        paths,
+                        from_file="PROJECT_TERMS.md",
+                        stage=True,
+                    )
+
+                self.assertEqual(_tree_snapshot(root), before)
+
+    def test_identity_checked_fallback_refuses_source_replacement_while_opening(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = _repository(Path(temporary) / "source-race-repo")
+            source = root / "PROJECT_TERMS.md"
+            original = root / "PROJECT_TERMS.original.md"
+            replacement = _VALID_DOCUMENT.replace(b"QBR", b"ABR")
+            real_stat = os.stat
+            swapped = False
+
+            def swap_after_source_stat(
+                path: object,
+                *args: object,
+                **kwargs: object,
+            ) -> os.stat_result:
+                nonlocal swapped
+                metadata = real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+                if not swapped and Path(path) == source:
+                    swapped = True
+                    source.rename(original)
+                    source.write_bytes(replacement)
+                return metadata
+
+            with (
+                patch.object(project_terms_capture, "_NOFOLLOW_FLAG", 0),
+                patch.object(project_terms_capture.os, "stat", side_effect=swap_after_source_stat),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "project_terms_source_changed_while_reading",
+                ),
+            ):
+                project_terms_capture._read_repository_project_terms(
+                    root,
+                    "PROJECT_TERMS.md",
+                )
+
+            self.assertTrue(swapped)
+
+    def test_identity_checked_fallback_refuses_repository_root_replacement(self) -> None:
+        with TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            root = _repository(base / "root-race-repo")
+            original = base / "root-race-original"
+            real_stat = os.stat
+            swapped = False
+
+            def swap_after_root_stat(
+                path: object,
+                *args: object,
+                **kwargs: object,
+            ) -> os.stat_result:
+                nonlocal swapped
+                metadata = real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
+                if not swapped and Path(path) == root:
+                    swapped = True
+                    root.rename(original)
+                    _repository(root)
+                return metadata
+
+            with (
+                patch.object(project_terms_capture, "_NOFOLLOW_FLAG", 0),
+                patch.object(project_terms_capture.os, "stat", side_effect=swap_after_root_stat),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "project_terms_repository_root_changed_while_reading",
+                ),
+            ):
+                project_terms_capture._read_repository_project_terms(
+                    root,
+                    "PROJECT_TERMS.md",
+                )
+
+            self.assertTrue(swapped)
 
     def test_keyboard_interrupt_at_each_candidate_write_is_all_or_none(self) -> None:
         for interrupted_index in range(2):

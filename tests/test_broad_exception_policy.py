@@ -68,6 +68,15 @@ class ClassifiedSite(NamedTuple):
 
 CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
     ClassifiedSite(
+        "src/workflows/domain_intelligence_store_security.py",
+        "_open_store_lock_descriptor",
+        INTENTIONAL,
+        "The portable no-O_NOFOLLOW fallback closes the opened lock descriptor after any "
+        "interruption during metadata and identity validation, then immediately re-raises the "
+        "same BaseException so cancellation cannot become a successful lock acquisition. A "
+        "safely created regular lock remains as the stable synchronization inode.",
+    ),
+    ClassifiedSite(
         "src/workflows/project_terms_capture.py",
         "_write_candidate_batch",
         INTENTIONAL,
@@ -199,8 +208,8 @@ CLASSIFIED_SITES: tuple[ClassifiedSite, ...] = (
 # function. `_write_candidate_batch`, `_is_catalog_question`, `pre_llm_call`,
 # and `_resume_unlocked` each hold two handlers, so the handler count is four
 # above the anchor count.
-EXPECTED_HANDLER_COUNT = 19
-EXPECTED_ANCHOR_COUNT = 15
+EXPECTED_HANDLER_COUNT = 20
+EXPECTED_ANCHOR_COUNT = 16
 
 
 class DerivedSite(NamedTuple):

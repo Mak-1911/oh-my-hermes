@@ -224,6 +224,10 @@ _NOFOLLOW_FLAG = getattr(os, "O_NOFOLLOW", 0)
 _DIRECTORY_FLAG = getattr(os, "O_DIRECTORY", 0)
 _CLOEXEC_FLAG = getattr(os, "O_CLOEXEC", 0)
 _NONBLOCK_FLAG = getattr(os, "O_NONBLOCK", 0)
+# The Windows CRT otherwise permits text-mode reads, which translate CRLF to
+# LF. A manifest hashes and budgets exact source bytes, so every final source
+# descriptor must be binary even when descriptor-relative no-follow is absent.
+_BINARY_FLAG = getattr(os, "O_BINARY", 0)
 
 
 class _WorkspaceFileRefusal(Exception):
@@ -907,7 +911,7 @@ def _read_final_at(name: str, directory_fd: int, budget_bytes: int) -> bytes:
     try:
         source_fd = os.open(
             name,
-            os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG | _NOFOLLOW_FLAG,
+            os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG | _NOFOLLOW_FLAG | _BINARY_FLAG,
             dir_fd=directory_fd,
         )
     except OSError as exc:
@@ -947,7 +951,10 @@ def _read_workspace_bytes_with_identity_checks(
             if index < len(parts) - 1 and not stat.S_ISDIR(metadata.st_mode):
                 raise _WorkspaceFileRefusal("The selected path contains a non-directory component.")
             component_identities.append((path, _identity(metadata)))
-        source_fd = os.open(path, os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG | _NOFOLLOW_FLAG)
+        source_fd = os.open(
+            path,
+            os.O_RDONLY | _CLOEXEC_FLAG | _NONBLOCK_FLAG | _BINARY_FLAG,
+        )
     except _WorkspaceFileRefusal:
         raise
     except OSError as exc:
