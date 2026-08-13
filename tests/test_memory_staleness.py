@@ -17,6 +17,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from _local_package import load_local_package
 
@@ -506,6 +507,21 @@ class RetentionDayBoundsTests(unittest.TestCase):
                     record = approve_project_memory_candidate(paths, str(candidate["candidate_id"]))["record"]
                     self.assertEqual(candidate["ttl"]["expires_at"], record["ttl"]["expires_at"])
                     self.assertEqual(candidate["ttl"]["ttl_days"], record["ttl"]["ttl_days"])
+
+    def test_approval_keeps_the_candidate_deadline_across_a_clock_boundary(self) -> None:
+        captured_at = "2026-08-13T12:00:00Z"
+        approved_at = "2026-08-13T12:00:01Z"
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            memory_workflow.read_project_memory_policy(paths)
+            with patch.object(
+                memory_workflow, "utc_now", side_effect=(captured_at, captured_at, approved_at, approved_at)
+            ):
+                candidate = self._capture(paths, ttl_days=7)["candidate"]
+                record = approve_project_memory_candidate(paths, str(candidate["candidate_id"]))["record"]
+
+        self.assertEqual(candidate["ttl"]["expires_at"], "2026-08-20T12:00:00Z")
+        self.assertEqual(record["ttl"]["expires_at"], candidate["ttl"]["expires_at"])
 
 
 class DurableRecordsAreActuallyPermanentTests(unittest.TestCase):
