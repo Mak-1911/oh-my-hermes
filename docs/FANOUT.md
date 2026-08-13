@@ -276,7 +276,7 @@ Rules:
   `lines_changed`, `diff_bytes`, `diff_sha256`, `recovery_ref`, and a
   `recover_with` command. Units whose outcome is `recovery_available` are
   rolled up in the summary's `recovery_available_units`, the counterpart
-  to `merge_ready_units`, and `omh coding fanout brief` carries a compact
+  to `integration_ready_units`, and `omh coding fanout brief` carries a compact
   `recovery` line per unit so the signal survives after the dispatch JSON
   scrolls past. The record also persists to
   `~/.omh/coding/fanout/<id>/recovery/<unit>.json`, byte-for-byte the same

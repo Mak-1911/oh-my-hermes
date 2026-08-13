@@ -26,6 +26,7 @@ from omh.coding.fanout_artifacts import fanout_dispatch_summary_path  # noqa: E4
 from omh.coding.fanout_artifacts import fanout_unit_recovery_path  # noqa: E402
 from omh.coding.fanout_dispatch import (  # noqa: E402
     _MAX_RECOVERY_PATHS,
+    _apply_integration_readiness,
     _owner_skill_discoveries,
     _parse_numstat,
     dispatch_fanout,
@@ -178,6 +179,72 @@ class FanoutDispatchEngineTests(unittest.TestCase):
         contract = write_fanout_contract(paths, build_fanout_contract(_GOAL, _UNITS))
         return paths, repo, sha, contract
 
+    def test_summary_process_succeeded_only_on_exit_zero(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                only_units=["core"],
+                runner=_agent_runner(),
+                readiness=_ready,
+            )
+
+            core = {entry["unit_id"]: entry for entry in summary["units"]}["core"]
+            self.assertTrue(core["process_succeeded"])
+            self.assertFalse(core["result_schema_valid"])
+            self.assertFalse(core["unit_verification_observed"])
+            self.assertFalse(core["integration_ready"])
+            self.assertEqual(summary["integration_ready_units"], [])
+
+    def test_summary_nonzero_exit_has_no_success_or_downstream_status(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                only_units=["core"],
+                runner=_agent_runner(fail_units={"Core"}),
+                readiness=_ready,
+            )
+
+            core = {entry["unit_id"]: entry for entry in summary["units"]}["core"]
+            self.assertFalse(core["process_succeeded"])
+            self.assertFalse(core["result_schema_valid"])
+            self.assertFalse(core["unit_verification_observed"])
+            self.assertFalse(core["integration_ready"])
+            self.assertEqual(summary["integration_ready_units"], [])
+
+    def test_integration_ready_requires_full_ladder_in_merge_order(self) -> None:
+        units = [
+            {
+                "unit_id": unit_id,
+                "process_succeeded": True,
+                "result_schema_valid": True,
+                "unit_verification_observed": True,
+            }
+            for unit_id in ("core", "docs")
+        ]
+
+        _apply_integration_readiness(units)
+
+        self.assertTrue(units[0]["integration_ready"])
+        self.assertTrue(units[1]["integration_ready"])
+
+        units[0]["unit_verification_observed"] = False
+        _apply_integration_readiness(units)
+
+        self.assertFalse(units[0]["integration_ready"])
+        self.assertFalse(units[1]["integration_ready"])
+
     def test_choice_required_route_blocks_the_unit_fail_closed(self) -> None:
         """A frozen choice_required route must never dispatch on the silent
         executor default: the unit reports model_choice_required, stays
@@ -204,9 +271,9 @@ class FanoutDispatchEngineTests(unittest.TestCase):
             )
             by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
             self.assertEqual(by_unit["core"]["status"], "model_choice_required")
-            self.assertFalse(by_unit["core"]["merge_ready"])
+            self.assertFalse(by_unit["core"]["integration_ready"])
             self.assertIn("re-prepare", by_unit["core"]["reason"])
-            self.assertNotIn("core", summary["merge_ready_units"])
+            self.assertNotIn("core", summary["integration_ready_units"])
             # The dependent of the blocked unit must not build on an
             # unstarted base; the independent unit still completes.
             self.assertNotEqual(by_unit["tests"]["status"], "completed")
@@ -231,7 +298,7 @@ class FanoutDispatchEngineTests(unittest.TestCase):
             self.assertEqual(by_unit["core"]["status"], "completed")
             self.assertEqual(by_unit["docs"]["status"], "completed")
             self.assertEqual(by_unit["tests"]["status"], "completed")
-            self.assertEqual(summary["merge_ready_units"], ["core", "docs", "tests"])
+            self.assertEqual(summary["integration_ready_units"], [])
             self.assertFalse(summary["auto_merge"])
             self.assertIn("exited 0", summary["dependency_bar"])
             # observed evidence per unit run
@@ -261,7 +328,7 @@ class FanoutDispatchEngineTests(unittest.TestCase):
             self.assertEqual(by_unit["core"]["status"], "failed")
             self.assertEqual(by_unit["tests"]["status"], "blocked_by_dependency")
             self.assertEqual(by_unit["docs"]["status"], "completed")
-            self.assertEqual(summary["merge_ready_units"], ["docs"])
+            self.assertEqual(summary["integration_ready_units"], [])
 
     def test_timeout_records_failed_unit(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -581,7 +648,7 @@ class FanoutUnitRecoveryTests(unittest.TestCase):
             by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
             recovery = by_unit["docs"]["recovery"]
             self.assertEqual(by_unit["docs"]["status"], "failed")
-            self.assertFalse(by_unit["docs"]["merge_ready"])
+            self.assertFalse(by_unit["docs"]["integration_ready"])
             self.assertEqual(recovery["outcome"], "recovery_available")
             self.assertEqual(recovery["schema_version"], "fanout_unit_recovery/v1")
             self.assertEqual(recovery["paths"], ["docs_partial.py"])
@@ -797,7 +864,7 @@ class FanoutUnitRecoveryTests(unittest.TestCase):
 
     def test_a_partial_redispatch_keeps_an_earlier_units_recovery_rollup(self) -> None:
         # `_merged_dispatch_summary` exists so re-dispatching one unit does not
-        # erase another's telemetry. It recomputed merge_ready_units but not
+        # erase another's telemetry. It recomputed integration_ready_units but not
         # recovery_available_units, so the stored summary contradicted the very
         # recovery record it had just merged.
         with TemporaryDirectory() as tmp:

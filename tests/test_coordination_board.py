@@ -189,7 +189,7 @@ class CoordinationBoardEvidenceTests(unittest.TestCase):
                 paths,
                 units=[{"unit_id": "alpha", "title": "extract the parser", "owner": "codex"}],
                 dispatched=[
-                    {"unit_id": "alpha", "owner": "codex", "status": "completed", "merge_ready": True}
+                    {"unit_id": "alpha", "owner": "codex", "status": "completed", "integration_ready": True}
                 ],
             )
             payload = build_coordination_board(paths, now=_NOW)

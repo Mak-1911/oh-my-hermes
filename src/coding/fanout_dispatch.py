@@ -360,6 +360,58 @@ def verify_safety_profile_matches_contract(contract: Mapping[str, Any], live_rev
         )
 
 
+def _dispatch_status_ladder(
+    *,
+    process_succeeded: bool = False,
+    result_schema_valid: bool = False,
+    unit_verification_observed: bool = False,
+    merge_order_position_satisfied: bool = False,
+) -> dict[str, bool]:
+    """Build the dispatch-only evidence ladder without inferring later rungs."""
+    integration_ready = bool(
+        process_succeeded
+        and result_schema_valid
+        and unit_verification_observed
+        and merge_order_position_satisfied
+    )
+    return {
+        "process_succeeded": bool(process_succeeded),
+        "result_schema_valid": bool(result_schema_valid),
+        "unit_verification_observed": bool(unit_verification_observed),
+        "integration_ready": integration_ready,
+    }
+
+
+def _apply_integration_readiness(units: Sequence[dict[str, Any]]) -> None:
+    """Fold integration eligibility in declared merge order."""
+    merge_order_position_satisfied = True
+    for entry in units:
+        ladder = _dispatch_status_ladder(
+            process_succeeded=bool(entry.get("process_succeeded")),
+            result_schema_valid=bool(entry.get("result_schema_valid")),
+            unit_verification_observed=bool(entry.get("unit_verification_observed")),
+            merge_order_position_satisfied=merge_order_position_satisfied,
+        )
+        entry.update(ladder)
+        # A later unit cannot become eligible ahead of an earlier unit whose
+        # complete dispatcher-observed evidence chain is still missing.
+        merge_order_position_satisfied = ladder["integration_ready"]
+
+
+def _unit_verification_is_observed(paths: OmhPaths, run_ref: str) -> bool:
+    """Read only the canonical dispatcher-observed per-unit receipt."""
+    try:
+        shown = show_run(paths, run_ref)
+    except (OSError, ValueError, KeyError):
+        return False
+    return any(
+        isinstance(event, Mapping)
+        and str(event.get("event", "")) == "unit_verification_observed"
+        and str(event.get("status", "")) == "observed"
+        for event in shown.get("journal_events", []) or []
+    )
+
+
 def dispatch_fanout(
     paths: OmhPaths,
     contract: Mapping[str, Any],
@@ -402,7 +454,14 @@ def dispatch_fanout(
             # the current selection, so partial re-dispatch of downstream
             # units works after an earlier run (or manual recovery) finished
             # their prerequisites.
-            results[unit_id] = _skipped(unit, "already_completed", merge_ready=True)
+            results[unit_id] = _skipped(
+                unit,
+                "already_completed",
+                process_succeeded=True,
+                unit_verification_observed=_unit_verification_is_observed(
+                    paths, str(unit.get("run_ref", unit_id))
+                ),
+            )
         elif unit_id not in selected:
             results[unit_id] = _skipped(unit, "not_selected")
 
@@ -453,6 +512,7 @@ def dispatch_fanout(
                 pending.remove(unit_id)
 
     summary_units = [results[unit_id] for unit_id in order]
+    _apply_integration_readiness(summary_units)
     summary = {
         "schema_version": FANOUT_DISPATCH_SCHEMA_VERSION,
         "fanout_id": contract.get("fanout_id", ""),
@@ -460,8 +520,10 @@ def dispatch_fanout(
         "observed_at": utc_now(),
         "merge_order": order,
         "units": summary_units,
-        "merge_ready_units": [entry["unit_id"] for entry in summary_units if entry.get("merge_ready")],
-        # The counterpart to merge_ready: units that failed but left work worth
+        "integration_ready_units": [
+            entry["unit_id"] for entry in summary_units if entry.get("integration_ready")
+        ],
+        # The counterpart to process success: units that failed but left work worth
         # looking at before anyone re-runs them from scratch.
         "recovery_available_units": _recovery_available(summary_units),
         "auto_merge": False,
@@ -560,12 +622,15 @@ def _merged_dispatch_summary(summary_path: Path, summary: dict[str, Any]) -> dic
             merged_units.append({**entry, "recovery": earlier["recovery"]})
         else:
             merged_units.append(entry)
+    _apply_integration_readiness(merged_units)
     merged = dict(summary)
     merged["units"] = merged_units
-    merged["merge_ready_units"] = [
-        str(entry.get("unit_id")) for entry in merged_units if isinstance(entry, dict) and entry.get("merge_ready")
+    merged["integration_ready_units"] = [
+        str(entry.get("unit_id"))
+        for entry in merged_units
+        if isinstance(entry, dict) and entry.get("integration_ready")
     ]
-    # Recomputed for the same reason merge_ready_units is: the current run's
+    # Recomputed for the same reason integration_ready_units is: the current run's
     # rollup only names units it dispatched, so carrying it through unchanged
     # would erase an earlier run's salvageable unit from the one field an
     # operator reads first — while that unit's own `recovery` record, merged
@@ -668,7 +733,7 @@ def _dispatch_unit(
             "run_ref": run_ref,
             "owner": owner,
             "status": "model_choice_required",
-            "merge_ready": False,
+            **_dispatch_status_ladder(),
             "reason": (
                 "the frozen route requires an explicit model choice; re-prepare the unit with a "
                 "declared model or resolvable role, then re-dispatch"
@@ -680,7 +745,7 @@ def _dispatch_unit(
             "run_ref": run_ref,
             "owner": owner,
             "status": "unsupported_for_local_dispatch",
-            "merge_ready": False,
+            **_dispatch_status_ladder(),
             "fallback": "use the unit handoff as a prepared prompt for this owner",
         }
     probe = readiness(paths, owner)
@@ -695,7 +760,7 @@ def _dispatch_unit(
             "owner": owner,
             "status": "executor_not_ready",
             "readiness_status": str(probe.get("status", "unknown")),
-            "merge_ready": False,
+            **_dispatch_status_ladder(),
         }
         repair_card = probe.get("repair_card")
         if isinstance(repair_card, Mapping):
@@ -716,7 +781,7 @@ def _dispatch_unit(
             "status": "dry_run_planned",
             "planned_argv": [part if part != prompt else "<unit prompt>" for part in argv],
             "worktree_path": str(worktree),
-            "merge_ready": False,
+            **_dispatch_status_ladder(),
         }
         if fingerprint_note is not None:
             planned["inventory_fingerprint"] = fingerprint_note
@@ -764,7 +829,7 @@ def _dispatch_unit(
             "status": "worktree_failed",
             "refusal": str(worktree_record.get("refusal", "")),
             "reason": str(worktree_record.get("reason", "")),
-            "merge_ready": False,
+            **_dispatch_status_ladder(),
         }
     worktree = Path(str(worktree_record["worktree_path"]))
     if fanout_id:
@@ -870,7 +935,10 @@ def _dispatch_unit(
         "status": "completed" if exit_code == 0 else "failed",
         "exit_code": exit_code,
         "worktree_path": str(worktree),
-        "merge_ready": exit_code == 0,
+        **_dispatch_status_ladder(
+            process_succeeded=exit_code == 0,
+            unit_verification_observed=_unit_verification_is_observed(paths, run_ref),
+        ),
         "started_at": started_at,
         "finished_at": finished_at,
         "duration_seconds": duration_seconds,
@@ -1170,7 +1238,7 @@ def _dependency_satisfied(result: dict[str, Any] | None) -> bool:
     # plan; live dispatch only advances on an observed exit-0 result.
     return (
         result.get("status") in {"completed", "already_completed", "dry_run_planned"}
-        or bool(result.get("merge_ready"))
+        or bool(result.get("process_succeeded"))
     )
 
 
@@ -1184,7 +1252,7 @@ def _dependency_failed(result: dict[str, Any] | None) -> bool:
         "unsupported_for_local_dispatch",
         "worktree_failed",
         "not_selected",
-    } and not result.get("merge_ready")
+    } and not result.get("process_succeeded")
 
 
 def _blocked(unit: Mapping[str, Any], results: Mapping[str, dict[str, Any]]) -> dict[str, Any]:
@@ -1197,13 +1265,22 @@ def _blocked(unit: Mapping[str, Any], results: Mapping[str, dict[str, Any]]) -> 
     return entry
 
 
-def _skipped(unit: Mapping[str, Any], status: str, *, merge_ready: bool = False) -> dict[str, Any]:
+def _skipped(
+    unit: Mapping[str, Any],
+    status: str,
+    *,
+    process_succeeded: bool = False,
+    unit_verification_observed: bool = False,
+) -> dict[str, Any]:
     return {
         "unit_id": str(unit["unit_id"]),
         "run_ref": str(unit.get("run_ref", "")),
         "owner": str(unit.get("handoff", {}).get("executor_target", "choose")),
         "status": status,
-        "merge_ready": merge_ready,
+        **_dispatch_status_ladder(
+            process_succeeded=process_succeeded,
+            unit_verification_observed=unit_verification_observed,
+        ),
     }
 
 
