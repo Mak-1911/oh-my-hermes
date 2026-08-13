@@ -448,6 +448,8 @@ def _unit_capability_precheck(
     handoff_owner = str(handoff.get("executor_target", "choose"))
     if handoff_owner != declared_owner:
         return declared_owner, None, ["unit owner does not match the handoff owner"]
+    if declared_owner == "choose":
+        return declared_owner, {}, []
     if (
         contract_schema_version == FANOUT_CONTRACT_SCHEMA_VERSION
         and declared_owner != "choose"

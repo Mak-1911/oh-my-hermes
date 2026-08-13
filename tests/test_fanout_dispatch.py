@@ -1713,7 +1713,8 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
             snapshot = core["handoff"]["executor_capability_snapshot"]
             snapshot["capabilities"]["SENTINEL-" + ("x" * 100_000)] = {
-                "status": "unknown"
+                "status": "unknown",
+                "transcript": "forbidden",
             }
 
             summary = dispatch_fanout(
@@ -1729,6 +1730,31 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             rendered = json.dumps(summary)
             self.assertLess(len(rendered), 10_000)
             self.assertNotIn("x" * 1000, rendered)
+
+    def test_unassigned_unit_does_not_invalidate_spawnable_siblings(self) -> None:
+        units = [
+            {"unit_id": "core", "owner": "codex", "file_scope": ["src/"]},
+            {"unit_id": "docs", "owner": None, "file_scope": ["docs/"]},
+        ]
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp, units=units)
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                dry_run=True,
+                runner=_agent_runner(),
+                readiness=_ready,
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["core"]["status"], "dry_run_planned")
+            self.assertEqual(
+                by_unit["docs"]["status"],
+                "unsupported_for_local_dispatch",
+            )
 
     def test_dispatch_rejects_units_missing_from_merge_order_before_discovery(self) -> None:
         with TemporaryDirectory() as tmp:

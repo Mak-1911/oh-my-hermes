@@ -168,7 +168,10 @@ def validate_executor_capability_snapshot(snapshot: Mapping[str, JsonValue]) -> 
     capabilities = snapshot.get("capabilities")
     if isinstance(capabilities, Mapping):
         errors.extend(_capability_errors(capabilities, recorded_at=snapshot.get("recorded_at")))
-    return errors
+    bounded = [error[:240] for error in errors[:20]]
+    if len(errors) > 20:
+        bounded.append(f"... ({len(errors) - 20} more validation errors)")
+    return bounded
 
 
 def write_executor_capability_snapshot(path: Path, snapshot: Mapping[str, JsonValue]) -> SnapshotRecord:
@@ -347,10 +350,10 @@ def _forbidden_key_errors(value: JsonValue | Mapping[str, JsonValue], path: str 
     errors: list[str] = []
     if isinstance(value, Mapping):
         for key, item in value.items():
-            key_text = str(key)
+            key_text = str(key)[:80]
             if key_text.casefold() in _FORBIDDEN_KEYS:
                 errors.append(f"{path}.{key_text} is forbidden metadata")
-            errors.extend(_forbidden_key_errors(item, f"{path}.{key_text}"))
+            errors.extend(_forbidden_key_errors(item, f"{path}.{key_text}"[:200]))
     elif isinstance(value, list):
         for index, item in enumerate(value):
             errors.extend(_forbidden_key_errors(item, f"{path}[{index}]"))

@@ -1680,6 +1680,7 @@ def cmd_coding_fanout_migrate_legacy(args: argparse.Namespace) -> int:
     from ..coding.executor_capability_snapshots import (
         resolved_executor_capability_snapshot,
     )
+    from ..coding.fanout_dispatch import fanout_dispatch_preflight
     from ..coding.fanout_artifacts import read_fanout_contract, write_fanout_contract
     from ..coding.fanout_artifacts import (
         fanout_contract_digest,
@@ -1757,6 +1758,20 @@ def cmd_coding_fanout_migrate_legacy(args: argparse.Namespace) -> int:
         raise OmhError(f"legacy fanout migration refused: {exc}") from exc
     migrated.pop("artifacts", None)
     try:
+        for unit in migrated_units:
+            if not isinstance(unit, dict):
+                raise ValueError("legacy fanout contract units must be objects")
+            boundary = unit.get("boundary")
+            file_scope = (
+                boundary.get("file_scope")
+                if isinstance(boundary, dict)
+                else None
+            )
+            if not isinstance(file_scope, list) or not file_scope:
+                raise ValueError(
+                    "legacy fanout contract units require boundary.file_scope"
+                )
+        fanout_dispatch_preflight(paths, migrated)
         recorded = write_fanout_contract(paths, migrated)
     except (OSError, ValueError) as exc:
         raise OmhError(f"could not migrate fanout contract: {exc}") from exc
