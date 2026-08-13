@@ -143,7 +143,7 @@ class TuiWidgetPackTests(unittest.TestCase):
             self.assertEqual(json.loads(stdout)["tui_widget"]["status"], "removed")
 
     def test_widget_is_full_width_and_omits_host_status_fields(self) -> None:
-        widget = resources.files("omh.tui_widgets").joinpath("omh-status.mjs").read_text()
+        widget = resources.files("omh.tui_widgets").joinpath("omh-status.mjs").read_text(encoding="utf-8")
 
         self.assertIn("zone: 'dock-bottom'", widget)
         self.assertIn("width: '100%'", widget)

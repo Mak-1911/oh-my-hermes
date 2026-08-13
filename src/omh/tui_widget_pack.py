@@ -16,7 +16,7 @@ class TuiWidgetInstallError(RuntimeError):
 
 
 def widget_payload(python_executable: Path) -> bytes:
-    template = resources.files("omh.tui_widgets").joinpath(WIDGET_FILENAME).read_text()
+    template = resources.files("omh.tui_widgets").joinpath(WIDGET_FILENAME).read_text(encoding="utf-8")
     executable = os.path.realpath(python_executable)
     if not Path(executable).is_file():
         raise TuiWidgetInstallError("OMH Python executable is not a regular file")
