@@ -1701,6 +1701,9 @@ def cmd_coding_fanout_migrate_legacy(args: argparse.Namespace) -> int:
         raise OmhError("fanout contract already uses fanout_contract/v2")
     if schema_version != LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION:
         raise OmhError("only fanout_contract/v1 can be migrated")
+    units = contract.get("units")
+    if not isinstance(units, list):
+        raise OmhError("legacy fanout contract units must be a list")
     digest = fanout_contract_digest(contract)
     provenance_path = fanout_contract_provenance_path(paths, args.fanout_id)
     if provenance_path.exists():
@@ -1731,8 +1734,11 @@ def cmd_coding_fanout_migrate_legacy(args: argparse.Namespace) -> int:
         return 0
     migrated = deepcopy(contract)
     migrated["schema_version"] = FANOUT_CONTRACT_SCHEMA_VERSION
+    migrated_units = migrated.get("units")
+    if not isinstance(migrated_units, list):
+        raise OmhError("legacy fanout contract units must be a list")
     try:
-        for unit in migrated.get("units", []):
+        for unit in migrated_units:
             if not isinstance(unit, dict):
                 raise ValueError("legacy fanout contract units must be objects")
             owner = unit.get("owner")

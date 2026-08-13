@@ -50,11 +50,15 @@ class UnifiedExecutorCapabilityProjectionTests(unittest.TestCase):
     def test_snapshot_validation_bounds_unsupported_field_names(self) -> None:
         snapshot = prepared_executor_capability_snapshot("codex")
         snapshot["SENTINEL-" + ("x" * 100_000)] = "value"
+        snapshot["capabilities"]["SENTINEL-" + ("y" * 100_000)] = {
+            "status": "unknown"
+        }
 
         rendered = "; ".join(validate_executor_capability_snapshot(snapshot))
 
         self.assertLessEqual(len(rendered), 500)
         self.assertNotIn("x" * 1000, rendered)
+        self.assertNotIn("y" * 1000, rendered)
 
     def test_resolved_snapshot_projects_recorded_evidence_and_unknown_defaults(self) -> None:
         with TemporaryDirectory() as tmp:

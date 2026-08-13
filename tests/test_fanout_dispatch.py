@@ -1707,6 +1707,29 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             self.assertIn("core", by_unit["docs"]["reason"])
             self.assertFalse((repo.parent / f"{repo.name}-fanout-docs").exists())
 
+    def test_oversized_capability_name_produces_a_bounded_refusal_summary(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            snapshot = core["handoff"]["executor_capability_snapshot"]
+            snapshot["capabilities"]["SENTINEL-" + ("x" * 100_000)] = {
+                "status": "unknown"
+            }
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                runner=_agent_runner(),
+                readiness=_ready,
+            )
+
+            rendered = json.dumps(summary)
+            self.assertLess(len(rendered), 10_000)
+            self.assertNotIn("x" * 1000, rendered)
+
     def test_dispatch_rejects_units_missing_from_merge_order_before_discovery(self) -> None:
         with TemporaryDirectory() as tmp:
             paths, repo, sha, contract = self._setup(tmp)

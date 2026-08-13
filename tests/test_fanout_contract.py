@@ -830,6 +830,34 @@ class FanoutCliTests(unittest.TestCase):
         self.assertNotIn("Traceback", stderr)
         self.assertLess(len(stderr), 500)
 
+    def test_legacy_migration_rejects_invalid_unit_container_cleanly(self) -> None:
+        for units in (None, 7):
+            with self.subTest(units=units), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+                contract = build_fanout_contract("split work", _UNITS)
+                contract["schema_version"] = "fanout_contract/v1"
+                contract["units"] = units
+                recorded = write_fanout_contract(paths, contract)
+
+                status, stdout, stderr = run_cli(
+                    [
+                        "--omh-home",
+                        str(paths.omh_home),
+                        "--hermes-home",
+                        str(paths.hermes_home),
+                        "coding",
+                        "fanout",
+                        "migrate-legacy",
+                        str(recorded["fanout_id"]),
+                    ]
+                )
+
+            self.assertEqual(status, 2)
+            self.assertEqual(stdout, "")
+            self.assertNotIn("Traceback", stderr)
+            self.assertLess(len(stderr), 500)
+
     def test_goal_mismatch_refuses_before_git_resolution(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

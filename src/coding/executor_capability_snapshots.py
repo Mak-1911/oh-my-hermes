@@ -256,7 +256,7 @@ def _capability_errors(
             errors.extend(_local_workflow_errors(value, recorded_at=recorded_at))
             continue
         if name not in KNOWN_CAPABILITY_NAMES:
-            errors.append(f"unsupported capability name: {name}")
+            errors.append(f"unsupported capability name: {str(name)[:80]}")
             continue
         if not isinstance(value, Mapping):
             errors.append(f"{name} capability must be a mapping")
