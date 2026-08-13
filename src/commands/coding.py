@@ -1681,6 +1681,11 @@ def cmd_coding_fanout_migrate_legacy(args: argparse.Namespace) -> int:
         resolved_executor_capability_snapshot,
     )
     from ..coding.fanout_artifacts import read_fanout_contract, write_fanout_contract
+    from ..coding.fanout_artifacts import (
+        fanout_contract_digest,
+        fanout_contract_provenance_path,
+        read_fanout_contract_provenance,
+    )
     from ..coding.fanout_contracts import (
         FANOUT_CONTRACT_SCHEMA_VERSION,
         LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION,
@@ -1696,23 +1701,54 @@ def cmd_coding_fanout_migrate_legacy(args: argparse.Namespace) -> int:
         raise OmhError("fanout contract already uses fanout_contract/v2")
     if schema_version != LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION:
         raise OmhError("only fanout_contract/v1 can be migrated")
+    digest = fanout_contract_digest(contract)
+    provenance_path = fanout_contract_provenance_path(paths, args.fanout_id)
+    if provenance_path.exists():
+        try:
+            read_fanout_contract_provenance(paths, args.fanout_id, contract)
+        except (OSError, ValueError) as exc:
+            raise OmhError(
+                f"legacy fanout provenance is invalid; migration refused: {exc}"
+            ) from exc
+    elif args.confirm_contract_sha256 != digest:
+        _print_json(
+            {
+                "schema_version": "fanout_legacy_migration_preview/v1",
+                "fanout_id": args.fanout_id,
+                "status": "confirmation_required",
+                "contract_sha256": digest,
+                "next_command": (
+                    "omh coding fanout migrate-legacy "
+                    f"{args.fanout_id} --confirm-contract-sha256 {digest}"
+                ),
+                "claim_boundary": (
+                    "This digest confirms the exact local legacy payload selected "
+                    "for migration. It is corruption detection, not authentication "
+                    "against a writer who controls OMH home."
+                ),
+            }
+        )
+        return 0
     migrated = deepcopy(contract)
     migrated["schema_version"] = FANOUT_CONTRACT_SCHEMA_VERSION
-    for unit in migrated.get("units", []):
-        if not isinstance(unit, dict):
-            raise OmhError("legacy fanout contract units must be objects")
-        owner = unit.get("owner")
-        handoff = unit.get("handoff")
-        if owner is None:
-            continue
-        if not isinstance(owner, str) or not isinstance(handoff, dict):
-            raise OmhError("legacy fanout contract owner/handoff is invalid")
-        snapshot = resolved_executor_capability_snapshot(
-            owner,
-            paths.executor_capability_snapshots_dir,
-        )
-        handoff["executor_capability_snapshot_policy"] = "frozen_required"
-        handoff["executor_capability_snapshot"] = snapshot
+    try:
+        for unit in migrated.get("units", []):
+            if not isinstance(unit, dict):
+                raise ValueError("legacy fanout contract units must be objects")
+            owner = unit.get("owner")
+            handoff = unit.get("handoff")
+            if owner is None:
+                continue
+            if not isinstance(owner, str) or not isinstance(handoff, dict):
+                raise ValueError("legacy fanout contract owner/handoff is invalid")
+            snapshot = resolved_executor_capability_snapshot(
+                owner,
+                paths.executor_capability_snapshots_dir,
+            )
+            handoff["executor_capability_snapshot_policy"] = "frozen_required"
+            handoff["executor_capability_snapshot"] = snapshot
+    except ValueError as exc:
+        raise OmhError(f"legacy fanout migration refused: {exc}") from exc
     migrated.pop("artifacts", None)
     try:
         recorded = write_fanout_contract(paths, migrated)
@@ -1817,6 +1853,14 @@ def _add_coding_commands(sub) -> None:
         help="Convert a recorded fanout_contract/v1 into frozen-evidence v2 before dispatch.",
     )
     fanout_migrate.add_argument("fanout_id")
+    fanout_migrate.add_argument(
+        "--confirm-contract-sha256",
+        default="",
+        help=(
+            "Required only for pre-provenance v1 artifacts; confirms the exact "
+            "digest printed by the preview."
+        ),
+    )
     fanout_migrate.set_defaults(func=cmd_coding_fanout_migrate_legacy)
 
     fanout_brief = fanout_sub.add_parser(

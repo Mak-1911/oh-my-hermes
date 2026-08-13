@@ -146,6 +146,15 @@ Rules:
   `omh coding fanout migrate-legacy <fanout-id>`. Migration resolves and
   freezes one capability snapshot per assigned owner, writes v2 plus closed
   provenance, and only then permits dispatch; v1 never dispatches directly.
+  If the pre-upgrade artifact has no provenance sidecar, the first migration
+  call is a dry preview that prints its exact SHA-256 and a confirmation
+  command. Existing sidecars are validated before migration, so a drifted
+  legacy payload is never silently re-blessed.
+- **Local trust boundary.** Contract provenance detects accidental or partial
+  local drift. It is not authentication against a process or operator that can
+  rewrite both the contract and its provenance under OMH home; such a writer
+  already controls this local execution surface. No OMH claim relies on the
+  digest as a secret, signature, or remote attestation.
 - **Blocked-by-design cascades.** An `unsupported_for_local_dispatch`,
   `executor_not_ready`, `capability_snapshot_invalid`, or
   `model_choice_required` dependency (a frozen

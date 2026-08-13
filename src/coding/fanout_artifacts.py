@@ -55,6 +55,13 @@ def fanout_dispatch_summary_path(paths: OmhPaths, fanout_id: str) -> Path:
     return _managed_fanout_dir(paths, _validated_fanout_id(fanout_id)) / "dispatch_summary.json"
 
 
+def fanout_contract_provenance_path(paths: OmhPaths, fanout_id: str) -> Path:
+    return _managed_fanout_dir(
+        paths,
+        _validated_fanout_id(fanout_id),
+    ) / "contract_provenance.json"
+
+
 def unit_result_path(paths: OmhPaths, fanout_id: str, unit_id: str) -> Path:
     """Validated sidecar path for one executor-reported unit result."""
     if not _UNIT_ID_RE.match(str(unit_id or "")):
@@ -118,7 +125,7 @@ def read_fanout_contract_provenance(
     contract: Mapping[str, object],
 ) -> dict[str, object]:
     validated_id = _validated_fanout_id(fanout_id)
-    provenance_path = _managed_fanout_dir(paths, validated_id) / "contract_provenance.json"
+    provenance_path = fanout_contract_provenance_path(paths, validated_id)
     provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
     if not isinstance(provenance, dict):
         raise ValueError("fanout contract schema provenance must be an object")
