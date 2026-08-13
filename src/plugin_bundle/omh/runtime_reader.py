@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .metadata import (
     OPTIONAL_HOOKS,
@@ -104,10 +105,16 @@ RAW_OR_HIDDEN_KEYS = {
     "thinking",
     "transcript",
 }
+MAX_HUD_METADATA_BYTES = 262_144
+MAX_HUD_TEXT_CHARS = 120
 
 
 def _expand_path(value: str | Path) -> Path:
     return Path(os.path.expandvars(str(value))).expanduser().resolve()
+
+
+def _hud_text(value: Any, *, limit: int = MAX_HUD_TEXT_CHARS) -> str:
+    return str(value or "").strip()[:limit]
 
 
 def _default_omh_home() -> Path:
@@ -124,6 +131,47 @@ def _read_json(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _read_hud_json(path: Path) -> dict[str, Any]:
+    try:
+        if path.is_symlink() or path.stat().st_size > MAX_HUD_METADATA_BYTES:
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) and not _has_raw_or_hidden_content(data) else {}
+
+
+def _read_hud_coding_projection(path: Path) -> dict[str, Any]:
+    try:
+        if path.is_symlink() or path.stat().st_size > MAX_HUD_METADATA_BYTES:
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    projected: dict[str, Any] = {
+        key: data[key]
+        for key in (
+            "recommended_workflow",
+            "recommended_harness",
+            "selected_executor_profile",
+            "executor_profile",
+            "status",
+        )
+        if isinstance(data.get(key), (str, int, float, bool))
+    }
+    for key in ("executor_handoff", "prompt_handoff"):
+        value = data.get(key)
+        if isinstance(value, dict):
+            projected[key] = {
+                nested: value[nested]
+                for nested in ("executor_target", "selected_executor_profile")
+                if isinstance(value.get(nested), str)
+            }
+    return projected
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -144,6 +192,26 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+def _read_hud_jsonl(path: Path) -> list[dict[str, Any]]:
+    try:
+        if path.is_symlink() or path.stat().st_size > MAX_HUD_METADATA_BYTES:
+            return []
+    except OSError:
+        return []
+    return _read_jsonl(path)
+
+
+def _contains_symlink(path: Path, *, root: Path) -> bool:
+    current = path
+    while current != root:
+        if current.is_symlink():
+            return True
+        if current == current.parent:
+            return True
+        current = current.parent
+    return root.is_symlink()
+
+
 def _child_files(directory: Path, *relative: str) -> list[Path]:
     """Return every existing `directory/<child>/*relative` file.
 
@@ -162,11 +230,28 @@ def _child_files(directory: Path, *relative: str) -> list[Path]:
     """
     try:
         with os.scandir(directory) as entries:
-            names = [entry.name for entry in entries]
+            names = [entry.name for entry in entries if not entry.is_symlink()]
     except (FileNotFoundError, NotADirectoryError):
         return []
     candidates = [directory.joinpath(name, *relative) for name in names]
-    return [candidate for candidate in candidates if candidate.is_file()]
+    return [
+        candidate
+        for candidate in candidates
+        if not _contains_symlink(candidate, root=directory)
+        and candidate.is_file()
+    ]
+
+
+def _hud_child_files(directory: Path, *relative: str) -> list[Path]:
+    files = _child_files(directory, *relative)
+    safe: list[Path] = []
+    for path in files:
+        try:
+            if path.stat().st_size <= MAX_HUD_METADATA_BYTES:
+                safe.append(path)
+        except OSError:
+            continue
+    return safe
 
 
 def _bool_from_record(record: dict[str, Any], key: str = "observed") -> bool:
@@ -179,13 +264,15 @@ def _summarize_run(
     run: dict[str, Any],
     journal_events: list[dict[str, Any]],
     external_effect_receipts: list[dict[str, Any]],
+    json_reader: Callable[[Path], dict[str, Any]] = _read_json,
+    coding_reader: Callable[[Path], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    coding = _read_json(run_dir / "coding_delegation.json")
-    delegation = _read_json(run_dir / "delegation.json")
-    wrapper = _read_json(run_dir / "wrapper.json")
-    review = _read_json(run_dir / "review.json")
-    ci = _read_json(run_dir / "ci.json")
-    merge = _read_json(run_dir / "merge.json")
+    coding = (coding_reader or json_reader)(run_dir / "coding_delegation.json")
+    delegation = json_reader(run_dir / "delegation.json")
+    wrapper = json_reader(run_dir / "wrapper.json")
+    review = json_reader(run_dir / "review.json")
+    ci = json_reader(run_dir / "ci.json")
+    merge = json_reader(run_dir / "merge.json")
     legacy = {
         "run_id": str(run.get("run_id", run_dir.name)),
         "workflow": str(coding.get("recommended_workflow") or run.get("skill", "unknown")),
@@ -446,10 +533,10 @@ def read_omh_hud(
     home = _expand_path(omh_home) if omh_home else _default_omh_home()
     hermes = _expand_path(hermes_home) if hermes_home else _default_hermes_home()
     safe_limit = _safe_limit(limit, default=3)
-    status_payload = status if status is not None else read_omh_status(home, limit=safe_limit)
-    state = _read_json(home / "runtime" / "state.json")
-    profile = _read_json(home / "setup-profile.json")
-    target_registry = _read_json(home / "targets.json")
+    status_payload = status if status is not None else _read_omh_hud_status(home, limit=safe_limit)
+    state = _read_hud_json(home / "runtime" / "state.json")
+    profile = _read_hud_json(home / "setup-profile.json")
+    target_registry = _read_hud_json(home / "targets.json")
     runs = status_payload.get("runs", [])
     latest_run = runs[0] if runs else {}
     payload: dict[str, Any] = {
@@ -470,9 +557,20 @@ def read_omh_hud(
         ),
         "privacy": "metadata_only",
     }
+    payload["subagents"] = _hud_subagent_summary(status_payload)
+    payload["maestro"] = {
+        "status": "observed" if payload["subagents"]["maestro_rows"] else "idle",
+        "rows": payload["subagents"].pop("maestro_rows"),
+    }
+    payload["active"] = bool(
+        payload["runtime"]["workflow"] != "idle"
+        or payload["subagents"]["active"]
+        or payload["maestro"]["rows"]
+    )
     payload["display"] = {
         "line": format_omh_hud_line(payload, preset=safe_preset),
         "segments": _hud_segments(payload, preset=safe_preset),
+        "widget_lines": _hud_widget_lines(payload),
     }
     return payload
 
@@ -512,6 +610,7 @@ def _plugin_summary(hermes_home: Path, state: dict[str, Any]) -> dict[str, Any]:
         status = "missing"
     return {
         "status": status,
+        "version": _plugin_version(plugin_dir),
         "plugin_dir": str(plugin_dir),
         "distribution_observed": observed,
         "runtime_observed": False,
@@ -521,6 +620,18 @@ def _plugin_summary(hermes_home: Path, state: dict[str, Any]) -> dict[str, Any]:
         "capabilities": capabilities,
         "stale": status == "stale",
     }
+
+
+def _plugin_version(plugin_dir: Path) -> str:
+    plugin_yaml = plugin_dir / "plugin.yaml"
+    try:
+        if plugin_yaml.is_symlink() or plugin_yaml.stat().st_size > 16_384:
+            return ""
+        text = plugin_yaml.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = re.search(r'(?m)^version:\s*["\']?([A-Za-z0-9._+-]+)', text)
+    return match.group(1) if match else ""
 
 
 def _plugin_capabilities(plugin_dir: Path, last_distribution: dict[str, Any]) -> dict[str, Any]:
@@ -686,13 +797,109 @@ def _hud_runtime_summary(status: dict[str, Any], latest_run: dict[str, Any]) -> 
     return {
         "state_present": bool(status.get("runtime_state_present", False)),
         "recent_run_count": run_count,
-        "latest_run_id": str(latest_run.get("run_id", "")),
-        "executor_target": str(latest_run.get("executor_target", "")),
-        "workflow": str(latest_run.get("workflow", "unknown")),
-        "phase": str(latest_run.get("phase", "unknown")),
-        "observation_status": str(latest_run.get("observation_status", "unknown")),
+        "latest_run_id": _hud_text(latest_run.get("run_id", ""), limit=80),
+        "executor_target": _hud_text(latest_run.get("executor_target", ""), limit=80),
+        "workflow": _hud_text(latest_run.get("workflow", "unknown")),
+        "phase": _hud_text(latest_run.get("phase", "unknown"), limit=40),
+        "observation_status": _hud_text(latest_run.get("observation_status", "unknown"), limit=40),
         "evidence_state": _evidence_state(latest_run),
     }
+
+
+def _hud_subagent_summary(status: dict[str, Any]) -> dict[str, Any]:
+    active_rows = status.get("active_executors", [])
+    active = active_rows if isinstance(active_rows, list) else []
+    stale_rows = status.get("stale_executors", [])
+    stale = stale_rows if isinstance(stale_rows, list) else []
+    progress_rows = status.get("latest_progress_events", [])
+    progress = progress_rows if isinstance(progress_rows, list) else []
+    blocked = 0
+    for row in active:
+        event = row.get("latest_event", {}) if isinstance(row, dict) else {}
+        event_type = str(event.get("event_type", "")) if isinstance(event, dict) else ""
+        event_status = str(event.get("status", "")) if isinstance(event, dict) else ""
+        if event_type in {"executor_blocked", "executor_failed"} or event_status in {"blocked", "failed"}:
+            blocked += 1
+    completed = sum(
+        1
+        for event in progress
+        if isinstance(event, dict) and str(event.get("event_type", "")) == "executor_completed"
+    )
+    latest_action = ""
+    if progress:
+        latest = progress[0]
+        if isinstance(latest, dict):
+            latest_action = _hud_text(latest.get("summary", ""))
+    subagent_rows: list[dict[str, Any]] = []
+    maestro_rows: list[dict[str, Any]] = []
+    maestro_run_ids = {
+        str(run.get("run_id", ""))
+        for run in (status.get("runs", []) if isinstance(status.get("runs"), list) else [])
+        if isinstance(run, dict) and str(run.get("executor_target", "")).casefold() == "maestro"
+    }
+    for row in active[:5]:
+        if not isinstance(row, dict):
+            continue
+        event = row.get("latest_event", {})
+        event = event if isinstance(event, dict) else {}
+        event_type = str(event.get("event_type", ""))
+        event_status = str(event.get("status", ""))
+        state = (
+            "blocked"
+            if event_type in {"executor_blocked", "executor_failed"}
+            or event_status in {"blocked", "failed"}
+            else "running"
+        )
+        projected = {
+            "state": state,
+            "role": _hud_executor_role(row),
+            "action": _hud_text(event.get("summary", "")),
+            "model": _hud_text(row.get("routed_model", "")),
+            "effort": _hud_text(row.get("routed_reasoning_effort", ""), limit=40),
+            "tokens": row.get("tokens_total") if isinstance(row.get("tokens_total"), int) else None,
+        }
+        if (
+            str(row.get("executor_profile", "")).casefold() == "maestro"
+            or str(row.get("target_id", "")) in maestro_run_ids
+        ):
+            maestro_rows.append(projected)
+        else:
+            subagent_rows.append(projected)
+    return {
+        "status": "observed" if active or stale or progress else "idle",
+        "active": len(active),
+        "running": max(0, len(active) - blocked),
+        "blocked": blocked,
+        "completed": completed,
+        "stale": len(stale),
+        "latest_action": latest_action,
+        "rows": subagent_rows,
+        "maestro_rows": maestro_rows,
+    }
+
+
+def _hud_executor_role(row: dict[str, Any]) -> str:
+    target_id = str(row.get("target_id", ""))
+    profile = str(row.get("executor_profile", ""))
+    if target_id.startswith(("run-", "session-")):
+        return profile[:40]
+    return (target_id or profile)[:40]
+
+
+def _hud_widget_lines(payload: dict[str, Any]) -> list[str]:
+    runtime = payload.get("runtime", {})
+    subagents = payload.get("subagents", {})
+    workflow = str(runtime.get("workflow", "idle"))
+    phase = str(runtime.get("phase", "idle"))
+    header = (
+        f"[OMH] {workflow} {phase} "
+        f"agents {subagents.get('active', 0)} · "
+        f"run {subagents.get('running', 0)} · "
+        f"block {subagents.get('blocked', 0)} · "
+        f"done {subagents.get('completed', 0)}"
+    )
+    latest_action = str(subagents.get("latest_action", "")).strip()
+    return [header, f"latest {latest_action}"] if latest_action else [header]
 
 
 def _evidence_state(run: dict[str, Any]) -> str:
@@ -966,6 +1173,37 @@ def read_omh_status(omh_home: str | Path | None = None, limit: int = 5) -> dict[
     }
 
 
+def _read_omh_hud_status(home: Path, *, limit: int) -> dict[str, Any]:
+    runtime_dir = home / "runtime"
+    runs: list[dict[str, Any]] = []
+    for run_json in sorted(
+        _hud_child_files(runtime_dir / "runs", "run.json"),
+        reverse=True,
+    )[:limit]:
+        run = _read_hud_json(run_json)
+        if run:
+            runs.append(
+                _summarize_run(
+                    run_json.parent,
+                    run=run,
+                    journal_events=[],
+                    external_effect_receipts=[],
+                    json_reader=_read_hud_json,
+                    coding_reader=_read_hud_coding_projection,
+                )
+            )
+    progress = _executor_progress_projection(
+        runtime_dir,
+        limit=max(limit * 10, limit),
+        hud_safe=True,
+    )
+    return {
+        "runtime_state_present": bool(_read_hud_json(runtime_dir / "state.json")),
+        "runs": runs,
+        **progress,
+    }
+
+
 def read_omh_activity(omh_home: str | Path | None = None, limit: int = 5) -> dict[str, Any]:
     """Project only live executor state for latency-sensitive hook routing."""
     safe_limit = _safe_limit(limit, default=5)
@@ -983,8 +1221,13 @@ def read_omh_activity(omh_home: str | Path | None = None, limit: int = 5) -> dic
     }
 
 
-def _executor_progress_projection(runtime_dir: Path, *, limit: int) -> dict[str, Any]:
-    bindings = _progress_bindings(runtime_dir, limit=limit)
+def _executor_progress_projection(
+    runtime_dir: Path,
+    *,
+    limit: int,
+    hud_safe: bool = False,
+) -> dict[str, Any]:
+    bindings = _progress_bindings(runtime_dir, limit=limit, hud_safe=hud_safe)
     groups: dict[str, list[dict[str, Any]]] = {}
     for item in bindings:
         binding = item["binding"]
@@ -1020,20 +1263,28 @@ def _executor_progress_projection(runtime_dir: Path, *, limit: int) -> dict[str,
     }
 
 
-def _progress_bindings(runtime_dir: Path, *, limit: int) -> list[dict[str, Any]]:
+def _progress_bindings(
+    runtime_dir: Path,
+    *,
+    limit: int,
+    hud_safe: bool = False,
+) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     roots = (
         (runtime_dir / "runs", "run"),
         (runtime_dir / "wrapper_sessions", "wrapper_session"),
     )
     for root, target_type in roots:
-        for binding_path in sorted(_child_files(root, "executor_progress", "binding.json"), reverse=True):
-            binding = _read_json(binding_path)
+        child_files = _hud_child_files if hud_safe else _child_files
+        json_reader = _read_hud_json if hud_safe else _read_json
+        jsonl_reader = _read_hud_jsonl if hud_safe else _read_jsonl
+        for binding_path in sorted(child_files(root, "executor_progress", "binding.json"), reverse=True):
+            binding = json_reader(binding_path)
             if not _valid_progress_binding(binding, target_type):
                 continue
             progress_dir = binding_path.parent
-            events = _read_jsonl(progress_dir / "events.jsonl")
-            reports = _read_jsonl(progress_dir / "reports.jsonl")
+            events = jsonl_reader(progress_dir / "events.jsonl")
+            reports = jsonl_reader(progress_dir / "reports.jsonl")
             binding_id = str(binding.get("binding_id", ""))
             instance_id = str(binding.get("instance_id", ""))
             matching_events = [event for event in events if _valid_progress_event(event, binding_id, instance_id)]
@@ -1116,7 +1367,7 @@ def _progress_row(primary: dict[str, Any], group: list[dict[str, Any]], event: d
         for item in group
         if item["binding"].get("binding_id") != binding.get("binding_id")
     ]
-    return {
+    row = {
         "primary_binding_id": binding.get("binding_id", ""),
         "primary_instance_id": binding.get("instance_id", ""),
         "binding_id": binding.get("binding_id", ""),
@@ -1133,6 +1384,13 @@ def _progress_row(primary: dict[str, Any], group: list[dict[str, Any]], event: d
         "linked_bindings": linked,
         "claim_boundary": binding.get("claim_boundary", ""),
     }
+    signal = event.get("signal", {}) if event else {}
+    if isinstance(signal, dict):
+        for key in ("routed_model", "routed_reasoning_effort", "tokens_total"):
+            value = signal.get(key)
+            if value not in (None, ""):
+                row[key] = value
+    return row
 
 
 def _compact_progress_event(event: dict[str, Any], binding: dict[str, Any]) -> dict[str, Any]:
