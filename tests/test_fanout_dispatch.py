@@ -28,7 +28,6 @@ from omh.coding.executor_capability_snapshots import (  # noqa: E402
 )
 from omh.coding.fanout import build_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import write_fanout_contract  # noqa: E402
-from omh.coding.fanout_artifacts import read_fanout_contract_provenance  # noqa: E402
 from omh.coding.fanout_artifacts import fanout_dispatch_summary_path  # noqa: E402
 from omh.coding.fanout_artifacts import fanout_unit_recovery_path  # noqa: E402
 from omh.coding.fanout_artifacts import unit_result_path  # noqa: E402
@@ -1856,7 +1855,7 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             self.assertEqual(by_unit["core"]["status"], "not_selected")
             self.assertEqual(by_unit["core"]["owner"], "codex")
 
-    def test_legacy_handoff_without_snapshot_resolves_the_recorded_owner_snapshot(self) -> None:
+    def test_legacy_handoff_without_snapshot_requires_migration(self) -> None:
         with TemporaryDirectory() as tmp:
             paths, repo, sha, contract = self._setup(tmp)
             recorded = build_executor_capability_snapshot(
@@ -1882,32 +1881,17 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             for unit in contract["units"]:
                 unit["handoff"].pop("executor_capability_snapshot", None)
                 unit["handoff"].pop("executor_capability_snapshot_policy", None)
-            contract = write_fanout_contract(paths, contract)
-            provenance = read_fanout_contract_provenance(
-                paths,
-                str(contract["fanout_id"]),
-                contract,
-            )
-
-            summary = dispatch_fanout(
-                paths,
-                contract,
-                goal_text=_GOAL,
-                repo_root=repo,
-                base_sha=sha,
-                only_units=["core"],
-                runner=_agent_runner(),
-                readiness=_ready,
-                legacy_provenance=provenance,
-            )
-
-            snapshot = summary["units"][0]["executor_capability_snapshot"]
-            self.assertEqual(snapshot["recorded_at"], recorded["recorded_at"])
-            self.assertEqual(
-                snapshot["capabilities"]["edit_format_patch"]["evidence_ref"],
-                "probe:legacy-patch",
-            )
-            self.assertEqual(snapshot["capabilities"]["persistent_eval"], {"status": "unknown"})
+            with self.assertRaisesRegex(ValueError, "migrate-legacy"):
+                dispatch_fanout(
+                    paths,
+                    contract,
+                    goal_text=_GOAL,
+                    repo_root=repo,
+                    base_sha=sha,
+                    only_units=["core"],
+                    runner=_agent_runner(),
+                    readiness=_ready,
+                )
 
     def test_relabelled_v2_contract_cannot_request_legacy_fallback(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -1917,7 +1901,7 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
                 unit["handoff"].pop("executor_capability_snapshot", None)
                 unit["handoff"].pop("executor_capability_snapshot_policy", None)
 
-            with self.assertRaisesRegex(ValueError, "provenance digest does not match"):
+            with self.assertRaisesRegex(ValueError, "migrate-legacy"):
                 dispatch_fanout(
                     paths,
                     contract,
@@ -1926,13 +1910,6 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
                     base_sha=sha,
                     runner=_agent_runner(),
                     readiness=_ready,
-                    legacy_provenance={
-                        "schema_version": "fanout_contract_provenance/v1",
-                        "fanout_id": contract["fanout_id"],
-                        "contract_schema_version": "fanout_contract/v1",
-                        "contract_sha256": "0" * 64,
-                        "privacy": "metadata_only",
-                    },
                 )
 
     def test_dry_run_does_not_persist_a_summary(self) -> None:

@@ -226,7 +226,11 @@ def _root_errors(snapshot: Mapping[str, JsonValue]) -> list[str]:
     errors: list[str] = []
     unexpected = set(snapshot) - _ROOT_FIELDS
     if unexpected:
-        errors.append(f"snapshot contains unsupported fields: {', '.join(sorted(str(key) for key in unexpected))}")
+        names = sorted(str(key)[:80] for key in unexpected)
+        rendered = ", ".join(names[:3])
+        if len(names) > 3:
+            rendered += f", ... ({len(names) - 3} more)"
+        errors.append(f"snapshot contains unsupported fields: {rendered}")
     if snapshot.get("schema_version") != EXECUTOR_CAPABILITY_SNAPSHOT_SCHEMA_VERSION:
         errors.append(f"schema_version must be {EXECUTOR_CAPABILITY_SNAPSHOT_SCHEMA_VERSION}")
     executor = snapshot.get("executor")

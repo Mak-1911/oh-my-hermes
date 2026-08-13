@@ -18,6 +18,7 @@ from omh.coding.executor_capability_snapshots import (  # noqa: E402
     executor_capability_snapshot_path,
     prepared_executor_capability_snapshot,
     resolved_executor_capability_snapshot,
+    validate_executor_capability_snapshot,
     write_executor_capability_snapshot,
 )
 from omh.coding.executor_capabilities import capability_for_profile  # noqa: E402
@@ -45,6 +46,15 @@ class UnifiedExecutorCapabilityProjectionTests(unittest.TestCase):
         for name in DESCRIPTIVE_CAPABILITY_NAMES:
             with self.subTest(name=name):
                 self.assertEqual(snapshot["capabilities"][name], {"status": "unknown"})
+
+    def test_snapshot_validation_bounds_unsupported_field_names(self) -> None:
+        snapshot = prepared_executor_capability_snapshot("codex")
+        snapshot["SENTINEL-" + ("x" * 100_000)] = "value"
+
+        rendered = "; ".join(validate_executor_capability_snapshot(snapshot))
+
+        self.assertLessEqual(len(rendered), 500)
+        self.assertNotIn("x" * 1000, rendered)
 
     def test_resolved_snapshot_projects_recorded_evidence_and_unknown_defaults(self) -> None:
         with TemporaryDirectory() as tmp:

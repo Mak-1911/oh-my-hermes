@@ -17,7 +17,6 @@ from ..system.paths import OmhPaths
 from .action_gate import recheck_safety_profile_revision
 from .executor_capability_snapshots import (
     complete_executor_capability_snapshot,
-    resolved_executor_capability_snapshot,
     validate_executor_capability_snapshot,
 )
 from .executor_capabilities import legacy_executor_capability_projection
@@ -27,7 +26,6 @@ from .fanout_contracts import (
     FANOUT_CONTRACT_SCHEMA_VERSION,
     LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION,
 )
-from .fanout_artifacts import validate_fanout_contract_provenance
 from .inflight import InflightMarkerError, clear_inflight_marker, write_inflight_marker
 from .unit_prompt_protocol import unit_protocol_lines
 from .fanout_unit_results import validate_unit_result
@@ -428,15 +426,7 @@ def _dispatch_capability_snapshot(
     if policy is not None and policy != "frozen_required":
         return None, ["executor_capability_snapshot_policy is unsupported"]
     if frozen_snapshot is None:
-        if policy == "frozen_required":
-            return None, ["executor_capability_snapshot is required by this handoff"]
-        return (
-            resolved_executor_capability_snapshot(
-                owner,
-                paths.executor_capability_snapshots_dir,
-            ),
-            [],
-        )
+        return None, ["executor_capability_snapshot is required by this handoff"]
     if not isinstance(frozen_snapshot, Mapping):
         return None, ["executor_capability_snapshot must be a mapping"]
     if frozen_snapshot.get("executor") != owner:
@@ -479,28 +469,26 @@ def fanout_dispatch_preflight(
     contract: Mapping[str, Any],
     *,
     only_units: Sequence[str] | None = None,
-    legacy_provenance: Mapping[str, object] | None = None,
+    goal_text: str | None = None,
+    live_safety_profile_revision: str | None = None,
 ) -> dict[str, Any]:
     """Validate persisted dispatch identity before any local tool activity."""
+    if goal_text is not None:
+        verify_goal_matches_contract(contract, goal_text)
+        verify_safety_profile_matches_contract(
+            contract,
+            live_safety_profile_revision,
+        )
     schema_version = str(contract.get("schema_version", ""))
-    if schema_version not in {
-        FANOUT_CONTRACT_SCHEMA_VERSION,
-        LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION,
-    }:
+    if schema_version == LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION:
+        raise ValueError(
+            "fanout_contract/v1 must be migrated with "
+            "'omh coding fanout migrate-legacy' before dispatch"
+        )
+    if schema_version != FANOUT_CONTRACT_SCHEMA_VERSION:
         raise ValueError(
             f"unsupported fanout contract schema_version: {schema_version or 'missing'}"
         )
-    if (
-        schema_version == LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION
-        and legacy_provenance is None
-    ):
-        raise ValueError(
-            "fanout_contract/v1 dispatch requires validated legacy provenance"
-        )
-    if schema_version == LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION:
-        validate_fanout_contract_provenance(contract, legacy_provenance or {})
-    elif legacy_provenance is not None:
-        raise ValueError("legacy provenance is valid only for fanout_contract/v1")
     raw_units = contract.get("units")
     if not isinstance(raw_units, list) or not all(
         isinstance(unit, Mapping) for unit in raw_units
@@ -592,7 +580,6 @@ def dispatch_fanout(
     runner: Callable[..., Any] = subprocess.run,
     readiness: Callable[..., dict[str, object]] = probe_executor_readiness,
     live_safety_profile_revision: str | None = None,
-    legacy_provenance: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     # Both boundary re-checks run first, before discovery, readiness probing,
     # any unit spawn, and any summary write: nothing downstream should observe a
@@ -603,7 +590,8 @@ def dispatch_fanout(
         paths,
         contract,
         only_units=only_units,
-        legacy_provenance=legacy_provenance,
+        goal_text=goal_text,
+        live_safety_profile_revision=live_safety_profile_revision,
     )
     units = preflight["units"]
     order = preflight["order"]

@@ -689,6 +689,94 @@ class FanoutCliTests(unittest.TestCase):
         self.assertEqual(stdout, "")
         self.assertIn("schema provenance", stderr)
 
+    def test_legacy_contract_requires_migration_before_dispatch(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+            contract = build_fanout_contract("split work", _UNITS)
+            contract["schema_version"] = "fanout_contract/v1"
+            for unit in contract["units"]:
+                unit["handoff"].pop("executor_capability_snapshot", None)
+                unit["handoff"].pop("executor_capability_snapshot_policy", None)
+            recorded = write_fanout_contract(paths, contract)
+            fanout_id = str(recorded["fanout_id"])
+            base = [
+                "--omh-home",
+                str(paths.omh_home),
+                "--hermes-home",
+                str(paths.hermes_home),
+            ]
+
+            status, stdout, stderr = run_cli(
+                base + ["coding", "fanout", "migrate-legacy", fanout_id]
+            )
+            self.assertEqual(status, 0, stderr)
+            migrated = json.loads(stdout)
+            self.assertEqual(migrated["schema_version"], "fanout_contract/v2")
+            for unit in migrated["units"]:
+                if unit["owner"] is not None:
+                    self.assertEqual(
+                        unit["handoff"]["executor_capability_snapshot_policy"],
+                        "frozen_required",
+                    )
+
+            status, stdout, stderr = run_cli(
+                base + ["coding", "fanout", "migrate-legacy", fanout_id]
+            )
+            self.assertEqual(status, 2)
+            self.assertEqual(stdout, "")
+            self.assertIn("already uses fanout_contract/v2", stderr)
+
+    def test_goal_mismatch_refuses_before_git_resolution(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = [
+                "--omh-home",
+                str(root / ".omh"),
+                "--hermes-home",
+                str(root / ".hermes"),
+            ]
+            status, stdout, stderr = run_cli(
+                base
+                + [
+                    "coding",
+                    "fanout",
+                    "prepare",
+                    "--goal",
+                    "split",
+                    "work",
+                    "--units",
+                    str(self._units_file(root)),
+                    "--record",
+                ]
+            )
+            self.assertEqual(status, 0, stderr)
+            fanout_id = json.loads(stdout)["fanout_id"]
+            goal = root / "goal.txt"
+            goal.write_text("different goal", encoding="utf-8")
+
+            with mock.patch(
+                "subprocess.run",
+                side_effect=AssertionError("git resolution ran"),
+            ):
+                status, stdout, stderr = run_cli(
+                    base
+                    + [
+                        "coding",
+                        "fanout",
+                        "dispatch",
+                        fanout_id,
+                        "--goal-file",
+                        str(goal),
+                        "--repo-root",
+                        str(root),
+                    ]
+                )
+
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("goal text does not match", stderr)
+
     def test_fanout_brief_bounds_invalid_owner_metadata(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

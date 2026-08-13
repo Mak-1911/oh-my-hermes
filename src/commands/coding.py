@@ -1606,25 +1606,18 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
         read_fanout_contract,
         read_fanout_contract_provenance,
     )
-    from ..coding.fanout_contracts import LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION
     from ..coding.fanout_dispatch import dispatch_fanout, fanout_dispatch_preflight
 
     paths = _paths(args)
     try:
         contract = read_fanout_contract(paths, args.fanout_id)
-        provenance = read_fanout_contract_provenance(
+        read_fanout_contract_provenance(
             paths,
             args.fanout_id,
             contract,
         )
     except (OSError, ValueError) as exc:
         raise OmhError(f"fanout contract not found: {exc}") from exc
-    recorded_schema_version = str(provenance.get("contract_schema_version", ""))
-    legacy_provenance = (
-        provenance
-        if recorded_schema_version == LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION
-        else None
-    )
     goal_text = sys.stdin.read() if args.goal_file == "-" else Path(args.goal_file).expanduser().read_text(encoding="utf-8")
     repo_root = Path(args.repo_root).expanduser().resolve()
     try:
@@ -1632,7 +1625,7 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
             paths,
             contract,
             only_units=args.unit,
-            legacy_provenance=legacy_provenance,
+            goal_text=goal_text,
         )
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
@@ -1647,7 +1640,6 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
             timeout=args.timeout,
             only_units=args.unit,
             dry_run=bool(args.dry_run),
-            legacy_provenance=legacy_provenance,
         )
         _print_json(summary)
         return 0
@@ -1675,11 +1667,58 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
             timeout=args.timeout,
             only_units=args.unit,
             dry_run=bool(args.dry_run),
-            legacy_provenance=legacy_provenance,
         )
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
     _print_json(summary)
+    return 0
+
+
+def cmd_coding_fanout_migrate_legacy(args: argparse.Namespace) -> int:
+    from copy import deepcopy
+
+    from ..coding.executor_capability_snapshots import (
+        resolved_executor_capability_snapshot,
+    )
+    from ..coding.fanout_artifacts import read_fanout_contract, write_fanout_contract
+    from ..coding.fanout_contracts import (
+        FANOUT_CONTRACT_SCHEMA_VERSION,
+        LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION,
+    )
+
+    paths = _paths(args)
+    try:
+        contract = read_fanout_contract(paths, args.fanout_id)
+    except (OSError, ValueError) as exc:
+        raise OmhError(f"fanout contract not found: {exc}") from exc
+    schema_version = contract.get("schema_version")
+    if schema_version == FANOUT_CONTRACT_SCHEMA_VERSION:
+        raise OmhError("fanout contract already uses fanout_contract/v2")
+    if schema_version != LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION:
+        raise OmhError("only fanout_contract/v1 can be migrated")
+    migrated = deepcopy(contract)
+    migrated["schema_version"] = FANOUT_CONTRACT_SCHEMA_VERSION
+    for unit in migrated.get("units", []):
+        if not isinstance(unit, dict):
+            raise OmhError("legacy fanout contract units must be objects")
+        owner = unit.get("owner")
+        handoff = unit.get("handoff")
+        if owner is None:
+            continue
+        if not isinstance(owner, str) or not isinstance(handoff, dict):
+            raise OmhError("legacy fanout contract owner/handoff is invalid")
+        snapshot = resolved_executor_capability_snapshot(
+            owner,
+            paths.executor_capability_snapshots_dir,
+        )
+        handoff["executor_capability_snapshot_policy"] = "frozen_required"
+        handoff["executor_capability_snapshot"] = snapshot
+    migrated.pop("artifacts", None)
+    try:
+        recorded = write_fanout_contract(paths, migrated)
+    except (OSError, ValueError) as exc:
+        raise OmhError(f"could not migrate fanout contract: {exc}") from exc
+    _print_json(recorded)
     return 0
 
 
@@ -1772,6 +1811,13 @@ def _add_coding_commands(sub) -> None:
     fanout_dispatch.add_argument("--unit", action="append", default=None, help="Dispatch only these unit ids (repeatable).")
     fanout_dispatch.add_argument("--dry-run", action="store_true", help="Resolve readiness, argv, and worktree paths; spawn nothing.")
     fanout_dispatch.set_defaults(func=cmd_coding_fanout_dispatch)
+
+    fanout_migrate = fanout_sub.add_parser(
+        "migrate-legacy",
+        help="Convert a recorded fanout_contract/v1 into frozen-evidence v2 before dispatch.",
+    )
+    fanout_migrate.add_argument("fanout_id")
+    fanout_migrate.set_defaults(func=cmd_coding_fanout_migrate_legacy)
 
     fanout_brief = fanout_sub.add_parser(
         "brief",
