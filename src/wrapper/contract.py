@@ -176,6 +176,7 @@ VISIBLE_ACTIONS = (
     "choose_source",
     "route_to_downstream_workflow",
     "show_acquisition_status",
+    "prepare_learning_brief",
     "prepare_paper_learning",
     "choose_explanation_level",
     "show_paper_source_requirements",
@@ -906,6 +907,7 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "prepare_scheduled_ops_blueprint": ("prepare_scheduled_ops_blueprint", "Prepare automation"),
     "prepare_research_department_plan": ("prepare_research_department_plan", "Prepare research flow"),
     "prepare_source_finder_plan": ("prepare_source_finder_plan", "Prepare sources"),
+    "prepare_learning_brief": ("prepare_learning_brief", "Confirm learning target"),
     "prepare_paper_learning": ("prepare_paper_learning", "Prepare paper learning"),
     "prepare_workspace_audit": ("prepare_workspace_audit", "Prepare audit"),
     "prepare_production_audit": ("prepare_production_audit", "Audit production"),
@@ -3265,6 +3267,44 @@ _WORKFLOW_OPERATIONS_CHAT_CARDS.update(
             ],
             "recommended_flow": ["scope_learners_prerequisites_outcomes_and_constraints", "build_scope_and_sequence", "prepare_assessment_rubric_and_completion_evidence", "surface_accessibility_adaptation_and_rights_gaps"],
             "evidence_not_observed": ["LMS creation", "learner enrollment", "grading", "certification", "learning outcome"],
+        },
+        "jit-learn": {
+            "kind": "jit_learn",
+            "headline": "I can find the one thing worth learning for this problem right now.",
+            "body": (
+                "I will ask one confirmation question before any research - even when the request already looks complete - to settle why this "
+                "matters now, what you already know, and where the learning gets applied. Then I confirm the target as `Learn X now so I can "
+                "do/decide Y in context Z by T.` and prepare a source-gated Markdown brief with Books, Podcasts, Creators, and Courses ranked by "
+                "fit, authority, currency, time to first value, and direct transfer instead of popularity. An empty section says why nothing "
+                "qualified rather than padding the list."
+            ),
+            "phase": "learning_target_confirmation",
+            "next_action": "prepare_learning_brief",
+            "artifact_schema": "jit_learn_brief_card/v1",
+            "claim_boundary_suffix": (
+                "A confirmed target is an interview decision, not research; recommendations stay prepared until the sources "
+                "behind them are observed."
+            ),
+            "actions": [
+                {"id": "prepare_learning_brief", "label": "Confirm learning target", "style": "primary"},
+                {"id": "answer:clarify", "label": "Answer the question", "style": "secondary"},
+                {"id": "show_status", "label": "Show status", "style": "secondary"},
+            ],
+            "recommended_flow": [
+                "review_supplied_and_approved_context",
+                "ask_one_confirmation_question",
+                "confirm_the_immediate_learning_target",
+                "scope_source_gated_research",
+                "prepare_the_application_first_learning_brief",
+            ],
+            "evidence_not_observed": [
+                "source retrieval",
+                "link or currency verification",
+                "source consumption",
+                "learning or progress",
+                "application of the recommendation",
+                "blocker resolution",
+            ],
         },
         "sales-development": {
             "kind": "sales_development",

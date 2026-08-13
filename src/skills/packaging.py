@@ -12,6 +12,7 @@ from .render import (
     context_reference_templates,
     context_skill,
     deep_interview_skill,
+    jit_learn_skill,
     memory_new_skill,
     memory_sync_skill,
     router_reference_templates,
@@ -41,6 +42,8 @@ def _skill_template_for(name: str) -> SkillTemplate:
         return context_skill()
     if name == "deep-interview":
         return deep_interview_skill()
+    if name == "jit-learn":
+        return jit_learn_skill()
     if name == "memory-new":
         return memory_new_skill()
     if name == "memory-sync":

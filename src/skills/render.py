@@ -1616,6 +1616,53 @@ This is a Hermes-native `{name}` workflow skill.
     return SkillTemplate(name, _frontmatter(name, definition.description) + "\n" + body)
 
 
+def jit_learn_skill() -> SkillTemplate:
+    """Render the canonical just-in-time learning workflow with its compact protocol."""
+    template = workflow_skill("jit-learn")
+    max_rounds = DEEP_INTERVIEW_MAX_ROUNDS
+    protocol = f"""## Just-in-Time Learning Protocol
+
+1. Review only the current conversation and reviewed or explicitly approved OMH context. Never claim access to hidden Hermes memory and never create a learner profile.
+2. Always ask at least one confirmation question before research, including when the request appears complete. Ask exactly one question per turn. Resolve three readiness dimensions: **urgency/trigger** (why now), **current level** (what the user already knows or can do), and **application window** (where and by when this will be used), plus only practical constraints that change the recommendation. Record this evidence step as `confirmation_asked`.
+3. Reuse the deep-interview early-stop discipline and its shared ceiling of {max_rounds} rounds. After the mandatory first answer, stop asking as soon as the three readiness dimensions are clear. If the ceiling is reached, state assumptions and gaps instead of asking again.
+4. Confirm one target before research in exactly this semantic form: `Learn X now so I can do/decide Y in context Z by T.` Here T means the application deadline. When the initial request already supplies all readiness dimensions, use the mandatory first question to confirm this target so research can begin after one answer.
+5. Scope research around that target. Prefer primary, institutional, and credible practitioner sources; check authority, currency, availability, and links. Admit and rank by specific fit, authority, currency, time-to-first-value, and direct transfer. Never admit or rank from bestseller status, ratings, followers, charts, generic popularity, or unsupported reputation.
+6. Prepare the Markdown brief, then stop. Do not buy, download, enroll, subscribe, contact creators, bypass access controls, write externally, or imply those actions happened.
+
+## Learning Brief Contract
+
+Start with the confirmed target statement and a short source-boundary note. Then render all four headings, even when empty:
+
+- `## Books`
+- `## Podcasts`
+- `## Creators`
+- `## Courses`
+
+Under every heading, list only candidates that passed the source gate. If none passed, say why - for example, insufficient authority, stale or unavailable evidence, poor immediate fit, or an unresolved retrieval gap - rather than padding the section.
+
+For every recommendation include:
+
+- **Title**
+- **Format**
+- **Creator/Publisher**
+- **Link**
+- **Source class** - primary, institutional, or credible practitioner
+- **Time to first value**
+- **Why it fits** - why it fits this user, target, level, and application window
+- **First immediate application** - the first concrete use in the user's present context
+- **Link/currency caveat** - link, availability, access, or currency limits when applicable
+
+Close with `## Competing Targets Considered`, `## Filtered Out`, `## Gaps`, and `## Next Action`. Name the competing learning targets, generic defaults or resources rejected and why, unresolved evidence/context gaps, and exactly one recommended starting action.
+
+The terminal state is `learning_brief_prepared`: the brief is prepared, not observed learning. Preparation does not prove source consumption, learning, progress, application, effectiveness, or resolution of the original blocker.
+
+"""
+    marker = "## Runtime Evidence\n"
+    if marker not in template.content:
+        raise ValueError("jit-learn skill runtime-evidence marker is missing")
+    return SkillTemplate(template.name, template.content.replace(marker, protocol + marker, 1))
+
+
 def context_skill() -> SkillTemplate:
     """Render the canonical project-terminology workflow with progressive references."""
     template = workflow_skill("context")

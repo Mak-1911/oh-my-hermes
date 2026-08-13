@@ -577,6 +577,83 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Gather discoverable repo facts before asking the user.
   - Stop interviewing when all three clarity dimensions are resolved, the user asks to stop, or round 6 is reached.
 
+### jit-learn
+
+[omh] Just-in-time learning workflow: select and confirm an immediate learning target, research credible sources, and prepare an application-first brief without popularity ranking.
+
+- Category: `research`
+- Phase: `learning-target`
+- Hermes role: `researcher`
+- Quality tier: `source-gated`
+- Reasoning demand: `standard`
+- Exposure: `direct_skill`
+- Install visibility: `true`
+- Docs visibility: `primary_workflow_skill`
+- Compatibility alias: `false`
+- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Handoff policy: Keep reviewed-context interpretation, the bounded one-question-at-a-time interview, target selection, source research, and Markdown brief preparation in Hermes. Do not create a learner profile, take an external action, or claim that a recommendation was consumed, learned, applied, or resolved the blocker.
+- Why this exists: `jit-learn` exists to choose what is worth learning for the user's present problem and convert credible sources into an immediate application path, instead of returning a generic self-help shelf or a popularity list.
+- Use when: Use when selecting the highest-leverage immediate learning target for an active blocker before preparing a source-backed Markdown brief for direct application.
+- Do not use when:
+  - The user asks OMH to learn from workflow outcomes, missed routes, or evaluation traces; use `workflow-learning`.
+  - The learning goal is already chosen and the user wants a multi-week syllabus, instructional sequence, or assessment plan; use `curriculum-design`.
+  - The user supplied a paper, PDF, arXiv entry, or excerpt and wants it explained; use `paper-learning`.
+  - The requested output is a typed source candidate inventory or acquisition status rather than a fitted learning brief; use `source-finder`.
+  - The research question and target are already scoped and the user wants current facts, citations, or source synthesis rather than choosing what to learn; use `research`.
+- Strong routing signals: `jit-learn`, `learn next`, `learn now`, `blocker-specific learning target`, `highest-leverage learning target`, `immediate learning payoff`, `immediately applicable learning brief`, `source-backed learning brief`, `학습 주제`, `도움 되는 학습 주제`, `당장 적용할 학습 목표`, `책 팟캐스트 크리에이터 강의 학습 브리프`
+- Good example:
+  - Prompt: What should I learn next to solve my current onboarding blocker? Recommend books, podcasts, creators, and courses I can apply this week.
+  - Expected behavior: Ask one confirmation question, confirm the immediate target, then prepare a source-backed four-section learning brief ranked by fit and time-to-first-value.
+  - Why: The user needs target selection and immediate transfer, not a generic curriculum or popularity-ranked resource list.
+- Bad example:
+  - Prompt: Design a six-week Python syllabus with weekly assessments.
+  - Expected behavior: Route to `curriculum-design` because the target is already chosen and the requested output is a sequenced curriculum.
+  - Why: Just-in-time target selection should not displace an explicit curriculum-design request.
+- Quality bar:
+  - Resolve urgency/trigger, current level, and application window with one question per turn, while stopping early once all three are clear after the mandatory first answer.
+  - Confirm one target in the form `Learn X now so I can do/decide Y in context Z by T.` before source research.
+  - Prefer primary, institutional, and credible practitioner sources; rank by specific fit, authority, currency, time-to-first-value, and direct transfer rather than popularity.
+  - Keep Books, Podcasts, Creators, and Courses visible even when no candidate passes, and explain every empty section instead of padding it.
+  - For each admitted resource, state title, format, creator/publisher, link, source class, time to first value, specific fit, first application, and applicable link/access/currency caveats.
+  - Close with competing targets considered, filtered-out defaults, unresolved gaps, and exactly one recommended starting action.
+- Completion checklist:
+  - At least one confirmation question was answered, no turn contained more than one question, and the shared interview ceiling was respected.
+  - Urgency/trigger, current level, application window, and the target statement are explicit before research.
+  - Every admitted recommendation is source-gated and popularity signals did not influence admission or rank.
+  - Books, Podcasts, Creators, and Courses are present with complete fields or an honest empty-section reason.
+  - Competing targets, filtered-out defaults, unresolved gaps, and one starting action are visible.
+  - The final status says the brief is prepared and does not claim consumption, learning, application, progress, or blocker resolution.
+- Recovery notes:
+  - If a required readiness dimension remains unclear, ask the one answer that most changes the target while the shared round budget remains.
+  - If the shared interview ceiling is reached, proceed with explicit assumptions and gaps rather than asking another question.
+  - If sources or links cannot be checked, leave the affected section empty with the retrieval reason instead of adding a generic recommendation.
+  - If the target becomes a syllabus, supplied-paper explanation, source inventory, already-scoped research question, or OMH self-improvement request, preserve the sibling boundary and route accordingly.
+- Required inputs:
+  - reviewed context
+  - urgency
+  - current level
+  - application window
+  - time/format constraints
+- Expected outputs:
+  - confirmed target statement: Learn X now so I can do/decide Y in context Z by T.
+  - source-backed Markdown learning brief
+  - Books section, including an explicit no-qualifying-candidate reason when empty
+  - Podcasts section, including an explicit no-qualifying-candidate reason when empty
+  - Creators section, including an explicit no-qualifying-candidate reason when empty
+  - Courses section, including an explicit no-qualifying-candidate reason when empty
+  - for every recommendation: title, format, creator/publisher, link, source class, time to first value, specific fit now, first application, and caveats
+  - competing learning targets, filtered-out defaults, unresolved gaps, and one recommended next action
+- Artifact expectations:
+  - prepared Markdown learning brief with observed source links and explicit retrieval gaps when a wrapper captures it
+- Safety rules:
+  - Always ask at least one confirmation question before research, exactly one question per turn, even when the initial request appears complete.
+  - Use the shared deep-interview ceiling of 6 rounds and its early-stop discipline; do not create a second interview budget.
+  - Use only the current conversation and reviewed or explicitly approved OMH context; never claim hidden Hermes memory or create a persistent learner profile.
+  - Admit recommendations only from primary, institutional, or credible practitioner evidence whose authority, currency, availability, and link can be checked; report retrieval gaps instead of inventing support.
+  - Never use bestseller status, ratings, follower counts, charts, generic popularity, or unsupported reputation as admission or ranking evidence.
+  - Do not purchase, download, enroll, subscribe, contact a creator, bypass a paywall, write to an external system, or imply any external action occurred.
+  - A prepared brief is not evidence that the user consumed a resource, learned, made progress, applied the advice, or resolved the original blocker.
+
 ### team
 
 [omh] Team - run N coordinated workers on one shared task list with explicit lane ownership and merged verification; choose over raw subagents when lanes must not collide.
@@ -8978,6 +9055,68 @@ Clarify intent and boundaries one question at a time before planning or executio
   - A clarification question is not a plan approval.
   - Do not start a handoff while the blocking decision is unanswered.
 - Fallback: If structured question UI is unavailable, ask one direct question in the current surface.
+
+### jit-learn
+
+Confirm the highest-leverage immediate learning target and prepare a source-gated, application-first Markdown resource brief.
+
+- Use when: Use when the user's present blocker calls for choosing what to learn now before researching fitted books, podcasts, creators, and courses.
+- Quality tier: `source-gated`
+- Quality bar:
+  - Always ask at least one confirmation question and exactly one question per turn.
+  - Resolve urgency/trigger, current level, and application window before confirming the target.
+  - Admit and rank resources by fit, authority, currency, time-to-first-value, and transfer rather than popularity.
+  - Keep every resource field and all four format sections visible, including honest empty-section reasons.
+  - Separate the prepared brief from consumption, learning, progress, application, and blocker-resolution claims.
+- Inputs:
+  - reviewed current context
+  - urgency/trigger
+  - current level
+  - application window
+  - practical time and format constraints
+- Outputs:
+  - confirmed target statement
+  - source-backed Markdown learning brief
+  - Books, Podcasts, Creators, and Courses sections
+  - filtered-out resources, gaps, and one next action
+- Stop conditions:
+  - at least one confirmation answer is recorded
+  - urgency/trigger, current level, and application window are resolved or explicitly assumed
+  - the target is confirmed before research
+  - the shared interview ceiling of 6 rounds is respected
+  - the learning brief is prepared with source and evidence gaps visible
+- Verification:
+  - check one-question-per-turn and mandatory-first-confirmation discipline
+  - check target statement and all four format sections
+  - check source authority, currency, availability, and links
+  - reject popularity-led admission or ranking
+  - check prepared-not-observed boundary
+- Evidence ladder:
+  - `context_reviewed`
+  - `confirmation_asked`
+  - `target_confirmed`
+  - `research_scoped`
+  - `learning_brief_prepared`
+- Wrapper actions:
+  - `answer:clarify`
+  - `prepare_learning_brief`
+  - `show_sources`
+  - `ask_followup`
+  - `show_brief`
+  - `show_status`
+- Artifact events:
+  - `context_reviewed`
+  - `confirmation_asked`
+  - `target_confirmed`
+  - `research_scoped`
+  - `learning_brief_prepared`
+- Delegation expectation: Record jit-learn as Hermes-retained interview and research guidance; source retrieval is observed only when links or source notes are captured, and learning remains unobserved.
+- Privacy default: `metadata_only`
+- Overclaim guards:
+  - A prepared learning brief is not proof that a source was consumed, understood, applied, or effective.
+  - A source plan or unchecked link is not observed source retrieval or verification.
+  - A recommendation cannot prove learning progress or resolution of the original blocker.
+- Fallback: If a readiness dimension is missing, ask one confirmation question; if sources cannot be checked, explain the empty section and retrieval gap instead of padding the brief.
 
 ### architect
 

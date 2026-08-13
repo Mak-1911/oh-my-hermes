@@ -27,6 +27,7 @@ class NativeSkillCompetitionTests(unittest.TestCase):
             ("live-info-operator", "omh"),
             ("context", "omh"),
             ("context", "native"),
+            ("jit-learn", "omh"),
         }
         self.assertEqual(
             {(case.omh_skill, case.expected_winner) for case in NATIVE_COMPETITION_CASES},
@@ -47,8 +48,8 @@ class NativeSkillCompetitionTests(unittest.TestCase):
         report = build_native_skill_competition_report()
 
         self.assertEqual(report["schema_version"], "omh_native_skill_competition/v1")
-        self.assertEqual(report["case_count"], 12)
-        self.assertEqual(report["passed_count"], 12)
+        self.assertEqual(report["case_count"], 13)
+        self.assertEqual(report["passed_count"], 13)
         self.assertEqual(report["failed_count"], 0)
         self.assertEqual(report["failures"], [])
         for result in report["results"]:
@@ -83,7 +84,7 @@ class NativeSkillCompetitionTests(unittest.TestCase):
 
         self.assertEqual(status, 0, stderr)
         self.assertEqual(stderr, "")
-        self.assertIn("cases: 12/12 passing", stdout)
+        self.assertIn("cases: 13/13 passing", stdout)
         self.assertIn("failures: none", stdout)
 
         status, stdout, stderr = run_cli(["demo", "native-competition", "--json"], output_json=False)

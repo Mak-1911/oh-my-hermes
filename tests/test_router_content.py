@@ -1366,6 +1366,7 @@ class RouterContentTests(unittest.TestCase):
                 "app-delivery-loop",
                 "goal-loop",
                 "deep-interview",
+                "jit-learn",
                 "architect",
                 "critic",
                 "qa-specialist",
@@ -3279,13 +3280,20 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[GitHub Pages site](site/index.html)", readme)
         self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal", readme)
         self.assertIn("replacing Hermes or hiding a coding executor", readme)
-        self.assertIn("**105 installable workflow skills**", readme)
-        self.assertIn("**105개**", localized_readmes["ko"])
-        self.assertIn("**105 個**", localized_readmes["ja"])
-        self.assertIn("**105 个**", localized_readmes["zh"])
-        self.assertIn("나머지 93개", localized_readmes["ko"])
-        self.assertIn("残り 93 個", localized_readmes["ja"])
-        self.assertIn("其余 93 个", localized_readmes["zh"])
+        self.assertIn("**106 installable workflow skills**", readme)
+        self.assertIn("**106개**", localized_readmes["ko"])
+        self.assertIn("**106 個**", localized_readmes["ja"])
+        self.assertIn("**106 个**", localized_readmes["zh"])
+        self.assertIn("나머지 94개", localized_readmes["ko"])
+        self.assertIn("残り 94 個", localized_readmes["ja"])
+        self.assertIn("其余 94 个", localized_readmes["zh"])
+        # The omh-labeled complement is derived, not pinned: total installable
+        # skills minus the ULW engine names. A new skill or engine moves the
+        # README prose only when the arithmetic moves it.
+        from omh.skills.catalog_types import ULW_ENGINE_SKILL_NAMES
+
+        omh_labeled_complement = len(builtin_skill_templates()) - len(ULW_ENGINE_SKILL_NAMES)
+        self.assertIn(f"the remaining {omh_labeled_complement} skills use `omh-` labels", readme)
         for localized_readme in localized_readmes.values():
             # A localized README stays a trimmed landing page, never a full
             # translation of every English section. The budget grew from 240
@@ -3474,7 +3482,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[Roles](ROLES.md)", docs_readme)
         self.assertIn("Agent Install Protocol", docs_readme)
         self.assertIn("`deep-interview`, `ralplan`, `ultragoal`, `loop`", docs_readme)
-        self.assertIn("**105 installable skills**", docs_readme)
+        self.assertIn("**106 installable skills**", docs_readme)
         self.assertIn("**Retain knowledge**", docs_readme)
         self.assertIn("python -m unittest discover -s tests", ci)
         self.assertIn("python -m compileall src", ci)

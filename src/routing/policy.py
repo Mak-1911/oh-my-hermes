@@ -381,6 +381,133 @@ _PAPER_LEARNING_VALIDATION_PHRASES = (
     "증명 검토",
     "재현해",
 )
+# `jit-learn` owns one decision: what is worth learning right now for this
+# person's live problem. The cue sets stay multi-word or intent-bearing on
+# purpose: a bare "learn" belongs to `workflow-learning`, `paper-learning`, and
+# `curriculum-design` at least as much as it belongs here.
+_JIT_LEARN_PHRASES = (
+    "jit-learn",
+    "jit learn",
+    "just-in-time learning",
+    "just in time learning",
+    "what should i learn next",
+    "what should i learn now",
+    "what should i learn first",
+    "what do i need to learn next",
+    "what do i need to learn now",
+    "what to learn next",
+    "what to learn now",
+    "learn next to solve",
+    "learn now to solve",
+    "highest leverage thing to learn",
+    "highest-leverage thing to learn",
+    "highest payoff thing to learn",
+    "highest-payoff thing to learn",
+    "most useful thing to learn",
+    "worth learning right now",
+    # Korean cues carry the immediate-learning intent, matching the catalog's
+    # own multi-word triggers. Bare `학습 주제` and `학습 목표` are the ordinary
+    # nouns for "learning topic" and "learning objective", which a curriculum,
+    # syllabus, or course-design request uses just as naturally.
+    "지금 배워야",
+    "지금 뭘 배워야",
+    "뭘 배워야",
+    "무엇을 배워야",
+    "도움 되는 학습 주제",
+    "도움되는 학습 주제",
+    "당장 적용할 학습 목표",
+)
+# Sibling boundary, checked before any positive cue. A sequenced curriculum is
+# `curriculum-design`'s decision even when the request also names a learning
+# topic or objective. Korean tokens keep their particles (`커리큘럼을`,
+# `교육과정을`), so this has to match on the phrase, not the token set.
+# Shared with the awareness route-hint surface so the router and the hint hook
+# cannot drift apart on where jit-learn stops and curriculum-design begins.
+# `omh.plugin_bundle.omh.awareness` imports this; keep it importable and public.
+JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES = (
+    "curriculum",
+    "syllabus",
+    "커리큘럼",
+    "교육과정",
+    "교육 과정",
+    "강의계획",
+    "강의 계획",
+)
+_JIT_LEARN_LEARNING_TOKENS = _normalized_token_set(
+    {
+        "learn",
+        "learning",
+        "study",
+        "upskill",
+        "배우",
+        "배워야",
+        "학습",
+        "공부",
+    }
+)
+_JIT_LEARN_IMMEDIACY_PHRASES = (
+    "right now",
+    "learn now",
+    "learn next",
+    "need to learn",
+    "i need to learn",
+    "have to learn",
+    "before friday",
+    "by friday",
+    "this week",
+    "next week",
+    "before the",
+    "before our",
+    "before my",
+    "in time for",
+    "current blocker",
+    "my blocker",
+    "stuck on",
+    "blocking me",
+    "immediately applicable",
+    "apply this week",
+    "지금",
+    "당장",
+    "이번 주",
+    "바로 적용",
+    "막혀",
+)
+# The four requested brief sections, plus the generic "resource" wording people
+# use for the same ask. Two distinct kinds must appear so a single "book" or
+# "course" mention does not pull a curriculum or source-inventory request here.
+_JIT_LEARN_RESOURCE_TOKEN_GROUPS = (
+    _normalized_token_set({"book", "books", "책", "도서"}),
+    _normalized_token_set({"podcast", "podcasts", "팟캐스트"}),
+    _normalized_token_set({"creator", "creators", "크리에이터"}),
+    _normalized_token_set({"course", "courses", "강의", "강좌"}),
+)
+_JIT_LEARN_APPLICATION_PHRASES = (
+    "so i can",
+    "so that i can",
+    "to solve",
+    "to diagnose",
+    "to decide",
+    "to unblock",
+    "to fix",
+    "apply",
+    "적용",
+    "해결",
+    "판단",
+)
+_JIT_LEARN_INCIDENT_ARTIFACT_PHRASES = (
+    "incident report",
+    "incident postmortem",
+    "postmortem report",
+)
+_JIT_LEARN_INCIDENT_INVESTIGATION_TOKENS = _normalized_token_set(
+    {"study", "investigate", "review", "analyze", "examine"}
+)
+_JIT_LEARN_INCIDENT_LESSON_PHRASES = (
+    "learn from the incident",
+    "learn from incident",
+    "learn from the postmortem",
+    "learn from postmortem",
+)
 _SOURCE_FINDER_ACTION_TOKENS = _normalized_token_set(
     {
         "find",
@@ -4845,6 +4972,21 @@ PAPER_LEARNING_GUARD = RoutingGuardRule(
     why="Matched guard/trigger metadata; paper explanation requests need level selection, source-state evidence, and a coverage ledger.",
     activation_status="active",
 )
+JIT_LEARN_GUARD = RoutingGuardRule(
+    id="jit_learn_before_generic_research_or_review",
+    rule=(
+        "Requests to pick what to learn right now for a live blocker, with immediately applicable books, podcasts, "
+        "creators, or courses, should route to jit-learn before generic research, review, or curriculum workflows."
+    ),
+    matched_label="guard:jit_learn",
+    preferred_skills=("jit-learn",),
+    score_boost=38,
+    why=(
+        "Matched guard/trigger metadata; immediate-learning requests need a confirmed learning target and a "
+        "source-gated, application-first brief instead of generic research or review."
+    ),
+    activation_status="active",
+)
 ROUTING_GUARD_RULES = (
     RISKY_REFACTOR_GUARD,
     SAFE_FEATURE_PLAN_GUARD,
@@ -4864,6 +5006,7 @@ ROUTING_GUARD_RULES = (
     WORKFLOW_LEARNING_GUARD,
     OMH_QUALITY_IMPROVEMENT_GUARD,
     PAPER_LEARNING_GUARD,
+    JIT_LEARN_GUARD,
     RESEARCH_DEPARTMENT_GUARD,
     SCHEDULED_OPS_BLUEPRINT_GUARD,
     SOURCE_FINDER_GUARD,
@@ -5264,6 +5407,18 @@ def _active_routing_guard_rules_cached(
     )
     if source_finder_applies:
         rules.append(SOURCE_FINDER_GUARD)
+    # Every sibling that owns a narrower learning surface wins first: OMH
+    # self-improvement, supplied-paper explanation, recurring research ops, and
+    # typed source acquisition. `jit-learn` only takes what is left.
+    if (
+        not delivery_cycle_applies
+        and not workflow_learning_applies
+        and not paper_learning_applies
+        and not research_department_applies
+        and not source_finder_applies
+        and _jit_learn_guard_applies(normalized_query, query_tokens)
+    ):
+        rules.append(JIT_LEARN_GUARD)
     if _missed_workflow_operating_record_guard_applies(
         normalized_query,
         query_tokens,
@@ -6090,6 +6245,40 @@ def _explicit_scheduled_ops_blueprint_requested(normalized_query: str, query_tok
         _SCHEDULED_OPS_CADENCE_TOKENS & query_tokens
     )
     return blueprint and scheduled_context
+
+
+def _jit_learn_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:
+    # Sibling boundaries are checked before positive cues where the same words
+    # can name both jobs. A sequenced curriculum always belongs to curriculum
+    # design; an explicit immediate-learning question can still use an incident
+    # as context, but studying an incident artifact is investigation, not target
+    # selection.
+    if _contains_phrase(normalized_query, JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES):
+        return False
+    if _contains_phrase(normalized_query, _JIT_LEARN_PHRASES):
+        return True
+    incident_artifact = _contains_phrase(
+        normalized_query,
+        _JIT_LEARN_INCIDENT_ARTIFACT_PHRASES,
+    )
+    incident_investigation = bool(
+        _JIT_LEARN_INCIDENT_INVESTIGATION_TOKENS & query_tokens
+    ) or _contains_phrase(normalized_query, _JIT_LEARN_INCIDENT_LESSON_PHRASES)
+    if incident_artifact and incident_investigation:
+        return False
+    if not bool(_JIT_LEARN_LEARNING_TOKENS & query_tokens):
+        return False
+    resource_kinds = sum(
+        1 for group in _JIT_LEARN_RESOURCE_TOKEN_GROUPS if bool(group & query_tokens)
+    )
+    immediacy = _contains_phrase(normalized_query, _JIT_LEARN_IMMEDIACY_PHRASES)
+    application = _contains_phrase(normalized_query, _JIT_LEARN_APPLICATION_PHRASES)
+    # Two or more of the requested formats plus a live application window is the
+    # well-formed request; immediacy plus a stated application is the
+    # under-specified one. Either way the user is choosing what to learn now.
+    if resource_kinds >= 2 and (immediacy or application):
+        return True
+    return immediacy and application
 
 
 def _paper_learning_guard_applies(
@@ -7821,6 +8010,10 @@ def _media_input_operator_guard_applies(normalized_query: str, query_tokens: set
 
 def media_input_operator_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:
     return _media_input_operator_guard_applies(normalized_query, query_tokens)
+
+
+def jit_learn_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:
+    return _jit_learn_guard_applies(normalized_query, query_tokens)
 
 
 def _content_operator_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:
