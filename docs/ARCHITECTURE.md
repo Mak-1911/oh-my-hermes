@@ -2522,11 +2522,11 @@ fanout lane, `coding/fanout.py::build_fanout_contract` freezes
 `safety_profile_revision` into the contract beside the goal digest, and
 `coding/fanout_dispatch.py::verify_safety_profile_matches_contract` re-checks it
 next to `verify_goal_matches_contract` before discovery, readiness probing, any
-unit spawn, and any state write. The field is additive under
-`fanout_contract/v1`: an absent frozen revision means "not gated", so contracts
-frozen before the field keep dispatching, while a contract that froze a revision
-in an environment that can no longer produce one is refused — an unprovable
-profile is drift, not a pass.
+unit spawn, and any state write. Current prepared contracts use
+`fanout_contract/v2`; an absent frozen revision remains "not gated" only after
+an older v1 artifact is explicitly upgraded through the operator migration
+path. A contract that froze a revision in an environment that can no longer
+produce one is refused — an unprovable profile is drift, not a pass.
 
 The ordering is the guarantee, not an implementation detail. Both re-checks run
 before any confirmation is requested, so a user is never asked to approve work

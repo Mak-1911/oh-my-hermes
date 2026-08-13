@@ -11,7 +11,8 @@ goal to Hermes in chat; these commands are the backend surface.
    --record` validates the split deterministically (boundary overlaps without
    a `depends_on` edge are hard errors; dependency cycles are hard errors; a
    split wider than four units with no spawn plan is a hard error, see
-   **Spawn plan** below) and freezes it as `fanout_contract/v1` under
+   **Spawn plan** below) and freezes it as `fanout_contract/v2` with one
+   deterministic capability snapshot per assigned owner under
    `~/.omh/coding/fanout/<id>/`. The goal is stored as a digest only.
 3. **Dispatch (opt-in bridge)** — `omh coding fanout dispatch <id>
    --goal-file goal.txt` spawns each spawnable unit's local agent CLI in an
@@ -112,8 +113,8 @@ Rules:
   `safety_profile_revision` it was prepared under. Dispatch re-checks it beside
   the goal digest, before discovery, readiness probing, any spawn, and any
   write; a drifted or unprovable profile is refused and the contract must be
-  re-prepared. The field is optional under `fanout_contract/v1`: a contract
-  frozen before it existed carries no revision and is not gated.
+  re-prepared. Legacy v1 migration preserves an absent revision as "not gated"
+  in the resulting v2 contract; v1 itself never dispatches.
 - **Owner-readiness integrity.** Each unit's owner is rechecked immediately
   before its handoff. A stored readiness observation counts only while it is
   still fresh and still bound to the same profile, tool, permission profile,
@@ -403,6 +404,9 @@ omh coding fanout prepare --goal <words...> --units units.json [--record] [--sou
 omh coding fanout validate --units units.json   # also reports spawn_plan_required
 omh coding fanout show <fanout-id> [--limit 20] [--full]
 omh coding fanout brief [<fanout-id>] [--json]
+omh coding fanout status --fanout-id <fanout-id> [--json]
+omh coding fanout migrate-legacy <fanout-id> \
+  [--confirm-contract-sha256 <digest>]  # operator/maintenance only
 omh coding fanout dispatch <fanout-id> --goal-file goal.txt \
   [--repo-root .] [--base-ref HEAD] [--concurrency 2] [--timeout 1800] \
   [--unit <id> ...] [--dry-run]
