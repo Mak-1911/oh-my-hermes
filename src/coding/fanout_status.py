@@ -64,8 +64,8 @@ _FANOUT_ID_RE = re.compile(FANOUT_ID_PATTERN)
 # `worker_result` are the legacy spellings; `canonical_observation_event`
 # already folds them, so both journal generations land on the same rung.
 _DISPATCH_EVENTS = ("executor_dispatch_observed", "worktree_creation_observed")
-# Written by todo 6's sidecar intake. Absent from today's journals; folded here
-# so a roster read after that lands reports the rung instead of skipping it.
+# Written by the sidecar intake in fanout_dispatch; folded here so the roster
+# reports the rung.
 _RESULT_VALIDATED_EVENT = "unit_result_validated"
 
 
