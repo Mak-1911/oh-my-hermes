@@ -27,6 +27,7 @@ from .fanout_contracts import (
     FANOUT_CONTRACT_SCHEMA_VERSION,
     LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION,
 )
+from .fanout_artifacts import validate_fanout_contract_provenance
 from .inflight import InflightMarkerError, clear_inflight_marker, write_inflight_marker
 from .unit_prompt_protocol import unit_protocol_lines
 from .fanout_unit_results import validate_unit_result
@@ -478,7 +479,7 @@ def fanout_dispatch_preflight(
     contract: Mapping[str, Any],
     *,
     only_units: Sequence[str] | None = None,
-    allow_legacy_capability_fallback: bool = False,
+    legacy_provenance: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     """Validate persisted dispatch identity before any local tool activity."""
     schema_version = str(contract.get("schema_version", ""))
@@ -491,11 +492,15 @@ def fanout_dispatch_preflight(
         )
     if (
         schema_version == LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION
-        and not allow_legacy_capability_fallback
+        and legacy_provenance is None
     ):
         raise ValueError(
-            "fanout_contract/v1 dispatch requires explicit legacy provenance"
+            "fanout_contract/v1 dispatch requires validated legacy provenance"
         )
+    if schema_version == LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION:
+        validate_fanout_contract_provenance(contract, legacy_provenance or {})
+    elif legacy_provenance is not None:
+        raise ValueError("legacy provenance is valid only for fanout_contract/v1")
     raw_units = contract.get("units")
     if not isinstance(raw_units, list) or not all(
         isinstance(unit, Mapping) for unit in raw_units
@@ -587,7 +592,7 @@ def dispatch_fanout(
     runner: Callable[..., Any] = subprocess.run,
     readiness: Callable[..., dict[str, object]] = probe_executor_readiness,
     live_safety_profile_revision: str | None = None,
-    allow_legacy_capability_fallback: bool = False,
+    legacy_provenance: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     # Both boundary re-checks run first, before discovery, readiness probing,
     # any unit spawn, and any summary write: nothing downstream should observe a
@@ -598,7 +603,7 @@ def dispatch_fanout(
         paths,
         contract,
         only_units=only_units,
-        allow_legacy_capability_fallback=allow_legacy_capability_fallback,
+        legacy_provenance=legacy_provenance,
     )
     units = preflight["units"]
     order = preflight["order"]

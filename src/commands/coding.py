@@ -1277,6 +1277,14 @@ def _brief_recovery(dispatched: dict) -> dict[str, object]:
     return brief
 
 
+def _bounded_fanout_brief_scalar(value: object) -> str:
+    from ..system.metadata_safety import redact_metadata_text
+
+    if not isinstance(value, str):
+        return ""
+    return redact_metadata_text(value, limit=80)
+
+
 def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
     from ..coding.fanout_artifacts import fanout_dispatch_summary_path, read_fanout_contract
     from ..coding.fanout_contracts import FANOUT_UNIT_OWNERS, PREPARED_NOT_OBSERVED
@@ -1342,8 +1350,8 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
         status = str(dispatched.get("status", "") or "") or PREPARED_NOT_OBSERVED
         selected_model = model_route.get("selected_model", "")
         selected_effort = model_route.get("selected_reasoning_effort", "")
-        model_id = selected_model if isinstance(selected_model, str) else ""
-        effort = selected_effort if isinstance(selected_effort, str) else ""
+        model_id = _bounded_fanout_brief_scalar(selected_model)
+        effort = _bounded_fanout_brief_scalar(selected_effort)
         # One human-readable label per subagent, e.g. "gpt-5-codex xhigh" —
         # what a briefing renders next to the unit without joining two fields.
         # The format is a stable part of fanout_briefing/v1 and is built by
@@ -1353,9 +1361,9 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
         model_label = model_label_for(model_id, effort)
         chain = model_route.get("chain", []) if isinstance(model_route.get("chain"), list) else []
         alternative_value = chain[1].get("model_id", "") if len(chain) > 1 and isinstance(chain[1], dict) else ""
-        model_alternative = alternative_value if isinstance(alternative_value, str) else ""
+        model_alternative = _bounded_fanout_brief_scalar(alternative_value)
         route_schema_version = model_route.get("schema_version", "")
-        route_version = route_schema_version if isinstance(route_schema_version, str) else ""
+        route_version = _bounded_fanout_brief_scalar(route_schema_version)
         owner_value = unit.get("owner")
         owner = (
             owner_value
@@ -1604,14 +1612,18 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
     paths = _paths(args)
     try:
         contract = read_fanout_contract(paths, args.fanout_id)
-        provenance = read_fanout_contract_provenance(paths, args.fanout_id)
+        provenance = read_fanout_contract_provenance(
+            paths,
+            args.fanout_id,
+            contract,
+        )
     except (OSError, ValueError) as exc:
         raise OmhError(f"fanout contract not found: {exc}") from exc
     recorded_schema_version = str(provenance.get("contract_schema_version", ""))
-    if recorded_schema_version != str(contract.get("schema_version", "")):
-        raise OmhError("fanout contract schema provenance does not match the contract")
-    allow_legacy_capability_fallback = (
-        recorded_schema_version == LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION
+    legacy_provenance = (
+        provenance
+        if recorded_schema_version == LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION
+        else None
     )
     goal_text = sys.stdin.read() if args.goal_file == "-" else Path(args.goal_file).expanduser().read_text(encoding="utf-8")
     repo_root = Path(args.repo_root).expanduser().resolve()
@@ -1620,7 +1632,7 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
             paths,
             contract,
             only_units=args.unit,
-            allow_legacy_capability_fallback=allow_legacy_capability_fallback,
+            legacy_provenance=legacy_provenance,
         )
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
@@ -1635,7 +1647,7 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
             timeout=args.timeout,
             only_units=args.unit,
             dry_run=bool(args.dry_run),
-            allow_legacy_capability_fallback=allow_legacy_capability_fallback,
+            legacy_provenance=legacy_provenance,
         )
         _print_json(summary)
         return 0
@@ -1663,7 +1675,7 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
             timeout=args.timeout,
             only_units=args.unit,
             dry_run=bool(args.dry_run),
-            allow_legacy_capability_fallback=allow_legacy_capability_fallback,
+            legacy_provenance=legacy_provenance,
         )
     except ValueError as exc:
         raise OmhError(str(exc)) from exc

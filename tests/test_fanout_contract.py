@@ -626,12 +626,9 @@ class FanoutCliTests(unittest.TestCase):
                     ]
                 )
 
-        self.assertEqual(status, 0, stderr)
-        summary = json.loads(stdout)
-        self.assertEqual(
-            {entry["unit_id"]: entry for entry in summary["units"]}["core"]["status"],
-            "capability_snapshot_invalid",
-        )
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("provenance digest does not match", stderr)
 
     def test_recorded_v2_cannot_be_relabelled_as_legacy(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -731,6 +728,117 @@ class FanoutCliTests(unittest.TestCase):
         self.assertEqual(status, 0, stderr)
         self.assertLess(len(stdout), 10_000)
         self.assertEqual(json.loads(stdout)["units"][0]["owner"], "choose")
+
+    def test_fanout_brief_bounds_oversized_model_metadata(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = [
+                "--omh-home",
+                str(root / ".omh"),
+                "--hermes-home",
+                str(root / ".hermes"),
+            ]
+            status, stdout, stderr = run_cli(
+                base
+                + [
+                    "coding",
+                    "fanout",
+                    "prepare",
+                    "--goal",
+                    "split",
+                    "work",
+                    "--units",
+                    str(self._units_file(root)),
+                    "--record",
+                ]
+            )
+            self.assertEqual(status, 0, stderr)
+            fanout_id = json.loads(stdout)["fanout_id"]
+            contract_path = (
+                root / ".omh" / "coding" / "fanout" / fanout_id / "fanout_contract.json"
+            )
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            oversized = "SENTINEL-" + ("x" * 100_000)
+            contract["units"][0]["handoff"]["model_route"] = {
+                "schema_version": oversized,
+                "selected_model": oversized,
+                "selected_reasoning_effort": oversized,
+                "chain": [{}, {"model_id": oversized}],
+            }
+            contract_path.write_text(json.dumps(contract), encoding="utf-8")
+
+            status, stdout, stderr = run_cli(
+                base + ["coding", "fanout", "brief", fanout_id, "--json"]
+            )
+
+        self.assertEqual(status, 0, stderr)
+        self.assertLess(len(stdout), 10_000)
+        unit = json.loads(stdout)["units"][0]
+        for field in (
+            "model",
+            "model_label",
+            "model_alternative",
+            "reasoning_effort",
+            "route_schema_version",
+        ):
+            self.assertLessEqual(len(unit[field]), 200)
+
+    def test_fanout_dispatch_rejects_open_provenance_schema(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = [
+                "--omh-home",
+                str(root / ".omh"),
+                "--hermes-home",
+                str(root / ".hermes"),
+            ]
+            status, stdout, stderr = run_cli(
+                base
+                + [
+                    "coding",
+                    "fanout",
+                    "prepare",
+                    "--goal",
+                    "split",
+                    "work",
+                    "--units",
+                    str(self._units_file(root)),
+                    "--record",
+                ]
+            )
+            self.assertEqual(status, 0, stderr)
+            fanout_id = json.loads(stdout)["fanout_id"]
+            provenance_path = (
+                root / ".omh" / "coding" / "fanout" / fanout_id / "contract_provenance.json"
+            )
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["unexpected"] = {"nested": "value"}
+            provenance["privacy"] = "public"
+            provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+            goal = root / "goal.txt"
+            goal.write_text("split work", encoding="utf-8")
+
+            with mock.patch(
+                "subprocess.run",
+                side_effect=AssertionError("git resolution ran"),
+            ):
+                status, stdout, stderr = run_cli(
+                    base
+                    + [
+                        "coding",
+                        "fanout",
+                        "dispatch",
+                        fanout_id,
+                        "--goal-file",
+                        str(goal),
+                        "--repo-root",
+                        str(root),
+                    ]
+                )
+
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("provenance", stderr)
 
     def test_fanout_validate_reports_errors_without_writing(self) -> None:
         with TemporaryDirectory() as tmp:

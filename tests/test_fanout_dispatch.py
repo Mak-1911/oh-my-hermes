@@ -28,6 +28,7 @@ from omh.coding.executor_capability_snapshots import (  # noqa: E402
 )
 from omh.coding.fanout import build_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import write_fanout_contract  # noqa: E402
+from omh.coding.fanout_artifacts import read_fanout_contract_provenance  # noqa: E402
 from omh.coding.fanout_artifacts import fanout_dispatch_summary_path  # noqa: E402
 from omh.coding.fanout_artifacts import fanout_unit_recovery_path  # noqa: E402
 from omh.coding.fanout_artifacts import unit_result_path  # noqa: E402
@@ -506,7 +507,6 @@ class FanoutDispatchEngineTests(unittest.TestCase):
                 only_units=["core"],
                 runner=_agent_runner(),
                 readiness=_ready,
-                allow_legacy_capability_fallback=True,
             )
 
             core = {entry["unit_id"]: entry for entry in summary["units"]}["core"]
@@ -799,7 +799,6 @@ class FanoutDispatchEngineTests(unittest.TestCase):
                 only_units=["core"],
                 runner=_agent_runner(),
                 readiness=_ready,
-                allow_legacy_capability_fallback=True,
             )
             self.assertEqual(
                 {entry["unit_id"]: entry for entry in first["units"]}["core"]["status"],
@@ -1883,6 +1882,12 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             for unit in contract["units"]:
                 unit["handoff"].pop("executor_capability_snapshot", None)
                 unit["handoff"].pop("executor_capability_snapshot_policy", None)
+            contract = write_fanout_contract(paths, contract)
+            provenance = read_fanout_contract_provenance(
+                paths,
+                str(contract["fanout_id"]),
+                contract,
+            )
 
             summary = dispatch_fanout(
                 paths,
@@ -1893,7 +1898,7 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
                 only_units=["core"],
                 runner=_agent_runner(),
                 readiness=_ready,
-                allow_legacy_capability_fallback=True,
+                legacy_provenance=provenance,
             )
 
             snapshot = summary["units"][0]["executor_capability_snapshot"]
@@ -1912,7 +1917,7 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
                 unit["handoff"].pop("executor_capability_snapshot", None)
                 unit["handoff"].pop("executor_capability_snapshot_policy", None)
 
-            with self.assertRaisesRegex(ValueError, "explicit legacy provenance"):
+            with self.assertRaisesRegex(ValueError, "provenance digest does not match"):
                 dispatch_fanout(
                     paths,
                     contract,
@@ -1921,6 +1926,13 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
                     base_sha=sha,
                     runner=_agent_runner(),
                     readiness=_ready,
+                    legacy_provenance={
+                        "schema_version": "fanout_contract_provenance/v1",
+                        "fanout_id": contract["fanout_id"],
+                        "contract_schema_version": "fanout_contract/v1",
+                        "contract_sha256": "0" * 64,
+                        "privacy": "metadata_only",
+                    },
                 )
 
     def test_dry_run_does_not_persist_a_summary(self) -> None:
