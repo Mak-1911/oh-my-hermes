@@ -33,6 +33,16 @@ def fanout_dispatch_summary_path(paths: OmhPaths, fanout_id: str) -> Path:
     return _managed_fanout_dir(paths, _validated_fanout_id(fanout_id)) / "dispatch_summary.json"
 
 
+def unit_result_path(paths: OmhPaths, fanout_id: str, unit_id: str) -> Path:
+    """Validated sidecar path for one executor-reported unit result."""
+    if not _UNIT_ID_RE.match(str(unit_id or "")):
+        raise ValueError(f"invalid unit_id: {unit_id!r}")
+    result_dir = _managed_fanout_dir(paths, _validated_fanout_id(fanout_id)) / "unit_results"
+    if result_dir.is_symlink():
+        raise ValueError("fanout unit-result directory must not be a symlink")
+    return result_dir / f"{unit_id}.json"
+
+
 def fanout_unit_recovery_path(paths: OmhPaths, fanout_id: str, unit_id: str) -> Path:
     """Validated recovery-record path for one unit of one fanout.
 

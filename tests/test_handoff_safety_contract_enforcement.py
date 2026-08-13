@@ -451,6 +451,20 @@ GIT_ARGV_ALLOWLIST: dict[tuple[str, tuple[str, ...]], str] = {
     ("src/coding/worktree_creator.py", ("worktree", "add")): (
         "creates a local isolated workspace for an executor; touches no remote"
     ),
+    ("src/coding/worktree_creator.py", ("worktree", "list")): (
+        "`git worktree list --porcelain`, run BEFORE the `worktree add` above, to refuse a branch "
+        "another registered worktree already holds and a path git already knows; read-only, names "
+        "no remote, and the reason the collision is a named refusal instead of a half-built worktree"
+    ),
+    ("src/coding/worktree_creator.py", ("check-ref-format",)): (
+        "`git check-ref-format refs/heads/<branch>` validates the unit's proposed branch name before "
+        "any worktree exists; pure syntax check, reads no object and writes nothing"
+    ),
+    ("src/coding/worktree_creator.py", ("rev-parse",)): (
+        "`rev-parse --verify` twice before the add: once on the source ref, to prove the caller's "
+        "base_sha still describes it, and once on refs/heads/<branch>, to prove the unit branch does "
+        "not already exist; read-only local object lookups"
+    ),
     ("src/commands/coding.py", ("rev-parse",)): (
         "resolves --base-ref to a commit sha inside `coding fanout dispatch`; read-only"
     ),

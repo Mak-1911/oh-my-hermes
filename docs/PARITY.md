@@ -49,6 +49,22 @@ implementation or claim runtime behavior it did not observe.
 | Loop and autopilot workflow | Available | `loop`, `ultraprocess`, `ralplan`, `ultragoal`, loop queue ticks, verification tiers, and failure-mode cards. | Scheduling, connector I/O, worktree creation, and subagent execution remain prepared or delegated until observed. |
 | Doctor, update, uninstall, and release smoke | Available | `omh setup`, `omh doctor`, `omh update`, `omh uninstall`, `omh release checklist`, `omh release product-readiness`, `omh release install-smoke`, `omh release hermes-smoke`, `omh demo route-hint-alignment`, `omh demo context-brief-coverage`, `omh demo routing-precision`, `omh demo localized-chat-copy`, `omh demo router-fast-path`, `omh demo common-request-coverage`, and `omh demo hermes-ux-quality`. | Product readiness rolls skill content, use-case readiness, parity contracts, route-hint alignment, context-brief coverage, routing precision, localized chat copy, router fast-path quality, common request coverage, popular plugin-family coverage, Hermes UX quality, and checklist shape into one local contract card. Installer smoke can run live in an isolated temp HOME; live Hermes profile smoke still needs an explicit target Hermes profile or operator confirmation before mutation. |
 
+## Absorbed Capability Shapes
+
+The rows above track capability axes. This section tracks something narrower:
+specific capability *shapes* seen in other oh-my agent runtimes that OMH decided
+were worth having, and the OMH-native contract that now carries each one. The
+rule from Search Basis applies literally here. OMH absorbs the shape and writes
+its own contract for it; it does not copy another project's implementation, and
+it makes no claim about how any other project behaves at runtime, because it has
+not observed one.
+
+| Absorbed shape | OMH-native contract | What the contract owns | What it still does not prove |
+| --- | --- | --- | --- |
+| Typed unit results instead of an exit code standing in for readiness | `fanout_unit_result/v1` | A per-unit result payload with an explicit schema version, changed paths, and check rows that each name `reported_by`, `observed_by`, and `observation_source`. Schema validity is shape, not truth. | An executor-reported passing check is reported, not observed. Only dispatcher-observed events advance the lifecycle ladder, and no result payload can promote itself to integration eligibility. |
+| Descriptive executor capability metadata attached to a dispatch profile | `executor_capability/v1` | Tri-state `supported`/`unsupported`/`unknown` facts about edit-format handling, persistent evaluation, tool re-entry, and batching, each with `source`, `observed_at`, and `executor_version` provenance. Unresearched cells stay `unknown`. | Nothing routes, ranks, or auto-selects on these fields. They are display metadata for a prepared handoff, never a preference claim or a promised gain, and never a substitute for observing the executor. |
+| A live roster projected from recorded events rather than a stateful hub | Journal projection over `runtime_observation/v1` events, surfaced by `omh coding fanout status` | A deterministic read-only roster: per-unit lifecycle state, owner profile, branch and worktree path, last-event age, and evidence-reference counts, derived only from events already on the journal. | It writes no state and emits no events, and it offers no revive, steer, or kill action. Absence of an event means nothing was recorded, which is not the same as nothing having happened. |
+
 ## Implemented Slices
 
 - A deterministic parity catalog in `src/quality/parity.py`.

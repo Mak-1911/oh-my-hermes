@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
+import json
 from pathlib import Path
 import shlex
 import shutil
@@ -10,14 +11,16 @@ import time
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from ..runtime.artifacts import append_journal_observation, create_run, show_run
-from ..system.local_store import atomic_write_json, locked_json_update, utc_now
+from ..system.local_store import atomic_write_json, ensure_dir, locked_json_update, utc_now
 from ..system.metadata_safety import redact_metadata_text
 from ..system.paths import OmhPaths
 from .action_gate import recheck_safety_profile_revision
+from .executor_capabilities import capability_for_profile_or_none
 from .executor_readiness import probe_executor_readiness
 from .fanout_contracts import FANOUT_CLAIM_BOUNDARY
 from .inflight import InflightMarkerError, clear_inflight_marker, write_inflight_marker
 from .unit_prompt_protocol import unit_protocol_lines
+from .fanout_unit_results import validate_unit_result
 from .unit_telemetry import parse_unit_telemetry
 
 FANOUT_DISPATCH_SCHEMA_VERSION = "fanout_dispatch_summary/v1"
@@ -210,6 +213,8 @@ def build_unit_prompt(
     unit: Mapping[str, Any],
     goal_text: str,
     discovery: Mapping[str, Any] | None = None,
+    *,
+    unit_result_contract: Mapping[str, Any] | None = None,
 ) -> str:
     boundary = unit.get("boundary", {}) if isinstance(unit.get("boundary"), Mapping) else {}
     file_scope = ", ".join(str(path) for path in boundary.get("file_scope", []))
@@ -230,8 +235,29 @@ def build_unit_prompt(
     # source directory implies. Absent discovery (the default, and every
     # zero-skill environment) leaves the prompt byte-identical.
     lines.extend(unit_skill_lines(unit, discovery))
+    if unit_result_contract is not None:
+        lines.extend(_unit_result_prompt_lines(unit_result_contract))
     lines.append("Commit your work; do not merge or push other branches.")
     return "\n".join(lines)
+
+
+def _unit_result_prompt_lines(contract: Mapping[str, Any]) -> list[str]:
+    """Executor-neutral, typed sidecar contract appended to a live unit prompt."""
+    return [
+        "Before exiting, write one fanout_unit_result/v1 JSON sidecar to exactly "
+        f"{contract.get('path', '')}.",
+        "Top-level fields: schema_version, unit_id, run_id, fanout_id, base_sha, head_sha, "
+        "process_status, changed_paths, checks, findings, schema_error (optional).",
+        "Use these dispatch-bound values: "
+        f"schema_version=fanout_unit_result/v1, unit_id={contract.get('unit_id', '')}, "
+        f"run_id={contract.get('run_id', '')}, fanout_id={contract.get('fanout_id', '')}, "
+        f"base_sha={contract.get('base_sha', '')}; head_sha is the git HEAD you leave behind.",
+        "Each checks row fields: command, status, evidence_ref, reported_by, observed_by, "
+        "observation_source.",
+        "For every executor-authored checks row, set reported_by=executor. observed_by and "
+        "observation_source are dispatcher-owned; leave both null. Sidecar validation records "
+        "only a report and never verification.",
+    ]
 
 
 # The one hedge every emitted sequence carries: declared-on-disk is not loaded,
@@ -360,6 +386,56 @@ def verify_safety_profile_matches_contract(contract: Mapping[str, Any], live_rev
         )
 
 
+def _dispatch_status_ladder(
+    *,
+    process_succeeded: bool = False,
+    result_schema_valid: bool = False,
+    unit_verification_observed: bool = False,
+    merge_order_position_satisfied: bool = False,
+) -> dict[str, bool]:
+    """Build the dispatch-only evidence ladder without inferring later rungs."""
+    integration_ready = bool(
+        process_succeeded
+        and result_schema_valid
+        and unit_verification_observed
+        and merge_order_position_satisfied
+    )
+    return {
+        "process_succeeded": bool(process_succeeded),
+        "result_schema_valid": bool(result_schema_valid),
+        "unit_verification_observed": bool(unit_verification_observed),
+        "integration_ready": integration_ready,
+    }
+
+
+def _apply_integration_readiness(units: Sequence[dict[str, Any]]) -> None:
+    """Fold integration eligibility in declared merge order."""
+    merge_order_position_satisfied = True
+    for entry in units:
+        ladder = _dispatch_status_ladder(
+            process_succeeded=bool(entry.get("process_succeeded")),
+            result_schema_valid=bool(entry.get("result_schema_valid")),
+            unit_verification_observed=bool(entry.get("unit_verification_observed")),
+            merge_order_position_satisfied=merge_order_position_satisfied,
+        )
+        entry.update(ladder)
+        # A later unit cannot become eligible ahead of an earlier unit whose
+        # complete dispatcher-observed evidence chain is still missing.
+        merge_order_position_satisfied = ladder["integration_ready"]
+
+
+def _unit_verification_is_observed(paths: OmhPaths, run_ref: str) -> bool:
+    """Project the complete journal so an old receipt cannot fall off a tail."""
+    from ..workflows.observation_journal import project_run_lifecycle, read_observation_events
+
+    try:
+        events = read_observation_events(paths, run_id=run_ref, limit=None)
+    except (OSError, ValueError, KeyError):
+        return False
+    projection = project_run_lifecycle(events, run_id=run_ref)
+    return bool(projection.get("unit_verification_observed"))
+
+
 def dispatch_fanout(
     paths: OmhPaths,
     contract: Mapping[str, Any],
@@ -367,6 +443,7 @@ def dispatch_fanout(
     goal_text: str,
     repo_root: Path,
     base_sha: str,
+    source_ref: str = "",
     concurrency: int = 2,
     timeout: int = 1800,
     only_units: Sequence[str] | None = None,
@@ -401,7 +478,14 @@ def dispatch_fanout(
             # the current selection, so partial re-dispatch of downstream
             # units works after an earlier run (or manual recovery) finished
             # their prerequisites.
-            results[unit_id] = _skipped(unit, "already_completed", merge_ready=True)
+            results[unit_id] = _skipped(
+                unit,
+                "already_completed",
+                process_succeeded=True,
+                unit_verification_observed=_unit_verification_is_observed(
+                    paths, str(unit.get("run_ref", unit_id))
+                ),
+            )
         elif unit_id not in selected:
             results[unit_id] = _skipped(unit, "not_selected")
 
@@ -436,6 +520,7 @@ def dispatch_fanout(
                     goal_text=goal_text,
                     repo_root=repo_root,
                     base_sha=base_sha,
+                    source_ref=source_ref,
                     timeout=timeout,
                     dry_run=dry_run,
                     runner=runner,
@@ -451,6 +536,7 @@ def dispatch_fanout(
                 pending.remove(unit_id)
 
     summary_units = [results[unit_id] for unit_id in order]
+    _apply_integration_readiness(summary_units)
     summary = {
         "schema_version": FANOUT_DISPATCH_SCHEMA_VERSION,
         "fanout_id": contract.get("fanout_id", ""),
@@ -458,8 +544,10 @@ def dispatch_fanout(
         "observed_at": utc_now(),
         "merge_order": order,
         "units": summary_units,
-        "merge_ready_units": [entry["unit_id"] for entry in summary_units if entry.get("merge_ready")],
-        # The counterpart to merge_ready: units that failed but left work worth
+        "integration_ready_units": [
+            entry["unit_id"] for entry in summary_units if entry.get("integration_ready")
+        ],
+        # The counterpart to process success: units that failed but left work worth
         # looking at before anyone re-runs them from scratch.
         "recovery_available_units": _recovery_available(summary_units),
         "auto_merge": False,
@@ -558,12 +646,15 @@ def _merged_dispatch_summary(summary_path: Path, summary: dict[str, Any]) -> dic
             merged_units.append({**entry, "recovery": earlier["recovery"]})
         else:
             merged_units.append(entry)
+    _apply_integration_readiness(merged_units)
     merged = dict(summary)
     merged["units"] = merged_units
-    merged["merge_ready_units"] = [
-        str(entry.get("unit_id")) for entry in merged_units if isinstance(entry, dict) and entry.get("merge_ready")
+    merged["integration_ready_units"] = [
+        str(entry.get("unit_id"))
+        for entry in merged_units
+        if isinstance(entry, dict) and entry.get("integration_ready")
     ]
-    # Recomputed for the same reason merge_ready_units is: the current run's
+    # Recomputed for the same reason integration_ready_units is: the current run's
     # rollup only names units it dispatched, so carrying it through unchanged
     # would erase an earlier run's salvageable unit from the one field an
     # operator reads first — while that unit's own `recovery` record, merged
@@ -637,6 +728,7 @@ def _dispatch_unit(
     base_sha: str,
     timeout: int,
     dry_run: bool,
+    source_ref: str = "",
     runner: Callable[..., Any],
     readiness: Callable[..., dict[str, object]],
     current_catalog_digest: str = "",
@@ -665,7 +757,7 @@ def _dispatch_unit(
             "run_ref": run_ref,
             "owner": owner,
             "status": "model_choice_required",
-            "merge_ready": False,
+            **_dispatch_status_ladder(),
             "reason": (
                 "the frozen route requires an explicit model choice; re-prepare the unit with a "
                 "declared model or resolvable role, then re-dispatch"
@@ -677,7 +769,7 @@ def _dispatch_unit(
             "run_ref": run_ref,
             "owner": owner,
             "status": "unsupported_for_local_dispatch",
-            "merge_ready": False,
+            **_dispatch_status_ladder(),
             "fallback": "use the unit handoff as a prepared prompt for this owner",
         }
     probe = readiness(paths, owner)
@@ -692,14 +784,34 @@ def _dispatch_unit(
             "owner": owner,
             "status": "executor_not_ready",
             "readiness_status": str(probe.get("status", "unknown")),
-            "merge_ready": False,
+            **_dispatch_status_ladder(),
         }
         repair_card = probe.get("repair_card")
         if isinstance(repair_card, Mapping):
             not_ready["repair_card"] = dict(repair_card)
         return not_ready
     discovery = (discoveries or {}).get(owner)
-    prompt = build_unit_prompt(unit, goal_text, discovery)
+    sidecar_path = None
+    if fanout_id:
+        from .fanout_artifacts import unit_result_path
+
+        sidecar_path = unit_result_path(paths, fanout_id, unit_id)
+    prompt = build_unit_prompt(
+        unit,
+        goal_text,
+        discovery,
+        unit_result_contract=(
+            {
+                "path": str(sidecar_path),
+                "unit_id": unit_id,
+                "run_id": run_ref,
+                "fanout_id": fanout_id,
+                "base_sha": base_sha,
+            }
+            if sidecar_path is not None
+            else None
+        ),
+    )
     argv = build_dispatch_argv(owner, prompt, model_route)
     worktree = _worktree_path(repo_root, unit_id)
     if dry_run:
@@ -713,7 +825,7 @@ def _dispatch_unit(
             "status": "dry_run_planned",
             "planned_argv": [part if part != prompt else "<unit prompt>" for part in argv],
             "worktree_path": str(worktree),
-            "merge_ready": False,
+            **_dispatch_status_ladder(),
         }
         if fingerprint_note is not None:
             planned["inventory_fingerprint"] = fingerprint_note
@@ -749,6 +861,8 @@ def _dispatch_unit(
         unit_id=unit_id,
         branch=str(unit.get("branch_suggestion", f"agent/{unit_id}")),
         base_sha=base_sha,
+        source_ref=source_ref,
+        run_ref=run_ref,
         runner=runner,
     )
     if not worktree_record.get("created"):
@@ -757,8 +871,9 @@ def _dispatch_unit(
             "run_ref": run_ref,
             "owner": owner,
             "status": "worktree_failed",
+            "refusal": str(worktree_record.get("refusal", "")),
             "reason": str(worktree_record.get("reason", "")),
-            "merge_ready": False,
+            **_dispatch_status_ladder(),
         }
     worktree = Path(str(worktree_record["worktree_path"]))
     if fanout_id:
@@ -770,6 +885,11 @@ def _dispatch_unit(
         from .fanout_artifacts import clear_fanout_unit_recovery
 
         clear_fanout_unit_recovery(paths, fanout_id, unit_id)
+    if sidecar_path is not None:
+        # A re-dispatch must never consume an earlier attempt's report. Create
+        # only the managed parent; the executor owns the sidecar write itself.
+        ensure_dir(sidecar_path.parent, private=True)
+        sidecar_path.unlink(missing_ok=True)
     _ensure_unit_run(paths, unit, owner)
     append_journal_observation(
         paths,
@@ -787,6 +907,11 @@ def _dispatch_unit(
             "runtime_profile": owner,
         },
     )
+    # Read at the spawn observation, so the dispatch record says what the
+    # table declared about this profile at the moment the unit ran. Purely
+    # descriptive: it selects nothing, gates nothing, and a profile without a
+    # row simply carries no capability metadata.
+    profile_capability = capability_for_profile_or_none(owner)
     started_at = utc_now()
     started_clock = time.monotonic()
     stderr_tail = ""
@@ -855,6 +980,16 @@ def _dispatch_unit(
             "runtime_profile": owner,
         },
     )
+    unit_result = _intake_unit_result(
+        paths,
+        sidecar_path=sidecar_path,
+        run_ref=run_ref,
+        unit_id=unit_id,
+        fanout_id=fanout_id,
+        base_sha=base_sha,
+        worktree=worktree,
+        owner=owner,
+    )
     result = {
         "unit_id": unit_id,
         "run_ref": run_ref,
@@ -864,13 +999,20 @@ def _dispatch_unit(
         "status": "completed" if exit_code == 0 else "failed",
         "exit_code": exit_code,
         "worktree_path": str(worktree),
-        "merge_ready": exit_code == 0,
+        **_dispatch_status_ladder(
+            process_succeeded=exit_code == 0,
+            result_schema_valid=bool(unit_result.get("result_schema_valid")),
+            unit_verification_observed=_unit_verification_is_observed(paths, run_ref),
+        ),
+        **unit_result,
         "started_at": started_at,
         "finished_at": finished_at,
         "duration_seconds": duration_seconds,
     }
     if owner_host:
         result["owner_host"] = owner_host
+    if profile_capability is not None:
+        result["executor_capability"] = profile_capability
     # `tokens_total` and `session_ref` were READ by `omh coding fanout brief`
     # and had no write site anywhere, so both columns always printed "unknown".
     # Only keys the executor actually reported are copied: an absent count stays
@@ -899,6 +1041,211 @@ def _dispatch_unit(
         if recovery is not None:
             result["recovery"] = recovery
     return result
+
+
+_UNIT_RESULT_TOP_LEVEL_KEYS = (
+    "schema_version",
+    "unit_id",
+    "run_id",
+    "fanout_id",
+    "base_sha",
+    "head_sha",
+    "process_status",
+)
+_UNIT_RESULT_CHECK_KEYS = (
+    "command",
+    "status",
+    "evidence_ref",
+    "reported_by",
+    "observed_by",
+    "observation_source",
+)
+_MAX_UNIT_RESULT_PATHS = 100
+_MAX_UNIT_RESULT_CHECKS = 50
+_MAX_UNIT_RESULT_FINDINGS = 20
+_MAX_UNIT_RESULT_TEXT = 300
+
+
+def _intake_unit_result(
+    paths: OmhPaths,
+    *,
+    sidecar_path: Path | None,
+    run_ref: str,
+    unit_id: str,
+    fanout_id: str,
+    base_sha: str,
+    worktree: Path,
+    owner: str,
+) -> dict[str, Any]:
+    """Read one sidecar after process exit and classify shape, never truth."""
+    if sidecar_path is None or not sidecar_path.is_file():
+        return _unit_result_failure(
+            paths,
+            event="unit_result_missing",
+            reason="sidecar is missing",
+            sidecar_path=None,
+            run_ref=run_ref,
+            unit_id=unit_id,
+            worktree=worktree,
+            owner=owner,
+        )
+    try:
+        payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        if isinstance(payload, Mapping):
+            # Enforce executor provenance before the general shape validator,
+            # so even an internally inconsistent laundering attempt receives
+            # the intake contract's stable checks[i].reported_by error.
+            _validate_executor_sidecar_checks(payload)
+        validated = validate_unit_result(payload)
+        _validate_unit_result_identity(
+            validated,
+            unit_id=unit_id,
+            run_ref=run_ref,
+            fanout_id=fanout_id,
+            base_sha=base_sha,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, TypeError) as exc:
+        return _unit_result_failure(
+            paths,
+            event="unit_result_invalid",
+            reason=str(exc),
+            sidecar_path=sidecar_path,
+            run_ref=run_ref,
+            unit_id=unit_id,
+            worktree=worktree,
+            owner=owner,
+        )
+
+    append_journal_observation(
+        paths,
+        {
+            "target_type": "run",
+            "target_id": run_ref,
+            "run_id": run_ref,
+            "event": "unit_result_validated",
+            "status": "observed",
+            "summary": f"fanout unit result shape validated for {unit_id}",
+            "worker_ref": unit_id,
+            "worktree_ref": str(worktree),
+            "runtime_profile": owner,
+            "evidence_refs": [str(sidecar_path)],
+        },
+    )
+    return {
+        "unit_result_status": "unit_result_validated",
+        "result_schema_valid": True,
+        "unit_result": _bounded_unit_result(validated),
+    }
+
+
+def _validate_unit_result_identity(
+    validated: Mapping[str, Any],
+    *,
+    unit_id: str,
+    run_ref: str,
+    fanout_id: str,
+    base_sha: str,
+) -> None:
+    expected = {
+        "unit_id": unit_id,
+        "run_id": run_ref,
+        "fanout_id": fanout_id,
+        "base_sha": base_sha,
+    }
+    for field, expected_value in expected.items():
+        reported_value = validated.get(field)
+        if reported_value != expected_value:
+            reported = redact_metadata_text(repr(reported_value), limit=100)
+            expected_text = redact_metadata_text(repr(expected_value), limit=100)
+            raise ValueError(
+                f"{field} does not match dispatch identity: reported {reported}, "
+                f"expected {expected_text}"
+            )
+
+
+def _validate_executor_sidecar_checks(validated: Mapping[str, Any]) -> None:
+    for index, row in enumerate(validated.get("checks", [])):
+        if not isinstance(row, Mapping):
+            continue
+        if (
+            row.get("reported_by") != "executor"
+            or row.get("observed_by") is not None
+            or row.get("observation_source") is not None
+        ):
+            raise ValueError(
+                f"checks[{index}].reported_by must be 'executor' and dispatcher-owned "
+                "observed_by/observation_source must be null in an executor-written sidecar"
+            )
+
+
+def _unit_result_failure(
+    paths: OmhPaths,
+    *,
+    event: str,
+    reason: str,
+    sidecar_path: Path | None,
+    run_ref: str,
+    unit_id: str,
+    worktree: Path,
+    owner: str,
+) -> dict[str, Any]:
+    bounded_reason = redact_metadata_text(reason, limit=_MAX_UNIT_RESULT_TEXT)
+    append_journal_observation(
+        paths,
+        {
+            "target_type": "run",
+            "target_id": run_ref,
+            "run_id": run_ref,
+            "event": event,
+            "status": "observed",
+            "summary": f"fanout unit result {event.removeprefix('unit_result_')} for {unit_id}: "
+            f"{bounded_reason}",
+            "worker_ref": unit_id,
+            "worktree_ref": str(worktree),
+            "runtime_profile": owner,
+            "evidence_refs": [str(sidecar_path)] if sidecar_path is not None else [],
+        },
+    )
+    result: dict[str, Any] = {
+        "unit_result_status": event,
+        "result_schema_valid": False,
+    }
+    if event == "unit_result_invalid":
+        result["unit_result_error"] = bounded_reason
+    return result
+
+
+def _bounded_unit_result(validated: Mapping[str, Any]) -> dict[str, Any]:
+    """Allowlist and size-bound sidecar fields before summary persistence."""
+    bounded = {
+        key: redact_metadata_text(str(validated.get(key, "")), limit=_MAX_UNIT_RESULT_TEXT)
+        for key in _UNIT_RESULT_TOP_LEVEL_KEYS
+    }
+    bounded["changed_paths"] = [
+        redact_metadata_text(str(value), limit=_MAX_UNIT_RESULT_TEXT)
+        for value in list(validated.get("changed_paths", []))[:_MAX_UNIT_RESULT_PATHS]
+    ]
+    bounded["checks"] = [
+        {
+            key: (
+                None
+                if row.get(key) is None
+                else redact_metadata_text(str(row.get(key)), limit=_MAX_UNIT_RESULT_TEXT)
+            )
+            for key in _UNIT_RESULT_CHECK_KEYS
+        }
+        for row in list(validated.get("checks", []))[:_MAX_UNIT_RESULT_CHECKS]
+        if isinstance(row, Mapping)
+    ]
+    bounded["findings"] = [
+        redact_metadata_text(str(value), limit=_MAX_UNIT_RESULT_TEXT)
+        for value in list(validated.get("findings", []))[:_MAX_UNIT_RESULT_FINDINGS]
+    ]
+    if "schema_error" in validated:
+        bounded["schema_error"] = redact_metadata_text(
+            str(validated["schema_error"]), limit=_MAX_UNIT_RESULT_TEXT
+        )
+    return bounded
 
 
 # One unit's salvage report is a few dozen paths at most; past that the list
@@ -1164,7 +1511,7 @@ def _dependency_satisfied(result: dict[str, Any] | None) -> bool:
     # plan; live dispatch only advances on an observed exit-0 result.
     return (
         result.get("status") in {"completed", "already_completed", "dry_run_planned"}
-        or bool(result.get("merge_ready"))
+        or bool(result.get("process_succeeded"))
     )
 
 
@@ -1178,7 +1525,7 @@ def _dependency_failed(result: dict[str, Any] | None) -> bool:
         "unsupported_for_local_dispatch",
         "worktree_failed",
         "not_selected",
-    } and not result.get("merge_ready")
+    } and not result.get("process_succeeded")
 
 
 def _blocked(unit: Mapping[str, Any], results: Mapping[str, dict[str, Any]]) -> dict[str, Any]:
@@ -1191,13 +1538,22 @@ def _blocked(unit: Mapping[str, Any], results: Mapping[str, dict[str, Any]]) -> 
     return entry
 
 
-def _skipped(unit: Mapping[str, Any], status: str, *, merge_ready: bool = False) -> dict[str, Any]:
+def _skipped(
+    unit: Mapping[str, Any],
+    status: str,
+    *,
+    process_succeeded: bool = False,
+    unit_verification_observed: bool = False,
+) -> dict[str, Any]:
     return {
         "unit_id": str(unit["unit_id"]),
         "run_ref": str(unit.get("run_ref", "")),
         "owner": str(unit.get("handoff", {}).get("executor_target", "choose")),
         "status": status,
-        "merge_ready": merge_ready,
+        **_dispatch_status_ladder(
+            process_succeeded=process_succeeded,
+            unit_verification_observed=unit_verification_observed,
+        ),
     }
 
 

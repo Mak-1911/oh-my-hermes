@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -9,7 +10,13 @@ from _cli_harness import run_cli
 
 from omh.commands.main import build_parser
 from omh.paths import expand_path, resolve_paths
-from omh.coding.worktree_creator import _append_worktree_record, _observation_record
+from omh.coding.worktree_creator import (
+    _append_worktree_record,
+    _observation_record,
+    ensure_fanout_unit_worktree,
+)
+from omh.system.paths import OmhPaths
+from omh.workflows.observation_journal import CANONICAL_OBSERVATION_EVENTS
 
 
 def _seed_observed_worktree(home: Path, target: Path, *, branch: str = "omh/seeded") -> None:
@@ -204,6 +211,247 @@ class WorktreeObservationTests(unittest.TestCase):
             self.assertIn("omh runtime observe --session session-3", actions["record_worktree_runtime_observation"]["backend_command"])
             self.assertIn("--event worktree_creation", actions["record_worktree_runtime_observation"]["backend_command"])
             self.assertIn("prompt_only", str(payload["launch"]["resolved_command_templates"]))
+
+
+def _git(repo: Path, *argv: str) -> str:
+    completed = subprocess.run(
+        ["git", *argv], cwd=str(repo), check=True, capture_output=True, text=True
+    )
+    return completed.stdout.strip()
+
+
+def _make_repo(root: Path) -> tuple[Path, str]:
+    repo = root / "repo"
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "seed.txt").write_text("seed\n", encoding="utf-8")
+    _git(repo, "add", "seed.txt")
+    _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
+    return repo, _git(repo, "rev-parse", "HEAD")
+
+
+def _journal_events(paths: OmhPaths) -> list[dict]:
+    path = paths.runtime_journal_events_path
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+class FanoutUnitWorktreeInvariantTests(unittest.TestCase):
+    """The opt-in fanout worktree path must fail closed on drifted or colliding state.
+
+    A unit worktree is the isolation guarantee the fanout contract sells. Adding
+    one from a base the caller no longer describes, or onto a branch some other
+    worktree already holds, silently breaks that guarantee, so every refusal
+    here is checked BEFORE `git worktree add` runs and is recorded as an
+    observation rather than raised past the dispatcher.
+    """
+
+    def _paths(self, root: Path) -> OmhPaths:
+        return OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+
+    def test_happy_add_creates_worktree_and_records_observation(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, sha = _make_repo(root)
+            paths = self._paths(root)
+
+            result = ensure_fanout_unit_worktree(
+                paths,
+                repo_root=repo,
+                unit_id="core",
+                branch="agent/core",
+                base_sha=sha,
+                source_ref="main",
+                run_ref="run-core",
+            )
+
+            self.assertEqual(result["status"], "created")
+            self.assertTrue(result["created"])
+            self.assertTrue(Path(result["worktree_path"]).is_dir())
+            self.assertEqual(_git(repo, "rev-parse", "agent/core"), sha)
+            cleanup = [event for event in _journal_events(paths) if event["event"] == "worktree_cleanup"]
+            self.assertEqual(cleanup, [])
+
+    def test_happy_add_leaves_an_uncommitted_source_file_untouched(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, sha = _make_repo(root)
+            dirty = repo / "uncommitted.txt"
+            dirty.write_text("work in progress\n", encoding="utf-8")
+            paths = self._paths(root)
+
+            result = ensure_fanout_unit_worktree(
+                paths,
+                repo_root=repo,
+                unit_id="core",
+                branch="agent/core",
+                base_sha=sha,
+                source_ref="main",
+            )
+
+            self.assertTrue(result["created"])
+            self.assertEqual(dirty.read_text(encoding="utf-8"), "work in progress\n")
+            self.assertIn("uncommitted.txt", _git(repo, "status", "--porcelain"))
+
+    def test_base_sha_that_no_longer_matches_the_source_ref_is_refused(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, sha = _make_repo(root)
+            (repo / "seed.txt").write_text("moved on\n", encoding="utf-8")
+            _git(repo, "add", "seed.txt")
+            _git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "drift")
+            paths = self._paths(root)
+
+            result = ensure_fanout_unit_worktree(
+                paths,
+                repo_root=repo,
+                unit_id="core",
+                branch="agent/core",
+                base_sha=sha,
+                source_ref="main",
+                run_ref="run-core",
+            )
+
+            self.assertEqual(result["status"], "failed")
+            self.assertFalse(result["created"])
+            self.assertEqual(result["refusal"], "base_sha_drifted_from_source_ref")
+            self.assertIn("main", result["reason"])
+            self.assertFalse((repo.parent / "repo-fanout-core").exists())
+            cleanup = [event for event in _journal_events(paths) if event["event"] == "worktree_cleanup"]
+            self.assertEqual(len(cleanup), 1)
+            self.assertIn("base_sha_drifted_from_source_ref", cleanup[0]["summary"])
+
+    def test_unresolvable_source_ref_is_refused_before_worktree_add(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, sha = _make_repo(root)
+            paths = self._paths(root)
+
+            result = ensure_fanout_unit_worktree(
+                paths,
+                repo_root=repo,
+                unit_id="core",
+                branch="agent/core",
+                base_sha=sha,
+                source_ref="no-such-branch",
+            )
+
+            self.assertEqual(result["refusal"], "source_ref_unresolvable")
+            self.assertFalse((repo.parent / "repo-fanout-core").exists())
+
+    def test_existing_branch_is_refused_before_worktree_add(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, sha = _make_repo(root)
+            _git(repo, "branch", "agent/core")
+            paths = self._paths(root)
+
+            result = ensure_fanout_unit_worktree(
+                paths,
+                repo_root=repo,
+                unit_id="core",
+                branch="agent/core",
+                base_sha=sha,
+                source_ref="main",
+            )
+
+            self.assertEqual(result["refusal"], "branch_already_exists")
+            self.assertIn("agent/core", result["reason"])
+            self.assertFalse((repo.parent / "repo-fanout-core").exists())
+
+    def test_branch_checked_out_in_another_registered_worktree_is_refused(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, sha = _make_repo(root)
+            paths = self._paths(root)
+            # `main` is checked out in the primary worktree, so a unit that asks
+            # for it collides with a worktree git already registers.
+            result = ensure_fanout_unit_worktree(
+                paths,
+                repo_root=repo,
+                unit_id="core",
+                branch="main",
+                base_sha=sha,
+                source_ref="main",
+            )
+
+            self.assertEqual(result["refusal"], "branch_checked_out_in_worktree")
+            self.assertIn("main", result["reason"])
+            self.assertFalse((repo.parent / "repo-fanout-core").exists())
+
+    def test_malformed_branch_name_is_refused(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, sha = _make_repo(root)
+            paths = self._paths(root)
+
+            result = ensure_fanout_unit_worktree(
+                paths,
+                repo_root=repo,
+                unit_id="core",
+                branch="agent//bad branch~1",
+                base_sha=sha,
+                source_ref="main",
+            )
+
+            self.assertEqual(result["refusal"], "branch_name_malformed")
+            self.assertFalse((repo.parent / "repo-fanout-core").exists())
+
+    def test_partial_failure_appends_a_cleanup_receipt_naming_what_was_left(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, sha = _make_repo(root)
+            paths = self._paths(root)
+
+            def runner(argv, **kwargs):
+                if argv[:3] == ["git", "worktree", "add"]:
+                    completed = subprocess.CompletedProcess(argv, 128, "", "fatal: could not create leading directories")
+                    return completed
+                return subprocess.run(argv, **kwargs)
+
+            result = ensure_fanout_unit_worktree(
+                paths,
+                repo_root=repo,
+                unit_id="core",
+                branch="agent/core",
+                base_sha=sha,
+                source_ref="main",
+                run_ref="run-core",
+                runner=runner,
+            )
+
+            self.assertEqual(result["status"], "failed")
+            self.assertEqual(result["refusal"], "worktree_add_failed")
+            cleanup = [event for event in _journal_events(paths) if event["event"] == "worktree_cleanup"]
+            self.assertEqual(len(cleanup), 1)
+            self.assertIn("worktree_add_failed", cleanup[0]["summary"])
+            self.assertIn(str(repo.parent / "repo-fanout-core"), cleanup[0]["summary"])
+
+    def test_existing_worktree_path_is_never_auto_deleted(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, sha = _make_repo(root)
+            paths = self._paths(root)
+            squatter = repo.parent / "repo-fanout-core"
+            squatter.mkdir()
+            (squatter / "salvage.txt").write_text("unmerged work\n", encoding="utf-8")
+
+            result = ensure_fanout_unit_worktree(
+                paths,
+                repo_root=repo,
+                unit_id="core",
+                branch="agent/core",
+                base_sha=sha,
+                source_ref="main",
+            )
+
+            self.assertEqual(result["refusal"], "worktree_path_already_exists")
+            self.assertIn("already exists", result["reason"])
+            self.assertEqual((squatter / "salvage.txt").read_text(encoding="utf-8"), "unmerged work\n")
+
+    def test_worktree_cleanup_is_a_canonical_observation_event(self) -> None:
+        self.assertIn("worktree_cleanup", CANONICAL_OBSERVATION_EVENTS)
 
 
 if __name__ == "__main__":
