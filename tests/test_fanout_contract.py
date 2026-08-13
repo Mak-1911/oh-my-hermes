@@ -859,33 +859,43 @@ class FanoutCliTests(unittest.TestCase):
             self.assertLess(len(stderr), 500)
 
     def test_legacy_migration_rejects_malformed_unit_objects_before_write(self) -> None:
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
-            contract = build_fanout_contract("split work", _UNITS)
-            contract["schema_version"] = "fanout_contract/v1"
-            contract["units"] = [{}]
-            recorded = write_fanout_contract(paths, contract)
+        mutations = (
+            lambda units: units.__setitem__(0, {}),
+            lambda units: units[0].__setitem__("handoff", None),
+            lambda units: units[0].__setitem__("handoff", "invalid"),
+            lambda units: units[0]["boundary"].__setitem__(
+                "file_scope",
+                [{"not": "a string"}],
+            ),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+                contract = build_fanout_contract("split work", _UNITS)
+                contract["schema_version"] = "fanout_contract/v1"
+                mutate(contract["units"])
+                recorded = write_fanout_contract(paths, contract)
 
-            status, stdout, stderr = run_cli(
-                [
-                    "--omh-home",
-                    str(paths.omh_home),
-                    "--hermes-home",
-                    str(paths.hermes_home),
-                    "coding",
-                    "fanout",
-                    "migrate-legacy",
-                    str(recorded["fanout_id"]),
-                ]
-            )
+                status, stdout, stderr = run_cli(
+                    [
+                        "--omh-home",
+                        str(paths.omh_home),
+                        "--hermes-home",
+                        str(paths.hermes_home),
+                        "coding",
+                        "fanout",
+                        "migrate-legacy",
+                        str(recorded["fanout_id"]),
+                    ]
+                )
 
-            persisted = read_fanout_contract(paths, str(recorded["fanout_id"]))
+                persisted = read_fanout_contract(paths, str(recorded["fanout_id"]))
 
-        self.assertEqual(status, 2)
-        self.assertEqual(stdout, "")
-        self.assertNotIn("Traceback", stderr)
-        self.assertEqual(persisted["schema_version"], "fanout_contract/v1")
+            self.assertEqual(status, 2)
+            self.assertEqual(stdout, "")
+            self.assertNotIn("Traceback", stderr)
+            self.assertEqual(persisted["schema_version"], "fanout_contract/v1")
 
     def test_goal_mismatch_refuses_before_git_resolution(self) -> None:
         with TemporaryDirectory() as tmp:

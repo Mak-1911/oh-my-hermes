@@ -1744,10 +1744,49 @@ def cmd_coding_fanout_migrate_legacy(args: argparse.Namespace) -> int:
                 raise ValueError("legacy fanout contract units must be objects")
             owner = unit.get("owner")
             handoff = unit.get("handoff")
+            if (
+                not isinstance(unit.get("unit_id"), str)
+                or not unit["unit_id"]
+                or not isinstance(unit.get("title"), str)
+                or not isinstance(unit.get("run_ref"), str)
+                or not unit["run_ref"]
+            ):
+                raise ValueError("legacy fanout contract unit identity is invalid")
+            if owner is not None and not isinstance(owner, str):
+                raise ValueError("legacy fanout contract owner is invalid")
+            if not isinstance(handoff, dict):
+                raise ValueError("legacy fanout contract handoff is invalid")
+            expected_target = owner if owner is not None else "choose"
+            if (
+                handoff.get("schema_version") != "fanout_unit_handoff/v1"
+                or handoff.get("executor_target") != expected_target
+                or handoff.get("dispatch_policy") != "prepare_only"
+            ):
+                raise ValueError("legacy fanout contract handoff identity is invalid")
+            boundary = unit.get("boundary")
+            if not isinstance(boundary, dict):
+                raise ValueError("legacy fanout contract boundary is invalid")
+            for field in ("file_scope", "do_not_touch"):
+                values = boundary.get(field)
+                if (
+                    not isinstance(values, list)
+                    or (field == "file_scope" and not values)
+                    or not all(
+                        isinstance(value, str) and value.strip()
+                        for value in values
+                    )
+                ):
+                    raise ValueError(
+                        f"legacy fanout contract boundary.{field} is invalid"
+                    )
+            dependencies = unit.get("depends_on")
+            if not isinstance(dependencies, list) or not all(
+                isinstance(dependency, str) and dependency
+                for dependency in dependencies
+            ):
+                raise ValueError("legacy fanout contract dependencies are invalid")
             if owner is None:
                 continue
-            if not isinstance(owner, str) or not isinstance(handoff, dict):
-                raise ValueError("legacy fanout contract owner/handoff is invalid")
             snapshot = resolved_executor_capability_snapshot(
                 owner,
                 paths.executor_capability_snapshots_dir,
@@ -1758,19 +1797,6 @@ def cmd_coding_fanout_migrate_legacy(args: argparse.Namespace) -> int:
         raise OmhError(f"legacy fanout migration refused: {exc}") from exc
     migrated.pop("artifacts", None)
     try:
-        for unit in migrated_units:
-            if not isinstance(unit, dict):
-                raise ValueError("legacy fanout contract units must be objects")
-            boundary = unit.get("boundary")
-            file_scope = (
-                boundary.get("file_scope")
-                if isinstance(boundary, dict)
-                else None
-            )
-            if not isinstance(file_scope, list) or not file_scope:
-                raise ValueError(
-                    "legacy fanout contract units require boundary.file_scope"
-                )
         fanout_dispatch_preflight(paths, migrated)
         recorded = write_fanout_contract(paths, migrated)
     except (OSError, ValueError) as exc:
