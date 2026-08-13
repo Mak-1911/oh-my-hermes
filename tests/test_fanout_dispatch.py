@@ -20,6 +20,7 @@ from omh.coding.executor_readiness import (  # noqa: E402
     live_readiness_binding,
     probe_executor_readiness,
 )
+from omh.coding.executor_capabilities import capability_for_profile  # noqa: E402
 from omh.coding.fanout import build_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import write_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import fanout_dispatch_summary_path  # noqa: E402
@@ -1165,6 +1166,22 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
                 self.assertNotIn("stdout", entry)
                 self.assertNotIn("output_tail", entry)
                 self.assertNotIn("planned_argv", entry)
+
+    def test_spawned_unit_carries_the_descriptive_capability_row_of_its_profile(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            summary = dispatch_fanout(
+                paths, contract, goal_text=_GOAL, repo_root=repo, base_sha=sha,
+                only_units=["core"], runner=_agent_runner(), readiness=_ready,
+            )
+            core = {entry["unit_id"]: entry for entry in summary["units"]}["core"]
+            # Verbatim: the stamp is the table row, not a derived judgement.
+            self.assertEqual(core["executor_capability"], capability_for_profile("codex"))
+            stored = json.loads(
+                fanout_dispatch_summary_path(paths, str(contract["fanout_id"])).read_text(encoding="utf-8")
+            )
+            stored_core = {entry["unit_id"]: entry for entry in stored["units"]}["core"]
+            self.assertEqual(stored_core["executor_capability"], capability_for_profile("codex"))
 
     def test_dry_run_does_not_persist_a_summary(self) -> None:
         with TemporaryDirectory() as tmp:

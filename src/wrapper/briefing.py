@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from ..coding.executor_capabilities import capability_for_profile_or_none
 from ..coding.executor_local_workflow import validate_executor_local_workflow
 from ..coding.handoff_input_manifest import input_manifest_summary
 
@@ -224,6 +225,11 @@ def _work_summary(session: dict[str, Any], runtime_status: dict[str, Any]) -> di
             "session_observation_contract": _object(handoff.get("session_observation_contract")),
             "local_capability_report_contract": _object(handoff.get("local_capability_report_contract")),
             **_executor_local_workflow_contract(handoff),
+            # Verbatim descriptive metadata about the selected dispatch
+            # profile's declared surface. Rendered, never ranked: nothing here
+            # feeds executor selection, and a profile with no row shows nothing
+            # rather than an all-unknown placeholder.
+            **_executor_capability_block(handoff, session, runtime_status),
             "report_contract": _object(handoff.get("report_contract")),
             "evidence_contract": _object(handoff.get("evidence_contract")),
             "coding_team_path": _coding_team_path_summary(_object(handoff.get("hermes_coding_team_path"))),
@@ -242,6 +248,23 @@ def _work_summary(session: dict[str, Any], runtime_status: dict[str, Any]) -> di
             "status": str(review.get("status") or ""),
         },
     }
+
+
+def _executor_capability_block(
+    handoff: dict[str, Any],
+    session: dict[str, Any],
+    runtime_status: dict[str, Any],
+) -> dict[str, Any]:
+    profile = str(
+        handoff.get("selected_executor_profile")
+        or session.get("selected_executor_profile")
+        or _object(runtime_status.get("prepared")).get("executor_target")
+        or ""
+    )
+    capability = capability_for_profile_or_none(profile)
+    if capability is None:
+        return {}
+    return {"executor_capability": capability}
 
 
 def _active_handoff(session: dict[str, Any], runtime_status: dict[str, Any]) -> dict[str, Any]:

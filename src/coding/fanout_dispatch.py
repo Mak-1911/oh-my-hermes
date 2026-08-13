@@ -14,6 +14,7 @@ from ..system.local_store import atomic_write_json, locked_json_update, utc_now
 from ..system.metadata_safety import redact_metadata_text
 from ..system.paths import OmhPaths
 from .action_gate import recheck_safety_profile_revision
+from .executor_capabilities import capability_for_profile_or_none
 from .executor_readiness import probe_executor_readiness
 from .fanout_contracts import FANOUT_CLAIM_BOUNDARY
 from .inflight import InflightMarkerError, clear_inflight_marker, write_inflight_marker
@@ -858,6 +859,11 @@ def _dispatch_unit(
             "runtime_profile": owner,
         },
     )
+    # Read at the spawn observation, so the dispatch record says what the
+    # table declared about this profile at the moment the unit ran. Purely
+    # descriptive: it selects nothing, gates nothing, and a profile without a
+    # row simply carries no capability metadata.
+    profile_capability = capability_for_profile_or_none(owner)
     started_at = utc_now()
     started_clock = time.monotonic()
     stderr_tail = ""
@@ -945,6 +951,8 @@ def _dispatch_unit(
     }
     if owner_host:
         result["owner_host"] = owner_host
+    if profile_capability is not None:
+        result["executor_capability"] = profile_capability
     # `tokens_total` and `session_ref` were READ by `omh coding fanout brief`
     # and had no write site anywhere, so both columns always printed "unknown".
     # Only keys the executor actually reported are copied: an absent count stays
