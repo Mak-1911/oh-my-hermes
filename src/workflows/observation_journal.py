@@ -29,6 +29,11 @@ CANONICAL_OBSERVATION_EVENTS = (
     "worktree_creation_observed",
     "executor_dispatch_observed",
     "executor_result_observed",
+    # A shape-validation receipt for an executor-reported unit sidecar. It is
+    # not verification and therefore does not participate in PROJECTION_ORDER.
+    "unit_result_validated",
+    "unit_result_missing",
+    "unit_result_invalid",
     # Per-unit dispatcher evidence. This is deliberately distinct from the
     # run-level verification_result_observed event and its projection field.
     "unit_verification_observed",

@@ -6,6 +6,7 @@ from pathlib import Path
 import shlex
 import shutil
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 from unittest import mock
@@ -25,15 +26,17 @@ from omh.coding.fanout import build_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import write_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import fanout_dispatch_summary_path  # noqa: E402
 from omh.coding.fanout_artifacts import fanout_unit_recovery_path  # noqa: E402
+from omh.coding.fanout_artifacts import unit_result_path  # noqa: E402
 from omh.coding.fanout_dispatch import (  # noqa: E402
     _MAX_RECOVERY_PATHS,
     _apply_integration_readiness,
     _owner_skill_discoveries,
     _parse_numstat,
+    _unit_verification_is_observed,
     dispatch_fanout,
     verify_goal_matches_contract,
 )
-from omh.runtime.artifacts import show_run  # noqa: E402
+from omh.runtime.artifacts import append_journal_observation, create_run, show_run  # noqa: E402
 from omh.system.local_store import atomic_write_json  # noqa: E402
 from omh.system.paths import OmhPaths  # noqa: E402
 
@@ -95,6 +98,53 @@ def _agent_runner(*, fail_units: set[str] | None = None, timeout_units: set[str]
 
 def _ready(paths, profile, **kwargs):
     return {"status": "ready", "profile": profile}
+
+
+def _unit_result_payload(contract, sha: str, unit_id: str = "core", **overrides):
+    unit = next(entry for entry in contract["units"] if entry["unit_id"] == unit_id)
+    payload = {
+        "schema_version": "fanout_unit_result/v1",
+        "unit_id": unit_id,
+        "run_id": unit["run_ref"],
+        "fanout_id": contract["fanout_id"],
+        "base_sha": sha,
+        "head_sha": sha,
+        "process_status": "process_succeeded",
+        "changed_paths": [],
+        "checks": [],
+        "findings": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _stub_executor_script(root: Path) -> Path:
+    """Real subprocess fixture that writes, omits, or corrupts a sidecar."""
+    script = root / "stub_executor.py"
+    script.write_text(
+        """import json\nimport pathlib\nimport sys\n\nmode, path, payload = sys.argv[1:]\ntarget = pathlib.Path(path)\nif mode != \"missing\":\n    target.parent.mkdir(parents=True, exist_ok=True)\n    if mode == \"corrupt\":\n        target.write_text(\"{not-json\", encoding=\"utf-8\")\n    else:\n        target.write_text(json.dumps(json.loads(payload)), encoding=\"utf-8\")\n""",
+        encoding="utf-8",
+    )
+    return script
+
+
+def _sidecar_script_runner(script: Path, mode: str, sidecar: Path, payload: dict[str, object]):
+    spawned: list[list[str]] = []
+
+    def runner(argv, **kwargs):
+        if argv[0] == "git":
+            return subprocess.run(argv, **kwargs)
+        spawned.append(list(argv))
+        return subprocess.run(
+            [sys.executable, str(script), mode, str(sidecar), json.dumps(payload)],
+            cwd=kwargs.get("cwd"),
+            text=True,
+            capture_output=True,
+            timeout=kwargs.get("timeout"),
+        )
+
+    runner.spawned = spawned
+    return runner
 
 
 _SECRET = "s3cret-source-line-that-must-never-leave-the-worktree"
@@ -170,6 +220,265 @@ def _writing_runner(
 
     runner.spawned = spawned
     return runner
+
+
+class FanoutUnitResultIntakeTests(unittest.TestCase):
+    def _setup(self, tmp: str):
+        root = Path(tmp)
+        paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+        repo, sha = _make_repo(root)
+        contract = write_fanout_contract(paths, build_fanout_contract(_GOAL, _UNITS))
+        sidecar = unit_result_path(paths, contract["fanout_id"], "core")
+        script = _stub_executor_script(root)
+        return paths, repo, sha, contract, sidecar, script
+
+    def _dispatch(self, paths, repo, sha, contract, runner):
+        return dispatch_fanout(
+            paths,
+            contract,
+            goal_text=_GOAL,
+            repo_root=repo,
+            base_sha=sha,
+            only_units=["core"],
+            runner=runner,
+            readiness=_ready,
+        )
+
+    def test_valid_sidecar_is_validated_journaled_and_prompted_at_exact_path(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract, sidecar, script = self._setup(tmp)
+            payload = _unit_result_payload(contract, sha)
+            runner = _sidecar_script_runner(script, "valid", sidecar, payload)
+
+            summary = self._dispatch(paths, repo, sha, contract, runner)
+
+            core = {entry["unit_id"]: entry for entry in summary["units"]}["core"]
+            self.assertTrue(core["process_succeeded"])
+            self.assertTrue(core["result_schema_valid"])
+            self.assertEqual(core["unit_result_status"], "unit_result_validated")
+            self.assertEqual(core["unit_result"]["schema_version"], "fanout_unit_result/v1")
+            prompt = " ".join(runner.spawned[0])
+            self.assertIn(str(sidecar), prompt)
+            self.assertIn("observed_by", prompt)
+            self.assertIn("observation_source", prompt)
+            events = [event["event"] for event in show_run(paths, core["run_ref"])["journal_events"]]
+            self.assertIn("unit_result_validated", events)
+
+    def test_missing_sidecar_is_explicit_without_erasing_process_success(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract, sidecar, script = self._setup(tmp)
+            runner = _sidecar_script_runner(
+                script, "missing", sidecar, _unit_result_payload(contract, sha)
+            )
+
+            summary = self._dispatch(paths, repo, sha, contract, runner)
+
+            core = {entry["unit_id"]: entry for entry in summary["units"]}["core"]
+            self.assertTrue(core["process_succeeded"])
+            self.assertFalse(core["result_schema_valid"])
+            self.assertEqual(core["unit_result_status"], "unit_result_missing")
+            self.assertNotIn("unit_result", core)
+            events = show_run(paths, core["run_ref"])["journal_events"]
+            missing = next(event for event in events if event["event"] == "unit_result_missing")
+            self.assertEqual(missing["status"], "observed")
+            self.assertEqual(missing["evidence_refs"], [])
+            self.assertIn("missing", missing["summary"])
+
+    def test_invalid_sidecar_names_the_validator_field_error(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract, sidecar, script = self._setup(tmp)
+            payload = _unit_result_payload(
+                contract,
+                sha,
+                checks=[
+                    {
+                        "command": "uv run python -m unittest",
+                        "status": "green",
+                        "evidence_ref": None,
+                        "reported_by": "executor",
+                        "observed_by": None,
+                        "observation_source": None,
+                    }
+                ],
+            )
+            runner = _sidecar_script_runner(script, "valid", sidecar, payload)
+
+            summary = self._dispatch(paths, repo, sha, contract, runner)
+
+            core = {entry["unit_id"]: entry for entry in summary["units"]}["core"]
+            self.assertTrue(core["process_succeeded"])
+            self.assertFalse(core["result_schema_valid"])
+            self.assertEqual(core["unit_result_status"], "unit_result_invalid")
+            self.assertIn("checks[0].status", core["unit_result_error"])
+            self.assertNotIn("unit_result", core)
+            events = show_run(paths, core["run_ref"])["journal_events"]
+            invalid = next(event for event in events if event["event"] == "unit_result_invalid")
+            self.assertEqual(invalid["status"], "observed")
+            self.assertEqual(invalid["evidence_refs"], [str(sidecar)])
+            self.assertIn("checks[0].status", invalid["summary"])
+
+    def test_foreign_identity_sidecar_is_invalid_and_never_echoed(self) -> None:
+        foreign_values = {
+            "unit_id": "docs",
+            "run_id": "fanout-ffffffffffff-docs",
+            "fanout_id": "fanout-ffffffffffff",
+            "base_sha": "f" * 40,
+        }
+        for field, foreign_value in foreign_values.items():
+            with self.subTest(field=field), TemporaryDirectory() as tmp:
+                paths, repo, sha, contract, sidecar, script = self._setup(tmp)
+                payload = _unit_result_payload(contract, sha, **{field: foreign_value})
+                runner = _sidecar_script_runner(script, "valid", sidecar, payload)
+
+                summary = self._dispatch(paths, repo, sha, contract, runner)
+
+                core = {entry["unit_id"]: entry for entry in summary["units"]}["core"]
+                self.assertFalse(core["result_schema_valid"])
+                self.assertEqual(core["unit_result_status"], "unit_result_invalid")
+                self.assertIn(field, core["unit_result_error"])
+                self.assertIn(repr(foreign_value), core["unit_result_error"])
+                self.assertNotIn("unit_result", core)
+
+    def test_executor_cannot_launder_a_check_as_dispatcher_observed(self) -> None:
+        violations = (
+            {
+                "reported_by": "dispatcher",
+                "observed_by": None,
+                "observation_source": None,
+            },
+            {
+                "reported_by": "executor",
+                "observed_by": "dispatcher",
+                "observation_source": "journal:invented-observation",
+            },
+            {
+                "reported_by": "executor",
+                "observed_by": None,
+                "observation_source": "journal:invented-observation",
+            },
+        )
+        for violation in violations:
+            with self.subTest(violation=violation), TemporaryDirectory() as tmp:
+                paths, repo, sha, contract, sidecar, script = self._setup(tmp)
+                payload = _unit_result_payload(
+                    contract,
+                    sha,
+                    checks=[
+                        {
+                            "command": "uv run python -m unittest",
+                            "status": "passed",
+                            "evidence_ref": "executor:test-output",
+                            **violation,
+                        }
+                    ],
+                )
+                runner = _sidecar_script_runner(script, "valid", sidecar, payload)
+
+                summary = self._dispatch(paths, repo, sha, contract, runner)
+
+                core = {entry["unit_id"]: entry for entry in summary["units"]}["core"]
+                self.assertFalse(core["result_schema_valid"])
+                self.assertEqual(core["unit_result_status"], "unit_result_invalid")
+                self.assertIn("checks[0].reported_by", core["unit_result_error"])
+                self.assertNotIn("unit_result", core)
+                self.assertFalse(core["unit_verification_observed"])
+                self.assertFalse(core["integration_ready"])
+
+    def test_executor_pass_report_stays_reported_not_observed_and_not_ready(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract, sidecar, script = self._setup(tmp)
+            payload = _unit_result_payload(
+                contract,
+                sha,
+                checks=[
+                    {
+                        "command": "uv run python -m unittest",
+                        "status": "passed",
+                        "evidence_ref": "executor:test-output",
+                        "reported_by": "executor",
+                        "observed_by": None,
+                        "observation_source": None,
+                    }
+                ],
+            )
+            runner = _sidecar_script_runner(script, "valid", sidecar, payload)
+
+            summary = self._dispatch(paths, repo, sha, contract, runner)
+
+            core = {entry["unit_id"]: entry for entry in summary["units"]}["core"]
+            check = core["unit_result"]["checks"][0]
+            self.assertEqual(check["reported_by"], "executor")
+            self.assertIsNone(check["observed_by"])
+            self.assertIsNone(check["observation_source"])
+            self.assertFalse(core["unit_verification_observed"])
+            self.assertFalse(core["integration_ready"])
+            self.assertEqual(summary["integration_ready_units"], [])
+
+    def test_executor_unknown_keys_do_not_reach_persisted_summary(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract, sidecar, script = self._setup(tmp)
+            payload = _unit_result_payload(
+                contract,
+                sha,
+                executor_secret="must-not-persist",
+                checks=[
+                    {
+                        "command": "uv run python -m unittest",
+                        "status": "passed",
+                        "evidence_ref": None,
+                        "reported_by": "executor",
+                        "observed_by": None,
+                        "observation_source": None,
+                        "executor_note": "must-not-persist-either",
+                    }
+                ],
+            )
+            runner = _sidecar_script_runner(script, "valid", sidecar, payload)
+
+            self._dispatch(paths, repo, sha, contract, runner)
+
+            stored = json.loads(
+                fanout_dispatch_summary_path(paths, contract["fanout_id"]).read_text(encoding="utf-8")
+            )
+            serialized = json.dumps(stored)
+            self.assertNotIn("executor_secret", serialized)
+            self.assertNotIn("executor_note", serialized)
+            self.assertNotIn("must-not-persist", serialized)
+
+    def test_unit_result_path_is_contained_and_rejects_escaping_ids(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = OmhPaths(omh_home=Path(tmp) / ".omh", hermes_home=Path(tmp) / ".hermes")
+            expected = paths.fanout_contracts_dir / "fanout-0123456789ab" / "unit_results" / "core.json"
+            self.assertEqual(unit_result_path(paths, "fanout-0123456789ab", "core"), expected)
+            with self.assertRaises(ValueError):
+                unit_result_path(paths, "fanout-0123456789ab", "../escape")
+
+    def test_verification_receipt_buried_beyond_show_run_tail_remains_observed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = OmhPaths(omh_home=Path(tmp) / ".omh", hermes_home=Path(tmp) / ".hermes")
+            run_ref = "fanout-0123456789ab-core"
+            create_run(paths, {"run_id": run_ref, "skill": "fanout-unit", "harness": "test"})
+            base = {
+                "target_type": "run",
+                "target_id": run_ref,
+                "run_id": run_ref,
+                "status": "observed",
+                "worker_ref": "core",
+            }
+            append_journal_observation(paths, {**base, "event": "worker_dispatch"})
+            append_journal_observation(paths, {**base, "event": "worker_result"})
+            append_journal_observation(paths, {**base, "event": "unit_verification_observed"})
+            for index in range(26):
+                append_journal_observation(
+                    paths,
+                    {**base, "event": "worker_result", "summary": f"filler {index}"},
+                )
+
+            self.assertNotIn(
+                "unit_verification_observed",
+                [event["event"] for event in show_run(paths, run_ref)["journal_events"]],
+            )
+            self.assertTrue(_unit_verification_is_observed(paths, run_ref))
 
 
 class FanoutDispatchEngineTests(unittest.TestCase):
