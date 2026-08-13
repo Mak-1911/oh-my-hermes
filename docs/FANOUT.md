@@ -136,12 +136,13 @@ Rules:
   process exited 0. It is not verified, reviewed, or correct work. Failed
   units block their dependents, never their independents.
 - **Frozen capability evidence.** Newly prepared assigned-owner handoffs carry
+  `fanout_contract/v2` plus
   `executor_capability_snapshot_policy: frozen_required`. Dispatch validates
   `unit.owner`, `handoff.executor_target`, and the snapshot executor before
   readiness or spawn. Missing, malformed, or mismatched evidence returns
   `capability_snapshot_invalid`; that status blocks dependent units and is
   projected as blocked work on the coordination board. Legacy contracts
-  without the policy retain their bounded dispatch-time fallback.
+  under `fanout_contract/v1` retain their bounded dispatch-time fallback.
 - **Blocked-by-design cascades.** An `unsupported_for_local_dispatch`,
   `executor_not_ready`, `capability_snapshot_invalid`, or
   `model_choice_required` dependency (a frozen

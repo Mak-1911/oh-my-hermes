@@ -497,10 +497,15 @@ class FanoutCliTests(unittest.TestCase):
 
             self.assertEqual(status, 0, stderr)
             payload = json.loads(stdout)
-            self.assertEqual(payload["schema_version"], "fanout_contract/v1")
+            self.assertEqual(payload["schema_version"], "fanout_contract/v2")
             self.assertEqual(payload["status"], "prepared_not_observed")
             for unit in payload["units"]:
                 self.assertEqual(unit["handoff"]["dispatch_policy"], "prepare_only")
+                if unit["owner"] is not None:
+                    self.assertEqual(
+                        unit["handoff"]["executor_capability_snapshot_policy"],
+                        "frozen_required",
+                    )
             # Negative guards: freezing a contract is not dispatch and creates
             # no run records; unit evidence lands on runs the operator starts.
             for forbidden in ("worker_dispatch", "start_team", "start_swarm"):

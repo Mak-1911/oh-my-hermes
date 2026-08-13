@@ -22,7 +22,11 @@ from .executor_capability_snapshots import (
 )
 from .executor_capabilities import legacy_executor_capability_projection
 from .executor_readiness import probe_executor_readiness
-from .fanout_contracts import FANOUT_CLAIM_BOUNDARY
+from .fanout_contracts import (
+    FANOUT_CLAIM_BOUNDARY,
+    FANOUT_CONTRACT_SCHEMA_VERSION,
+    LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION,
+)
 from .inflight import InflightMarkerError, clear_inflight_marker, write_inflight_marker
 from .unit_prompt_protocol import unit_protocol_lines
 from .fanout_unit_results import validate_unit_result
@@ -445,12 +449,26 @@ def _dispatch_capability_snapshot(
 def _unit_capability_precheck(
     paths: OmhPaths,
     unit: Mapping[str, Any],
+    *,
+    contract_schema_version: str,
 ) -> tuple[str, dict[str, Any] | None, list[str]]:
     declared_owner = str(unit.get("owner") or "choose")
     handoff = unit.get("handoff", {}) if isinstance(unit.get("handoff"), Mapping) else {}
     handoff_owner = str(handoff.get("executor_target", "choose"))
     if handoff_owner != declared_owner:
         return declared_owner, None, ["unit owner does not match the handoff owner"]
+    if (
+        contract_schema_version == FANOUT_CONTRACT_SCHEMA_VERSION
+        and declared_owner != "choose"
+    ):
+        if handoff.get("executor_capability_snapshot_policy") != "frozen_required":
+            return declared_owner, None, [
+                "executor_capability_snapshot_policy must be frozen_required"
+            ]
+        if "executor_capability_snapshot" not in handoff:
+            return declared_owner, None, [
+                "executor_capability_snapshot is required by this contract"
+            ]
     snapshot, errors = _dispatch_capability_snapshot(paths, handoff, declared_owner)
     return declared_owner, snapshot, errors
 
@@ -504,10 +522,22 @@ def dispatch_fanout(
     # contract whose goal or safety profile no longer matches the live state.
     verify_goal_matches_contract(contract, goal_text)
     verify_safety_profile_matches_contract(contract, live_safety_profile_revision)
+    contract_schema_version = str(contract.get("schema_version", ""))
+    if contract_schema_version not in {
+        FANOUT_CONTRACT_SCHEMA_VERSION,
+        LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION,
+    }:
+        raise ValueError(
+            f"unsupported fanout contract schema_version: {contract_schema_version or 'missing'}"
+        )
     units = {str(unit["unit_id"]): unit for unit in contract.get("units", []) if isinstance(unit, Mapping)}
     order = [str(unit_id) for unit_id in contract.get("merge_plan", {}).get("merge_order", [])]
     capability_prechecks = {
-        unit_id: _unit_capability_precheck(paths, unit)
+        unit_id: _unit_capability_precheck(
+            paths,
+            unit,
+            contract_schema_version=contract_schema_version,
+        )
         for unit_id, unit in units.items()
     }
     capability_valid_units = [
@@ -525,7 +555,15 @@ def dispatch_fanout(
     # than inside the prompt builder: `build_unit_prompt` stays a pure function
     # of its arguments, so a prompt built without discovery is byte-identical
     # across machines.
-    discoveries = _owner_skill_discoveries(capability_valid_units, project_root=repo_root)
+    selected_capability_invalid = any(
+        unit_id in selected and capability_prechecks[unit_id][2]
+        for unit_id in order
+    )
+    discoveries = (
+        {}
+        if selected_capability_invalid
+        else _owner_skill_discoveries(capability_valid_units, project_root=repo_root)
+    )
     results: dict[str, dict[str, Any]] = {}
 
     for unit_id in order:
@@ -1612,7 +1650,7 @@ def _skipped(
     return {
         "unit_id": str(unit["unit_id"]),
         "run_ref": str(unit.get("run_ref", "")),
-        "owner": str(unit.get("handoff", {}).get("executor_target", "choose")),
+        "owner": str(unit.get("owner") or "choose"),
         "status": status,
         **_dispatch_status_ladder(
             process_succeeded=process_succeeded,

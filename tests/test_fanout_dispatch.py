@@ -1605,6 +1605,7 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             )
             core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
             del core["handoff"]["executor_capability_snapshot"]
+            del core["handoff"]["executor_capability_snapshot_policy"]
 
             def readiness(*args, **kwargs):
                 self.fail("a missing current snapshot must refuse before readiness")
@@ -1623,6 +1624,29 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             result = summary["units"][0]
             self.assertEqual(result["status"], "capability_snapshot_invalid")
             self.assertIn("required", result["reason"])
+
+    def test_invalid_selected_snapshot_refuses_before_any_local_discovery(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            core["handoff"]["executor_capability_snapshot"] = "not-a-snapshot"
+
+            with mock.patch(
+                "omh.coding.fanout_dispatch._owner_skill_discoveries",
+                side_effect=AssertionError("discovery ran"),
+            ):
+                summary = dispatch_fanout(
+                    paths,
+                    contract,
+                    goal_text=_GOAL,
+                    repo_root=repo,
+                    base_sha=sha,
+                    only_units=["core"],
+                    runner=_agent_runner(),
+                    readiness=_ready,
+                )
+
+            self.assertEqual(summary["units"][0]["status"], "capability_snapshot_invalid")
 
     def test_malformed_frozen_snapshot_policy_cannot_downgrade_to_legacy(self) -> None:
         for policy in ("frozen-requird", ["frozen_required"]):
@@ -1727,6 +1751,28 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             self.assertEqual(by_unit["tests"]["status"], "blocked_by_dependency")
             self.assertEqual(by_unit["tests"]["blocked_on"], ["core"])
 
+    def test_not_selected_summary_reports_the_canonical_unit_owner(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            core["handoff"]["executor_target"] = "claude-code"
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                only_units=["docs"],
+                runner=_agent_runner(),
+                readiness=_ready,
+                dry_run=True,
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["core"]["status"], "not_selected")
+            self.assertEqual(by_unit["core"]["owner"], "codex")
+
     def test_legacy_handoff_without_snapshot_resolves_the_recorded_owner_snapshot(self) -> None:
         with TemporaryDirectory() as tmp:
             paths, repo, sha, contract = self._setup(tmp)
@@ -1749,6 +1795,7 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
                 ),
                 recorded,
             )
+            contract["schema_version"] = "fanout_contract/v1"
 
             summary = dispatch_fanout(
                 paths,

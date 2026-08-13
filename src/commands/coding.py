@@ -1355,7 +1355,7 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
         units.append(
             {
                 "unit_id": unit_id,
-                "owner": str(handoff.get("executor_target", "choose")),
+                "owner": str(unit.get("owner") or "choose"),
                 "model": model_id or "executor_default",
                 "reasoning_effort": effort,
                 "model_label": model_label,

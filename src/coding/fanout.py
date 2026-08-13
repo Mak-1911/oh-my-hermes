@@ -16,6 +16,7 @@ from .fanout_contracts import (
     FANOUT_SPAWN_PLAN_THRESHOLD,
     FANOUT_UNIT_OWNERS,
     FanoutContractError,
+    LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION,
     MAX_SPAWN_PLAN_FIELD_CHARS,
     PREPARED_NOT_OBSERVED,
 )
@@ -71,7 +72,11 @@ def build_fanout_contract(
         for unit in normalized_units
     ]
     return {
-        "schema_version": FANOUT_CONTRACT_SCHEMA_VERSION,
+        "schema_version": (
+            FANOUT_CONTRACT_SCHEMA_VERSION
+            if capability_snapshots is not None
+            else LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION
+        ),
         "fanout_id": fanout_id,
         "status": PREPARED_NOT_OBSERVED,
         "source": source,
