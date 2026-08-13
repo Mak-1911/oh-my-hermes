@@ -40,8 +40,8 @@ from .handoff_input_manifest import build_handoff_input_manifest, pinned_input_m
 from .hermes_harness import build_hermes_coding_harness
 from .executor_capability_snapshots import (
     LOCAL_WORKFLOW_CAPABILITY_NAME,
+    complete_executor_capability_snapshot,
     prepared_executor_capability_snapshot,
-    resolved_executor_capability_snapshot,
 )
 from .executor_local_workflow import build_executor_local_workflow
 from .executor_local_workflow_selection import is_workflow
@@ -542,8 +542,22 @@ def _build_coding_delegation_payload_native(
     proposed_selection = executor_selection_for_target(executor_target, action=delegation.action)
     selection = proposed_selection
     selected_profile = selection.selected_executor_profile
+    owner_snapshots = (
+        _delegation_owner_snapshots(
+            executor_target=executor_target,
+            selected_profile=selected_profile,
+            capability_snapshot_directory=capability_snapshot_directory,
+        )
+        if delegation.action == "delegate"
+        else ()
+    )
+    recorded_snapshot = dict(owner_snapshots).get(selected_profile) if selected_profile else None
     capability_snapshot = (
-        resolved_executor_capability_snapshot(selected_profile, capability_snapshot_directory)
+        (
+            complete_executor_capability_snapshot(recorded_snapshot)
+            if recorded_snapshot is not None
+            else prepared_executor_capability_snapshot(selected_profile)
+        )
         if selected_profile
         else None
     )
@@ -671,7 +685,7 @@ def _build_coding_delegation_payload_native(
         payload["coding_owner_fit"] = _coding_owner_fit(
             payload,
             executor_target=executor_target,
-            capability_snapshot_directory=capability_snapshot_directory,
+            owner_snapshots=owner_snapshots,
         )
     if _inline_coding_policy_applies(
         message.lower(), delegation.intent, delegation.action, bool(action_gate["choice_required"])
@@ -1989,7 +2003,7 @@ def _coding_owner_fit(
     payload: dict[str, object],
     *,
     executor_target: str,
-    capability_snapshot_directory: Path | None,
+    owner_snapshots: tuple[tuple[str, dict[str, Any] | None], ...],
 ) -> dict[str, object]:
     """The owner-fit report for the plan this build just accepted (#810).
 
@@ -2005,14 +2019,25 @@ def _coding_owner_fit(
     absence of an observation and would read as evidence.
     """
     named_owner = executor_target if executor_target != "choose" else ""
-    candidates = list(EXECUTOR_CHOICE_CONTEXT_PROFILES)
-    if named_owner and named_owner not in candidates:
-        candidates.append(named_owner)
     return build_owner_fit_report(
         requirements=derive_plan_capability_requirements(accepted_plan_from_delegation(payload)),
-        owners=owner_capability_snapshots(capability_snapshot_directory, candidates),
+        owners=owner_snapshots,
         named_owner=named_owner,
     )
+
+
+def _delegation_owner_snapshots(
+    *,
+    executor_target: str,
+    selected_profile: str | None,
+    capability_snapshot_directory: Path | None,
+) -> tuple[tuple[str, dict[str, Any] | None], ...]:
+    named_owner = executor_target if executor_target != "choose" else ""
+    candidates = list(EXECUTOR_CHOICE_CONTEXT_PROFILES)
+    for owner in (named_owner, selected_profile or ""):
+        if owner and owner not in candidates:
+            candidates.append(owner)
+    return owner_capability_snapshots(capability_snapshot_directory, candidates)
 def _local_workflow_evidence(snapshot: dict[str, object] | None) -> dict[str, object] | None:
     if snapshot is None:
         return None

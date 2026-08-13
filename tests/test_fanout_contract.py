@@ -727,6 +727,42 @@ class FanoutCliTests(unittest.TestCase):
             self.assertEqual(payload["schema_version"], "fanout_redirect/v1")
             self.assertEqual(payload["next_command"], "omh coding delegate")
 
+    def test_fanout_prepare_normalizes_an_unsafe_owner_error(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            units = root / "unsafe.json"
+            units.write_text(
+                json.dumps(
+                    [
+                        {"unit_id": "core", "owner": "../codex", "file_scope": ["src/"]},
+                        {"unit_id": "tests", "owner": "codex", "file_scope": ["tests/"]},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            status, stdout, stderr = run_cli(
+                [
+                    "--omh-home",
+                    str(root / ".omh"),
+                    "--hermes-home",
+                    str(root / ".hermes"),
+                    "coding",
+                    "fanout",
+                    "prepare",
+                    "--goal",
+                    "split",
+                    "work",
+                    "--units",
+                    str(units),
+                ]
+            )
+
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("safe snapshot filename", stderr)
+        self.assertNotIn("Traceback", stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

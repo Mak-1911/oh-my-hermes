@@ -1048,7 +1048,10 @@ def cmd_coding_composition_guide(args: argparse.Namespace) -> int:
 
 
 def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
-    from ..coding.executor_capability_snapshots import resolved_executor_capability_snapshot
+    from ..coding.executor_capability_snapshots import (
+        ExecutorCapabilitySnapshotError,
+        resolved_executor_capability_snapshot,
+    )
     from ..coding.fanout import build_fanout_contract, is_degenerate_single_unit, single_unit_redirect
     from ..coding.fanout_artifacts import write_fanout_contract
     from ..coding.fanout_contracts import FanoutContractError
@@ -1090,7 +1093,7 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
             capability_snapshots=capability_snapshots,
             spawn_plan=spawn_plan,
         )
-    except FanoutContractError as exc:
+    except (FanoutContractError, ExecutorCapabilitySnapshotError) as exc:
         raise OmhError(str(exc)) from exc
     if args.record:
         contract = write_fanout_contract(paths, contract)

@@ -16,6 +16,7 @@ from .executor_local_workflow_selection import (
 
 
 EXECUTOR_CAPABILITY_SNAPSHOT_SCHEMA_VERSION: Final = "executor_capability_snapshot/v1"
+PREPARED_CAPABILITY_SNAPSHOT_RECORDED_AT: Final = "1970-01-01T00:00:00Z"
 CAPABILITY_STATUSES: Final = frozenset({"prepared", "host_observed", "unavailable", "unknown"})
 LOCAL_WORKFLOW_CAPABILITY_NAME: Final = "local_workflow"
 KNOWN_CAPABILITY_NAMES: Final = frozenset(
@@ -115,7 +116,10 @@ def prepared_executor_capability_snapshot(
     return build_executor_capability_snapshot(
         executor=executor,
         capabilities=capabilities,
-        recorded_at=recorded_at,
+        # A prepared fallback records no observation. A wall-clock value would
+        # make identical handoffs and fanout contracts differ for no evidentiary
+        # reason, so the absence of an observation has one stable identity.
+        recorded_at=recorded_at or PREPARED_CAPABILITY_SNAPSHOT_RECORDED_AT,
     )
 
 

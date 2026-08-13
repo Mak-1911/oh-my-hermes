@@ -420,6 +420,8 @@ def _dispatch_capability_snapshot(
 ) -> tuple[dict[str, Any] | None, list[str]]:
     frozen_snapshot = handoff.get("executor_capability_snapshot")
     if frozen_snapshot is None:
+        if handoff.get("executor_capability_snapshot_policy") == "frozen_required":
+            return None, ["executor_capability_snapshot is required by this handoff"]
         return (
             resolved_executor_capability_snapshot(
                 owner,
@@ -435,6 +437,19 @@ def _dispatch_capability_snapshot(
     if errors:
         return None, errors
     return complete_executor_capability_snapshot(frozen_snapshot), []
+
+
+def _unit_capability_precheck(
+    paths: OmhPaths,
+    unit: Mapping[str, Any],
+) -> tuple[str, dict[str, Any] | None, list[str]]:
+    declared_owner = str(unit.get("owner") or "choose")
+    handoff = unit.get("handoff", {}) if isinstance(unit.get("handoff"), Mapping) else {}
+    handoff_owner = str(handoff.get("executor_target", "choose"))
+    if handoff_owner != declared_owner:
+        return declared_owner, None, ["unit owner does not match the handoff owner"]
+    snapshot, errors = _dispatch_capability_snapshot(paths, handoff, declared_owner)
+    return declared_owner, snapshot, errors
 
 
 def _apply_integration_readiness(units: Sequence[dict[str, Any]]) -> None:
@@ -488,7 +503,17 @@ def dispatch_fanout(
     verify_safety_profile_matches_contract(contract, live_safety_profile_revision)
     units = {str(unit["unit_id"]): unit for unit in contract.get("units", []) if isinstance(unit, Mapping)}
     order = [str(unit_id) for unit_id in contract.get("merge_plan", {}).get("merge_order", [])]
-    current_catalog_digest = _current_catalog_digest(units.values())
+    capability_prechecks = {
+        unit_id: _unit_capability_precheck(paths, unit)
+        for unit_id, unit in units.items()
+    }
+    capability_valid_units = [
+        unit
+        for unit_id, unit in units.items()
+        if capability_prechecks[unit_id][1] is not None
+        and not capability_prechecks[unit_id][2]
+    ]
+    current_catalog_digest = _current_catalog_digest(capability_valid_units)
     # Resolved up here rather than beside the summary write below: the dispatch
     # loop needs it to write per-unit in-flight markers while units are running.
     fanout_id = str(contract.get("fanout_id", "") or "")
@@ -497,7 +522,7 @@ def dispatch_fanout(
     # than inside the prompt builder: `build_unit_prompt` stays a pure function
     # of its arguments, so a prompt built without discovery is byte-identical
     # across machines.
-    discoveries = _owner_skill_discoveries(units.values(), project_root=repo_root)
+    discoveries = _owner_skill_discoveries(capability_valid_units, project_root=repo_root)
     results: dict[str, dict[str, Any]] = {}
 
     for unit_id in order:
@@ -557,6 +582,7 @@ def dispatch_fanout(
                     current_catalog_digest=current_catalog_digest,
                     fanout_id=fanout_id,
                     discoveries=discoveries,
+                    capability_precheck=capability_prechecks[unit_id],
                 )
                 for unit_id in ready
             }
@@ -763,13 +789,23 @@ def _dispatch_unit(
     current_catalog_digest: str = "",
     fanout_id: str = "",
     discoveries: Mapping[str, Mapping[str, Any]] | None = None,
+    capability_precheck: tuple[str, dict[str, Any] | None, list[str]],
 ) -> dict[str, Any]:
     from .model_inventory import catalog_fingerprint_note
 
     unit_id = str(unit["unit_id"])
     run_ref = str(unit.get("run_ref", unit_id))
     handoff = unit.get("handoff", {}) if isinstance(unit.get("handoff"), Mapping) else {}
-    owner = str(handoff.get("executor_target", "choose"))
+    owner, capability_snapshot, capability_errors = capability_precheck
+    if capability_errors or capability_snapshot is None:
+        return {
+            "unit_id": unit_id,
+            "run_ref": run_ref,
+            "owner": owner,
+            "status": "capability_snapshot_invalid",
+            **_dispatch_status_ladder(),
+            "reason": "; ".join(capability_errors),
+        }
     model_route = handoff.get("model_route") if isinstance(handoff.get("model_route"), Mapping) else None
     routed_model = str(model_route.get("selected_model", "") or "") if model_route else ""
     routed_effort = str(model_route.get("selected_reasoning_effort", "") or "") if model_route else ""
@@ -819,16 +855,6 @@ def _dispatch_unit(
         if isinstance(repair_card, Mapping):
             not_ready["repair_card"] = dict(repair_card)
         return not_ready
-    capability_snapshot, capability_errors = _dispatch_capability_snapshot(paths, handoff, owner)
-    if capability_errors or capability_snapshot is None:
-        return {
-            "unit_id": unit_id,
-            "run_ref": run_ref,
-            "owner": owner,
-            "status": "capability_snapshot_invalid",
-            **_dispatch_status_ladder(),
-            "reason": "; ".join(capability_errors),
-        }
     discovery = (discoveries or {}).get(owner)
     sidecar_path = None
     if fanout_id:
@@ -1553,6 +1579,7 @@ def _dependency_failed(result: dict[str, Any] | None) -> bool:
     if result is None:
         return False
     return result.get("status") in {
+        "capability_snapshot_invalid",
         "failed",
         "blocked_by_dependency",
         "executor_not_ready",

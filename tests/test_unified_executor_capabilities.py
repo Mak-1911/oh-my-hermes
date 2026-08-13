@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest import mock
 
 from _local_package import load_local_package
 
@@ -25,6 +26,16 @@ from omh.wrapper.briefing import build_coding_briefing  # noqa: E402
 
 
 class UnifiedExecutorCapabilityProjectionTests(unittest.TestCase):
+    def test_prepared_snapshot_identity_is_deterministic_without_observation_time(self) -> None:
+        with mock.patch(
+            "omh.coding.executor_capability_snapshots.utc_now",
+            side_effect=["2026-08-13T12:00:00Z", "2026-08-13T13:00:00Z"],
+        ):
+            first = prepared_executor_capability_snapshot("codex")
+            second = prepared_executor_capability_snapshot("codex")
+
+        self.assertEqual(first, second)
+
     def test_prepared_snapshot_owns_the_complete_capability_vocabulary(self) -> None:
         snapshot = prepared_executor_capability_snapshot("codex")
 
@@ -83,6 +94,37 @@ class UnifiedExecutorCapabilityProjectionTests(unittest.TestCase):
         self.assertEqual(contract["executor_capability_snapshot"], snapshot)
         self.assertEqual(contract["executor_capability"]["schema_version"], "executor_capability/v1")
 
+    def test_briefing_omits_invalid_or_wrong_owner_snapshots(self) -> None:
+        invalid_snapshots = (
+            {
+                "executor": "codex",
+                "raw_prompt": "SECRET",
+            },
+            build_executor_capability_snapshot(
+                executor="claude-code",
+                capabilities={"edit_format_patch": {"status": "unknown"}},
+                recorded_at="2026-08-13T12:01:00Z",
+            ),
+        )
+        for snapshot in invalid_snapshots:
+            with self.subTest(snapshot=snapshot):
+                briefing = build_coding_briefing(
+                    {
+                        "session_id": "sess-invalid",
+                        "status": "prompt_handoff_prepared",
+                        "selected_executor_profile": "codex",
+                        "prompt_handoff": {
+                            "schema_version": "coding_handoff/v1",
+                            "selected_executor_profile": "codex",
+                            "executor_capability_snapshot": snapshot,
+                        },
+                    }
+                )
+
+                contract = briefing["work_summary"]["handoff_contract"]
+                self.assertNotIn("executor_capability_snapshot", contract)
+                self.assertNotIn("SECRET", str(briefing))
+
     def test_delegation_freezes_the_resolved_snapshot_for_briefing(self) -> None:
         with TemporaryDirectory() as tmp:
             directory = Path(tmp)
@@ -134,6 +176,38 @@ class UnifiedExecutorCapabilityProjectionTests(unittest.TestCase):
         self.assertEqual(
             snapshot["capabilities"]["edit_format_patch"]["evidence_ref"],
             "probe:patch-edit",
+        )
+
+    def test_delegation_handoff_and_owner_fit_share_one_snapshot_read(self) -> None:
+        recorded = build_executor_capability_snapshot(
+            executor="codex",
+            capabilities={
+                "parallel_agents": {
+                    "status": "host_observed",
+                    "scope": {"surface": "local_cli"},
+                    "evidence_ref": "probe:parallel",
+                    "observed_at": "2026-08-13T12:00:00Z",
+                }
+            },
+            recorded_at="2026-08-13T12:01:00Z",
+        )
+
+        def snapshots(_directory, owners):
+            return tuple((owner, recorded if owner == "codex" else None) for owner in owners)
+
+        with mock.patch(
+            "omh.coding.coding_delegation.owner_capability_snapshots",
+            side_effect=snapshots,
+        ) as reader:
+            payload = build_coding_delegation_payload(
+                "Implement the accepted task with tests.",
+                executor_target="codex",
+            )
+
+        reader.assert_called_once()
+        self.assertEqual(
+            payload["executor_handoff"]["executor_capability_snapshot"]["recorded_at"],
+            recorded["recorded_at"],
         )
 
     def test_fanout_contract_deep_freezes_recorded_and_prepared_owner_snapshots(self) -> None:
@@ -188,6 +262,30 @@ class UnifiedExecutorCapabilityProjectionTests(unittest.TestCase):
             ]["status"],
             "prepared",
         )
+
+    def test_fanout_contract_rejects_invalid_or_owner_mismatched_snapshots(self) -> None:
+        units = [
+            {"unit_id": "code", "owner": "codex", "file_scope": ["src/"]},
+            {"unit_id": "docs", "owner": "claude-code", "file_scope": ["docs/"]},
+        ]
+        wrong_owner = build_executor_capability_snapshot(
+            executor="claude-code",
+            capabilities={"edit_format_patch": {"status": "unknown"}},
+            recorded_at="2026-08-13T12:01:00Z",
+        )
+        for snapshot in ("not-a-snapshot", wrong_owner):
+            with self.subTest(snapshot=snapshot), self.assertRaises(ValueError):
+                build_fanout_contract(
+                    "Implement the accepted feature.",
+                    units,
+                    capability_snapshots={
+                        "codex": snapshot,
+                        "claude-code": prepared_executor_capability_snapshot(
+                            "claude-code",
+                            recorded_at="2026-08-13T12:02:00Z",
+                        ),
+                    },
+                )
 
     def test_briefing_does_not_invent_a_snapshot_for_a_legacy_handoff(self) -> None:
         session = {

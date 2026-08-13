@@ -19,9 +19,14 @@ from .fanout_contracts import (
     MAX_SPAWN_PLAN_FIELD_CHARS,
     PREPARED_NOT_OBSERVED,
 )
+from .executor_capability_snapshots import (
+    ExecutorCapabilitySnapshotError,
+    complete_executor_capability_snapshot,
+)
 from .model_routing import model_route_for_unit
 
 _UNIT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+_FROZEN_CAPABILITY_SNAPSHOT_POLICY = "frozen_required"
 
 
 def build_fanout_contract(
@@ -39,6 +44,10 @@ def build_fanout_contract(
         raise FanoutContractError("fanout goal is required")
     normalized_units = [_normalized_unit(unit, index) for index, unit in enumerate(units)]
     validate_fanout_units(normalized_units)
+    validated_capability_snapshots = _validated_capability_snapshots(
+        capability_snapshots,
+        normalized_units,
+    )
     conflict_notes = detect_boundary_overlaps(normalized_units)
     order = merge_order(normalized_units)
     # Last, after every structural check. A split with overlapping boundaries
@@ -57,7 +66,7 @@ def build_fanout_contract(
             sibling_scopes=_sibling_scopes(normalized_units, str(unit["unit_id"])),
             fanout_id=fanout_id,
             local_catalogs=local_catalogs,
-            capability_snapshots=capability_snapshots,
+            capability_snapshots=validated_capability_snapshots,
         )
         for unit in normalized_units
     ]
@@ -114,6 +123,39 @@ def build_fanout_contract(
         ],
         "claim_boundary": FANOUT_CLAIM_BOUNDARY,
     }
+
+
+def _validated_capability_snapshots(
+    snapshots: Mapping[str, Mapping[str, object]] | None,
+    units: Sequence[Mapping[str, object]],
+) -> dict[str, dict[str, object]] | None:
+    if snapshots is None:
+        return None
+    validated: dict[str, dict[str, object]] = {}
+    owners = sorted(
+        {
+            str(unit.get("owner"))
+            for unit in units
+            if unit.get("owner") is not None
+        }
+    )
+    for owner in owners:
+        snapshot = snapshots.get(owner)
+        if not isinstance(snapshot, Mapping):
+            raise FanoutContractError(
+                f"executor capability snapshot for {owner} must be a mapping"
+            )
+        if snapshot.get("executor") != owner:
+            raise FanoutContractError(
+                f"executor capability snapshot for {owner} does not match its owner"
+            )
+        try:
+            validated[owner] = complete_executor_capability_snapshot(snapshot)
+        except ExecutorCapabilitySnapshotError as exc:
+            raise FanoutContractError(
+                f"executor capability snapshot for {owner} is invalid: {exc}"
+            ) from exc
+    return validated
 
 
 def _frozen_safety_profile_revision() -> str:
@@ -396,6 +438,8 @@ def _contract_unit(
     if model_route is not None:
         handoff["model_route"] = model_route
     capability_snapshot = (capability_snapshots or {}).get(executor_target)
+    if capability_snapshots is not None and executor_target != "choose":
+        handoff["executor_capability_snapshot_policy"] = _FROZEN_CAPABILITY_SNAPSHOT_POLICY
     if isinstance(capability_snapshot, Mapping):
         handoff["executor_capability_snapshot"] = deepcopy(dict(capability_snapshot))
     contract_unit: dict[str, object] = {

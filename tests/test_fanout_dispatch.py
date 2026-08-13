@@ -1567,6 +1567,9 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             def runner(*args, **kwargs):
                 self.fail("invalid capability metadata must refuse before spawning")
 
+            def readiness(*args, **kwargs):
+                self.fail("invalid capability metadata must refuse before readiness")
+
             summary = dispatch_fanout(
                 paths,
                 contract,
@@ -1575,12 +1578,113 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
                 base_sha=sha,
                 only_units=["core"],
                 runner=runner,
-                readiness=_ready,
+                readiness=readiness,
             )
 
             result = summary["units"][0]
             self.assertEqual(result["status"], "capability_snapshot_invalid")
             self.assertIn("must be a mapping", result["reason"])
+
+    def test_current_contract_refuses_a_deleted_frozen_snapshot(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+            repo, sha = _make_repo(root)
+            snapshots = {
+                owner: build_executor_capability_snapshot(
+                    executor=owner,
+                    capabilities={"edit_format_patch": {"status": "unknown"}},
+                    recorded_at="2026-08-13T12:01:00Z",
+                )
+                for owner in ("codex", "claude-code")
+            }
+            contract = build_fanout_contract(
+                _GOAL,
+                _UNITS,
+                capability_snapshots=snapshots,
+            )
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            del core["handoff"]["executor_capability_snapshot"]
+
+            def readiness(*args, **kwargs):
+                self.fail("a missing current snapshot must refuse before readiness")
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                only_units=["core"],
+                runner=_agent_runner(),
+                readiness=readiness,
+            )
+
+            result = summary["units"][0]
+            self.assertEqual(result["status"], "capability_snapshot_invalid")
+            self.assertIn("required", result["reason"])
+
+    def test_dispatch_binds_declared_handoff_and_snapshot_owner_before_readiness(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+            repo, sha = _make_repo(root)
+            snapshots = {
+                owner: build_executor_capability_snapshot(
+                    executor=owner,
+                    capabilities={"edit_format_patch": {"status": "unknown"}},
+                    recorded_at="2026-08-13T12:01:00Z",
+                )
+                for owner in ("codex", "claude-code")
+            }
+            contract = build_fanout_contract(
+                _GOAL,
+                _UNITS,
+                capability_snapshots=snapshots,
+            )
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            core["handoff"]["executor_target"] = "claude-code"
+            core["handoff"]["executor_capability_snapshot"] = snapshots["claude-code"]
+
+            def readiness(*args, **kwargs):
+                self.fail("owner rebinding must refuse before readiness")
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                only_units=["core"],
+                runner=_agent_runner(),
+                readiness=readiness,
+            )
+
+            result = summary["units"][0]
+            self.assertEqual(result["status"], "capability_snapshot_invalid")
+            self.assertEqual(result["owner"], "codex")
+            self.assertIn("owner", result["reason"])
+
+    def test_invalid_snapshot_blocks_dependents_with_a_named_reason(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            core["handoff"]["executor_capability_snapshot"] = "not-a-snapshot"
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                runner=_agent_runner(),
+                readiness=_ready,
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["core"]["status"], "capability_snapshot_invalid")
+            self.assertEqual(by_unit["tests"]["status"], "blocked_by_dependency")
+            self.assertEqual(by_unit["tests"]["blocked_on"], ["core"])
 
     def test_legacy_handoff_without_snapshot_resolves_the_recorded_owner_snapshot(self) -> None:
         with TemporaryDirectory() as tmp:

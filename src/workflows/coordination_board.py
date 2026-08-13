@@ -110,6 +110,7 @@ _DEPENDENCY_SATISFYING_STATUSES: Final[tuple[str, ...]] = ("already_completed", 
 # and `not_selected`, which are gating and scheduling answers rather than
 # failures and get their own lanes below.
 _BLOCKING_UNIT_STATUSES: Final[tuple[str, ...]] = (
+    "capability_snapshot_invalid",
     "executor_not_ready",
     "failed",
     "unsupported_for_local_dispatch",
