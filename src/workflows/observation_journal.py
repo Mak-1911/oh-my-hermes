@@ -29,11 +29,24 @@ CANONICAL_OBSERVATION_EVENTS = (
     "worktree_creation_observed",
     "executor_dispatch_observed",
     "executor_result_observed",
+    # A shape-validation receipt for an executor-reported unit sidecar. It is
+    # not verification and therefore does not participate in PROJECTION_ORDER.
+    "unit_result_validated",
+    "unit_result_missing",
+    "unit_result_invalid",
+    # Per-unit dispatcher evidence. This is deliberately distinct from the
+    # run-level verification_result_observed event and its projection field.
+    "unit_verification_observed",
     "verification_result_observed",
     "review_result_observed",
     "ci_result_observed",
     "merge_gate_observed",
     "merge_observed",
+    # A receipt, not a lifecycle rung: it records what a partially failed
+    # worktree creation removed or deliberately left behind, so a stopped
+    # dispatch says what state the repository is in. It is intentionally
+    # absent from `PROJECTION_ORDER` -- cleanup advances nothing.
+    "worktree_cleanup",
     "blocked",
     "failed",
     "cancelled",
@@ -219,7 +232,7 @@ def _validate_observation_event_prerequisites(
     errors: list[str] = []
     if event_name == "executor_result_observed":
         _require_prerequisites(event_name, state, ["executor_dispatch_observed"], errors)
-    elif event_name == "verification_result_observed":
+    elif event_name in {"unit_verification_observed", "verification_result_observed"}:
         _require_prerequisites(
             event_name,
             state,
@@ -261,6 +274,7 @@ def _validate_observation_event_prerequisites(
 
 _ORDERED_LIFECYCLE_EVENTS = {
     "executor_result_observed",
+    "unit_verification_observed",
     "verification_result_observed",
     "review_result_observed",
     "ci_result_observed",
@@ -346,6 +360,7 @@ def project_run_lifecycle(
         "runtime_start_observed": False,
         "worktree_observed": False,
         "execution_observed": False,
+        "unit_verification_observed": False,
         "verification_observed": False,
         "review_observed": False,
         "ci_observed": False,
@@ -384,6 +399,7 @@ def merge_lifecycle_projection(legacy: dict[str, Any], journal: dict[str, Any]) 
         "runtime_start_observed",
         "worktree_observed",
         "execution_observed",
+        "unit_verification_observed",
         "verification_observed",
         "review_observed",
         "ci_observed",
@@ -466,6 +482,10 @@ def _fold_event(projection: dict[str, Any], event: dict[str, Any]) -> None:
     elif event_name == "executor_result_observed":
         projection["execution_observed"] = True
         _advance_status(projection, "execution_observed")
+    elif event_name == "unit_verification_observed":
+        # A unit receipt is projected for fanout consumers, but it does not
+        # advance or satisfy the existing run-level verification rung.
+        projection["unit_verification_observed"] = True
     elif event_name == "verification_result_observed":
         projection["verification_observed"] = True
         _advance_status(projection, "verification_observed")

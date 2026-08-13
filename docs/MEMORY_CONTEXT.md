@@ -92,6 +92,16 @@ records exclusions with stable reasons instead of silently reusing stale or
 unreviewed material. Prepared handoff context remains preparation evidence,
 not execution, model-use, provider-use, review, CI, or merge evidence.
 
+A first-turn orientation pack is background context and nothing more. What it
+carries at the start of a session is already-reviewed material assembled so an
+executor can read the situation, so every item stays labeled with the surface
+it came from and the review state it already held. An orientation pack never
+nominates, stages, or stands in for a pending candidate: it opens no admission
+decision, it grants no item replay eligibility, and material that has not
+passed the remember/refuse/defer flow stays out of it rather than riding along
+as unlabeled context. Reading one is orientation, not approval, and it is not
+evidence that any record was used.
+
 ## Input Manifest
 
 `handoff_input_manifest/v1` is the bounded list of everything a coding owner is

@@ -4544,6 +4544,8 @@ _DEFINITIONS = [
             "Separate review findings from fix implementation; fixes become executor work.",
             "For Hermes-owned coding work, inspect `hermes_coding_harness/v1` and require review evidence before upgrading the reviewer lane.",
             "Say clearly when no actionable issue is found and name remaining test gaps.",
+            "Report each finding with `priority` (`P0`-`P3`), `confidence`, `evidence`, `path`, and `line_range`, then close with one verdict of `ship` or `no_ship` plus its own `confidence`; a finding without a path and line range is an open question, not a finding.",
+            "`REVIEW.md` in the reviewed repository defines what blocks: map its blocking definitions onto `P0`/`P1` and let a `no_ship` verdict follow from that file rather than from reviewer preference. When the repository has no such file, say which blocking definition was used instead.",
         ),
         why_this_exists="`code-review` exists to make review bug-first and evidence-grounded: findings must cite concrete files, diffs, commands, or artifacts before any summary or fix proposal.",
         do_not_use_when=(

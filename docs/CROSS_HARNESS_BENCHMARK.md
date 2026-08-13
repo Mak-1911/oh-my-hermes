@@ -52,6 +52,20 @@ All fixture data is synthetic metadata. `prompt.intent` and `prompt.constraint` 
 
 A P0 fixture with status `fail` adds `p0_failure` and blocks contract certification. An unsupported P0 fixture is a coverage gap, not a successful P0 check.
 
+## Fixture discipline
+
+These rules govern how fixtures are authored and how outside results are quoted. They apply to `v1` and to any future versioned corpus.
+
+Mutation fixtures are seeded and deterministic. A fixture that mutates a source or a payload records the seed that produced the mutation, so the same corpus, seed, and command binding regenerate the same bytes on any machine. An unseeded or time-dependent mutation is not a fixture; it is a flake with a fixture id.
+
+Each task runs in a fresh session. A submission must not carry conversational state, warmed context, or cached tool results from one fixture into the next, because a benchmark that rewards accumulated context measures the session rather than the harness. Fixture order must not change any result.
+
+Grading is exact equality after formatting. The expected and observed artifacts are normalized with the pinned formatter for their language, then compared byte for byte; the comparison is a boolean, never a similarity score, and never a model judging another model's output. Formatting normalization exists so whitespace and line-wrapping choices don't decide a result, not to soften a mismatch.
+
+Raw transcripts are retained. For every scored fixture the full unedited command output and the artifacts it produced are kept alongside the result, subject to the privacy rules below, so a disputed score can be re-derived instead of re-argued. A result whose transcript was discarded is unsupported evidence, not a pass.
+
+Imported third-party numbers carry a MEASURED-BY-AUTHOR label. Any figure OMH did not produce itself is quoted with that label, the measuring party, the date, and the exact scope of what was measured, and it is never mixed into an OMH score, level, or coverage count. First-party numbers state their own scope in the same sentence. A benchmark number without a scope label does not belong in this document, in a report, or in a dashboard.
+
 ## Evidence, scoring, and coverage
 
 Evidence classes are ordered `prepared`, `static`, `test`, then `runtime`. A matching result below the fixture's required class is `partial`. For a dynamic fixture, `runtime` evidence with `runtime_observation: "prepared_not_observed"` is also partial with `runtime_not_observed`. Prepared metadata is never execution, review, CI, merge, or observed-runtime evidence.

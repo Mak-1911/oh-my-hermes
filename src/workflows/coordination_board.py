@@ -508,7 +508,7 @@ def _observed_evidence(run_refs: list[str], lifecycles: dict[str, dict[str, Any]
 def _dependency_satisfied(entry: Any) -> bool:
     if not isinstance(entry, dict):
         return False
-    return str(entry.get("status", "")) in _DEPENDENCY_SATISFYING_STATUSES or entry.get("merge_ready") is True
+    return str(entry.get("status", "")) in _DEPENDENCY_SATISFYING_STATUSES
 
 
 def _unit_owner(

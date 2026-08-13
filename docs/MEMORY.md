@@ -365,6 +365,37 @@ Expiry removes influence only; it does not move an artifact or prove any
 absence. A stale revalidation deadline requires fresh review or a bounded,
 identity-specific confirmation.
 
+### Durability Receipts
+
+"Written" is not one event. A memory operation reports exactly which of four
+receipt states it reached, and it names that state rather than implying a
+later one:
+
+| State | Meaning |
+| --- | --- |
+| `candidate_persisted` | The bounded candidate is on local disk under the candidate path. It is pending review and carries no replay eligibility. |
+| `approved_record_persisted` | The approved record and its review linkage are on local disk under the approved path, after an OMH-local approval decision. |
+| `indexes_refreshed` | The local index, link journal, and counter references that address the record agree with the persisted record. |
+| `replay_ready` | The record satisfies scope, perspective, retention, and freshness gates, so a recall pack may include it. |
+
+Each state names disk or index facts the operation itself observed, never
+work it handed to something else. A queued, buffered, staged, or in-flight
+write is not `candidate_persisted`, an approval decision without its record
+write is not `approved_record_persisted`, and a persisted record whose index
+references were not refreshed is neither `indexes_refreshed` nor
+`replay_ready`. Reaching one state never asserts the states above it: a
+candidate that never clears review stops at `candidate_persisted`, and an
+approved record that is expired, stale, or out of scope stops short of
+`replay_ready`.
+
+States are receipts, not record states. They describe what one operation
+observed about persistence, so they carry no lifecycle authority: they cannot
+approve, expire, retire, or revive anything, and they are not execution,
+review, CI, merge, or Hermes internal-memory evidence. An operation that
+cannot confirm a state says so and names the state it did reach, which is what
+keeps a partial write readable as partial instead of silently reported as
+durable.
+
 ## Freshness: Review-Due Dates and Source Evidence
 
 A record's freshness is one verdict derived from three stored inputs plus the
