@@ -11,7 +11,8 @@ goal to Hermes in chat; these commands are the backend surface.
    --record` validates the split deterministically (boundary overlaps without
    a `depends_on` edge are hard errors; dependency cycles are hard errors; a
    split wider than four units with no spawn plan is a hard error, see
-   **Spawn plan** below) and freezes it as `fanout_contract/v1` under
+   **Spawn plan** below) and freezes it as `fanout_contract/v2` with one
+   deterministic capability snapshot per assigned owner under
    `~/.omh/coding/fanout/<id>/`. The goal is stored as a digest only.
 3. **Dispatch (opt-in bridge)** — `omh coding fanout dispatch <id>
    --goal-file goal.txt` spawns each spawnable unit's local agent CLI in an
@@ -112,8 +113,8 @@ Rules:
   `safety_profile_revision` it was prepared under. Dispatch re-checks it beside
   the goal digest, before discovery, readiness probing, any spawn, and any
   write; a drifted or unprovable profile is refused and the contract must be
-  re-prepared. The field is optional under `fanout_contract/v1`: a contract
-  frozen before it existed carries no revision and is not gated.
+  re-prepared. Legacy v1 migration preserves an absent revision as "not gated"
+  in the resulting v2 contract; v1 itself never dispatches.
 - **Owner-readiness integrity.** Each unit's owner is rechecked immediately
   before its handoff. A stored readiness observation counts only while it is
   still fresh and still bound to the same profile, tool, permission profile,
@@ -135,8 +136,29 @@ Rules:
 - **Dependency bar.** A satisfied dependency means only that the owner agent
   process exited 0. It is not verified, reviewed, or correct work. Failed
   units block their dependents, never their independents.
+- **Frozen capability evidence.** Newly prepared assigned-owner handoffs carry
+  `fanout_contract/v2` plus
+  `executor_capability_snapshot_policy: frozen_required`. Dispatch validates
+  `unit.owner`, `handoff.executor_target`, and the snapshot executor before
+  readiness or spawn. Missing, malformed, or mismatched evidence returns
+  `capability_snapshot_invalid`; that status blocks dependent units and is
+  projected as blocked work on the coordination board. Legacy contracts
+  under `fanout_contract/v1` must first be upgraded with the operator command
+  `omh coding fanout migrate-legacy <fanout-id>`. Migration resolves and
+  freezes one capability snapshot per assigned owner, writes v2 plus closed
+  provenance, and only then permits dispatch; v1 never dispatches directly.
+  If the pre-upgrade artifact has no provenance sidecar, the first migration
+  call is a dry preview that prints its exact SHA-256 and a confirmation
+  command. Existing sidecars are validated before migration, so a drifted
+  legacy payload is never silently re-blessed.
+- **Local trust boundary.** Contract provenance detects accidental or partial
+  local drift. It is not authentication against a process or operator that can
+  rewrite both the contract and its provenance under OMH home; such a writer
+  already controls this local execution surface. No OMH claim relies on the
+  digest as a secret, signature, or remote attestation.
 - **Blocked-by-design cascades.** An `unsupported_for_local_dispatch`,
-  `executor_not_ready`, or `model_choice_required` dependency (a frozen
+  `executor_not_ready`, `capability_snapshot_invalid`, or
+  `model_choice_required` dependency (a frozen
   route that reserves the model choice is never dispatched on the silent
   executor default — re-prepare the unit with a declared model or a
   resolvable role) also blocks its dependents — dependents must
@@ -382,6 +404,9 @@ omh coding fanout prepare --goal <words...> --units units.json [--record] [--sou
 omh coding fanout validate --units units.json   # also reports spawn_plan_required
 omh coding fanout show <fanout-id> [--limit 20] [--full]
 omh coding fanout brief [<fanout-id>] [--json]
+omh coding fanout status --fanout-id <fanout-id> [--json]
+omh coding fanout migrate-legacy <fanout-id> \
+  [--confirm-contract-sha256 <digest>]  # operator/maintenance only
 omh coding fanout dispatch <fanout-id> --goal-file goal.txt \
   [--repo-root .] [--base-ref HEAD] [--concurrency 2] [--timeout 1800] \
   [--unit <id> ...] [--dry-run]

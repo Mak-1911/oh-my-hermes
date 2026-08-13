@@ -86,15 +86,7 @@ class DynamicWorkflowTests(unittest.TestCase):
             self.assertEqual(snapshot["executor"], stage["target"])
             self.assertEqual(
                 set(snapshot["capabilities"]),
-                {
-                    "background_work",
-                    "browser_or_computer_use",
-                    "long_running_continuation",
-                    "parallel_agents",
-                    "scheduled_or_recurring_work",
-                    "visual_qa",
-                    "worktree_isolation",
-                },
+                set(KNOWN_CAPABILITY_NAMES),
             )
             self.assertNotIn(LOCAL_WORKFLOW_CAPABILITY_NAME, snapshot["capabilities"])
             self.assertTrue(
