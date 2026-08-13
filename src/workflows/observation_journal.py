@@ -34,6 +34,11 @@ CANONICAL_OBSERVATION_EVENTS = (
     "ci_result_observed",
     "merge_gate_observed",
     "merge_observed",
+    # A receipt, not a lifecycle rung: it records what a partially failed
+    # worktree creation removed or deliberately left behind, so a stopped
+    # dispatch says what state the repository is in. It is intentionally
+    # absent from `PROJECTION_ORDER` -- cleanup advances nothing.
+    "worktree_cleanup",
     "blocked",
     "failed",
     "cancelled",

@@ -367,6 +367,7 @@ def dispatch_fanout(
     goal_text: str,
     repo_root: Path,
     base_sha: str,
+    source_ref: str = "",
     concurrency: int = 2,
     timeout: int = 1800,
     only_units: Sequence[str] | None = None,
@@ -436,6 +437,7 @@ def dispatch_fanout(
                     goal_text=goal_text,
                     repo_root=repo_root,
                     base_sha=base_sha,
+                    source_ref=source_ref,
                     timeout=timeout,
                     dry_run=dry_run,
                     runner=runner,
@@ -637,6 +639,7 @@ def _dispatch_unit(
     base_sha: str,
     timeout: int,
     dry_run: bool,
+    source_ref: str = "",
     runner: Callable[..., Any],
     readiness: Callable[..., dict[str, object]],
     current_catalog_digest: str = "",
@@ -749,6 +752,8 @@ def _dispatch_unit(
         unit_id=unit_id,
         branch=str(unit.get("branch_suggestion", f"agent/{unit_id}")),
         base_sha=base_sha,
+        source_ref=source_ref,
+        run_ref=run_ref,
         runner=runner,
     )
     if not worktree_record.get("created"):
@@ -757,6 +762,7 @@ def _dispatch_unit(
             "run_ref": run_ref,
             "owner": owner,
             "status": "worktree_failed",
+            "refusal": str(worktree_record.get("refusal", "")),
             "reason": str(worktree_record.get("reason", "")),
             "merge_ready": False,
         }

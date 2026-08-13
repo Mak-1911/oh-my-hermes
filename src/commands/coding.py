@@ -1431,6 +1431,10 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
             goal_text=goal_text,
             repo_root=repo_root,
             base_sha=resolved.stdout.strip(),
+            # The ref is carried alongside the SHA it resolved to so each
+            # worktree add can re-check that the base has not moved between
+            # this single resolve and the unit's own creation.
+            source_ref=args.base_ref,
             concurrency=args.concurrency,
             timeout=args.timeout,
             only_units=args.unit,
