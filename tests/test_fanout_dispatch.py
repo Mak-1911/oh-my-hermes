@@ -506,6 +506,7 @@ class FanoutDispatchEngineTests(unittest.TestCase):
                 only_units=["core"],
                 runner=_agent_runner(),
                 readiness=_ready,
+                allow_legacy_capability_fallback=True,
             )
 
             core = {entry["unit_id"]: entry for entry in summary["units"]}["core"]
@@ -798,6 +799,7 @@ class FanoutDispatchEngineTests(unittest.TestCase):
                 only_units=["core"],
                 runner=_agent_runner(),
                 readiness=_ready,
+                allow_legacy_capability_fallback=True,
             )
             self.assertEqual(
                 {entry["unit_id"]: entry for entry in first["units"]}["core"]["status"],
@@ -1878,6 +1880,9 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
                 recorded,
             )
             contract["schema_version"] = "fanout_contract/v1"
+            for unit in contract["units"]:
+                unit["handoff"].pop("executor_capability_snapshot", None)
+                unit["handoff"].pop("executor_capability_snapshot_policy", None)
 
             summary = dispatch_fanout(
                 paths,
@@ -1888,6 +1893,7 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
                 only_units=["core"],
                 runner=_agent_runner(),
                 readiness=_ready,
+                allow_legacy_capability_fallback=True,
             )
 
             snapshot = summary["units"][0]["executor_capability_snapshot"]
@@ -1897,6 +1903,25 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
                 "probe:legacy-patch",
             )
             self.assertEqual(snapshot["capabilities"]["persistent_eval"], {"status": "unknown"})
+
+    def test_relabelled_v2_contract_cannot_request_legacy_fallback(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            contract["schema_version"] = "fanout_contract/v1"
+            for unit in contract["units"]:
+                unit["handoff"].pop("executor_capability_snapshot", None)
+                unit["handoff"].pop("executor_capability_snapshot_policy", None)
+
+            with self.assertRaisesRegex(ValueError, "explicit legacy provenance"):
+                dispatch_fanout(
+                    paths,
+                    contract,
+                    goal_text=_GOAL,
+                    repo_root=repo,
+                    base_sha=sha,
+                    runner=_agent_runner(),
+                    readiness=_ready,
+                )
 
     def test_dry_run_does_not_persist_a_summary(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -1279,7 +1279,7 @@ def _brief_recovery(dispatched: dict) -> dict[str, object]:
 
 def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
     from ..coding.fanout_artifacts import fanout_dispatch_summary_path, read_fanout_contract
-    from ..coding.fanout_contracts import PREPARED_NOT_OBSERVED
+    from ..coding.fanout_contracts import FANOUT_UNIT_OWNERS, PREPARED_NOT_OBSERVED
     from ..coding.status_board import model_label_for
     from ..local_store import read_json_object_result
     from ..runtime.artifacts import show_run
@@ -1356,10 +1356,16 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
         model_alternative = alternative_value if isinstance(alternative_value, str) else ""
         route_schema_version = model_route.get("schema_version", "")
         route_version = route_schema_version if isinstance(route_schema_version, str) else ""
+        owner_value = unit.get("owner")
+        owner = (
+            owner_value
+            if isinstance(owner_value, str) and owner_value in FANOUT_UNIT_OWNERS
+            else "choose"
+        )
         units.append(
             {
                 "unit_id": unit_id,
-                "owner": str(unit.get("owner") or "choose"),
+                "owner": owner,
                 "model": model_id or "executor_default",
                 "reasoning_effort": effort,
                 "model_label": model_label,
@@ -1588,18 +1594,34 @@ def _record_fanout_board_emission(paths, watched_runs: list[str], payload: dict,
 def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
     import subprocess as _subprocess
 
-    from ..coding.fanout_artifacts import read_fanout_contract
+    from ..coding.fanout_artifacts import (
+        read_fanout_contract,
+        read_fanout_contract_provenance,
+    )
+    from ..coding.fanout_contracts import LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION
     from ..coding.fanout_dispatch import dispatch_fanout, fanout_dispatch_preflight
 
     paths = _paths(args)
     try:
         contract = read_fanout_contract(paths, args.fanout_id)
+        provenance = read_fanout_contract_provenance(paths, args.fanout_id)
     except (OSError, ValueError) as exc:
         raise OmhError(f"fanout contract not found: {exc}") from exc
+    recorded_schema_version = str(provenance.get("contract_schema_version", ""))
+    if recorded_schema_version != str(contract.get("schema_version", "")):
+        raise OmhError("fanout contract schema provenance does not match the contract")
+    allow_legacy_capability_fallback = (
+        recorded_schema_version == LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION
+    )
     goal_text = sys.stdin.read() if args.goal_file == "-" else Path(args.goal_file).expanduser().read_text(encoding="utf-8")
     repo_root = Path(args.repo_root).expanduser().resolve()
     try:
-        preflight = fanout_dispatch_preflight(paths, contract, only_units=args.unit)
+        preflight = fanout_dispatch_preflight(
+            paths,
+            contract,
+            only_units=args.unit,
+            allow_legacy_capability_fallback=allow_legacy_capability_fallback,
+        )
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
     if preflight["invalid_selected"]:
@@ -1613,6 +1635,7 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
             timeout=args.timeout,
             only_units=args.unit,
             dry_run=bool(args.dry_run),
+            allow_legacy_capability_fallback=allow_legacy_capability_fallback,
         )
         _print_json(summary)
         return 0
@@ -1640,6 +1663,7 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
             timeout=args.timeout,
             only_units=args.unit,
             dry_run=bool(args.dry_run),
+            allow_legacy_capability_fallback=allow_legacy_capability_fallback,
         )
     except ValueError as exc:
         raise OmhError(str(exc)) from exc

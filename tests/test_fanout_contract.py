@@ -68,7 +68,7 @@ class FanoutEngineTests(unittest.TestCase):
         second = build_fanout_contract("refactor auth and cover it", _UNITS, source="discord")
 
         self.assertEqual(first, second)
-        self.assertEqual(first["schema_version"], "fanout_contract/v1")
+        self.assertEqual(first["schema_version"], "fanout_contract/v2")
         self.assertEqual(first["status"], "prepared_not_observed")
         self.assertEqual(first["merge_plan"]["merge_order"], ["core", "docs", "tests"])
         self.assertNotIn("refactor auth and cover it", json.dumps(first))
@@ -174,9 +174,7 @@ class FanoutEngineTests(unittest.TestCase):
         contract = build_fanout_contract("freeze the profile", _UNITS)
 
         self.assertEqual(contract["safety_profile_revision"], safety_profile_revision())
-        # Additive under the frozen schema: no version bump, and the revision
-        # is a digest, so the contract stays deterministic.
-        self.assertEqual(contract["schema_version"], "fanout_contract/v1")
+        self.assertEqual(contract["schema_version"], "fanout_contract/v2")
         self.assertEqual(contract, build_fanout_contract("freeze the profile", _UNITS))
 
     def test_a_contract_without_the_frozen_revision_still_round_trips(self) -> None:
@@ -184,6 +182,10 @@ class FanoutEngineTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             paths = OmhPaths(omh_home=Path(tmp) / ".omh", hermes_home=Path(tmp) / ".hermes")
             contract = build_fanout_contract("older contract", _UNITS)
+            contract["schema_version"] = "fanout_contract/v1"
+            for unit in contract["units"]:
+                unit["handoff"].pop("executor_capability_snapshot", None)
+                unit["handoff"].pop("executor_capability_snapshot_policy", None)
             del contract["safety_profile_revision"]
 
             write_fanout_contract(paths, contract)
@@ -630,6 +632,105 @@ class FanoutCliTests(unittest.TestCase):
             {entry["unit_id"]: entry for entry in summary["units"]}["core"]["status"],
             "capability_snapshot_invalid",
         )
+
+    def test_recorded_v2_cannot_be_relabelled_as_legacy(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = [
+                "--omh-home",
+                str(root / ".omh"),
+                "--hermes-home",
+                str(root / ".hermes"),
+            ]
+            status, stdout, stderr = run_cli(
+                base
+                + [
+                    "coding",
+                    "fanout",
+                    "prepare",
+                    "--goal",
+                    "split",
+                    "work",
+                    "--units",
+                    str(self._units_file(root)),
+                    "--record",
+                ]
+            )
+            self.assertEqual(status, 0, stderr)
+            fanout_id = json.loads(stdout)["fanout_id"]
+            contract_path = (
+                root / ".omh" / "coding" / "fanout" / fanout_id / "fanout_contract.json"
+            )
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            contract["schema_version"] = "fanout_contract/v1"
+            for unit in contract["units"]:
+                unit["handoff"].pop("executor_capability_snapshot", None)
+                unit["handoff"].pop("executor_capability_snapshot_policy", None)
+            contract_path.write_text(json.dumps(contract), encoding="utf-8")
+            goal = root / "goal.txt"
+            goal.write_text("split work", encoding="utf-8")
+
+            with mock.patch(
+                "subprocess.run",
+                side_effect=AssertionError("git resolution ran"),
+            ):
+                status, stdout, stderr = run_cli(
+                    base
+                    + [
+                        "coding",
+                        "fanout",
+                        "dispatch",
+                        fanout_id,
+                        "--goal-file",
+                        str(goal),
+                        "--repo-root",
+                        str(root),
+                    ]
+                )
+
+        self.assertEqual(status, 2)
+        self.assertEqual(stdout, "")
+        self.assertIn("schema provenance", stderr)
+
+    def test_fanout_brief_bounds_invalid_owner_metadata(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = [
+                "--omh-home",
+                str(root / ".omh"),
+                "--hermes-home",
+                str(root / ".hermes"),
+            ]
+            status, stdout, stderr = run_cli(
+                base
+                + [
+                    "coding",
+                    "fanout",
+                    "prepare",
+                    "--goal",
+                    "split",
+                    "work",
+                    "--units",
+                    str(self._units_file(root)),
+                    "--record",
+                ]
+            )
+            self.assertEqual(status, 0, stderr)
+            fanout_id = json.loads(stdout)["fanout_id"]
+            contract_path = (
+                root / ".omh" / "coding" / "fanout" / fanout_id / "fanout_contract.json"
+            )
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            contract["units"][0]["owner"] = "x" * 100_000
+            contract_path.write_text(json.dumps(contract), encoding="utf-8")
+
+            status, stdout, stderr = run_cli(
+                base + ["coding", "fanout", "brief", fanout_id, "--json"]
+            )
+
+        self.assertEqual(status, 0, stderr)
+        self.assertLess(len(stdout), 10_000)
+        self.assertEqual(json.loads(stdout)["units"][0]["owner"], "choose")
 
     def test_fanout_validate_reports_errors_without_writing(self) -> None:
         with TemporaryDirectory() as tmp:

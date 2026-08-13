@@ -478,6 +478,7 @@ def fanout_dispatch_preflight(
     contract: Mapping[str, Any],
     *,
     only_units: Sequence[str] | None = None,
+    allow_legacy_capability_fallback: bool = False,
 ) -> dict[str, Any]:
     """Validate persisted dispatch identity before any local tool activity."""
     schema_version = str(contract.get("schema_version", ""))
@@ -487,6 +488,13 @@ def fanout_dispatch_preflight(
     }:
         raise ValueError(
             f"unsupported fanout contract schema_version: {schema_version or 'missing'}"
+        )
+    if (
+        schema_version == LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION
+        and not allow_legacy_capability_fallback
+    ):
+        raise ValueError(
+            "fanout_contract/v1 dispatch requires explicit legacy provenance"
         )
     raw_units = contract.get("units")
     if not isinstance(raw_units, list) or not all(
@@ -579,13 +587,19 @@ def dispatch_fanout(
     runner: Callable[..., Any] = subprocess.run,
     readiness: Callable[..., dict[str, object]] = probe_executor_readiness,
     live_safety_profile_revision: str | None = None,
+    allow_legacy_capability_fallback: bool = False,
 ) -> dict[str, Any]:
     # Both boundary re-checks run first, before discovery, readiness probing,
     # any unit spawn, and any summary write: nothing downstream should observe a
     # contract whose goal or safety profile no longer matches the live state.
     verify_goal_matches_contract(contract, goal_text)
     verify_safety_profile_matches_contract(contract, live_safety_profile_revision)
-    preflight = fanout_dispatch_preflight(paths, contract, only_units=only_units)
+    preflight = fanout_dispatch_preflight(
+        paths,
+        contract,
+        only_units=only_units,
+        allow_legacy_capability_fallback=allow_legacy_capability_fallback,
+    )
     units = preflight["units"]
     order = preflight["order"]
     selected = preflight["selected"]

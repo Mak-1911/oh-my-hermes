@@ -8,6 +8,7 @@ from ..system.local_store import atomic_write_json
 from ..system.local_store import ensure_dir
 from ..system.paths import OmhPaths
 from .fanout_contracts import FANOUT_ID_PATTERN
+from .fanout_contracts import FANOUT_CONTRACT_PROVENANCE_SCHEMA_VERSION
 
 _FANOUT_ID_RE = re.compile(FANOUT_ID_PATTERN)
 # The same slug shape `fanout._UNIT_ID_RE` accepts, restated here rather than
@@ -25,6 +26,16 @@ def write_fanout_contract(paths: OmhPaths, contract: dict[str, object]) -> dict[
     payload = deepcopy(contract)
     payload["artifacts"] = {"contract_path": str(contract_path), "privacy": "metadata_only"}
     atomic_write_json(contract_path, payload, private=True)
+    atomic_write_json(
+        contract_dir / "contract_provenance.json",
+        {
+            "schema_version": FANOUT_CONTRACT_PROVENANCE_SCHEMA_VERSION,
+            "fanout_id": fanout_id,
+            "contract_schema_version": str(payload.get("schema_version", "")),
+            "privacy": "metadata_only",
+        },
+        private=True,
+    )
     return payload
 
 
@@ -90,6 +101,24 @@ def read_fanout_contract(paths: OmhPaths, fanout_id: str) -> dict[str, object]:
 
     contract_path = _managed_fanout_dir(paths, _validated_fanout_id(fanout_id)) / "fanout_contract.json"
     return json.loads(contract_path.read_text(encoding="utf-8"))
+
+
+def read_fanout_contract_provenance(paths: OmhPaths, fanout_id: str) -> dict[str, object]:
+    import json
+
+    validated_id = _validated_fanout_id(fanout_id)
+    provenance_path = _managed_fanout_dir(paths, validated_id) / "contract_provenance.json"
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    if not isinstance(provenance, dict):
+        raise ValueError("fanout contract schema provenance must be an object")
+    if provenance.get("schema_version") != FANOUT_CONTRACT_PROVENANCE_SCHEMA_VERSION:
+        raise ValueError("fanout contract schema provenance is unsupported")
+    if provenance.get("fanout_id") != validated_id:
+        raise ValueError("fanout contract schema provenance fanout_id does not match")
+    contract_schema_version = provenance.get("contract_schema_version")
+    if not isinstance(contract_schema_version, str) or not contract_schema_version:
+        raise ValueError("fanout contract schema provenance version is missing")
+    return provenance
 
 
 def _validated_fanout_id(value: object) -> str:

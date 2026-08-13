@@ -16,13 +16,13 @@ from .fanout_contracts import (
     FANOUT_SPAWN_PLAN_THRESHOLD,
     FANOUT_UNIT_OWNERS,
     FanoutContractError,
-    LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION,
     MAX_SPAWN_PLAN_FIELD_CHARS,
     PREPARED_NOT_OBSERVED,
 )
 from .executor_capability_snapshots import (
     ExecutorCapabilitySnapshotError,
     complete_executor_capability_snapshot,
+    prepared_executor_capability_snapshot,
 )
 from .model_routing import model_route_for_unit
 
@@ -72,11 +72,7 @@ def build_fanout_contract(
         for unit in normalized_units
     ]
     return {
-        "schema_version": (
-            FANOUT_CONTRACT_SCHEMA_VERSION
-            if capability_snapshots is not None
-            else LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION
-        ),
+        "schema_version": FANOUT_CONTRACT_SCHEMA_VERSION,
         "fanout_id": fanout_id,
         "status": PREPARED_NOT_OBSERVED,
         "source": source,
@@ -134,9 +130,6 @@ def _validated_capability_snapshots(
     snapshots: Mapping[str, Mapping[str, object]] | None,
     units: Sequence[Mapping[str, object]],
 ) -> dict[str, dict[str, object]] | None:
-    if snapshots is None:
-        return None
-    validated: dict[str, dict[str, object]] = {}
     owners = sorted(
         {
             str(unit.get("owner"))
@@ -144,6 +137,12 @@ def _validated_capability_snapshots(
             if unit.get("owner") is not None
         }
     )
+    if snapshots is None:
+        return {
+            owner: prepared_executor_capability_snapshot(owner)
+            for owner in owners
+        }
+    validated: dict[str, dict[str, object]] = {}
     for owner in owners:
         snapshot = snapshots.get(owner)
         if not isinstance(snapshot, Mapping):
