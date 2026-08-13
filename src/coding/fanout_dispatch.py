@@ -566,7 +566,47 @@ def dispatch_fanout(
     )
     results: dict[str, dict[str, Any]] = {}
 
-    for unit_id in order:
+    if selected_capability_invalid:
+        invalid_units = [
+            unit_id
+            for unit_id in order
+            if unit_id in selected and capability_prechecks[unit_id][2]
+        ]
+        invalid_reason = (
+            "selected batch refused because capability evidence is invalid for "
+            + ", ".join(invalid_units)
+        )
+        for unit_id in order:
+            unit = units[unit_id]
+            if unit_id not in selected:
+                results[unit_id] = _skipped(unit, "not_selected")
+                continue
+            owner, _snapshot, errors = capability_prechecks[unit_id]
+            if errors:
+                results[unit_id] = {
+                    "unit_id": unit_id,
+                    "run_ref": str(unit.get("run_ref", unit_id)),
+                    "owner": owner,
+                    "status": "capability_snapshot_invalid",
+                    **_dispatch_status_ladder(),
+                    "reason": "; ".join(errors),
+                }
+            elif any(
+                _dependency_failed(results.get(str(dependency)))
+                for dependency in unit.get("depends_on", []) or []
+            ):
+                results[unit_id] = _blocked(unit, results)
+            else:
+                results[unit_id] = {
+                    "unit_id": unit_id,
+                    "run_ref": str(unit.get("run_ref", unit_id)),
+                    "owner": owner,
+                    "status": "capability_snapshot_invalid",
+                    **_dispatch_status_ladder(),
+                    "reason": invalid_reason,
+                }
+
+    for unit_id in order if not selected_capability_invalid else ():
         unit = units[unit_id]
         if _already_completed(paths, unit):
             # Completed units satisfy dependencies whether or not they are in

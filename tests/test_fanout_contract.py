@@ -514,6 +514,58 @@ class FanoutCliTests(unittest.TestCase):
             self.assertNotIn('"executor_profile": "codex"', stdout)
             self.assertTrue((root / ".omh" / "coding" / "fanout" / payload["fanout_id"] / "fanout_contract.json").is_file())
 
+    def test_fanout_brief_omits_non_scalar_model_route_fields(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = [
+                "--omh-home",
+                str(root / ".omh"),
+                "--hermes-home",
+                str(root / ".hermes"),
+            ]
+            status, stdout, stderr = run_cli(
+                base
+                + [
+                    "coding",
+                    "fanout",
+                    "prepare",
+                    "--goal",
+                    "split",
+                    "work",
+                    "--units",
+                    str(self._units_file(root)),
+                    "--record",
+                ]
+            )
+            self.assertEqual(status, 0, stderr)
+            fanout_id = json.loads(stdout)["fanout_id"]
+            contract_path = (
+                root
+                / ".omh"
+                / "coding"
+                / "fanout"
+                / fanout_id
+                / "fanout_contract.json"
+            )
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            contract["units"][0]["handoff"]["model_route"] = {
+                "schema_version": "coding_model_route/v2",
+                "selected_model": {"INVALID_DICT_SENTINEL": "secret"},
+                "selected_reasoning_effort": ["xhigh"],
+                "chain": [],
+            }
+            contract_path.write_text(json.dumps(contract), encoding="utf-8")
+
+            status, stdout, stderr = run_cli(
+                base + ["coding", "fanout", "brief", fanout_id, "--json"]
+            )
+
+        self.assertEqual(status, 0, stderr)
+        self.assertNotIn("INVALID_DICT_SENTINEL", stdout)
+        unit = json.loads(stdout)["units"][0]
+        self.assertEqual(unit["model"], "executor_default")
+        self.assertEqual(unit["reasoning_effort"], "")
+
     def test_fanout_validate_reports_errors_without_writing(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

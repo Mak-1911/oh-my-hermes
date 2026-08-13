@@ -1340,8 +1340,10 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
                 else:
                     observed_status = "run_recorded_no_observations"
         status = str(dispatched.get("status", "") or "") or PREPARED_NOT_OBSERVED
-        model_id = str(model_route.get("selected_model", "") or "")
-        effort = str(model_route.get("selected_reasoning_effort", "") or "")
+        selected_model = model_route.get("selected_model", "")
+        selected_effort = model_route.get("selected_reasoning_effort", "")
+        model_id = selected_model if isinstance(selected_model, str) else ""
+        effort = selected_effort if isinstance(selected_effort, str) else ""
         # One human-readable label per subagent, e.g. "gpt-5-codex xhigh" —
         # what a briefing renders next to the unit without joining two fields.
         # The format is a stable part of fanout_briefing/v1 and is built by
@@ -1350,8 +1352,10 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
         # separate additive `model_alternative` field, never as a suffix here.
         model_label = model_label_for(model_id, effort)
         chain = model_route.get("chain", []) if isinstance(model_route.get("chain"), list) else []
-        model_alternative = str(chain[1].get("model_id", "")) if len(chain) > 1 and isinstance(chain[1], dict) else ""
-        route_version = str(model_route.get("schema_version", "") or "") if model_route else ""
+        alternative_value = chain[1].get("model_id", "") if len(chain) > 1 and isinstance(chain[1], dict) else ""
+        model_alternative = alternative_value if isinstance(alternative_value, str) else ""
+        route_schema_version = model_route.get("schema_version", "")
+        route_version = route_schema_version if isinstance(route_schema_version, str) else ""
         units.append(
             {
                 "unit_id": unit_id,

@@ -1631,6 +1631,12 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
             core["handoff"]["executor_capability_snapshot"] = "not-a-snapshot"
 
+            def readiness(*args, **kwargs):
+                self.fail("atomic contract refusal must prevent every readiness probe")
+
+            def runner(*args, **kwargs):
+                self.fail("atomic contract refusal must prevent git and executor activity")
+
             with mock.patch(
                 "omh.coding.fanout_dispatch._owner_skill_discoveries",
                 side_effect=AssertionError("discovery ran"),
@@ -1641,12 +1647,15 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
                     goal_text=_GOAL,
                     repo_root=repo,
                     base_sha=sha,
-                    only_units=["core"],
-                    runner=_agent_runner(),
-                    readiness=_ready,
+                    runner=runner,
+                    readiness=readiness,
                 )
 
-            self.assertEqual(summary["units"][0]["status"], "capability_snapshot_invalid")
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["core"]["status"], "capability_snapshot_invalid")
+            self.assertEqual(by_unit["docs"]["status"], "capability_snapshot_invalid")
+            self.assertIn("core", by_unit["docs"]["reason"])
+            self.assertFalse((repo.parent / f"{repo.name}-fanout-docs").exists())
 
     def test_malformed_frozen_snapshot_policy_cannot_downgrade_to_legacy(self) -> None:
         for policy in ("frozen-requird", ["frozen_required"]):
