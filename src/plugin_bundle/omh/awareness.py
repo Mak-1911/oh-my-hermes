@@ -589,9 +589,14 @@ try:  # File-loaded plugin bundles can still reuse OMH locale phrase packs.
 except ImportError:  # pragma: no cover - standalone plugin hosts keep the fallback above.
     pass
 
-try:  # Keep the hint hook's jit-learn boundary identical to the router guard's.
+try:  # Keep the hint hook's jit-learn intent identical to the router guard's.
+    from ...routing.localization import (
+        normalized_phrase as _normalized_routing_phrase,
+        routing_tokens as _routing_tokens,
+    )
     from ...routing.policy import (
         JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES as _JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES,
+        jit_learn_guard_applies as _jit_learn_guard_applies,
     )
 except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
     # Standalone bundles ship without omh core, so they need a literal copy.
@@ -605,10 +610,18 @@ except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
         "강의계획",
         "강의 계획",
     )
+    _normalized_routing_phrase = None
+    _routing_tokens = None
+    _jit_learn_guard_applies = None
 
-try:  # File-loaded plugin bundles should still use the packaged router constant.
+try:  # File-loaded plugin bundles should still use the packaged router guard.
+    from omh.routing.localization import (
+        normalized_phrase as _normalized_routing_phrase,
+        routing_tokens as _routing_tokens,
+    )
     from omh.routing.policy import (
         JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES as _JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES,
+        jit_learn_guard_applies as _jit_learn_guard_applies,
     )
 except ImportError:  # pragma: no cover - standalone plugin hosts keep the fallback above.
     pass
@@ -5007,12 +5020,18 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
                     }
                 )
         named_coding_agent_delivery = _named_coding_agent_delivery_signal(routing_normalized, tokens)
-        for rule in _ROUTE_HINT_RULES:
+        jit_learn_match = (
+            not named_coding_agent_delivery
+            and _jit_learn_route_hint_applies(message, routing_normalized)
+        )
+        for rule in _prioritized_route_hint_rules(jit_learn_match):
             if len(hints) >= hint_limit:
                 break
             if _rule_suppressed_by_omh_quality_intent(rule, omh_quality_intent):
                 continue
             if _rule_suppressed_by_named_coding_agent_delivery(rule, named_coding_agent_delivery):
+                continue
+            if jit_learn_match and rule["id"] == "coding_delivery":
                 continue
             if _rule_suppressed_by_reference_intent(rule, intent):
                 continue
@@ -5022,6 +5041,8 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
                 continue
             phrase_matches = [phrase for phrase in rule["phrases"] if phrase in routing_normalized]
             token_matches = [token for token in rule["tokens"] if token in tokens]
+            if rule["id"] == "jit_learn" and jit_learn_match and not phrase_matches and not token_matches:
+                phrase_matches = ["guard:jit_learn"]
             if not phrase_matches and not token_matches:
                 continue
             workflow = str(rule["workflow"])
@@ -5236,6 +5257,144 @@ def _route_hint_rule_by_id(rule_id: str) -> dict[str, object] | None:
         if rule.get("id") == rule_id:
             return rule
     return None
+
+
+def _prioritized_route_hint_rules(jit_learn_match: bool) -> tuple[dict[str, object], ...]:
+    if not jit_learn_match:
+        return _ROUTE_HINT_RULES
+    jit_rule = _route_hint_rule_by_id("jit_learn")
+    if jit_rule is None:
+        return _ROUTE_HINT_RULES
+    return (jit_rule, *(rule for rule in _ROUTE_HINT_RULES if rule is not jit_rule))
+
+
+def _jit_learn_route_hint_applies(message: str, routing_normalized: str) -> bool:
+    """Use the router's immediate-learning intent before generic hint rules."""
+    if (
+        _jit_learn_guard_applies is not None
+        and _normalized_routing_phrase is not None
+        and _routing_tokens is not None
+    ):
+        return _jit_learn_guard_applies(
+            _normalized_routing_phrase(message),
+            _routing_tokens(message),
+        )
+
+    # Standalone plugin hosts cannot import the router. Keep the same
+    # normalization-first shape and load-bearing exclusions before accepting a
+    # well-formed immediate-learning request.
+    if _contains_route_cue_phrase(
+        routing_normalized,
+        _JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES,
+    ):
+        return False
+    explicit_immediate_learning = (
+        "what should i learn next",
+        "what should i learn now",
+        "what should i learn first",
+        "what do i need to learn next",
+        "what do i need to learn now",
+        "what to learn next",
+        "what to learn now",
+        "learn next to solve",
+        "learn now to solve",
+        "highest leverage thing to learn",
+        "highest-leverage thing to learn",
+        "highest payoff thing to learn",
+        "highest-payoff thing to learn",
+        "most useful thing to learn",
+        "worth learning right now",
+        "지금 배워야",
+        "지금 뭘 배워야",
+        "뭘 배워야",
+        "무엇을 배워야",
+        "도움 되는 학습 주제",
+        "도움되는 학습 주제",
+        "당장 적용할 학습 목표",
+    )
+    if _contains_route_cue_phrase(routing_normalized, explicit_immediate_learning):
+        return True
+    incident_artifact = _contains_route_cue_phrase(
+        routing_normalized,
+        ("incident report", "incident postmortem", "postmortem report"),
+    )
+    incident_investigation = _contains_route_cue_phrase(
+        routing_normalized,
+        (
+            "study",
+            "investigate",
+            "review",
+            "analyze",
+            "examine",
+            "learn from the incident",
+            "learn from incident",
+            "learn from the postmortem",
+            "learn from postmortem",
+        ),
+    )
+    if incident_artifact and incident_investigation:
+        return False
+    if not _contains_route_cue_phrase(
+        routing_normalized,
+        ("learn", "learning", "study", "upskill", "배우", "배워야", "학습", "공부"),
+    ):
+        return False
+    resource_kinds = sum(
+        _contains_route_cue_phrase(routing_normalized, group)
+        for group in (
+            ("book", "books", "책", "도서"),
+            ("podcast", "podcasts", "팟캐스트"),
+            ("creator", "creators", "크리에이터"),
+            ("course", "courses", "강의", "강좌"),
+        )
+    )
+    immediacy = _contains_route_cue_phrase(
+        routing_normalized,
+        (
+            "right now",
+            "learn now",
+            "learn next",
+            "need to learn",
+            "i need to learn",
+            "have to learn",
+            "before friday",
+            "by friday",
+            "this week",
+            "next week",
+            "before the",
+            "before our",
+            "before my",
+            "in time for",
+            "current blocker",
+            "my blocker",
+            "stuck on",
+            "blocking me",
+            "immediately applicable",
+            "apply this week",
+            "지금",
+            "당장",
+            "이번 주",
+            "바로 적용",
+            "막혀",
+        ),
+    )
+    application = _contains_route_cue_phrase(
+        routing_normalized,
+        (
+            "so i can",
+            "so that i can",
+            "to solve",
+            "to diagnose",
+            "to decide",
+            "to unblock",
+            "to fix",
+            "apply",
+            "적용",
+            "해결",
+            "판단",
+        ),
+    )
+    return (resource_kinds >= 2 and (immediacy or application)) or (immediacy and application)
 
 
 def _fixed_or_pass_verification_context(routing_normalized: str) -> bool:

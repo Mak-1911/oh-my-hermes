@@ -6,6 +6,7 @@ values rather than snapshotting generated prose.
 
 from __future__ import annotations
 
+import tempfile
 import unittest
 
 from _standalone_bundle import _load_standalone_bundle_awareness
@@ -16,6 +17,7 @@ from omh.quality.native_skill_competition import (
 )
 from omh.quality.routing_precision import ROUTING_INTERVENTION_CASES, build_routing_precision_demo
 from omh.plugin_bundle.omh.awareness import awareness_route_hint
+from omh.plugin_bundle.omh.hooks.llm_hooks import pre_llm_call
 from omh.routing.localization import normalized_phrase, routing_tokens
 from omh.routing.policy import (
     JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES,
@@ -96,6 +98,10 @@ JIT_LEARN_INCIDENT_INVESTIGATION_NON_JIT_MESSAGES = (
 JIT_LEARN_INCIDENT_CONTEXT_POSITIVE_MESSAGES = (
     "What should I learn next to diagnose this incident before Friday?",
     "I need to study distributed tracing this week so I can diagnose the active incident.",
+)
+JIT_LEARN_KAFKA_WELL_FORMED_MESSAGE = (
+    "I need to learn Kafka consumer-group rebalancing before Friday's incident review; I know the basics "
+    "and need one book, podcast, creator, and course with links so I can diagnose our current lag spike."
 )
 
 
@@ -322,6 +328,12 @@ class JitLearnRoutingAndCardContractTests(unittest.TestCase):
             "What should I learn next to solve my current blocker?"
         )
         self.assertEqual(positive.get("selected_workflow"), "jit-learn")
+        well_formed = standalone_awareness.awareness_route_hint(JIT_LEARN_KAFKA_WELL_FORMED_MESSAGE)
+        self.assertEqual(well_formed.get("selected_workflow"), "jit-learn")
+        self.assertNotIn(
+            "ultraprocess",
+            [row.get("workflow") for row in well_formed.get("hints", [])],
+        )
         curriculum = standalone_awareness.awareness_route_hint(
             "What should I learn next? Design a six-week curriculum for it."
         )
@@ -330,6 +342,56 @@ class JitLearnRoutingAndCardContractTests(unittest.TestCase):
             "jit-learn",
             [row.get("workflow") for row in curriculum.get("hints", [])],
         )
+
+    def test_kafka_route_and_awareness_hook_align_without_reversing_priority(self) -> None:
+        cases = (
+            (
+                JIT_LEARN_KAFKA_WELL_FORMED_MESSAGE,
+                "jit-learn",
+                "prepare_learning_brief",
+                "prepare_learning_brief",
+            ),
+            (
+                "Implement the accepted onboarding PRD and open a PR.",
+                "ultraprocess",
+                "choose_executor",
+                "prepare_one_cycle_delivery",
+            ),
+            (
+                "Use Codex to implement this learning feature so I can apply it this week.",
+                "ultraprocess",
+                "show_coding_handoff_status",
+                "show_coding_handoff_status",
+            ),
+            (
+                "review the incident postmortem this week to determine the rollback plan",
+                "reliability-review",
+                "prepare_reliability_review",
+                "prepare_reliability_review",
+            ),
+        )
+        for message, workflow, route_action, hint_action in cases:
+            with self.subTest(workflow=workflow):
+                interaction = build_chat_interaction_payload(message, source="discord")
+                hint = awareness_route_hint(message)
+                self.assertEqual(interaction.get("route", {}).get("selected_skill"), workflow)
+                self.assertEqual(interaction.get("next_action"), route_action)
+                self.assertEqual(hint.get("selected_workflow"), workflow)
+                self.assertEqual(hint.get("primary_next_action"), hint_action)
+
+        with tempfile.TemporaryDirectory() as omh_home:
+            hook = pre_llm_call(
+                user_message=JIT_LEARN_KAFKA_WELL_FORMED_MESSAGE,
+                is_first_turn=True,
+                session_id="jit-learn-kafka-alignment",
+                omh_home=omh_home,
+            )
+        self.assertIsNotNone(hook)
+        context = str((hook or {}).get("context", ""))
+        self.assertIn("selected=jit-learn", context)
+        self.assertIn("next_action=prepare_learning_brief", context)
+        self.assertNotIn("selected=ultraprocess", context)
+        self.assertNotIn("next_action=prepare_one_cycle_delivery", context)
 
     def test_incident_investigation_does_not_become_jit_learning(self) -> None:
         for message in JIT_LEARN_INCIDENT_INVESTIGATION_NON_JIT_MESSAGES:
