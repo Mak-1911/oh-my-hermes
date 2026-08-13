@@ -419,8 +419,11 @@ def _dispatch_capability_snapshot(
     owner: str,
 ) -> tuple[dict[str, Any] | None, list[str]]:
     frozen_snapshot = handoff.get("executor_capability_snapshot")
+    policy = handoff.get("executor_capability_snapshot_policy")
+    if policy is not None and policy != "frozen_required":
+        return None, ["executor_capability_snapshot_policy is unsupported"]
     if frozen_snapshot is None:
-        if handoff.get("executor_capability_snapshot_policy") == "frozen_required":
+        if policy == "frozen_required":
             return None, ["executor_capability_snapshot is required by this handoff"]
         return (
             resolved_executor_capability_snapshot(
