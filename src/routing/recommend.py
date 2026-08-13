@@ -26,6 +26,7 @@ from .policy import (
     active_routing_guard_rules,
     explicit_skill_invocation,
     is_explicit_one_off_request,
+    jit_learn_guard_applies,
     media_input_operator_guard_applies,
     ops_observability_external_blocked,
     ops_observability_generic_metrics_blocked,
@@ -77,6 +78,10 @@ _GUARDRAIL_CANDIDATE_INJECTION_IDS = frozenset(
         # injection the guard's boost has no candidate to land on.
         "greenfield_build_before_generic_picker",
         "hermes_coding_team_before_generic_clarification",
+        # A well-formed "I need to learn X before <deadline>" request scores on
+        # incident/review words instead of the learning target, so the guard
+        # needs a candidate to boost.
+        "jit_learn_before_generic_research_or_review",
         "github_event_ops_before_generic_planning",
         "live_info_operator_before_generic_current_facts",
         "research_brief_before_wiki",
@@ -764,6 +769,20 @@ _SKILL_POLICIES = {
         wrapper_guidance=(
             "Prepare source_finder_plan/v1 with source_candidate_set/v1, source_acquisition_status/v1, "
             "observation provenance, not-evidence boundaries, and a downstream workflow recommendation."
+        ),
+    ),
+    "jit-learn": RecommendationPolicy(
+        next_action="prepare_learning_brief",
+        evidence_boundary=(
+            "A prepared learning brief is not observed source retrieval, link or currency verification, source "
+            "consumption, learning, progress, application, or resolution of the user's original blocker."
+        ),
+        wrapper_guidance=(
+            "Ask one confirmation question before research, even when the request looks complete, and resolve "
+            "urgency, current level, and application window one question per turn. Confirm the target as "
+            "`Learn X now so I can do/decide Y in context Z by T.`, then prepare a source-gated Markdown brief with "
+            "Books, Podcasts, Creators, and Courses ranked by fit, authority, currency, time-to-first-value, and "
+            "direct transfer rather than popularity."
         ),
     ),
     "reliability-review": RecommendationPolicy(
@@ -2444,6 +2463,18 @@ def _context_alignment_offers_itself(normalized_query: str, query_tokens: set[st
     )
 
 
+def _jit_learn_offers_itself(normalized_query: str, query_tokens: set[str]) -> bool:
+    """Keep a bare "learn" from carrying the just-in-time learning route.
+
+    The catalog triggers tokenize `learn next` and `learn now` down to a bare
+    `learn`, which is also `workflow-learning`'s, `paper-learning`'s, and
+    `curriculum-design`'s word. `jit-learn` only offers itself when the message
+    actually asks what to learn for a live problem: its own guard cues, or an
+    explicit invocation, which `_score_definition` already exempts.
+    """
+    return jit_learn_guard_applies(normalized_query, query_tokens)
+
+
 # Skills that withdraw from the shortlist unless their own precondition holds,
 # checked in `_score_definition`. An explicit invocation always overrides this:
 # naming a skill outright is the user overruling its self-assessment.
@@ -2455,6 +2486,7 @@ def _context_alignment_offers_itself(normalized_query: str, query_tokens: set[st
 # being rewritten, so the predicates here are the same ones as before.
 _SKILL_OFFERS_ITSELF: dict[str, Callable[[str, set[str]], bool]] = {
     "context": _context_alignment_offers_itself,
+    "jit-learn": _jit_learn_offers_itself,
     "ops-observability-card": _ops_observability_card_offers_itself,
     "harness-session-inventory": _harness_session_inventory_recommendation_applies,
     "build-failure-triage": _build_failure_triage_offers_itself,

@@ -83,9 +83,9 @@ NON_SKILL_BACKTICKS = frozenset({".env", ".pptx"})
 # A statement that names a sibling, and the sibling(s) it names. The counts are
 # contracts: a new skill whose do_not_use_when points at a sibling adds a case
 # here, and that is the moment to confirm the router honours the new boundary.
-EXPECTED_DEFERENCE_CASES = 134
-EXPECTED_DEFERENCE_PAIRS = 145
-EXPECTED_DEFERRING_OWNERS = 49
+EXPECTED_DEFERENCE_CASES = 139
+EXPECTED_DEFERENCE_PAIRS = 150
+EXPECTED_DEFERRING_OWNERS = 50
 
 # The ratchet. Recording a new inversion must be a visible edit to this number,
 # not one more dict line with a plausible sentence attached.

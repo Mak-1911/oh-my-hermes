@@ -589,6 +589,43 @@ try:  # File-loaded plugin bundles can still reuse OMH locale phrase packs.
 except ImportError:  # pragma: no cover - standalone plugin hosts keep the fallback above.
     pass
 
+try:  # Keep the hint hook's jit-learn intent identical to the router guard's.
+    from ...routing.localization import (
+        normalized_phrase as _normalized_routing_phrase,
+        routing_tokens as _routing_tokens,
+    )
+    from ...routing.policy import (
+        JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES as _JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES,
+        jit_learn_guard_applies as _jit_learn_guard_applies,
+    )
+except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
+    # Standalone bundles ship without omh core, so they need a literal copy.
+    # `test_jit_learn_contract` asserts this tuple still equals the router's.
+    _JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES = (
+        "curriculum",
+        "syllabus",
+        "커리큘럼",
+        "교육과정",
+        "교육 과정",
+        "강의계획",
+        "강의 계획",
+    )
+    _normalized_routing_phrase = None
+    _routing_tokens = None
+    _jit_learn_guard_applies = None
+
+try:  # File-loaded plugin bundles should still use the packaged router guard.
+    from omh.routing.localization import (
+        normalized_phrase as _normalized_routing_phrase,
+        routing_tokens as _routing_tokens,
+    )
+    from omh.routing.policy import (
+        JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES as _JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES,
+        jit_learn_guard_applies as _jit_learn_guard_applies,
+    )
+except ImportError:  # pragma: no cover - standalone plugin hosts keep the fallback above.
+    pass
+
 try:  # Accept the `omh-`/`ulw-` display labels wrapper bodies render back as routing input.
     from ...routing.display_names import canonical_display_mentions as _canonical_display_mentions
 except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
@@ -976,6 +1013,7 @@ LANE_CROSS_LANE_EXAMPLES = {
         "source discovery -> source-finder -> candidate set -> downstream workflow",
         "supplied CSV/logs -> data-analysis -> scope, schema, method, and evidence-limited findings",
         "supplied paper -> paper-learning -> level choice -> coverage ledger -> section walkthrough",
+        "present blocker -> jit-learn -> one confirmation -> confirmed learning target -> source-gated brief",
         "market topic -> research -> research-brief -> strategy-brief -> operating-rhythm",
     ],
     "retained_knowledge": [
@@ -1042,12 +1080,13 @@ WORKFLOW_CONTEXT_CARDS = (
     {
         "id": "research_and_ops",
         "label": "Research and ops",
-        "user_signal": "customer signal, meeting notes, supplied data/logs, source candidates, market question, strategy request, or operating record",
+        "user_signal": "customer signal, meeting notes, supplied data/logs, source candidates, market question, strategy request, immediate learning need, or operating record",
         "omh_pattern": "classify source acquisition versus supplied-data analysis, collect evidence, separate source notes from synthesis, then create a brief, decision, or status artifact",
-        "representative_workflows": ("source-finder", "research", "paper-learning", "data-analysis", "research-department", "feedback-triage", "meeting-brief", "strategy-brief"),
+        "representative_workflows": ("source-finder", "research", "paper-learning", "jit-learn", "data-analysis", "research-department", "feedback-triage", "meeting-brief", "strategy-brief"),
         "user_examples": (
             "Find papers and datasets for this topic",
             "Payment failures keep coming up",
+            "What should I learn next to solve my current blocker?",
             "Track competitor news every morning",
         ),
         "first_response_shape": "Name the source/synthesis split, including source acquisition when relevant, pick the research or ops workflow, then ask for missing source evidence or cadence only when needed.",
@@ -1177,6 +1216,7 @@ _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW = {
     "research-department": "research_and_ops",
     "source-finder": "research_and_ops",
     "paper-learning": "research_and_ops",
+    "jit-learn": "research_and_ops",
     "data-analysis": "research_and_ops",
     "research-brief": "research_and_ops",
     "best-practice-research": "research_and_ops",
@@ -1312,6 +1352,15 @@ _AWARENESS_MESSAGE_MARKERS = (
     "what is going on",
     "what is going on rn",
     "what was i working on",
+    # Immediate-learning questions. Same interrogative rule as the running-work
+    # markers above: a bare `learn` is ordinary chat and belongs to
+    # `workflow-learning`, `paper-learning`, and `curriculum-design` too, so the
+    # marker has to carry the "what should I learn" question itself.
+    "what should i learn next",
+    "what should i learn now",
+    "what to learn next",
+    "지금 뭘 배워야",
+    "도움 되는 학습 주제",
     "show session status",
     "rejected decisions",
     "run efficiency",
@@ -1705,6 +1754,34 @@ _ROUTE_HINT_RULES = (
         "tokens": (),
         "adjacent_workflows": ("paper-learning", "materials-package", "content-operator", "connector-operator"),
         "not_evidence_yet": ("LMS creation", "enrollment", "grading", "certification", "learning outcome"),
+    },
+    {
+        "id": "jit_learn",
+        "workflow": "jit-learn",
+        "lane": "research_and_ops",
+        "next_action": "prepare_learning_brief",
+        "reason": "The user needs the highest-leverage thing to learn for a live blocker, confirmed first and then backed by fitted sources.",
+        "fallback_action": "ask_one_confirmation_question_about_urgency_level_or_application_window",
+        "phrases": (
+            "what should i learn next",
+            "what should i learn now",
+            "what to learn next",
+            "learn next to solve",
+            "highest-leverage thing to learn",
+            "highest leverage thing to learn",
+            "지금 뭘 배워야",
+            "도움 되는 학습 주제",
+            "도움되는 학습 주제",
+        ),
+        "tokens": ("jit-learn",),
+        "adjacent_workflows": ("deep-interview", "research", "source-finder", "curriculum-design"),
+        "not_evidence_yet": (
+            "source retrieval",
+            "link or currency verification",
+            "source consumption",
+            "learning or progress",
+            "blocker resolution",
+        ),
     },
     {
         "id": "localization_review",
@@ -4943,12 +5020,18 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
                     }
                 )
         named_coding_agent_delivery = _named_coding_agent_delivery_signal(routing_normalized, tokens)
-        for rule in _ROUTE_HINT_RULES:
+        jit_learn_match = (
+            not named_coding_agent_delivery
+            and _jit_learn_route_hint_applies(message, routing_normalized)
+        )
+        for rule in _prioritized_route_hint_rules(jit_learn_match):
             if len(hints) >= hint_limit:
                 break
             if _rule_suppressed_by_omh_quality_intent(rule, omh_quality_intent):
                 continue
             if _rule_suppressed_by_named_coding_agent_delivery(rule, named_coding_agent_delivery):
+                continue
+            if jit_learn_match and rule["id"] == "coding_delivery":
                 continue
             if _rule_suppressed_by_reference_intent(rule, intent):
                 continue
@@ -4958,6 +5041,8 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
                 continue
             phrase_matches = [phrase for phrase in rule["phrases"] if phrase in routing_normalized]
             token_matches = [token for token in rule["tokens"] if token in tokens]
+            if rule["id"] == "jit_learn" and jit_learn_match and not phrase_matches and not token_matches:
+                phrase_matches = ["guard:jit_learn"]
             if not phrase_matches and not token_matches:
                 continue
             workflow = str(rule["workflow"])
@@ -5172,6 +5257,144 @@ def _route_hint_rule_by_id(rule_id: str) -> dict[str, object] | None:
         if rule.get("id") == rule_id:
             return rule
     return None
+
+
+def _prioritized_route_hint_rules(jit_learn_match: bool) -> tuple[dict[str, object], ...]:
+    if not jit_learn_match:
+        return _ROUTE_HINT_RULES
+    jit_rule = _route_hint_rule_by_id("jit_learn")
+    if jit_rule is None:
+        return _ROUTE_HINT_RULES
+    return (jit_rule, *(rule for rule in _ROUTE_HINT_RULES if rule is not jit_rule))
+
+
+def _jit_learn_route_hint_applies(message: str, routing_normalized: str) -> bool:
+    """Use the router's immediate-learning intent before generic hint rules."""
+    if (
+        _jit_learn_guard_applies is not None
+        and _normalized_routing_phrase is not None
+        and _routing_tokens is not None
+    ):
+        return _jit_learn_guard_applies(
+            _normalized_routing_phrase(message),
+            _routing_tokens(message),
+        )
+
+    # Standalone plugin hosts cannot import the router. Keep the same
+    # normalization-first shape and load-bearing exclusions before accepting a
+    # well-formed immediate-learning request.
+    if _contains_route_cue_phrase(
+        routing_normalized,
+        _JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES,
+    ):
+        return False
+    explicit_immediate_learning = (
+        "what should i learn next",
+        "what should i learn now",
+        "what should i learn first",
+        "what do i need to learn next",
+        "what do i need to learn now",
+        "what to learn next",
+        "what to learn now",
+        "learn next to solve",
+        "learn now to solve",
+        "highest leverage thing to learn",
+        "highest-leverage thing to learn",
+        "highest payoff thing to learn",
+        "highest-payoff thing to learn",
+        "most useful thing to learn",
+        "worth learning right now",
+        "지금 배워야",
+        "지금 뭘 배워야",
+        "뭘 배워야",
+        "무엇을 배워야",
+        "도움 되는 학습 주제",
+        "도움되는 학습 주제",
+        "당장 적용할 학습 목표",
+    )
+    if _contains_route_cue_phrase(routing_normalized, explicit_immediate_learning):
+        return True
+    incident_artifact = _contains_route_cue_phrase(
+        routing_normalized,
+        ("incident report", "incident postmortem", "postmortem report"),
+    )
+    incident_investigation = _contains_route_cue_phrase(
+        routing_normalized,
+        (
+            "study",
+            "investigate",
+            "review",
+            "analyze",
+            "examine",
+            "learn from the incident",
+            "learn from incident",
+            "learn from the postmortem",
+            "learn from postmortem",
+        ),
+    )
+    if incident_artifact and incident_investigation:
+        return False
+    if not _contains_route_cue_phrase(
+        routing_normalized,
+        ("learn", "learning", "study", "upskill", "배우", "배워야", "학습", "공부"),
+    ):
+        return False
+    resource_kinds = sum(
+        _contains_route_cue_phrase(routing_normalized, group)
+        for group in (
+            ("book", "books", "책", "도서"),
+            ("podcast", "podcasts", "팟캐스트"),
+            ("creator", "creators", "크리에이터"),
+            ("course", "courses", "강의", "강좌"),
+        )
+    )
+    immediacy = _contains_route_cue_phrase(
+        routing_normalized,
+        (
+            "right now",
+            "learn now",
+            "learn next",
+            "need to learn",
+            "i need to learn",
+            "have to learn",
+            "before friday",
+            "by friday",
+            "this week",
+            "next week",
+            "before the",
+            "before our",
+            "before my",
+            "in time for",
+            "current blocker",
+            "my blocker",
+            "stuck on",
+            "blocking me",
+            "immediately applicable",
+            "apply this week",
+            "지금",
+            "당장",
+            "이번 주",
+            "바로 적용",
+            "막혀",
+        ),
+    )
+    application = _contains_route_cue_phrase(
+        routing_normalized,
+        (
+            "so i can",
+            "so that i can",
+            "to solve",
+            "to diagnose",
+            "to decide",
+            "to unblock",
+            "to fix",
+            "apply",
+            "적용",
+            "해결",
+            "판단",
+        ),
+    )
+    return (resource_kinds >= 2 and (immediacy or application)) or (immediacy and application)
 
 
 def _fixed_or_pass_verification_context(routing_normalized: str) -> bool:
@@ -5404,6 +5627,7 @@ def awareness_primer_payload() -> dict[str, object]:
                 "feedback-triage",
                 "research-department",
                 "paper-learning",
+                "jit-learn",
                 "data-analysis",
                 "meeting-brief",
                 "operating-rhythm",
@@ -5848,6 +6072,7 @@ _DIRECT_WORKFLOW_NEXT_ACTIONS = {
     "legal-compliance-review": "prepare_legal_compliance_review",
     "support-operations": "prepare_support_operations",
     "curriculum-design": "prepare_curriculum_design",
+    "jit-learn": "prepare_learning_brief",
     "localization-review": "prepare_localization_review",
     "sales-development": "prepare_sales_development",
     "product-brief": "prepare_product_brief",
@@ -6552,6 +6777,14 @@ def _rule_suppressed_by_context(rule: dict[str, object], text: str) -> bool:
             "어떤걸로 연결",
             "어떤 걸로 연결",
         )
+    ):
+        return True
+    if rule_id == "jit_learn" and any(
+        # Course design owns this request even when it also names what to learn.
+        # The router guard excludes the same phrases before its positive cues;
+        # the constant is shared so the two surfaces cannot drift apart.
+        phrase in text
+        for phrase in _JIT_LEARN_CURRICULUM_EXCLUSION_PHRASES
     ):
         return True
     return False

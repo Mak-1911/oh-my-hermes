@@ -132,6 +132,17 @@ NATIVE_COMPETITION_CASES = (
         "Store durable preferences and recall them across sessions.",
         "native",
     ),
+    NativeCompetitionCase(
+        "jit-learn-policy-overlay",
+        (
+            "find the highest-payoff thing to learn for my current blocker, confirm the target first, then rank "
+            "source-backed books podcasts creators and courses by immediate application rather than popularity"
+        ),
+        "jit-learn",
+        "recommendations",
+        "Recommend popular books, podcasts, creators, and courses for a topic.",
+        "omh",
+    ),
 )
 
 

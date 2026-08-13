@@ -213,9 +213,9 @@ rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
 
 <p align="center"><strong>Mixture of Models</strong></p>
 
-OMH packages **105 installable workflow skills** behind six human-readable
+OMH packages **106 installable workflow skills** behind six human-readable
 capability families: 12 workflow engines use `ulw-` labels, including
-`ulw-context`, and the remaining 93 skills use `omh-` labels. The family is the
+`ulw-context`, and the remaining 94 skills use `omh-` labels. The family is the
 front door; exact skill names remain available when a wrapper or operator needs
 precise control.
 

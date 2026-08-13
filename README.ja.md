@@ -165,11 +165,11 @@ fallback、provider、所有権のルールは
 | ⚡ `ulw-perf` | 本当に遅く高コストな場所を測り、ホットパスを一つずつ修正します。 |
 ## OMH が追加するもの
 
-OMH は **105 個**のインストール可能な workflow skill を、理解しやすい6つの
+OMH は **106 個**のインストール可能な workflow skill を、理解しやすい6つの
 機能ファミリーとして提供します。
 
 そのうち 12 個は workflow engine で - `context`, `deep-interview`, `loop`, `ralph`, `ralplan`, `research`, `team`, `ultragoal`, `ultraperf`, `ultraprocess`, `ultraqa`, `ultrawork` - `ulw-` ラベルで表示され、
-ステータス行だけでどの種類の skill が動いているか分かります。残り 93 個は `omh-`
+ステータス行だけでどの種類の skill が動いているか分かります。残り 94 個は `omh-`
 を付けます。canonical name はどちらも変わりません。
 
 | 機能ファミリー | Hermes ができること |

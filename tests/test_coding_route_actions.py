@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import importlib
-import importlib.util
-import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
 from _local_package import load_local_package
+from _standalone_bundle import _load_standalone_bundle_awareness
 
 load_local_package()
 
@@ -79,32 +77,6 @@ def _learned_owner_state(owner: str = "codex") -> dict[str, object]:
         )
     return state
 
-
-def _load_standalone_bundle_awareness():
-    """Load the vendored bundle's awareness module outside the omh package.
-
-    Standalone plugin hosts import the bundle without `omh.*` on the path, so
-    `from ...routing.executor_cues import ...` raises ImportError there and the
-    module runs on its vendored fallback tuples. Loading the bundle the same
-    way here makes those fallbacks — not the re-exported source constants —
-    the values under test.
-    """
-    module_name = "_test_omh_standalone_bundle"
-    for name in list(sys.modules):
-        if name == module_name or name.startswith(f"{module_name}."):
-            sys.modules.pop(name, None)
-    bundle_dir = Path(__file__).resolve().parents[1] / "src" / "plugin_bundle" / "omh"
-    spec = importlib.util.spec_from_file_location(
-        module_name,
-        bundle_dir / "__init__.py",
-        submodule_search_locations=[str(bundle_dir)],
-    )
-    if spec is None or spec.loader is None:
-        raise RuntimeError("failed to load the vendored plugin bundle standalone")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return importlib.import_module(f"{module_name}.awareness")
 
 
 class CodingRouteActionVocabularyTests(unittest.TestCase):

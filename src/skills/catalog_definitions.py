@@ -653,6 +653,107 @@ _DEFINITIONS = [
         ),
     ),
     SkillDefinition(
+        "jit-learn",
+        "Just-in-time learning workflow: select and confirm an immediate learning target, research credible sources, and prepare an application-first brief without popularity ranking.",
+        (
+            "jit-learn",
+            "learn next",
+            "learn now",
+            "blocker-specific learning target",
+            "highest-leverage learning target",
+            "immediate learning payoff",
+            "immediately applicable learning brief",
+            "source-backed learning brief",
+            "학습 주제",
+            "도움 되는 학습 주제",
+            "당장 적용할 학습 목표",
+            "책 팟캐스트 크리에이터 강의 학습 브리프",
+        ),
+        "Use when selecting the highest-leverage immediate learning target for an active blocker before preparing a source-backed Markdown brief for direct application.",
+        category="research",
+        phase="learning-target",
+        hermes_role="retained-cognition",
+        delegation_boundary="retained-catalog-intent",
+        handoff_policy=(
+            "Keep reviewed-context interpretation, the bounded one-question-at-a-time interview, target selection, "
+            "source research, and Markdown brief preparation in Hermes. Do not create a learner profile, take an "
+            "external action, or claim that a recommendation was consumed, learned, applied, or resolved the blocker."
+        ),
+        required_inputs=(
+            "reviewed context",
+            "urgency",
+            "current level",
+            "application window",
+            "time/format constraints",
+        ),
+        expected_outputs=(
+            "confirmed target statement: Learn X now so I can do/decide Y in context Z by T.",
+            "source-backed Markdown learning brief",
+            "Books section, including an explicit no-qualifying-candidate reason when empty",
+            "Podcasts section, including an explicit no-qualifying-candidate reason when empty",
+            "Creators section, including an explicit no-qualifying-candidate reason when empty",
+            "Courses section, including an explicit no-qualifying-candidate reason when empty",
+            "for every recommendation: title, format, creator/publisher, link, source class, time to first value, specific fit now, first application, and caveats",
+            "competing learning targets, filtered-out defaults, unresolved gaps, and one recommended next action",
+        ),
+        artifact_expectations=(
+            "prepared Markdown learning brief with observed source links and explicit retrieval gaps when a wrapper captures it",
+        ),
+        safety_rules=(
+            "Always ask at least one confirmation question before research, exactly one question per turn, even when the initial request appears complete.",
+            f"Use the shared deep-interview ceiling of {DEEP_INTERVIEW_MAX_ROUNDS} rounds and its early-stop discipline; do not create a second interview budget.",
+            "Use only the current conversation and reviewed or explicitly approved OMH context; never claim hidden Hermes memory or create a persistent learner profile.",
+            "Admit recommendations only from primary, institutional, or credible practitioner evidence whose authority, currency, availability, and link can be checked; report retrieval gaps instead of inventing support.",
+            "Never use bestseller status, ratings, follower counts, charts, generic popularity, or unsupported reputation as admission or ranking evidence.",
+            "Do not purchase, download, enroll, subscribe, contact a creator, bypass a paywall, write to an external system, or imply any external action occurred.",
+            "A prepared brief is not evidence that the user consumed a resource, learned, made progress, applied the advice, or resolved the original blocker.",
+        ),
+        quality_tier="source-gated",
+        quality_bar=(
+            "Resolve urgency/trigger, current level, and application window with one question per turn, while stopping early once all three are clear after the mandatory first answer.",
+            "Confirm one target in the form `Learn X now so I can do/decide Y in context Z by T.` before source research.",
+            "Prefer primary, institutional, and credible practitioner sources; rank by specific fit, authority, currency, time-to-first-value, and direct transfer rather than popularity.",
+            "Keep Books, Podcasts, Creators, and Courses visible even when no candidate passes, and explain every empty section instead of padding it.",
+            "For each admitted resource, state title, format, creator/publisher, link, source class, time to first value, specific fit, first application, and applicable link/access/currency caveats.",
+            "Close with competing targets considered, filtered-out defaults, unresolved gaps, and exactly one recommended starting action.",
+        ),
+        why_this_exists=(
+            "`jit-learn` exists to choose what is worth learning for the user's present problem and convert credible "
+            "sources into an immediate application path, instead of returning a generic self-help shelf or a popularity list."
+        ),
+        do_not_use_when=(
+            "The user asks OMH to learn from workflow outcomes, missed routes, or evaluation traces; use `workflow-learning`.",
+            "The learning goal is already chosen and the user wants a multi-week syllabus, instructional sequence, or assessment plan; use `curriculum-design`.",
+            "The user supplied a paper, PDF, arXiv entry, or excerpt and wants it explained; use `paper-learning`.",
+            "The requested output is a typed source candidate inventory or acquisition status rather than a fitted learning brief; use `source-finder`.",
+            "The research question and target are already scoped and the user wants current facts, citations, or source synthesis rather than choosing what to learn; use `research`.",
+        ),
+        good_example=SkillExample(
+            prompt="What should I learn next to solve my current onboarding blocker? Recommend books, podcasts, creators, and courses I can apply this week.",
+            expected="Ask one confirmation question, confirm the immediate target, then prepare a source-backed four-section learning brief ranked by fit and time-to-first-value.",
+            why="The user needs target selection and immediate transfer, not a generic curriculum or popularity-ranked resource list.",
+        ),
+        bad_example=SkillExample(
+            prompt="Design a six-week Python syllabus with weekly assessments.",
+            expected="Route to `curriculum-design` because the target is already chosen and the requested output is a sequenced curriculum.",
+            why="Just-in-time target selection should not displace an explicit curriculum-design request.",
+        ),
+        final_checklist=(
+            "At least one confirmation question was answered, no turn contained more than one question, and the shared interview ceiling was respected.",
+            "Urgency/trigger, current level, application window, and the target statement are explicit before research.",
+            "Every admitted recommendation is source-gated and popularity signals did not influence admission or rank.",
+            "Books, Podcasts, Creators, and Courses are present with complete fields or an honest empty-section reason.",
+            "Competing targets, filtered-out defaults, unresolved gaps, and one starting action are visible.",
+            "The final status says the brief is prepared and does not claim consumption, learning, application, progress, or blocker resolution.",
+        ),
+        recovery_notes=(
+            "If a required readiness dimension remains unclear, ask the one answer that most changes the target while the shared round budget remains.",
+            "If the shared interview ceiling is reached, proceed with explicit assumptions and gaps rather than asking another question.",
+            "If sources or links cannot be checked, leave the affected section empty with the retrieval reason instead of adding a generic recommendation.",
+            "If the target becomes a syllabus, supplied-paper explanation, source inventory, already-scoped research question, or OMH self-improvement request, preserve the sibling boundary and route accordingly.",
+        ),
+    ),
+    SkillDefinition(
         "team",
         "Team - run N coordinated workers on one shared task list with explicit lane ownership and merged verification; choose over raw subagents when lanes must not collide.",
         ("team", "$team", "swarm", "parallel agents", "coordinated workers"),

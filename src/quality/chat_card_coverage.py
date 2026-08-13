@@ -19,6 +19,7 @@ class ChatCardCoverageCase:
     expected_skill: str
     expected_kind: str
     expected_next_action: str
+    expected_phase: str = ""
 
 
 # Frozen wrapper-card corpus. These are user-facing routes where a generic
@@ -629,6 +630,15 @@ CHAT_CARD_COVERAGE_CASES: tuple[ChatCardCoverageCase, ...] = (
         "running_work_board",
         "show_running_work_board",
     ),
+    ChatCardCoverageCase(
+        "jit-learn",
+        "Just-in-time learning brief",
+        "what should I learn next to solve my current blocker?",
+        "jit-learn",
+        "jit_learn",
+        "prepare_learning_brief",
+        "learning_target_confirmation",
+    ),
 )
 
 
@@ -715,6 +725,7 @@ def _evaluate_chat_card_case(case: ChatCardCoverageCase, *, source: str) -> dict
         "workflow": route.get("selected_skill"),
         "kind": response.get("kind"),
         "next_action": interaction.get("next_action"),
+        "phase": state.get("phase"),
         "route_action": route.get("action"),
         "confidence": route.get("confidence"),
         "claim_boundary": response.get("claim_boundary"),
@@ -731,6 +742,8 @@ def _evaluate_chat_card_case(case: ChatCardCoverageCase, *, source: str) -> dict
         issues.append("generic ack response")
     if observed["next_action"] != case.expected_next_action:
         issues.append(f"expected next action {case.expected_next_action}, observed {observed['next_action']}")
+    if case.expected_phase and observed["phase"] != case.expected_phase:
+        issues.append(f"expected phase {case.expected_phase}, observed {observed['phase']}")
     if not str(observed["claim_boundary"] or "").strip():
         issues.append("missing claim boundary")
     if not actions:
@@ -749,6 +762,7 @@ def _evaluate_chat_card_case(case: ChatCardCoverageCase, *, source: str) -> dict
             "workflow": case.expected_skill,
             "kind": case.expected_kind,
             "next_action": case.expected_next_action,
+            "phase": case.expected_phase or None,
         },
         "observed": observed,
         "issues": issues,

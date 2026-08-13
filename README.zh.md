@@ -161,10 +161,10 @@ OMH 随附以下可编辑的类别推荐模型：
 | ⚡ `ulw-perf` | 先测出真正慢和贵的地方，再逐条修热路径。 |
 ## OMH 提供什么
 
-OMH 将 **105 个**可安装的 workflow skill 组织为6个容易理解的能力族。
+OMH 将 **106 个**可安装的 workflow skill 组织为6个容易理解的能力族。
 
 其中 12 个是 workflow engine - `context`, `deep-interview`, `loop`, `ralph`, `ralplan`, `research`, `team`, `ultragoal`, `ultraperf`, `ultraprocess`, `ultraqa`, `ultrawork` - 它们渲染为 `ulw-` 标签，
-只看状态行就能知道正在运行哪一类 skill。其余 93 个使用 `omh-`。
+只看状态行就能知道正在运行哪一类 skill。其余 94 个使用 `omh-`。
 两者的 canonical name 都保持不变。
 
 | 能力族 | Hermes 可以做得更好的事情 |

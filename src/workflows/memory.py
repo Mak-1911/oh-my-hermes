@@ -2680,6 +2680,13 @@ def _record_from_candidate(
         admitted_at=approved_at_value,
         ttl_days=_candidate_ttl_days(candidate),
     )
+    # Approval must not silently extend the deadline shown to the reviewer.
+    # `utc_now` is second-truncated, so deriving it again from `approved_at`
+    # made this record expire one second later whenever review crossed a clock
+    # boundary. The candidate's stored deadline is the authoritative value.
+    candidate_ttl = candidate.get("ttl")
+    if "expires_at" in retention and isinstance(candidate_ttl, dict) and candidate_ttl.get("expires_at"):
+        retention["expires_at"] = str(candidate_ttl["expires_at"])
     record_id = "mem_" + os.urandom(8).hex()
     scope = _normalize_scope(candidate.get("scope", _scope("project", "default")))
     revalidation = _candidate_revalidation(candidate)
