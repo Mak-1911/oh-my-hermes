@@ -63,6 +63,7 @@ from ..plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
 from ..plugin_pack import PLUGIN_NAME, PluginPackError, install_plugin_bundle
 from ..probe import probe_capabilities
 from ..release import RELEASE_CHANNELS, package_url_for
+from ..tui_widget_pack import install_tui_widget, uninstall_tui_widget
 from ..routing.recommend import recommend_skills
 from ..routing.route_plan import build_workflow_route_plan, compact_workflow_route_plan
 from ..runtime.artifacts import read_state_result, update_state
@@ -271,6 +272,7 @@ def _refresh_installed_plugin_bundle(args: argparse.Namespace) -> dict[str, obje
         return None
     try:
         result = install_plugin_bundle(paths, force=args.force, dry_run=args.dry_run)
+        install_tui_widget(paths.hermes_home, dry_run=bool(args.dry_run))
     except PluginPackError:
         # An update must not fail over a bundle a later `omh setup --force` can
         # repair; `omh doctor` reports the drift with the instruction to run it.
@@ -918,6 +920,11 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         force=bool(args.force),
         remove_command_package=bool(remove_all and not args.keep_command),
     )
+    tui_widget_result = (
+        uninstall_tui_widget(paths.hermes_home, dry_run=bool(args.dry_run))
+        if remove_all
+        else {"status": "not_requested"}
+    )
     scope = (
         tr(language, "uninstall_scope_all")
         if remove_all
@@ -934,6 +941,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
             "registration_only": bool(args.registration_only),
             "dry_run": args.dry_run,
             "menubar_app": menubar_result,
+            "tui_widget": tui_widget_result,
             "language": language,
         }
     )
@@ -1255,6 +1263,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
 
     progress.step(step_index, total_steps, tr(language, "step_plugin"), detail=str(paths.hermes_plugin_dir))
     steps["plugin"] = _plugin_setup_result(args, paths)
+    steps["tui_widget"] = install_tui_widget(paths.hermes_home, dry_run=bool(args.dry_run))
     plugin_status = steps["plugin"].get("status", "installed") if isinstance(steps["plugin"], dict) else "installed"
     progress.done(_plugin_status_label(language, str(plugin_status)))
     step_index += 1

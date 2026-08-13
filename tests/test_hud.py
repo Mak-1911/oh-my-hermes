@@ -4,11 +4,430 @@ import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from _cli_harness import run_cli
 
 
 class HudCliTests(unittest.TestCase):
+    def test_hud_projects_active_subagents_without_duplicate_host_fields(self) -> None:
+        status = {
+            "runtime_state_present": True,
+            "runs": [
+                {
+                    "run_id": "run-hud",
+                    "workflow": "ULW model routing review",
+                    "phase": "executing",
+                    "observation_status": "execution_observed",
+                    "execution_observed": True,
+                }
+            ],
+            "active_executors": [
+                {
+                    "binding_id": "binding-running-1",
+                    "target_type": "subagent",
+                    "target_id": "explore",
+                    "executor_profile": "hermes",
+                    "routed_model": "gpt-5.6-sol",
+                    "routed_reasoning_effort": "xhigh",
+                    "tokens_total": 18_200,
+                    "latest_event": {
+                        "event_type": "repo_exploration",
+                        "summary": "Inspecting the routing implementation.",
+                        "observed_at": "2026-08-13T11:00:00Z",
+                    },
+                },
+                {
+                    "binding_id": "binding-running-2",
+                    "target_type": "subagent",
+                    "target_id": "librarian",
+                    "executor_profile": "hermes",
+                    "routed_model": "kimi-k3",
+                    "tokens_total": 4_300,
+                    "latest_event": {
+                        "event_type": "tests_started",
+                        "summary": "Running focused routing tests.",
+                        "observed_at": "2026-08-13T11:01:00Z",
+                    },
+                },
+                {
+                    "binding_id": "binding-blocked",
+                    "target_type": "subagent",
+                    "target_id": "architect",
+                    "executor_profile": "hermes",
+                    "routed_model": "claude-opus-5",
+                    "latest_event": {
+                        "event_type": "executor_blocked",
+                        "summary": "Waiting for the Windows CI result.",
+                        "observed_at": "2026-08-13T11:02:00Z",
+                    },
+                },
+            ],
+            "stale_executors": [],
+            "latest_progress_events": [
+                {
+                    "binding_id": "binding-completed",
+                    "event_type": "executor_completed",
+                    "summary": "Verified the Windows CI integrity fix.",
+                    "observed_at": "2026-08-13T11:03:00Z",
+                }
+            ],
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            payload = json.loads(
+                run_cli(
+                    [
+                        "--omh-home",
+                        str(root / ".omh"),
+                        "--hermes-home",
+                        str(root / ".hermes"),
+                        "hud",
+                        "--json",
+                    ],
+                    output_json=False,
+                )[1]
+            )
+            # The CLI call proves the public surface still works, while the
+            # injected status below isolates the deterministic projection seam.
+            from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+            payload = read_omh_hud(
+                root / ".omh",
+                root / ".hermes",
+                status=status,
+            )
+
+        self.assertEqual(payload["subagents"]["status"], "observed")
+        self.assertTrue(payload["active"])
+        self.assertEqual(payload["subagents"]["active"], 3)
+        self.assertEqual(payload["subagents"]["running"], 2)
+        self.assertEqual(payload["subagents"]["blocked"], 1)
+        self.assertEqual(payload["subagents"]["completed"], 1)
+        self.assertEqual(payload["subagents"]["stale"], 0)
+        self.assertEqual(
+            payload["subagents"]["latest_action"],
+            "Verified the Windows CI integrity fix.",
+        )
+        self.assertEqual(
+            payload["subagents"]["rows"],
+            [
+                {
+                    "state": "running",
+                    "role": "explore",
+                    "action": "Inspecting the routing implementation.",
+                    "model": "gpt-5.6-sol",
+                    "effort": "xhigh",
+                    "tokens": 18_200,
+                },
+                {
+                    "state": "running",
+                    "role": "librarian",
+                    "action": "Running focused routing tests.",
+                    "model": "kimi-k3",
+                    "effort": "",
+                    "tokens": 4_300,
+                },
+                {
+                    "state": "blocked",
+                    "role": "architect",
+                    "action": "Waiting for the Windows CI result.",
+                    "model": "claude-opus-5",
+                    "effort": "",
+                    "tokens": None,
+                },
+            ],
+        )
+        self.assertEqual(payload["maestro"], {"status": "idle", "rows": []})
+        widget_text = "\n".join(payload["display"]["widget_lines"])
+        self.assertIn("[OMH]", widget_text)
+        self.assertIn("ULW model routing review", widget_text)
+        self.assertIn("executing", widget_text)
+        self.assertIn("agents 3", widget_text)
+        self.assertIn("run 2", widget_text)
+        self.assertIn("block 1", widget_text)
+        self.assertIn("done 1", widget_text)
+        for duplicate in ("cwd", "branch", "context", "cost", "provider", "model:"):
+            self.assertNotIn(duplicate, widget_text.casefold())
+
+    def test_hud_fails_closed_for_unsafe_runtime_state(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        sentinel = "INJECTED_RUNTIME_SENTINEL"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            runtime_dir = omh_home / "runtime"
+            runtime_dir.mkdir(parents=True)
+            external = root / "outside.json"
+            cases = {
+                "absent": None,
+                "malformed": '{"version": "INJECTED_RUNTIME_SENTINEL"',
+                "oversized": json.dumps(
+                    {
+                        "version": sentinel,
+                        "padding": "x" * 300_000,
+                    }
+                ),
+                "symlinked": external,
+            }
+            external.write_text(json.dumps({"version": sentinel}), encoding="utf-8")
+
+            for name, fixture in cases.items():
+                with self.subTest(name=name):
+                    state_path = runtime_dir / "state.json"
+                    state_path.unlink(missing_ok=True)
+                    if isinstance(fixture, Path):
+                        state_path.symlink_to(fixture)
+                    elif isinstance(fixture, str):
+                        state_path.write_text(fixture, encoding="utf-8")
+
+                    payload = read_omh_hud(
+                        omh_home,
+                        root / ".hermes",
+                        package_version="1.0.5",
+                    )
+                    rendered = json.dumps(payload)
+
+                    self.assertEqual(payload["runtime"]["workflow"], "idle")
+                    self.assertFalse(payload["active"])
+                    self.assertEqual(payload["subagents"]["status"], "idle")
+                    self.assertNotIn(sentinel, rendered)
+                    self.assertLessEqual(len(rendered), 16_384)
+
+    def test_hud_rejects_symlinked_run_directories(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        sentinel = "EXTERNAL_SECRET_SENTINEL"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs = root / ".omh" / "runtime" / "runs"
+            runs.mkdir(parents=True)
+            external = root / "external-run"
+            external.mkdir()
+            (external / "run.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "external",
+                        "skill": sentinel,
+                        "phase": "executing",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (runs / "999").symlink_to(external, target_is_directory=True)
+
+            payload = read_omh_hud(root / ".omh", root / ".hermes")
+            rendered = json.dumps(payload)
+
+            self.assertEqual(payload["runtime"]["workflow"], "idle")
+            self.assertNotIn(sentinel, rendered)
+
+    def test_hud_rejects_symlinked_run_auxiliary_metadata(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        sentinel = "AUXILIARY_METADATA_SECRET"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / ".omh" / "runtime" / "runs" / "999"
+            run_dir.mkdir(parents=True)
+            (run_dir / "run.json").write_text(
+                json.dumps({"run_id": "999", "skill": "safe workflow", "phase": "executing"}),
+                encoding="utf-8",
+            )
+            external = root / "coding.json"
+            external.write_text(
+                json.dumps({"recommended_workflow": sentinel}),
+                encoding="utf-8",
+            )
+            (run_dir / "coding_delegation.json").symlink_to(external)
+
+            payload = read_omh_hud(root / ".omh", root / ".hermes")
+            rendered = json.dumps(payload)
+
+            self.assertEqual(payload["runtime"]["workflow"], "safe workflow")
+            self.assertNotIn(sentinel, rendered)
+
+    def test_hud_rejects_symlinked_executor_progress_directory(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        sentinel = "INTERMEDIATE_SYMLINK_SECRET"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / ".omh" / "runtime" / "runs" / "999"
+            run_dir.mkdir(parents=True)
+            (run_dir / "run.json").write_text(
+                json.dumps({"run_id": "999", "skill": "safe", "phase": "executing"}),
+                encoding="utf-8",
+            )
+            external = root / "external-progress"
+            external.mkdir()
+            binding = {
+                "schema_version": "omh_executor_progress_binding/v1",
+                "binding_id": "run:999:codex",
+                "instance_id": "run:999:codex:instance",
+                "target": {"type": "run", "id": "999"},
+                "target_type": "run",
+                "target_id": "999",
+                "executor": "codex",
+                "executor_profile": "codex",
+                "correlation_root": "run:999",
+                "state": "active",
+                "created_at": "2099-01-01T00:00:00Z",
+                "updated_at": "2099-01-01T00:00:00Z",
+                "last_observed_at": "2099-01-01T00:00:00Z",
+                "freshness_seconds": 900,
+                "expiry_seconds": 86400,
+                "report_count": 0,
+                "last_reported_event_type": "",
+                "evidence_refs": [],
+                "privacy": "metadata_only",
+                "claim_boundary": (
+                    "Executor progress is metadata-only observed activity. It is not result, verification, "
+                    "review, CI, merge-readiness, or merge evidence."
+                ),
+            }
+            (external / "binding.json").write_text(json.dumps(binding), encoding="utf-8")
+            (external / "events.jsonl").write_text(
+                json.dumps(
+                    {
+                        **binding,
+                        "schema_version": "omh_executor_progress_event/v1",
+                        "event_type": "progress_observed",
+                        "status": "running",
+                        "summary": sentinel,
+                        "observed_at": "2099-01-01T00:00:00Z",
+                        "severity": "info",
+                        "signal": {},
+                        "transition_fingerprint": "a" * 64,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (run_dir / "executor_progress").symlink_to(external, target_is_directory=True)
+
+            payload = read_omh_hud(root / ".omh", root / ".hermes")
+            rendered = json.dumps(payload)
+
+            self.assertEqual(payload["subagents"]["active"], 0)
+            self.assertNotIn(sentinel, rendered)
+
+    def test_hud_separates_maestro_owned_run_from_subagents(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        status = {
+            "runtime_state_present": True,
+            "runs": [
+                {
+                    "run_id": "run-maestro",
+                    "workflow": "coding execution",
+                    "phase": "executing",
+                    "executor_target": "maestro",
+                }
+            ],
+            "active_executors": [
+                {
+                    "target_type": "run",
+                    "target_id": "run-maestro",
+                    "executor_profile": "codex",
+                    "routed_model": "gpt-5.6-sol",
+                    "routed_reasoning_effort": "xhigh",
+                    "tokens_total": 42_100,
+                    "latest_event": {
+                        "event_type": "progress_observed",
+                        "status": "running",
+                        "summary": "Implementing the coding handoff.",
+                    },
+                },
+                {
+                    "target_type": "run",
+                    "target_id": "run-subagent",
+                    "executor_profile": "hermes_local",
+                    "latest_event": {
+                        "event_type": "repo_exploration",
+                        "status": "running",
+                        "summary": "Exploring the repository.",
+                    },
+                },
+            ],
+            "stale_executors": [],
+            "latest_progress_events": [],
+        }
+
+        payload = read_omh_hud(status=status)
+
+        self.assertEqual(payload["maestro"]["status"], "observed")
+        self.assertEqual(payload["maestro"]["rows"][0]["role"], "codex")
+        self.assertEqual(payload["maestro"]["rows"][0]["model"], "gpt-5.6-sol")
+        self.assertEqual(len(payload["subagents"]["rows"]), 1)
+
+    def test_hud_bounds_workflow_within_allowed_file_size(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        sentinel = "BOUNDARY_WORKFLOW_SENTINEL"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / ".omh" / "runtime" / "runs" / "999"
+            run_dir.mkdir(parents=True)
+            workflow = sentinel + ("x" * 240_000)
+            (run_dir / "run.json").write_text(
+                json.dumps({"run_id": "999", "skill": workflow, "phase": "executing"}),
+                encoding="utf-8",
+            )
+
+            payload = read_omh_hud(root / ".omh", root / ".hermes")
+            rendered = json.dumps(payload)
+
+            self.assertLessEqual(len(payload["runtime"]["workflow"]), 120)
+            self.assertLessEqual(len(rendered), 16_384)
+            self.assertNotIn("x" * 121, rendered)
+
+    def test_hud_bounds_run_and_jsonl_reads_before_projection(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        sentinel = "OVERSIZED_HUD_SENTINEL"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            runtime = omh_home / "runtime"
+            run_dir = runtime / "runs" / "999"
+            progress_dir = run_dir / "executor_progress"
+            progress_dir.mkdir(parents=True)
+            state_path = runtime / "state.json"
+            state_path.write_text(
+                json.dumps({"version": sentinel, "padding": "x" * 300_000}),
+                encoding="utf-8",
+            )
+            (run_dir / "run.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "999",
+                        "skill": sentinel + ("y" * 300_000),
+                        "phase": "executing",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (progress_dir / "events.jsonl").write_text(
+                (json.dumps({"summary": sentinel, "padding": "z" * 300_000}) + "\n") * 5,
+                encoding="utf-8",
+            )
+            original_read_text = Path.read_text
+
+            def guarded_read_text(path: Path, *args, **kwargs) -> str:
+                if path in {state_path, run_dir / "run.json", progress_dir / "events.jsonl"}:
+                    raise AssertionError(f"oversized metadata was read: {path}")
+                return original_read_text(path, *args, **kwargs)
+
+            with patch.object(Path, "read_text", guarded_read_text):
+                payload = read_omh_hud(omh_home, root / ".hermes")
+            rendered = json.dumps(payload)
+
+            self.assertLessEqual(len(rendered), 16_384)
+            self.assertNotIn(sentinel, rendered)
+
     def test_status_alias_returns_hud_payload_for_operator_smoke_checks(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
