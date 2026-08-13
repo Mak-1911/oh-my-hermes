@@ -17,7 +17,6 @@ design and are enforced here:
 from __future__ import annotations
 
 import datetime
-import subprocess
 import unittest
 from pathlib import Path
 
@@ -206,14 +205,15 @@ class ExecutorCapabilityBriefingRenderTests(unittest.TestCase):
 class ExecutorCapabilityRoutingIsolationTests(unittest.TestCase):
     def test_no_routing_module_reads_capability_fields(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
-        probe = subprocess.run(
-            ["rg", "-n", "edit_format_support|code_mode_batching|capability_for_profile", "src/routing/"],
-            cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-        )
+        forbidden_terms = ("edit_format_support", "code_mode_batching", "capability_for_profile")
+        matches = [
+            f"{path.relative_to(repo_root)}:{line_number}:{line}"
+            for path in sorted((repo_root / "src" / "routing").rglob("*.py"))
+            for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+            if any(term in line for term in forbidden_terms)
+        ]
 
-        self.assertEqual(probe.stdout, "", "routing must not read descriptive capability metadata")
+        self.assertEqual(matches, [], "routing must not read descriptive capability metadata")
 
 
 def _capability_keys(value: object, prefix: str = "") -> list[str]:
