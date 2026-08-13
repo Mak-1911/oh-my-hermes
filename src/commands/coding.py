@@ -1589,7 +1589,7 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
     import subprocess as _subprocess
 
     from ..coding.fanout_artifacts import read_fanout_contract
-    from ..coding.fanout_dispatch import dispatch_fanout
+    from ..coding.fanout_dispatch import dispatch_fanout, fanout_dispatch_preflight
 
     paths = _paths(args)
     try:
@@ -1598,6 +1598,24 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
         raise OmhError(f"fanout contract not found: {exc}") from exc
     goal_text = sys.stdin.read() if args.goal_file == "-" else Path(args.goal_file).expanduser().read_text(encoding="utf-8")
     repo_root = Path(args.repo_root).expanduser().resolve()
+    try:
+        preflight = fanout_dispatch_preflight(paths, contract, only_units=args.unit)
+    except ValueError as exc:
+        raise OmhError(str(exc)) from exc
+    if preflight["invalid_selected"]:
+        summary = dispatch_fanout(
+            paths,
+            contract,
+            goal_text=goal_text,
+            repo_root=repo_root,
+            base_sha="",
+            concurrency=args.concurrency,
+            timeout=args.timeout,
+            only_units=args.unit,
+            dry_run=bool(args.dry_run),
+        )
+        _print_json(summary)
+        return 0
     resolved = _subprocess.run(
         ["git", "rev-parse", args.base_ref],
         cwd=str(repo_root),

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest import mock
 
 from _local_package import load_local_package
 
@@ -565,6 +566,70 @@ class FanoutCliTests(unittest.TestCase):
         unit = json.loads(stdout)["units"][0]
         self.assertEqual(unit["model"], "executor_default")
         self.assertEqual(unit["reasoning_effort"], "")
+
+    def test_fanout_dispatch_refuses_invalid_evidence_before_git_resolution(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = [
+                "--omh-home",
+                str(root / ".omh"),
+                "--hermes-home",
+                str(root / ".hermes"),
+            ]
+            status, stdout, stderr = run_cli(
+                base
+                + [
+                    "coding",
+                    "fanout",
+                    "prepare",
+                    "--goal",
+                    "split",
+                    "work",
+                    "--units",
+                    str(self._units_file(root)),
+                    "--record",
+                ]
+            )
+            self.assertEqual(status, 0, stderr)
+            fanout_id = json.loads(stdout)["fanout_id"]
+            contract_path = (
+                root
+                / ".omh"
+                / "coding"
+                / "fanout"
+                / fanout_id
+                / "fanout_contract.json"
+            )
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            contract["units"][0]["handoff"]["executor_capability_snapshot"] = "invalid"
+            contract_path.write_text(json.dumps(contract), encoding="utf-8")
+            goal = root / "goal.txt"
+            goal.write_text("split work", encoding="utf-8")
+
+            with mock.patch(
+                "subprocess.run",
+                side_effect=AssertionError("git resolution ran"),
+            ):
+                status, stdout, stderr = run_cli(
+                    base
+                    + [
+                        "coding",
+                        "fanout",
+                        "dispatch",
+                        fanout_id,
+                        "--goal-file",
+                        str(goal),
+                        "--repo-root",
+                        str(root),
+                    ]
+                )
+
+        self.assertEqual(status, 0, stderr)
+        summary = json.loads(stdout)
+        self.assertEqual(
+            {entry["unit_id"]: entry for entry in summary["units"]}["core"]["status"],
+            "capability_snapshot_invalid",
+        )
 
     def test_fanout_validate_reports_errors_without_writing(self) -> None:
         with TemporaryDirectory() as tmp:

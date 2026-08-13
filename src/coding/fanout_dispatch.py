@@ -473,6 +473,69 @@ def _unit_capability_precheck(
     return declared_owner, snapshot, errors
 
 
+def fanout_dispatch_preflight(
+    paths: OmhPaths,
+    contract: Mapping[str, Any],
+    *,
+    only_units: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Validate persisted dispatch identity before any local tool activity."""
+    schema_version = str(contract.get("schema_version", ""))
+    if schema_version not in {
+        FANOUT_CONTRACT_SCHEMA_VERSION,
+        LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION,
+    }:
+        raise ValueError(
+            f"unsupported fanout contract schema_version: {schema_version or 'missing'}"
+        )
+    raw_units = contract.get("units")
+    if not isinstance(raw_units, list) or not all(
+        isinstance(unit, Mapping) for unit in raw_units
+    ):
+        raise ValueError("fanout contract units must be a list of objects")
+    unit_ids = [str(unit.get("unit_id", "")) for unit in raw_units]
+    if any(not unit_id for unit_id in unit_ids) or len(set(unit_ids)) != len(unit_ids):
+        raise ValueError("fanout contract unit ids must be nonempty and unique")
+    units = {unit_id: unit for unit_id, unit in zip(unit_ids, raw_units, strict=True)}
+    merge_plan = contract.get("merge_plan")
+    raw_order = merge_plan.get("merge_order") if isinstance(merge_plan, Mapping) else None
+    if not isinstance(raw_order, list) or not all(
+        isinstance(unit_id, str) for unit_id in raw_order
+    ):
+        raise ValueError("fanout contract merge_order must be a list of unit ids")
+    order = list(raw_order)
+    if len(set(order)) != len(order) or set(order) != set(units):
+        raise ValueError("fanout contract merge_order must name every unit exactly once")
+    selected = set(only_units) if only_units else set(order)
+    unknown_selected = sorted(selected - set(units))
+    if unknown_selected:
+        raise ValueError(
+            "selected fanout units are not in the contract: "
+            + ", ".join(unknown_selected)
+        )
+    capability_prechecks = {
+        unit_id: _unit_capability_precheck(
+            paths,
+            unit,
+            contract_schema_version=schema_version,
+        )
+        for unit_id, unit in units.items()
+    }
+    invalid_selected = [
+        unit_id
+        for unit_id in order
+        if unit_id in selected and capability_prechecks[unit_id][2]
+    ]
+    return {
+        "schema_version": schema_version,
+        "units": units,
+        "order": order,
+        "selected": selected,
+        "capability_prechecks": capability_prechecks,
+        "invalid_selected": invalid_selected,
+    }
+
+
 def _apply_integration_readiness(units: Sequence[dict[str, Any]]) -> None:
     """Fold integration eligibility in declared merge order."""
     merge_order_position_satisfied = True
@@ -522,43 +585,31 @@ def dispatch_fanout(
     # contract whose goal or safety profile no longer matches the live state.
     verify_goal_matches_contract(contract, goal_text)
     verify_safety_profile_matches_contract(contract, live_safety_profile_revision)
-    contract_schema_version = str(contract.get("schema_version", ""))
-    if contract_schema_version not in {
-        FANOUT_CONTRACT_SCHEMA_VERSION,
-        LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION,
-    }:
-        raise ValueError(
-            f"unsupported fanout contract schema_version: {contract_schema_version or 'missing'}"
-        )
-    units = {str(unit["unit_id"]): unit for unit in contract.get("units", []) if isinstance(unit, Mapping)}
-    order = [str(unit_id) for unit_id in contract.get("merge_plan", {}).get("merge_order", [])]
-    capability_prechecks = {
-        unit_id: _unit_capability_precheck(
-            paths,
-            unit,
-            contract_schema_version=contract_schema_version,
-        )
-        for unit_id, unit in units.items()
-    }
+    preflight = fanout_dispatch_preflight(paths, contract, only_units=only_units)
+    units = preflight["units"]
+    order = preflight["order"]
+    selected = preflight["selected"]
+    capability_prechecks = preflight["capability_prechecks"]
+    invalid_units = preflight["invalid_selected"]
+    selected_capability_invalid = bool(invalid_units)
     capability_valid_units = [
         unit
         for unit_id, unit in units.items()
         if capability_prechecks[unit_id][1] is not None
         and not capability_prechecks[unit_id][2]
     ]
-    current_catalog_digest = _current_catalog_digest(capability_valid_units)
+    current_catalog_digest = (
+        ""
+        if selected_capability_invalid
+        else _current_catalog_digest(capability_valid_units)
+    )
     # Resolved up here rather than beside the summary write below: the dispatch
     # loop needs it to write per-unit in-flight markers while units are running.
     fanout_id = str(contract.get("fanout_id", "") or "")
-    selected = set(only_units) if only_units else set(order)
     # Observed once per distinct owner, here at the dispatch boundary rather
     # than inside the prompt builder: `build_unit_prompt` stays a pure function
     # of its arguments, so a prompt built without discovery is byte-identical
     # across machines.
-    selected_capability_invalid = any(
-        unit_id in selected and capability_prechecks[unit_id][2]
-        for unit_id in order
-    )
     discoveries = (
         {}
         if selected_capability_invalid
@@ -567,17 +618,22 @@ def dispatch_fanout(
     results: dict[str, dict[str, Any]] = {}
 
     if selected_capability_invalid:
-        invalid_units = [
-            unit_id
-            for unit_id in order
-            if unit_id in selected and capability_prechecks[unit_id][2]
-        ]
         invalid_reason = (
             "selected batch refused because capability evidence is invalid for "
             + ", ".join(invalid_units)
         )
         for unit_id in order:
             unit = units[unit_id]
+            if _already_completed(paths, unit):
+                results[unit_id] = _skipped(
+                    unit,
+                    "already_completed",
+                    process_succeeded=True,
+                    unit_verification_observed=_unit_verification_is_observed(
+                        paths, str(unit.get("run_ref", unit_id))
+                    ),
+                )
+                continue
             if unit_id not in selected:
                 results[unit_id] = _skipped(unit, "not_selected")
                 continue

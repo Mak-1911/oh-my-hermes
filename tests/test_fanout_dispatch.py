@@ -786,6 +786,50 @@ class FanoutDispatchEngineTests(unittest.TestCase):
             self.assertTrue(all(entry["status"] == "already_completed" for entry in second["units"]))
             self.assertEqual(rerun_runner.spawned, [])
 
+    def test_atomic_refusal_preserves_previously_completed_units(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            first = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                only_units=["core"],
+                runner=_agent_runner(),
+                readiness=_ready,
+            )
+            self.assertEqual(
+                {entry["unit_id"]: entry for entry in first["units"]}["core"]["status"],
+                "completed",
+            )
+            docs = {entry["unit_id"]: entry for entry in contract["units"]}["docs"]
+            docs["handoff"]["executor_capability_snapshot"] = "not-a-snapshot"
+
+            second = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                runner=_agent_runner(),
+                readiness=lambda *args, **kwargs: self.fail(
+                    "atomic refusal must not run readiness"
+                ),
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in second["units"]}
+            self.assertEqual(by_unit["core"]["status"], "already_completed")
+            self.assertTrue(by_unit["core"]["process_succeeded"])
+            self.assertEqual(by_unit["docs"]["status"], "capability_snapshot_invalid")
+            stored = json.loads(
+                fanout_dispatch_summary_path(paths, str(contract["fanout_id"])).read_text(
+                    encoding="utf-8"
+                )
+            )
+            stored_core = {entry["unit_id"]: entry for entry in stored["units"]}["core"]
+            self.assertTrue(stored_core["process_succeeded"])
+
     def test_argv_templates_for_both_spawnable_profiles(self) -> None:
         with TemporaryDirectory() as tmp:
             paths, repo, sha, contract = self._setup(tmp)
@@ -1637,9 +1681,15 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             def runner(*args, **kwargs):
                 self.fail("atomic contract refusal must prevent git and executor activity")
 
-            with mock.patch(
-                "omh.coding.fanout_dispatch._owner_skill_discoveries",
-                side_effect=AssertionError("discovery ran"),
+            with (
+                mock.patch(
+                    "omh.coding.fanout_dispatch._current_catalog_digest",
+                    side_effect=AssertionError("catalog discovery ran"),
+                ),
+                mock.patch(
+                    "omh.coding.fanout_dispatch._owner_skill_discoveries",
+                    side_effect=AssertionError("skill discovery ran"),
+                ),
             ):
                 summary = dispatch_fanout(
                     paths,
@@ -1656,6 +1706,29 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
             self.assertEqual(by_unit["docs"]["status"], "capability_snapshot_invalid")
             self.assertIn("core", by_unit["docs"]["reason"])
             self.assertFalse((repo.parent / f"{repo.name}-fanout-docs").exists())
+
+    def test_dispatch_rejects_units_missing_from_merge_order_before_discovery(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            contract["merge_plan"]["merge_order"].remove("core")
+
+            with (
+                mock.patch(
+                    "omh.coding.fanout_dispatch._current_catalog_digest",
+                    side_effect=AssertionError("catalog discovery ran"),
+                ),
+                self.assertRaisesRegex(ValueError, "merge_order"),
+            ):
+                dispatch_fanout(
+                    paths,
+                    contract,
+                    goal_text=_GOAL,
+                    repo_root=repo,
+                    base_sha=sha,
+                    only_units=["core", "docs"],
+                    runner=_agent_runner(),
+                    readiness=_ready,
+                )
 
     def test_malformed_frozen_snapshot_policy_cannot_downgrade_to_legacy(self) -> None:
         for policy in ("frozen-requird", ["frozen_required"]):
