@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from hashlib import sha256
 import re
 from typing import Mapping, Sequence
@@ -30,6 +31,7 @@ def build_fanout_contract(
     source: str = "generic",
     source_metadata: Mapping[str, object] | None = None,
     local_catalogs: Mapping[str, Mapping[str, object]] | None = None,
+    capability_snapshots: Mapping[str, Mapping[str, object]] | None = None,
     spawn_plan: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     normalized_goal = " ".join(goal.split())
@@ -55,6 +57,7 @@ def build_fanout_contract(
             sibling_scopes=_sibling_scopes(normalized_units, str(unit["unit_id"])),
             fanout_id=fanout_id,
             local_catalogs=local_catalogs,
+            capability_snapshots=capability_snapshots,
         )
         for unit in normalized_units
     ]
@@ -373,6 +376,7 @@ def _contract_unit(
     sibling_scopes: list[str],
     fanout_id: str,
     local_catalogs: Mapping[str, Mapping[str, object]] | None = None,
+    capability_snapshots: Mapping[str, Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
     unit_id = str(unit["unit_id"])
     own_scope = set(str(path) for path in unit.get("file_scope", []))
@@ -391,6 +395,9 @@ def _contract_unit(
     }
     if model_route is not None:
         handoff["model_route"] = model_route
+    capability_snapshot = (capability_snapshots or {}).get(executor_target)
+    if isinstance(capability_snapshot, Mapping):
+        handoff["executor_capability_snapshot"] = deepcopy(dict(capability_snapshot))
     contract_unit: dict[str, object] = {
         "unit_id": unit_id,
         "title": str(unit.get("title") or unit_id),

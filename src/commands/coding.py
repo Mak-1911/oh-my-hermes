@@ -1048,6 +1048,7 @@ def cmd_coding_composition_guide(args: argparse.Namespace) -> int:
 
 
 def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
+    from ..coding.executor_capability_snapshots import resolved_executor_capability_snapshot
     from ..coding.fanout import build_fanout_contract, is_degenerate_single_unit, single_unit_redirect
     from ..coding.fanout_artifacts import write_fanout_contract
     from ..coding.fanout_contracts import FanoutContractError
@@ -1067,18 +1068,32 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
         for unit in units
     )
     try:
+        paths = _paths(args)
+        owners = {
+            str(unit.get("owner", "") or "")
+            for unit in units
+            if isinstance(unit, dict) and str(unit.get("owner", "") or "")
+        }
+        capability_snapshots = {
+            owner: resolved_executor_capability_snapshot(
+                owner,
+                paths.executor_capability_snapshots_dir,
+            )
+            for owner in sorted(owners)
+        }
         contract = build_fanout_contract(
             " ".join(args.goal).strip(),
             units,
             source=args.source,
             source_metadata=_explicit_source_metadata(args),
             local_catalogs=_local_model_catalogs() if needs_inventory else {},
+            capability_snapshots=capability_snapshots,
             spawn_plan=spawn_plan,
         )
     except FanoutContractError as exc:
         raise OmhError(str(exc)) from exc
     if args.record:
-        contract = write_fanout_contract(_paths(args), contract)
+        contract = write_fanout_contract(paths, contract)
     _print_json(contract)
     return 0
 

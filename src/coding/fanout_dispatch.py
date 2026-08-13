@@ -15,7 +15,12 @@ from ..system.local_store import atomic_write_json, ensure_dir, locked_json_upda
 from ..system.metadata_safety import redact_metadata_text
 from ..system.paths import OmhPaths
 from .action_gate import recheck_safety_profile_revision
-from .executor_capabilities import capability_for_profile_or_none
+from .executor_capability_snapshots import (
+    complete_executor_capability_snapshot,
+    resolved_executor_capability_snapshot,
+    validate_executor_capability_snapshot,
+)
+from .executor_capabilities import legacy_executor_capability_projection
 from .executor_readiness import probe_executor_readiness
 from .fanout_contracts import FANOUT_CLAIM_BOUNDARY
 from .inflight import InflightMarkerError, clear_inflight_marker, write_inflight_marker
@@ -408,6 +413,30 @@ def _dispatch_status_ladder(
     }
 
 
+def _dispatch_capability_snapshot(
+    paths: OmhPaths,
+    handoff: Mapping[str, Any],
+    owner: str,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    frozen_snapshot = handoff.get("executor_capability_snapshot")
+    if frozen_snapshot is None:
+        return (
+            resolved_executor_capability_snapshot(
+                owner,
+                paths.executor_capability_snapshots_dir,
+            ),
+            [],
+        )
+    if not isinstance(frozen_snapshot, Mapping):
+        return None, ["executor_capability_snapshot must be a mapping"]
+    if frozen_snapshot.get("executor") != owner:
+        return None, ["executor_capability_snapshot executor does not match the handoff owner"]
+    errors = validate_executor_capability_snapshot(frozen_snapshot)
+    if errors:
+        return None, errors
+    return complete_executor_capability_snapshot(frozen_snapshot), []
+
+
 def _apply_integration_readiness(units: Sequence[dict[str, Any]]) -> None:
     """Fold integration eligibility in declared merge order."""
     merge_order_position_satisfied = True
@@ -790,6 +819,16 @@ def _dispatch_unit(
         if isinstance(repair_card, Mapping):
             not_ready["repair_card"] = dict(repair_card)
         return not_ready
+    capability_snapshot, capability_errors = _dispatch_capability_snapshot(paths, handoff, owner)
+    if capability_errors or capability_snapshot is None:
+        return {
+            "unit_id": unit_id,
+            "run_ref": run_ref,
+            "owner": owner,
+            "status": "capability_snapshot_invalid",
+            **_dispatch_status_ladder(),
+            "reason": "; ".join(capability_errors),
+        }
     discovery = (discoveries or {}).get(owner)
     sidecar_path = None
     if fanout_id:
@@ -907,11 +946,6 @@ def _dispatch_unit(
             "runtime_profile": owner,
         },
     )
-    # Read at the spawn observation, so the dispatch record says what the
-    # table declared about this profile at the moment the unit ran. Purely
-    # descriptive: it selects nothing, gates nothing, and a profile without a
-    # row simply carries no capability metadata.
-    profile_capability = capability_for_profile_or_none(owner)
     started_at = utc_now()
     started_clock = time.monotonic()
     stderr_tail = ""
@@ -1011,8 +1045,8 @@ def _dispatch_unit(
     }
     if owner_host:
         result["owner_host"] = owner_host
-    if profile_capability is not None:
-        result["executor_capability"] = profile_capability
+    result["executor_capability_snapshot"] = capability_snapshot
+    result["executor_capability"] = legacy_executor_capability_projection(capability_snapshot)
     # `tokens_total` and `session_ref` were READ by `omh coding fanout brief`
     # and had no write site anywhere, so both columns always printed "unknown".
     # Only keys the executor actually reported are copied: an absent count stays

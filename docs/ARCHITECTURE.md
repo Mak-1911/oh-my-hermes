@@ -630,6 +630,29 @@ steps remain missing until explicit `runtime_observation/v1` evidence exists.
 Future routing work should deepen the catalog first, then render richer skill
 metadata from it.
 
+`executor_capability_snapshot/v1` is also the single capability evidence
+source for handoff display and fanout dispatch receipts. Its vocabulary includes
+the owner-fit capabilities above plus descriptive edit-surface facts
+(`edit_format_hashline`, `edit_format_str_replace`, `edit_format_patch`,
+`persistent_eval`, `tool_reentry`, and `code_mode_batching`). Recorded
+`host_observed` rows retain bounded scope, evidence reference, and observation
+time. Missing rows are projected as explicit `unknown`; the prepared fallback
+marks only `worktree_isolation` as `prepared`.
+
+The snapshot is frozen into coding handoffs and briefing renders that frozen
+payload verbatim. Fanout dispatch records resolve the matching snapshot from the
+same OMH-local snapshot directory when a legacy fanout handoff does not carry
+one. Neither surface independently scores or selects an owner. Only
+`coding_owner_fit/v1` interprets capabilities required by the accepted plan,
+and unrelated descriptive evidence cannot satisfy or hide a required
+capability.
+
+During the `executor_capability/v1` compatibility window, briefing and dispatch
+receipts also emit a deprecated projection under `executor_capability`. That
+projection is derived from the unified snapshot rather than maintained as a
+second table, so legacy readers keep working without creating another evidence
+source.
+
 The delegation-first completion model is tracked in
 `docs/DELEGATION_FIRST_COMPLETENESS.md`. It is the product boundary for making
 OMH feel more complete without turning Hermes into the main coding executor.

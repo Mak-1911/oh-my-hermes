@@ -667,6 +667,7 @@ class EvidenceReadingTests(unittest.TestCase):
             paired = dict(owner_capability_snapshots(directory, ("../codex",)))
         self.assertIsNone(paired["../codex"])
 
+
     def test_a_plan_requiring_nothing_makes_every_owner_ready(self) -> None:
         report = build_owner_fit_report(
             requirements=(),
@@ -675,6 +676,28 @@ class EvidenceReadingTests(unittest.TestCase):
         )
         self.assertEqual(report["recommended_owners"], ["codex", "claude-code"])
         self.assertIn("no required capability", str(report["owners"][0]["reason"]))
+
+
+class DescriptiveCapabilityOwnerFitControlTests(unittest.TestCase):
+    def test_unrelated_edit_evidence_cannot_hide_a_required_team_capability_gap(self) -> None:
+        snapshot = build_executor_capability_snapshot(
+            executor="codex",
+            capabilities={
+                "edit_format_patch": _observed("probe:patch-edit"),
+                "parallel_agents": {"status": "unavailable"},
+                "worktree_isolation": {"status": "prepared"},
+            },
+            recorded_at=OBSERVED_AT,
+        )
+
+        report = build_owner_fit_report(
+            requirements=derive_plan_capability_requirements(TEAM_PLAN),
+            owners=(("codex", snapshot),),
+            now=WITHIN_WINDOW,
+        )
+
+        self.assertEqual(report["recommended_owners"], [])
+        self.assertEqual(report["owners"][0]["verdict"], "blocked")
 
 
 if __name__ == "__main__":

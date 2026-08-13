@@ -27,6 +27,22 @@ KNOWN_CAPABILITY_NAMES: Final = frozenset(
         "browser_or_computer_use",
         "long_running_continuation",
         "scheduled_or_recurring_work",
+        "edit_format_hashline",
+        "edit_format_str_replace",
+        "edit_format_patch",
+        "persistent_eval",
+        "tool_reentry",
+        "code_mode_batching",
+    }
+)
+DESCRIPTIVE_CAPABILITY_NAMES: Final = frozenset(
+    {
+        "edit_format_hashline",
+        "edit_format_str_replace",
+        "edit_format_patch",
+        "persistent_eval",
+        "tool_reentry",
+        "code_mode_batching",
     }
 )
 _ROOT_FIELDS: Final = frozenset({"schema_version", "executor", "recorded_at", "capabilities"})
@@ -86,6 +102,61 @@ def build_executor_capability_snapshot(
     }
     _raise_if_invalid(snapshot)
     return snapshot
+
+
+def prepared_executor_capability_snapshot(
+    executor: str,
+    *,
+    recorded_at: str | None = None,
+) -> SnapshotRecord:
+    """Prepared fallback for a handoff when no host observation was recorded."""
+    capabilities = {name: {"status": "unknown"} for name in sorted(KNOWN_CAPABILITY_NAMES)}
+    capabilities["worktree_isolation"] = {"status": "prepared"}
+    return build_executor_capability_snapshot(
+        executor=executor,
+        capabilities=capabilities,
+        recorded_at=recorded_at,
+    )
+
+
+def resolved_executor_capability_snapshot(executor: str, directory: Path | None) -> SnapshotRecord:
+    """Recorded evidence for *executor*, otherwise an explicit prepared fallback."""
+    snapshot = recorded_executor_capability_snapshot(executor, directory)
+    if snapshot is not None:
+        return complete_executor_capability_snapshot(snapshot)
+    return prepared_executor_capability_snapshot(executor)
+
+
+def recorded_executor_capability_snapshot(
+    executor: str,
+    directory: Path | None,
+) -> SnapshotRecord | None:
+    """Recorded evidence for *executor*, with no prepared fallback."""
+    if directory is None:
+        return None
+    return read_matching_executor_capability_snapshot(
+        executor_capability_snapshot_path(directory, executor),
+        expected_executor=executor,
+    )
+
+
+def complete_executor_capability_snapshot(
+    snapshot: Mapping[str, JsonValue],
+) -> SnapshotRecord:
+    """Project a valid sparse snapshot onto the complete known vocabulary."""
+    errors = validate_executor_capability_snapshot(snapshot)
+    if errors:
+        raise ExecutorCapabilitySnapshotError("; ".join(errors))
+    raw_capabilities = snapshot["capabilities"]
+    assert isinstance(raw_capabilities, Mapping)
+    capabilities = {name: {"status": "unknown"} for name in sorted(KNOWN_CAPABILITY_NAMES)}
+    capabilities.update(
+        {
+            str(name): _copy_snapshot(capability)
+            for name, capability in raw_capabilities.items()
+        }
+    )
+    return {**_copy_snapshot(snapshot), "capabilities": capabilities}
 
 
 def validate_executor_capability_snapshot(snapshot: Mapping[str, JsonValue]) -> list[str]:

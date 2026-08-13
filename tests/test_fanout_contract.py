@@ -11,6 +11,11 @@ load_local_package()
 
 from _cli_harness import run_cli  # noqa: E402
 
+from omh.coding.executor_capability_snapshots import (  # noqa: E402
+    build_executor_capability_snapshot,
+    executor_capability_snapshot_path,
+    write_executor_capability_snapshot,
+)
 from omh.coding.fanout import (  # noqa: E402
     build_fanout_contract,
     detect_boundary_overlaps,
@@ -388,6 +393,82 @@ class FanoutArtifactTests(unittest.TestCase):
 
 
 class FanoutCliTests(unittest.TestCase):
+    def test_prepare_freezes_recorded_and_prepared_owner_snapshots(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            recorded = build_executor_capability_snapshot(
+                executor="codex",
+                capabilities={
+                    "edit_format_patch": {
+                        "status": "host_observed",
+                        "scope": {"surface": "local_cli"},
+                        "evidence_ref": "probe:patch-edit",
+                        "observed_at": "2026-08-13T12:00:00Z",
+                    }
+                },
+                recorded_at="2026-08-13T12:01:00Z",
+            )
+            write_executor_capability_snapshot(
+                executor_capability_snapshot_path(
+                    omh_home / "coding" / "executor-capability-snapshots",
+                    "codex",
+                ),
+                recorded,
+            )
+            units_path = root / "units.json"
+            units_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "unit_id": "code",
+                            "title": "Code",
+                            "owner": "codex",
+                            "file_scope": ["src/"],
+                        },
+                        {
+                            "unit_id": "docs",
+                            "title": "Docs",
+                            "owner": "claude-code",
+                            "file_scope": ["docs/"],
+                        },
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            code, stdout, stderr = run_cli(
+                [
+                    "--omh-home",
+                    str(omh_home),
+                    "--hermes-home",
+                    str(root / ".hermes"),
+                    "coding",
+                    "fanout",
+                    "prepare",
+                    "--goal",
+                    "split",
+                    "work",
+                    "--units",
+                    str(units_path),
+                ]
+            )
+
+        self.assertEqual(code, 0, stderr)
+        contract = json.loads(stdout)
+        by_unit = {str(unit["unit_id"]): unit for unit in contract["units"]}
+        code_snapshot = by_unit["code"]["handoff"]["executor_capability_snapshot"]
+        docs_snapshot = by_unit["docs"]["handoff"]["executor_capability_snapshot"]
+        self.assertEqual(code_snapshot["recorded_at"], recorded["recorded_at"])
+        self.assertEqual(
+            code_snapshot["capabilities"]["edit_format_patch"],
+            recorded["capabilities"]["edit_format_patch"],
+        )
+        self.assertEqual(
+            docs_snapshot["capabilities"]["worktree_isolation"]["status"],
+            "prepared",
+        )
+
     def _units_file(self, root: Path) -> Path:
         units_path = root / "units.json"
         units_path.write_text(json.dumps(_UNITS), encoding="utf-8")

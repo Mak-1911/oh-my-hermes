@@ -39,11 +39,9 @@ from ..executors import (
 from .handoff_input_manifest import build_handoff_input_manifest, pinned_input_manifest
 from .hermes_harness import build_hermes_coding_harness
 from .executor_capability_snapshots import (
-    KNOWN_CAPABILITY_NAMES,
     LOCAL_WORKFLOW_CAPABILITY_NAME,
-    build_executor_capability_snapshot,
-    executor_capability_snapshot_path,
-    read_matching_executor_capability_snapshot,
+    prepared_executor_capability_snapshot,
+    resolved_executor_capability_snapshot,
 )
 from .executor_local_workflow import build_executor_local_workflow
 from .executor_local_workflow_selection import is_workflow
@@ -545,7 +543,7 @@ def _build_coding_delegation_payload_native(
     selection = proposed_selection
     selected_profile = selection.selected_executor_profile
     capability_snapshot = (
-        _resolved_executor_capability_snapshot(selected_profile, capability_snapshot_directory)
+        resolved_executor_capability_snapshot(selected_profile, capability_snapshot_directory)
         if selected_profile
         else None
     )
@@ -1569,7 +1567,7 @@ def _executor_handoff(
             "wrapper_note": "Replace {message} only at dispatch time; do not persist the raw task in OMH artifacts.",
         },
         "executor_local_capability_strategy": _executor_local_capability_strategy("codex"),
-        "executor_capability_snapshot": capability_snapshot or _prepared_executor_capability_snapshot("codex"),
+        "executor_capability_snapshot": capability_snapshot or prepared_executor_capability_snapshot("codex"),
         "executor_local_workflow": executor_local_workflow,
         "status": "prepared_not_observed",
         "recording_contract": "prepared_not_observed",
@@ -1676,7 +1674,7 @@ def _prompt_handoff(
         "dispatch_contract": "prompt_only_no_dispatch",
         "executor_readiness": executor_readiness_contract(profile),
         "executor_local_capability_strategy": _executor_local_capability_strategy(profile),
-        "executor_capability_snapshot": capability_snapshot or _prepared_executor_capability_snapshot(profile),
+        "executor_capability_snapshot": capability_snapshot or prepared_executor_capability_snapshot(profile),
         "task_prompt_contract": _task_prompt_contract(profile),
         "executor_prompting_contract": prompting_contract,
         "local_capability_report_contract": _local_capability_report_contract(profile),
@@ -1752,7 +1750,7 @@ def _runtime_handoff(
         "dispatch_contract": "wrapper_or_user_starts_runtime; omh_does_not_execute_runtime",
         "executor_readiness": executor_readiness_contract(profile),
         "executor_local_capability_strategy": _executor_local_capability_strategy(profile),
-        "executor_capability_snapshot": capability_snapshot or _prepared_executor_capability_snapshot(profile),
+        "executor_capability_snapshot": capability_snapshot or prepared_executor_capability_snapshot(profile),
         "task_prompt_contract": _task_prompt_contract(profile),
         "executor_prompting_contract": prompting_contract,
         "local_capability_report_contract": _local_capability_report_contract(profile),
@@ -2001,7 +1999,7 @@ def _coding_owner_fit(
     owner somebody asked for, it only declines to *recommend* an owner whose
     required capabilities are recorded unavailable.
 
-    Only RECORDED snapshots are read here. `_resolved_executor_capability_snapshot`
+    Only RECORDED snapshots are read here. `resolved_executor_capability_snapshot`
     falls back to a prepared snapshot so a handoff always carries one; that
     fallback must not reach this matcher, because a prepared capability is the
     absence of an observation and would read as evidence.
@@ -2015,25 +2013,6 @@ def _coding_owner_fit(
         owners=owner_capability_snapshots(capability_snapshot_directory, candidates),
         named_owner=named_owner,
     )
-
-
-def _prepared_executor_capability_snapshot(profile: str) -> dict[str, object]:
-    capabilities = {name: {"status": "unknown"} for name in sorted(KNOWN_CAPABILITY_NAMES)}
-    capabilities["worktree_isolation"] = {"status": "prepared"}
-    return build_executor_capability_snapshot(executor=profile, capabilities=capabilities)
-
-
-def _resolved_executor_capability_snapshot(profile: str, directory: Path | None) -> dict[str, object]:
-    if directory is not None:
-        snapshot = read_matching_executor_capability_snapshot(
-            executor_capability_snapshot_path(directory, profile),
-            expected_executor=profile,
-        )
-        if snapshot is not None:
-            return snapshot
-    return _prepared_executor_capability_snapshot(profile)
-
-
 def _local_workflow_evidence(snapshot: dict[str, object] | None) -> dict[str, object] | None:
     if snapshot is None:
         return None

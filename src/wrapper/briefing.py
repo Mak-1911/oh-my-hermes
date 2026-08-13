@@ -3,7 +3,10 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from ..coding.executor_capabilities import capability_for_profile_or_none
+from ..coding.executor_capabilities import (
+    capability_for_profile_or_none,
+    legacy_executor_capability_projection,
+)
 from ..coding.executor_local_workflow import validate_executor_local_workflow
 from ..coding.handoff_input_manifest import input_manifest_summary
 
@@ -255,16 +258,21 @@ def _executor_capability_block(
     session: dict[str, Any],
     runtime_status: dict[str, Any],
 ) -> dict[str, Any]:
-    profile = str(
-        handoff.get("selected_executor_profile")
-        or session.get("selected_executor_profile")
-        or _object(runtime_status.get("prepared")).get("executor_target")
-        or ""
-    )
-    capability = capability_for_profile_or_none(profile)
-    if capability is None:
-        return {}
-    return {"executor_capability": capability}
+    capability = handoff.get("executor_capability_snapshot")
+    if not isinstance(capability, dict):
+        profile = str(
+            handoff.get("selected_executor_profile")
+            or session.get("selected_executor_profile")
+            or _object(runtime_status.get("prepared")).get("executor_target")
+            or ""
+        )
+        legacy = capability_for_profile_or_none(profile)
+        return {"executor_capability": legacy} if legacy is not None else {}
+    snapshot = deepcopy(capability)
+    return {
+        "executor_capability_snapshot": snapshot,
+        "executor_capability": legacy_executor_capability_projection(snapshot),
+    }
 
 
 def _active_handoff(session: dict[str, Any], runtime_status: dict[str, Any]) -> dict[str, Any]:
