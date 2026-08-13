@@ -1237,6 +1237,27 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_coding_fanout_status(args: argparse.Namespace) -> int:
+    """Render one fanout's unit roster from observed journal events.
+
+    Read-only by construction: the projection touches the observation journal
+    and nothing else, so this surface can never advance a unit, revive one, or
+    record that someone looked.
+    """
+    from ..coding.fanout_status import project_fanout_status, render_fanout_status_text
+
+    paths = _paths(args)
+    try:
+        roster = project_fanout_status(paths, args.fanout_id)
+    except (OSError, ValueError) as exc:
+        raise OmhError(f"fanout status unavailable: {exc}") from exc
+    if _wants_json(args):
+        _print_json(roster)
+    else:
+        print(render_fanout_status_text(roster))
+    return 0
+
+
 from ..coding.model_routing import CODING_MODEL_ROUTE_V1_SCHEMA_VERSION as _MODEL_ROUTE_V1_VERSION
 
 
@@ -1543,6 +1564,18 @@ def _add_coding_commands(sub) -> None:
     fanout_brief.add_argument("fanout_id", nargs="?", default=None, help="Fanout id; omit to list known fanouts.")
     fanout_brief.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
     fanout_brief.set_defaults(func=cmd_coding_fanout_brief)
+
+    fanout_status = fanout_sub.add_parser(
+        "status",
+        help="Project a read-only per-unit roster for one fanout from observed journal events.",
+    )
+    fanout_status.add_argument(
+        "--fanout-id",
+        required=True,
+        help="Fanout id whose unit roster is projected from the observation journal.",
+    )
+    fanout_status.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
+    fanout_status.set_defaults(func=cmd_coding_fanout_status)
 
     model_route = coding_sub.add_parser(
         "model-route",
