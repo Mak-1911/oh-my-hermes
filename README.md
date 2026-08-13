@@ -169,7 +169,7 @@ Maintenance paths such as reconciling a `--full` install back to core live in
 Twelve `ulw-` workflows. Say the trigger in chat — Hermes routes the
 rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
 
-| Skill | What it does |
+| Workflow&nbsp;command | What it does |
 | --- | --- |
 | ⚡ `ulw-context` | Aligns reviewed project terms, captures confirmed candidates, and interviews the next decision frontier without giving terminology routing authority. |
 | ⚡ `ulw-interview` | Asks one question at a time until it knows exactly what you want. |
