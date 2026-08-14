@@ -72,8 +72,8 @@ python3 -m omh.cli docs workflows --check
 python3 -m omh.cli harness validate
 python3 -m omh.cli release checklist --json
 python3 -m omh.cli release skill-content-smoke --json
-python3 -m omh.cli release product-readiness --version 1.0.5 --json
-python3 -m omh.cli release evidence-bundle --version 1.0.5 --write --json
+python3 -m omh.cli release product-readiness --version 1.0.6 --json
+python3 -m omh.cli release evidence-bundle --version 1.0.6 --write --json
 python3 -m omh.cli cases demo --all --json
 python3 -m omh.cli cases artifact --all --json
 python3 -m omh.cli cases replay --json
