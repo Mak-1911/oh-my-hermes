@@ -24,10 +24,10 @@ window.OMH_I18N = {
 
     /* --------------------------------------------------------------- hero */
     "hero.badge": {
-      en: "For Hermes Agent · v1.0.5",
-      ko: "Hermes Agent 전용 · v1.0.5",
-      ja: "Hermes Agent のための · v1.0.5",
-      zh: "为 Hermes Agent 打造 · v1.0.5"
+      en: "For Hermes Agent · v1.0.6",
+      ko: "Hermes Agent 전용 · v1.0.6",
+      ja: "Hermes Agent のための · v1.0.6",
+      zh: "为 Hermes Agent 打造 · v1.0.6"
     },
     "hero.tagline": {
       en: 'Power intelligence and <em>agentic memory</em> for Hermes Agent.',
@@ -462,10 +462,10 @@ window.OMH_I18N = {
       zh: "选择包管理器或平台安装程序。Doctor 是单独的验证步骤。"
     },
     "install.availability.note": {
-      en: "Package-manager installs are pending the first distribution release. Use curl or PowerShell until npm and the Homebrew tap are public.",
-      ko: "패키지 관리자 설치는 첫 배포 릴리스 전까지 대기 상태입니다. npm과 Homebrew tap 공개 전에는 curl 또는 PowerShell을 사용하세요.",
-      ja: "パッケージマネージャーでのインストールは最初の配布リリースまで保留中です。npm と Homebrew tap の公開までは curl または PowerShell を使用してください。",
-      zh: "包管理器安装在首次分发版本发布前暂不可用。在 npm 与 Homebrew tap 公开前，请使用 curl 或 PowerShell。"
+      en: "Homebrew, Bun, and npm package-manager installs are public as of v1.0.6.",
+      ko: "Homebrew, Bun, npm 패키지 관리자 설치가 v1.0.6부터 공개되었습니다.",
+      ja: "Homebrew、Bun、npm のパッケージマネージャー経由のインストールは v1.0.6 から公開されています。",
+      zh: "Homebrew、Bun 与 npm 包管理器安装方式已随 v1.0.6 正式公开。"
     },
     "install.step1": { en: "Install the command", ko: "명령어 설치", ja: "コマンドをインストール", zh: "安装命令行" },
     "install.method.brew": { en: "Homebrew", ko: "Homebrew", ja: "Homebrew", zh: "Homebrew" },

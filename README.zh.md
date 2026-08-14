@@ -82,8 +82,7 @@
 >   <img src="assets/friren-agent-omh-callout.png" alt="Friren Agent explaining OMH in Art&Engine" width="720">
 > </p>
 ## 快速开始
-> **状态：** 包管理器安装在首次分发版本发布前暂不可用。
-> 在 npm 与 Homebrew tap 公开前，请使用 curl 或 PowerShell 安装程序。
+> **状态：** Homebrew、Bun 与 npm 包管理器安装方式已随 v1.0.6 正式公开。
 
 **从以下安装方式中选择一种。推荐 Bun。**
 ```sh

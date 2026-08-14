@@ -84,8 +84,7 @@
 >   <img src="assets/friren-agent-omh-callout.png" alt="Friren Agent explaining OMH in Art&Engine" width="720">
 > </p>
 ## 빠른 시작
-> **상태:** 패키지 관리자 설치는 첫 배포 릴리스 전까지 대기 상태입니다.
-> npm과 Homebrew tap이 공개되기 전에는 curl 또는 PowerShell 설치 프로그램을 사용하세요.
+> **상태:** Homebrew, Bun, npm 패키지 관리자 설치가 v1.0.6부터 공개되었습니다.
 
 **아래 설치 방법 중 하나를 선택합니다. Bun을 권장합니다.**
 ```sh

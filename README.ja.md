@@ -84,8 +84,8 @@
 >   <img src="assets/friren-agent-omh-callout.png" alt="Friren Agent explaining OMH in Art&Engine" width="720">
 > </p>
 ## クイックスタート
-> **状態:** パッケージマネージャーでのインストールは、最初の配布リリースまで保留中です。
-> npm と Homebrew tap の公開までは curl または PowerShell インストーラーを使用してください。
+> **状態:** Homebrew、Bun、npm のパッケージマネージャー経由のインストールは
+> v1.0.6 から公開されています。
 
 **次のインストール方法から一つ選択します。Bun を推奨します。**
 ```sh

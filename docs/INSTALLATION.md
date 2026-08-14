@@ -27,8 +27,9 @@ for using OMH.
 
 ## Quick Start
 
-> **Publication status:** Package-manager installs are pending the first distribution release.
-> Until npm and the Homebrew tap are public, use the curl or PowerShell installer.
+> **Publication status:** Homebrew, Bun, and npm package-manager installs are
+> public as of v1.0.6. Clean installation and `omh update` were observed for
+> each package-manager path in isolated release QA.
 
 Choose one installation path. The package-manager paths install the same `omh`
 command as the platform installers.
@@ -63,9 +64,9 @@ curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh
 irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
 ```
 
-Windows npm/Bun launcher support is gated by the Windows CI suite. Until the
-first package-manager release passes that gate, use the PowerShell installer
-instead of treating npm or Bun on Windows as published support.
+Windows npm/Bun launcher support is covered by the Windows CI suite, including
+packed-tarball installation and CLI smoke checks. The PowerShell installer
+remains the native Windows alternative.
 
 ### Set up OMH
 
@@ -533,7 +534,7 @@ unselected coding agent never reads as an idle external agent named
    Evidence card carry the same prepared-versus-observed boundary as before.
 
 A quiet no-run line looks like
-`[omh] v1.0.5 | plugin:ready | target:single | coding-agent:not-selected`.
+`[omh] v1.0.6 | plugin:ready | target:single | coding-agent:not-selected`.
 The plugin also exposes `omh_context` for a compact OMH mental model plus
 generic-tool checkpoint, `omh_memory` for a metadata-only comparison of Hermes
 memory against OMH's approved records, `omh_interact` for shell-free chat responses and
