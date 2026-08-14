@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
+from typing import cast
 import unicodedata
 
 try:
@@ -392,16 +393,23 @@ def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, obj
                     "its launcher is missing"
                 ),
             }
+        try:
+            update_command = _package_manager_update_command(
+                package_manager,
+                manager_executable,
+                runtime=runtime,
+            )
+        except OmhError as exc:
+            return {
+                "should_update": False,
+                "reason": str(exc),
+            }
         return {
             "should_update": True,
             "method": "package_manager",
             "package_manager": package_manager,
             "update_instruction": update_instruction,
-            "update_command": _package_manager_update_command(
-                package_manager,
-                manager_executable,
-                runtime=runtime,
-            ),
+            "update_command": update_command,
             "reentry_command": reentry_command,
             "reason": f"running from the {package_manager} command package",
         }
@@ -456,7 +464,9 @@ def _run_command_package_self_update(args: argparse.Namespace, plan: dict[str, o
         stderr=subprocess.PIPE,
     )
     if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "pip install failed").strip()
+        detail = _bounded_command_error(
+            completed.stderr or completed.stdout or "pip install failed"
+        )
         raise OmhError(f"command package update failed: {detail}")
     progress.done("command package updated")
     if not wants_json:
@@ -474,8 +484,8 @@ def _run_package_manager_self_update(
 ) -> int:
     package_manager = str(plan["package_manager"])
     update_instruction = str(plan["update_instruction"])
-    update_command = [str(part) for part in plan["update_command"]]
-    reentry_command = [str(part) for part in plan["reentry_command"]]
+    update_command = list(cast(list[str], plan["update_command"]))
+    reentry_command = list(cast(list[str], plan["reentry_command"]))
     wants_json = _wants_json(args)
     progress = _HumanProgress(enabled=not wants_json, use_color=_use_color())
     progress.header("OMH update", "Refresh the OMH command package and workflow pack.")

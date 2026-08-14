@@ -3225,6 +3225,65 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("npm", str(plan["reason"]))
         self.assertIn("not available", str(plan["reason"]))
 
+    def test_unsafe_package_manager_shim_keeps_workflow_update(self) -> None:
+        args = Namespace(
+            command_package_updated=False,
+            dry_run=False,
+            from_skills_dir=None,
+            source=None,
+            channel="preview",
+            version="",
+            package_url="",
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package_root = root / "oh-my-hermes"
+            entrypoint = package_root / "bin" / "omh.js"
+            entrypoint.parent.mkdir(parents=True)
+            entrypoint.write_text("export {};\n", encoding="utf-8")
+            (package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "oh-my-hermes",
+                        "version": setup_commands.__version__,
+                        "bin": {"omh": "bin/omh.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime = root / "node"
+            runtime.touch()
+            manager = root / "npm.cmd"
+            manager.touch()
+            env = {
+                setup_commands.COMMAND_PACKAGE_MANAGER_ENV: "npm",
+                setup_commands.COMMAND_PACKAGE_ROOT_ENV: str(package_root),
+                setup_commands.COMMAND_PACKAGE_RUNTIME_ENV: str(runtime),
+                setup_commands.COMMAND_PACKAGE_ENTRYPOINT_ENV: str(
+                    entrypoint
+                ),
+                setup_commands.SELF_UPDATE_SKIP_ENV: "",
+            }
+            with (
+                patch.dict(os.environ, env),
+                patch.object(
+                    setup_commands.shutil,
+                    "which",
+                    return_value=str(manager),
+                ),
+                patch.object(
+                    setup_commands,
+                    "_package_manager_update_command",
+                    side_effect=OmhError("unsafe manager shim"),
+                ),
+            ):
+                plan = setup_commands._command_package_self_update_plan(
+                    args
+                )
+
+        self.assertFalse(plan["should_update"])
+        self.assertEqual(plan["reason"], "unsafe manager shim")
+
     def test_package_manager_rejects_explicit_release_metadata(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
