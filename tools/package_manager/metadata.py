@@ -198,6 +198,47 @@ def inspect_wheel(
     )
 
 
+def npm_owner_names(raw: str) -> tuple[str, ...]:
+    """Parse the JSON and plain-text formats emitted by ``npm owner ls``."""
+
+    text = raw.strip()
+    if not text:
+        raise DistributionError("npm owner output is empty")
+
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        names = [
+            line.split(maxsplit=1)[0]
+            for line in text.splitlines()
+            if line.strip()
+        ]
+    else:
+        if isinstance(value, dict):
+            names = [name for name in value if isinstance(name, str)]
+        elif isinstance(value, list):
+            names = []
+            for item in value:
+                if isinstance(item, str):
+                    names.append(item)
+                elif (
+                    isinstance(item, dict)
+                    and isinstance(item.get("name"), str)
+                ):
+                    names.append(item["name"])
+                else:
+                    raise DistributionError(
+                        "npm owner JSON contains an unsupported entry"
+                    )
+        else:
+            raise DistributionError("npm owner output has an unsupported shape")
+
+    normalized = tuple(dict.fromkeys(name.strip() for name in names if name.strip()))
+    if not normalized:
+        raise DistributionError("npm owner output contains no owners")
+    return normalized
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Verify OMH distribution identity.")
     parser.add_argument("--wheel", type=Path)
@@ -207,6 +248,7 @@ def _parser() -> argparse.ArgumentParser:
         nargs=2,
         metavar=("EXISTING", "CANDIDATE"),
     )
+    parser.add_argument("--require-npm-owner")
     parser.add_argument("--json", action="store_true")
     return parser
 
@@ -221,6 +263,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.compare_versions is not None:
             print(version_order(*args.compare_versions))
+            return 0
+        if args.require_npm_owner is not None:
+            owners = npm_owner_names(sys.stdin.read())
+            if args.require_npm_owner not in owners:
+                raise DistributionError(
+                    f"required npm owner is missing: {args.require_npm_owner}"
+                )
             return 0
         if args.wheel is None:
             raise DistributionError(

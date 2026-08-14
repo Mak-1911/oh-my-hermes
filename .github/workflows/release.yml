@@ -112,14 +112,9 @@ jobs:
           test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
           package_name="$(npm view oh-my-hermes name --json | tr -d '"')"
           test "$package_name" = "oh-my-hermes"
-          owners="$(npm owner ls oh-my-hermes --json)"
-          node -e '
-            const value = JSON.parse(process.argv[1]);
-            const owners = Array.isArray(value)
-              ? value.map((item) => item.name ?? item)
-              : Object.keys(value);
-            if (!owners.includes("rlaope")) process.exit(1);
-          ' "$owners"
+          npm owner ls oh-my-hermes --json |
+            uv run tools/package_manager/metadata.py \
+              --require-npm-owner rlaope
           tap="$PWD/dist/release/homebrew-tap"
           test -d "$tap/.git"
           git -C "$tap" push --dry-run origin HEAD:refs/heads/main
