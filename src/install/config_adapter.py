@@ -245,8 +245,8 @@ def display_interface_selection(config_text: str) -> str:
     return _scalar_value(entries[0])
 
 
-def ensure_tui_interface(config_text: str) -> ConfigChange:
-    """Select the TUI only when the user has not chosen a display interface."""
+def ensure_tui_interface(config_text: str, *, insert_default: bool = True) -> ConfigChange:
+    """Select the TUI on fresh config only; preserve existing display ownership."""
     lines = config_text.splitlines()
     display_lines = [
         line
@@ -291,6 +291,12 @@ def ensure_tui_interface(config_text: str) -> ConfigChange:
         return ConfigChange(False, "display.interface is already tui", config_text)
     if selected:
         return ConfigChange(False, f"display.interface is {selected}; leaving user preference unchanged", config_text)
+    if not insert_default:
+        return ConfigChange(
+            False,
+            "existing config has no display.interface; leaving it unchanged",
+            config_text,
+        )
 
     if display_index is None:
         text = (config_text.rstrip() + "\n\ndisplay:\n  interface: tui\n").lstrip("\n")

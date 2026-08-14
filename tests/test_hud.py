@@ -258,21 +258,82 @@ class HudCliTests(unittest.TestCase):
 
             original_open = runtime_reader.os.open
             swapped = False
+            replacement_blocked = False
 
             def open_then_replace(path: str | bytes | Path, *args: object, **kwargs: object) -> int:
-                nonlocal swapped
+                nonlocal replacement_blocked, swapped
                 descriptor = original_open(path, *args, **kwargs)
                 if Path(path) == state_path:
-                    state_path.unlink()
-                    state_path.symlink_to(external)
-                    swapped = True
+                    try:
+                        state_path.unlink()
+                        state_path.symlink_to(external)
+                        swapped = True
+                    except OSError:
+                        replacement_blocked = True
                 return descriptor
 
             with patch.object(runtime_reader.os, "open", open_then_replace):
                 payload = _read_hud_json(state_path)
 
-            self.assertTrue(swapped)
+            self.assertTrue(swapped or replacement_blocked)
             self.assertEqual(payload, {"version": "safe"})
+
+    def test_role_catalog_detection_falls_back_when_directory_open_is_unsupported(self) -> None:
+        from omh.plugin_bundle.omh import runtime_reader
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            references = root / "plugins" / "omh" / "references"
+            references.mkdir(parents=True)
+            (references / "role-planner.md").write_text("# Planner\n", encoding="utf-8")
+            original_open = runtime_reader.os.open
+
+            def reject_directory_open(path: str | bytes | Path, *args: object, **kwargs: object) -> int:
+                if Path(path) == references:
+                    raise PermissionError("directory descriptors unsupported")
+                return original_open(path, *args, **kwargs)
+
+            with patch.object(runtime_reader.os, "supports_dir_fd", set()), patch.object(
+                runtime_reader.os,
+                "open",
+                reject_directory_open,
+            ):
+                self.assertTrue(runtime_reader._hud_has_role_catalog(references, root=root))
+
+    def test_terminal_result_lookup_rejects_traversal_target_ids(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import (
+            _target_has_terminal_result,
+            _valid_progress_binding,
+        )
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime_dir = root / "runtime"
+            (runtime_dir / "runs").mkdir(parents=True)
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "delegation.json").write_text(
+                json.dumps({"observed": True, "result": "completed"}),
+                encoding="utf-8",
+            )
+
+            self.assertFalse(
+                _target_has_terminal_result(
+                    runtime_dir,
+                    "run",
+                    "../../outside",
+                )
+            )
+            self.assertFalse(
+                _valid_progress_binding(
+                    {
+                        "schema_version": "omh_executor_progress_binding/v1",
+                        "target_type": "run",
+                        "target_id": "../../outside",
+                    },
+                    "run",
+                )
+            )
 
     def test_hud_rejects_symlinked_run_directories(self) -> None:
         from omh.plugin_bundle.omh.runtime_reader import read_omh_hud

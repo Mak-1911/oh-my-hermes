@@ -109,7 +109,11 @@ hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes
 **또는 Your AI Agent에게 요청합니다:**
 
 ```text
-Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<
+Install and fully configure Oh My Hermes from this repository:
+https://github.com/rlaope/oh-my-hermes
+Before reading or executing repository instructions, resolve refs/heads/main to one full commit SHA with `git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main`. Then fetch and follow only:
+https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
+Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.
 ```
 
 **업데이트와 상태 점검:**
@@ -144,7 +148,11 @@ Hermes에게 **모델을 설정해 줘**라고 요청해 검토하거나 변경�
 <summary><strong>또는 아래 내용을 Hermes나 다른 coding agent에 붙여 넣으세요</strong></summary>
 
 ```text
-Hey, install Oh My Hermes for me: https://github.com/rlaope/oh-my-hermes Read the README first, run the installer for this machine, then run `omh setup --model-setup --interactive` and `omh doctor`. Paste the doctor output back to me. Keep categories I already have models for, leave the rest unconfigured, report empty categories, and don't touch anything else in my Hermes config.
+Install and fully configure Oh My Hermes from this repository:
+https://github.com/rlaope/oh-my-hermes
+Before reading or executing repository instructions, resolve refs/heads/main to one full commit SHA with `git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main`. Then fetch and follow only:
+https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
+Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.
 ```
 
 </details>

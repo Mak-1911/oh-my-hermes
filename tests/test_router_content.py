@@ -3369,7 +3369,11 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("omh setup", install_block)
         self.assertNotIn("omh doctor", install_block)
         self.assertIn("```sh\nomh update\nomh doctor\n```", quick_start)
-        self.assertIn("Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<", quick_start)
+        self.assertIn(
+            "https://raw.githubusercontent.com/rlaope/oh-my-hermes/"
+            "{resolved-commit-sha}/INSTALL_FOR_AGENTS.md",
+            quick_start,
+        )
         self.assertIn("hermes skills tap add", quick_start)
         self.assertNotIn("That is the normal path", quick_start)
         self.assertNotIn("name the responsible role", quick_start)
@@ -3415,7 +3419,11 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("bounded context budgets", installation)
         self.assertIn("--hermes-home /tmp/hermes-smoke release hermes-smoke --live --install-path setup", installation)
         self.assertIn("OMH Agent Install Protocol", install_for_agents)
-        self.assertIn("curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh", install_for_agents)
+        self.assertIn(
+            "git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main",
+            install_for_agents,
+        )
+        self.assertIn('OMH_SOURCE_REF="$OMH_REF"', install_for_agents)
         self.assertIn("omh setup", install_for_agents)
         self.assertIn("omh doctor", install_for_agents)
         self.assertIn("hermes skills tap add rlaope/oh-my-hermes", install_for_agents)
@@ -3768,7 +3776,8 @@ class RouterContentTests(unittest.TestCase):
         # The third install path is a paste-ready prompt for the visitor's own
         # coding agent, pointing at the repository.
         self.assertIn("https://github.com/rlaope/oh-my-hermes", install_section)
-        self.assertIn("paste the doctor output back to me", install_section)
+        self.assertIn("refs/heads/main", install_section)
+        self.assertIn("{resolved-commit-sha}/INSTALL_FOR_AGENTS.md", install_section)
         self.assertTrue(Path("site/assets/omh-loop-engineering.png").is_file())
         self.assertTrue(Path("site/assets/omh-img-summary-card.png").is_file())
         self.assertNotIn("github.com/rlaope/oh-my-hermes/tree/main/docs", site)

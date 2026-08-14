@@ -90,9 +90,46 @@ class RecommendationCatalogTests(unittest.TestCase):
                         self.assertGreater(next_position, position)
                         position = next_position
 
-        prompt = "Hey, install Oh My Hermes for me:"
-        self.assertIn(prompt, docs["readme"])
-        self.assertIn(prompt, docs["site"])
+    def test_agent_install_surfaces_link_to_the_canonical_protocol(self) -> None:
+        protocol_url = (
+            "https://raw.githubusercontent.com/rlaope/oh-my-hermes/"
+            "{resolved-commit-sha}/INSTALL_FOR_AGENTS.md"
+        )
+        surfaces = {
+            "agent_protocol": Path("INSTALL_FOR_AGENTS.md").read_text(encoding="utf-8"),
+            "readme": Path("README.md").read_text(encoding="utf-8"),
+            "ko": Path("README.ko.md").read_text(encoding="utf-8"),
+            "ja": Path("README.ja.md").read_text(encoding="utf-8"),
+            "zh": Path("README.zh.md").read_text(encoding="utf-8"),
+            "site": Path("site/index.html").read_text(encoding="utf-8"),
+            "routing_site": Path("site/docs/model-routing/index.html").read_text(
+                encoding="utf-8"
+            ),
+        }
+
+        for surface, text in surfaces.items():
+            with self.subTest(surface=surface):
+                self.assertIn(protocol_url, text)
+        self.assertIn('data-i18n="route.state.owner_default"', surfaces["site"])
+        translations = Path("site/i18n.js").read_text(encoding="utf-8")
+        self.assertIn('"route.state.owner_default"', translations)
+        self.assertNotIn('"route.state.unconfigured"', translations)
+        self.assertIn('OMH_SOURCE_REF="$OMH_REF"', surfaces["agent_protocol"])
+        self.assertNotIn(
+            "raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh",
+            surfaces["agent_protocol"],
+        )
+        for surface, text in surfaces.items():
+            with self.subTest(surface=surface):
+                self.assertNotIn(
+                    "raw.githubusercontent.com/rlaope/oh-my-hermes/"
+                    "main/INSTALL_FOR_AGENTS.md",
+                    text,
+                )
+        self.assertIn('data-i18n="route.state.owner_default"', surfaces["site"])
+        translations = Path("site/i18n.js").read_text(encoding="utf-8")
+        self.assertIn('"route.state.owner_default"', translations)
+        self.assertNotIn('"route.state.unconfigured"', translations)
 
     def test_catalog_is_schema_versioned_and_preserves_closed_vocabularies(self) -> None:
         catalog = SHIPPED_MODEL_RECOMMENDATIONS
@@ -249,15 +286,32 @@ class RecommendationResolverTests(unittest.TestCase):
         self.assertEqual(route["source"], "explicit_model")
         self.assertEqual([entry["model_alias"] for entry in route["projection"]["chain"]], ["grok-code-fast"])
 
-    def test_no_active_candidate_is_unconfigured_and_setup_can_continue(self) -> None:
-        route = resolve_model_recommendation(owner="hermes", category="deep", active_models=[])
-        self.assertEqual(route["schema_version"], MODEL_RECOMMENDATION_RESOLUTION_SCHEMA_VERSION)
-        self.assertEqual(route["status"], "unconfigured")
-        self.assertIn(route["status"], MODEL_RECOMMENDATION_STATUSES)
-        self.assertIsNone(route["selected"])
-        self.assertIsNone(route["projection"])
-        self.assertTrue(route["setup_can_continue"])
-        self.assertEqual(route["inactive_candidates"], ["gpt-5.6-terra"])
+    def test_no_active_candidate_uses_each_owner_default_for_every_selector(self) -> None:
+        selectors = (
+            {"category": "deep"},
+            {"role_slot": "main"},
+            {"domain": "x_platform_data"},
+        )
+
+        for owner in ("hermes", "maestro"):
+            for selector in selectors:
+                with self.subTest(owner=owner, selector=selector):
+                    route = resolve_model_recommendation(
+                        owner=owner,
+                        active_models=[],
+                        **selector,
+                    )
+                    self.assertEqual(
+                        route["schema_version"],
+                        MODEL_RECOMMENDATION_RESOLUTION_SCHEMA_VERSION,
+                    )
+                    self.assertEqual(route["status"], "owner_default")
+                    self.assertEqual(route["source"], "owner_default")
+                    self.assertIn(route["status"], MODEL_RECOMMENDATION_STATUSES)
+                    self.assertIsNone(route["selected"])
+                    self.assertIsNone(route["projection"])
+                    self.assertTrue(route["setup_can_continue"])
+                    self.assertTrue(route["inactive_candidates"])
 
     def test_only_confirmed_active_owner_compatible_models_are_eligible(self) -> None:
         models = (
@@ -265,7 +319,7 @@ class RecommendationResolverTests(unittest.TestCase):
             _active("gpt-5.6-terra", provider="openai-codex", owners=("maestro",)),
         )
         route = resolve_model_recommendation(owner="hermes", category="deep", active_models=models)
-        self.assertEqual(route["status"], "unconfigured")
+        self.assertEqual(route["status"], "owner_default")
 
     def test_hermes_projection_is_one_native_binding_not_a_provider_registry(self) -> None:
         route = resolve_model_recommendation(

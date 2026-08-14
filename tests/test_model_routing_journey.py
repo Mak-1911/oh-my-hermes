@@ -79,7 +79,7 @@ class ModelRoutingJourneyTests(unittest.TestCase):
             active_models=[{"provider": "google", "model_id": "gemini-3.1-pro", "status": "confirmed_active"}],
         )
 
-        self.assertEqual(missing["status"], "unconfigured")
+        self.assertEqual(missing["status"], "owner_default")
         self.assertTrue(missing["setup_can_continue"])
         self.assertEqual(missing["inactive_candidates"], ["gpt-5.6-sol"])
         self.assertEqual(unavailable["status"], "choice_required")

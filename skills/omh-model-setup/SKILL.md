@@ -50,7 +50,7 @@ Bad example:
 
 - If discovery is absent, truncated, unreadable, or layout_unverified, name that source state and continue with manual confirmed-active input instead of scanning more broadly.
 - If a preferred Kimi, Claude, OpenAI, GLM, Grok, Gemini, or Qwen candidate is missing, preserve it as inactive and try the next confirmed-active compatible editorial candidate; do not substitute for an explicit unavailable choice.
-- If no compatible model is confirmed active, leave the recommendation unconfigured, finish applicable OMH setup, and name the relevant Hermes-native provider/auth or user-override next action.
+- If no compatible model is confirmed active, record owner_default, finish applicable OMH setup without a model-config write, and name the relevant Hermes-native provider/auth or user-override next action.
 - If the diagnosed Hermes config cannot be read, report the read failure and stop before proposing a diff; if the config digest changes or the user rejects the diff, do not apply it.
 
 ## Workflow Lane
@@ -83,7 +83,7 @@ Quality bar:
 - Treat each Hermes role slot (main, realtime-search, design), semantic category, and external owner as an independent prerequisite/diagnose/recommend/apply unit instead of one combined change.
 - Explain the shipped recommendations as editable editorial defaults, not benchmarks or allowlists: ultrabrain uses GPT-5.6 Sol; deep uses GPT-5.6 Terra; unspecified-high prefers Kimi K3 then Claude Opus 5; unspecified-low prefers GLM-5.2 then GLM-5.2 Ultrafast; quick prefers GLM-5.2 Ultrafast then Kimi K3; writing prefers Kimi K3, Qwen3-Coder, then Gemini 3.1 Pro; visual-engineering prefers Claude Fable 5 then Kimi K3; and artistry prefers Gemini 3.1 Pro, Claude Fable 5, then Kimi K3.
 - For X/Twitter scraping or trend analysis, keep x_platform_data as a domain affinity rather than a role alias: prefer confirmed-active Grok, then Kimi K3, then Gemini, without removing the rest of the route or overriding an explicit model.
-- When a recommendation head is missing, choose the first confirmed-active owner-compatible fallback; when no candidate is active, leave that item unconfigured and let the rest of OMH setup finish.
+- When a recommendation head is missing, choose the first confirmed-active owner-compatible fallback; when no candidate is active, keep that selector on its owner's native default model and let the rest of OMH setup finish without a model-config write.
 - Give provider-specific native next actions without claiming provider readiness: use installed Hermes flows for OpenAI OAuth/OpenAI Codex, Anthropic or an existing Claude provider, Qwen OAuth or Alibaba, Gemini/Google/Vertex, Grok/xAI, Kimi, GLM/Z.AI, or an already-working custom provider; preserve working alternatives.
 
 Handoff policy:
@@ -107,7 +107,7 @@ Expected outputs:
 Artifact expectations:
 
 - model_discovery/v1 metadata-only report when local discovery runs
-- model_recommendation_resolution/v1 recommendation result when a chain is resolved
+- model_recommendation_resolution/v2 recommendation result when a chain is resolved
 - omh_model_activation/v1 setup receipt when the setup surface captures it
 
 Safety rules:

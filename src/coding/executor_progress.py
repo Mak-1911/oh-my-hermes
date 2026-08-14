@@ -159,11 +159,25 @@ def normalize_executor_profile(value: str, *, observed_hermes_execution: bool = 
 
 
 def progress_dir_for_target(paths: OmhPaths, target_type: str, target_id: str) -> Path:
+    target_id = _validated_target_id(target_id)
     if target_type == "run":
         return paths.runtime_runs_dir / target_id / "executor_progress"
     if target_type == "wrapper_session":
         return paths.runtime_wrapper_sessions_dir / target_id / "executor_progress"
     raise ExecutorProgressError(f"unsupported progress target type: {target_type}")
+
+
+def _validated_target_id(value: str) -> str:
+    target_id = value.strip()
+    if (
+        not target_id
+        or target_id in {".", ".."}
+        or "/" in target_id
+        or "\\" in target_id
+        or "\x00" in target_id
+    ):
+        raise ExecutorProgressError("target_id must be one safe path segment")
+    return target_id
 
 
 def binding_id_for(target_type: str, target_id: str, executor_profile: str) -> str:
@@ -200,11 +214,9 @@ def build_progress_binding(
     minimum_repeat_interval_seconds: int = DEFAULT_MINIMUM_REPEAT_INTERVAL_SECONDS,
 ) -> dict[str, Any]:
     target_type = target_type.strip()
-    target_id = target_id.strip()
+    target_id = _validated_target_id(target_id)
     if target_type not in TARGET_TYPES:
         raise ExecutorProgressError(f"target_type must be one of {', '.join(TARGET_TYPES)}")
-    if not target_id:
-        raise ExecutorProgressError("target_id is required")
     profile = normalize_executor_profile(executor_profile, observed_hermes_execution=observed_hermes_execution)
     timestamp = now or utc_now()
     binding_id = binding_id_for(target_type, target_id, profile)
@@ -1241,6 +1253,8 @@ def validate_progress_binding(record: dict[str, Any]) -> list[str]:
         errors.append("target_type must be run or wrapper_session")
     if not target_id:
         errors.append("target_id is required")
+    elif any(separator in target_id for separator in ("/", "\\", "\x00")) or target_id in {".", ".."}:
+        errors.append("target_id must be one safe path segment")
     profile = str(record.get("executor_profile") or record.get("executor") or "")
     if profile not in ALLOWED_EXECUTOR_PROFILES:
         errors.append(_unsupported_profile_error())

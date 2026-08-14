@@ -231,17 +231,36 @@ def _apply_locked(
                     "Hermes config changed during apply; remaining mutations refused"
                 )
             alias = command[3].removeprefix("model.aliases.")
-            attempted.append(alias)
             result = _run(command, env)
             if result.returncode != 0:
+                observed = _optional_json_mapping(
+                    (preview.hermes, "config", "get", "model.aliases", "--json"),
+                    env,
+                    [],
+                )
+                target = preview.changes[alias]
+                mutation_is_owned = (
+                    alias not in observed
+                    if target is None
+                    else observed.get(alias) == target
+                )
+                if mutation_is_owned:
+                    attempted.append(alias)
+                    expected_digest = _config_digest(preview.config_path)
                 raise HermesCommandError(
                     f"Hermes config command failed ({result.returncode}): {' '.join(command[1:])}"
                 )
+            attempted.append(alias)
             expected_digest = _config_digest(preview.config_path)
             _require_expected_alias_state(preview, attempted, env)
         return inspect_hermes_model_config(hermes=preview.hermes, env=env)
     except HermesModelConfigError:
-        _rollback_aliases(preview, attempted, env)
+        _rollback_aliases(
+            preview,
+            attempted,
+            env,
+            expected_config_digest=expected_digest,
+        )
         raise
 
 
@@ -272,9 +291,24 @@ def _rollback_aliases(
     preview: HermesModelConfigPreview,
     attempted: list[str],
     env: Mapping[str, str] | None,
+    *,
+    expected_config_digest: str,
 ) -> None:
+    observed = _optional_json_mapping(
+        (preview.hermes, "config", "get", "model.aliases", "--json"),
+        env,
+        [],
+    )
+    if any(observed.get(alias) != preview.changes[alias] for alias in attempted):
+        raise ConfigDigestMismatchError(
+            "Hermes alias ownership changed during apply; rollback refused"
+        )
     rollback_error: HermesModelConfigError | None = None
     for alias in reversed(attempted):
+        if _config_digest(preview.config_path) != expected_config_digest:
+            raise ConfigDigestMismatchError(
+                "Hermes config changed during rollback; remaining rollback refused"
+            )
         prior = preview.before_aliases.get(alias)
         key = f"model.aliases.{alias}"
         command = (
@@ -287,6 +321,7 @@ def _rollback_aliases(
             rollback_error = HermesVerificationError(
                 f"Hermes rollback command failed ({result.returncode}): {' '.join(command[1:])}"
             )
+        expected_config_digest = _config_digest(preview.config_path)
     inspection = inspect_hermes_model_config(hermes=preview.hermes, env=env)
     for alias in attempted:
         if inspection.model_dot_aliases.get(alias) != preview.before_aliases.get(alias):

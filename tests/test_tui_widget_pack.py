@@ -43,8 +43,12 @@ class TuiWidgetPackTests(unittest.TestCase):
             self.assertEqual((widget_dir / "omh-status.mjs").read_bytes(), expected)
             self.assertEqual(unrelated.read_bytes(), unrelated_bytes)
             self.assertEqual(payload["steps"]["tui_widget"]["status"], "installed")
+            self.assertIn(
+                "display:\n  interface: tui\n",
+                (hermes_home / "config.yaml").read_text(encoding="utf-8"),
+            )
 
-    def test_setup_selects_widget_capable_tui_for_plain_hermes(self) -> None:
+    def test_setup_preserves_existing_config_without_display_interface(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             omh_home = root / ".omh"
@@ -53,7 +57,7 @@ class TuiWidgetPackTests(unittest.TestCase):
             config.parent.mkdir(parents=True)
             config.write_text("display:\n  compact: true\n", encoding="utf-8")
 
-            status, _, stderr = run_cli(
+            status, stdout, stderr = run_cli(
                 [
                     "--omh-home",
                     str(omh_home),
@@ -66,7 +70,12 @@ class TuiWidgetPackTests(unittest.TestCase):
             )
 
             self.assertEqual((status, stderr), (0, ""))
-            self.assertIn("display:\n  interface: tui\n", config.read_text(encoding="utf-8"))
+            config_text = config.read_text(encoding="utf-8")
+            self.assertIn("display:\n  compact: true\n", config_text)
+            self.assertNotIn("interface:", config_text)
+            tui_interface = json.loads(stdout)["steps"]["apply"]["tui_interface"]
+            self.assertFalse(tui_interface["changed"])
+            self.assertEqual(tui_interface["selected"], "")
 
     def test_setup_preserves_an_explicit_classic_interface(self) -> None:
         with TemporaryDirectory() as tmp:

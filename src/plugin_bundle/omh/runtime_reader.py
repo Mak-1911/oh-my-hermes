@@ -755,6 +755,24 @@ def _hud_regular_file(path: Path, *, root: Path) -> bool:
 
 
 def _hud_has_role_catalog(path: Path, *, root: Path) -> bool:
+    if (
+        os.open not in os.supports_dir_fd
+        or os.scandir not in os.supports_fd
+        or not hasattr(os, "O_DIRECTORY")
+    ):
+        try:
+            if _contains_symlink(path, root=root) or not path.is_dir():
+                return False
+            names = [
+                entry.name
+                for entry in path.iterdir()
+                if entry.name.startswith("role-")
+                and entry.name.endswith(".md")
+                and not entry.is_symlink()
+            ]
+        except OSError:
+            return False
+        return any(_hud_regular_file(path / name, root=root) for name in names)
     try:
         descriptor = _open_hud_descriptor(path, root=root)
     except (OSError, ValueError):
@@ -1493,6 +1511,14 @@ def _projected_binding_state(runtime_dir: Path, binding: dict[str, Any]) -> str:
 
 
 def _target_has_terminal_result(runtime_dir: Path, target_type: str, target_id: str) -> bool:
+    if (
+        not target_id
+        or target_id in {".", ".."}
+        or "/" in target_id
+        or "\\" in target_id
+        or "\x00" in target_id
+    ):
+        return False
     if target_type == "run":
         delegation = _read_json(runtime_dir / "runs" / target_id / "delegation.json")
         return bool(delegation.get("observed")) and str(delegation.get("result", "")) in {"completed", "blocked", "failed"}
@@ -1616,7 +1642,13 @@ def _valid_progress_binding(binding: dict[str, Any], expected_target_type: str) 
     profile = str(binding.get("executor_profile") or binding.get("executor") or "")
     if target_type != expected_target_type or target_type not in {"run", "wrapper_session"}:
         return False
-    if not target_id:
+    if (
+        not target_id
+        or target_id in {".", ".."}
+        or "/" in target_id
+        or "\\" in target_id
+        or "\x00" in target_id
+    ):
         return False
     if profile not in EXECUTOR_PROGRESS_PROFILES:
         return False

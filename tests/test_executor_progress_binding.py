@@ -40,6 +40,16 @@ class ExecutorProgressBindingTests(unittest.TestCase):
         self.assertEqual(normalize_executor_profile("hermes", observed_hermes_execution=True), "hermes_local")
         self.assertEqual(normalize_executor_profile("hermes-local", observed_hermes_execution=True), "hermes_local")
 
+    def test_target_ids_reject_absolute_and_traversal_paths(self) -> None:
+        for target_id in ("../outside", "/tmp/outside", r"..\outside", r"C:\outside"):
+            with self.subTest(target_id=target_id):
+                with self.assertRaisesRegex(ExecutorProgressError, "safe path segment"):
+                    build_progress_binding(
+                        target_type="run",
+                        target_id=target_id,
+                        executor_profile="codex",
+                    )
+
     def test_binding_records_metadata_only_correlation_and_rejects_gate_evidence(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")

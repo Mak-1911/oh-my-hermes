@@ -117,6 +117,25 @@ class HermesRecommendationRoutingTests(unittest.TestCase):
         recommendation = route["recommendation"]
         self.assertEqual(recommendation["inactive_candidates"][0], "kimi-k3")
 
+    def test_no_confirmed_candidate_uses_the_hermes_executor_default(self) -> None:
+        route = resolve_model_route(
+            "hermes",
+            role="implementation",
+            active_models=[],
+        )
+
+        self.assertEqual(route["status"], "model_unrouted")
+        self.assertEqual(route["provenance"], "executor_default")
+        self.assertEqual(route["selected_model"], "")
+        self.assertEqual(route["chain"], [])
+        self.assertEqual(route["recommendation"]["status"], "owner_default")
+        outcomes = {
+            entry["stage"]: entry["outcome"]
+            for entry in route["attempted"]
+        }
+        self.assertEqual(outcomes["recommendation_chain"], "owner_default")
+        self.assertEqual(outcomes["executor_default"], "selected")
+
     def test_x_platform_domain_stably_promotes_grok_kimi_gemini_without_removal(self) -> None:
         route = resolve_model_route(
             "hermes",
