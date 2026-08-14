@@ -74,7 +74,7 @@ def _fenced_blocks(markdown: str) -> list[str]:
 
 
 class DistributionInstallSurfaceTests(unittest.TestCase):
-    def test_site_pending_status_drives_unique_styles_and_translations(
+    def test_site_public_status_drives_unique_styles_and_translations(
         self,
     ) -> None:
         page = (PROJECT_ROOT / "site" / "index.html").read_text(
@@ -92,6 +92,10 @@ class DistributionInstallSurfaceTests(unittest.TestCase):
         )
         self.assertEqual(styles.count(".install-availability {"), 1)
         self.assertIn(
+            '[data-package-manager-status="public"]',
+            styles,
+        )
+        self.assertNotIn(
             '[data-package-manager-status="pending"]',
             styles,
         )
@@ -157,11 +161,12 @@ class DistributionInstallSurfaceTests(unittest.TestCase):
         self.assertIn("actions/setup-node@", windows)
         self.assertIn("oven-sh/setup-bun@", windows)
 
-    def test_unpublished_package_manager_commands_are_visibly_caveated(self) -> None:
+    def test_published_package_manager_commands_are_marked_public(self) -> None:
         html = (PROJECT_ROOT / "site" / "index.html").read_text(
             encoding="utf-8"
         )
-        self.assertIn('data-package-manager-status="pending"', html)
+        self.assertIn('data-package-manager-status="public"', html)
+        self.assertNotIn('data-package-manager-status="pending"', html)
 
     def test_site_exposes_ordered_copyable_install_commands(self) -> None:
         html = (PROJECT_ROOT / "site" / "index.html").read_text(

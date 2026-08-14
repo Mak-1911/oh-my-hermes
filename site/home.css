@@ -1514,10 +1514,10 @@
 .install-availability {
   margin: 14px 0 0;
   padding: 12px 14px;
-  border: 1px solid rgba(255, 188, 82, 0.36);
+  border: 1px solid rgba(92, 224, 150, 0.38);
   border-radius: 12px;
-  background: rgba(255, 174, 66, 0.08);
-  color: #ffd28a;
+  background: rgba(64, 211, 132, 0.09);
+  color: #9bf2bd;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -1529,9 +1529,9 @@
   transition: border-color var(--transition), color var(--transition);
 }
 
-.section--install[data-package-manager-status="pending"] .install-method--package-manager {
-  border-color: rgba(255, 188, 82, 0.34);
-  box-shadow: inset 0 0 0 1px rgba(255, 174, 66, 0.08);
+.section--install[data-package-manager-status="public"] .install-method--package-manager {
+  border-color: rgba(92, 224, 150, 0.34);
+  box-shadow: inset 0 0 0 1px rgba(64, 211, 132, 0.08);
 }
 
 .install-followup a:hover,

@@ -117,8 +117,8 @@
 
 ## Quick Start
 
-> **Status:** Package-manager installs are pending the first distribution release.
-> Until npm and the Homebrew tap are public, use the curl or PowerShell installer.
+> **Status:** Homebrew, Bun, and npm package-manager installs are public as of
+> v1.0.6.
 
 **Homebrew:**
 
