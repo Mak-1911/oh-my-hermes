@@ -492,6 +492,27 @@ class NpmBunDistributionTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("regular file", result.stderr)
 
+    @unittest.skipIf(os.name == "nt", "hardlink probe is POSIX-only")
+    def test_hardlinked_vendored_wheel_uses_private_snapshot(self) -> None:
+        package = json.loads((self.package / "package.json").read_text())
+        vendored = self.package / package["omhDistribution"]["wheel"]
+        hardlink = self.root / "bun-content-store-wheel.whl"
+        os.link(vendored, hardlink)
+        self.assertGreater(vendored.stat().st_nlink, 1)
+
+        cache = self.root / "hardlinked-wheel-cache"
+        self._run_staged_launcher(cache, "--version")
+        self.assertFalse((self._published_cache(cache) / "wheel.whl").exists())
+
+        hardlink.write_bytes(b"tampered\n")
+        result = self._run_staged_launcher(
+            cache,
+            "--version",
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("digest does not match", result.stderr)
+
     @unittest.skipIf(os.name == "nt", "symlink attack probe is POSIX-only")
     def test_forged_readiness_and_final_links_never_authorize_cache(self) -> None:
         cache = self.root / "forged-cache"

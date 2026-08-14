@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  copyFileSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -40,13 +41,13 @@ export function cacheRoot(env = process.env, platform = process.platform) {
   return join(env.XDG_CACHE_HOME || join(homedir(), ".cache"), "oh-my-hermes", "npm");
 }
 
-export function sha256File(path) {
+export function sha256File(path, allowHardlinks = false) {
   try {
     const status = lstatSync(path);
     if (
       status.isSymbolicLink() ||
       !status.isFile() ||
-      status.nlink !== 1
+      (!allowHardlinks && status.nlink !== 1)
     ) {
       throw new LauncherError("bundled OMH wheel must be a regular file");
     }
@@ -56,6 +57,14 @@ export function sha256File(path) {
       throw error;
     }
     throw new LauncherError("could not read the bundled OMH wheel");
+  }
+}
+
+function requireWheelDigest(path, wheelSha256, allowHardlinks = false) {
+  if (sha256File(path, allowHardlinks) !== wheelSha256) {
+    throw new LauncherError(
+      "bundled OMH wheel digest does not match package metadata",
+    );
   }
 }
 
@@ -299,12 +308,7 @@ export function ensureCache({
   cacheTreeSha256,
   env = process.env,
 }) {
-  const actualSha256 = sha256File(wheel);
-  if (actualSha256 !== wheelSha256) {
-    throw new LauncherError(
-      "bundled OMH wheel digest does not match package metadata",
-    );
-  }
+  requireWheelDigest(wheel, wheelSha256, true);
 
   const root = cacheRoot(env);
   const finalDir = join(root, `${version}-${wheelSha256}`);
@@ -320,15 +324,22 @@ export function ensureCache({
   const stage = join(root, `.stage-${process.pid}-${randomUUID()}`);
   mkdirSync(stage, { mode: 0o700 });
   try {
+    const wheelSnapshot = join(stage, "wheel.whl");
+    copyFileSync(wheel, wheelSnapshot);
+    if (typeof process.getuid === "function") {
+      chmodSync(wheelSnapshot, 0o600);
+    }
+    requireWheelDigest(wheelSnapshot, wheelSha256);
     runBootstrap(
       python,
       bridge,
-      wheel,
+      wheelSnapshot,
       join(stage, "site"),
       version,
       wheelSha256,
       cacheTreeSha256,
     );
+    rmSync(wheelSnapshot, { force: true });
     try {
       renameSync(stage, finalDir);
     } catch (error) {
