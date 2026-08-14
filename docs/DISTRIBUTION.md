@@ -33,8 +33,9 @@ Before advertising the package-manager commands:
    `rlaope/oh-my-hermes`, workflow `.github/workflows/release.yml`, and
    environment `npm`.
 3. Create the public repository `rlaope/homebrew-tap` with a default branch.
-4. Add a least-privilege `HOMEBREW_TAP_TOKEN` repository secret that can update
-   only that tap.
+4. Add a write-enabled deploy key to `rlaope/homebrew-tap` and store its
+   private key as the `HOMEBREW_TAP_SSH_KEY` repository secret. The key must
+   grant access only to that tap.
 5. Keep the GitHub `npm` environment protected according to the release policy.
 
 The workflow uses GitHub OIDC for npm provenance. It does not require a
