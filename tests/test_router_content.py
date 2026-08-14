@@ -1364,6 +1364,7 @@ class RouterContentTests(unittest.TestCase):
                 "app-delivery-loop",
                 "goal-loop",
                 "deep-interview",
+                "decision-frontier",
                 "jit-learn",
                 "architect",
                 "critic",

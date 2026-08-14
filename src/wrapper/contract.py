@@ -56,6 +56,7 @@ from ..probe import probe_capabilities
 from ..quickstart import build_quickstart_card
 from ..skills.catalog import (
     DEEP_INTERVIEW_MAX_ROUNDS,
+    decision_frontier_policy,
     installable_skill_definitions,
     omh_skill_display_name,
     primary_harness_for_skill,
@@ -1006,14 +1007,14 @@ _OPERATING_BRIEF_CHAT_CARDS: dict[str, dict[str, object]] = {
         "artifact_schema": "project_terms_context_card/v1",
         "actions": [
             {"id": "prepare_project_terms_context", "label": "Align project terms", "style": "primary"},
-            {"id": "answer:clarify", "label": "Ask one question", "style": "secondary"},
+            {"id": "answer:clarify", "label": "Review frontier", "style": "secondary"},
             {"id": "show_status", "label": "Show source status", "style": "secondary"},
         ],
         "recommended_flow": [
             "inspect_repository_and_reviewed_terms",
             "answer_safe_lookup_directly",
             "confirm_candidate_staging_or_frontier_entry",
-            "exhaust_dependency_ready_frontier",
+            "run_bounded_dependency_ready_frontier",
             "confirm_shared_understanding_before_plan_or_handoff",
         ],
         "evidence_not_observed": [
@@ -4601,6 +4602,8 @@ def _operating_brief_chat_response(
         "recommended_flow": list(config.get("recommended_flow", [])),
         "evidence_not_observed": list(config.get("evidence_not_observed", [])),
     }
+    if workflow == "context":
+        extra_state["frontier_policy"] = decision_frontier_policy()
     if workflow == "visual-qa":
         extra_state.update(build_prepared_web_visual_qa_chat_state())
     return _chat_response(

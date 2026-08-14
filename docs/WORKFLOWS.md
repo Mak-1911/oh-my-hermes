@@ -485,8 +485,9 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Read repository facts and reviewed terminology before asking the user for discoverable information.
   - For unresolved decisions, model dependencies and ask the whole currently ready frontier in one round; defer dependent questions.
   - Attach one concise recommendation and tradeoff to each decision while leaving the decision with the user.
+  - Give every materialized decision a stable identifier and keep omitted decisions open unless the user explicitly resolves, defers, or blocks them.
   - Keep terminology sparse: canonical identity, short definition, expression guidance, distinct-from boundary, and optional localized display label.
-  - Stop when every reachable branch is resolved and the user confirms shared understanding; planning and coding remain separate confirmed steps.
+  - Stop on a terminal frontier, explicit user request, or the shared round ceiling; then confirm the summary separately from planning or coding.
 - Completion checklist:
   - Source status and reviewed-profile status are named without treating either as model-use evidence.
   - Safe lookups were answered directly and unresolved decisions were asked only when the user confirmed interview entry.
@@ -497,6 +498,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - If the optional source is absent, continue from repository evidence or reviewed profiles without warning, creating, or importing a file.
   - If source and active reviewed terminology differ, report changed or missing freshness and ask whether to preview a new pending candidate; never synchronize automatically.
   - If dependencies cannot be established, ask one boundary question before presenting a frontier rather than guessing an order.
+  - If frontier round or decision identity cannot be recovered, close with a named recovery blocker instead of restarting or emitting another round.
   - If the user moves from terminology to implementation, summarize confirmed understanding and hand off to `ralplan`, `ulw-plan`, or the selected coding owner only after a separate go-ahead.
 - Required inputs:
   - the terminology question or alignment goal
@@ -9072,6 +9074,57 @@ Clarify intent and boundaries one question at a time before planning or executio
   - A clarification question is not a plan approval.
   - Do not start a handoff while the blocking decision is unanswered.
 - Fallback: If structured question UI is unavailable, ask one direct question in the current surface.
+
+### decision-frontier
+
+Resolve repository terminology through one dependency-ready decision batch per bounded round.
+
+- Use when: Use when terminology decisions have explicit prerequisite and branch relationships.
+- Quality tier: `clarity-gated`
+- Quality bar:
+  - Present every currently dependency-ready decision in one numbered batch with stable identifiers.
+  - Keep omitted decisions open and accept recommendations only when the user explicitly chooses them.
+  - Stop on a terminal frontier, explicit user request, or the shared round ceiling without emitting another round.
+  - Confirm the shared-understanding summary separately from any next-path selection.
+- Inputs:
+  - repository evidence
+  - confirmed frontier entry
+  - unresolved terminology decisions
+- Outputs:
+  - stable decision ledger
+  - confirmed shared understanding
+  - named open, deferred, or blocked decisions
+- Stop conditions:
+  - every reachable decision is resolved, deferred, or blocked
+  - the user asked to stop questioning
+  - the shared clarification budget of 6 rounds is exhausted
+- Verification:
+  - verify prerequisite and branch relationships
+  - apply answers only to addressed decision identifiers
+  - preserve separate confirmation for every downstream transition
+- Evidence ladder:
+  - `frontier_entry_confirmed`
+  - `ready_batch_presented`
+  - `answers_applied_by_id`
+  - `round_budget_respected`
+  - `shared_understanding_confirmed`
+- Wrapper actions:
+  - `prepare_project_terms_context`
+  - `answer:clarify`
+  - `cancel`
+  - `show_status`
+- Artifact events:
+  - `frontier_entry_confirmed`
+  - `ready_batch_presented`
+  - `answers_applied_by_id`
+  - `round_budget_respected`
+  - `shared_understanding_confirmed`
+- Delegation expectation: Record only thread-visible frontier state; no prepared summary proves staging, planning, handoff, dispatch, or execution.
+- Privacy default: `metadata_only`
+- Overclaim guards:
+  - A frontier round is not plan approval.
+  - A confirmed terminology summary is not staging, handoff, dispatch, execution, review, CI, or merge evidence.
+- Fallback: If round or decision identity cannot be recovered, close with a named recovery blocker instead of emitting another decision round.
 
 ### jit-learn
 

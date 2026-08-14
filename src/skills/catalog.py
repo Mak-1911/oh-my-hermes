@@ -77,6 +77,19 @@ from .catalog_types import (
     CODING_INTENT_PRIORITY,
     CODING_INTENT_TERMS,
     CODING_REVIEW_TERMS,
+    DECISION_FRONTIER_BUDGET_SCOPE,
+    DECISION_FRONTIER_COMPACTION_FAILURE_ACTION,
+    DECISION_FRONTIER_CONSENT_GATES,
+    DECISION_FRONTIER_DECISION_ID_PREFIX,
+    DECISION_FRONTIER_DECISION_STATES,
+    DECISION_FRONTIER_HARNESS,
+    DECISION_FRONTIER_OMITTED_ANSWER_TRANSITION,
+    DECISION_FRONTIER_PARTIAL_ANSWER_POLICY,
+    DECISION_FRONTIER_POLICY_SCHEMA_VERSION,
+    DECISION_FRONTIER_RECOMMENDATION_POLICY,
+    DECISION_FRONTIER_ROUND_UNIT,
+    DECISION_FRONTIER_STOP_RULE_ORDER,
+    DECISION_FRONTIER_USER_STOP_SCOPE,
     DEEP_INTERVIEW_CLARITY_DIMENSIONS,
     DEEP_INTERVIEW_MAX_ROUNDS,
     DEEP_INTERVIEW_SOFT_CHECK_ROUND,
@@ -573,6 +586,26 @@ def harness_quality_contract(name: str) -> dict[str, object]:
 
 def primary_harness_for_skill(name: str) -> str:
     return _PRIMARY_HARNESSES.get(name, "coding-handling")
+
+
+def decision_frontier_policy() -> dict[str, object]:
+    return {
+        "schema_version": DECISION_FRONTIER_POLICY_SCHEMA_VERSION,
+        "harness": DECISION_FRONTIER_HARNESS,
+        "max_rounds": DEEP_INTERVIEW_MAX_ROUNDS,
+        "soft_check_round": DEEP_INTERVIEW_SOFT_CHECK_ROUND,
+        "budget_scope": DECISION_FRONTIER_BUDGET_SCOPE,
+        "round_unit": DECISION_FRONTIER_ROUND_UNIT,
+        "decision_id_prefix": DECISION_FRONTIER_DECISION_ID_PREFIX,
+        "decision_states": list(DECISION_FRONTIER_DECISION_STATES),
+        "stop_rule_order": list(DECISION_FRONTIER_STOP_RULE_ORDER),
+        "partial_answer_policy": DECISION_FRONTIER_PARTIAL_ANSWER_POLICY,
+        "omitted_answer_transition": DECISION_FRONTIER_OMITTED_ANSWER_TRANSITION,
+        "recommendation_policy": DECISION_FRONTIER_RECOMMENDATION_POLICY,
+        "user_stop_scope": DECISION_FRONTIER_USER_STOP_SCOPE,
+        "compaction_failure_action": DECISION_FRONTIER_COMPACTION_FAILURE_ACTION,
+        "consent_gates": list(DECISION_FRONTIER_CONSENT_GATES),
+    }
 
 
 def coding_intent_for_skill(name: str) -> str:

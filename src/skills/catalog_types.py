@@ -460,6 +460,33 @@ DEEP_INTERVIEW_CLARITY_DIMENSIONS = (
     "success criteria",
 )
 
+DECISION_FRONTIER_POLICY_SCHEMA_VERSION = "decision_frontier_policy/v1"
+DECISION_FRONTIER_HARNESS = "decision-frontier"
+DECISION_FRONTIER_BUDGET_SCOPE = "clarification_episode"
+DECISION_FRONTIER_ROUND_UNIT = "dependency_ready_batch"
+DECISION_FRONTIER_DECISION_ID_PREFIX = "D"
+DECISION_FRONTIER_DECISION_STATES = (
+    "open",
+    "resolved",
+    "deferred",
+    "blocked",
+)
+DECISION_FRONTIER_STOP_RULE_ORDER = (
+    "frontier_terminal",
+    "user_stop",
+    "round_ceiling",
+)
+DECISION_FRONTIER_PARTIAL_ANSWER_POLICY = "addressed_only"
+DECISION_FRONTIER_OMITTED_ANSWER_TRANSITION = "none"
+DECISION_FRONTIER_RECOMMENDATION_POLICY = "explicit_acceptance_only"
+DECISION_FRONTIER_USER_STOP_SCOPE = "questioning_only"
+DECISION_FRONTIER_COMPACTION_FAILURE_ACTION = "close_with_recovery_blocker"
+DECISION_FRONTIER_CONSENT_GATES = (
+    "frontier_entry",
+    "summary_confirmation",
+    "next_path",
+)
+
 _CATEGORY_RECOVERY_NOTES = {
     "accessibility": (
         "If transcript confidence or intent is weak, ask one short clarification before action.",
