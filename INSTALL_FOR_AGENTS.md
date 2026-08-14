@@ -5,6 +5,19 @@ then report the observed result. Normal users should use Hermes chat and
 installed skills; `omh` is bootstrap, repair, doctor, and backend verifier
 infrastructure.
 
+## Pasteable All-In-One Request
+
+Give an AI agent this request when you want installation and guided model setup
+completed together:
+
+```text
+Install and fully configure Oh My Hermes from this repository:
+https://github.com/rlaope/oh-my-hermes
+Before reading or executing repository instructions, resolve refs/heads/main to one full commit SHA with `git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main`. Then fetch and follow only:
+https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
+Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.
+```
+
 ## Prerequisites
 
 ```sh
@@ -27,14 +40,28 @@ readiness until the target Hermes runtime or wrapper has been checked.
 
 ## Step 1: Install OMH
 
+The `main` URL in the pasteable request is a discovery pointer, not an
+executable pin. Before running repository code, resolve `main` once and use the
+same immutable commit SHA for both the installer and source archive. Report the
+resolved SHA. Do not mix a script from one revision with an archive from
+another.
+
 ```sh
-curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
+OMH_REF="$(git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main | awk 'NR == 1 {print $1}')"
+if [ -z "$OMH_REF" ]; then echo "Unable to resolve OMH main"; exit 1; fi
+curl -fsSL "https://raw.githubusercontent.com/rlaope/oh-my-hermes/$OMH_REF/install.sh" \
+  | OMH_PACKAGE_URL="https://github.com/rlaope/oh-my-hermes/archive/$OMH_REF.zip" \
+    OMH_SOURCE_REF="$OMH_REF" sh
 ```
 
 On native Windows:
 
 ```powershell
-irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
+$Ref = ((git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main) -split "\s+")[0]
+if (-not $Ref) { throw "Unable to resolve OMH main" }
+$env:OMH_PACKAGE_URL = "https://github.com/rlaope/oh-my-hermes/archive/$Ref.zip"
+$env:OMH_SOURCE_REF = $Ref
+irm "https://raw.githubusercontent.com/rlaope/oh-my-hermes/$Ref/install.ps1" | iex
 ```
 
 Both installers accept the same `OMH_*` environment contract and leave the same
@@ -47,8 +74,18 @@ register Hermes skill directories, install profile packs, or run doctor by
 default. Run setup explicitly because it is the repairable, repeatable step:
 
 ```sh
-omh setup
+omh setup --model-setup --interactive
 ```
+
+The interactive model step asks the user to confirm active candidates and
+previews any Hermes-native alias change before approval. If no compatible
+candidate is confirmed, setup makes no model-config write, records
+`status: defaulted`, and keeps the native default model of Hermes or the
+selected external owner.
+
+Core setup separately applies the bounded managed writes listed in
+[What Setup Changes](docs/INSTALLATION.md#what-setup-changes). Those writes
+register OMH with Hermes; they do not authorize model-alias changes.
 
 If `command -v omh` is still empty after install, use the absolute command path
 printed by the installer or add that directory to `PATH`, then continue with
@@ -77,6 +114,8 @@ Report:
 - any check with `severity: blocking`;
 - any check with `severity: warning`;
 - whether the target Hermes runtime still needs restart/reload.
+- which selectors received explicit model bindings and which kept their
+  owner/executor default model.
 
 Install success means a Hermes-usable skill path is configured and doctor has no
 blocking checks. It does not mean Hermes has already reloaded the skills,
@@ -139,16 +178,16 @@ runs:
 omh setup --profile-pack cto-loop
 ```
 
-## Optional Guided Model Configuration
+## Guided Model Configuration
 
-Run this only when the user asks to configure models. Model configuration is
-not required for OMH installation, and a missing shipped recommendation must
-not turn install or doctor into a failure.
+The all-in-one request explicitly opts into this step. Model configuration is
+still not required for OMH installation, and a missing shipped recommendation
+must not turn install or doctor into a failure.
 
 Use this exact agent-facing prompt:
 
 ```text
-Inspect my bounded local model metadata and help me configure OMH model routing. Ask me to confirm which models are still active. Keep Hermes-native aliases separate from Maestro external handoffs, show the exact alias preview and config digest before any write, and apply only after I approve it. Keep recommendation categories editable; if Kimi, GPT, or Claude is missing, continue with a confirmed compatible model such as Qwen or Gemini. Explain Grok's editorial X-platform affinity without presenting it as measured performance. Treat CCAPI and Apitopia as user-declared editorial provider preferences only. Do not read, copy, request, or echo credentials.
+Inspect my bounded local model metadata and help me configure OMH model routing. Ask me to confirm which models are still active. Keep Hermes-native aliases separate from Maestro external handoffs, show the exact alias preview and config digest before any write, and apply only after I approve it. Keep recommendation categories editable; if Kimi, GPT, or Claude is missing, continue with a confirmed compatible model such as Qwen or Gemini. If no compatible recommendation is confirmed, keep that selector on its owner's native default model and finish setup without a model-config write. Explain Grok's editorial X-platform affinity without presenting it as measured performance. Treat CCAPI and Apitopia as user-declared editorial provider preferences only. Do not read, copy, request, or echo credentials.
 ```
 
 Agent/maintainer procedure:
@@ -169,7 +208,11 @@ Agent/maintainer procedure:
    `config_digest`. After explicit approval, repeat the command with
    `--apply-model-config --model-config-digest <preview-digest>`. A collision
    requires a separate explicit `--allow-model-alias-collision` choice.
-4. Verify `steps.model_activation.verification.status == "verified"`, then run
+   If no candidate is confirmed and no alias is requested, verify
+   `steps.model_activation.status == "defaulted"` and that no model-config
+   change was prepared or applied.
+4. For an approved write, verify
+   `steps.model_activation.verification.status == "verified"`, then run
    the offline agent/maintainer report:
 
    ```sh
@@ -182,7 +225,9 @@ OMX, and generic handoffs; it is not an executor and does not own Hermes-native
 work. `pi` and `senpi` are OMO runtime-family hosts. Recommendations are
 editable editorial metadata, not provider availability or benchmark evidence.
 Qwen, Gemini, or another confirmed compatible model can be selected when a
-shipped recommendation is absent. Grok's `x_platform_data` position is an
+shipped recommendation is absent. When none is confirmed, `owner_default`
+means the relevant native owner keeps choosing its default model; it does not
+prove which model that owner will use. Grok's `x_platform_data` position is an
 editable X-platform affinity only. CCAPI and Apitopia are never probed; their
 entries remain user-declared provider-family preferences, and credentials stay
 in their native owner.

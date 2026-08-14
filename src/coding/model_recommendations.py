@@ -19,11 +19,11 @@ from .model_routing import MODEL_CATEGORIES, MODEL_ROLES
 
 MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION: Final[str] = "model_recommendation_catalog/v1"
 MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION: Final[str] = "model_recommendation_overrides/v1"
-MODEL_RECOMMENDATION_RESOLUTION_SCHEMA_VERSION: Final[str] = "model_recommendation_resolution/v1"
+MODEL_RECOMMENDATION_RESOLUTION_SCHEMA_VERSION: Final[str] = "model_recommendation_resolution/v2"
 MODEL_RECOMMENDATION_STATUSES: Final[tuple[str, ...]] = (
     "resolved",
     "choice_required",
-    "unconfigured",
+    "owner_default",
 )
 MODEL_RECOMMENDATION_OWNERS: Final[tuple[str, ...]] = ("hermes", "maestro")
 HERMES_MODEL_SETUP_ROLE_SLOTS: Final[tuple[str, ...]] = ("main",)
@@ -266,8 +266,9 @@ def resolve_model_recommendation(
     Explicit models are fail-closed: an unavailable explicit request returns
     ``choice_required`` and never falls through to an editorial candidate.
     Recommendation chains skip unavailable heads and select the next confirmed,
-    owner-compatible candidate. No eligible candidate returns ``unconfigured``
-    without blocking the surrounding installation.
+    owner-compatible candidate. With no eligible candidate, ``owner_default``
+    keeps the selected owner's native default model in effect without blocking
+    the surrounding installation.
     """
     normalized_owner = str(owner or "").strip().casefold()
     if normalized_owner not in MODEL_RECOMMENDATION_OWNERS:
@@ -321,8 +322,8 @@ def resolve_model_recommendation(
             owner=normalized_owner,
             selector_section=selector_section,
             selector_name=selector_name,
-            status="unconfigured",
-            source="recommendation_chain",
+            status="owner_default",
+            source="owner_default",
             selected=None,
             projection=None,
             requested_model="",

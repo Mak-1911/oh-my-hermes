@@ -1,16 +1,4 @@
-"""The README must not advertise a skill you cannot invoke.
-
-The Highlights table tells a reader what to type. It listed `$memory`, which is
-not a skill and routes to a picker, and `$request-to-handoff`, which is a
-playbook id rather than an installable skill - both sat there unnoticed because
-nothing checked the table against the catalog.
-
-This gate reads every label out of the "Try it with" column in all four READMEs
-and requires it to be a real installable skill's display name. It also keeps
-operator-only CLI commands out of that column: `AGENTS.md` reserves `omh …`
-commands for operators and wrappers, and a normal user should only ever need
-`omh setup`, `omh update`, and `omh doctor`.
-"""
+"""The README Highlights stay capability-first rather than command-heavy."""
 
 from __future__ import annotations
 
@@ -18,54 +6,77 @@ import re
 import unittest
 from pathlib import Path
 
-from omh.skills.catalog import installable_skill_names, omh_skill_display_name
-
 
 READMES = ("README.md", "README.ko.md", "README.ja.md", "README.zh.md")
 
-# The "Try it with" column is the second cell of each Highlights row.
-_LABEL_RE = re.compile(r"`([^`]+)`")
-
-
-def _highlight_rows(text: str) -> list[str]:
-    rows: list[str] = []
+def _highlights_table(text: str) -> list[str]:
+    lines: list[str] = []
     inside = False
     for line in text.splitlines():
-        if line.strip().startswith("**") and "ighlight" in line or "하이라이트" in line or "ハイライト" in line or "亮点" in line:
+        heading = line.strip()
+        if (
+            heading.startswith("**")
+            and (
+                "Highlight" in heading
+                or "하이라이트" in heading
+                or "ハイライト" in heading
+                or "亮点" in heading
+            )
+        ):
             inside = True
             continue
         if inside:
-            if line.startswith("|") and line.count("|") >= 4 and not set(line) <= set("|- "):
-                rows.append(line)
-            elif rows and not line.startswith("|"):
+            if line.startswith("|"):
+                lines.append(line)
+            elif lines:
                 break
-    return rows
+    return lines
 
 
 class ReadmeHighlightsTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.display_names = {omh_skill_display_name(name) for name in installable_skill_names()}
-
-    def test_every_advertised_label_is_an_installable_skill(self) -> None:
+    def test_highlights_are_two_column_capability_tables(self) -> None:
         for rel in READMES:
-            rows = _highlight_rows(Path(rel).read_text(encoding="utf-8"))
-            self.assertTrue(rows, f"{rel}: no Highlights rows found")
-            for row in rows:
-                cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
-                for label in _LABEL_RE.findall(cells[1]):
-                    with self.subTest(readme=rel, label=label):
-                        self.assertIn(label, self.display_names)
+            table = _highlights_table(Path(rel).read_text(encoding="utf-8"))
+            self.assertGreaterEqual(len(table), 3, f"{rel}: no Highlights table found")
+            for line in table:
+                with self.subTest(readme=rel, line=line):
+                    self.assertEqual(line.count("|"), 3, f"{rel}: Highlights must have two columns")
 
-    def test_the_try_it_column_holds_no_operator_cli_commands(self) -> None:
-        # `omh mcp` and `omh plugin` used to live here. AGENTS.md keeps the
-        # control-plane commands in the operator reference, not in the table a
-        # chat user reads to learn what to say.
+    def test_highlights_do_not_expose_internal_skill_labels(self) -> None:
         for rel in READMES:
-            for row in _highlight_rows(Path(rel).read_text(encoding="utf-8")):
-                cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
-                for label in _LABEL_RE.findall(cells[1]):
-                    with self.subTest(readme=rel, label=label):
-                        self.assertFalse(label.startswith("omh "), f"{label} is an operator command")
+            highlights = "\n".join(_highlights_table(Path(rel).read_text(encoding="utf-8")))
+            self.assertNotIn("`omh-", highlights, f"{rel}: Highlights exposes omh skill labels")
+            self.assertNotIn("`ulw-", highlights, f"{rel}: Highlights exposes ulw skill labels")
+
+    def test_readmes_do_not_publish_mutable_skill_counts(self) -> None:
+        mutable_count_claims = {
+            "README.md": r"\b(?:106|94)\s+(?:installable workflow skills|skills use `omh-` labels)",
+            "README.ko.md": r"(?:106개|94개)",
+            "README.ja.md": r"(?:106 個|94 個)",
+            "README.zh.md": r"(?:106 个|94 个)",
+        }
+        for rel, pattern in mutable_count_claims.items():
+            text = Path(rel).read_text(encoding="utf-8")
+            self.assertIsNone(
+                re.search(pattern, text),
+                f"{rel}: mutable installable-skill count leaked",
+            )
+
+    def test_localized_model_tables_and_install_details_keep_gfm_spacing(self) -> None:
+        table_heads = {
+            "README.ko.md": "| 카테고리 alias |",
+            "README.ja.md": "| カテゴリ alias |",
+            "README.zh.md": "| 类别 alias |",
+        }
+        for rel, table_head in table_heads.items():
+            lines = Path(rel).read_text(encoding="utf-8").splitlines()
+            table_index = next(index for index, line in enumerate(lines) if line.startswith(table_head))
+            details_index = lines.index("<details>")
+            fence_index = lines.index("```text", details_index)
+            with self.subTest(readme=rel):
+                self.assertEqual(lines[table_index - 1], "")
+                self.assertEqual(lines[details_index - 1], "")
+                self.assertEqual(lines[fence_index - 1], "")
 
     def test_the_workflow_engines_are_advertised_with_their_ulw_label(self) -> None:
         # The ulw engines moved out of the Highlights table into a dedicated
@@ -90,7 +101,7 @@ class ReadmeHighlightsTests(unittest.TestCase):
             for engine in engines:
                 with self.subTest(readme=rel, engine=engine):
                     self.assertIn(f"`{engine}`", section)
-            highlights = "\n".join(_highlight_rows(text))
+            highlights = "\n".join(_highlights_table(text))
             self.assertNotIn("`ulw-", highlights, f"{rel}: Highlights should be omh-only")
 
 

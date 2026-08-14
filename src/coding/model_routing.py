@@ -894,14 +894,21 @@ def _resolve_hermes_recommendation_route(
         attempted.append(
             {
                 "stage": "recommendation_chain",
-                "outcome": "unconfigured",
+                "outcome": "owner_default",
                 "reason": "no editorial candidate is confirmed active for Hermes",
+            }
+        )
+        attempted.append(
+            {
+                "stage": "executor_default",
+                "outcome": "selected",
+                "reason": "no confirmed recommendation; Hermes default model applies",
             }
         )
         payload = _route_payload(
             "hermes",
-            status="no_model_catalog",
-            provenance="no_catalog",
+            status="model_unrouted",
+            provenance="executor_default",
             role=role,
             selected_reasoning_effort=requested_effort,
             catalog_kind="editorial_recommendations",
@@ -911,7 +918,11 @@ def _resolve_hermes_recommendation_route(
             chain=[],
             attempted=attempted,
             candidates=[],
-            reasons=role_reasons + ["No confirmed-active Hermes recommendation could be resolved."],
+            reasons=role_reasons
+            + [
+                "No confirmed-active Hermes recommendation could be resolved, "
+                "so the Hermes default model remains in effect."
+            ],
         )
         payload["recommendation"] = recommendation
         return payload

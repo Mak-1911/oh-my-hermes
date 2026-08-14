@@ -18,6 +18,7 @@ def main() -> int:
     columns = int(sys.argv[3])
     rows = int(sys.argv[4])
     settle_seconds = float(sys.argv[5])
+    omh_home = Path(sys.argv[6]) if len(sys.argv) > 6 else None
     home.mkdir(parents=True, exist_ok=True)
     output.parent.mkdir(parents=True, exist_ok=True)
 
@@ -33,6 +34,8 @@ def main() -> int:
                 "LINES": str(rows),
             }
         )
+        if omh_home is not None:
+            env["OMH_HOME"] = str(omh_home)
         os.execve(
             "/Users/khope@sionic.ai/.local/bin/hermes",
             ["hermes", "--tui", "--ignore-user-config", "--ignore-rules", "--safe-mode"],
@@ -43,7 +46,7 @@ def main() -> int:
     raw = bytearray()
     deadline = time.monotonic() + settle_seconds
     while time.monotonic() < deadline:
-        readable, _, _ = select.select([fd], [], [], 1)
+        readable, _, _ = select.select([fd], [], [], 0.05)
         if readable:
             chunk = os.read(fd, 65_536)
             if not chunk:

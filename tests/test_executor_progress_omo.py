@@ -96,6 +96,14 @@ class RoutingMetricSignalTests(unittest.TestCase):
                 routed_reasoning_effort="high",
                 tokens_total=12345,
                 elapsed_seconds=97,
+                category="deep",
+                fallback_count=2,
+                turn_count=3,
+                tool_count=14,
+                cost_usd=0.1346,
+                tokens_per_second=45.2,
+                cache_hit_percentage=0,
+                context_percentage=41.5,
             )
 
             for key in ROUTING_METRIC_SIGNAL_KEYS:
@@ -110,6 +118,14 @@ class RoutingMetricSignalTests(unittest.TestCase):
             self.assertEqual(row["routed_reasoning_effort"], "high")
             self.assertEqual(row["tokens_total"], 12345)
             self.assertEqual(row["elapsed_seconds"], 97)
+            self.assertEqual(row["category"], "deep")
+            self.assertEqual(row["fallback_count"], 2)
+            self.assertEqual(row["turn_count"], 3)
+            self.assertEqual(row["tool_count"], 14)
+            self.assertEqual(row["cost_usd"], 0.1346)
+            self.assertEqual(row["tokens_per_second"], 45.2)
+            self.assertEqual(row["cache_hit_percentage"], 0)
+            self.assertEqual(row["context_percentage"], 41.5)
             self.assertEqual(row["latest_event"]["routed_model"], "anthropic/claude-opus-4")
             self.assertEqual(row["latest_event"]["tokens_total"], 12345)
             self.assertIn("not result", row["claim_boundary"])
@@ -207,6 +223,13 @@ class RoutingMetricSignalTests(unittest.TestCase):
         )
         self.assertLessEqual(len(signal["routed_model"]), 120)
 
+    def test_category_rejects_values_outside_the_closed_routing_vocabulary(self) -> None:
+        signal = build_safe_progress_signal(
+            executor_profile="pi",
+            category="sk-proj-secret-token",
+        )
+
+        self.assertNotIn("category", signal)
 
 if __name__ == "__main__":
     unittest.main()

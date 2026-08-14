@@ -82,7 +82,16 @@ elif args[:2] == ["config", "set"]:
     current[parts[-1]] = args[3]
     if os.environ.get("HERMES_CONCURRENT_ALIAS"):
         state["model"]["aliases"]["foreign"] = "foreign/concurrent"
+    if os.environ.get("HERMES_CONCURRENT_TARGET_ALIAS"):
+        state["model"]["aliases"][args[2].removeprefix("model.aliases.")] = "foreign/concurrent"
     state_path.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+    failure_after_marker = home / "mutation-failed-after"
+    if (
+        os.environ.get("HERMES_FAIL_AFTER_MUTATION") == args[2]
+        and not failure_after_marker.exists()
+    ):
+        failure_after_marker.touch()
+        raise SystemExit(9)
 elif args[:2] == ["config", "unset"]:
     failure_marker = home / "mutation-failed"
     if os.environ.get("HERMES_FAIL_MUTATION") == args[2] and not failure_marker.exists():
@@ -94,6 +103,13 @@ elif args[:2] == ["config", "unset"]:
         current = current[part]
     current.pop(parts[-1], None)
     state_path.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+    failure_after_marker = home / "mutation-failed-after"
+    if (
+        os.environ.get("HERMES_FAIL_AFTER_MUTATION") == args[2]
+        and not failure_after_marker.exists()
+    ):
+        failure_after_marker.touch()
+        raise SystemExit(9)
 else:
     raise SystemExit(f"unexpected command: {args}")
 """
@@ -339,6 +355,34 @@ class HermesModelConfigTests(unittest.TestCase):
         aliases = self.state()["model"]["aliases"]
         self.assertNotIn("new", aliases)
         self.assertEqual(aliases["retire"], "beta/old")
+
+    def test_apply_refuses_rollback_when_attempted_alias_ownership_is_lost(self) -> None:
+        inspection = inspect_hermes_model_config(hermes=str(self.hermes), env=self.env)
+        preview = preview_hermes_model_config(inspection, {"new": "alpha/new"})
+
+        with self.assertRaisesRegex(ConfigDigestMismatchError, "rollback refused"):
+            apply_hermes_model_config(
+                preview,
+                confirmed=True,
+                expected_config_digest=inspection.config_digest,
+                env={**self.env, "HERMES_CONCURRENT_TARGET_ALIAS": "1"},
+            )
+
+        self.assertEqual(self.state()["model"]["aliases"]["new"], "foreign/concurrent")
+
+    def test_apply_rolls_back_owned_mutation_when_command_exits_nonzero_after_write(self) -> None:
+        inspection = inspect_hermes_model_config(hermes=str(self.hermes), env=self.env)
+        preview = preview_hermes_model_config(inspection, {"new": "alpha/new"})
+
+        with self.assertRaises(HermesCommandError):
+            apply_hermes_model_config(
+                preview,
+                confirmed=True,
+                expected_config_digest=inspection.config_digest,
+                env={**self.env, "HERMES_FAIL_AFTER_MUTATION": "model.aliases.new"},
+            )
+
+        self.assertNotIn("new", self.state()["model"]["aliases"])
 
 
 if __name__ == "__main__":

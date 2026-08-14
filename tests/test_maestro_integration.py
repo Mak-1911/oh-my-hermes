@@ -51,7 +51,7 @@ def _canonical_bytes(value: object) -> bytes:
 class MaestroProductionPreparationTests(unittest.TestCase):
     def test_maestro_projects_category_and_ordered_recommendation_chain(self) -> None:
         recommendation = {
-            "schema_version": "model_recommendation_resolution/v1",
+            "schema_version": "model_recommendation_resolution/v2",
             "owner": "maestro",
             "status": "resolved",
             "selector": {"surface": "categories", "name": "quick"},

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,6 +87,14 @@ ROUTING_METRIC_SIGNAL_KEYS = (
     "routed_reasoning_effort",
     "tokens_total",
     "elapsed_seconds",
+    "category",
+    "fallback_count",
+    "turn_count",
+    "tool_count",
+    "cost_usd",
+    "tokens_per_second",
+    "cache_hit_percentage",
+    "context_percentage",
 )
 
 _RAW_OR_HIDDEN_KEYS = {
@@ -150,11 +159,25 @@ def normalize_executor_profile(value: str, *, observed_hermes_execution: bool = 
 
 
 def progress_dir_for_target(paths: OmhPaths, target_type: str, target_id: str) -> Path:
+    target_id = _validated_target_id(target_id)
     if target_type == "run":
         return paths.runtime_runs_dir / target_id / "executor_progress"
     if target_type == "wrapper_session":
         return paths.runtime_wrapper_sessions_dir / target_id / "executor_progress"
     raise ExecutorProgressError(f"unsupported progress target type: {target_type}")
+
+
+def _validated_target_id(value: str) -> str:
+    target_id = value.strip()
+    if (
+        not target_id
+        or target_id in {".", ".."}
+        or "/" in target_id
+        or "\\" in target_id
+        or "\x00" in target_id
+    ):
+        raise ExecutorProgressError("target_id must be one safe path segment")
+    return target_id
 
 
 def binding_id_for(target_type: str, target_id: str, executor_profile: str) -> str:
@@ -191,11 +214,9 @@ def build_progress_binding(
     minimum_repeat_interval_seconds: int = DEFAULT_MINIMUM_REPEAT_INTERVAL_SECONDS,
 ) -> dict[str, Any]:
     target_type = target_type.strip()
-    target_id = target_id.strip()
+    target_id = _validated_target_id(target_id)
     if target_type not in TARGET_TYPES:
         raise ExecutorProgressError(f"target_type must be one of {', '.join(TARGET_TYPES)}")
-    if not target_id:
-        raise ExecutorProgressError("target_id is required")
     profile = normalize_executor_profile(executor_profile, observed_hermes_execution=observed_hermes_execution)
     timestamp = now or utc_now()
     binding_id = binding_id_for(target_type, target_id, profile)
@@ -384,6 +405,26 @@ def build_progress_event(
     return event
 
 
+_ROUTING_CATEGORIES = frozenset(
+    {
+        "architect",
+        "artistry",
+        "deep",
+        "quick",
+        "unspecified-high",
+        "unspecified-low",
+        "ultrabrain",
+        "visual-engineering",
+        "writing",
+    }
+)
+
+
+def _observed_category(value: str) -> str:
+    category = str(value or "").strip()
+    return category if category in _ROUTING_CATEGORIES else ""
+
+
 def build_safe_progress_signal(
     *,
     executor_profile: str,
@@ -400,6 +441,14 @@ def build_safe_progress_signal(
     routed_reasoning_effort: str = "",
     tokens_total: int | None = None,
     elapsed_seconds: int | None = None,
+    category: str = "",
+    fallback_count: int | None = None,
+    turn_count: int | None = None,
+    tool_count: int | None = None,
+    cost_usd: float | None = None,
+    tokens_per_second: float | None = None,
+    cache_hit_percentage: float | None = None,
+    context_percentage: float | None = None,
 ) -> dict[str, Any]:
     profile = normalize_executor_profile(executor_profile, observed_hermes_execution=observed_hermes_execution)
     codex_profile = profile == "codex"
@@ -468,6 +517,14 @@ def build_safe_progress_signal(
         "routed_reasoning_effort": _compact_text(routed_reasoning_effort, 40),
         "tokens_total": _observed_count(tokens_total),
         "elapsed_seconds": _observed_count(elapsed_seconds),
+        "category": _observed_category(category),
+        "fallback_count": _observed_count(fallback_count),
+        "turn_count": _observed_count(turn_count),
+        "tool_count": _observed_count(tool_count),
+        "cost_usd": _observed_number(cost_usd),
+        "tokens_per_second": _observed_number(tokens_per_second),
+        "cache_hit_percentage": _observed_percentage(cache_hit_percentage),
+        "context_percentage": _observed_percentage(context_percentage),
     }
     return _safe_signal(signal)
 
@@ -1196,6 +1253,8 @@ def validate_progress_binding(record: dict[str, Any]) -> list[str]:
         errors.append("target_type must be run or wrapper_session")
     if not target_id:
         errors.append("target_id is required")
+    elif any(separator in target_id for separator in ("/", "\\", "\x00")) or target_id in {".", ".."}:
+        errors.append("target_id must be one safe path segment")
     profile = str(record.get("executor_profile") or record.get("executor") or "")
     if profile not in ALLOWED_EXECUTOR_PROFILES:
         errors.append(_unsupported_profile_error())
@@ -1611,6 +1670,25 @@ def _observed_count(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return count if count >= 0 else None
+
+
+def _observed_number(value: Any) -> int | float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or number < 0:
+        return None
+    return int(number) if number.is_integer() else number
+
+
+def _observed_percentage(value: Any) -> int | float | None:
+    number = _observed_number(value)
+    if number is None or number > 100:
+        return None
+    return number
 
 
 def _observed_routing_metrics(signal: Any) -> dict[str, Any]:

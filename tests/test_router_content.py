@@ -3278,20 +3278,9 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[GitHub Pages site](site/index.html)", readme)
         self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal", readme)
         self.assertIn("replacing Hermes or hiding a coding executor", readme)
-        self.assertIn("**106 installable workflow skills**", readme)
-        self.assertIn("**106개**", localized_readmes["ko"])
-        self.assertIn("**106 個**", localized_readmes["ja"])
-        self.assertIn("**106 个**", localized_readmes["zh"])
-        self.assertIn("나머지 94개", localized_readmes["ko"])
-        self.assertIn("残り 94 個", localized_readmes["ja"])
-        self.assertIn("其余 94 个", localized_readmes["zh"])
-        # The omh-labeled complement is derived, not pinned: total installable
-        # skills minus the ULW engine names. A new skill or engine moves the
-        # README prose only when the arithmetic moves it.
-        from omh.skills.catalog_types import ULW_ENGINE_SKILL_NAMES
-
-        omh_labeled_complement = len(builtin_skill_templates()) - len(ULW_ENGINE_SKILL_NAMES)
-        self.assertIn(f"the remaining {omh_labeled_complement} skills use `omh-` labels", readme)
+        self.assertIn("| Intelligence | What OMH adds |", readme)
+        self.assertIn("**Model-aware routing**", readme)
+        self.assertNotIn("## Built For Real Work", readme)
         for localized_readme in localized_readmes.values():
             # A localized README stays a trimmed landing page, never a full
             # translation of every English section. The budget grew from 240
@@ -3380,7 +3369,11 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("omh setup", install_block)
         self.assertNotIn("omh doctor", install_block)
         self.assertIn("```sh\nomh update\nomh doctor\n```", quick_start)
-        self.assertIn("Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<", quick_start)
+        self.assertIn(
+            "https://raw.githubusercontent.com/rlaope/oh-my-hermes/"
+            "{resolved-commit-sha}/INSTALL_FOR_AGENTS.md",
+            quick_start,
+        )
         self.assertIn("hermes skills tap add", quick_start)
         self.assertNotIn("That is the normal path", quick_start)
         self.assertNotIn("name the responsible role", quick_start)
@@ -3426,7 +3419,11 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("bounded context budgets", installation)
         self.assertIn("--hermes-home /tmp/hermes-smoke release hermes-smoke --live --install-path setup", installation)
         self.assertIn("OMH Agent Install Protocol", install_for_agents)
-        self.assertIn("curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh", install_for_agents)
+        self.assertIn(
+            "git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main",
+            install_for_agents,
+        )
+        self.assertIn('OMH_SOURCE_REF="$OMH_REF"', install_for_agents)
         self.assertIn("omh setup", install_for_agents)
         self.assertIn("omh doctor", install_for_agents)
         self.assertIn("hermes skills tap add rlaope/oh-my-hermes", install_for_agents)
@@ -3779,7 +3776,8 @@ class RouterContentTests(unittest.TestCase):
         # The third install path is a paste-ready prompt for the visitor's own
         # coding agent, pointing at the repository.
         self.assertIn("https://github.com/rlaope/oh-my-hermes", install_section)
-        self.assertIn("paste the doctor output back to me", install_section)
+        self.assertIn("refs/heads/main", install_section)
+        self.assertIn("{resolved-commit-sha}/INSTALL_FOR_AGENTS.md", install_section)
         self.assertTrue(Path("site/assets/omh-loop-engineering.png").is_file())
         self.assertTrue(Path("site/assets/omh-img-summary-card.png").is_file())
         self.assertNotIn("github.com/rlaope/oh-my-hermes/tree/main/docs", site)
@@ -3827,10 +3825,6 @@ class RouterContentTests(unittest.TestCase):
             (
                 "## What OMH Adds",
                 {"ko": "## OMH가 더하는 것", "ja": "## OMH が追加するもの", "zh": "## OMH 提供什么"},
-            ),
-            (
-                "## Built For Real Work",
-                {"ko": "## 실제 업무를 위한 설계", "ja": "## 実務向けの設計", "zh": "## 面向真实工作的设计"},
             ),
             (
                 "## Evidence Before Claims",

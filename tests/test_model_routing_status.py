@@ -80,7 +80,7 @@ class ModelRoutingStatusTests(unittest.TestCase):
             ["gpt-5.6-terra"],
         )
         deep = payload["maestro"]["categories"]["deep"]
-        self.assertEqual(deep["status"], "unconfigured")
+        self.assertEqual(deep["status"], "owner_default")
         self.assertEqual(deep["missing_head"], "gpt-5.6-terra")
         unspecified = payload["maestro"]["categories"]["unspecified-high"]
         self.assertEqual(unspecified["selected_model"], "kimi-k3")
