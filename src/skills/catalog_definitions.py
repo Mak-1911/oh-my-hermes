@@ -554,8 +554,9 @@ _DEFINITIONS = [
             "Read repository facts and reviewed terminology before asking the user for discoverable information.",
             "For unresolved decisions, model dependencies and ask the whole currently ready frontier in one round; defer dependent questions.",
             "Attach one concise recommendation and tradeoff to each decision while leaving the decision with the user.",
+            "Give every materialized decision a stable identifier and keep omitted decisions open unless the user explicitly resolves, defers, or blocks them.",
             "Keep terminology sparse: canonical identity, short definition, expression guidance, distinct-from boundary, and optional localized display label.",
-            "Stop when every reachable branch is resolved and the user confirms shared understanding; planning and coding remain separate confirmed steps.",
+            "Stop on a terminal frontier, explicit user request, or the shared round ceiling; then confirm the summary separately from planning or coding.",
         ),
         why_this_exists=(
             "`context` exists to reduce repository terminology drift without creating a second machine store or a vocabulary router: "
@@ -589,6 +590,7 @@ _DEFINITIONS = [
             "If the optional source is absent, continue from repository evidence or reviewed profiles without warning, creating, or importing a file.",
             "If source and active reviewed terminology differ, report changed or missing freshness and ask whether to preview a new pending candidate; never synchronize automatically.",
             "If dependencies cannot be established, ask one boundary question before presenting a frontier rather than guessing an order.",
+            "If frontier round or decision identity cannot be recovered, close with a named recovery blocker instead of restarting or emitting another round.",
             "If the user moves from terminology to implementation, summarize confirmed understanding and hand off to `ralplan`, `ulw-plan`, or the selected coding owner only after a separate go-ahead.",
         ),
     ),
