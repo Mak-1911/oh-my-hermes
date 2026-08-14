@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -57,6 +58,42 @@ _ALL_ACTIVE = (
 
 
 class RecommendationCatalogTests(unittest.TestCase):
+    def test_public_readmes_and_site_cover_every_shipped_category_chain(self) -> None:
+        docs = {
+            "readme": Path("README.md").read_text(encoding="utf-8"),
+            "ko": Path("README.ko.md").read_text(encoding="utf-8"),
+            "ja": Path("README.ja.md").read_text(encoding="utf-8"),
+            "zh": Path("README.zh.md").read_text(encoding="utf-8"),
+            "site": Path("site/docs/model-routing/index.html").read_text(encoding="utf-8"),
+        }
+        categories = SHIPPED_MODEL_RECOMMENDATIONS["categories"]
+        assert isinstance(categories, dict)
+
+        for name, chain in categories.items():
+            assert isinstance(chain, list)
+            aliases = [str(candidate["model_alias"]) for candidate in chain]
+            for surface, text in docs.items():
+                with self.subTest(category=name, surface=surface):
+                    if surface == "site":
+                        row = next(
+                            line for line in text.splitlines() if f"<span>{name}</span>" in line
+                        )
+                    else:
+                        row = next(
+                            line for line in text.splitlines() if line.startswith(f"| `{name}` |")
+                        )
+                    normalized_text = re.sub(r"[^a-z0-9]", "", row.casefold())
+                    position = -1
+                    for alias in aliases:
+                        normalized_alias = re.sub(r"[^a-z0-9]", "", alias.casefold())
+                        next_position = normalized_text.find(normalized_alias, position + 1)
+                        self.assertGreater(next_position, position)
+                        position = next_position
+
+        prompt = "Hey, install Oh My Hermes for me:"
+        self.assertIn(prompt, docs["readme"])
+        self.assertIn(prompt, docs["site"])
+
     def test_catalog_is_schema_versioned_and_preserves_closed_vocabularies(self) -> None:
         catalog = SHIPPED_MODEL_RECOMMENDATIONS
         self.assertEqual(catalog["schema_version"], MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION)
@@ -86,6 +123,19 @@ class RecommendationCatalogTests(unittest.TestCase):
         self.assertEqual(aliases("categories", "unspecified-high"), ["kimi-k3", "claude-opus-5"])
         self.assertEqual(aliases("categories", "ultrabrain"), ["gpt-5.6-sol"])
         self.assertEqual(aliases("categories", "deep"), ["gpt-5.6-terra"])
+        self.assertEqual(aliases("categories", "quick"), ["glm-5.2-ultrafast", "kimi-k3"])
+        self.assertEqual(
+            aliases("categories", "writing"),
+            ["kimi-k3", "qwen3-coder", "gemini-3.1-pro"],
+        )
+        self.assertEqual(
+            aliases("categories", "visual-engineering"),
+            ["claude-fable-5", "kimi-k3"],
+        )
+        self.assertEqual(
+            aliases("categories", "artistry"),
+            ["gemini-3.1-pro", "claude-fable-5", "kimi-k3"],
+        )
         self.assertEqual(aliases("categories", "visual-engineering"), ["claude-fable-5", "kimi-k3"])
         self.assertEqual(aliases("categories", "quick"), ["glm-5.2-ultrafast", "kimi-k3"])
         self.assertEqual(aliases("categories", "writing"), ["kimi-k3", "qwen3-coder", "gemini-3.1-pro"])

@@ -1,9 +1,18 @@
 import { execFile } from 'node:child_process'
 
 export default function register(sdk) {
-  const { Box, Text, defineWidgetApp, h, openWidget, updateWidget } = sdk
+  const { Box, Text, defineWidgetApp, h, openWidget, updateWidget, useShimmerPhase } = sdk
+  const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
   const HOME = process.env.OMH_HOME || `${process.env.HOME}/.omh`
   const HERMES_HOME = process.env.HERMES_HOME || `${process.env.HOME}/.hermes`
+  const READER_ENV = {
+    HOME: process.env.HOME || '',
+    HERMES_HOME,
+    OMH_HOME: HOME,
+  }
+  for (const key of ['LANG', 'LC_ALL', 'LC_CTYPE', 'SYSTEMROOT', 'WINDIR']) {
+    if (process.env[key]) READER_ENV[key] = process.env[key]
+  }
   const READER = [
     'import json,os,sys',
     "sys.path.insert(0, os.path.join(os.environ['HERMES_HOME'], 'plugins'))",
@@ -16,10 +25,10 @@ export default function register(sdk) {
   const readHud = () => new Promise(resolve => {
     execFile(
       __OMH_PYTHON_EXECUTABLE__,
-      ['-c', READER],
+      ['-I', '-c', READER],
       {
         encoding: 'utf8',
-        env: { ...process.env, HERMES_HOME, OMH_HOME: HOME },
+        env: READER_ENV,
         maxBuffer: 16384,
         timeout: 1500,
       },
@@ -34,70 +43,172 @@ export default function register(sdk) {
     )
   })
 
-  const compactTokens = value => {
-    if (!Number.isInteger(value)) return ''
-    if (value >= 1000) return `${(value / 1000).toFixed(1)}k`
-    return String(value)
+  const cellWidth = value => Array.from(value).reduce((width, char) => {
+    const code = char.codePointAt(0) || 0
+    const wide = code >= 0x1100 && (
+      code <= 0x115f ||
+      code === 0x2329 ||
+      code === 0x232a ||
+      (code >= 0x2e80 && code <= 0xa4cf) ||
+      (code >= 0xac00 && code <= 0xd7a3) ||
+      (code >= 0xf900 && code <= 0xfaff) ||
+      (code >= 0xfe10 && code <= 0xfe6f) ||
+      (code >= 0xff00 && code <= 0xff60) ||
+      (code >= 0xffe0 && code <= 0xffe6)
+    )
+    return width + (wide ? 2 : 1)
+  }, 0)
+
+  const truncateCells = (value, limit) => {
+    const text = safeText(value)
+    if (cellWidth(text) <= limit) return text
+    let output = ''
+    for (const char of Array.from(text)) {
+      if (cellWidth(output + char) > Math.max(0, limit - 1)) break
+      output += char
+    }
+    return `${output}…`
   }
 
-  const metricText = row => {
-    const routed = [safeText(row.model), safeText(row.effort)].filter(Boolean).join(':')
-    const tokens = compactTokens(row.tokens)
-    return [routed, tokens ? `${tokens} tok` : ''].filter(Boolean).join(' · ')
+  const elapsedText = value => {
+    if (!Number.isFinite(value)) return ''
+    const seconds = Math.max(0, Math.floor(value))
+    if (seconds < 60) return `${seconds}s`
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+    return `${Math.floor(seconds / 3600)}h ${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}m`
   }
 
-  function AgentRow({ row, t }) {
-    const state = safeText(row.state)
-    const color = state === 'blocked' ? t.color.error : t.color.ok
+  const metricSegment = (kind, text) => ({ kind, text })
+  const observedPercent = (label, value) =>
+    Number.isFinite(value) ? `${label} ${value}%` : `${label} uncollected`
+
+  const activityLayout = (row, columns, main) => {
+    const state = safeText(row.state) || 'running'
+    const stateText = columns < 100 ? ({ running: 'run', blocked: 'block', failed: 'fail' })[state] || state : state
+    const taskId = truncateCells(safeText(row.task_id) || safeText(row.role) || 'agent', 8).padEnd(8)
+    const model = [safeText(row.model), safeText(row.effort)].filter(Boolean).join(':')
+    const category = safeText(row.category)
+    const route = category ? `category:${category}${model ? `(${model})` : ''}` : model
+    const turn = Number.isFinite(row.turn_count) ? `turn ${row.turn_count}` : ''
+    const tools = Number.isFinite(row.tool_count) ? `${row.tool_count} tools` : ''
+    const turnTools = turn && tools ? `${turn} (${tools})` : turn || tools
+    const optional = [
+      metricSegment('route', route),
+      metricSegment('fallback', Number.isFinite(row.fallback_count) && row.fallback_count > 0 ? `fallback:${row.fallback_count}` : ''),
+      metricSegment('turn', turnTools),
+      metricSegment('cost', Number.isFinite(row.cost_usd) ? `$${row.cost_usd.toFixed(4)}` : ''),
+      metricSegment('rate', Number.isFinite(row.tokens_per_second) ? `${Math.round(row.tokens_per_second)} tok/s` : ''),
+      metricSegment('cache', observedPercent('cache', row.cache_hit_percentage)),
+      metricSegment('context', observedPercent('ctx', row.context_percentage)),
+    ].filter(segment => segment.text)
+    const required = [
+      metricSegment('cache', observedPercent('cache', row.cache_hit_percentage)),
+      metricSegment('context', observedPercent('ctx', row.context_percentage)),
+      metricSegment('state', stateText),
+      metricSegment('elapsed', elapsedText(row.elapsed_seconds)),
+    ].filter(segment => segment.text)
+    optional.splice(-2)
+    const prefix = `${taskId} `
+    const separator = '  ·  '
+    const budget = Math.max(24, columns - 4)
+    const minimumAction = columns >= 120 ? 26 : columns >= 90 ? 18 : 10
+    const segments = [...optional, ...required]
+    while (segments.length > required.length) {
+      const metadata = segments.map(item => item.text).join(separator)
+      if (cellWidth(prefix) + minimumAction + cellWidth(separator) + cellWidth(metadata) <= budget) break
+      segments.splice(segments.length - required.length - 1, 1)
+    }
+    const metadata = segments.map(segment => segment.text).join(separator)
+    const actionBudget = Math.max(
+      8,
+      budget - cellWidth(prefix) - cellWidth(metadata) - (metadata ? cellWidth(separator) : 0),
+    )
+    return {
+      action: truncateCells(row.action, actionBudget),
+      metadata,
+      segments,
+      taskId: main ? 'MAIN'.padEnd(8) : taskId,
+    }
+  }
+
+  function ActivityRow({ columns, frame, main, row, t }) {
+    const layout = activityLayout(row, columns, main)
+    const blocked = row.state === 'blocked' || row.state === 'failed'
+    const marker = blocked ? '▲' : SPINNER_FRAMES[frame % SPINNER_FRAMES.length]
+    const statusColor = blocked ? t.color.error : t.color.ok
     return h(
-      Box,
-      { columnGap: 1, flexDirection: 'row' },
-      h(Text, { color }, `${state === 'blocked' ? '▲' : '●'} ${state}`.padEnd(11)),
-      h(Text, { bold: true, color: t.color.label }, safeText(row.role).padEnd(11)),
-      h(Text, { color: t.color.text }, safeText(row.action)),
-      metricText(row) ? h(Text, { color: t.color.muted }, ` ${metricText(row)}`) : null
+      Text,
+      { wrap: 'truncate-end' },
+      h(Text, { color: blocked ? t.color.error : t.color.warn }, `${marker} `),
+      h(Text, { color: t.color.muted }, `${layout.taskId} `),
+      h(Text, { color: t.color.text }, layout.action),
+      layout.metadata ? h(Text, { color: t.color.muted }, '  ·  ') : null,
+      ...layout.segments.map((segment, index) =>
+        h(
+          Text,
+          {
+            color: segment.kind === 'state'
+              ? statusColor
+              : segment.kind === 'route'
+                ? t.color.label
+                : t.color.muted,
+            key: `${segment.kind}-${index}`,
+          },
+          `${index ? '  ·  ' : ''}${segment.text}`,
+        )
+      ),
     )
   }
 
-  function Hud({ state, t }) {
+  function Hud({ columns, state, t, viewportRows }) {
+    const spinnerPhase = useShimmerPhase(30_000) + state.tick
     const payload = state.payload
     if (!payload || payload.error || payload.privacy !== 'metadata_only' || !payload.active) return null
 
-    const runtime = payload.runtime || {}
     const agents = payload.subagents || {}
-    const version = safeText(payload.plugin?.version || payload.version)
-    const workflow = safeText(runtime.workflow)
-    const phase = safeText(runtime.phase)
-    const latest = safeText(agents.latest_action)
-    const rows = Array.isArray(agents.rows) ? agents.rows.slice(0, 4) : []
+    const version = safeText(payload.version) || 'unknown'
     const maestro = payload.maestro || {}
-    const maestroRows = Array.isArray(maestro.rows) ? maestro.rows.slice(0, 2) : []
+    const mainRows = Array.isArray(maestro.rows) ? maestro.rows.slice(0, 1) : []
+    const activityLimit = Math.max(1, Math.min(3, viewportRows - 3))
+    const rows = Array.isArray(agents.rows)
+      ? agents.rows.slice(0, Math.max(0, activityLimit - mainRows.length))
+      : []
     return h(
       Box,
-      { flexDirection: 'column', width: '100%' },
+      {
+        flexDirection: 'column',
+        marginTop: 1,
+        width: '100%',
+      },
       h(
         Box,
         { columnGap: 1, flexDirection: 'row' },
-        h(Text, { bold: true, color: t.color.primary }, `[OMH] ${version}`),
-        h(Text, { color: t.color.muted }, '|'),
-        h(Text, { bold: true, color: t.color.label }, workflow),
-        h(Text, { color: t.color.primary }, phase),
-        h(
-          Text,
-          { color: t.color.muted },
-          `agents ${agents.active || 0} · run ${agents.running || 0} · block ${agents.blocked || 0} · done ${agents.completed || 0}`
-        )
+        h(Text, { bold: true, color: t.color.warn }, `[OMH] ${version}`),
+        h(Text, { color: t.color.border }, '-'),
+        h(Text, { bold: true, color: t.color.label }, 'Oh My Hermes'),
+        h(Text, { color: t.color.border }, '•'),
+        h(Text, { color: t.color.label }, 'Ultra Work'),
+        h(Text, { color: t.color.ok }, 'Ready'),
       ),
-      ...rows.map((row, index) => h(AgentRow, { key: `subagent-${index}`, row, t })),
-      ...maestroRows.map((row, index) =>
-        h(
-          Box,
-          { key: `maestro-${index}`, columnGap: 1, flexDirection: 'row' },
-          h(Text, { bold: true, color: t.color.primary }, 'MAESTRO'),
-          h(AgentRow, { row, t })
-        )
+      ...mainRows.map((row, index) =>
+        h(ActivityRow, {
+          columns,
+          frame: spinnerPhase,
+          key: `main-${index}`,
+          main: true,
+          row,
+          t,
+        })
       ),
-      latest ? h(Text, { color: t.color.muted }, `latest ${latest}`) : null
+      ...rows.map((row, index) =>
+        h(ActivityRow, {
+          columns,
+          frame: spinnerPhase,
+          key: `${safeText(row.task_id)}-${index}`,
+          row,
+          t,
+        })
+      ),
     )
   }
 
@@ -106,9 +217,12 @@ export default function register(sdk) {
     help: 'OMH workflow and subagent status',
     mode: 'ambient',
     zone: 'dock-bottom',
-    init: () => ({ payload: null }),
-    reduce: (state, input) => input.kind === 'snapshot' ? { payload: input.payload } : state,
-    render: ({ state, t }) => h(Hud, { state, t }),
+    init: () => ({ payload: null, tick: 0 }),
+    reduce: (state, input) =>
+      input.kind === 'snapshot'
+        ? { ...state, payload: input.payload, tick: state.tick + 1 }
+        : state,
+    render: ({ cols, rows, state, t }) => h(Hud, { columns: cols, state, t, viewportRows: rows }),
   })
 
   openWidget(app, app.init(''))
@@ -121,7 +235,9 @@ export default function register(sdk) {
     globalThis[timerKey] = setTimeout(async () => {
       const payload = await readHud()
       if (generation !== globalThis[generationKey]) return
-      updateWidget(app, state => payload ? { payload } : state)
+      updateWidget(app, state =>
+        payload ? { ...state, payload, tick: state.tick + 1 } : state
+      )
       schedule()
     }, 2000)
     globalThis[timerKey].unref?.()
@@ -129,7 +245,9 @@ export default function register(sdk) {
   clearTimeout(globalThis[timerKey])
   void readHud().then(payload => {
     if (generation !== globalThis[generationKey]) return
-    updateWidget(app, state => payload ? { payload } : state)
+    updateWidget(app, state =>
+      payload ? { ...state, payload, tick: state.tick + 1 } : state
+    )
   })
   schedule()
 }

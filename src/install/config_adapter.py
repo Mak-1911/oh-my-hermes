@@ -224,6 +224,86 @@ def memory_provider_selection(config_text: str) -> str:
     return _section_scalar(config_text, "memory", "provider")
 
 
+def display_interface_selection(config_text: str) -> str:
+    """The unambiguous scalar `display.interface`, or "" for other shapes."""
+    lines = config_text.splitlines()
+    display_indices = [index for index, line in enumerate(lines) if line == "display:"]
+    if len(display_indices) != 1:
+        return ""
+    entries: list[str] = []
+    for line in lines[display_indices[0] + 1 :]:
+        if line.strip() and not line.startswith(" "):
+            break
+        if line.startswith("  ") and not line.startswith("    "):
+            key, separator, rest = line.strip().partition(":")
+            if separator and key == "interface":
+                entries.append(rest.strip())
+        elif re.match(r"^interface\s*:", line.lstrip()):
+            return ""
+    if len(entries) != 1 or not entries[0] or entries[0].startswith(("{", "[", "|", ">")):
+        return ""
+    return _scalar_value(entries[0])
+
+
+def ensure_tui_interface(config_text: str) -> ConfigChange:
+    """Select the TUI only when the user has not chosen a display interface."""
+    lines = config_text.splitlines()
+    display_lines = [
+        line
+        for line in lines
+        if re.match(r"^\s*display\s*:", line)
+    ]
+    if any(line.startswith("display.interface:") for line in lines):
+        return ConfigChange(False, "dotted display.interface is user-owned; leaving it alone", config_text)
+    if len(display_lines) > 1:
+        return ConfigChange(False, "duplicate display sections are ambiguous; leaving them alone", config_text)
+    if display_lines and display_lines[0] != "display:":
+        return ConfigChange(False, "inline display configuration is user-owned; leaving it alone", config_text)
+
+    display_index = next(
+        (index for index, line in enumerate(lines) if line.strip() == "display:" and not line.startswith(" ")),
+        None,
+    )
+    interface_entries: list[tuple[int, str]] = []
+    interface_like_lines = 0
+    if display_index is not None:
+        for index in range(display_index + 1, len(lines)):
+            line = lines[index]
+            if line.strip() and not line.startswith(" "):
+                break
+            if line.startswith("  ") and not line.startswith("    "):
+                key, separator, rest = line.strip().partition(":")
+                if separator and key.strip() == "interface":
+                    interface_entries.append((index, rest.strip()))
+            if re.match(r"^interface\s*:", line.lstrip()):
+                interface_like_lines += 1
+    if interface_like_lines != len(interface_entries):
+        return ConfigChange(False, "noncanonical display.interface is user-owned; leaving it alone", config_text)
+    if len(interface_entries) > 1:
+        return ConfigChange(False, "duplicate display.interface keys are ambiguous; leaving them alone", config_text)
+    if interface_entries and (
+        not interface_entries[0][1]
+        or interface_entries[0][1].startswith(("{", "[", "|", ">"))
+    ):
+        return ConfigChange(False, "non-scalar display.interface is user-owned; leaving it alone", config_text)
+    selected = display_interface_selection(config_text)
+    if selected == "tui":
+        return ConfigChange(False, "display.interface is already tui", config_text)
+    if selected:
+        return ConfigChange(False, f"display.interface is {selected}; leaving user preference unchanged", config_text)
+
+    if display_index is None:
+        text = (config_text.rstrip() + "\n\ndisplay:\n  interface: tui\n").lstrip("\n")
+        return ConfigChange(True, "appended display.interface", text)
+
+    if interface_entries:
+        lines[interface_entries[0][0]] = "  interface: tui"
+        return ConfigChange(True, "set display.interface to tui", "\n".join(lines) + "\n")
+
+    lines.insert(display_index + 1, "  interface: tui")
+    return ConfigChange(True, "inserted display.interface", "\n".join(lines) + "\n")
+
+
 def maybe_set_memory_provider(config_text: str, name: str, mode: str) -> ConfigChange:
     """Alias of `set_memory_provider` that honors the CLI's memory_mode.
 

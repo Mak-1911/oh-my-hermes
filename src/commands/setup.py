@@ -30,8 +30,10 @@ from ..coding.hermes_model_config import (
 from ..coding.model_discovery import discover_local_models
 from ..coding.model_recommendations import resolve_model_recommendation
 from ..config_adapter import (
+    display_interface_selection,
     ensure_external_dir,
     ensure_plugin_enabled,
+    ensure_tui_interface,
     external_dirs,
     maybe_set_memory_provider,
     memory_provider_selection,
@@ -856,17 +858,25 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
         # Hermes. Doing only the first leaves an install that passes every
         # structural check while no OMH tool is reachable in chat.
         plugin_enable = ensure_plugin_enabled(compression.text, PLUGIN_NAME)
+        # Hermes loads tui-widgets only in its official Ink TUI. Installing the
+        # widget while leaving a fresh install on the classic REPL makes the
+        # HUD unreachable. An explicit display preference remains user-owned.
+        tui_interface = ensure_tui_interface(plugin_enable.text)
         # Same reasoning one layer down. OMH's memory provider ships inside the
         # bundle, and a provider Hermes never selects is a provider that never
         # runs -- so requiring a control-plane command to switch it on meant the
         # people AGENTS.md says should only need setup/update/doctor would never
         # have it. Claims the slot only when it is free; `set_memory_provider`
         # refuses when another product holds it, because Hermes runs exactly one.
-        memory_provider = maybe_set_memory_provider(plugin_enable.text, MEMORY_PROVIDER_NAME, memory_mode)
+        memory_provider = maybe_set_memory_provider(tui_interface.text, MEMORY_PROVIDER_NAME, memory_mode)
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
     if not args.dry_run and (
-        change.changed or compression.changed or plugin_enable.changed or memory_provider.changed
+        change.changed
+        or compression.changed
+        or plugin_enable.changed
+        or tui_interface.changed
+        or memory_provider.changed
     ):
         write_config(paths.hermes_config_path, memory_provider.text)
     if not args.dry_run:
@@ -879,13 +889,24 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
             },
         )
     return {
-        "changed": change.changed or compression.changed,
+        "changed": (
+            change.changed
+            or compression.changed
+            or plugin_enable.changed
+            or tui_interface.changed
+            or memory_provider.changed
+        ),
         "message": change.message,
         "config": str(paths.hermes_config_path),
         "skills_dir": str(paths.skills_dir),
         "dry_run": args.dry_run,
         "compression_defaults": {"changed": compression.changed, "message": compression.message},
         "plugin_enabled": {"changed": plugin_enable.changed, "message": plugin_enable.message},
+        "tui_interface": {
+            "changed": tui_interface.changed,
+            "message": tui_interface.message,
+            "selected": display_interface_selection(memory_provider.text),
+        },
         "memory_provider": {
             "changed": memory_provider.changed,
             "message": memory_provider.message,

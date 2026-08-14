@@ -162,20 +162,41 @@ Maintenance paths such as reconciling a `--full` install back to core live in
 
 ## Recommended models
 
-OMH ships with these editable category recommendations:
+OMH ships with these editable, ordered recommendation chains. Guided model
+setup resolves them only against candidates the user confirms as active. The
+result is prepared routing configuration, not provider availability,
+credential, dispatch, or execution evidence:
 
-| Category | Recommended models |
+| Category alias | Editable recommendation order |
 | --- | --- |
 | `ultrabrain` | GPT-5.6 Sol |
 | `deep` | GPT-5.6 Terra |
 | `unspecified-high` | Kimi K3, then Claude Opus 5 |
 | `unspecified-low` | GLM 5.2, then GLM 5.2 Ultrafast |
+| `quick` | GLM 5.2 Ultrafast, then Kimi K3 |
+| `writing` | Kimi K3, then Qwen3-Coder, then Gemini 3.1 Pro |
 | `visual-engineering` | Claude Fable 5, then Kimi K3 |
+| `artistry` | Gemini 3.1 Pro, then Claude Fable 5, then Kimi K3 |
 
 Ask Hermes to **set up my models** to review or change them. These are editable
 preferences, not benchmark results. See
 [Guided Model Setup](docs/INSTALLATION.md#guided-model-setup) for the detailed
 setup, fallback, provider, and ownership rules.
+
+<details>
+<summary><strong>Or paste this into Hermes or another coding agent</strong></summary>
+
+```text
+Hey, install Oh My Hermes for me: https://github.com/rlaope/oh-my-hermes
+Read the README first, then run the installer that matches this machine
+(curl ... install.sh | sh on macOS/Linux, irm ... install.ps1 | iex on Windows).
+Then run `omh setup --model-setup --interactive`, then `omh doctor`, and paste the doctor output back to me.
+When setup asks about model routing, keep the categories I already have models for,
+leave the rest unconfigured, and tell me which categories ended up empty.
+Don't touch anything else in my Hermes config.
+```
+
+</details>
 
 <br>
 
@@ -213,89 +234,33 @@ rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
 
 <p align="center"><strong>Mixture of Models</strong></p>
 
-OMH packages **106 installable workflow skills** behind six human-readable
-capability families: 12 workflow engines use `ulw-` labels, including
-`ulw-context`, and the remaining 94 skills use `omh-` labels. The family is the
-front door; exact skill names remain available when a wrapper or operator needs
-precise control.
+OMH treats model choice and coding ownership as separate decisions. Editable
+category fallback chains are prepared from safe local metadata and
+user-confirmed active candidates; they are not provider-availability evidence.
+Maestro prepares handoffs to explicit coding owners and configured runtime
+profiles, while fanout handles independent parallel units. A prepared handoff
+is never reported as execution.
+
+Human-readable capability families remain the front door. Exact controls,
+runtime boundaries, and evidence rules stay available when a wrapper or
+operator needs precise control.
 
 The full generated catalog, triggers, harnesses, and evidence rules live in
 [Workflow Reference](docs/WORKFLOWS.md).
 
 **Highlights**
 
-| Capability | Try it with | What it does |
-| --- | --- | --- |
-| 🧭 **Clarify and plan** | `omh-plan` · `omh-decide` · `omh-meeting-brief` | Turns an ambiguous request into explicit goals, constraints, tradeoffs, acceptance criteria, and a plan that can be handed off. |
-| ⚡ **Build with leverage** | `omh-idea-to-deploy` · `omh-cto-loop` · `omh-running-work-board` | Scales from fast parallel work to durable multi-step execution while keeping ownership, checkpoints, and verification visible. |
-| 🔬 **Research and learn** | `omh-best-practice-research` · `omh-research-brief` · `omh-paper-learning` | Finds and synthesizes source-backed evidence with freshness, source-quality, and unresolved-uncertainty boundaries. |
-| 🛠️ **Code and ship safely** | `omh-code-review` · `omh-build-failure-triage` · `omh-verification-gate` | Prepares executor-neutral coding work, then makes review, QA, CI, and merge claims depend on observed evidence. |
-| 🎨 **Create polished deliverables** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-image-cards` | Shapes websites, visuals, reports, decks, documents, PDFs, posters, and packages around content, taste, accessibility, and render-quality gates. |
-| 🧠 **Remember and operate** | `omh-memory-new` · `omh-memory-sync` · `omh-ops-observability-card` · `omh-doctor` | Keeps project memory review-first, surfaces operational readiness, and gives the next repair action without inventing provider or system state. |
-| 🔌 **Connect without hiding boundaries** | `omh-toolbelt-readiness` · `omh-external-connector-readiness` · `omh-agent-board` | Checks whether a needed tool, connector, or agent surface is really available before work depends on it, and keeps host load, tool use, and external-provider access separately observable. |
+| Intelligence | What OMH adds |
+| --- | --- |
+| 🧭 **Model-aware routing** | Prepares editable recommendations from safe local metadata and user-confirmed active candidates while keeping model choice separate from coding ownership. |
+| ⚡ **Observed parallel work** | Splits independent work into explicit fanout units with isolated ownership, progress observation, and verification gates. |
+| 🎼 **Maestro handoffs** | Prepares handoffs to explicit coding owners and runtime profiles without becoming a hidden executor or treating preparation as execution. |
+| 🛠️ **Host-aware tool guidance** | Prepares conditional, host-specific batch or eval guidance; the guidance is not proof that a capability was available or a tool ran. |
+| 🧠 **Context intelligence** | Projects compact, reviewed repository context without inventing hidden memory or silently changing the selected route. |
+| 📚 **Just-in-time learning** | Selects the highest-value learning target for the current blocker and prepares source-backed, application-first guidance without claiming learning already happened. |
+| 🔍 **Evidence-bound delivery** | Separates prepared intent, observed runtime activity, and verified outcomes across coding, review, CI, and merge work. |
 
 <br>
-
-## Built For Real Work
-
-<p align="center">
-  <img src="assets/built-for-real-work-orchestration-ai.png" alt="OMH orchestrating coding agents, creative tools, and AI" width="900">
-</p>
-
-> **OMH (Oh-My-Hermes)** — Anyone can use hermes-agent professionally.<br>
-> The powerful intelligence harness for your AI Agent.
-
-**🧭 A stronger router, not a command dump.** English, Korean, Japanese,
-Chinese, Spanish, French, German, and Hindi operator requests can be
-classified locally without a translation API. OMH returns the recommended
-family, skill, owner, next action, and what is still not evidence.
-
-**🤝 Better coding handoffs.** OMH can include repository constraints, accepted
-scope, worktree and session-isolation guidance, locally available skills,
-acceptance criteria, review expectations, and verification gates. Codex, Claude
-Code, Hermes, the OMO runtime (via its `pi`, `senpi`, or `opencode` host CLI),
-and generic executors remain explicit owners rather than hidden defaults.
-
-**🎨 Quality-aware creation.** Frontend, accessibility, image, report, slide,
-document, spreadsheet, PDF, poster, and shareable-package requests are routed
-through specialized production and QA guidance. A prepared brief is never
-presented as a generated or visually verified artifact.
-
-**🔍 Evidence before claims.** OMH separates prepared intent, observed runtime
-events, and verified results. A handoff can be ready without claiming that an
-executor ran, a review passed, CI succeeded, a deployment completed, or a PR
-was merged.
-
-**🧠 Review-first project memory.** OMH keeps project-memory candidates separate
-from approved records and recalls only reviewed, prepared context into future
-handoffs. It does not pretend to read or mutate opaque Hermes memory.
-
-**💬 Project-aware clarification, without automatic routing.** In
-natural-language Hermes chat, reviewed terminology from the current repository
-can improve one ambiguous wrapper question. OMH derives the current project
-internally; users do not provide a domain scope, and the context is not
-persisted. The clarification does not change the selected route or mean that
-planning, execution, review, CI, or merge work happened.
-
-**🔌 Provider-neutral operations.** Metric, wiki, browser, image, video, and
-connector systems sit behind explicit external-provider contracts. OMH can
-validate and analyze supplied data without pretending that a provider was
-connected or called.
-
-**🏛️ Hermes-native, executor-neutral architecture.** Hermes remains the chat,
-clarification, planning, research, and status surface. The selected executor
-owns implementation, while OMH supplies the local contracts, routing, memory,
-quality gates, and evidence boundaries around that work.
-
-**🧱 Local-first control plane.** Core OMH routing, catalogs, manifests, and
-claim rules are deterministic local surfaces. External calls and provider
-access stay explicit integrations rather than hidden behavior inside the core.
-
-<br>
-
-<p align="center">
-  <img src="assets/omh-goal-post.png" alt="Post from @rlaope: the goal of oh-my-hermes is a single entry point for Hermes Agent that eliminates plugin fatigue and turns anyone into a power user" width="680">
-</p>
 
 ## Evidence Before Claims
 

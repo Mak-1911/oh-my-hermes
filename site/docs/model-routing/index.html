@@ -113,20 +113,22 @@
             replaces the chains it names and leaves the rest untouched.
           </p>
           <div class="reference-grid">
-            <a class="reference-link" href="#missing"><span>ultrabrain</span><h3>Deepest reasoning</h3><p>Reserved for work that declares it needs that depth.</p></a>
-            <a class="reference-link" href="#missing"><span>deep</span><h3>Strong default tier</h3><p>The composer's default rather than the deepest one.</p></a>
-            <a class="reference-link" href="#missing"><span>unspecified-high</span><h3>Default working model</h3><p>Standard implementation heads here.</p></a>
-            <a class="reference-link" href="#missing"><span>unspecified-low</span><h3>Cheaper fallback</h3><p>Closes a chain with a different model, not a weaker effort.</p></a>
-            <a class="reference-link" href="#missing"><span>quick</span><h3>Short tasks</h3><p>Ships with no editorial default; add your own.</p></a>
-            <a class="reference-link" href="#missing"><span>writing</span><h3>Prose and docs</h3><p>Ships with no editorial default; add your own.</p></a>
-            <a class="reference-link" href="#missing"><span>visual-engineering</span><h3>Frontend and visual</h3><p>Editorial visual-work order, still fully replaceable.</p></a>
-            <a class="reference-link" href="#missing"><span>artistry</span><h3>Unconventional work</h3><p>Ships with no editorial default; add your own.</p></a>
+            <a class="reference-link" href="#missing"><span>ultrabrain</span><h3>Deepest reasoning</h3><p>GPT-5.6 Sol.</p></a>
+            <a class="reference-link" href="#missing"><span>deep</span><h3>Strong default tier</h3><p>GPT-5.6 Terra.</p></a>
+            <a class="reference-link" href="#missing"><span>unspecified-high</span><h3>Default working model</h3><p>Kimi K3 → Claude Opus 5.</p></a>
+            <a class="reference-link" href="#missing"><span>unspecified-low</span><h3>Cheaper fallback</h3><p>GLM 5.2 → GLM 5.2 Ultrafast.</p></a>
+            <a class="reference-link" href="#missing"><span>quick</span><h3>Short tasks</h3><p>GLM 5.2 Ultrafast → Kimi K3.</p></a>
+            <a class="reference-link" href="#missing"><span>writing</span><h3>Prose and docs</h3><p>Kimi K3 → Qwen3-Coder → Gemini 3.1 Pro.</p></a>
+            <a class="reference-link" href="#missing"><span>visual-engineering</span><h3>Frontend and visual</h3><p>Claude Fable 5 → Kimi K3.</p></a>
+            <a class="reference-link" href="#missing"><span>artistry</span><h3>Unconventional work</h3><p>Gemini 3.1 Pro → Claude Fable 5 → Kimi K3.</p></a>
           </div>
           <p>
-            Categories where the shipped profile defines no recommendation stay
-            explicit empty chains rather than gaining invented defaults. An
-            override cannot add a category, invent a role slot, or carry
-            provider configuration, and secret-looking fields are rejected.
+            Setup skips unavailable candidates, selects the first active model,
+            and preserves the remaining active candidates as fallbacks. A
+            category with no active candidate stays unconfigured instead of
+            blocking installation. An override cannot add a category, invent a
+            role slot, or carry provider configuration, and secret-looking
+            fields are rejected.
           </p>
           <div class="command" role="region" aria-label="Model recommendation override example" tabindex="0"><code>{
   "schema_version": "model_recommendation_overrides/v1",
@@ -141,6 +143,14 @@
     ]
   }
 }</code></div>
+          <h3>Or ask Hermes or another coding agent to install it</h3>
+          <div class="command" role="region" aria-label="Agent installation prompt" tabindex="0"><code>Hey, install Oh My Hermes for me: https://github.com/rlaope/oh-my-hermes
+Read the README first, then run the installer that matches this machine
+(curl ... install.sh | sh on macOS/Linux, irm ... install.ps1 | iex on Windows).
+Then run `omh setup --model-setup --interactive`, then `omh doctor`, and paste the doctor output back to me.
+When setup asks about model routing, keep the categories I already have models for,
+leave the rest unconfigured, and tell me which categories ended up empty.
+Don't touch anything else in my Hermes config.</code></div>
         </section>
 
         <section class="docs-section docs-two-column" id="missing">
@@ -216,7 +226,7 @@
             Claude and GPT families.
           </p>
           <div class="reference-grid">
-            <a class="reference-link" href="#domain"><span>qwen</span><h3>Qwen</h3><p>Recognized family and command-name presence metadata; no shipped editorial default.</p></a>
+            <a class="reference-link" href="#domain"><span>qwen</span><h3>Qwen</h3><p>Qwen3-Coder is the second candidate in the shipped writing chain.</p></a>
             <a class="reference-link" href="#domain"><span>gemini</span><h3>Gemini</h3><p>Recognized family, command-name presence metadata, and a listed X-platform synthesis alternative.</p></a>
             <a class="reference-link" href="#domain"><span>grok</span><h3>Grok</h3><p>Recognized family and command-name presence metadata, with an X-platform domain note.</p></a>
             <a class="reference-link" href="#domain"><span>kimi</span><h3>Kimi</h3><p>Recognized family and an editorial general-work candidate.</p></a>

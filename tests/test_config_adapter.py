@@ -5,10 +5,62 @@ import unittest
 from _local_package import load_local_package
 
 load_local_package()
-from omh.config_adapter import ensure_external_dir, external_dirs, remove_external_dir
+from omh.config_adapter import (
+    display_interface_selection,
+    ensure_external_dir,
+    ensure_tui_interface,
+    external_dirs,
+    remove_external_dir,
+)
 
 
 class ConfigAdapterTests(unittest.TestCase):
+    def test_ensure_tui_interface_handles_supported_config_shapes_idempotently(self) -> None:
+        fixtures = (
+            ("", "display:\n  interface: tui\n"),
+            (
+                "display:\n  compact: true\n",
+                "display:\n  interface: tui\n  compact: true\n",
+            ),
+        )
+        for original, expected in fixtures:
+            with self.subTest(original=original):
+                first = ensure_tui_interface(original)
+                second = ensure_tui_interface(first.text)
+
+                self.assertTrue(first.changed)
+                self.assertEqual(first.text, expected)
+                self.assertFalse(second.changed)
+                self.assertEqual(second.text, expected)
+
+    def test_ensure_tui_interface_preserves_ambiguous_yaml_shapes(self) -> None:
+        fixtures = (
+            "display: {interface: cli, compact: true}\n",
+            "display.interface: cli\n",
+            "display:\n  interface: cli\ndisplay:\n  compact: true\n",
+            "display:\n  interface: cli\n  interface: classic\n",
+            "display:\n  interface:\n    mode: cli\n",
+            "display:\n    interface: classic\n",
+            "display :\n  interface: classic\n",
+            " display:\n  interface: classic\n",
+        )
+        for original in fixtures:
+            with self.subTest(original=original):
+                change = ensure_tui_interface(original)
+                self.assertFalse(change.changed)
+                self.assertEqual(change.text, original)
+                self.assertEqual(display_interface_selection(change.text), "")
+
+    def test_ensure_tui_interface_preserves_explicit_user_preferences(self) -> None:
+        for selected in ("cli", "classic", "tui"):
+            with self.subTest(selected=selected):
+                original = f"display:\n  interface: {selected}\n"
+                change = ensure_tui_interface(original)
+
+                self.assertFalse(change.changed)
+                self.assertEqual(change.text, original)
+                self.assertEqual(display_interface_selection(change.text), selected)
+
     def test_external_dirs_treats_bare_yaml_null_as_empty(self) -> None:
         for value in ("null", "Null", "NULL", "~"):
             with self.subTest(value=value):

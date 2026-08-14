@@ -31,6 +31,13 @@ class HudCliTests(unittest.TestCase):
                     "routed_model": "gpt-5.6-sol",
                     "routed_reasoning_effort": "xhigh",
                     "tokens_total": 18_200,
+                    "elapsed_seconds": 23,
+                    "category": "deep",
+                    "fallback_count": 2,
+                    "turn_count": 3,
+                    "tool_count": 14,
+                    "cost_usd": 0.1346,
+                    "tokens_per_second": 45,
                     "latest_event": {
                         "event_type": "repo_exploration",
                         "summary": "Inspecting the routing implementation.",
@@ -115,27 +122,54 @@ class HudCliTests(unittest.TestCase):
             [
                 {
                     "state": "running",
+                    "task_id": "explore",
                     "role": "explore",
                     "action": "Inspecting the routing implementation.",
                     "model": "gpt-5.6-sol",
                     "effort": "xhigh",
                     "tokens": 18_200,
+                    "elapsed_seconds": 23,
+                    "observed_at": "2026-08-13T11:00:00Z",
+                    "category": "deep",
+                    "fallback_count": 2,
+                    "turn_count": 3,
+                    "tool_count": 14,
+                    "cost_usd": 0.1346,
+                    "tokens_per_second": 45,
                 },
                 {
                     "state": "running",
+                    "task_id": "libraria",
                     "role": "librarian",
                     "action": "Running focused routing tests.",
                     "model": "kimi-k3",
                     "effort": "",
                     "tokens": 4_300,
+                    "elapsed_seconds": None,
+                    "observed_at": "2026-08-13T11:01:00Z",
+                    "category": "",
+                    "fallback_count": None,
+                    "turn_count": None,
+                    "tool_count": None,
+                    "cost_usd": None,
+                    "tokens_per_second": None,
                 },
                 {
                     "state": "blocked",
+                    "task_id": "architec",
                     "role": "architect",
                     "action": "Waiting for the Windows CI result.",
                     "model": "claude-opus-5",
                     "effort": "",
                     "tokens": None,
+                    "elapsed_seconds": None,
+                    "observed_at": "2026-08-13T11:02:00Z",
+                    "category": "",
+                    "fallback_count": None,
+                    "turn_count": None,
+                    "tool_count": None,
+                    "cost_usd": None,
+                    "tokens_per_second": None,
                 },
             ],
         )
@@ -143,13 +177,28 @@ class HudCliTests(unittest.TestCase):
         widget_text = "\n".join(payload["display"]["widget_lines"])
         self.assertIn("[OMH]", widget_text)
         self.assertIn("ULW model routing review", widget_text)
-        self.assertIn("executing", widget_text)
+        self.assertIn("active", widget_text)
         self.assertIn("agents 3", widget_text)
         self.assertIn("run 2", widget_text)
         self.assertIn("block 1", widget_text)
         self.assertIn("done 1", widget_text)
         for duplicate in ("cwd", "branch", "context", "cost", "provider", "model:"):
             self.assertNotIn(duplicate, widget_text.casefold())
+
+    def test_hud_replaces_internal_runtime_labels_with_friendly_status(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import _hud_widget_lines
+
+        lines = _hud_widget_lines(
+            {
+                "runtime": {"workflow": "fanout-unit", "phase": "runtime"},
+                "subagents": {"active": 0, "running": 0, "blocked": 0, "completed": 0},
+            }
+        )
+
+        self.assertIn("[OMH] Parallel work ready", lines[0])
+        self.assertIn("ready  •  agents 0  •  run 0  •  block 0  •  done 0", lines[0])
+        self.assertNotIn("fanout-unit", lines[0])
+        self.assertNotIn(" runtime ", lines[0])
 
     def test_hud_fails_closed_for_unsafe_runtime_state(self) -> None:
         from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
@@ -196,6 +245,35 @@ class HudCliTests(unittest.TestCase):
                     self.assertNotIn(sentinel, rendered)
                     self.assertLessEqual(len(rendered), 16_384)
 
+    def test_hud_reads_the_checked_descriptor_when_the_path_is_replaced(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import _read_hud_json
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_path = root / "state.json"
+            external = root / "external.json"
+            state_path.write_text('{"version": "safe"}', encoding="utf-8")
+            external.write_text('{"version": "secret"}', encoding="utf-8")
+            from omh.plugin_bundle.omh import runtime_reader
+
+            original_open = runtime_reader.os.open
+            swapped = False
+
+            def open_then_replace(path: str | bytes | Path, *args: object, **kwargs: object) -> int:
+                nonlocal swapped
+                descriptor = original_open(path, *args, **kwargs)
+                if Path(path) == state_path:
+                    state_path.unlink()
+                    state_path.symlink_to(external)
+                    swapped = True
+                return descriptor
+
+            with patch.object(runtime_reader.os, "open", open_then_replace):
+                payload = _read_hud_json(state_path)
+
+            self.assertTrue(swapped)
+            self.assertEqual(payload, {"version": "safe"})
+
     def test_hud_rejects_symlinked_run_directories(self) -> None:
         from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
 
@@ -223,6 +301,75 @@ class HudCliTests(unittest.TestCase):
 
             self.assertEqual(payload["runtime"]["workflow"], "idle")
             self.assertNotIn(sentinel, rendered)
+
+    def test_hud_rejects_symlinked_runtime_and_plugin_ancestors(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        sentinel = "EXTERNAL_HUD_SECRET"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            external_runtime = root / "external-runtime"
+            external_plugin = root / "external-plugin"
+            external_achievements = root / "external-achievements"
+            external_runtime.mkdir()
+            external_plugin.mkdir()
+            external_achievements.mkdir()
+            (external_runtime / "state.json").write_text(
+                json.dumps({"version": sentinel}),
+                encoding="utf-8",
+            )
+            (external_plugin / "plugin.yaml").write_text(
+                f"version: {sentinel}\n",
+                encoding="utf-8",
+            )
+            (external_achievements / "state.json").write_text(
+                json.dumps({"unlocked": [sentinel]}),
+                encoding="utf-8",
+            )
+            omh_home.mkdir()
+            (omh_home / "runtime").symlink_to(external_runtime, target_is_directory=True)
+            (hermes_home / "plugins").mkdir(parents=True)
+            (hermes_home / "plugins" / "omh").symlink_to(external_plugin, target_is_directory=True)
+            (hermes_home / "plugins" / "hermes-achievements").symlink_to(
+                external_achievements,
+                target_is_directory=True,
+            )
+
+            payload = read_omh_hud(omh_home, hermes_home, package_version="1.0.5")
+
+            self.assertNotIn(sentinel, json.dumps(payload))
+            self.assertFalse(payload["active"])
+
+    def test_plugin_capabilities_reject_symlinked_files_and_role_catalog(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import (
+            TOOL_FILE_STEMS,
+            _plugin_capabilities,
+        )
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hermes_home = root / ".hermes"
+            plugin_dir = hermes_home / "plugins" / "omh"
+            tools_dir = plugin_dir / "tools"
+            references_dir = plugin_dir / "references"
+            external = root / "external.py"
+            tools_dir.mkdir(parents=True)
+            references_dir.mkdir()
+            external.write_text("# external\n", encoding="utf-8")
+            (plugin_dir / "plugin.yaml").write_text("name: omh\n", encoding="utf-8")
+            (plugin_dir / "__init__.py").symlink_to(external)
+            (references_dir / "role-coding.md").symlink_to(external)
+            for stem in set(TOOL_FILE_STEMS.values()):
+                (tools_dir / f"{stem}.py").symlink_to(external)
+
+            capabilities = _plugin_capabilities(plugin_dir, {}, root=hermes_home)
+
+            self.assertFalse(capabilities["files"]["init_py"])
+            self.assertFalse(capabilities["files"]["role_catalog"])
+            for stem in set(TOOL_FILE_STEMS.values()):
+                self.assertFalse(capabilities["files"][stem])
 
     def test_hud_rejects_symlinked_run_auxiliary_metadata(self) -> None:
         from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
@@ -335,6 +482,8 @@ class HudCliTests(unittest.TestCase):
                     "routed_model": "gpt-5.6-sol",
                     "routed_reasoning_effort": "xhigh",
                     "tokens_total": 42_100,
+                    "cache_hit_percentage": 0,
+                    "context_percentage": 41.5,
                     "latest_event": {
                         "event_type": "progress_observed",
                         "status": "running",
@@ -361,6 +510,8 @@ class HudCliTests(unittest.TestCase):
         self.assertEqual(payload["maestro"]["status"], "observed")
         self.assertEqual(payload["maestro"]["rows"][0]["role"], "codex")
         self.assertEqual(payload["maestro"]["rows"][0]["model"], "gpt-5.6-sol")
+        self.assertEqual(payload["maestro"]["rows"][0]["cache_hit_percentage"], 0)
+        self.assertEqual(payload["maestro"]["rows"][0]["context_percentage"], 41.5)
         self.assertEqual(len(payload["subagents"]["rows"]), 1)
 
     def test_hud_bounds_workflow_within_allowed_file_size(self) -> None:

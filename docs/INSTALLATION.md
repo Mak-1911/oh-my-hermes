@@ -165,7 +165,9 @@ The shipped catalog is editorial policy, not benchmark output:
 | `unspecified-high` | Kimi K3, Claude Opus 5 |
 | `unspecified-low` | GLM 5.2, GLM 5.2 Ultrafast |
 | `visual-engineering` | Claude Fable 5, Kimi K3 |
-| `quick`, `writing`, `artistry` | No shipped default; choose a confirmed compatible model |
+| `quick` | GLM 5.2 Ultrafast, Kimi K3 |
+| `writing` | Kimi K3, Qwen3-Coder, Gemini 3.1 Pro |
+| `artistry` | Gemini 3.1 Pro, Claude Fable 5, Kimi K3 |
 | `x_platform_data` affinity | Grok, Kimi K3, Gemini |
 
 The X/Grok row is a static, editable affinity for work explicitly declaring X

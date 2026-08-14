@@ -3278,20 +3278,9 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[GitHub Pages site](site/index.html)", readme)
         self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal", readme)
         self.assertIn("replacing Hermes or hiding a coding executor", readme)
-        self.assertIn("**106 installable workflow skills**", readme)
-        self.assertIn("**106개**", localized_readmes["ko"])
-        self.assertIn("**106 個**", localized_readmes["ja"])
-        self.assertIn("**106 个**", localized_readmes["zh"])
-        self.assertIn("나머지 94개", localized_readmes["ko"])
-        self.assertIn("残り 94 個", localized_readmes["ja"])
-        self.assertIn("其余 94 个", localized_readmes["zh"])
-        # The omh-labeled complement is derived, not pinned: total installable
-        # skills minus the ULW engine names. A new skill or engine moves the
-        # README prose only when the arithmetic moves it.
-        from omh.skills.catalog_types import ULW_ENGINE_SKILL_NAMES
-
-        omh_labeled_complement = len(builtin_skill_templates()) - len(ULW_ENGINE_SKILL_NAMES)
-        self.assertIn(f"the remaining {omh_labeled_complement} skills use `omh-` labels", readme)
+        self.assertIn("| Intelligence | What OMH adds |", readme)
+        self.assertIn("**Model-aware routing**", readme)
+        self.assertNotIn("## Built For Real Work", readme)
         for localized_readme in localized_readmes.values():
             # A localized README stays a trimmed landing page, never a full
             # translation of every English section. The budget grew from 240
@@ -3827,10 +3816,6 @@ class RouterContentTests(unittest.TestCase):
             (
                 "## What OMH Adds",
                 {"ko": "## OMH가 더하는 것", "ja": "## OMH が追加するもの", "zh": "## OMH 提供什么"},
-            ),
-            (
-                "## Built For Real Work",
-                {"ko": "## 실제 업무를 위한 설계", "ja": "## 実務向けの設計", "zh": "## 面向真实工作的设计"},
             ),
             (
                 "## Evidence Before Claims",
