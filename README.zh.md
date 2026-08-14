@@ -130,6 +130,9 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
 ```sh
 omh update
 ```
+`omh update` 会检测安装来源，先通过 Homebrew、Bun、npm、curl 或
+PowerShell 更新命令包，再重新进入新命令，同时刷新托管技能、插件包和现有
+Hermes 注册。
 
 **验证安装或排查问题：**
 ```sh

@@ -18,18 +18,26 @@ omh setup
 
 Use `omh doctor` later to verify or troubleshoot the installation.
 
-Update or remove the command with the manager that installed it:
+Use the same OMH command after either installation:
 
 ```sh
-bun update -g oh-my-hermes
+omh update
+```
+
+It detects npm or Bun, updates the global command package through that manager,
+then re-enters the updated command to refresh managed skills, the installed
+plugin bundle, and existing Hermes registration. Manual fallback and removal:
+
+```sh
+bun update -g --latest oh-my-hermes
 bun remove -g oh-my-hermes
 npm update -g oh-my-hermes
 npm uninstall -g oh-my-hermes
 ```
 
-These commands change only the CLI package. They preserve `~/.omh`, installed
-skills, memory, and Hermes registration. Run `omh uninstall --all` before the
-manager's remove command when you want a complete removal.
+Removal preserves `~/.omh`, installed skills, memory, and Hermes registration.
+Run `omh uninstall --all` before the manager's remove command when you want a
+complete removal.
 
 ## Launcher cache
 

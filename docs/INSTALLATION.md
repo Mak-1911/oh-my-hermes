@@ -76,6 +76,26 @@ Hermes:
 omh setup
 ```
 
+### Keep every installed layer current
+
+The same command updates every supported installation path:
+
+```sh
+omh update
+```
+
+For Homebrew, Bun, and npm installs, the launcher records the owning package
+manager. `omh update` runs that manager's native upgrade first, then re-enters
+the newly installed `omh` command. The curl and PowerShell installers use the
+same flow through their isolated managed virtual environment. After the command
+package succeeds, the re-entered command refreshes managed skills, an already
+installed plugin bundle, and existing Hermes registration.
+
+An explicit `--source` or `--from-skills-dir` remains a workflow-content-only
+operation, and `--dry-run` never changes the command package. A source checkout
+or other unmanaged Python environment is not rewritten implicitly; the result
+reports the supported installer command instead.
+
 ### Verify or troubleshoot the installation
 
 Run doctor separately after setup:
@@ -1417,12 +1437,14 @@ omh update
 omh doctor
 ```
 
-Most users should run only `omh update`. When `omh` is running from the default
-install.sh-managed venv, the command first updates the command package from the
-recorded preview/stable package source, re-enters the updated CLI, refreshes the
-managed skills, and records a concise update log. If `omh` is running from a
-pip, pipx, distro, or custom Python install that OMH cannot safely mutate, the
-update still refreshes workflows but prints
+Most users should run only `omh update`. Homebrew, Bun, and npm launchers record
+their package-manager provenance; the update runs that manager's native
+upgrade, re-enters the updated CLI, refreshes the managed skills, and records a
+concise update log. The curl and PowerShell installers follow the same sequence
+through their managed virtual environment and recorded preview/stable source.
+If `omh` is running from a pip, pipx, distro, source checkout, or custom Python
+install that OMH cannot safely mutate, the update still refreshes workflows but
+prints
 `OMH command: not updated (workflows only)` plus the installer command needed to
 update the CLI itself. Successful command package updates print a compact line
 such as `OMH command: 1.0.1 -> 1.0.4 (updated)` or
@@ -1430,18 +1452,18 @@ such as `OMH command: 1.0.1 -> 1.0.4 (updated)` or
 
 ### Package-manager command updates
 
-When Homebrew, Bun, or npm installed the command, `omh update` refreshes
-OMH-managed skills and state but intentionally does not mutate the package
-manager's CLI files. Upgrade that command package first, then run `omh update`:
+When Homebrew, Bun, or npm installed the command, `omh update` uses the matching
+native command automatically:
 
 | Installed with | Upgrade command |
 | --- | --- |
 | Homebrew | `brew upgrade rlaope/tap/omh` |
-| Bun | `bun update -g oh-my-hermes` |
+| Bun | `bun update -g --latest oh-my-hermes` |
 | npm | `npm update -g oh-my-hermes` |
 
-Do not run the curl installer over a package-manager installation; that creates
-a second independently managed `omh` command.
+If the manager update fails, OMH stops before refreshing content and reports the
+manager error. Do not run the curl installer over a package-manager
+installation; that creates a second independently managed `omh` command.
 
 Advanced operators can still pin or test a different source with
 `omh update --channel stable --version <version>` or
@@ -1449,13 +1471,14 @@ Advanced operators can still pin or test a different source with
 release validation, fixtures, or intentional rollback testing. Local
 modifications block updates unless `--force` is supplied.
 
-Run `omh doctor` after an update. Use `omh setup` only when doctor reports that
-Hermes registration needs repair, then restart Hermes Agent. Rerun the installer
-manually only when `omh update` says the command package was not updated, or
-when you intentionally want a one-shot reinstall from a specific source ref. The
-installer passes command-package update evidence into OMH so the state log can
-show version/ref movement such as `1.0.1 -> 1.0.4` or `main@old -> main@new`
-when `OMH_SOURCE_REF` is provided:
+Run `omh doctor` after an update, then restart Hermes Agent. `omh update`
+refreshes existing Hermes registration along with the plugin bundle; use
+`omh setup` only when doctor reports that first-time setup or a repair is still
+needed. Rerun the installer manually only when `omh update` says the command
+package was not updated, or when you intentionally want a one-shot reinstall
+from a specific source ref. The installer passes command-package update
+evidence into OMH so the state log can show version/ref movement such as
+`1.0.1 -> 1.0.4` or `main@old -> main@new` when `OMH_SOURCE_REF` is provided:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh

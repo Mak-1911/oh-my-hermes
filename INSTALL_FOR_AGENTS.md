@@ -150,18 +150,23 @@ loaded the plugin bridge, executed code, reviewed a PR, passed CI, or merged.
 
 ## Package-Manager Lifecycle
 
-`omh update` refreshes managed skills and state. It does not replace a
-Homebrew, Bun, or npm command package. Report and use the owning manager:
+`omh update` is the normal update command for every supported install path. It
+detects Homebrew, Bun, npm, curl, or PowerShell provenance, upgrades the command
+package through that owner, re-enters the updated command, then refreshes
+managed skills, the installed plugin bundle, and existing Hermes registration.
+Use the owning manager directly only as a reported repair fallback:
 
 | Installed with | Upgrade | Remove |
 | --- | --- | --- |
 | Homebrew | `brew upgrade rlaope/tap/omh` | `brew uninstall omh` |
-| Bun | `bun update -g oh-my-hermes` | `bun remove -g oh-my-hermes` |
+| Bun | `bun update -g --latest oh-my-hermes` | `bun remove -g oh-my-hermes` |
 | npm | `npm update -g oh-my-hermes` | `npm uninstall -g oh-my-hermes` |
 
 Removing the command package preserves OMH state. For full cleanup, run
 `omh uninstall --all` before the manager's remove command. Never run the curl
-installer over a package-manager command to update it.
+installer over a package-manager command to update it. An explicit
+`omh update --source ...` refreshes workflow content only and does not replace
+the command package.
 
 For release-candidate verification, add the Hermes CLI smoke. Plan mode is safe
 and non-mutating:

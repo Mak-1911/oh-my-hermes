@@ -183,24 +183,28 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
 omh update
 ```
 
+`omh update` detects how the command was installed. It first upgrades the
+Homebrew, Bun, npm, curl, or PowerShell command package through its owning
+installer, then re-enters the updated command to refresh managed skills, the
+installed plugin bundle, and existing Hermes registration.
+
 **Verify or troubleshoot the installation:**
 
 ```sh
 omh doctor
 ```
 
-**Update or remove the command package with the manager that installed it:**
+**Manual package-manager fallback or removal:**
 
 | Installed with | Upgrade the CLI | Remove the CLI |
 | --- | --- | --- |
 | Homebrew | `brew upgrade rlaope/tap/omh` | `brew uninstall omh` |
-| Bun | `bun update -g oh-my-hermes` | `bun remove -g oh-my-hermes` |
+| Bun | `bun update -g --latest oh-my-hermes` | `bun remove -g oh-my-hermes` |
 | npm | `npm update -g oh-my-hermes` | `npm uninstall -g oh-my-hermes` |
 
-`omh update` refreshes OMH-managed skills and state; it does not replace a
-Homebrew, Bun, or npm package. Removing the command package preserves OMH state.
-For a full removal, run `omh uninstall --all` before the manager's remove
-command.
+Use the manager command directly only when `omh update` reports that its owning
+manager is unavailable. Removing the command package preserves OMH state. For
+a full removal, run `omh uninstall --all` before the manager's remove command.
 
 Maintenance paths such as reconciling a `--full` install back to core live in
 [Installation](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core).
