@@ -101,8 +101,18 @@ WINDOWS_INSTALLER_COMMAND = "irm https://raw.githubusercontent.com/rlaope/oh-my-
 COMMAND_PACKAGE_MANAGER_ENV = "OMH_COMMAND_PACKAGE_MANAGER"
 COMMAND_PACKAGE_UPDATE_COMMANDS = {
     "npm": "npm update -g oh-my-hermes",
-    "bun": "bun update -g oh-my-hermes",
+    "bun": "bun update -g --latest oh-my-hermes",
     "homebrew": "brew upgrade rlaope/tap/omh",
+}
+COMMAND_PACKAGE_UPDATE_ARGUMENTS = {
+    "npm": ("update", "-g", "oh-my-hermes"),
+    "bun": ("update", "-g", "--latest", "oh-my-hermes"),
+    "homebrew": ("upgrade", "rlaope/tap/omh"),
+}
+COMMAND_PACKAGE_EXECUTABLES = {
+    "npm": "npm",
+    "bun": "bun",
+    "homebrew": "brew",
 }
 
 
@@ -320,11 +330,35 @@ def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, obj
         raise OmhError(str(exc)) from exc
     if release.channel == "local" and release.package_url == "local":
         return {"should_update": False, "reason": "local updates require an explicit package source"}
+    package_manager, update_instruction = _command_package_update_guidance()
+    update_arguments = COMMAND_PACKAGE_UPDATE_ARGUMENTS.get(package_manager)
+    if update_arguments is not None:
+        manager_command = COMMAND_PACKAGE_EXECUTABLES[package_manager]
+        manager_executable = shutil.which(manager_command)
+        if manager_executable is None:
+            raise OmhError(
+                f"cannot update command package because `{manager_command}` is not available on PATH"
+            )
+        omh_executable = shutil.which("omh")
+        if omh_executable is None:
+            raise OmhError(
+                "cannot re-enter the updated command package because `omh` is not available on PATH"
+            )
+        return {
+            "should_update": True,
+            "method": "package_manager",
+            "package_manager": package_manager,
+            "update_instruction": update_instruction,
+            "update_command": _platform_command(manager_executable, *update_arguments),
+            "reentry_command": _platform_command(omh_executable),
+            "reason": f"running from the {package_manager} command package",
+        }
     managed = _managed_command_runtime()
     if not managed["managed"]:
         return {"should_update": False, "reason": managed["reason"]}
     return {
         "should_update": True,
+        "method": "installer",
         "release": release,
         "python": managed["python"],
         "venv_dir": managed["venv_dir"],
@@ -333,6 +367,8 @@ def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, obj
 
 
 def _run_command_package_self_update(args: argparse.Namespace, plan: dict[str, object]) -> int:
+    if plan.get("method") == "package_manager":
+        return _run_package_manager_self_update(args, plan)
     release = plan.get("release")
     package_url = str(getattr(release, "package_url", "") or "")
     if not package_url:
@@ -378,6 +414,63 @@ def _run_command_package_self_update(args: argparse.Namespace, plan: dict[str, o
     env[SELF_UPDATE_REENTRY_ENV] = "1"
     rerun = subprocess.run([python, "-m", "omh.cli", *argv], env=env)
     return int(rerun.returncode)
+
+
+def _run_package_manager_self_update(
+    args: argparse.Namespace,
+    plan: dict[str, object],
+) -> int:
+    package_manager = str(plan["package_manager"])
+    update_instruction = str(plan["update_instruction"])
+    update_command = [str(part) for part in plan["update_command"]]
+    reentry_command = [str(part) for part in plan["reentry_command"]]
+    wants_json = _wants_json(args)
+    progress = _HumanProgress(enabled=not wants_json, use_color=_use_color())
+    progress.header("OMH update", "Refresh the OMH command package and workflow pack.")
+    progress.step(
+        1,
+        2,
+        "Updating omh command package",
+        detail=update_instruction,
+    )
+    completed = subprocess.run(
+        update_command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.returncode != 0:
+        detail = (
+            completed.stderr
+            or completed.stdout
+            or f"{package_manager} update failed"
+        ).strip()
+        raise OmhError(f"command package update failed: {detail}")
+    progress.done("command package updated")
+    if not wants_json:
+        progress.step(2, 2, "Refreshing OMH workflows with the updated command")
+    argv = _reentry_argv_with_command_package_updated()
+    env = dict(os.environ)
+    env[SELF_UPDATE_REENTRY_ENV] = "1"
+    rerun = subprocess.run([*reentry_command, *argv], env=env)
+    return int(rerun.returncode)
+
+
+def _platform_command(
+    executable: str,
+    *arguments: str,
+    platform: str = os.name,
+) -> list[str]:
+    if platform == "nt" and Path(executable).suffix.casefold() in {".bat", ".cmd"}:
+        command_processor = os.environ.get("COMSPEC", "cmd.exe")
+        return [
+            command_processor,
+            "/d",
+            "/c",
+            executable,
+            *arguments,
+        ]
+    return [executable, *arguments]
 
 
 def _reentry_argv_with_command_package_updated() -> list[str]:
@@ -446,7 +539,10 @@ def _command_package_status_for_install(
     if command_package_updated:
         status = "would_update" if dry_run else "updated"
         updated = not dry_run
-        reason = "the installer reported that it refreshed the OMH command package before running this command"
+        reason = (
+            f"{package_manager} refreshed the OMH command package before "
+            "running this command"
+        )
     elif dry_run:
         status = "would_remain_unchanged"
         reason = "dry run previews managed skill changes without changing the command package"
@@ -469,7 +565,7 @@ def _command_package_status_for_install(
 
 def _command_package_source(*, command_package_updated: bool, source: str) -> str:
     if command_package_updated:
-        return "installer"
+        return _command_package_update_guidance()[0]
     if source == "builtin":
         return "installed_command_package"
     return "explicit_skill_source"

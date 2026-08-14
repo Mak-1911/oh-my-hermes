@@ -309,6 +309,11 @@ class NpmBunDistributionTests(unittest.TestCase):
             "OMH_PYTHON": sys.executable,
             "PYTHONPATH": "must-not-be-inherited",
             "PIP_NO_INDEX": "1",
+            # This fixture installs an unpublished local tarball with network
+            # access disabled. Package-manager self-update is covered by the
+            # update routing tests and the public-release QA; this assertion
+            # verifies the staged artifact's own CLI and provenance.
+            "OMH_SKIP_COMMAND_PACKAGE_UPDATE": "1",
         }
         for arguments in (("--version",), ("--help",), ("setup", "--help")):
             result = run(command_for(binary, *arguments), env=env)
@@ -352,7 +357,7 @@ class NpmBunDistributionTests(unittest.TestCase):
         )
         expected_update = {
             "npm": "npm update -g oh-my-hermes",
-            "bun": "bun update -g oh-my-hermes",
+            "bun": "bun update -g --latest oh-my-hermes",
         }[package_manager]
         self.assertEqual(
             update_payload["command_package"]["update_instruction"],

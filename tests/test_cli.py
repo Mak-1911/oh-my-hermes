@@ -2991,7 +2991,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             base = ["--omh-home", str(root / ".omh")]
             with patch.dict(
                 os.environ,
-                {"OMH_COMMAND_PACKAGE_MANAGER": "npm"},
+                {
+                    "OMH_COMMAND_PACKAGE_MANAGER": "npm",
+                    setup_commands.SELF_UPDATE_SKIP_ENV: "1",
+                },
             ):
                 status, stdout, stderr = run_cli(
                     base + ["update"],
@@ -3001,9 +3004,19 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                     base + ["update", "--json"],
                     output_json=False,
                 )
+                updated_status, updated_stdout, updated_stderr = run_cli(
+                    base
+                    + [
+                        "update",
+                        "--command-package-updated",
+                        "--json",
+                    ],
+                    output_json=False,
+                )
 
         self.assertEqual(status, 0, stderr)
         self.assertEqual(json_status, 0, json_stderr)
+        self.assertEqual(updated_status, 0, updated_stderr)
         self.assertIn("npm update -g oh-my-hermes", stdout)
         self.assertNotIn("install.sh", stdout)
         payload = json.loads(json_stdout)
@@ -3015,8 +3028,182 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             payload["command_package"]["update_instruction"],
             "npm update -g oh-my-hermes",
         )
+        updated = json.loads(updated_stdout)
+        self.assertEqual(updated["command_package"]["status"], "updated")
+        self.assertTrue(updated["command_package"]["updated"])
+        self.assertEqual(updated["command_package"]["source"], "npm")
+
+    def test_package_manager_update_plans_native_self_update(self) -> None:
+        args = Namespace(
+            command_package_updated=False,
+            dry_run=False,
+            from_skills_dir=None,
+            source=None,
+            channel="preview",
+            version="",
+            package_url="",
+        )
+        cases = (
+            (
+                "npm",
+                "/usr/local/bin/npm",
+                [
+                    "/usr/local/bin/npm",
+                    "update",
+                    "-g",
+                    "oh-my-hermes",
+                ],
+            ),
+            (
+                "bun",
+                "/usr/local/bin/bun",
+                [
+                    "/usr/local/bin/bun",
+                    "update",
+                    "-g",
+                    "--latest",
+                    "oh-my-hermes",
+                ],
+            ),
+        )
+        for manager, executable, expected_command in cases:
+            with self.subTest(manager=manager):
+                with (
+                    patch.dict(
+                        os.environ,
+                        {
+                            setup_commands.COMMAND_PACKAGE_MANAGER_ENV: manager,
+                            setup_commands.SELF_UPDATE_SKIP_ENV: "",
+                        },
+                    ),
+                    patch.object(
+                        setup_commands.shutil,
+                        "which",
+                        side_effect=lambda command: {
+                            manager: executable,
+                            "omh": "/usr/local/bin/omh",
+                        }.get(command),
+                    ),
+                ):
+                    plan = setup_commands._command_package_self_update_plan(
+                        args
+                    )
+
+                self.assertTrue(plan["should_update"])
+                self.assertEqual(plan["method"], "package_manager")
+                self.assertEqual(plan["package_manager"], manager)
+                self.assertEqual(plan["update_command"], expected_command)
+                self.assertEqual(
+                    plan["reentry_command"],
+                    ["/usr/local/bin/omh"],
+                )
+
+    def test_package_manager_self_update_runs_native_command_and_reenters_omh(
+        self,
+    ) -> None:
+        args = Namespace(json=True)
+        plan = {
+            "method": "package_manager",
+            "package_manager": "npm",
+            "update_instruction": "npm update -g oh-my-hermes",
+            "update_command": [
+                "/usr/local/bin/npm",
+                "update",
+                "-g",
+                "oh-my-hermes",
+            ],
+            "reentry_command": ["/usr/local/bin/omh"],
+        }
+        updated = subprocess.CompletedProcess(
+            args=["npm"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+        reentered = subprocess.CompletedProcess(
+            args=["omh"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+        with patch.object(
+            setup_commands.subprocess,
+            "run",
+            side_effect=[updated, reentered],
+        ) as run:
+            with patch.object(
+                setup_commands.sys,
+                "argv",
+                ["omh", "update", "--json"],
+            ):
+                status = setup_commands._run_command_package_self_update(
+                    args,
+                    plan,
+                )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            run.call_args_list[0].args[0],
+            plan["update_command"],
+        )
+        reentry_args = run.call_args_list[1].args[0]
+        self.assertEqual(reentry_args[:1], ["/usr/local/bin/omh"])
+        self.assertIn("update", reentry_args)
+        self.assertIn("--json", reentry_args)
+        self.assertIn("--command-package-updated", reentry_args)
+        self.assertEqual(
+            run.call_args_list[1].kwargs["env"][
+                setup_commands.SELF_UPDATE_REENTRY_ENV
+            ],
+            "1",
+        )
+
+    def test_package_manager_update_failure_stops_before_reentry(self) -> None:
+        args = Namespace(json=True)
+        plan = {
+            "method": "package_manager",
+            "package_manager": "bun",
+            "update_instruction": "bun update -g --latest oh-my-hermes",
+            "update_command": [
+                "/usr/local/bin/bun",
+                "update",
+                "-g",
+                "--latest",
+                "oh-my-hermes",
+            ],
+            "reentry_command": ["/usr/local/bin/omh"],
+        }
+        failed = subprocess.CompletedProcess(
+            args=["bun"],
+            returncode=1,
+            stdout="",
+            stderr="registry unavailable",
+        )
+
+        with patch.object(
+            setup_commands.subprocess,
+            "run",
+            return_value=failed,
+        ) as run:
+            with self.assertRaisesRegex(
+                OmhError,
+                "registry unavailable",
+            ):
+                setup_commands._run_command_package_self_update(args, plan)
+
+        run.assert_called_once()
 
     def test_homebrew_runtime_uses_native_update_guidance(self) -> None:
+        args = Namespace(
+            command_package_updated=False,
+            dry_run=False,
+            from_skills_dir=None,
+            source=None,
+            channel="preview",
+            version="",
+            package_url="",
+        )
         with (
             patch.dict(os.environ, {}, clear=False),
             patch.object(
@@ -3024,14 +3211,53 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 "prefix",
                 "/opt/homebrew/Cellar/omh/1.0.5/libexec",
             ),
+            patch.object(
+                setup_commands.shutil,
+                "which",
+                side_effect=lambda command: {
+                    "brew": "/opt/homebrew/bin/brew",
+                    "omh": "/opt/homebrew/bin/omh",
+                }.get(command),
+            ),
         ):
             os.environ.pop("OMH_COMMAND_PACKAGE_MANAGER", None)
             package_manager, instruction = (
                 setup_commands._command_package_update_guidance()
             )
+            plan = setup_commands._command_package_self_update_plan(args)
 
         self.assertEqual(package_manager, "homebrew")
         self.assertEqual(instruction, "brew upgrade rlaope/tap/omh")
+        self.assertTrue(plan["should_update"])
+        self.assertEqual(plan["package_manager"], "homebrew")
+        self.assertEqual(
+            plan["update_command"],
+            [
+                "/opt/homebrew/bin/brew",
+                "upgrade",
+                "rlaope/tap/omh",
+            ],
+        )
+
+    def test_windows_command_shims_run_through_command_processor(self) -> None:
+        self.assertEqual(
+            setup_commands._platform_command(
+                r"C:\npm\npm.cmd",
+                "update",
+                "-g",
+                "oh-my-hermes",
+                platform="nt",
+            ),
+            [
+                "cmd.exe",
+                "/d",
+                "/c",
+                r"C:\npm\npm.cmd",
+                "update",
+                "-g",
+                "oh-my-hermes",
+            ],
+        )
 
     def test_update_self_update_reenters_with_command_package_marker(self) -> None:
         args = Namespace(json=True)
