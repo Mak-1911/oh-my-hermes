@@ -1465,8 +1465,9 @@ If the manager update fails, OMH stops before refreshing content and reports the
 manager error. Do not run the curl installer over a package-manager
 installation; that creates a second independently managed `omh` command.
 
-Installer-managed commands can still pin or test a different command package
-with `omh update --channel stable --version <version>`. Package-manager installs
+Advanced operators using installer-managed commands can still pin or test a
+different command package with
+`omh update --channel stable --version <version>`. Package-manager installs
 reject `--version`, `--package-url`, and `--source-ref` rather than silently
 installing a different release; use that manager directly for an intentional
 CLI rollback. `omh update --channel local --from-skills-dir ./skills` refreshes
