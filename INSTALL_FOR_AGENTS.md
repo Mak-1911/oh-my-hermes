@@ -27,24 +27,51 @@ readiness until the target Hermes runtime or wrapper has been checked.
 
 ## Step 1: Install OMH
 
+> **Publication status:** Package-manager installs are pending the first distribution release.
+> Until npm and the Homebrew tap are public, choose curl or PowerShell and report
+> that package-manager publication is not yet observed.
+
+Homebrew:
+
+```sh
+brew install rlaope/tap/omh
+```
+
+Bun (recommended):
+
+```sh
+bun install -g oh-my-hermes
+```
+
+npm:
+
+```sh
+npm install -g oh-my-hermes
+```
+
+Universal installer on macOS or Linux:
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
 ```
 
-On native Windows:
+Native Windows (PowerShell 5.1+):
 
 ```powershell
 irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
 ```
 
-Both installers accept the same `OMH_*` environment contract and leave the same
-local result. Report which one was used, because the exposed command differs: a
-symlink at `~/.local/bin/omh` on POSIX, an `omh.cmd` shim in
-`%LOCALAPPDATA%\omh\bin` on Windows.
+Windows npm/Bun launcher support is gated by the Windows CI suite. Until the
+first package-manager release passes that gate, choose PowerShell and report
+the npm/Bun path as prepared but not yet published.
 
-The installer prepares the local `omh` command only. It does not run setup,
-register Hermes skill directories, install profile packs, or run doctor by
-default. Run setup explicitly because it is the repairable, repeatable step:
+The curl and PowerShell installers accept the same `OMH_*` environment contract.
+Package-manager installs use their native global command location. Report which
+path was used and verify that its `omh` command is on `PATH`.
+
+Every installation path prepares the local `omh` command only. It does not run
+setup, register Hermes skill directories, install profile packs, or run doctor
+by default. Run setup once as the shared, repairable, repeatable next step:
 
 ```sh
 omh setup
@@ -81,6 +108,21 @@ Report:
 Install success means a Hermes-usable skill path is configured and doctor has no
 blocking checks. It does not mean Hermes has already reloaded the skills,
 loaded the plugin bridge, executed code, reviewed a PR, passed CI, or merged.
+
+## Package-Manager Lifecycle
+
+`omh update` refreshes managed skills and state. It does not replace a
+Homebrew, Bun, or npm command package. Report and use the owning manager:
+
+| Installed with | Upgrade | Remove |
+| --- | --- | --- |
+| Homebrew | `brew upgrade rlaope/tap/omh` | `brew uninstall omh` |
+| Bun | `bun update -g oh-my-hermes` | `bun remove -g oh-my-hermes` |
+| npm | `npm update -g oh-my-hermes` | `npm uninstall -g oh-my-hermes` |
+
+Removing the command package preserves OMH state. For full cleanup, run
+`omh uninstall --all` before the manager's remove command. Never run the curl
+installer over a package-manager command to update it.
 
 For release-candidate verification, add the Hermes CLI smoke. Plan mode is safe
 and non-mutating:

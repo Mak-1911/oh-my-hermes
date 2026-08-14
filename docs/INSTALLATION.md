@@ -27,21 +27,70 @@ for using OMH.
 
 ## Quick Start
 
-Use this when you just want Hermes to see OMH skills and have the local
-maintenance command available:
+> **Publication status:** Package-manager installs are pending the first distribution release.
+> Until npm and the Homebrew tap are public, use the curl or PowerShell installer.
+
+Choose one installation path. The package-manager paths install the same `omh`
+command as the platform installers.
+
+### Homebrew
+
+```sh
+brew install rlaope/tap/omh
+```
+
+### Bun (recommended)
+
+```sh
+bun install -g oh-my-hermes
+```
+
+### npm
+
+```sh
+npm install -g oh-my-hermes
+```
+
+### Universal installer (macOS/Linux)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
+```
+
+### Windows (PowerShell 5.1+)
+
+```powershell
+irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
+```
+
+Windows npm/Bun launcher support is gated by the Windows CI suite. Until the
+first package-manager release passes that gate, use the PowerShell installer
+instead of treating npm or Bun on Windows as published support.
+
+### Set up OMH
+
+After any installation path, install the managed skills and register them with
+Hermes:
+
+```sh
 omh setup
+```
+
+### Verify or troubleshoot the installation
+
+Run doctor separately after setup:
+
+```sh
 omh doctor
 ```
 
 First-run expectation:
 
-1. `omh setup` installs the managed skills and records safe defaults.
-2. `omh doctor` checks local registration and points to the next repair action.
-3. You restart or reload Hermes Agent.
-4. You ask Hermes normally, for example: `I want to safely add a feature to this repo.`
+1. Your chosen package manager or installer exposes the `omh` command.
+2. `omh setup` installs the managed skills and records safe defaults.
+3. `omh doctor` checks local registration and points to the next repair action.
+4. You restart or reload Hermes Agent.
+5. You ask Hermes normally, for example: `I want to safely add a feature to this repo.`
 
 By default, `omh setup` installs the **core** skill profile: the doctor health
 floor plus the chat/plan/status/handoff essentials a messenger-first user needs
@@ -1359,6 +1408,21 @@ update the CLI itself. Successful command package updates print a compact line
 such as `OMH command: 1.0.1 -> 1.0.4 (updated)` or
 `OMH command: main@old -> main@new (updated)` before the workflow summary.
 
+### Package-manager command updates
+
+When Homebrew, Bun, or npm installed the command, `omh update` refreshes
+OMH-managed skills and state but intentionally does not mutate the package
+manager's CLI files. Upgrade that command package first, then run `omh update`:
+
+| Installed with | Upgrade command |
+| --- | --- |
+| Homebrew | `brew upgrade rlaope/tap/omh` |
+| Bun | `bun update -g oh-my-hermes` |
+| npm | `npm update -g oh-my-hermes` |
+
+Do not run the curl installer over a package-manager installation; that creates
+a second independently managed `omh` command.
+
 Advanced operators can still pin or test a different source with
 `omh update --channel stable --version <version>` or
 `omh update --channel local --from-skills-dir ./skills`, but those flags are for
@@ -1673,6 +1737,34 @@ that OMH cannot safely identify as install.sh-managed.
 If `omh` still runs after uninstall, that means the command package is still on
 `PATH`; remove it with the installer-managed venv, pip, or pipx environment
 that installed it.
+
+### Package-manager command removal
+
+Removing the command package preserves OMH state, including `~/.omh`, reviewed
+memory, installed skills, and Hermes registration. Use the matching native
+command when only the CLI package should be removed:
+
+| Installed with | Remove command |
+| --- | --- |
+| Homebrew | `brew uninstall omh` |
+| Bun | `bun remove -g oh-my-hermes` |
+| npm | `npm uninstall -g oh-my-hermes` |
+
+For a complete removal, run `omh uninstall --all` first to remove OMH-managed
+state and Hermes integration, then run the package-manager remove command.
+
+The npm/Bun launcher keeps the current exact wheel plus the two most recently used caches
+and removes abandoned staging directories after 24 hours. `OMH_CACHE_DIR`
+overrides these defaults:
+
+- macOS: `~/Library/Caches/oh-my-hermes/npm`
+- Linux: `$XDG_CACHE_HOME/oh-my-hermes/npm`, falling back to
+  `~/.cache/oh-my-hermes/npm`
+- Windows: `%LOCALAPPDATA%\oh-my-hermes\Cache\npm`
+
+The package manager and `omh uninstall --all` preserve this external launcher
+cache. After all `omh` processes stop, remove the platform directory manually
+when complete removal must include cached wheels.
 
 Preview the cleanup first:
 

@@ -96,6 +96,12 @@ from .model_setup_rendering import (
 
 POSIX_INSTALLER_COMMAND = "curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh"
 WINDOWS_INSTALLER_COMMAND = "irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex"
+COMMAND_PACKAGE_MANAGER_ENV = "OMH_COMMAND_PACKAGE_MANAGER"
+COMMAND_PACKAGE_UPDATE_COMMANDS = {
+    "npm": "npm update -g oh-my-hermes",
+    "bun": "bun update -g oh-my-hermes",
+    "homebrew": "brew upgrade rlaope/tap/omh",
+}
 
 
 def installer_command() -> str:
@@ -106,6 +112,19 @@ def installer_command() -> str:
     rather than "wrong line was printed".
     """
     return WINDOWS_INSTALLER_COMMAND if os.name == "nt" else POSIX_INSTALLER_COMMAND
+
+
+def _command_package_update_guidance() -> tuple[str, str]:
+    explicit = os.environ.get(COMMAND_PACKAGE_MANAGER_ENV, "").strip().lower()
+    if explicit in COMMAND_PACKAGE_UPDATE_COMMANDS:
+        return explicit, COMMAND_PACKAGE_UPDATE_COMMANDS[explicit]
+    prefix_parts = tuple(part.casefold() for part in Path(sys.prefix).parts)
+    if any(
+        part == "cellar" and prefix_parts[index + 1 : index + 2] == ("omh",)
+        for index, part in enumerate(prefix_parts)
+    ):
+        return "homebrew", COMMAND_PACKAGE_UPDATE_COMMANDS["homebrew"]
+    return "installer", installer_command()
 
 
 COMMAND_PACKAGE_STATUS_SCHEMA_VERSION = "command_package_status/v1"
@@ -418,6 +437,7 @@ def _command_package_status_for_install(
     dry_run: bool,
     command_package_updated: bool = False,
 ) -> dict[str, object]:
+    package_manager, update_instruction = _command_package_update_guidance()
     status = "unchanged"
     reason = "managed skills were refreshed from the currently installed command package"
     updated = False
@@ -440,7 +460,8 @@ def _command_package_status_for_install(
         "updated": updated,
         "source": _command_package_source(command_package_updated=command_package_updated, source=source),
         "reason": reason,
-        "update_instruction": installer_command(),
+        "package_manager": package_manager,
+        "update_instruction": update_instruction,
     }
 
 
@@ -2237,7 +2258,9 @@ def _print_install_summary(payload: dict[str, object], *, command: str, language
     elif label == "update":
         print(f"  {tr(language, 'update_next')}")
         if source == "builtin" and not (isinstance(command_package, dict) and command_package.get("updated")):
-            print(f"  {tr(language, 'update_command_next', command=installer_command())}")
+            instruction = str(command_package.get("update_instruction", "")).strip()
+            if instruction:
+                print(f"  {tr(language, 'update_command_next', command=instruction)}")
     else:
         print(f"  {tr(language, 'install_next')}")
     print(f"  {tr(language, 'machine_readable')}")

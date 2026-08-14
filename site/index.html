@@ -709,37 +709,67 @@
       </section>
 
       <!-- ========================================================= INSTALL -->
-      <section class="section section--install" id="install" aria-labelledby="install-title">
+      <section class="section section--install" id="install" aria-labelledby="install-title" data-package-manager-status="pending">
         <div class="section__head" data-reveal>
           <p class="kicker" data-i18n="install.kicker">Install</p>
-          <h2 id="install-title" data-i18n="install.title">Three commands for people.</h2>
-          <p class="section__lead" data-i18n="install.lead">omh setup, omh update, omh doctor.</p>
+          <h2 id="install-title" data-i18n="install.title">Install your way. Set up once.</h2>
+          <p class="section__lead" data-i18n="install.lead">Choose a package manager or platform installer. Doctor stays a separate check.</p>
+          <p class="install-availability" data-i18n="install.availability.note">Package-manager installs are pending the first distribution release. Use curl or PowerShell until npm and the Homebrew tap are public.</p>
         </div>
 
         <ol class="install-steps">
-          <li class="glass-card install-step" data-reveal>
+          <li class="glass-card install-step install-step--methods" data-reveal>
             <span class="install-step__num" aria-hidden="true">01</span>
             <h3 data-i18n="install.step1">Install the command</h3>
+
+            <div class="install-methods">
+              <div class="terminal install-method--package-manager">
+                <div class="terminal__bar">
+                  <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+                  <strong data-i18n="install.method.brew">Homebrew</strong>
+                  <button class="copy-btn" type="button" data-copy="#cmd-brew"><span data-i18n="hero.copy">Copy</span></button>
+                </div>
+                <pre class="terminal__body"><code id="cmd-brew">brew install rlaope/tap/omh</code></pre>
+              </div>
+
+              <div class="terminal install-method--package-manager">
+                <div class="terminal__bar">
+                  <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+                  <strong data-i18n="install.method.bun">Bun · recommended</strong>
+                  <button class="copy-btn" type="button" data-copy="#cmd-bun"><span data-i18n="hero.copy">Copy</span></button>
+                </div>
+                <pre class="terminal__body"><code id="cmd-bun">bun install -g oh-my-hermes</code></pre>
+              </div>
+
+              <div class="terminal install-method--package-manager">
+                <div class="terminal__bar">
+                  <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+                  <strong data-i18n="install.method.npm">npm</strong>
+                  <button class="copy-btn" type="button" data-copy="#cmd-npm"><span data-i18n="hero.copy">Copy</span></button>
+                </div>
+                <pre class="terminal__body"><code id="cmd-npm">npm install -g oh-my-hermes</code></pre>
+              </div>
 
             <div class="terminal">
               <div class="terminal__bar">
                 <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
-                <strong data-i18n="install.tab.unix">macOS · Linux</strong>
+                <strong data-i18n="install.method.unix">macOS · Linux</strong>
                 <button class="copy-btn" type="button" data-copy="#cmd-unix"><span data-i18n="hero.copy">Copy</span></button>
               </div>
               <pre class="terminal__body"><code id="cmd-unix">curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh</code></pre>
             </div>
 
-            <div class="terminal terminal--stacked">
+            <div class="terminal">
               <div class="terminal__bar">
                 <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
-                <strong data-i18n="install.tab.win">Windows</strong>
+                <strong data-i18n="install.method.windows">Windows</strong>
                 <button class="copy-btn" type="button" data-copy="#cmd-win"><span data-i18n="hero.copy">Copy</span></button>
               </div>
               <pre class="terminal__body"><code id="cmd-win">irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex</code></pre>
             </div>
+            </div>
 
-            <p class="install-step__note" data-i18n="install.step1.note">One line. Pick your OS.</p>
+            <p class="install-step__note" data-i18n="install.step1.note">Pick one installation method.</p>
           </li>
 
           <li class="glass-card install-step install-step--solo" data-reveal data-reveal-delay="90">
@@ -758,8 +788,24 @@
             <p class="install-step__note" data-i18n="install.step2.note">The whole setup.</p>
           </li>
 
-          <li class="glass-card install-step install-step--prompt" data-reveal data-reveal-delay="180">
+          <li class="glass-card install-step install-step--solo install-step--doctor" data-reveal data-reveal-delay="180">
             <span class="install-step__num" aria-hidden="true">03</span>
+            <h3 data-i18n="install.doctor.title">Verify separately</h3>
+
+            <div class="terminal terminal--solo">
+              <div class="terminal__bar">
+                <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+                <strong>omh</strong>
+                <button class="copy-btn" type="button" data-copy="#cmd-doctor"><span data-i18n="hero.copy">Copy</span></button>
+              </div>
+              <pre class="terminal__body terminal__body--solo"><code id="cmd-doctor">omh doctor</code></pre>
+            </div>
+
+            <p class="install-step__note" data-i18n="install.doctor.note">Run doctor after setup to verify or troubleshoot.</p>
+          </li>
+
+          <li class="glass-card install-step install-step--prompt" data-reveal data-reveal-delay="270">
+            <span class="install-step__num" aria-hidden="true">04</span>
             <h3 data-i18n="install.step3">Or ask your agent</h3>
 
             <div class="terminal">
@@ -770,8 +816,9 @@
               </div>
               <pre class="terminal__body terminal__body--prompt"><code id="cmd-agent">Hey, install Oh My Hermes for me: https://github.com/rlaope/oh-my-hermes
 Read the README first, then run the installer that matches this machine
-(curl ... install.sh | sh on macOS/Linux, irm ... install.ps1 | iex on Windows).
-Then run `omh setup`, then `omh doctor`, and paste the doctor output back to me.
+(Homebrew, Bun, npm, curl on macOS/Linux, or PowerShell on Windows).
+After the command is installed, run `omh setup`.
+In a separate verification step, run `omh doctor` and paste the doctor output back to me.
 When setup asks about model routing, keep the categories I already have models for,
 leave the rest unconfigured, and tell me which categories ended up empty.
 Don't touch anything else in my Hermes config.</code></pre>
@@ -782,6 +829,7 @@ Don't touch anything else in my Hermes config.</code></pre>
         </ol>
 
         <p class="install-followup" data-reveal>
+          <span><span data-i18n="install.update.note">Refresh later with</span> <code>omh update</code>.</span>
           <span data-i18n="install.routing.note">Setup records which models are reachable here. Routing order stays editable afterwards.</span>
           <a href="docs/model-routing/" data-i18n="install.routing.link">Model routing setup</a>
         </p>

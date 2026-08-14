@@ -84,41 +84,51 @@
 >   <img src="assets/friren-agent-omh-callout.png" alt="Friren Agent explaining OMH in Art&Engine" width="720">
 > </p>
 ## 빠른 시작
+> **상태:** 패키지 관리자 설치는 첫 배포 릴리스 전까지 대기 상태입니다.
+> npm과 Homebrew tap이 공개되기 전에는 curl 또는 PowerShell 설치 프로그램을 사용하세요.
 
-**로컬 명령과 관리형 skill을 설치합니다:**
-
+**아래 설치 방법 중 하나를 선택합니다. Bun을 권장합니다.**
+```sh
+brew install rlaope/tap/omh
+```
+```sh
+bun install -g oh-my-hermes
+```
+```sh
+npm install -g oh-my-hermes
+```
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
-omh setup
 ```
 
 **Windows(PowerShell 5.1+)에서는:**
-
 ```powershell
 irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
-omh setup
 ```
 
+**설치 후 OMH를 설정합니다:**
+```sh
+omh setup
+```
 **Hermes skill tap 경로:**
-
 ```sh
 hermes skills tap add rlaope/oh-my-hermes
 hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes
 ```
-
 **또는 Your AI Agent에게 요청합니다:**
-
 ```text
 Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<
 ```
 
-**업데이트와 상태 점검:**
-
+**업데이트:**
 ```sh
 omh update
-omh doctor
 ```
 
+**설치를 확인하거나 문제를 해결합니다:**
+```sh
+omh doctor
+```
 `--full` 설치를 core로 되돌리는 것 같은 유지보수 경로는
 [Installation](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core)에
 있습니다.
