@@ -21,7 +21,11 @@ from omh.coding.executor_readiness import (  # noqa: E402
     live_readiness_binding,
     probe_executor_readiness,
 )
-from omh.coding.executor_capabilities import capability_for_profile  # noqa: E402
+from omh.coding.executor_capability_snapshots import (  # noqa: E402
+    build_executor_capability_snapshot,
+    executor_capability_snapshot_path,
+    write_executor_capability_snapshot,
+)
 from omh.coding.fanout import build_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import write_fanout_contract  # noqa: E402
 from omh.coding.fanout_artifacts import fanout_dispatch_summary_path  # noqa: E402
@@ -782,6 +786,50 @@ class FanoutDispatchEngineTests(unittest.TestCase):
             self.assertTrue(all(entry["status"] == "already_completed" for entry in second["units"]))
             self.assertEqual(rerun_runner.spawned, [])
 
+    def test_atomic_refusal_preserves_previously_completed_units(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            first = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                only_units=["core"],
+                runner=_agent_runner(),
+                readiness=_ready,
+            )
+            self.assertEqual(
+                {entry["unit_id"]: entry for entry in first["units"]}["core"]["status"],
+                "completed",
+            )
+            docs = {entry["unit_id"]: entry for entry in contract["units"]}["docs"]
+            docs["handoff"]["executor_capability_snapshot"] = "not-a-snapshot"
+
+            second = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                runner=_agent_runner(),
+                readiness=lambda *args, **kwargs: self.fail(
+                    "atomic refusal must not run readiness"
+                ),
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in second["units"]}
+            self.assertEqual(by_unit["core"]["status"], "already_completed")
+            self.assertTrue(by_unit["core"]["process_succeeded"])
+            self.assertEqual(by_unit["docs"]["status"], "capability_snapshot_invalid")
+            stored = json.loads(
+                fanout_dispatch_summary_path(paths, str(contract["fanout_id"])).read_text(
+                    encoding="utf-8"
+                )
+            )
+            stored_core = {entry["unit_id"]: entry for entry in stored["units"]}["core"]
+            self.assertTrue(stored_core["process_succeeded"])
+
     def test_argv_templates_for_both_spawnable_profiles(self) -> None:
         with TemporaryDirectory() as tmp:
             paths, repo, sha, contract = self._setup(tmp)
@@ -1476,21 +1524,442 @@ class FanoutDispatchTelemetryTests(unittest.TestCase):
                 self.assertNotIn("output_tail", entry)
                 self.assertNotIn("planned_argv", entry)
 
-    def test_spawned_unit_carries_the_descriptive_capability_row_of_its_profile(self) -> None:
+    def test_spawned_unit_carries_the_recorded_capability_snapshot_for_its_owner(self) -> None:
         with TemporaryDirectory() as tmp:
             paths, repo, sha, contract = self._setup(tmp)
+            expected = build_executor_capability_snapshot(
+                executor="codex",
+                capabilities={
+                    "edit_format_patch": {
+                        "status": "host_observed",
+                        "scope": {"surface": "local_cli"},
+                        "evidence_ref": "probe:patch-edit",
+                        "observed_at": "2026-08-13T12:00:00Z",
+                    }
+                },
+                recorded_at="2026-08-13T12:01:00Z",
+            )
+            write_executor_capability_snapshot(
+                executor_capability_snapshot_path(
+                    paths.executor_capability_snapshots_dir,
+                    "codex",
+                ),
+                expected,
+            )
+            contract_core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            contract_core["handoff"]["executor_capability_snapshot"] = expected
             summary = dispatch_fanout(
                 paths, contract, goal_text=_GOAL, repo_root=repo, base_sha=sha,
                 only_units=["core"], runner=_agent_runner(), readiness=_ready,
             )
             core = {entry["unit_id"]: entry for entry in summary["units"]}["core"]
-            # Verbatim: the stamp is the table row, not a derived judgement.
-            self.assertEqual(core["executor_capability"], capability_for_profile("codex"))
+            projected = core["executor_capability_snapshot"]
+            self.assertEqual(projected["recorded_at"], expected["recorded_at"])
+            self.assertEqual(
+                projected["capabilities"]["edit_format_patch"],
+                expected["capabilities"]["edit_format_patch"],
+            )
+            self.assertEqual(projected["capabilities"]["persistent_eval"], {"status": "unknown"})
+            self.assertEqual(core["executor_capability"]["schema_version"], "executor_capability/v1")
             stored = json.loads(
                 fanout_dispatch_summary_path(paths, str(contract["fanout_id"])).read_text(encoding="utf-8")
             )
             stored_core = {entry["unit_id"]: entry for entry in stored["units"]}["core"]
-            self.assertEqual(stored_core["executor_capability"], capability_for_profile("codex"))
+            self.assertEqual(stored_core["executor_capability_snapshot"], projected)
+            projected["capabilities"]["edit_format_patch"]["evidence_ref"] = "mutated"
+            self.assertEqual(
+                contract_core["handoff"]["executor_capability_snapshot"]["capabilities"][
+                    "edit_format_patch"
+                ]["evidence_ref"],
+                "probe:patch-edit",
+            )
+
+    def test_invalid_frozen_capability_snapshot_refuses_dispatch_without_substitution(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            core["handoff"]["executor_capability_snapshot"] = {
+                **build_executor_capability_snapshot(
+                    executor="claude-code",
+                    capabilities={"edit_format_patch": {"status": "unknown"}},
+                    recorded_at="2026-08-13T12:01:00Z",
+                ),
+            }
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                only_units=["core"],
+                runner=_agent_runner(),
+                readiness=_ready,
+            )
+
+            result = summary["units"][0]
+            self.assertEqual(result["status"], "capability_snapshot_invalid")
+            self.assertFalse(result["process_succeeded"])
+            self.assertIn("does not match", result["reason"])
+
+    def test_malformed_frozen_capability_snapshot_refuses_before_spawn(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            core["handoff"]["executor_capability_snapshot"] = "not-a-snapshot"
+
+            def runner(*args, **kwargs):
+                self.fail("invalid capability metadata must refuse before spawning")
+
+            def readiness(*args, **kwargs):
+                self.fail("invalid capability metadata must refuse before readiness")
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                only_units=["core"],
+                runner=runner,
+                readiness=readiness,
+            )
+
+            result = summary["units"][0]
+            self.assertEqual(result["status"], "capability_snapshot_invalid")
+            self.assertIn("must be a mapping", result["reason"])
+
+    def test_current_contract_refuses_a_deleted_frozen_snapshot(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+            repo, sha = _make_repo(root)
+            snapshots = {
+                owner: build_executor_capability_snapshot(
+                    executor=owner,
+                    capabilities={"edit_format_patch": {"status": "unknown"}},
+                    recorded_at="2026-08-13T12:01:00Z",
+                )
+                for owner in ("codex", "claude-code")
+            }
+            contract = build_fanout_contract(
+                _GOAL,
+                _UNITS,
+                capability_snapshots=snapshots,
+            )
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            del core["handoff"]["executor_capability_snapshot"]
+            del core["handoff"]["executor_capability_snapshot_policy"]
+
+            def readiness(*args, **kwargs):
+                self.fail("a missing current snapshot must refuse before readiness")
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                only_units=["core"],
+                runner=_agent_runner(),
+                readiness=readiness,
+            )
+
+            result = summary["units"][0]
+            self.assertEqual(result["status"], "capability_snapshot_invalid")
+            self.assertIn("required", result["reason"])
+
+    def test_invalid_selected_snapshot_refuses_before_any_local_discovery(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            core["handoff"]["executor_capability_snapshot"] = "not-a-snapshot"
+
+            def readiness(*args, **kwargs):
+                self.fail("atomic contract refusal must prevent every readiness probe")
+
+            def runner(*args, **kwargs):
+                self.fail("atomic contract refusal must prevent git and executor activity")
+
+            with (
+                mock.patch(
+                    "omh.coding.fanout_dispatch._current_catalog_digest",
+                    side_effect=AssertionError("catalog discovery ran"),
+                ),
+                mock.patch(
+                    "omh.coding.fanout_dispatch._owner_skill_discoveries",
+                    side_effect=AssertionError("skill discovery ran"),
+                ),
+            ):
+                summary = dispatch_fanout(
+                    paths,
+                    contract,
+                    goal_text=_GOAL,
+                    repo_root=repo,
+                    base_sha=sha,
+                    runner=runner,
+                    readiness=readiness,
+                )
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["core"]["status"], "capability_snapshot_invalid")
+            self.assertEqual(by_unit["docs"]["status"], "capability_snapshot_invalid")
+            self.assertIn("core", by_unit["docs"]["reason"])
+            self.assertFalse((repo.parent / f"{repo.name}-fanout-docs").exists())
+
+    def test_oversized_capability_name_produces_a_bounded_refusal_summary(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            snapshot = core["handoff"]["executor_capability_snapshot"]
+            snapshot["capabilities"]["SENTINEL-" + ("x" * 100_000)] = {
+                "status": "unknown",
+                "transcript": "forbidden",
+            }
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                runner=_agent_runner(),
+                readiness=_ready,
+            )
+
+            rendered = json.dumps(summary)
+            self.assertLess(len(rendered), 10_000)
+            self.assertNotIn("x" * 1000, rendered)
+
+    def test_unassigned_unit_does_not_invalidate_spawnable_siblings(self) -> None:
+        units = [
+            {"unit_id": "core", "owner": "codex", "file_scope": ["src/"]},
+            {"unit_id": "docs", "owner": None, "file_scope": ["docs/"]},
+        ]
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp, units=units)
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                dry_run=True,
+                runner=_agent_runner(),
+                readiness=_ready,
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["core"]["status"], "dry_run_planned")
+            self.assertEqual(
+                by_unit["docs"]["status"],
+                "unsupported_for_local_dispatch",
+            )
+
+    def test_dispatch_rejects_units_missing_from_merge_order_before_discovery(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            contract["merge_plan"]["merge_order"].remove("core")
+
+            with (
+                mock.patch(
+                    "omh.coding.fanout_dispatch._current_catalog_digest",
+                    side_effect=AssertionError("catalog discovery ran"),
+                ),
+                self.assertRaisesRegex(ValueError, "merge_order"),
+            ):
+                dispatch_fanout(
+                    paths,
+                    contract,
+                    goal_text=_GOAL,
+                    repo_root=repo,
+                    base_sha=sha,
+                    only_units=["core", "docs"],
+                    runner=_agent_runner(),
+                    readiness=_ready,
+                )
+
+    def test_malformed_frozen_snapshot_policy_cannot_downgrade_to_legacy(self) -> None:
+        for policy in ("frozen-requird", ["frozen_required"]):
+            with self.subTest(policy=policy), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+                repo, sha = _make_repo(root)
+                snapshots = {
+                    owner: build_executor_capability_snapshot(
+                        executor=owner,
+                        capabilities={"edit_format_patch": {"status": "unknown"}},
+                        recorded_at="2026-08-13T12:01:00Z",
+                    )
+                    for owner in ("codex", "claude-code")
+                }
+                contract = build_fanout_contract(
+                    _GOAL,
+                    _UNITS,
+                    capability_snapshots=snapshots,
+                )
+                core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+                del core["handoff"]["executor_capability_snapshot"]
+                core["handoff"]["executor_capability_snapshot_policy"] = policy
+
+                def readiness(*args, **kwargs):
+                    self.fail("a malformed policy must refuse before readiness")
+
+                summary = dispatch_fanout(
+                    paths,
+                    contract,
+                    goal_text=_GOAL,
+                    repo_root=repo,
+                    base_sha=sha,
+                    only_units=["core"],
+                    runner=_agent_runner(),
+                    readiness=readiness,
+                )
+
+                result = summary["units"][0]
+                self.assertEqual(result["status"], "capability_snapshot_invalid")
+                self.assertIn("policy", result["reason"])
+
+    def test_dispatch_binds_declared_handoff_and_snapshot_owner_before_readiness(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = OmhPaths(omh_home=root / ".omh", hermes_home=root / ".hermes")
+            repo, sha = _make_repo(root)
+            snapshots = {
+                owner: build_executor_capability_snapshot(
+                    executor=owner,
+                    capabilities={"edit_format_patch": {"status": "unknown"}},
+                    recorded_at="2026-08-13T12:01:00Z",
+                )
+                for owner in ("codex", "claude-code")
+            }
+            contract = build_fanout_contract(
+                _GOAL,
+                _UNITS,
+                capability_snapshots=snapshots,
+            )
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            core["handoff"]["executor_target"] = "claude-code"
+            core["handoff"]["executor_capability_snapshot"] = snapshots["claude-code"]
+
+            def readiness(*args, **kwargs):
+                self.fail("owner rebinding must refuse before readiness")
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                only_units=["core"],
+                runner=_agent_runner(),
+                readiness=readiness,
+            )
+
+            result = summary["units"][0]
+            self.assertEqual(result["status"], "capability_snapshot_invalid")
+            self.assertEqual(result["owner"], "codex")
+            self.assertIn("owner", result["reason"])
+
+    def test_invalid_snapshot_blocks_dependents_with_a_named_reason(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            core["handoff"]["executor_capability_snapshot"] = "not-a-snapshot"
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                runner=_agent_runner(),
+                readiness=_ready,
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["core"]["status"], "capability_snapshot_invalid")
+            self.assertEqual(by_unit["tests"]["status"], "blocked_by_dependency")
+            self.assertEqual(by_unit["tests"]["blocked_on"], ["core"])
+
+    def test_not_selected_summary_reports_the_canonical_unit_owner(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            core = {entry["unit_id"]: entry for entry in contract["units"]}["core"]
+            core["handoff"]["executor_target"] = "claude-code"
+
+            summary = dispatch_fanout(
+                paths,
+                contract,
+                goal_text=_GOAL,
+                repo_root=repo,
+                base_sha=sha,
+                only_units=["docs"],
+                runner=_agent_runner(),
+                readiness=_ready,
+                dry_run=True,
+            )
+
+            by_unit = {entry["unit_id"]: entry for entry in summary["units"]}
+            self.assertEqual(by_unit["core"]["status"], "not_selected")
+            self.assertEqual(by_unit["core"]["owner"], "codex")
+
+    def test_legacy_handoff_without_snapshot_requires_migration(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            recorded = build_executor_capability_snapshot(
+                executor="codex",
+                capabilities={
+                    "edit_format_patch": {
+                        "status": "host_observed",
+                        "scope": {"surface": "local_cli"},
+                        "evidence_ref": "probe:legacy-patch",
+                        "observed_at": "2026-08-13T12:00:00Z",
+                    }
+                },
+                recorded_at="2026-08-13T12:01:00Z",
+            )
+            write_executor_capability_snapshot(
+                executor_capability_snapshot_path(
+                    paths.executor_capability_snapshots_dir,
+                    "codex",
+                ),
+                recorded,
+            )
+            contract["schema_version"] = "fanout_contract/v1"
+            for unit in contract["units"]:
+                unit["handoff"].pop("executor_capability_snapshot", None)
+                unit["handoff"].pop("executor_capability_snapshot_policy", None)
+            with self.assertRaisesRegex(ValueError, "migrate-legacy"):
+                dispatch_fanout(
+                    paths,
+                    contract,
+                    goal_text=_GOAL,
+                    repo_root=repo,
+                    base_sha=sha,
+                    only_units=["core"],
+                    runner=_agent_runner(),
+                    readiness=_ready,
+                )
+
+    def test_relabelled_v2_contract_cannot_request_legacy_fallback(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths, repo, sha, contract = self._setup(tmp)
+            contract["schema_version"] = "fanout_contract/v1"
+            for unit in contract["units"]:
+                unit["handoff"].pop("executor_capability_snapshot", None)
+                unit["handoff"].pop("executor_capability_snapshot_policy", None)
+
+            with self.assertRaisesRegex(ValueError, "migrate-legacy"):
+                dispatch_fanout(
+                    paths,
+                    contract,
+                    goal_text=_GOAL,
+                    repo_root=repo,
+                    base_sha=sha,
+                    runner=_agent_runner(),
+                    readiness=_ready,
+                )
 
     def test_dry_run_does_not_persist_a_summary(self) -> None:
         with TemporaryDirectory() as tmp:

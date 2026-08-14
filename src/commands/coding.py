@@ -1048,6 +1048,10 @@ def cmd_coding_composition_guide(args: argparse.Namespace) -> int:
 
 
 def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
+    from ..coding.executor_capability_snapshots import (
+        ExecutorCapabilitySnapshotError,
+        resolved_executor_capability_snapshot,
+    )
     from ..coding.fanout import build_fanout_contract, is_degenerate_single_unit, single_unit_redirect
     from ..coding.fanout_artifacts import write_fanout_contract
     from ..coding.fanout_contracts import FanoutContractError
@@ -1067,18 +1071,32 @@ def cmd_coding_fanout_prepare(args: argparse.Namespace) -> int:
         for unit in units
     )
     try:
+        paths = _paths(args)
+        owners = {
+            str(unit.get("owner", "") or "")
+            for unit in units
+            if isinstance(unit, dict) and str(unit.get("owner", "") or "")
+        }
+        capability_snapshots = {
+            owner: resolved_executor_capability_snapshot(
+                owner,
+                paths.executor_capability_snapshots_dir,
+            )
+            for owner in sorted(owners)
+        }
         contract = build_fanout_contract(
             " ".join(args.goal).strip(),
             units,
             source=args.source,
             source_metadata=_explicit_source_metadata(args),
             local_catalogs=_local_model_catalogs() if needs_inventory else {},
+            capability_snapshots=capability_snapshots,
             spawn_plan=spawn_plan,
         )
-    except FanoutContractError as exc:
+    except (FanoutContractError, ExecutorCapabilitySnapshotError) as exc:
         raise OmhError(str(exc)) from exc
     if args.record:
-        contract = write_fanout_contract(_paths(args), contract)
+        contract = write_fanout_contract(paths, contract)
     _print_json(contract)
     return 0
 
@@ -1259,9 +1277,17 @@ def _brief_recovery(dispatched: dict) -> dict[str, object]:
     return brief
 
 
+def _bounded_fanout_brief_scalar(value: object) -> str:
+    from ..system.metadata_safety import redact_metadata_text
+
+    if not isinstance(value, str):
+        return ""
+    return redact_metadata_text(value, limit=80)
+
+
 def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
     from ..coding.fanout_artifacts import fanout_dispatch_summary_path, read_fanout_contract
-    from ..coding.fanout_contracts import PREPARED_NOT_OBSERVED
+    from ..coding.fanout_contracts import FANOUT_UNIT_OWNERS, PREPARED_NOT_OBSERVED
     from ..coding.status_board import model_label_for
     from ..local_store import read_json_object_result
     from ..runtime.artifacts import show_run
@@ -1322,8 +1348,10 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
                 else:
                     observed_status = "run_recorded_no_observations"
         status = str(dispatched.get("status", "") or "") or PREPARED_NOT_OBSERVED
-        model_id = str(model_route.get("selected_model", "") or "")
-        effort = str(model_route.get("selected_reasoning_effort", "") or "")
+        selected_model = model_route.get("selected_model", "")
+        selected_effort = model_route.get("selected_reasoning_effort", "")
+        model_id = _bounded_fanout_brief_scalar(selected_model)
+        effort = _bounded_fanout_brief_scalar(selected_effort)
         # One human-readable label per subagent, e.g. "gpt-5-codex xhigh" —
         # what a briefing renders next to the unit without joining two fields.
         # The format is a stable part of fanout_briefing/v1 and is built by
@@ -1332,12 +1360,20 @@ def cmd_coding_fanout_brief(args: argparse.Namespace) -> int:
         # separate additive `model_alternative` field, never as a suffix here.
         model_label = model_label_for(model_id, effort)
         chain = model_route.get("chain", []) if isinstance(model_route.get("chain"), list) else []
-        model_alternative = str(chain[1].get("model_id", "")) if len(chain) > 1 and isinstance(chain[1], dict) else ""
-        route_version = str(model_route.get("schema_version", "") or "") if model_route else ""
+        alternative_value = chain[1].get("model_id", "") if len(chain) > 1 and isinstance(chain[1], dict) else ""
+        model_alternative = _bounded_fanout_brief_scalar(alternative_value)
+        route_schema_version = model_route.get("schema_version", "")
+        route_version = _bounded_fanout_brief_scalar(route_schema_version)
+        owner_value = unit.get("owner")
+        owner = (
+            owner_value
+            if isinstance(owner_value, str) and owner_value in FANOUT_UNIT_OWNERS
+            else "choose"
+        )
         units.append(
             {
                 "unit_id": unit_id,
-                "owner": str(handoff.get("executor_target", "choose")),
+                "owner": owner,
                 "model": model_id or "executor_default",
                 "reasoning_effort": effort,
                 "model_label": model_label,
@@ -1566,16 +1602,47 @@ def _record_fanout_board_emission(paths, watched_runs: list[str], payload: dict,
 def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
     import subprocess as _subprocess
 
-    from ..coding.fanout_artifacts import read_fanout_contract
-    from ..coding.fanout_dispatch import dispatch_fanout
+    from ..coding.fanout_artifacts import (
+        read_fanout_contract,
+        read_fanout_contract_provenance,
+    )
+    from ..coding.fanout_dispatch import dispatch_fanout, fanout_dispatch_preflight
 
     paths = _paths(args)
     try:
         contract = read_fanout_contract(paths, args.fanout_id)
+        read_fanout_contract_provenance(
+            paths,
+            args.fanout_id,
+            contract,
+        )
     except (OSError, ValueError) as exc:
         raise OmhError(f"fanout contract not found: {exc}") from exc
     goal_text = sys.stdin.read() if args.goal_file == "-" else Path(args.goal_file).expanduser().read_text(encoding="utf-8")
     repo_root = Path(args.repo_root).expanduser().resolve()
+    try:
+        preflight = fanout_dispatch_preflight(
+            paths,
+            contract,
+            only_units=args.unit,
+            goal_text=goal_text,
+        )
+    except ValueError as exc:
+        raise OmhError(str(exc)) from exc
+    if preflight["invalid_selected"]:
+        summary = dispatch_fanout(
+            paths,
+            contract,
+            goal_text=goal_text,
+            repo_root=repo_root,
+            base_sha="",
+            concurrency=args.concurrency,
+            timeout=args.timeout,
+            only_units=args.unit,
+            dry_run=bool(args.dry_run),
+        )
+        _print_json(summary)
+        return 0
     resolved = _subprocess.run(
         ["git", "rev-parse", args.base_ref],
         cwd=str(repo_root),
@@ -1604,6 +1671,137 @@ def cmd_coding_fanout_dispatch(args: argparse.Namespace) -> int:
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
     _print_json(summary)
+    return 0
+
+
+def cmd_coding_fanout_migrate_legacy(args: argparse.Namespace) -> int:
+    from copy import deepcopy
+
+    from ..coding.executor_capability_snapshots import (
+        resolved_executor_capability_snapshot,
+    )
+    from ..coding.fanout_dispatch import fanout_dispatch_preflight
+    from ..coding.fanout_artifacts import read_fanout_contract, write_fanout_contract
+    from ..coding.fanout_artifacts import (
+        fanout_contract_digest,
+        fanout_contract_provenance_path,
+        read_fanout_contract_provenance,
+    )
+    from ..coding.fanout_contracts import (
+        FANOUT_CONTRACT_SCHEMA_VERSION,
+        LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION,
+    )
+
+    paths = _paths(args)
+    try:
+        contract = read_fanout_contract(paths, args.fanout_id)
+    except (OSError, ValueError) as exc:
+        raise OmhError(f"fanout contract not found: {exc}") from exc
+    schema_version = contract.get("schema_version")
+    if schema_version == FANOUT_CONTRACT_SCHEMA_VERSION:
+        raise OmhError("fanout contract already uses fanout_contract/v2")
+    if schema_version != LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION:
+        raise OmhError("only fanout_contract/v1 can be migrated")
+    units = contract.get("units")
+    if not isinstance(units, list):
+        raise OmhError("legacy fanout contract units must be a list")
+    digest = fanout_contract_digest(contract)
+    provenance_path = fanout_contract_provenance_path(paths, args.fanout_id)
+    if provenance_path.exists():
+        try:
+            read_fanout_contract_provenance(paths, args.fanout_id, contract)
+        except (OSError, ValueError) as exc:
+            raise OmhError(
+                f"legacy fanout provenance is invalid; migration refused: {exc}"
+            ) from exc
+    elif args.confirm_contract_sha256 != digest:
+        _print_json(
+            {
+                "schema_version": "fanout_legacy_migration_preview/v1",
+                "fanout_id": args.fanout_id,
+                "status": "confirmation_required",
+                "contract_sha256": digest,
+                "next_command": (
+                    "omh coding fanout migrate-legacy "
+                    f"{args.fanout_id} --confirm-contract-sha256 {digest}"
+                ),
+                "claim_boundary": (
+                    "This digest confirms the exact local legacy payload selected "
+                    "for migration. It is corruption detection, not authentication "
+                    "against a writer who controls OMH home."
+                ),
+            }
+        )
+        return 0
+    migrated = deepcopy(contract)
+    migrated["schema_version"] = FANOUT_CONTRACT_SCHEMA_VERSION
+    migrated_units = migrated.get("units")
+    if not isinstance(migrated_units, list):
+        raise OmhError("legacy fanout contract units must be a list")
+    try:
+        for unit in migrated_units:
+            if not isinstance(unit, dict):
+                raise ValueError("legacy fanout contract units must be objects")
+            owner = unit.get("owner")
+            handoff = unit.get("handoff")
+            if (
+                not isinstance(unit.get("unit_id"), str)
+                or not unit["unit_id"]
+                or not isinstance(unit.get("title"), str)
+                or not isinstance(unit.get("run_ref"), str)
+                or not unit["run_ref"]
+            ):
+                raise ValueError("legacy fanout contract unit identity is invalid")
+            if owner is not None and not isinstance(owner, str):
+                raise ValueError("legacy fanout contract owner is invalid")
+            if not isinstance(handoff, dict):
+                raise ValueError("legacy fanout contract handoff is invalid")
+            expected_target = owner if owner is not None else "choose"
+            if (
+                handoff.get("schema_version") != "fanout_unit_handoff/v1"
+                or handoff.get("executor_target") != expected_target
+                or handoff.get("dispatch_policy") != "prepare_only"
+            ):
+                raise ValueError("legacy fanout contract handoff identity is invalid")
+            boundary = unit.get("boundary")
+            if not isinstance(boundary, dict):
+                raise ValueError("legacy fanout contract boundary is invalid")
+            for field in ("file_scope", "do_not_touch"):
+                values = boundary.get(field)
+                if (
+                    not isinstance(values, list)
+                    or (field == "file_scope" and not values)
+                    or not all(
+                        isinstance(value, str) and value.strip()
+                        for value in values
+                    )
+                ):
+                    raise ValueError(
+                        f"legacy fanout contract boundary.{field} is invalid"
+                    )
+            dependencies = unit.get("depends_on")
+            if not isinstance(dependencies, list) or not all(
+                isinstance(dependency, str) and dependency
+                for dependency in dependencies
+            ):
+                raise ValueError("legacy fanout contract dependencies are invalid")
+            if owner is None:
+                continue
+            snapshot = resolved_executor_capability_snapshot(
+                owner,
+                paths.executor_capability_snapshots_dir,
+            )
+            handoff["executor_capability_snapshot_policy"] = "frozen_required"
+            handoff["executor_capability_snapshot"] = snapshot
+    except ValueError as exc:
+        raise OmhError(f"legacy fanout migration refused: {exc}") from exc
+    migrated.pop("artifacts", None)
+    try:
+        fanout_dispatch_preflight(paths, migrated)
+        recorded = write_fanout_contract(paths, migrated)
+    except (OSError, ValueError) as exc:
+        raise OmhError(f"could not migrate fanout contract: {exc}") from exc
+    _print_json(recorded)
     return 0
 
 
@@ -1696,6 +1894,21 @@ def _add_coding_commands(sub) -> None:
     fanout_dispatch.add_argument("--unit", action="append", default=None, help="Dispatch only these unit ids (repeatable).")
     fanout_dispatch.add_argument("--dry-run", action="store_true", help="Resolve readiness, argv, and worktree paths; spawn nothing.")
     fanout_dispatch.set_defaults(func=cmd_coding_fanout_dispatch)
+
+    fanout_migrate = fanout_sub.add_parser(
+        "migrate-legacy",
+        help="Convert a recorded fanout_contract/v1 into frozen-evidence v2 before dispatch.",
+    )
+    fanout_migrate.add_argument("fanout_id")
+    fanout_migrate.add_argument(
+        "--confirm-contract-sha256",
+        default="",
+        help=(
+            "Required only for pre-provenance v1 artifacts; confirms the exact "
+            "digest printed by the preview."
+        ),
+    )
+    fanout_migrate.set_defaults(func=cmd_coding_fanout_migrate_legacy)
 
     fanout_brief = fanout_sub.add_parser(
         "brief",

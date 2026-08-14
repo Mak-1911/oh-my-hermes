@@ -16,6 +16,7 @@ from .executor_local_workflow_selection import (
 
 
 EXECUTOR_CAPABILITY_SNAPSHOT_SCHEMA_VERSION: Final = "executor_capability_snapshot/v1"
+PREPARED_CAPABILITY_SNAPSHOT_RECORDED_AT: Final = "1970-01-01T00:00:00Z"
 CAPABILITY_STATUSES: Final = frozenset({"prepared", "host_observed", "unavailable", "unknown"})
 LOCAL_WORKFLOW_CAPABILITY_NAME: Final = "local_workflow"
 KNOWN_CAPABILITY_NAMES: Final = frozenset(
@@ -27,6 +28,22 @@ KNOWN_CAPABILITY_NAMES: Final = frozenset(
         "browser_or_computer_use",
         "long_running_continuation",
         "scheduled_or_recurring_work",
+        "edit_format_hashline",
+        "edit_format_str_replace",
+        "edit_format_patch",
+        "persistent_eval",
+        "tool_reentry",
+        "code_mode_batching",
+    }
+)
+DESCRIPTIVE_CAPABILITY_NAMES: Final = frozenset(
+    {
+        "edit_format_hashline",
+        "edit_format_str_replace",
+        "edit_format_patch",
+        "persistent_eval",
+        "tool_reentry",
+        "code_mode_batching",
     }
 )
 _ROOT_FIELDS: Final = frozenset({"schema_version", "executor", "recorded_at", "capabilities"})
@@ -88,12 +105,73 @@ def build_executor_capability_snapshot(
     return snapshot
 
 
+def prepared_executor_capability_snapshot(
+    executor: str,
+    *,
+    recorded_at: str | None = None,
+) -> SnapshotRecord:
+    """Prepared fallback for a handoff when no host observation was recorded."""
+    capabilities = {name: {"status": "unknown"} for name in sorted(KNOWN_CAPABILITY_NAMES)}
+    capabilities["worktree_isolation"] = {"status": "prepared"}
+    return build_executor_capability_snapshot(
+        executor=executor,
+        capabilities=capabilities,
+        # A prepared fallback records no observation. A wall-clock value would
+        # make identical handoffs and fanout contracts differ for no evidentiary
+        # reason, so the absence of an observation has one stable identity.
+        recorded_at=recorded_at or PREPARED_CAPABILITY_SNAPSHOT_RECORDED_AT,
+    )
+
+
+def resolved_executor_capability_snapshot(executor: str, directory: Path | None) -> SnapshotRecord:
+    """Recorded evidence for *executor*, otherwise an explicit prepared fallback."""
+    snapshot = recorded_executor_capability_snapshot(executor, directory)
+    if snapshot is not None:
+        return complete_executor_capability_snapshot(snapshot)
+    return prepared_executor_capability_snapshot(executor)
+
+
+def recorded_executor_capability_snapshot(
+    executor: str,
+    directory: Path | None,
+) -> SnapshotRecord | None:
+    """Recorded evidence for *executor*, with no prepared fallback."""
+    if directory is None:
+        return None
+    return read_matching_executor_capability_snapshot(
+        executor_capability_snapshot_path(directory, executor),
+        expected_executor=executor,
+    )
+
+
+def complete_executor_capability_snapshot(
+    snapshot: Mapping[str, JsonValue],
+) -> SnapshotRecord:
+    """Project a valid sparse snapshot onto the complete known vocabulary."""
+    errors = validate_executor_capability_snapshot(snapshot)
+    if errors:
+        raise ExecutorCapabilitySnapshotError("; ".join(errors))
+    raw_capabilities = snapshot["capabilities"]
+    assert isinstance(raw_capabilities, Mapping)
+    capabilities = {name: {"status": "unknown"} for name in sorted(KNOWN_CAPABILITY_NAMES)}
+    capabilities.update(
+        {
+            str(name): _copy_snapshot(capability)
+            for name, capability in raw_capabilities.items()
+        }
+    )
+    return {**_copy_snapshot(snapshot), "capabilities": capabilities}
+
+
 def validate_executor_capability_snapshot(snapshot: Mapping[str, JsonValue]) -> list[str]:
     errors = _forbidden_key_errors(snapshot) + _root_errors(snapshot)
     capabilities = snapshot.get("capabilities")
     if isinstance(capabilities, Mapping):
         errors.extend(_capability_errors(capabilities, recorded_at=snapshot.get("recorded_at")))
-    return errors
+    bounded = [error[:240] for error in errors[:20]]
+    if len(errors) > 20:
+        bounded.append(f"... ({len(errors) - 20} more validation errors)")
+    return bounded
 
 
 def write_executor_capability_snapshot(path: Path, snapshot: Mapping[str, JsonValue]) -> SnapshotRecord:
@@ -151,7 +229,11 @@ def _root_errors(snapshot: Mapping[str, JsonValue]) -> list[str]:
     errors: list[str] = []
     unexpected = set(snapshot) - _ROOT_FIELDS
     if unexpected:
-        errors.append(f"snapshot contains unsupported fields: {', '.join(sorted(str(key) for key in unexpected))}")
+        names = sorted(str(key)[:80] for key in unexpected)
+        rendered = ", ".join(names[:3])
+        if len(names) > 3:
+            rendered += f", ... ({len(names) - 3} more)"
+        errors.append(f"snapshot contains unsupported fields: {rendered}")
     if snapshot.get("schema_version") != EXECUTOR_CAPABILITY_SNAPSHOT_SCHEMA_VERSION:
         errors.append(f"schema_version must be {EXECUTOR_CAPABILITY_SNAPSHOT_SCHEMA_VERSION}")
     executor = snapshot.get("executor")
@@ -177,7 +259,7 @@ def _capability_errors(
             errors.extend(_local_workflow_errors(value, recorded_at=recorded_at))
             continue
         if name not in KNOWN_CAPABILITY_NAMES:
-            errors.append(f"unsupported capability name: {name}")
+            errors.append(f"unsupported capability name: {str(name)[:80]}")
             continue
         if not isinstance(value, Mapping):
             errors.append(f"{name} capability must be a mapping")
@@ -268,10 +350,10 @@ def _forbidden_key_errors(value: JsonValue | Mapping[str, JsonValue], path: str 
     errors: list[str] = []
     if isinstance(value, Mapping):
         for key, item in value.items():
-            key_text = str(key)
+            key_text = str(key)[:80]
             if key_text.casefold() in _FORBIDDEN_KEYS:
                 errors.append(f"{path}.{key_text} is forbidden metadata")
-            errors.extend(_forbidden_key_errors(item, f"{path}.{key_text}"))
+            errors.extend(_forbidden_key_errors(item, f"{path}.{key_text}"[:200]))
     elif isinstance(value, list):
         for index, item in enumerate(value):
             errors.extend(_forbidden_key_errors(item, f"{path}[{index}]"))
