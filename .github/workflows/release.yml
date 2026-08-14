@@ -61,7 +61,25 @@ jobs:
           test "$tag_commit" = "$(git rev-parse HEAD)"
           git fetch --no-tags origin main
           git merge-base --is-ancestor "$tag_commit" origin/main
-          test "$tag_commit" = "$(git rev-parse origin/main)"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            test "$tag_commit" = "$(git rev-parse origin/main)"
+          else
+            recovery_changes="$(git diff --name-only "$tag_commit"..origin/main)"
+            while IFS= read -r path; do
+              test -z "$path" && continue
+              case "$path" in
+                .github/workflows/release.yml | \
+                docs/DISTRIBUTION.md | \
+                tests/test_homebrew_distribution.py | \
+                tools/package_manager/metadata.py)
+                  ;;
+                *)
+                  echo "release recovery includes artifact-affecting change: $path" >&2
+                  exit 1
+                  ;;
+              esac
+            done <<< "$recovery_changes"
+          fi
           source_date_epoch="$(git show -s --format=%ct "$tag_commit")"
           echo "SOURCE_DATE_EPOCH=$source_date_epoch" >> "$GITHUB_ENV"
           version="$(uv run tools/package_manager/metadata.py --version)"
@@ -112,9 +130,14 @@ jobs:
           test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
           package_name="$(npm view oh-my-hermes name --json | tr -d '"')"
           test "$package_name" = "oh-my-hermes"
+          owner_verifier="tools/package_manager/metadata.py"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            owner_verifier="$RUNNER_TEMP/npm-owner-metadata.py"
+            git show origin/main:tools/package_manager/metadata.py \
+              > "$owner_verifier"
+          fi
           npm owner ls oh-my-hermes --json |
-            uv run tools/package_manager/metadata.py \
-              --require-npm-owner rlaope
+            uv run "$owner_verifier" --require-npm-owner rlaope
           tap="$PWD/dist/release/homebrew-tap"
           test -d "$tap/.git"
           git -C "$tap" push --dry-run origin HEAD:refs/heads/main

@@ -360,6 +360,34 @@ class DistributionReleaseContractTests(unittest.TestCase):
             workflow,
         )
 
+    def test_manual_release_resume_is_limited_to_release_control_changes(
+        self,
+    ) -> None:
+        workflow = (
+            PROJECT_ROOT / ".github" / "workflows" / "release.yml"
+        ).read_text()
+        self.assertIn('if [ "$GITHUB_EVENT_NAME" = "push" ]; then', workflow)
+        self.assertIn(
+            'recovery_changes="$(git diff --name-only '
+            '"$tag_commit"..origin/main)"',
+            workflow,
+        )
+        for allowed_path in (
+            ".github/workflows/release.yml",
+            "docs/DISTRIBUTION.md",
+            "tests/test_homebrew_distribution.py",
+            "tools/package_manager/metadata.py",
+        ):
+            self.assertIn(allowed_path, workflow)
+        self.assertIn(
+            'owner_verifier="$RUNNER_TEMP/npm-owner-metadata.py"',
+            workflow,
+        )
+        self.assertIn(
+            "git show origin/main:tools/package_manager/metadata.py",
+            workflow,
+        )
+
     def test_workflow_actions_are_pinned_to_full_commits(self) -> None:
         action_reference = re.compile(
             r"(?:-\s+)?uses:\s+[^@\s]+@[0-9a-f]{40}(?:\s+#.*)?$"
