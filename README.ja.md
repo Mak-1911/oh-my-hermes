@@ -126,6 +126,9 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
 ```sh
 omh update
 ```
+`omh update` はインストール経路を検出し、Homebrew、Bun、npm、curl、
+または PowerShell のコマンドパッケージを先に更新してから、新しいコマンドで
+再実行し、管理スキル、プラグインバンドル、既存の Hermes 登録も更新します。
 
 **インストールの確認またはトラブルシューティング:**
 ```sh

@@ -20,7 +20,7 @@ DOCTOR_COMMAND = "omh doctor"
 LIFECYCLE_COMMANDS = (
     "brew upgrade rlaope/tap/omh",
     "brew uninstall omh",
-    "bun update -g oh-my-hermes",
+    "bun update -g --latest oh-my-hermes",
     "bun remove -g oh-my-hermes",
     "npm update -g oh-my-hermes",
     "npm uninstall -g oh-my-hermes",
