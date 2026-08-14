@@ -150,16 +150,11 @@ def count_metrics() -> tuple[CountMetric, ...]:
         ),
         CountMetric(
             name="installable_skill_count",
-            describe="Installable workflow skills quoted in the public READMEs",
+            describe="Installable workflow skills quoted in reference surfaces",
             live=_installable_skill_count,
             expected=106,
             sites=(
-                "README.md",
-                "README.ko.md",
-                "README.ja.md",
-                "README.zh.md",
                 "docs/README.md",
-                "tests/test_router_content.py",
             ),
         ),
         CountMetric(

@@ -838,6 +838,18 @@ def _hermes_native_model_binding(recommendation: dict[str, object]) -> dict[str,
     status = str(recommendation.get("status", ""))
     projection = recommendation.get("projection")
     selected = recommendation.get("selected")
+    if status == "owner_default":
+        inactive = recommendation.get("inactive_candidates", [])
+        return {
+            "schema_version": "hermes_native_model_handoff_binding/v1",
+            "status": "owner_default",
+            "next_action": "use_hermes_default_model",
+            "inactive_candidates": [str(item) for item in inactive] if isinstance(inactive, list) else [],
+            "claim_boundary": (
+                "No Hermes alias or per-task model pin is prepared; Hermes retains its native default model. "
+                "This is routing metadata, not model-selection or execution evidence."
+            ),
+        }
     if status != "resolved" or not isinstance(projection, dict) or not isinstance(selected, dict):
         inactive = recommendation.get("inactive_candidates", [])
         return {

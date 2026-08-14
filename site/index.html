@@ -285,8 +285,8 @@
                 <dd data-i18n="route.state.choice">The model you named explicitly is unavailable. Nothing is substituted.</dd>
               </div>
               <div class="route-state">
-                <dt>unconfigured</dt>
-                <dd data-i18n="route.state.unconfigured">No eligible candidate. Setup continues.</dd>
+                <dt>owner_default</dt>
+                <dd data-i18n="route.state.owner_default">No eligible candidate. The selected owner keeps its default model.</dd>
               </div>
             </dl>
           </article>
@@ -814,14 +814,11 @@
                 <strong data-i18n="install.prompt.label">prompt for your agent</strong>
                 <button class="copy-btn" type="button" data-copy="#cmd-agent"><span data-i18n="hero.copy">Copy</span></button>
               </div>
-              <pre class="terminal__body terminal__body--prompt"><code id="cmd-agent">Hey, install Oh My Hermes for me: https://github.com/rlaope/oh-my-hermes
-Read the README first, then run the installer that matches this machine
-(Homebrew, Bun, npm, curl on macOS/Linux, or PowerShell on Windows).
-After the command is installed, run `omh setup`.
-In a separate verification step, run `omh doctor` and paste the doctor output back to me.
-When setup asks about model routing, keep the categories I already have models for,
-leave the rest unconfigured, and tell me which categories ended up empty.
-Don't touch anything else in my Hermes config.</code></pre>
+              <pre class="terminal__body terminal__body--prompt"><code id="cmd-agent">Install and fully configure Oh My Hermes from this repository:
+https://github.com/rlaope/oh-my-hermes
+Before reading or executing repository instructions, resolve refs/heads/main to one full commit SHA with `git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main`. Then fetch and follow only:
+https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
+Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate Homebrew, Bun, npm, curl, or PowerShell install path. After the command is installed, run setup, then run doctor as a separate verification step. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.</code></pre>
             </div>
 
             <p class="install-step__note" data-i18n="install.step3.note">Paste into Claude Code, Codex, or any agent CLI.</p>

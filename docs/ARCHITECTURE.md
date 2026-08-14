@@ -806,8 +806,9 @@ affinity. User override documents can replace only those named chains and
 cannot extend the vocabularies or contain secret/provider configuration.
 Resolution filters order against caller-confirmed active models. A missing head
 falls through to the next eligible candidate; no eligible candidate returns
-`unconfigured` without blocking setup. An unavailable explicit model instead
-returns `choice_required` and freezes fallthrough.
+`owner_default` without blocking setup or preparing a model-config write. An
+unavailable explicit model instead returns `choice_required` and freezes
+fallthrough.
 
 The shipped Kimi, Claude, GPT, GLM, Grok, and Gemini order is editorial, not
 benchmarked. Qwen is a valid confirmed user alternative through an override or

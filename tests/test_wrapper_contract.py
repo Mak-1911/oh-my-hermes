@@ -1014,7 +1014,7 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(binding["delegate_task_override"]["model"], "apitopia/kimi-k3")
         self.assertNotIn("maestro", json.dumps(binding).casefold())
 
-    def test_delegate_mode_keeps_unconfigured_hermes_binding_unpinned(self) -> None:
+    def test_delegate_mode_keeps_owner_default_hermes_binding_unpinned(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             paths = resolve_paths(root / ".omh", root / ".hermes")
@@ -1028,8 +1028,8 @@ class WrapperContractTests(unittest.TestCase):
             )
 
         binding = payload["delegation"]["runtime_handoff"]["hermes_native_model_binding"]
-        self.assertEqual(binding["status"], "choice_required")
-        self.assertEqual(binding["next_action"], "configure_hermes_native_alias")
+        self.assertEqual(binding["status"], "owner_default")
+        self.assertEqual(binding["next_action"], "use_hermes_default_model")
         self.assertNotIn("kanban_task_override", binding)
         self.assertNotIn("delegate_task_override", binding)
 

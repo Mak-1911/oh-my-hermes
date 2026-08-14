@@ -113,20 +113,22 @@
             replaces the chains it names and leaves the rest untouched.
           </p>
           <div class="reference-grid">
-            <a class="reference-link" href="#missing"><span>ultrabrain</span><h3>Deepest reasoning</h3><p>Reserved for work that declares it needs that depth.</p></a>
-            <a class="reference-link" href="#missing"><span>deep</span><h3>Strong default tier</h3><p>The composer's default rather than the deepest one.</p></a>
-            <a class="reference-link" href="#missing"><span>unspecified-high</span><h3>Default working model</h3><p>Standard implementation heads here.</p></a>
-            <a class="reference-link" href="#missing"><span>unspecified-low</span><h3>Cheaper fallback</h3><p>Closes a chain with a different model, not a weaker effort.</p></a>
-            <a class="reference-link" href="#missing"><span>quick</span><h3>Short tasks</h3><p>Ships with no editorial default; add your own.</p></a>
-            <a class="reference-link" href="#missing"><span>writing</span><h3>Prose and docs</h3><p>Ships with no editorial default; add your own.</p></a>
-            <a class="reference-link" href="#missing"><span>visual-engineering</span><h3>Frontend and visual</h3><p>Editorial visual-work order, still fully replaceable.</p></a>
-            <a class="reference-link" href="#missing"><span>artistry</span><h3>Unconventional work</h3><p>Ships with no editorial default; add your own.</p></a>
+            <a class="reference-link" href="#missing"><span>ultrabrain</span><h3>Deepest reasoning</h3><p>GPT-5.6 Sol.</p></a>
+            <a class="reference-link" href="#missing"><span>deep</span><h3>Strong default tier</h3><p>GPT-5.6 Terra.</p></a>
+            <a class="reference-link" href="#missing"><span>unspecified-high</span><h3>Default working model</h3><p>Kimi K3 → Claude Opus 5.</p></a>
+            <a class="reference-link" href="#missing"><span>unspecified-low</span><h3>Cheaper fallback</h3><p>GLM 5.2 → GLM 5.2 Ultrafast.</p></a>
+            <a class="reference-link" href="#missing"><span>quick</span><h3>Short tasks</h3><p>GLM 5.2 Ultrafast → Kimi K3.</p></a>
+            <a class="reference-link" href="#missing"><span>writing</span><h3>Prose and docs</h3><p>Kimi K3 → Qwen3-Coder → Gemini 3.1 Pro.</p></a>
+            <a class="reference-link" href="#missing"><span>visual-engineering</span><h3>Frontend and visual</h3><p>Claude Fable 5 → Kimi K3.</p></a>
+            <a class="reference-link" href="#missing"><span>artistry</span><h3>Unconventional work</h3><p>Gemini 3.1 Pro → Claude Fable 5 → Kimi K3.</p></a>
           </div>
           <p>
-            Categories where the shipped profile defines no recommendation stay
-            explicit empty chains rather than gaining invented defaults. An
-            override cannot add a category, invent a role slot, or carry
-            provider configuration, and secret-looking fields are rejected.
+            Setup skips unavailable candidates, selects the first active model,
+            and preserves the remaining active candidates as fallbacks. A
+            category with no active candidate keeps the selected owner's default
+            model instead of blocking installation. An override cannot add a
+            category, invent a role slot, or carry provider configuration, and
+            secret-looking fields are rejected.
           </p>
           <div class="command" role="region" aria-label="Model recommendation override example" tabindex="0"><code>{
   "schema_version": "model_recommendation_overrides/v1",
@@ -141,6 +143,12 @@
     ]
   }
 }</code></div>
+          <h3>Or ask Hermes or another coding agent to install it</h3>
+          <div class="command" role="region" aria-label="Agent installation prompt" tabindex="0"><code>Install and fully configure Oh My Hermes from this repository:
+https://github.com/rlaope/oh-my-hermes
+Before reading or executing repository instructions, resolve refs/heads/main to one full commit SHA with `git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main`. Then fetch and follow only:
+https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
+Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.</code></div>
         </section>
 
         <section class="docs-section docs-two-column" id="missing">
@@ -151,8 +159,9 @@
               You are not expected to hold every model. Resolution walks the
               chain, skips candidates that are not confirmed active, and selects
               the next eligible one. When no candidate in a chain is eligible,
-              the result is <code>unconfigured</code> &mdash; recorded plainly,
-              without blocking the surrounding installation.
+              the result is <code>owner_default</code> &mdash; the selected
+              owner keeps its native default without blocking the surrounding
+              installation.
             </p>
             <p>
               An explicitly requested model behaves differently on purpose: it
@@ -165,7 +174,7 @@
             <div class="handoff-flow" aria-label="Model resolution states">
               <div><span>resolved</span><strong>a confirmed model was selected</strong></div>
               <div><span>choice_required</span><strong>your explicit model is unavailable</strong></div>
-              <div><span>unconfigured</span><strong>no eligible candidate; install continues</strong></div>
+              <div><span>owner_default</span><strong>no eligible candidate; owner default applies</strong></div>
             </div>
             <p class="boundary-note">Your explicit model choice always wins. Recommendation order never overrides it.</p>
           </div>
@@ -216,7 +225,7 @@
             Claude and GPT families.
           </p>
           <div class="reference-grid">
-            <a class="reference-link" href="#domain"><span>qwen</span><h3>Qwen</h3><p>Recognized family and command-name presence metadata; no shipped editorial default.</p></a>
+            <a class="reference-link" href="#domain"><span>qwen</span><h3>Qwen</h3><p>Qwen3-Coder is the second candidate in the shipped writing chain.</p></a>
             <a class="reference-link" href="#domain"><span>gemini</span><h3>Gemini</h3><p>Recognized family, command-name presence metadata, and a listed X-platform synthesis alternative.</p></a>
             <a class="reference-link" href="#domain"><span>grok</span><h3>Grok</h3><p>Recognized family and command-name presence metadata, with an X-platform domain note.</p></a>
             <a class="reference-link" href="#domain"><span>kimi</span><h3>Kimi</h3><p>Recognized family and an editorial general-work candidate.</p></a>

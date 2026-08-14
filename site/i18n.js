@@ -567,11 +567,11 @@ window.OMH_I18N = {
       ja: "明示指定したモデルが利用できません。勝手な代替は行いません。",
       zh: "你明确指定的模型不可用，不会自动替换。"
     },
-    "route.state.unconfigured": {
-      en: "No eligible candidate. Setup continues.",
-      ko: "적합한 후보가 없습니다. 설치는 계속됩니다.",
-      ja: "該当する候補がありません。セットアップは続行します。",
-      zh: "没有符合条件的候选。安装继续。"
+    "route.state.owner_default": {
+      en: "No eligible candidate. The selected owner keeps its default model.",
+      ko: "적합한 후보가 없습니다. 선택한 owner의 기본 모델을 유지합니다.",
+      ja: "該当する候補がありません。選択した owner のデフォルトモデルを維持します。",
+      zh: "没有符合条件的候选。保留所选 owner 的默认模型。"
     },
     "route.owner.tag": { en: "Owners", ko: "소유 주체", ja: "担当", zh: "归属" },
     "route.owner.title": {

@@ -142,6 +142,129 @@ class ModelSetupFlowTests(unittest.TestCase):
         self.assertIsNone(activation["preview"])
         self.assertEqual(activation["next_action"], "confirm_active_model")
 
+    def test_no_confirmed_candidate_completes_with_owner_defaults_and_no_write(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / ".hermes" / "config.yaml"
+            config_path.parent.mkdir()
+            config_path.write_text("{}\n", encoding="utf-8")
+            before = config_path.read_bytes()
+
+            with patch.object(
+                setup_commands,
+                "discover_local_models",
+                return_value=_discovery([]),
+            ), patch.object(
+                setup_commands,
+                "inspect_hermes_model_config",
+                return_value=_inspection(config_path),
+            ), patch.object(
+                setup_commands,
+                "apply_hermes_model_config",
+            ) as apply_config:
+                status, stdout, stderr = run_cli(
+                    [
+                        "--omh-home",
+                        str(root / ".omh"),
+                        "--hermes-home",
+                        str(root / ".hermes"),
+                        "setup",
+                        "--dry-run",
+                        "--skip-apply",
+                        "--no-menubar",
+                        "--model-setup",
+                        "--no-interactive",
+                        "--json",
+                    ],
+                    output_json=False,
+                )
+
+            activation = json.loads(stdout)["steps"]["model_activation"]
+            self.assertEqual((status, stderr), (0, ""))
+            self.assertEqual(activation["status"], "defaulted")
+            self.assertEqual(activation["next_action"], "model_setup_complete")
+            self.assertEqual(
+                activation["recommendations"]["main"]["status"],
+                "owner_default",
+            )
+            self.assertTrue(
+                all(
+                    recommendation["status"] == "owner_default"
+                    for recommendation in activation["recommendations"][
+                        "hermes_native"
+                    ]["categories"].values()
+                )
+            )
+            self.assertTrue(
+                all(
+                    recommendation["status"] == "owner_default"
+                    for recommendation in activation["recommendations"][
+                        "maestro"
+                    ]["categories"].values()
+                )
+            )
+            self.assertIsNone(activation["preview"])
+            self.assertEqual(activation["apply"]["status"], "not_requested")
+            self.assertEqual(config_path.read_bytes(), before)
+            apply_config.assert_not_called()
+
+    def test_unmatched_confirmed_model_still_completes_with_owner_default(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / ".hermes" / "config.yaml"
+            config_path.parent.mkdir()
+            config_path.write_text("{}\n", encoding="utf-8")
+            before = config_path.read_bytes()
+            qwen = {
+                "source": "hermes",
+                "provider": "qwen-oauth",
+                "model_id": "qwen3-coder",
+                "variant": "",
+                "timestamp": "",
+                "status": "observed_before",
+            }
+
+            with patch.object(
+                setup_commands,
+                "discover_local_models",
+                return_value=_discovery([qwen]),
+            ), patch.object(
+                setup_commands,
+                "inspect_hermes_model_config",
+                return_value=_inspection(config_path),
+            ), patch.object(
+                setup_commands,
+                "apply_hermes_model_config",
+            ) as apply_config:
+                status, stdout, stderr = run_cli(
+                    [
+                        "--omh-home",
+                        str(root / ".omh"),
+                        "--hermes-home",
+                        str(root / ".hermes"),
+                        "setup",
+                        "--dry-run",
+                        "--skip-apply",
+                        "--no-menubar",
+                        "--model-setup",
+                        "--no-interactive",
+                        "--confirm-model",
+                        "qwen-oauth/qwen3-coder",
+                        "--json",
+                    ],
+                    output_json=False,
+                )
+
+            activation = json.loads(stdout)["steps"]["model_activation"]
+            self.assertEqual((status, stderr), (0, ""))
+            self.assertEqual(activation["status"], "defaulted")
+            self.assertEqual(activation["next_action"], "model_setup_complete")
+            self.assertEqual(activation["recommendations"]["main"]["status"], "owner_default")
+            self.assertIsNone(activation["preview"])
+            self.assertEqual(activation["apply"]["status"], "not_requested")
+            self.assertEqual(config_path.read_bytes(), before)
+            apply_config.assert_not_called()
+
     def test_confirmed_qwen_and_gemini_only_can_preview_without_writing(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -472,7 +595,6 @@ class ModelSetupFlowTests(unittest.TestCase):
         self.assertEqual((status, stderr), (0, ""))
         self.assertIn("Scanning local model metadata", stdout)
         self.assertIn("truncated: record_count", stdout)
-        self.assertIn("No confirmed active model", stdout)
 
     def test_interactive_shows_preview_before_apply_confirmation(self) -> None:
         with TemporaryDirectory() as tmp:

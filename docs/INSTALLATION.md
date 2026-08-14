@@ -163,7 +163,10 @@ The guided flow is deliberately staged:
 1. **Inspect.** `omh setup --model-setup` scans bounded, allowlisted metadata
    roots for Codex, Claude Code, Hermes, OpenCode, OMO, `pi`, and `senpi`.
    `pi` and `senpi` are host CLIs in the OMO runtime family. Discovery does not
-   read auth files, provider responses, prompts, transcripts, or tool results.
+   open auth files or call providers. It parses bounded local session/config
+   records, which may contain prompt or tool-result fields, but emits only the
+   allowlisted provider, model, variant, timestamp, and source identifiers; it
+   never returns or persists transcript prose or credential values.
 2. **Confirm active.** Prior session/config metadata is only `observed_before`.
    A model becomes `confirmed_active` for this flow only through an explicit
    `--confirm-model PROVIDER/MODEL` choice. This is still user-declared local
@@ -200,7 +203,10 @@ An explicit unavailable model returns `choice_required` and never silently
 falls through. A missing recommended model is different: setup remains usable
 and ordered recommendation chains skip missing entries in favor of a confirmed
 compatible alternative. Qwen and Gemini therefore remain valid user-selected
-alternatives even when they are not shipped category heads.
+alternatives even when they are not shipped category heads. If no candidate is
+confirmed for a selector, the resolver records `owner_default`; Hermes or the
+selected external owner keeps its native default model, setup completes with
+`status: defaulted`, and no model-config write is prepared or applied.
 
 ### Editable recommendation categories
 
@@ -214,7 +220,9 @@ The shipped catalog is editorial policy, not benchmark output:
 | `unspecified-high` | Kimi K3, Claude Opus 5 |
 | `unspecified-low` | GLM 5.2, GLM 5.2 Ultrafast |
 | `visual-engineering` | Claude Fable 5, Kimi K3 |
-| `quick`, `writing`, `artistry` | No shipped default; choose a confirmed compatible model |
+| `quick` | GLM 5.2 Ultrafast, Kimi K3 |
+| `writing` | Kimi K3, Qwen3-Coder, Gemini 3.1 Pro |
+| `artistry` | Gemini 3.1 Pro, Claude Fable 5, Kimi K3 |
 | `x_platform_data` affinity | Grok, Kimi K3, Gemini |
 
 The X/Grok row is a static, editable affinity for work explicitly declaring X
@@ -385,6 +393,13 @@ OMH's setup footprint is intentionally bounded:
 - It installs managed Hermes-visible skills and records local status contracts.
 - It can repair or reapply managed `skills.external_dirs` when a Hermes
   profile drifts.
+- It enables the managed `omh` plugin and selects the OMH memory provider only
+  when the corresponding provider slot is free. Existing foreign ownership is
+  preserved.
+- On a fresh Hermes config only, it adds `display.interface: tui` so the
+  installed HUD is reachable. Existing configs without an interface are left
+  unchanged, explicit display choices are always preserved, and uninstall does
+  not remove this fresh-install default.
 - It adds `auxiliary.compression.fallback_chain` when the config pins
   compression to a single provider and already lists other fallback providers.
   Without a compression fallback, one unreachable endpoint leaves a session
@@ -396,6 +411,11 @@ OMH's setup footprint is intentionally bounded:
   backends.
 - It does not patch Hermes core, run hidden coding work, or turn a prepared
   handoff into observed execution.
+
+The top-level `changed` value in `omh setup --json` is an aggregate: it is true
+when any managed setup field changes, including skill registration, compression
+fallbacks, plugin enablement, the fresh-config TUI default, or memory-provider
+selection. Model-alias writes remain a separate preview-and-approval step.
 
 The curl installer intentionally stops before setup. It installs the isolated
 command package and `omh` executable only. `omh setup` is the explicit,

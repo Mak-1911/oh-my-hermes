@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
+from importlib import resources
 import os
 import sys
 import unittest
-from importlib import resources
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -43,8 +43,68 @@ class TuiWidgetPackTests(unittest.TestCase):
             self.assertEqual((widget_dir / "omh-status.mjs").read_bytes(), expected)
             self.assertEqual(unrelated.read_bytes(), unrelated_bytes)
             self.assertEqual(payload["steps"]["tui_widget"]["status"], "installed")
+            self.assertIn(
+                "display:\n  interface: tui\n",
+                (hermes_home / "config.yaml").read_text(encoding="utf-8"),
+            )
 
-    def test_update_restores_an_installed_widget(self) -> None:
+    def test_setup_preserves_existing_config_without_display_interface(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            config = hermes_home / "config.yaml"
+            config.parent.mkdir(parents=True)
+            config.write_text("display:\n  compact: true\n", encoding="utf-8")
+
+            status, stdout, stderr = run_cli(
+                [
+                    "--omh-home",
+                    str(omh_home),
+                    "--hermes-home",
+                    str(hermes_home),
+                    "setup",
+                    "--json",
+                ],
+                output_json=False,
+            )
+
+            self.assertEqual((status, stderr), (0, ""))
+            config_text = config.read_text(encoding="utf-8")
+            self.assertIn("display:\n  compact: true\n", config_text)
+            self.assertNotIn("interface:", config_text)
+            tui_interface = json.loads(stdout)["steps"]["apply"]["tui_interface"]
+            self.assertFalse(tui_interface["changed"])
+            self.assertEqual(tui_interface["selected"], "")
+
+    def test_setup_preserves_an_explicit_classic_interface(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            config = hermes_home / "config.yaml"
+            config.parent.mkdir(parents=True)
+            config.write_text("display:\n  interface: classic\n", encoding="utf-8")
+
+            status, stdout, stderr = run_cli(
+                [
+                    "--omh-home",
+                    str(omh_home),
+                    "--hermes-home",
+                    str(hermes_home),
+                    "setup",
+                    "--json",
+                ],
+                output_json=False,
+            )
+
+            self.assertEqual((status, stderr), (0, ""))
+            config_text = config.read_text(encoding="utf-8")
+            self.assertIn("display:\n  interface: classic\n", config_text)
+            self.assertEqual(config_text.count("interface:"), 1)
+            self.assertEqual(json.loads(stdout)["steps"]["apply"]["tui_interface"]["selected"], "classic")
+
+    def test_update_restores_widget_without_overriding_display_preference(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             omh_home = root / ".omh"
@@ -59,6 +119,11 @@ class TuiWidgetPackTests(unittest.TestCase):
             self.assertEqual((setup_status, setup_stderr), (0, ""))
             widget = hermes_home / "tui-widgets" / "omh-status.mjs"
             widget.unlink()
+            config = hermes_home / "config.yaml"
+            config.write_text(
+                config.read_text(encoding="utf-8").replace("interface: tui", "interface: cli"),
+                encoding="utf-8",
+            )
 
             status, _, stderr = run_cli(
                 [
@@ -76,6 +141,28 @@ class TuiWidgetPackTests(unittest.TestCase):
             self.assertEqual((status, stderr), (0, ""))
             expected = widget_payload(Path(sys.executable))
             self.assertEqual(widget.read_bytes(), expected)
+            self.assertIn("display:\n  interface: cli\n", config.read_text(encoding="utf-8"))
+
+    def test_setup_reports_config_changed_when_only_plugin_enablement_changes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            common = ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home)]
+            setup_status, _, setup_stderr = run_cli([*common, "setup", "--json"], output_json=False)
+            self.assertEqual((setup_status, setup_stderr), (0, ""))
+            config = hermes_home / "config.yaml"
+            config.write_text(
+                config.read_text(encoding="utf-8").replace("plugins:\n  enabled:\n    - omh\n", ""),
+                encoding="utf-8",
+            )
+
+            status, stdout, stderr = run_cli([*common, "setup", "--json"], output_json=False)
+
+            self.assertEqual((status, stderr), (0, ""))
+            apply = json.loads(stdout)["steps"]["apply"]
+            self.assertTrue(apply["plugin_enabled"]["changed"])
+            self.assertTrue(apply["changed"])
 
     def test_installer_rejects_symlinked_widget_destination_and_parent(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -119,6 +206,9 @@ class TuiWidgetPackTests(unittest.TestCase):
 
         self.assertIn(json.dumps(os.path.realpath(sys.executable)), payload)
         self.assertNotIn("spawnSync('python3'", payload)
+        self.assertIn("['-I', '-c', READER]", payload)
+        self.assertIn("const READER_ENV =", payload)
+        self.assertNotIn("...process.env", payload)
 
     def test_full_uninstall_removes_only_managed_widget(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -142,19 +232,56 @@ class TuiWidgetPackTests(unittest.TestCase):
             self.assertEqual(unrelated.read_text(encoding="utf-8"), "personal\n")
             self.assertEqual(json.loads(stdout)["tui_widget"]["status"], "removed")
 
-    def test_widget_is_full_width_and_omits_host_status_fields(self) -> None:
+    def test_widget_is_bottom_docked_and_omits_host_status_fields(self) -> None:
         widget = resources.files("omh.tui_widgets").joinpath("omh-status.mjs").read_text(encoding="utf-8")
 
         self.assertIn("zone: 'dock-bottom'", widget)
+        self.assertNotIn("zone: 'top-right'", widget)
+        self.assertNotIn("zone: 'dock-top'", widget)
         self.assertIn("width: '100%'", widget)
-        self.assertIn("[OMH]", widget)
-        self.assertIn("MAESTRO", widget)
-        self.assertIn("routed", widget)
+        self.assertIn("marginTop: 1", widget)
+        self.assertNotIn("borderStyle:", widget)
+        self.assertNotIn("metricRow", widget)
+        self.assertIn("...rows.map", widget)
+        self.assertNotIn("...maestroRows.map", widget)
+        self.assertNotIn("latest ? h(Text", widget)
+        self.assertIn("const version = safeText(payload.version)", widget)
+        self.assertIn("`[OMH] ${version}`", widget)
+        self.assertIn("}, '-'),", widget)
+        self.assertIn("'Oh My Hermes'", widget)
+        self.assertIn("'Ultra Work'", widget)
+        self.assertIn("'Ready'", widget)
+        self.assertIn("SPINNER_FRAMES", widget)
+        self.assertIn("useShimmerPhase", widget)
+        self.assertNotIn("Number.MAX_SAFE_INTEGER", widget)
+        self.assertIn("useShimmerPhase(30_000)", widget)
+        self.assertIn("Math.min(3,", widget)
+        self.assertNotIn("spinnerTimerKey", widget)
+        self.assertIn("ActivityRow", widget)
+        self.assertIn("truncateCells", widget)
+        self.assertIn("category:", widget)
+        self.assertIn("tools", widget)
+        self.assertIn("tok/s", widget)
+        self.assertIn("cache_hit_percentage", widget)
+        self.assertIn("context_percentage", widget)
+        self.assertIn("uncollected", widget)
+        self.assertIn("'MAIN'", widget)
+        self.assertIn("maestro.rows", widget)
+        self.assertIn("fallback:", widget)
+        self.assertIn("'•'", widget)
         self.assertIn("execFile(", widget)
         self.assertIn("Symbol.for(", widget)
         self.assertIn("generationKey", widget)
         self.assertIn("generation !== globalThis[generationKey]", widget)
         self.assertIn("clearTimeout(", widget)
+        self.assertNotIn("payload ? { payload } : state", widget)
+        self.assertEqual(widget.count("{ ...state, payload, tick: state.tick + 1 }"), 2)
+        self.assertNotIn("friendlyWorkflow", widget)
+        self.assertNotIn("'fanout-unit': 'Parallel work'", widget)
+        self.assertIn("t.color.ok", widget)
+        self.assertIn("t.color.error", widget)
+        self.assertIn("t.color.warn", widget)
+        self.assertNotIn("t.color.warning", widget)
         self.assertNotIn("spawnSync(", widget)
         self.assertNotIn("setInterval(", widget)
         for forbidden in ("payload.cwd", "payload.branch", "payload.context", "payload.cost"):

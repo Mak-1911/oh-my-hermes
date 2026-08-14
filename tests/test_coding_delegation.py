@@ -85,7 +85,7 @@ class CategoryPropagationTests(unittest.TestCase):
 class HermesNativeModelBindingTests(unittest.TestCase):
     def test_resolved_recommendation_binds_native_alias_kanban_and_delegate_metadata(self) -> None:
         recommendation = {
-            "schema_version": "model_recommendation_resolution/v1",
+            "schema_version": "model_recommendation_resolution/v2",
             "owner": "hermes",
             "status": "resolved",
             "source": "recommendation_chain",
@@ -130,12 +130,12 @@ class HermesNativeModelBindingTests(unittest.TestCase):
         self.assertNotIn("maestro", str(payload).casefold())
         self.assertIn("runtime observation", binding["claim_boundary"].casefold())
 
-    def test_unconfigured_recommendation_requires_native_setup_without_model_pin(self) -> None:
+    def test_owner_default_recommendation_keeps_native_default_without_model_pin(self) -> None:
         recommendation = {
-            "schema_version": "model_recommendation_resolution/v1",
+            "schema_version": "model_recommendation_resolution/v2",
             "owner": "hermes",
-            "status": "unconfigured",
-            "source": "recommendation_chain",
+            "status": "owner_default",
+            "source": "owner_default",
             "selected": None,
             "projection": None,
             "inactive_candidates": ["gemini-3.1-pro"],
@@ -148,11 +148,32 @@ class HermesNativeModelBindingTests(unittest.TestCase):
         )
 
         binding = payload["runtime_handoff"]["hermes_native_model_binding"]
-        self.assertEqual(binding["status"], "choice_required")
-        self.assertEqual(binding["next_action"], "configure_hermes_native_alias")
+        self.assertEqual(binding["status"], "owner_default")
+        self.assertEqual(binding["next_action"], "use_hermes_default_model")
         self.assertEqual(binding["inactive_candidates"], ["gemini-3.1-pro"])
         self.assertNotIn("kanban_task_override", binding)
         self.assertNotIn("delegate_task_override", binding)
+
+    def test_explicit_unavailable_recommendation_still_requires_native_setup(self) -> None:
+        recommendation = {
+            "schema_version": "model_recommendation_resolution/v2",
+            "owner": "hermes",
+            "status": "choice_required",
+            "source": "explicit_model",
+            "selected": None,
+            "projection": None,
+            "inactive_candidates": ["gpt-5.6-sol"],
+        }
+
+        payload = build_coding_delegation_payload(
+            "implement a risky refactor with Hermes",
+            executor_target="hermes",
+            model_recommendation=recommendation,
+        )
+
+        binding = payload["runtime_handoff"]["hermes_native_model_binding"]
+        self.assertEqual(binding["status"], "choice_required")
+        self.assertEqual(binding["next_action"], "configure_hermes_native_alias")
 
 
 if __name__ == "__main__":  # pragma: no cover - unittest entry point
