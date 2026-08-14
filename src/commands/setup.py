@@ -263,9 +263,11 @@ def cmd_update(args: argparse.Namespace) -> int:
     if self_update.get("should_update"):
         return _run_command_package_self_update(args, self_update)
     code = cmd_install(args)
-    if code == 0 and not (args.from_skills_dir or args.source):
-        _refresh_installed_plugin_bundle(args)
-        _refresh_hermes_registration(args)
+    if code == 0:
+        if not (args.from_skills_dir or args.source):
+            _refresh_installed_plugin_bundle(args)
+            _refresh_hermes_registration(args)
+        _refresh_installed_tui_widget(args)
     return code
 
 
@@ -312,7 +314,6 @@ def _refresh_installed_plugin_bundle(args: argparse.Namespace) -> dict[str, obje
         return None
     try:
         result = install_plugin_bundle(paths, force=args.force, dry_run=args.dry_run)
-        install_tui_widget(paths.hermes_home, dry_run=bool(args.dry_run))
     except PluginPackError:
         # An update must not fail over a bundle a later `omh setup --force` can
         # repair; `omh doctor` reports the drift with the instruction to run it.
@@ -320,6 +321,13 @@ def _refresh_installed_plugin_bundle(args: argparse.Namespace) -> dict[str, obje
     if not args.dry_run:
         update_state(paths, {"last_plugin_distribution": result})
     return result
+
+
+def _refresh_installed_tui_widget(args: argparse.Namespace) -> dict[str, object] | None:
+    paths = _paths(args)
+    if not paths.hermes_plugin_dir.is_dir():
+        return None
+    return install_tui_widget(paths.hermes_home, dry_run=bool(args.dry_run))
 
 
 def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, object]:

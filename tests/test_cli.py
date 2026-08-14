@@ -3640,12 +3640,17 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 setup_commands,
                 "_refresh_hermes_registration",
             ) as registration_refresh,
+            patch.object(
+                setup_commands,
+                "_refresh_installed_tui_widget",
+            ) as widget_refresh,
         ):
             status = setup_commands.cmd_update(args)
 
         self.assertEqual(status, 0)
         plugin_refresh.assert_not_called()
         registration_refresh.assert_not_called()
+        widget_refresh.assert_called_once_with(args)
 
     def test_update_self_update_recognizes_venv_python_symlink_path(self) -> None:
         with TemporaryDirectory() as tmp:
