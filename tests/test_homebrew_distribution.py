@@ -445,6 +445,22 @@ class DistributionReleaseContractTests(unittest.TestCase):
             content.index("render_homebrew.py"),
         )
 
+    def test_missing_npm_version_reaches_publish_instead_of_integrity_check(
+        self,
+    ) -> None:
+        workflow = (
+            PROJECT_ROOT / ".github" / "workflows" / "release.yml"
+        ).read_text()
+        self.assertIn(
+            'if published_integrity="$(\n'
+            '            npm view "oh-my-hermes@$OMH_VERSION" '
+            "dist.integrity --json 2>/dev/null\n"
+            '          )"; then',
+            workflow,
+        )
+        self.assertNotIn("tr -d '\"' || true", workflow)
+        self.assertIn('npm publish "$OMH_TARBALL"', workflow)
+
     def test_npm_template_has_no_published_placeholder_version(self) -> None:
         template = NPM_PACKAGE_SOURCE / "package.template.json"
         self.assertTrue(template.is_file(), "npm package template missing")

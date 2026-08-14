@@ -191,11 +191,10 @@ jobs:
         run: |
           set -euo pipefail
           local_integrity="sha512-$(openssl dgst -sha512 -binary "$OMH_TARBALL" | openssl base64 -A)"
-          published_integrity="$(
-            npm view "oh-my-hermes@$OMH_VERSION" dist.integrity --json 2>/dev/null |
-              tr -d '"' || true
-          )"
-          if [ -n "$published_integrity" ]; then
+          if published_integrity="$(
+            npm view "oh-my-hermes@$OMH_VERSION" dist.integrity --json 2>/dev/null
+          )"; then
+            published_integrity="${published_integrity//\"/}"
             test "$published_integrity" = "$local_integrity"
           else
             npm publish "$OMH_TARBALL" --access public --provenance
