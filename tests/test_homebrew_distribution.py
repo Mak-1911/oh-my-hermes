@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
@@ -125,6 +126,47 @@ class HomebrewDistributionTests(unittest.TestCase):
 
 
 class DistributionReleaseContractTests(unittest.TestCase):
+    def test_npm_owner_preflight_accepts_cli_text_and_json(self) -> None:
+        metadata = PROJECT_ROOT / "tools" / "package_manager" / "metadata.py"
+        accepted = (
+            "rlaope <piyrw9754@gmail.com>\n",
+            '["rlaope"]\n',
+            '{"rlaope":"piyrw9754@gmail.com"}\n',
+            '[{"name":"rlaope","email":"piyrw9754@gmail.com"}]\n',
+        )
+        for owner_output in accepted:
+            with self.subTest(owner_output=owner_output):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(metadata),
+                        "--require-npm-owner",
+                        "rlaope",
+                    ],
+                    cwd=PROJECT_ROOT,
+                    input=owner_output,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+        rejected = subprocess.run(
+            [
+                sys.executable,
+                str(metadata),
+                "--require-npm-owner",
+                "rlaope",
+            ],
+            cwd=PROJECT_ROOT,
+            input="other-owner <owner@example.test>\n",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("required npm owner is missing", rejected.stderr)
+
     def test_version_comparison_cli_guards_tap_monotonicity(self) -> None:
         metadata = (
             PROJECT_ROOT / "tools" / "package_manager" / "metadata.py"
@@ -291,6 +333,7 @@ class DistributionReleaseContractTests(unittest.TestCase):
         for contract in (
             "npm view oh-my-hermes name",
             "npm owner ls oh-my-hermes",
+            "--require-npm-owner rlaope",
             "ACTIONS_ID_TOKEN_REQUEST_URL",
             "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
             "git -C \"$tap\" push --dry-run origin HEAD:refs/heads/main",
