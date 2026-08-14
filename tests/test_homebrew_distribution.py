@@ -434,7 +434,11 @@ class DistributionReleaseContractTests(unittest.TestCase):
         self.assertIn("npm publish", content)
         self.assertIn("--provenance", content)
         self.assertIn("id-token: write", content)
-        self.assertIn("HOMEBREW_TAP_TOKEN", content)
+        self.assertIn(
+            "ssh-key: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}",
+            content,
+        )
+        self.assertNotIn("HOMEBREW_TAP_TOKEN", content)
         self.assertIn("render_homebrew.py", content)
         self.assertLess(
             content.index("npm publish"),
