@@ -85,13 +85,13 @@ def pack_npm_package(
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     result = run(
-        [
-            "npm",
+        command_for(
+            Path(require_tool("npm")),
             "pack",
             "--json",
             "--pack-destination",
             str(output_dir),
-        ],
+        ),
         cwd=package_dir,
         env=env,
     )
@@ -120,8 +120,12 @@ def locate_global_omh(prefix: Path, *, platform: str = os.name) -> Path:
     raise AssertionError(f"global installation did not expose omh under {prefix}")
 
 
-def command_for(binary: Path, *arguments: str) -> list[str]:
-    if os.name == "nt" and binary.suffix.casefold() == ".cmd":
+def command_for(
+    binary: Path,
+    *arguments: str,
+    platform: str = os.name,
+) -> list[str]:
+    if platform == "nt" and binary.suffix.casefold() == ".cmd":
         return ["cmd", "/d", "/c", str(binary), *arguments]
     return [str(binary), *arguments]
 

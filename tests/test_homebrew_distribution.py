@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -50,7 +51,8 @@ class HomebrewDistributionTests(unittest.TestCase):
             str(output),
         )
         formula = output.read_text()
-        self.assertEqual(output.stat().st_mode & 0o777, 0o644)
+        if os.name != "nt":
+            self.assertEqual(output.stat().st_mode & 0o777, 0o644)
         self.assertTrue(formula.startswith("# typed: strict\n"))
         self.assertIn("# frozen_string_literal: true", formula)
         self.assertIn(

@@ -77,9 +77,15 @@ class DistributionInstallSurfaceTests(unittest.TestCase):
     def test_site_pending_status_drives_unique_styles_and_translations(
         self,
     ) -> None:
-        page = (PROJECT_ROOT / "site" / "index.html").read_text()
-        styles = (PROJECT_ROOT / "site" / "home.css").read_text()
-        translations = (PROJECT_ROOT / "site" / "i18n.js").read_text()
+        page = (PROJECT_ROOT / "site" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        styles = (PROJECT_ROOT / "site" / "home.css").read_text(
+            encoding="utf-8"
+        )
+        translations = (PROJECT_ROOT / "site" / "i18n.js").read_text(
+            encoding="utf-8"
+        )
         self.assertEqual(
             translations.count('"install.availability.note":'),
             1,
@@ -99,7 +105,7 @@ class DistributionInstallSurfaceTests(unittest.TestCase):
     ) -> None:
         for relative in ("docs/INSTALLATION.md", "packaging/npm/README.md"):
             with self.subTest(surface=relative):
-                content = (PROJECT_ROOT / relative).read_text()
+                content = (PROJECT_ROOT / relative).read_text(encoding="utf-8")
                 self.assertIn("OMH_CACHE_DIR", content)
                 self.assertIn(
                     "~/Library/Caches/oh-my-hermes/npm",
@@ -117,7 +123,7 @@ class DistributionInstallSurfaceTests(unittest.TestCase):
     def test_localized_installers_use_separate_copyable_blocks(self) -> None:
         for relative in ("README.ko.md", "README.ja.md", "README.zh.md"):
             with self.subTest(surface=relative):
-                content = (PROJECT_ROOT / relative).read_text()
+                content = (PROJECT_ROOT / relative).read_text(encoding="utf-8")
                 blocks = [
                     block.strip()
                     for block in re.findall(
@@ -138,23 +144,29 @@ class DistributionInstallSurfaceTests(unittest.TestCase):
             "INSTALL_FOR_AGENTS.md",
         ):
             with self.subTest(surface=relative):
-                content = (PROJECT_ROOT / relative).read_text()
+                content = (PROJECT_ROOT / relative).read_text(encoding="utf-8")
                 for command in LIFECYCLE_COMMANDS:
                     self.assertIn(command, content)
                 self.assertIn("omh uninstall --all", content)
 
     def test_windows_package_manager_boundary_is_explicit(self) -> None:
-        workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        workflow = (
+            PROJECT_ROOT / ".github" / "workflows" / "ci.yml"
+        ).read_text(encoding="utf-8")
         windows = workflow[workflow.index("test-windows:") :]
         self.assertIn("actions/setup-node@", windows)
         self.assertIn("oven-sh/setup-bun@", windows)
 
     def test_unpublished_package_manager_commands_are_visibly_caveated(self) -> None:
-        html = (PROJECT_ROOT / "site" / "index.html").read_text()
+        html = (PROJECT_ROOT / "site" / "index.html").read_text(
+            encoding="utf-8"
+        )
         self.assertIn('data-package-manager-status="pending"', html)
 
     def test_site_exposes_ordered_copyable_install_commands(self) -> None:
-        html = (PROJECT_ROOT / "site" / "index.html").read_text()
+        html = (PROJECT_ROOT / "site" / "index.html").read_text(
+            encoding="utf-8"
+        )
         parser = _CodeCollector()
         parser.feed(html)
 
@@ -186,13 +198,14 @@ class DistributionInstallSurfaceTests(unittest.TestCase):
             "README.ja.md",
             "README.zh.md",
             "docs/INSTALLATION.md",
-            "INSTALL_FOR_AGENTS.md",
         )
         expected = (*INSTALL_COMMANDS, SETUP_COMMAND, DOCTOR_COMMAND)
 
         for relative in surfaces:
             with self.subTest(surface=relative):
-                blocks = _fenced_blocks((PROJECT_ROOT / relative).read_text())
+                blocks = _fenced_blocks(
+                    (PROJECT_ROOT / relative).read_text(encoding="utf-8")
+                )
                 positions = []
                 for command in expected:
                     matches = [
@@ -209,8 +222,30 @@ class DistributionInstallSurfaceTests(unittest.TestCase):
                     f"{relative} groups canonical setup with doctor",
                 )
 
+    def test_agent_protocol_pins_script_installers_after_package_managers(
+        self,
+    ) -> None:
+        protocol = (PROJECT_ROOT / "INSTALL_FOR_AGENTS.md").read_text(
+            encoding="utf-8"
+        )
+        protocol = protocol.split("## Step 1: Install OMH", 1)[1]
+        ordered = (
+            "brew install rlaope/tap/omh",
+            "bun install -g oh-my-hermes",
+            "npm install -g oh-my-hermes",
+            'git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main',
+            'raw.githubusercontent.com/rlaope/oh-my-hermes/$OMH_REF/install.sh',
+            'raw.githubusercontent.com/rlaope/oh-my-hermes/$Ref/install.ps1',
+            "omh setup --model-setup --interactive",
+            "omh doctor",
+        )
+        positions = tuple(protocol.index(value) for value in ordered)
+        self.assertEqual(positions, tuple(sorted(positions)))
+
     def test_site_translations_cover_new_install_labels(self) -> None:
-        translations = (PROJECT_ROOT / "site" / "i18n.js").read_text()
+        translations = (PROJECT_ROOT / "site" / "i18n.js").read_text(
+            encoding="utf-8"
+        )
         for key in (
             "install.method.brew",
             "install.method.bun",

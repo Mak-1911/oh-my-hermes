@@ -119,6 +119,10 @@ class DistributionHelperTests(unittest.TestCase):
                 locate_global_omh(prefix, platform="nt"),
                 command,
             )
+            self.assertEqual(
+                command_for(command, "--version", platform="nt"),
+                ["cmd", "/d", "/c", str(command), "--version"],
+            )
 
 
 class DistributionMetadataTests(unittest.TestCase):
@@ -357,20 +361,20 @@ class NpmBunDistributionTests(unittest.TestCase):
 
     def test_global_tarball_launchers(self) -> None:
         tarball = self._tarball()
-        require_tool("npm")
-        require_tool("bun")
+        npm = Path(require_tool("npm"))
+        bun = Path(require_tool("bun"))
 
         npm_prefix = self.root / "npm-global"
         run(
-            [
-                "npm",
+            command_for(
+                npm,
                 "install",
                 "--global",
                 "--ignore-scripts",
                 "--prefix",
                 str(npm_prefix),
                 str(tarball),
-            ]
+            )
         )
         self._assert_cli(
             locate_global_omh(npm_prefix),
@@ -381,7 +385,7 @@ class NpmBunDistributionTests(unittest.TestCase):
         bun_root = self.root / "bun-global"
         bun_env = {**os.environ, "BUN_INSTALL": str(bun_root)}
         run(
-            ["bun", "install", "--global", str(tarball)],
+            command_for(bun, "install", "--global", str(tarball)),
             env=bun_env,
         )
         self._assert_cli(
