@@ -117,17 +117,42 @@
 
 ## Quick Start
 
-**Install the local command and managed skills:**
+> **Status:** Package-manager installs are pending the first distribution release.
+> Until npm and the Homebrew tap are public, use the curl or PowerShell installer.
+
+**Homebrew:**
+
+```sh
+brew install rlaope/tap/omh
+```
+
+**Bun (recommended):**
+
+```sh
+bun install -g oh-my-hermes
+```
+
+**npm:**
+
+```sh
+npm install -g oh-my-hermes
+```
+
+**Universal installer (macOS/Linux):**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
-omh setup
 ```
 
 **On Windows (PowerShell 5.1+):**
 
 ```powershell
 irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
+```
+
+**Set up OMH after installing:**
+
+```sh
 omh setup
 ```
 
@@ -152,12 +177,30 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
 
 <br>
 
-**Update and health check:**
+**Update:**
 
 ```sh
 omh update
+```
+
+**Verify or troubleshoot the installation:**
+
+```sh
 omh doctor
 ```
+
+**Update or remove the command package with the manager that installed it:**
+
+| Installed with | Upgrade the CLI | Remove the CLI |
+| --- | --- | --- |
+| Homebrew | `brew upgrade rlaope/tap/omh` | `brew uninstall omh` |
+| Bun | `bun update -g oh-my-hermes` | `bun remove -g oh-my-hermes` |
+| npm | `npm update -g oh-my-hermes` | `npm uninstall -g oh-my-hermes` |
+
+`omh update` refreshes OMH-managed skills and state; it does not replace a
+Homebrew, Bun, or npm package. Removing the command package preserves OMH state.
+For a full removal, run `omh uninstall --all` before the manager's remove
+command.
 
 Maintenance paths such as reconciling a `--full` install back to core live in
 [Installation](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core).

@@ -3297,7 +3297,12 @@ class RouterContentTests(unittest.TestCase):
             self.assertIn("`Plan · not run`", localized_readme)
             self.assertIn("`Code · reported done`", localized_readme)
             self.assertIn("omh setup", localized_readme)
-            self.assertIn("```sh\nomh update\nomh doctor\n```", localized_readme)
+            self.assertIn("```sh\nomh update\n```", localized_readme)
+            self.assertIn("```sh\nomh doctor\n```", localized_readme)
+            self.assertNotIn(
+                "```sh\nomh update\nomh doctor\n```",
+                localized_readme,
+            )
             for image in (
                 "artengine-friren-profile-card.png",
                 "omh-core-workflows.png",
@@ -3365,10 +3370,10 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("omh setup", quick_start)
         # `omh doctor` belongs in its own block, never bundled into the install
         # step: a first-time reader must not read a health check as part of setup.
-        install_block = quick_start.split("```sh", 1)[1].split("```", 1)[0]
-        self.assertIn("omh setup", install_block)
-        self.assertNotIn("omh doctor", install_block)
-        self.assertIn("```sh\nomh update\nomh doctor\n```", quick_start)
+        self.assertIn("```sh\nomh setup\n```", quick_start)
+        self.assertIn("```sh\nomh update\n```", quick_start)
+        self.assertIn("```sh\nomh doctor\n```", quick_start)
+        self.assertNotIn("```sh\nomh setup\nomh doctor\n```", quick_start)
         self.assertIn(
             "https://raw.githubusercontent.com/rlaope/oh-my-hermes/"
             "{resolved-commit-sha}/INSTALL_FOR_AGENTS.md",

@@ -2985,6 +2985,54 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(state["last_update"]["release_update"]["status"], "refreshed")
             self.assertEqual(state["last_update"]["managed_skills"]["count"], len(CORE_PROFILE_SKILLS))
 
+    def test_package_manager_update_uses_native_command_guidance(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = ["--omh-home", str(root / ".omh")]
+            with patch.dict(
+                os.environ,
+                {"OMH_COMMAND_PACKAGE_MANAGER": "npm"},
+            ):
+                status, stdout, stderr = run_cli(
+                    base + ["update"],
+                    output_json=False,
+                )
+                json_status, json_stdout, json_stderr = run_cli(
+                    base + ["update", "--json"],
+                    output_json=False,
+                )
+
+        self.assertEqual(status, 0, stderr)
+        self.assertEqual(json_status, 0, json_stderr)
+        self.assertIn("npm update -g oh-my-hermes", stdout)
+        self.assertNotIn("install.sh", stdout)
+        payload = json.loads(json_stdout)
+        self.assertEqual(
+            payload["command_package"]["package_manager"],
+            "npm",
+        )
+        self.assertEqual(
+            payload["command_package"]["update_instruction"],
+            "npm update -g oh-my-hermes",
+        )
+
+    def test_homebrew_runtime_uses_native_update_guidance(self) -> None:
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch.object(
+                setup_commands.sys,
+                "prefix",
+                "/opt/homebrew/Cellar/omh/1.0.5/libexec",
+            ),
+        ):
+            os.environ.pop("OMH_COMMAND_PACKAGE_MANAGER", None)
+            package_manager, instruction = (
+                setup_commands._command_package_update_guidance()
+            )
+
+        self.assertEqual(package_manager, "homebrew")
+        self.assertEqual(instruction, "brew upgrade rlaope/tap/omh")
+
     def test_update_self_update_reenters_with_command_package_marker(self) -> None:
         args = Namespace(json=True)
         plan = {"release": Namespace(package_url="https://example.invalid/omh.zip"), "python": sys.executable}

@@ -450,23 +450,34 @@ window.OMH_I18N = {
     /* ------------------------------------------------------------ install */
     "install.kicker": { en: "Install", ko: "설치", ja: "インストール", zh: "安装" },
     "install.title": {
-      en: "Three commands for people.",
-      ko: "사람이 쓰는 명령은 셋.",
-      ja: "人が使うコマンドは三つ。",
-      zh: "留给人的命令只有三条。"
+      en: "Install your way. Set up once.",
+      ko: "원하는 방식으로 설치하고, 설정은 한 번.",
+      ja: "好きな方法でインストール。セットアップは一度だけ。",
+      zh: "按你的方式安装，只需设置一次。"
     },
     "install.lead": {
-      en: "omh setup, omh update, omh doctor. Everything else belongs to the agent layer.",
-      ko: "omh setup, omh update, omh doctor. 나머지는 전부 에이전트 레이어의 몫.",
-      ja: "omh setup、omh update、omh doctor。残りはすべてエージェント層のもの。",
-      zh: "omh setup、omh update、omh doctor。其余全部属于智能体层。"
+      en: "Choose a package manager or platform installer. Doctor stays a separate check.",
+      ko: "패키지 관리자나 플랫폼 설치 프로그램을 고르세요. Doctor는 별도 확인 단계입니다.",
+      ja: "パッケージマネージャーか OS 用インストーラーを選択。Doctor は別の確認手順です。",
+      zh: "选择包管理器或平台安装程序。Doctor 是单独的验证步骤。"
+    },
+    "install.availability.note": {
+      en: "Package-manager installs are pending the first distribution release. Use curl or PowerShell until npm and the Homebrew tap are public.",
+      ko: "패키지 관리자 설치는 첫 배포 릴리스 전까지 대기 상태입니다. npm과 Homebrew tap 공개 전에는 curl 또는 PowerShell을 사용하세요.",
+      ja: "パッケージマネージャーでのインストールは最初の配布リリースまで保留中です。npm と Homebrew tap の公開までは curl または PowerShell を使用してください。",
+      zh: "包管理器安装在首次分发版本发布前暂不可用。在 npm 与 Homebrew tap 公开前，请使用 curl 或 PowerShell。"
     },
     "install.step1": { en: "Install the command", ko: "명령어 설치", ja: "コマンドをインストール", zh: "安装命令行" },
+    "install.method.brew": { en: "Homebrew", ko: "Homebrew", ja: "Homebrew", zh: "Homebrew" },
+    "install.method.bun": { en: "Bun · recommended", ko: "Bun · 권장", ja: "Bun · 推奨", zh: "Bun · 推荐" },
+    "install.method.npm": { en: "npm", ko: "npm", ja: "npm", zh: "npm" },
+    "install.method.unix": { en: "macOS · Linux", ko: "macOS · Linux", ja: "macOS · Linux", zh: "macOS · Linux" },
+    "install.method.windows": { en: "Windows", ko: "Windows", ja: "Windows", zh: "Windows" },
     "install.step1.note": {
-      en: "One line. Pick your OS.",
-      ko: "한 줄. OS만 고르세요.",
-      ja: "一行だけ。OS を選ぶ。",
-      zh: "一行。选你的系统。"
+      en: "Pick one installation method.",
+      ko: "설치 방법 하나를 고르세요.",
+      ja: "インストール方法を一つ選択。",
+      zh: "选择一种安装方式。"
     },
     "install.step2": { en: "Set it up", ko: "설정하기", ja: "セットアップ", zh: "完成设置" },
     "install.step2.note": {
@@ -474,6 +485,24 @@ window.OMH_I18N = {
       ko: "설정은 이게 전부. 실제 설치된 코딩 에이전트와 모델을 기록합니다.",
       ja: "セットアップはこれで全部。実際に入っているエージェントとモデルを記録。",
       zh: "设置到此为止。它会记录真实装好的编码智能体与模型。"
+    },
+    "install.doctor.title": {
+      en: "Verify separately",
+      ko: "별도로 확인",
+      ja: "別の手順で確認",
+      zh: "单独验证"
+    },
+    "install.doctor.note": {
+      en: "Run doctor after setup to verify or troubleshoot.",
+      ko: "설정 후 doctor로 설치를 확인하거나 문제를 해결하세요.",
+      ja: "セットアップ後に doctor で確認またはトラブルシューティング。",
+      zh: "设置后运行 doctor 进行验证或故障排查。"
+    },
+    "install.update.note": {
+      en: "Refresh later with",
+      ko: "나중에 다음 명령으로 갱신:",
+      ja: "後で次のコマンドで更新:",
+      zh: "之后使用此命令更新："
     },
     "install.step3": { en: "Or ask your agent", ko: "아니면 에이전트에게", ja: "またはエージェントに頼む", zh: "或者交给你的智能体" },
     "install.step3.note": {

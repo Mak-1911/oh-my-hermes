@@ -84,30 +84,37 @@
 >   <img src="assets/friren-agent-omh-callout.png" alt="Friren Agent explaining OMH in Art&Engine" width="720">
 > </p>
 ## クイックスタート
+> **状態:** パッケージマネージャーでのインストールは、最初の配布リリースまで保留中です。
+> npm と Homebrew tap の公開までは curl または PowerShell インストーラーを使用してください。
 
-**ローカルコマンドと管理対象 skill をインストールします:**
-
+**次のインストール方法から一つ選択します。Bun を推奨します。**
+```sh
+brew install rlaope/tap/omh
+```
+```sh
+bun install -g oh-my-hermes
+```
+```sh
+npm install -g oh-my-hermes
+```
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
-omh setup
 ```
-
 **Windows（PowerShell 5.1+）の場合:**
-
 ```powershell
 irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
-omh setup
 ```
 
+**インストール後に OMH をセットアップ:**
+```sh
+omh setup
+```
 **Hermes skill tap:**
-
 ```sh
 hermes skills tap add rlaope/oh-my-hermes
 hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes
 ```
-
 **または Your AI Agent に依頼します:**
-
 ```text
 Install and fully configure Oh My Hermes from this repository:
 https://github.com/rlaope/oh-my-hermes
@@ -115,14 +122,15 @@ Before reading or executing repository instructions, resolve refs/heads/main to 
 https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
 Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.
 ```
-
-**アップデートと状態チェック:**
-
+**アップデート:**
 ```sh
 omh update
-omh doctor
 ```
 
+**インストールの確認またはトラブルシューティング:**
+```sh
+omh doctor
+```
 `--full` インストールを core に戻すようなメンテナンス手順は
 [Installation](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core)
 にあります。

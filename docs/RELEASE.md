@@ -12,6 +12,18 @@ public claims are all checked.
 | `preview` | Latest `main` for early testing | Hermes skill tap plus `main` branch archive |
 | `local` | Maintainer smoke tests from local fixtures | Explicit local source or package URL |
 
+## Package-manager distribution
+
+The tag-driven npm/Bun, GitHub wheel, and Homebrew tap release is defined by
+`.github/workflows/release.yml`. Its release order, one-time external setup,
+resume rules, rollback matrix, immutable artifact checks, and pending-first-
+release status are the single contract in [Distribution](DISTRIBUTION.md).
+
+Those package-manager artifacts extend the stable channel; they do not replace
+the installer, Hermes skill tap, generated-document, or evidence checks below.
+Until the external npm namespace and Homebrew tap are created, keep every public
+package-manager command marked pending and do not dispatch the workflow.
+
 Hermes-native skill install:
 
 ```sh

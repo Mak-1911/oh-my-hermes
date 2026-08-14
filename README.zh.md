@@ -82,18 +82,30 @@
 >   <img src="assets/friren-agent-omh-callout.png" alt="Friren Agent explaining OMH in Art&Engine" width="720">
 > </p>
 ## 快速开始
+> **状态：** 包管理器安装在首次分发版本发布前暂不可用。
+> 在 npm 与 Homebrew tap 公开前，请使用 curl 或 PowerShell 安装程序。
 
-**安装本地命令和受管理的 skill：**
-
+**从以下安装方式中选择一种。推荐 Bun。**
+```sh
+brew install rlaope/tap/omh
+```
+```sh
+bun install -g oh-my-hermes
+```
+```sh
+npm install -g oh-my-hermes
+```
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
-omh setup
 ```
 
 **在 Windows（PowerShell 5.1+）上：**
-
 ```powershell
 irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
+```
+
+**安装后设置 OMH：**
+```sh
 omh setup
 ```
 
@@ -114,10 +126,13 @@ https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INST
 Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.
 ```
 
-**更新与健康检查：**
-
+**更新：**
 ```sh
 omh update
+```
+
+**验证安装或排查问题：**
+```sh
 omh doctor
 ```
 
