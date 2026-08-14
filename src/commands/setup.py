@@ -99,6 +99,9 @@ from .model_setup_rendering import (
 POSIX_INSTALLER_COMMAND = "curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh"
 WINDOWS_INSTALLER_COMMAND = "irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex"
 COMMAND_PACKAGE_MANAGER_ENV = "OMH_COMMAND_PACKAGE_MANAGER"
+COMMAND_PACKAGE_ROOT_ENV = "OMH_COMMAND_PACKAGE_ROOT"
+COMMAND_PACKAGE_RUNTIME_ENV = "OMH_COMMAND_PACKAGE_RUNTIME"
+COMMAND_PACKAGE_ENTRYPOINT_ENV = "OMH_COMMAND_PACKAGE_ENTRYPOINT"
 COMMAND_PACKAGE_UPDATE_COMMANDS = {
     "npm": "npm update -g oh-my-hermes",
     "bun": "bun update -g --latest oh-my-hermes",
@@ -130,13 +133,18 @@ def _command_package_update_guidance() -> tuple[str, str]:
     explicit = os.environ.get(COMMAND_PACKAGE_MANAGER_ENV, "").strip().lower()
     if explicit in COMMAND_PACKAGE_UPDATE_COMMANDS:
         return explicit, COMMAND_PACKAGE_UPDATE_COMMANDS[explicit]
-    prefix_parts = tuple(part.casefold() for part in Path(sys.prefix).parts)
-    if any(
-        part == "cellar" and prefix_parts[index + 1 : index + 2] == ("omh",)
-        for index, part in enumerate(prefix_parts)
-    ):
+    if _homebrew_prefix_root() is not None:
         return "homebrew", COMMAND_PACKAGE_UPDATE_COMMANDS["homebrew"]
     return "installer", installer_command()
+
+
+def _homebrew_prefix_root() -> Path | None:
+    prefix = Path(sys.prefix)
+    folded_parts = tuple(part.casefold() for part in prefix.parts)
+    for index, part in enumerate(folded_parts):
+        if part == "cellar" and folded_parts[index + 1 : index + 2] == ("omh",):
+            return Path(*prefix.parts[:index])
+    return None
 
 
 COMMAND_PACKAGE_STATUS_SCHEMA_VERSION = "command_package_status/v1"
@@ -254,7 +262,7 @@ def cmd_update(args: argparse.Namespace) -> int:
     if self_update.get("should_update"):
         return _run_command_package_self_update(args, self_update)
     code = cmd_install(args)
-    if code == 0:
+    if code == 0 and not (args.from_skills_dir or args.source):
         _refresh_installed_plugin_bundle(args)
         _refresh_hermes_registration(args)
     return code
@@ -332,25 +340,69 @@ def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, obj
         return {"should_update": False, "reason": "local updates require an explicit package source"}
     package_manager, update_instruction = _command_package_update_guidance()
     update_arguments = COMMAND_PACKAGE_UPDATE_ARGUMENTS.get(package_manager)
-    if update_arguments is not None:
-        manager_command = COMMAND_PACKAGE_EXECUTABLES[package_manager]
-        manager_executable = shutil.which(manager_command)
+    launcher = _validated_command_package_launcher(package_manager)
+    homebrew_commands = (
+        _validated_homebrew_commands()
+        if package_manager == "homebrew"
+        else None
+    )
+    if update_arguments is not None and (
+        launcher is not None or homebrew_commands is not None
+    ):
+        if _explicit_release_metadata_supplied(args):
+            raise OmhError(
+                "package-manager installs accept the default published update only; "
+                "use the owning manager directly for an explicit version or package URL"
+            )
+        if launcher is not None:
+            manager_command = COMMAND_PACKAGE_EXECUTABLES[package_manager]
+            manager_executable = shutil.which(manager_command)
+            runtime = str(launcher["runtime"])
+            reentry_command = [
+                runtime,
+                str(launcher["entrypoint"]),
+            ]
+        else:
+            assert homebrew_commands is not None
+            manager_command = "brew"
+            manager_executable = str(homebrew_commands["brew"])
+            runtime = ""
+            reentry_command = [str(homebrew_commands["omh"])]
         if manager_executable is None:
-            raise OmhError(
-                f"cannot update command package because `{manager_command}` is not available on PATH"
-            )
-        omh_executable = shutil.which("omh")
-        if omh_executable is None:
-            raise OmhError(
-                "cannot re-enter the updated command package because `omh` is not available on PATH"
-            )
+            return {
+                "should_update": False,
+                "reason": (
+                    f"cannot update command package because `{manager_command}` "
+                    "is not available on PATH"
+                ),
+            }
+        if not Path(manager_executable).is_file():
+            return {
+                "should_update": False,
+                "reason": (
+                    "cannot update command package because "
+                    f"`{manager_executable}` is not a file"
+                ),
+            }
+        if not Path(reentry_command[-1]).is_file():
+            return {
+                "should_update": False,
+                "reason": (
+                    "cannot re-enter the updated command package because "
+                    "its launcher is missing"
+                ),
+            }
         return {
             "should_update": True,
             "method": "package_manager",
             "package_manager": package_manager,
             "update_instruction": update_instruction,
-            "update_command": _platform_command(manager_executable, *update_arguments),
-            "reentry_command": _platform_command(omh_executable),
+            "update_command": _package_manager_update_command(
+                package_manager,
+                manager_executable,
+                runtime=runtime,
+            ),
+            "reentry_command": reentry_command,
             "reason": f"running from the {package_manager} command package",
         }
     managed = _managed_command_runtime()
@@ -440,11 +492,11 @@ def _run_package_manager_self_update(
         stderr=subprocess.PIPE,
     )
     if completed.returncode != 0:
-        detail = (
+        detail = _bounded_command_error(
             completed.stderr
             or completed.stdout
             or f"{package_manager} update failed"
-        ).strip()
+        )
         raise OmhError(f"command package update failed: {detail}")
     progress.done("command package updated")
     if not wants_json:
@@ -456,21 +508,105 @@ def _run_package_manager_self_update(
     return int(rerun.returncode)
 
 
-def _platform_command(
+def _validated_command_package_launcher(
+    package_manager: str,
+) -> dict[str, Path] | None:
+    if package_manager not in {"npm", "bun"}:
+        return None
+    raw_root = os.environ.get(COMMAND_PACKAGE_ROOT_ENV, "")
+    raw_runtime = os.environ.get(COMMAND_PACKAGE_RUNTIME_ENV, "")
+    raw_entrypoint = os.environ.get(COMMAND_PACKAGE_ENTRYPOINT_ENV, "")
+    if not raw_root or not raw_runtime or not raw_entrypoint:
+        return None
+    try:
+        package_root = Path(raw_root).resolve(strict=True)
+        runtime = Path(raw_runtime).resolve(strict=True)
+        entrypoint = Path(raw_entrypoint).resolve(strict=True)
+        expected_entrypoint = (package_root / "bin" / "omh.js").resolve(
+            strict=True
+        )
+        package_manifest = json.loads(
+            (package_root / "package.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return None
+    if (
+        not package_root.is_dir()
+        or not runtime.is_file()
+        or not entrypoint.is_file()
+        or entrypoint != expected_entrypoint
+        or package_manifest.get("name") != "oh-my-hermes"
+        or package_manifest.get("version") != __version__
+        or package_manifest.get("bin", {}).get("omh") != "bin/omh.js"
+    ):
+        return None
+    return {
+        "package_root": package_root,
+        "runtime": runtime,
+        "entrypoint": entrypoint,
+    }
+
+
+def _validated_homebrew_commands() -> dict[str, Path] | None:
+    homebrew_root = _homebrew_prefix_root()
+    if homebrew_root is None:
+        return None
+    brew = homebrew_root / "bin" / "brew"
+    omh = homebrew_root / "bin" / "omh"
+    try:
+        cellar_omh = (homebrew_root / "Cellar" / "omh").resolve(strict=True)
+        installed_omh = omh.resolve(strict=True)
+    except OSError:
+        return None
+    if (
+        not brew.is_file()
+        or not installed_omh.is_file()
+        or not installed_omh.is_relative_to(cellar_omh)
+    ):
+        return None
+    return {"brew": brew, "omh": omh}
+
+
+def _package_manager_update_command(
+    package_manager: str,
     executable: str,
-    *arguments: str,
+    *,
+    runtime: str,
     platform: str = os.name,
 ) -> list[str]:
-    if platform == "nt" and Path(executable).suffix.casefold() in {".bat", ".cmd"}:
-        command_processor = os.environ.get("COMSPEC", "cmd.exe")
-        return [
-            command_processor,
-            "/d",
-            "/c",
-            executable,
-            *arguments,
-        ]
-    return [executable, *arguments]
+    arguments = COMMAND_PACKAGE_UPDATE_ARGUMENTS[package_manager]
+    executable_path = Path(executable)
+    if platform != "nt" or executable_path.suffix.casefold() not in {
+        ".bat",
+        ".cmd",
+    }:
+        return [str(executable_path), *arguments]
+    if package_manager != "npm" or not runtime:
+        raise OmhError(
+            f"cannot safely execute the Windows `{package_manager}` command shim"
+        )
+    npm_cli = (
+        executable_path.parent
+        / "node_modules"
+        / "npm"
+        / "bin"
+        / "npm-cli.js"
+    )
+    if not npm_cli.is_file():
+        raise OmhError("cannot locate npm-cli.js beside the Windows npm shim")
+    return [runtime, str(npm_cli), *arguments]
+
+
+def _bounded_command_error(value: str, *, limit: int = 2_000) -> str:
+    sanitized = ANSI_ESCAPE_RE.sub("", value)
+    sanitized = "".join(
+        character
+        for character in sanitized
+        if character in {"\n", "\t"} or ord(character) >= 32
+    ).strip()
+    if len(sanitized) <= limit:
+        return sanitized
+    return f"{sanitized[:limit]}…"
 
 
 def _reentry_argv_with_command_package_updated() -> list[str]:

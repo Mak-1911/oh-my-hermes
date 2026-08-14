@@ -3043,60 +3043,241 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             version="",
             package_url="",
         )
-        cases = (
-            (
-                "npm",
-                "/usr/local/bin/npm",
-                [
-                    "/usr/local/bin/npm",
-                    "update",
-                    "-g",
-                    "oh-my-hermes",
-                ],
-            ),
-            (
-                "bun",
-                "/usr/local/bin/bun",
-                [
-                    "/usr/local/bin/bun",
-                    "update",
-                    "-g",
-                    "--latest",
-                    "oh-my-hermes",
-                ],
-            ),
-        )
-        for manager, executable, expected_command in cases:
-            with self.subTest(manager=manager):
-                with (
-                    patch.dict(
-                        os.environ,
-                        {
-                            setup_commands.COMMAND_PACKAGE_MANAGER_ENV: manager,
-                            setup_commands.SELF_UPDATE_SKIP_ENV: "",
-                        },
-                    ),
-                    patch.object(
-                        setup_commands.shutil,
-                        "which",
-                        side_effect=lambda command: {
-                            manager: executable,
-                            "omh": "/usr/local/bin/omh",
-                        }.get(command),
-                    ),
-                ):
-                    plan = setup_commands._command_package_self_update_plan(
-                        args
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package_root = root / "oh-my-hermes"
+            entrypoint = package_root / "bin" / "omh.js"
+            entrypoint.parent.mkdir(parents=True)
+            entrypoint.write_text("export {};\n", encoding="utf-8")
+            (package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "oh-my-hermes",
+                        "version": setup_commands.__version__,
+                        "bin": {"omh": "bin/omh.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime = root / "node"
+            runtime.touch()
+
+            cases = (
+                (
+                    "npm",
+                    root / "npm",
+                    [
+                        str(root / "npm"),
+                        "update",
+                        "-g",
+                        "oh-my-hermes",
+                    ],
+                ),
+                (
+                    "bun",
+                    root / "bun",
+                    [
+                        str(root / "bun"),
+                        "update",
+                        "-g",
+                        "--latest",
+                        "oh-my-hermes",
+                    ],
+                ),
+            )
+            for manager, executable, expected_command in cases:
+                executable.touch()
+                with self.subTest(manager=manager):
+                    launcher_env = {
+                        setup_commands.COMMAND_PACKAGE_MANAGER_ENV: manager,
+                        setup_commands.COMMAND_PACKAGE_ROOT_ENV: str(
+                            package_root
+                        ),
+                        setup_commands.COMMAND_PACKAGE_RUNTIME_ENV: str(
+                            runtime
+                        ),
+                        setup_commands.COMMAND_PACKAGE_ENTRYPOINT_ENV: str(
+                            entrypoint
+                        ),
+                        setup_commands.SELF_UPDATE_SKIP_ENV: "",
+                    }
+                    with (
+                        patch.dict(os.environ, launcher_env),
+                        patch.object(
+                            setup_commands.shutil,
+                            "which",
+                            return_value=str(executable),
+                        ),
+                    ):
+                        plan = (
+                            setup_commands._command_package_self_update_plan(
+                                args
+                            )
+                        )
+
+                    self.assertTrue(plan["should_update"])
+                    self.assertEqual(plan["method"], "package_manager")
+                    self.assertEqual(plan["package_manager"], manager)
+                    self.assertEqual(
+                        plan["update_command"],
+                        expected_command,
+                    )
+                    self.assertEqual(
+                        plan["reentry_command"],
+                        [
+                            str(runtime.resolve()),
+                            str(entrypoint.resolve()),
+                        ],
                     )
 
-                self.assertTrue(plan["should_update"])
-                self.assertEqual(plan["method"], "package_manager")
-                self.assertEqual(plan["package_manager"], manager)
-                self.assertEqual(plan["update_command"], expected_command)
-                self.assertEqual(
-                    plan["reentry_command"],
-                    ["/usr/local/bin/omh"],
+    def test_package_manager_env_without_launcher_contract_is_guidance_only(
+        self,
+    ) -> None:
+        args = Namespace(
+            command_package_updated=False,
+            dry_run=False,
+            from_skills_dir=None,
+            source=None,
+            channel="preview",
+            version="",
+            package_url="",
+        )
+        env = {
+            setup_commands.COMMAND_PACKAGE_MANAGER_ENV: "npm",
+            setup_commands.COMMAND_PACKAGE_ROOT_ENV: "",
+            setup_commands.COMMAND_PACKAGE_RUNTIME_ENV: "",
+            setup_commands.COMMAND_PACKAGE_ENTRYPOINT_ENV: "",
+            setup_commands.SELF_UPDATE_SKIP_ENV: "",
+        }
+        with (
+            patch.dict(os.environ, env),
+            patch.object(
+                setup_commands,
+                "_managed_command_runtime",
+                return_value={
+                    "managed": False,
+                    "reason": "not installer-managed",
+                },
+            ),
+            patch.object(
+                setup_commands.shutil,
+                "which",
+                return_value="/usr/local/bin/npm",
+            ),
+        ):
+            plan = setup_commands._command_package_self_update_plan(args)
+
+        self.assertFalse(plan["should_update"])
+        self.assertEqual(plan["reason"], "not installer-managed")
+
+    def test_package_manager_missing_executable_keeps_workflow_update(
+        self,
+    ) -> None:
+        args = Namespace(
+            command_package_updated=False,
+            dry_run=False,
+            from_skills_dir=None,
+            source=None,
+            channel="preview",
+            version="",
+            package_url="",
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package_root = root / "oh-my-hermes"
+            entrypoint = package_root / "bin" / "omh.js"
+            entrypoint.parent.mkdir(parents=True)
+            entrypoint.write_text("export {};\n", encoding="utf-8")
+            (package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "oh-my-hermes",
+                        "version": setup_commands.__version__,
+                        "bin": {"omh": "bin/omh.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime = root / "node"
+            runtime.touch()
+            env = {
+                setup_commands.COMMAND_PACKAGE_MANAGER_ENV: "npm",
+                setup_commands.COMMAND_PACKAGE_ROOT_ENV: str(package_root),
+                setup_commands.COMMAND_PACKAGE_RUNTIME_ENV: str(runtime),
+                setup_commands.COMMAND_PACKAGE_ENTRYPOINT_ENV: str(
+                    entrypoint
+                ),
+                setup_commands.SELF_UPDATE_SKIP_ENV: "",
+            }
+            with (
+                patch.dict(os.environ, env),
+                patch.object(
+                    setup_commands.shutil,
+                    "which",
+                    return_value=None,
+                ),
+            ):
+                plan = setup_commands._command_package_self_update_plan(
+                    args
                 )
+
+        self.assertFalse(plan["should_update"])
+        self.assertIn("npm", str(plan["reason"]))
+        self.assertIn("not available", str(plan["reason"]))
+
+    def test_package_manager_rejects_explicit_release_metadata(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package_root = root / "oh-my-hermes"
+            entrypoint = package_root / "bin" / "omh.js"
+            entrypoint.parent.mkdir(parents=True)
+            entrypoint.write_text("export {};\n", encoding="utf-8")
+            (package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "oh-my-hermes",
+                        "version": setup_commands.__version__,
+                        "bin": {"omh": "bin/omh.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime = root / "node"
+            runtime.touch()
+            manager = root / "npm"
+            manager.touch()
+            env = {
+                setup_commands.COMMAND_PACKAGE_MANAGER_ENV: "npm",
+                setup_commands.COMMAND_PACKAGE_ROOT_ENV: str(package_root),
+                setup_commands.COMMAND_PACKAGE_RUNTIME_ENV: str(runtime),
+                setup_commands.COMMAND_PACKAGE_ENTRYPOINT_ENV: str(
+                    entrypoint
+                ),
+                setup_commands.SELF_UPDATE_SKIP_ENV: "",
+            }
+            args = Namespace(
+                command_package_updated=False,
+                dry_run=False,
+                from_skills_dir=None,
+                source=None,
+                channel="stable",
+                version="1.0.5",
+                package_url="",
+                source_ref="",
+            )
+            with (
+                patch.dict(os.environ, env),
+                patch.object(
+                    setup_commands.shutil,
+                    "which",
+                    return_value=str(manager),
+                ),
+                self.assertRaisesRegex(
+                    OmhError,
+                    "default published update only",
+                ),
+            ):
+                setup_commands._command_package_self_update_plan(args)
 
     def test_package_manager_self_update_runs_native_command_and_reenters_omh(
         self,
@@ -3135,7 +3316,13 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             with patch.object(
                 setup_commands.sys,
                 "argv",
-                ["omh", "update", "--json"],
+                [
+                    "omh",
+                    "--omh-home",
+                    r"C:\safe&sound\omh",
+                    "update",
+                    "--json",
+                ],
             ):
                 status = setup_commands._run_command_package_self_update(
                     args,
@@ -3152,6 +3339,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("update", reentry_args)
         self.assertIn("--json", reentry_args)
         self.assertIn("--command-package-updated", reentry_args)
+        self.assertIn(r"C:\safe&sound\omh", reentry_args)
         self.assertEqual(
             run.call_args_list[1].kwargs["env"][
                 setup_commands.SELF_UPDATE_REENTRY_ENV
@@ -3178,7 +3366,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             args=["bun"],
             returncode=1,
             stdout="",
-            stderr="registry unavailable",
+            stderr="\x1b[31mregistry unavailable\x1b[0m" + ("x" * 3_000),
         )
 
         with patch.object(
@@ -3189,11 +3377,14 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             with self.assertRaisesRegex(
                 OmhError,
                 "registry unavailable",
-            ):
+            ) as raised:
                 setup_commands._run_command_package_self_update(args, plan)
 
         run.assert_called_once()
+        self.assertNotIn("\x1b", str(raised.exception))
+        self.assertLess(len(str(raised.exception)), 2_100)
 
+    @requires_posix
     def test_homebrew_runtime_uses_native_update_guidance(self) -> None:
         args = Namespace(
             command_package_updated=False,
@@ -3204,27 +3395,33 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             version="",
             package_url="",
         )
-        with (
-            patch.dict(os.environ, {}, clear=False),
-            patch.object(
-                setup_commands.sys,
-                "prefix",
-                "/opt/homebrew/Cellar/omh/1.0.5/libexec",
-            ),
-            patch.object(
-                setup_commands.shutil,
-                "which",
-                side_effect=lambda command: {
-                    "brew": "/opt/homebrew/bin/brew",
-                    "omh": "/opt/homebrew/bin/omh",
-                }.get(command),
-            ),
-        ):
-            os.environ.pop("OMH_COMMAND_PACKAGE_MANAGER", None)
-            package_manager, instruction = (
-                setup_commands._command_package_update_guidance()
-            )
-            plan = setup_commands._command_package_self_update_plan(args)
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prefix = root / "Cellar" / "omh" / "1.0.5" / "libexec"
+            prefix.mkdir(parents=True)
+            brew = root / "bin" / "brew"
+            omh = root / "bin" / "omh"
+            brew.parent.mkdir()
+            brew.touch()
+            installed_omh = prefix / "bin" / "omh"
+            installed_omh.parent.mkdir()
+            installed_omh.touch()
+            omh.symlink_to(installed_omh)
+            with (
+                patch.dict(os.environ, {}, clear=False),
+                patch.object(
+                    setup_commands.sys,
+                    "prefix",
+                    str(prefix),
+                ),
+            ):
+                os.environ.pop("OMH_COMMAND_PACKAGE_MANAGER", None)
+                package_manager, instruction = (
+                    setup_commands._command_package_update_guidance()
+                )
+                plan = setup_commands._command_package_self_update_plan(
+                    args
+                )
 
         self.assertEqual(package_manager, "homebrew")
         self.assertEqual(instruction, "brew upgrade rlaope/tap/omh")
@@ -3233,31 +3430,83 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(
             plan["update_command"],
             [
-                "/opt/homebrew/bin/brew",
+                str(brew),
                 "upgrade",
                 "rlaope/tap/omh",
             ],
         )
+        self.assertEqual(plan["reentry_command"], [str(omh)])
 
-    def test_windows_command_shims_run_through_command_processor(self) -> None:
-        self.assertEqual(
-            setup_commands._platform_command(
-                r"C:\npm\npm.cmd",
-                "update",
-                "-g",
-                "oh-my-hermes",
+    @requires_posix
+    def test_homebrew_like_prefix_without_linked_formula_is_guidance_only(
+        self,
+    ) -> None:
+        args = Namespace(
+            command_package_updated=False,
+            dry_run=False,
+            from_skills_dir=None,
+            source=None,
+            channel="preview",
+            version="",
+            package_url="",
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prefix = root / "Cellar" / "omh" / "1.0.5" / "libexec"
+            prefix.mkdir(parents=True)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "brew").touch()
+            (bin_dir / "omh").touch()
+            with (
+                patch.dict(os.environ, {}, clear=False),
+                patch.object(setup_commands.sys, "prefix", str(prefix)),
+                patch.object(
+                    setup_commands,
+                    "_managed_command_runtime",
+                    return_value={
+                        "managed": False,
+                        "reason": "not installer-managed",
+                    },
+                ),
+            ):
+                os.environ.pop("OMH_COMMAND_PACKAGE_MANAGER", None)
+                plan = setup_commands._command_package_self_update_plan(
+                    args
+                )
+
+        self.assertFalse(plan["should_update"])
+        self.assertEqual(plan["reason"], "not installer-managed")
+
+    def test_windows_npm_cmd_uses_node_cli_without_command_shell(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / "node.exe"
+            runtime.touch()
+            npm_cmd = root / "npm.cmd"
+            npm_cmd.touch()
+            npm_cli = root / "node_modules" / "npm" / "bin" / "npm-cli.js"
+            npm_cli.parent.mkdir(parents=True)
+            npm_cli.touch()
+
+            command = setup_commands._package_manager_update_command(
+                "npm",
+                str(npm_cmd),
+                runtime=str(runtime),
                 platform="nt",
-            ),
+            )
+
+        self.assertEqual(
+            command,
             [
-                "cmd.exe",
-                "/d",
-                "/c",
-                r"C:\npm\npm.cmd",
+                str(runtime),
+                str(npm_cli),
                 "update",
                 "-g",
                 "oh-my-hermes",
             ],
         )
+        self.assertNotIn("cmd.exe", command)
 
     def test_update_self_update_reenters_with_command_package_marker(self) -> None:
         args = Namespace(json=True)
@@ -3305,6 +3554,39 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
 
         self.assertFalse(plan["should_update"])
         self.assertIn("local updates require", plan["reason"])
+
+    def test_update_explicit_skill_source_skips_other_managed_layers(
+        self,
+    ) -> None:
+        args = Namespace(
+            from_skills_dir="/tmp/local-skills",
+            source=None,
+        )
+        with (
+            patch.object(
+                setup_commands,
+                "_command_package_self_update_plan",
+                return_value={"should_update": False},
+            ),
+            patch.object(
+                setup_commands,
+                "cmd_install",
+                return_value=0,
+            ),
+            patch.object(
+                setup_commands,
+                "_refresh_installed_plugin_bundle",
+            ) as plugin_refresh,
+            patch.object(
+                setup_commands,
+                "_refresh_hermes_registration",
+            ) as registration_refresh,
+        ):
+            status = setup_commands.cmd_update(args)
+
+        self.assertEqual(status, 0)
+        plugin_refresh.assert_not_called()
+        registration_refresh.assert_not_called()
 
     def test_update_self_update_recognizes_venv_python_symlink_path(self) -> None:
         with TemporaryDirectory() as tmp:

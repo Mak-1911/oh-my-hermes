@@ -363,6 +363,30 @@ class NpmBunDistributionTests(unittest.TestCase):
             update_payload["command_package"]["update_instruction"],
             expected_update,
         )
+        manager_update_env = dict(env)
+        manager_update_env.pop("OMH_SKIP_COMMAND_PACKAGE_UPDATE")
+        pinned = run(
+            command_for(
+                binary,
+                "--omh-home",
+                str(doctor_root / "omh"),
+                "--hermes-home",
+                str(doctor_root / "hermes"),
+                "update",
+                "--channel",
+                "stable",
+                "--version",
+                PROJECT_VERSION,
+                "--json",
+            ),
+            env=manager_update_env,
+            check=False,
+        )
+        self.assertEqual(pinned.returncode, 2)
+        self.assertIn(
+            "default published update only",
+            pinned.stderr,
+        )
 
     def test_global_tarball_launchers(self) -> None:
         tarball = self._tarball()

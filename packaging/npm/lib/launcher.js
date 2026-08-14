@@ -123,6 +123,13 @@ function runPython(
         env: {
           ...env,
           OMH_COMMAND_PACKAGE_MANAGER: packageManager(env),
+          OMH_COMMAND_PACKAGE_ROOT: PACKAGE_ROOT,
+          OMH_COMMAND_PACKAGE_RUNTIME: process.execPath,
+          OMH_COMMAND_PACKAGE_ENTRYPOINT: join(
+            PACKAGE_ROOT,
+            "bin",
+            "omh.js",
+          ),
         },
       },
     );

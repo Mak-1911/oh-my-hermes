@@ -166,7 +166,10 @@ Removing the command package preserves OMH state. For full cleanup, run
 `omh uninstall --all` before the manager's remove command. Never run the curl
 installer over a package-manager command to update it. An explicit
 `omh update --source ...` refreshes workflow content only and does not replace
-the command package.
+the command package, plugin bundle, or Hermes registration. Package-manager
+installs reject explicit release metadata such as `--version`, `--package-url`,
+or `--source-ref`; use the owning manager directly for an intentional CLI
+rollback.
 
 For release-candidate verification, add the Hermes CLI smoke. Plan mode is safe
 and non-mutating:
