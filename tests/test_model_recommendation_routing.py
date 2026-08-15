@@ -136,6 +136,21 @@ class HermesRecommendationRoutingTests(unittest.TestCase):
         self.assertEqual(outcomes["recommendation_chain"], "owner_default")
         self.assertEqual(outcomes["executor_default"], "selected")
 
+    def test_dead_category_chain_routes_hermes_through_the_shared_last_resort(self) -> None:
+        route = resolve_model_route(
+            "hermes",
+            role="implementation",
+            requested_category="quick",
+            active_models=[_OPUS],
+        )
+
+        self.assertEqual(route["status"], "routed")
+        self.assertEqual(route["provenance"], "recommendation_chain_head")
+        self.assertEqual(route["selected_model"], "ccapi/claude-opus-5")
+        self.assertEqual(route["recommendation"]["source"], "last_resort_chain")
+        outcomes = {entry["stage"]: entry["outcome"] for entry in route["attempted"]}
+        self.assertEqual(outcomes["recommendation_chain"], "last_resort")
+
     def test_x_platform_domain_stably_promotes_grok_kimi_gemini_without_removal(self) -> None:
         route = resolve_model_route(
             "hermes",

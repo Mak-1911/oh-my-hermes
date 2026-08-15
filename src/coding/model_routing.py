@@ -938,11 +938,17 @@ def _resolve_hermes_recommendation_route(
         )
     selected = str(chain[0]["model_id"])
     selected_effort = requested_effort or str(chain[0].get("reasoning_effort", ""))
+    last_resort = str(recommendation.get("source", "")) == "last_resort_chain"
     attempted.append(
         {
             "stage": "recommendation_chain",
-            "outcome": "selected",
-            "reason": f"confirmed-active recommendation chain head `{selected}` selected",
+            "outcome": "last_resort" if last_resort else "selected",
+            "reason": (
+                f"no confirmed-active candidate in the `{category}` chain; "
+                f"shared last-resort head `{selected}` selected"
+                if last_resort
+                else f"confirmed-active recommendation chain head `{selected}` selected"
+            ),
         }
     )
     payload = _route_payload(
