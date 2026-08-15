@@ -504,7 +504,7 @@ def _status_card(focus: str, lanes: list[dict[str, Any]]) -> dict[str, Any]:
 def _skill_chain(focus: str) -> list[dict[str, str]]:
     chains = {
         "research": ("research", "research-brief", "research-department", "ops-observability-card"),
-        "coding": ("executor-runtime-readiness", "plan", "ultraprocess", "code-review", "ops-observability-card"),
+        "coding": ("executor-runtime-readiness", "plan", "ultrawork", "code-review", "ops-observability-card"),
         "review": ("code-review", "ultraqa", "reliability-review", "ops-observability-card"),
         "status": ("agent-board", "ops-observability-card", "goal-execution", "executor-runtime-readiness"),
         "mixed": ("oh-my-hermes", "executor-runtime-readiness", "research", "code-review", "ops-observability-card"),
@@ -516,7 +516,7 @@ def _skill_chain(focus: str) -> list[dict[str, str]]:
 def _skill_role(skill: str) -> str:
     if skill in {"research", "research-brief", "research-department"}:
         return "research quality"
-    if skill in {"executor-runtime-readiness", "plan", "ultraprocess"}:
+    if skill in {"executor-runtime-readiness", "plan", "ultrawork"}:
         return "coding handoff quality"
     if skill in {"code-review", "ultraqa", "reliability-review"}:
         return "verification quality"

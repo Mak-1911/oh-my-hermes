@@ -39,14 +39,23 @@ ORCHESTRATION_VOCABULARY_AUDIENCES: Final[tuple[str, ...]] = (
 # natural language and never needs the word "maestro".
 CHOOSE_EXECUTOR_REASON: Final[str] = "asking the user to pick the coding agent"
 
+# The Hermes-harness-default wording, shared verbatim between the
+# `hermes_harness` term below and every consumer that must state the default
+# in the same words (#953): the `capability_reason` line of a ULW alias route
+# quotes it so the reason copy cannot drift from the vocabulary.
+HERMES_HARNESS_DEFAULT_WORDING: Final[str] = (
+    "absent an explicit coding-owner choice, work runs inside the Hermes "
+    "harness and no external coding CLI is selected"
+)
+
 
 _TERMS: Final[tuple[dict[str, object], ...]] = (
     {
         "term": "hermes_harness",
         "meaning": (
-            "The default and normal execution path: absent an explicit "
-            "coding-owner choice, work runs inside the Hermes harness and no "
-            "external coding CLI is selected."
+            "The default and normal execution path: "
+            + HERMES_HARNESS_DEFAULT_WORDING
+            + "."
         ),
         "audience": "normal_user",
         "entry_points": (),

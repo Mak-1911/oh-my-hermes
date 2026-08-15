@@ -317,9 +317,8 @@ _WORKFLOW_LEARNING_FEEDBACK_MARKERS = (
 _NAMED_WORKFLOW_MARKERS = (
     "deep-interview",
     "ralplan",
-    "ultragoal",
     "loop",
-    "ultraprocess",
+    "ultrawork",
     "research",
     "research-department",
     "source-finder",

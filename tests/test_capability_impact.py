@@ -23,13 +23,13 @@ from test_plugin_distribution import FakeHermesContext
 class RepresentativeRoutingTests(unittest.TestCase):
     def test_representative_requests_select_specific_workflows(self) -> None:
         cases = (
-            ("Please write tests first and implement this with TDD", "ultraprocess"),
-            ("이 기능 테스트부터 작성하고 TDD로 구현해줘", "ultraprocess"),
+            ("Please write tests first and implement this with TDD", "ultrawork"),
+            ("이 기능 테스트부터 작성하고 TDD로 구현해줘", "ultrawork"),
             ("Do a literature review of recent agent memory papers", "research"),
             ("이 논문들 문헌 검토하고 근거를 정리해줘", "research"),
             ("Analyze this screenshot for UI layout problems", "visual-qa"),
             ("이 스크린샷 UI 레이아웃 문제를 분석해줘", "visual-qa"),
-            ("이 목표를 오래 실행하면서 완료조건까지 계속 진행해줘", "ultragoal"),
+            ("이 목표를 오래 실행하면서 완료조건까지 계속 진행해줘", "ultrawork"),
             ("Deploy this service to production infrastructure", "deploy-and-monitor"),
             ("이 서비스를 프로덕션 인프라에 배포해줘", "deploy-and-monitor"),
             ("Find and recover my previous Codex coding session", "harness-session-inventory"),
@@ -48,7 +48,7 @@ class RepresentativeRoutingTests(unittest.TestCase):
     def test_near_neighbor_requests_keep_their_existing_workflows(self) -> None:
         cases = (
             ("Write an article about testing best practices", "best-practice-research"),
-            ("Review this pull request code", "ultraprocess"),
+            ("Review this pull request code", "ultrawork"),
             ("Analyze this CSV dataset", "data-analysis"),
             ("Make a quick implementation plan", "plan"),
             ("Summarize this product demo video with timestamps", "media-input-operator"),

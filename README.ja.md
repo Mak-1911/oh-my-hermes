@@ -174,7 +174,7 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-12 個の `ulw-` workflow。チャットでトリガーを言えば Hermes がルーティング —
+8 個の `ulw-` workflow。チャットでトリガーを言えば Hermes がルーティング —
 全カタログは [Workflow Reference](docs/WORKFLOWS.md)。
 
 | Skill | 何をするか |
@@ -184,11 +184,7 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
 | ⚡ `ulw-research` | 実際のコードとウェブを調べ、出典を残し、怪しければ裏取りします。 |
 | ⚡ `ulw-plan` | 選択肢の比較、リスク、完了基準まで合意したレビュー済み計画を作ります。 |
 | ⚡ `ulw-work` | 承認済み計画を、同じファイルに触れない並列レーンで実行します。 |
-| ⚡ `ulw-ralph` | 一人が最後まで責任を持つ — 実装、検証、レビューを通るまで反復。 |
-| ⚡ `ulw-team` | 複数のワーカー、一つのタスクリスト、衝突なし。 |
 | ⚡ `ulw-loop` | 計画 → 実装 → レビューを、ゴールが本当に通るまで回します。 |
-| ⚡ `ulw-goal` | チェックポイント付きの長期ゴール — コンテキストが消えても止まった所から再開。 |
-| ⚡ `ulw-process` | 一つのタスクをリサーチから PR まで最後まで運びます。 |
 | ⚡ `ulw-qa` | わざと過酷なシナリオで攻撃し、壊れた所を直します。 |
 | ⚡ `ulw-perf` | 本当に遅く高コストな場所を測り、ホットパスを一つずつ修正します。 |
 

@@ -554,7 +554,10 @@ class DelegationLaneBoundaryTests(unittest.TestCase):
         """
         payload = build_coding_delegation_payload(self.CODING, executor_target="codex")
         envelope = payload["action_gate"]["authority_envelope"]
-        self.assertEqual(envelope["allowed_targets"], ["current_workspace"])
+        # #954 stage 5: the bounded implementation message now routes to
+        # `ultrawork`, whose isolation plan prepares a worktree, so the
+        # envelope derives both symbolic targets from the one plan.
+        self.assertEqual(envelope["allowed_targets"], ["current_workspace", "isolated_worktree"])
         prepared = _safety_preflight_request(
             self.CODING,
             owner="codex",

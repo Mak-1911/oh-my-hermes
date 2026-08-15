@@ -1263,7 +1263,7 @@ _CATEGORY_POLICIES = {
         ),
     ),
     "process": RecommendationPolicy(
-        next_action="start_ultraprocess",
+        next_action="start_delivery_cycle",
         evidence_boundary=(
             "An Ultraprocess route is process orchestration only; it is not implementation, review, docs sync, "
             "CI, PR creation, merge-readiness, or merge evidence."

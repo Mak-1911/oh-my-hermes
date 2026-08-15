@@ -153,10 +153,10 @@ window.OMH_I18N = {
     "ulw.kicker": { en: "Flagship workflows", ko: "대표 워크플로", ja: "フラッグシップ", zh: "旗舰工作流" },
     "ulw.title": { en: "The ulw-* family.", ko: "ulw-* 패밀리.", ja: "ulw-* ファミリー。", zh: "ulw-* 家族。" },
     "ulw.lead": {
-      en: "Twelve long-horizon lanes. Say the trigger in normal language — Hermes routes the rest.",
-      ko: "12개의 장기 레인. 평범한 말로 트리거만 말하면 나머지는 Hermes가 라우팅합니다.",
-      ja: "12 の長期レーン。普通の言葉でトリガーを言えば、あとは Hermes がルーティング。",
-      zh: "十二条长周期车道。用日常语言说出触发词，其余交给 Hermes 路由。"
+      en: "Eight long-horizon lanes. Say the trigger in normal language — Hermes routes the rest.",
+      ko: "8개의 장기 레인. 평범한 말로 트리거만 말하면 나머지는 Hermes가 라우팅합니다.",
+      ja: "8 の長期レーン。普通の言葉でトリガーを言えば、あとは Hermes がルーティング。",
+      zh: "八条长周期车道。用日常语言说出触发词，其余交给 Hermes 路由。"
     },
     "ulw.trigger": { en: "Say", ko: "이렇게 말하세요", ja: "こう言う", zh: "这样说" },
 
@@ -192,14 +192,6 @@ window.OMH_I18N = {
       ja: "ブリーフが明確になるまで一度に一問。最大 6 ラウンド、毎回明確度をスコア。",
       zh: "一次一问，直到简报清晰。最多六轮，每轮标注清晰度。"
     },
-    "ulw.goal.title": { en: "Ultragoal", ko: "Ultragoal", ja: "Ultragoal", zh: "Ultragoal" },
-    "ulw.goal.tag": { en: "Durable goals", ko: "지속 목표", ja: "永続ゴール", zh: "持久目标" },
-    "ulw.goal.body": {
-      en: "A checkpointed ledger survives context loss and resumes exactly where it stopped.",
-      ko: "체크포인트 원장이 컨텍스트 손실을 견디고 멈춘 지점에서 정확히 재개합니다.",
-      ja: "チェックポイント台帳がコンテキスト喪失を生き延び、止まった地点から正確に再開。",
-      zh: "带检查点的账本挺过上下文丢失，从中断处精确续跑。"
-    },
     "ulw.loop.title": { en: "Loop", ko: "Loop", ja: "Loop", zh: "Loop" },
     "ulw.loop.tag": { en: "Goal loop", ko: "목표 루프", ja: "ゴールループ", zh: "目标循环" },
     "ulw.loop.body": {
@@ -207,30 +199,6 @@ window.OMH_I18N = {
       ko: "인터뷰 → 계획 → 리서치 → 빌드 → 리뷰. 진짜 게이트를 통과할 때까지 순환.",
       ja: "インタビュー → 計画 → リサーチ → ビルド → レビュー。本物のゲートを通るまで循環。",
       zh: "访谈 → 规划 → 研究 → 构建 → 评审，循环直到真正的关卡通过。"
-    },
-    "ulw.ralph.title": { en: "Ralph", ko: "Ralph", ja: "Ralph", zh: "Ralph" },
-    "ulw.ralph.tag": { en: "Drive to done", ko: "끝까지", ja: "完了まで駆動", zh: "推到完成" },
-    "ulw.ralph.body": {
-      en: "One owner drives a task to done: implement, verify, review, repeat until the gate passes.",
-      ko: "한 명의 소유자가 작업을 끝까지: 구현, 검증, 리뷰, 게이트 통과까지 반복.",
-      ja: "一人のオーナーがタスクを完了まで：実装、検証、レビュー、ゲート通過まで反復。",
-      zh: "单一归属方把任务推到完成：实现、验证、评审，直到关卡通过。"
-    },
-    "ulw.team.title": { en: "Team", ko: "Team", ja: "Team", zh: "Team" },
-    "ulw.team.tag": { en: "Coordination", ko: "협업 조율", ja: "コーディネーション", zh: "协同" },
-    "ulw.team.body": {
-      en: "N coordinated workers on one shared task list, lanes owned explicitly, verification merged.",
-      ko: "하나의 공유 작업 목록 위 N명의 작업자. 레인 소유 명시, 검증은 병합.",
-      ja: "一つの共有タスクリスト上の N 人のワーカー。レーン所有は明示、検証はマージ。",
-      zh: "N 个工作者共用一份任务清单，车道归属明确，验证合并。"
-    },
-    "ulw.process.title": { en: "Ultraprocess", ko: "Ultraprocess", ja: "Ultraprocess", zh: "Ultraprocess" },
-    "ulw.process.tag": { en: "Task to PR", ko: "작업에서 PR까지", ja: "タスクから PR", zh: "从任务到 PR" },
-    "ulw.process.body": {
-      en: "One clean plan-to-PR cycle: research, plan, handoff, review, docs, PR — tracked end to end.",
-      ko: "깔끔한 계획→PR 사이클: 리서치, 계획, 핸드오프, 리뷰, 문서, PR — 끝까지 추적.",
-      ja: "きれいなプラン→PR サイクル：調査、計画、ハンドオフ、レビュー、ドキュメント、PR — 端まで追跡。",
-      zh: "一个干净的计划到 PR 周期：调研、规划、交接、评审、文档、PR —— 全程追踪。"
     },
     "ulw.qa.title": { en: "UltraQA", ko: "UltraQA", ja: "UltraQA", zh: "UltraQA" },
     "ulw.qa.tag": { en: "Adversarial QA", ko: "적대적 QA", ja: "敵対的 QA", zh: "对抗式 QA" },

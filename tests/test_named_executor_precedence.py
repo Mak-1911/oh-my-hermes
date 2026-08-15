@@ -13,7 +13,7 @@ from omh.routing.policy import named_coding_agent_delivery_requested
 from omh.wrapper.contract import build_chat_interaction_payload
 
 
-CODING_HANDOFF_SKILL = "ultraprocess"
+CODING_HANDOFF_SKILL = "ultrawork"
 EXECUTOR_READINESS_SKILL = "executor-runtime-readiness"
 CODING_LANES = frozenset({CODING_HANDOFF_SKILL, EXECUTOR_READINESS_SKILL})
 

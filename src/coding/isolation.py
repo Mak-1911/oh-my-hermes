@@ -126,7 +126,7 @@ def _risk_level(lowered: str, *, intent: str, workflow: str, work_owner_mode: st
         reasons.append("high_risk_terms")
     if intent in {"cleanup", "diagnostics"}:
         reasons.append(f"intent:{intent}")
-    if workflow in {"ai-slop-cleaner", "ultrawork", "team", "ralph", "ultragoal", "ultraprocess"}:
+    if workflow in {"ai-slop-cleaner", "ultrawork"}:
         reasons.append(f"workflow:{workflow}")
     if work_owner_mode == "runtime_handoff":
         reasons.append("runtime_handoff")

@@ -111,7 +111,7 @@ _DOMAIN_OPERATOR_CUES: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("clean up hermes memory", "memory cleanup", "clean up memory", "sync memory", "메모리 정리"),
     ),
     (
-        "ultraprocess",
+        "ultrawork",
         ("implement", "translate into code", "open a pr", "pull request", "구현", "코드로", "pr 열"),
     ),
     (
@@ -273,7 +273,7 @@ _NEGATION_SENSITIVE_OPERATOR_SKILLS = {
     "automation-blueprint",
     "browser-operator",
     "connector-operator",
-    "ultraprocess",
+    "ultrawork",
     "workspace-file-operator",
 }
 

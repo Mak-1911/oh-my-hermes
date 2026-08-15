@@ -2116,7 +2116,7 @@ def _workflow_specific_check(trace: dict[str, Any]) -> dict[str, Any]:
     selected = str(_nested(trace, "workflow", "selected_workflow"))
     reasoning = _object(trace.get("reasoning_summary"))
     not_evidence = _strings(reasoning.get("not_evidence_yet"))
-    if selected in {"plan", "ralplan", "ultragoal", "ultraprocess", "loop", "idea-to-deploy"} and not not_evidence:
+    if selected in {"plan", "ralplan", "ultrawork", "loop", "idea-to-deploy"} and not not_evidence:
         return _check("workflow_rubric", "warning", "Planning/coding lanes should name what is not evidence yet.", [])
     if selected in {"img-summary", "materials-package"} and any("generated" in str(ref).lower() for ref in trace.get("observed_refs", [])):
         return _check("workflow_rubric", "passed", "Deliverable/image lane has explicit observed refs.", [])

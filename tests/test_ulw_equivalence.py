@@ -349,14 +349,16 @@ class CapabilityProjectionTests(unittest.TestCase):
 
 
 class FamilyMoveTests(unittest.TestCase):
-    def test_all_four_folded_contracts_are_delegate_coding_and_ship(self):
-        """Projection assertion, not a diff assertion: the ralph and ultragoal
-        moves are lane-inherited and automatic, so only the projection shows
-        them (plan §11.3 PR D)."""
+    def test_folded_contracts_left_the_family_projection_and_ultrawork_carries_it(self):
+        """Projection assertion, not a diff assertion. After retirement
+        (#954 stage 5) the four folded contracts lose their `capability`
+        projection, so they leave the family map entirely; their family
+        surface is `ultrawork`'s `delegate_coding_and_ship` membership."""
         mapping = capability_family_projection()["workflow_to_family"]
-        for name in (*FOLDED_CONTRACTS, "ultrawork"):
+        self.assertEqual(mapping.get("ultrawork"), "delegate_coding_and_ship")
+        for name in FOLDED_CONTRACTS:
             with self.subTest(workflow=name):
-                self.assertEqual(mapping.get(name), "delegate_coding_and_ship")
+                self.assertIsNone(mapping.get(name))
 
     def test_no_folded_contract_sets_capability_family(self):
         definitions = _definitions_by_name()
@@ -364,16 +366,15 @@ class FamilyMoveTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.assertEqual(definitions[name].capability_family, "")
 
-    def test_folded_contracts_left_the_planning_family(self):
+    def test_folded_contracts_left_every_family_roster(self):
         families = {
             family["id"]: family for family in capability_family_projection()["families"]
         }
-        plan_family = families["plan_and_decide"]["primary_workflows"]
-        for name in FOLDED_CONTRACTS:
-            self.assertNotIn(name, plan_family)
-        delegate_family = families["delegate_coding_and_ship"]["primary_workflows"]
-        for name in FOLDED_CONTRACTS:
-            self.assertIn(name, delegate_family)
+        for family_id, family in families.items():
+            for name in FOLDED_CONTRACTS:
+                with self.subTest(family=family_id, workflow=name):
+                    self.assertNotIn(name, family["primary_workflows"])
+        self.assertIn("ultrawork", families["delegate_coding_and_ship"]["primary_workflows"])
 
     def test_no_dangling_adjacent_workflow_references(self):
         """All 23 `ultraprocess` + 2 `ultragoal` adjacency references were
@@ -390,9 +391,11 @@ class FamilyMoveTests(unittest.TestCase):
 
 class RoutingInertnessTests(unittest.TestCase):
     def test_subset_digest_over_pre_existing_cases_is_byte_identical(self):
-        """PR D's inertness gate (plan §11.3): the digest is computed over only
-        the case ids present at PR C merge, so the added negative controls
-        cannot move it and no re-pinning is allowed."""
+        """Regression pin over the pre-existing case ids. PR D's version
+        forbade re-pinning; the retirement PR (#954 stage 5, window=0)
+        deliberately rerouted the retiring engines' cues and edited their
+        corpus rows, so the digest was re-pinned once in that PR and is a
+        hard pin again from here on."""
         fixture = json.loads(
             (FIXTURES / "routing_precision_subset_at_c.json").read_text(encoding="utf-8")
         )
@@ -431,9 +434,11 @@ class RoutingInertnessTests(unittest.TestCase):
         }
         self.assertTrue(added <= all_ids)
 
-    def test_ulw_engine_surface_is_unchanged(self):
-        """No rerouting yet: the twelve-engine surface and every lifecycle
-        stage are exactly what PR C shipped."""
+    def test_ulw_engine_surface_reflects_the_retired_stage(self):
+        """#954 stage 5 (window=0): the name set keeps all twelve members --
+        it drives `ulw-` display prefixing, which retired reference contracts
+        keep -- while the canonical/retired split lives in `lifecycle_stage`
+        and the inventory producer."""
         self.assertEqual(
             set(ULW_ENGINE_SKILL_NAMES),
             {
@@ -452,10 +457,14 @@ class RoutingInertnessTests(unittest.TestCase):
             },
         )
         payload = ulw_inventory_payload()
-        self.assertEqual(len(payload["canonical_engines"]), 12)
+        self.assertEqual(len(payload["canonical_engines"]), 8)
         self.assertEqual(payload["alias_engines"], [])
-        for engine in payload["canonical_engines"]:
-            self.assertEqual(engine["lifecycle_stage"], "canonical")
+        self.assertEqual(
+            {engine["canonical"] for engine in payload["retired_engines"]},
+            set(FOLDED_CONTRACTS),
+        )
+        for engine in payload["retired_engines"]:
+            self.assertEqual(engine["lifecycle_stage"], "retired")
 
 
 if __name__ == "__main__":

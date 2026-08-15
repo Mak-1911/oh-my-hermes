@@ -20,7 +20,7 @@ This is a Hermes-native `codebase-onboarding` workflow skill.
 
 ## Do Not Use When
 
-- The user already named a concrete implementation task and acceptance criteria; use `ultraprocess` or `idea-to-deploy`.
+- The user already named a concrete implementation task and acceptance criteria; use `ultrawork` or `idea-to-deploy`.
 - The user needs a whole-workspace capability inventory; use `workspace-audit`.
 - The user wants a code diff review; use `code-review`.
 
@@ -74,7 +74,7 @@ Quality bar:
 - Name the audience, depth, repo root, read-only boundary, and stop condition.
 - Separate observed files and commands from inferred architecture and unknowns.
 - Produce a practical reading path and first-task runway rather than a flat file tour.
-- Route follow-up implementation to plan, ultraprocess, verification-gate, or workspace-audit as needed.
+- Route follow-up implementation to plan, ultrawork, verification-gate, or workspace-audit as needed.
 
 Handoff policy:
 

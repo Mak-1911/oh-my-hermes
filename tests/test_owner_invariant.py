@@ -48,14 +48,21 @@ ROUTE_FAMILY = "ulw-coding-delivery"
 TS = "2026-08-13T00:00:01Z"
 CODING_MESSAGE = "research, plan, implement, verify, and review this coding change in one cycle"
 
-# In-corpus witnesses for the naming-is-choosing carve-out (§5.3.1): each of
-# these resolves `selected_executor_profile == "codex"` from the message alone
-# and must therefore carry in-message explicit-naming provenance.
-IN_MESSAGE_NAMING_WITNESS_IDS = (
+# The retired-engine session flows that used to resolve Codex from the message
+# alone now surface the owner-selection path instead (#954 stage 5, plan Q9):
+# these corpus rows must resolve NO unrecorded external owner. The
+# naming-is-choosing carve-out (§5.3.1) still applies to ordinary named
+# delivery requests, witnessed by IN_MESSAGE_NAMING_DELIVERY_MESSAGE below.
+OWNER_SELECTION_WITNESS_IDS = (
     "korean-codex-issue-pr-start",
     "korean-codex-session-liveness",
     "korean-codex-current-activity-status",
 )
+
+# A named delivery request outside the legacy cue cluster: routing resolves
+# Codex from the in-message naming and must record it as explicit-choice
+# provenance through the in-message-naming writer.
+IN_MESSAGE_NAMING_DELIVERY_MESSAGE = "use codex to fix the login bug"
 
 # The paraphrase negative control: the witness request with the CLI name
 # removed. It lives in ROUTING_PRECISION_CASES and must resolve no external
@@ -167,9 +174,33 @@ class OwnerInvariantCorpusTests(unittest.TestCase):
 
 
 class InMessageNamingTests(unittest.TestCase):
-    def test_three_witnesses_record_in_message_provenance(self) -> None:
+    def test_named_delivery_request_records_in_message_provenance(self) -> None:
+        """Naming is choosing (§5.3.1): a delivery request naming Codex
+        resolves it as owner only with recorded in-message-naming
+        provenance."""
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            payload = build_chat_interaction_payload(
+                IN_MESSAGE_NAMING_DELIVERY_MESSAGE, source="discord", paths=paths
+            )
+            delegation = _delegation(payload)
+            self.assertEqual(delegation.get("selected_executor_profile"), "codex")
+            self.assertIs(_selection(payload).get("choice_required"), False)
+            state = read_owner_preference(paths)
+            self.assertEqual(
+                explicit_choice_provenance(state, route_family=ROUTE_FAMILY),
+                "in_message_naming",
+            )
+            route = state["routes"][ROUTE_FAMILY]
+            self.assertEqual(route["naming_cue"], "named_executor:codex")
+            self.assertFalse(external_owner_violation(payload, state))
+
+    def test_legacy_codex_session_flows_surface_owner_selection(self) -> None:
+        """#954 stage 5 (plan Q9): the legacy Codex session flows resolve the
+        owner-selection surface, never `ultrawork`, and never carry an
+        unrecorded external owner."""
         cases = {case.id: case for case in ROUTING_INTERVENTION_CASES}
-        for witness_id in IN_MESSAGE_NAMING_WITNESS_IDS:
+        for witness_id in OWNER_SELECTION_WITNESS_IDS:
             case = cases.get(witness_id)
             self.assertIsNotNone(case, f"witness {witness_id} left the corpus")
             with TemporaryDirectory() as tmp:
@@ -177,22 +208,16 @@ class InMessageNamingTests(unittest.TestCase):
                 payload = build_chat_interaction_payload(
                     case.message, source="discord", paths=paths
                 )
+                route = payload.get("route") or {}
+                self.assertNotEqual(route.get("selected_skill"), "ultrawork", witness_id)
+                self.assertEqual(
+                    route.get("selected_skill"), "executor-runtime-readiness", witness_id
+                )
                 delegation = _delegation(payload)
-                self.assertEqual(
-                    delegation.get("selected_executor_profile"), "codex", witness_id
-                )
-                self.assertIs(
-                    _selection(payload).get("choice_required"), False, witness_id
-                )
-                state = read_owner_preference(paths)
-                self.assertEqual(
-                    explicit_choice_provenance(state, route_family=ROUTE_FAMILY),
-                    "in_message_naming",
-                    witness_id,
-                )
-                route = state["routes"][ROUTE_FAMILY]
-                self.assertEqual(route["naming_cue"], "named_executor:codex", witness_id)
-                self.assertFalse(external_owner_violation(payload, state), witness_id)
+                selected = delegation.get("selected_executor_profile")
+                if selected in EXTERNAL_CLI_PROFILES:
+                    state = read_owner_preference(paths)
+                    self.assertFalse(external_owner_violation(payload, state), witness_id)
 
     def test_paraphrase_negative_control_resolves_no_external_owner(self) -> None:
         case_ids = {case.id for case in ROUTING_PRECISION_CASES}

@@ -14,8 +14,8 @@ LIFECYCLE_OUTCOMES = ("finished", "blocked", "failed", "user_interlude", "questi
 
 ALLOWED_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "deep-interview": ("plan", "ralplan"),
-    "plan": ("ultragoal", "team", "ralph", "ultraqa"),
-    "ralplan": ("ultragoal", "team", "ralph", "ultraqa"),
+    "plan": ("ultrawork", "ultraqa"),
+    "ralplan": ("ultrawork", "ultraqa"),
 }
 
 

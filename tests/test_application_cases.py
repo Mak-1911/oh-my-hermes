@@ -40,7 +40,7 @@ class ApplicationCaseArtifactTests(unittest.TestCase):
 
             cases = [
                 self._record_case(omh_home, "oh-my-hermes", "coding-handling", "started"),
-                self._record_case(omh_home, "ultragoal", "goal-execution", "started"),
+                self._record_case(omh_home, "ultrawork", "goal-execution", "started"),
                 self._record_case(omh_home, "code-review", "critic", "completed"),
             ]
 

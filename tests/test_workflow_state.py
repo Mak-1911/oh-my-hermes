@@ -55,7 +55,7 @@ class WorkflowStateCliTests(unittest.TestCase):
             omh_home = Path(tmp) / ".omh"
 
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "state", "start", "--workflow", "deep-interview"])[0], 0)
-            status, _, stderr = run_cli(["--omh-home", str(omh_home), "state", "start", "--workflow", "team"])
+            status, _, stderr = run_cli(["--omh-home", str(omh_home), "state", "start", "--workflow", "ultrawork"])
 
             self.assertEqual(status, 2)
             self.assertIn("active workflow deep-interview must finish or be cleared first", stderr)

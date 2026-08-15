@@ -207,7 +207,7 @@ class ProjectTermsCharacterizationTests(unittest.TestCase):
                 "status",
                 "Codex 작업이 어디까지 진행됐는지 알려줘",
                 "dispatch",
-                "ultraprocess",
+                "ultrawork",
                 "dispatch_route",
             ),
             (

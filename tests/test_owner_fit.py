@@ -97,11 +97,11 @@ RECORDED_NOW = utc_now()
 # whose lane needs parallel agents and a workspace binding that requires an
 # isolated worktree, so both derivation rules are live at once.
 TEAM_PLAN: dict[str, Any] = {
-    "workflow": "team",
+    "workflow": "ultrawork",
     "work_owner_mode": "external_executor",
     "isolation_strategy": "worktree_required",
 }
-TEAM_REQUIREMENTS = ("parallel_agents", "worktree_isolation")
+TEAM_REQUIREMENTS = ("parallel_agents", "background_work", "worktree_isolation")
 
 # The message that produces TEAM_PLAN through the real delegation build, so the
 # surface tests exercise a plan Hermes actually derived rather than one a test
@@ -138,6 +138,7 @@ def _team_capable(executor: str, *, recorded_at: str = OBSERVED_AT) -> dict[str,
         executor,
         {
             "parallel_agents": _observed("probe:parallel-lanes", recorded_at),
+            "background_work": _observed("probe:background", recorded_at),
             "worktree_isolation": _observed("probe:worktree", recorded_at),
         },
         recorded_at=recorded_at,
@@ -149,6 +150,7 @@ def _team_blocked(executor: str, *, recorded_at: str = OBSERVED_AT) -> dict[str,
         executor,
         {
             "parallel_agents": _observed("probe:parallel-lanes", recorded_at),
+            "background_work": _observed("probe:background", recorded_at),
             # A recorded host observation that the capability is NOT there.
             # This is the shape AC1 calls a KNOWN unmet capability.
             "worktree_isolation": dict(UNAVAILABLE),
@@ -204,7 +206,7 @@ class RequirementDerivationTests(unittest.TestCase):
         self.assertEqual(tuple(item["capability"] for item in requirements), TEAM_REQUIREMENTS)
         by_capability = {str(item["capability"]): item for item in requirements}
         self.assertEqual(by_capability["parallel_agents"]["source_field"], "workflow")
-        self.assertEqual(by_capability["parallel_agents"]["source_value"], "team")
+        self.assertEqual(by_capability["parallel_agents"]["source_value"], "ultrawork")
         self.assertEqual(by_capability["worktree_isolation"]["source_field"], "isolation_strategy")
         self.assertEqual(by_capability["worktree_isolation"]["source_value"], "worktree_required")
         for item in requirements:
@@ -212,11 +214,11 @@ class RequirementDerivationTests(unittest.TestCase):
 
     def test_a_runtime_handoff_requires_the_routed_workflow_locally_and_scopes_it(self) -> None:
         requirements = derive_plan_capability_requirements(
-            {"workflow": "ralph", "work_owner_mode": "runtime_handoff", "isolation_strategy": "same_workspace_ok"}
+            {"workflow": "loop", "work_owner_mode": "runtime_handoff", "isolation_strategy": "same_workspace_ok"}
         )
         by_capability = {str(item["capability"]): item for item in requirements}
         self.assertIn(LOCAL_WORKFLOW_CAPABILITY_NAME, by_capability)
-        self.assertEqual(by_capability[LOCAL_WORKFLOW_CAPABILITY_NAME]["scope"], {"skill_id": "ralph"})
+        self.assertEqual(by_capability[LOCAL_WORKFLOW_CAPABILITY_NAME]["scope"], {"skill_id": "loop"})
         self.assertEqual(by_capability["long_running_continuation"]["source_field"], "workflow")
 
     def test_a_plan_that_declares_nothing_requires_nothing(self) -> None:
@@ -234,7 +236,7 @@ class RequirementDerivationTests(unittest.TestCase):
         payload = build_coding_delegation_payload(TEAM_MESSAGE, executor_target="codex")
         plan = accepted_plan_from_delegation(payload)
         self.assertEqual(set(plan), set(ACCEPTED_PLAN_FIELDS))
-        self.assertEqual(plan["workflow"], "team")
+        self.assertEqual(plan["workflow"], "ultrawork")
         self.assertEqual(plan["isolation_strategy"], "worktree_required")
 
     def test_one_capability_is_explained_by_one_declared_field(self) -> None:
@@ -257,7 +259,7 @@ class KnownUnmetCapabilityTests(unittest.TestCase):
         self.assertEqual(fit["verdict"], "blocked")
         self.assertFalse(fit["recommendable"])
         self.assertEqual(fit["unmet"], ["worktree_isolation"])
-        self.assertEqual(fit["met"], ["parallel_agents"])
+        self.assertEqual(fit["met"], ["parallel_agents", "background_work"])
 
     def test_the_report_never_recommends_a_blocked_owner(self) -> None:
         report = build_owner_fit_report(
@@ -461,7 +463,7 @@ class UnknownIsItsOwnStateTests(unittest.TestCase):
         self.assertEqual(fit["unmet"], [])
         self.assertEqual(
             [str(entry["reason_code"]) for entry in fit["capabilities"]],
-            ["no_capability_snapshot", "no_capability_snapshot"],
+            ["no_capability_snapshot", "no_capability_snapshot", "no_capability_snapshot"],
         )
 
     def test_a_capability_the_snapshot_never_mentions_classifies_unknown(self) -> None:
@@ -494,17 +496,20 @@ class UnknownIsItsOwnStateTests(unittest.TestCase):
     def test_prepared_only_evidence_classifies_unknown(self) -> None:
         fit = _fit(
             "codex",
-            _snapshot("codex", {"parallel_agents": {"status": "prepared"}, "worktree_isolation": {"status": "unknown"}}),
+            _snapshot(
+                "codex",
+                {"parallel_agents": {"status": "prepared"}, "worktree_isolation": {"status": "unknown"}},
+            ),
         )
         self.assertEqual(
             [str(entry["reason_code"]) for entry in fit["capabilities"]],
-            ["evidence_prepared_only", "evidence_status_unknown"],
+            ["evidence_prepared_only", "capability_not_recorded", "evidence_status_unknown"],
         )
         self.assertEqual(fit["verdict"], "unproven")
 
     def test_evidence_scoped_to_another_workflow_classifies_unknown(self) -> None:
         requirements = derive_plan_capability_requirements(
-            {"workflow": "ralph", "work_owner_mode": "runtime_handoff", "isolation_strategy": "same_workspace_ok"}
+            {"workflow": "loop", "work_owner_mode": "runtime_handoff", "isolation_strategy": "same_workspace_ok"}
         )
         snapshot = _snapshot(
             "codex",
@@ -512,7 +517,7 @@ class UnknownIsItsOwnStateTests(unittest.TestCase):
                 "long_running_continuation": _observed("probe:continuation"),
                 LOCAL_WORKFLOW_CAPABILITY_NAME: {
                     "status": "host_observed",
-                    "scope": {"profile": "codex", "skill_id": "team", "environment": "local"},
+                    "scope": {"profile": "codex", "skill_id": "ultrawork", "environment": "local"},
                     "evidence_ref": "probe:local-workflow",
                     "observed_at": OBSERVED_AT,
                 },
@@ -685,6 +690,7 @@ class DescriptiveCapabilityOwnerFitControlTests(unittest.TestCase):
             capabilities={
                 "edit_format_patch": _observed("probe:patch-edit"),
                 "parallel_agents": {"status": "unavailable"},
+                "background_work": _observed("probe:background"),
                 "worktree_isolation": {"status": "prepared"},
             },
             recorded_at=OBSERVED_AT,

@@ -4546,7 +4546,7 @@ OMH_QUALITY_IMPROVEMENT_GUARD = RoutingGuardRule(
         "reliability should route to the process/coding lane even when bug words are present."
     ),
     matched_label="guard:omh_quality_improvement_loop",
-    preferred_skills=("ultraprocess",),
+    preferred_skills=("ultrawork",),
     score_boost=48,
     why=(
         "Matched semantic OMH quality-improvement intent; bug/failure terms are evidence for improving OMH "
@@ -4556,9 +4556,12 @@ OMH_QUALITY_IMPROVEMENT_GUARD = RoutingGuardRule(
 )
 PERSISTENT_COMPLETION_GUARD = RoutingGuardRule(
     id="persistent_completion_before_board_status",
-    rule="Persistent finish-until-pass-or-block requests should route to ralph before board/status surfaces.",
+    rule=(
+        "Persistent finish-until-pass-or-block requests should route to ultrawork's "
+        "single-owner-persistence capability before board/status surfaces."
+    ),
     matched_label="guard:persistent_completion",
-    preferred_skills=("ralph",),
+    preferred_skills=("ultrawork",),
     score_boost=38,
     why="Matched completion-loop language with a concrete pass/block stop condition.",
     activation_status="active",
@@ -4682,17 +4685,20 @@ MISSED_WORKFLOW_OPERATING_RHYTHM_GUARD = RoutingGuardRule(
 )
 DELIVERY_CYCLE_GUARD = RoutingGuardRule(
     id="delivery_cycle_before_research_only",
-    rule="Requests that ask for PR or delivery-cycle completion should route to Ultraprocess before research-only lanes.",
+    rule=(
+        "Requests that ask for PR or delivery-cycle completion should route to ultrawork's "
+        "delivery-boundary capability before research-only lanes."
+    ),
     matched_label="guard:delivery_cycle_before_research_only",
-    preferred_skills=("ultraprocess",),
-    # Raised from 12 when `web-research` was renamed to `research`: the research
-    # lane now also collects the +5 catalog-name phrase match on any message
-    # containing the word, which turned the recommend field for "web research
-    # and source scan, then prepare a PR" from a 5-point ultraprocess win into a
-    # 28-28 tie that the alphabetical tie-break handed to research. 14 restores
-    # the margin the guard had before the rename; it is not new precedence, and
-    # chat routing picked ultraprocess at either value.
-    score_boost=14,
+    preferred_skills=("ultrawork",),
+    # Raised from 12 to 14 when `web-research` was renamed to `research` (the
+    # research lane collects a +5 catalog-name phrase match on any message
+    # containing the word), and from 14 to 18 at #954 stage 5: `ultrawork`
+    # carries a smaller delivery trigger base than the retired `ultraprocess`
+    # table did, which turned "web research and source scan, then prepare a
+    # PR" into a research win. 18 restores the delivery margin; it is not new
+    # precedence.
+    score_boost=18,
     why="Matched guard/trigger metadata; PR or delivery-cycle requests need the one-cycle process lane rather than research-only routing.",
     activation_status="active",
 )
@@ -4700,7 +4706,7 @@ DIRECT_CODING_TASK_GUARD = RoutingGuardRule(
     id="direct_coding_task_before_fallback",
     rule="Concrete code-edit requests should route to the one-cycle delivery lane instead of falling back to the generic picker.",
     matched_label="guard:direct_coding_task",
-    preferred_skills=("ultraprocess",),
+    preferred_skills=("ultrawork",),
     score_boost=44,
     why="Matched explicit code-edit language; prepare one bounded implementation cycle instead of asking which workflow to use.",
     activation_status="active",
@@ -4712,19 +4718,23 @@ NAMED_CODING_AGENT_DELIVERY_GUARD = RoutingGuardRule(
         "delivery lane before external-advisor or customer-feedback lanes."
     ),
     matched_label="guard:named_coding_agent_delivery",
-    preferred_skills=("ultraprocess",),
+    preferred_skills=("ultrawork",),
     score_boost=30,
     why=(
-        "Matched an explicit coding-agent name with a delivery request; prepare a one-cycle coding handoff "
+        "Matched an explicit coding-agent name with a delivery request; naming the CLI is an "
+        "explicit owner choice (recorded as provenance), so prepare the delivery-lane handoff "
         "for the named executor instead of external advice or feedback triage."
     ),
     activation_status="active",
 )
 CODING_HANDOFF_STATUS_GUARD = RoutingGuardRule(
     id="coding_handoff_status_before_clarify",
-    rule="Executor-named coding handoff plus progress/status tracking should route to Ultraprocess instead of generic clarification.",
+    rule=(
+        "Executor-named coding handoff plus progress/status tracking should route to ultrawork's "
+        "delivery-boundary status surface instead of generic clarification."
+    ),
     matched_label="guard:coding_handoff_status",
-    preferred_skills=("ultraprocess",),
+    preferred_skills=("ultrawork",),
     score_boost=26,
     why="Matched guard/trigger metadata; executor-named coding handoff and status requests should prepare a tracked one-cycle handoff without claiming execution.",
     activation_status="active",
@@ -4812,18 +4822,24 @@ GATEWAY_INTENT_GUARD = RoutingGuardRule(
 )
 HERMES_CODING_TEAM_GUARD = RoutingGuardRule(
     id="hermes_coding_team_before_generic_clarification",
-    rule="Hermes-owned coding requests with workers, worktrees, team, or swarm language should route to team before generic clarification.",
+    rule=(
+        "Hermes-owned coding requests with workers, worktrees, team, or swarm language should route "
+        "to ultrawork's coordinated-scope capability before generic clarification."
+    ),
     matched_label="guard:hermes_coding_team",
-    preferred_skills=("team",),
+    preferred_skills=("ultrawork",),
     score_boost=34,
     why="Matched Hermes-owned coding team language; prepare worker/worktree lanes and evidence boundaries instead of generic clarification.",
     activation_status="active",
 )
 CODING_PROGRESS_STATUS_GUARD = RoutingGuardRule(
     id="coding_progress_status_before_clarify",
-    rule="Executor or coding-agent progress/status requests should route to Ultraprocess before generic clarification.",
+    rule=(
+        "Executor or coding-agent progress/status requests should route to ultrawork's "
+        "delivery-boundary status surface before generic clarification."
+    ),
     matched_label="guard:coding_progress_status",
-    preferred_skills=("ultraprocess",),
+    preferred_skills=("ultrawork",),
     score_boost=56,
     why="Matched guard/trigger metadata; coding progress questions should render the selected handoff/session status without claiming missing evidence.",
     activation_status="active",
@@ -8141,6 +8157,7 @@ def _delivery_cycle_guard_applies(
             "pull request",
             "plan implement review docs",
             "research plan implement",
+            "in one cycle",
             "계획 구현 리뷰 문서",
             "기획 구현 리뷰 문서",
             "pr까지",

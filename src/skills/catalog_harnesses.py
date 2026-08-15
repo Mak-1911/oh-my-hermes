@@ -1737,7 +1737,7 @@ _HARNESSES = [
         overclaim_guards=(
             "A source_finder_plan/v1 artifact is not web search, download, clone, extraction, license check, source verification, or downstream processing evidence.",
             "A source candidate is not proof the source exists, is accessible, is licensed, or supports the user's claim until observed evidence exists.",
-            "A downstream workflow recommendation is not proof that paper-learning, research, materials-package, research-department, or ultraprocess ran.",
+            "A downstream workflow recommendation is not proof that paper-learning, research, materials-package, research-department, or an ultrawork delivery cycle ran.",
         ),
     ),
     HarnessDefinition(
@@ -3141,12 +3141,9 @@ _FEATURE_SURFACE_HARNESSES = (
 
 
 _PRIMARY_HARNESSES = {
-    "ralph": "goal-execution",
-    "ultragoal": "goal-execution",
     "context": "decision-frontier",
     "deep-interview": "deep-interview",
     "jit-learn": "jit-learn",
-    "team": "goal-execution",
     "ultrawork": "goal-execution",
     "research": "research",
     "research-brief": "business-research",
@@ -3182,7 +3179,6 @@ _PRIMARY_HARNESSES = {
     "cto-loop": "app-delivery-loop",
     "deploy-and-monitor": "app-delivery-loop",
     "loop": "goal-loop",
-    "ultraprocess": "goal-execution",
     "ultraqa": "qa-specialist",
     "plan": "planning",
     "ralplan": "planning",

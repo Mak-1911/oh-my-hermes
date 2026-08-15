@@ -22,13 +22,13 @@ class ImpactRouteCase:
 
 
 REPRESENTATIVE_ROUTE_CASES = (
-    ImpactRouteCase("tdd-en", "Please write tests first and implement this with TDD", "ultraprocess"),
-    ImpactRouteCase("tdd-ko", "이 기능 테스트부터 작성하고 TDD로 구현해줘", "ultraprocess"),
+    ImpactRouteCase("tdd-en", "Please write tests first and implement this with TDD", "ultrawork"),
+    ImpactRouteCase("tdd-ko", "이 기능 테스트부터 작성하고 TDD로 구현해줘", "ultrawork"),
     ImpactRouteCase("literature-en", "Do a literature review of recent agent memory papers", "research"),
     ImpactRouteCase("literature-ko", "이 논문들 문헌 검토하고 근거를 정리해줘", "research"),
     ImpactRouteCase("visual-qa-en", "Analyze this screenshot for UI layout problems", "visual-qa"),
     ImpactRouteCase("visual-qa-ko", "이 스크린샷 UI 레이아웃 문제를 분석해줘", "visual-qa"),
-    ImpactRouteCase("durable-goal-ko", "이 목표를 오래 실행하면서 완료조건까지 계속 진행해줘", "ultragoal"),
+    ImpactRouteCase("durable-goal-ko", "이 목표를 오래 실행하면서 완료조건까지 계속 진행해줘", "ultrawork"),
     ImpactRouteCase("deploy-en", "Deploy this service to production infrastructure", "deploy-and-monitor"),
     ImpactRouteCase("deploy-ko", "이 서비스를 프로덕션 인프라에 배포해줘", "deploy-and-monitor"),
     ImpactRouteCase("session-en", "Find and recover my previous Codex coding session", "harness-session-inventory"),
@@ -37,7 +37,7 @@ REPRESENTATIVE_ROUTE_CASES = (
     ImpactRouteCase("video-generate", "Generate a short product demo video", "external-connector-readiness"),
     ImpactRouteCase("home-assistant", "Check whether Home Assistant can control this device", "external-connector-readiness"),
     ImpactRouteCase("testing-article", "Write an article about testing best practices", "best-practice-research"),
-    ImpactRouteCase("pull-request-review", "Review this pull request code", "ultraprocess"),
+    ImpactRouteCase("pull-request-review", "Review this pull request code", "ultrawork"),
     ImpactRouteCase("csv-analysis", "Analyze this CSV dataset", "data-analysis"),
     ImpactRouteCase("quick-plan", "Make a quick implementation plan", "plan"),
     ImpactRouteCase("video-summary", "Summarize this product demo video with timestamps", "media-input-operator"),

@@ -683,7 +683,7 @@ Bare `./omh`, `/omh`, `./skills`, or `/skills` opens the workflow picker. A lead
 
 ## Skill Name Display Prefix
 
-Installed OMH skills render a prefixed frontmatter `name` so the host status line is distinguishable from a Hermes built-in: domain skills carry `omh-` and the workflow-engine skills carry `ulw-` (for example `Reading skill ulw-work` for `ultrawork`, `ulw-plan` for `ralplan`, `ulw-goal` for `ultragoal`). The router skill renders as `omh-routing`.
+Installed OMH skills render a prefixed frontmatter `name` so the host status line is distinguishable from a Hermes built-in: domain skills carry `omh-` and the workflow-engine skills carry `ulw-` (for example `Reading skill ulw-work` for `ultrawork`, `ulw-plan` for `ralplan`, `ulw-loop` for `loop`). The router skill renders as `omh-routing`.
 
 That label names the installed `skills/<label>/` directory and the host status line only. The canonical catalog name still owns the install manifest `name`, routing keys, and every `omh` CLI argument, so `omh recommend`, `omh runtime record --skill <name>`, and trigger strings keep using canonical names. Earlier label eras (`omh-ultrawork`, `ulw-ultrawork`) remain accepted as routing aliases of the same workflow, so text echoed from a stale install still resolves — but always render the current label.
 
@@ -943,12 +943,12 @@ OMH is Hermes-native workflow guidance, not a hidden executor or core patch. Her
 
 Compact lane map:
 
-- Intent -> plan: `deep-interview`, `ralplan`, `plan`, `loop`, `ultraprocess`.
+- Intent -> plan: `deep-interview`, `ralplan`, `plan`, `loop`.
 - Research and company ops: `research`, `source-finder`, `research-department`, `paper-learning`, `feedback-triage`, `strategy-brief`, `meeting-brief`.
 - Retained knowledge: `wiki`.
 - Materials and visual summaries: `design-quality-gate`, `frontend`, `accessibility-audit`, `visual-qa`, `materials-package`, `img-summary`, `report-package`, `deliverable-package`.
 - Operations and evidence gates: `workspace-audit`, `production-audit`, `verification-gate`, `agent-evaluation`, `rules-distill`, `agent-ops-review`, `harness-session-inventory`, `ops-observability-card`, `instinct-ledger`, `workflow-learning`.
-- Coding handoff and review: `idea-to-deploy`, `code-review`, `ultraprocess`, `team`, `ultrawork`, `ultraqa`.
+- Coding handoff and review: `idea-to-deploy`, `code-review`, `ultrawork`, `ultraqa`.
 
 ## OMH Orchestration Posture
 
@@ -956,7 +956,7 @@ Treat OMH as the operating layer above individual Hermes-native skills. For a wo
 
 - On an unfamiliar or first-use pattern, briefly recommend the OMH-led route: explain that OMH can structure the problem, select the needed skills, and keep evidence boundaries clear.
 - After repeated accepted local patterns for the same user and workflow, continue OMH-led exploration, problem framing, skill composition, and prepared planning automatically. Keep the current workflow, next action, and prepared-versus-observed boundary visible.
-- Never let that autonomy bypass existing confirmation gates for destructive changes, credentials, external writes, deployment, executor dispatch, or starting a follow-on workflow engine (`ultragoal`, `ultrawork`, `ralph`, `team`, `ultraprocess`, `ultraqa`) from another skill's output: an accepted plan or clarified brief is planning evidence, not permission — recommend the engine that fits the work's shape and wait for the user's explicit go-ahead. Do not claim that a native skill, subagent, review, CI, or merge ran unless matching observation exists.
+- Never let that autonomy bypass existing confirmation gates for destructive changes, credentials, external writes, deployment, executor dispatch, or starting a follow-on workflow engine (`ultrawork` — including its coordinated-scope, single-owner-persistence, delivery-boundary, and durable-checkpoint capabilities — `loop`, `ultraqa`) from another skill's output: an accepted plan or clarified brief is planning evidence, not permission — recommend the engine that fits the work's shape and wait for the user's explicit go-ahead. Do not claim that a native skill, subagent, review, CI, or merge ran unless matching observation exists.
 - If a native Hermes capability is relevant, present it as an optional subordinate capability under the selected OMH workflow. OMH policy remains responsible for selecting and governing the workflow.
 
 ## Priority Rules
@@ -965,7 +965,7 @@ Treat OMH as the operating layer above individual Hermes-native skills. For a wo
 2. Explicit slash skill invocation wins when it is not one of those maintenance commands.
 3. Explicit workflow keywords route to the matching adapted skill when installed.
 4. Broad planning requests route to `ralplan` or `plan` before implementation.
-5. Persistence or finish-until-done requests route to `ralph` only after scope is concrete.
+5. Persistence or finish-until-done requests route to `ultrawork`'s single-owner-persistence capability only after scope is concrete.
 6. Unknown or conflicting signals stay in this router and ask one concise clarification question.
 
 ## Direct Picker Aliases
@@ -1029,7 +1029,7 @@ Load these only when exact detail matters:
 - If maintenance command behavior matters, load `references/operator-maintenance.md`.
 - If evidence or target topology is disputed, load `references/evidence-boundaries.md`.
 - If the right skill was not loaded, call `skills_list` or `skill_view`.
-- If a slash command exists, use the explicit slash skill such as `/omh-ralph`.
+- If a slash command exists, use the explicit slash skill such as `/ulw-work`.
 - If a skill name collides, keep the OMH-selected policy in control and present the Hermes-native skill only as an explicit recommendation; do not let a native candidate override routing.
 """
     return SkillTemplate("oh-my-hermes", _frontmatter("oh-my-hermes", DESCRIPTIONS["oh-my-hermes"]) + "\n" + body)

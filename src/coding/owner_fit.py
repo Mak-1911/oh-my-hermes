@@ -99,11 +99,8 @@ _RUNTIME_HANDOFF_MODE: Final = "runtime_handoff"
 # is a routable workflow, every value is in the snapshot vocabulary.
 WORKFLOW_CAPABILITY_REQUIREMENTS: Final[dict[str, tuple[str, ...]]] = {
     "browser-operator": ("browser_or_computer_use",),
-    "loop": ("scheduled_or_recurring_work",),
+    "loop": ("scheduled_or_recurring_work", "long_running_continuation"),
     "parallel-tools": ("parallel_agents",),
-    "ralph": ("long_running_continuation",),
-    "team": ("parallel_agents",),
-    "ultragoal": ("long_running_continuation",),
     "ultrawork": ("parallel_agents", "background_work"),
     "visual-qa": ("visual_qa",),
 }

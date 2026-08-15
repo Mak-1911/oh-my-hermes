@@ -40,9 +40,7 @@ CANDIDATE_HANDOFF_SCHEMA_VERSION = "model_selection_candidates/v1"
 # team, ultragoal) never surfaced, because nothing connected "this is coding"
 # to "these are the coding candidates".
 CODING_LANE_CANDIDATES = (
-    ("ultraprocess", "prepare_coding_handoff"),
-    ("team", "prepare_coding_handoff"),
-    ("ultragoal", "prepare_goal_ledger"),
+    ("ultrawork", "prepare_coding_handoff"),
     ("executor-runtime-readiness", "check_executor_readiness"),
 )
 
