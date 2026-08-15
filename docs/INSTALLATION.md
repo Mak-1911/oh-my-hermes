@@ -225,9 +225,14 @@ falls through. A missing recommended model is different: setup remains usable
 and ordered recommendation chains skip missing entries in favor of a confirmed
 compatible alternative. Qwen and Gemini therefore remain valid user-selected
 alternatives even when they are not shipped category heads. If no candidate is
-confirmed for a selector, the resolver records `owner_default`; Hermes or the
-selected external owner keeps its native default model, setup completes with
-`status: defaulted`, and no model-config write is prepared or applied.
+confirmed for the selected category, role-slot, and domain chains, the resolver
+consults one shared final order: Claude Opus 5, then GPT-5.6 Sol. These names
+remain editorial candidates filtered through caller-confirmed metadata; they
+do not prove subscription, entitlement, authentication, or runtime readiness.
+If no candidate is confirmed anywhere, the resolver records `owner_default`;
+Hermes or the selected external owner keeps its native default model, setup
+completes with `status: defaulted`, and no model-config write is prepared or
+applied.
 
 ### Editable recommendation categories
 
@@ -245,6 +250,7 @@ The shipped catalog is editorial policy, not benchmark output:
 | `writing` | Kimi K3, Qwen3-Coder, Gemini 3.1 Pro |
 | `artistry` | Gemini 3.1 Pro, Claude Fable 5, Kimi K3 |
 | `x_platform_data` affinity | Grok, Kimi K3, Gemini |
+| Shared final order (`last_resort.any`) | Claude Opus 5, GPT-5.6 Sol |
 
 The X/Grok row is a static, editable affinity for work explicitly declaring X
 platform data. It is not a measured capability, performance, or availability
@@ -255,13 +261,14 @@ only when the user declares the corresponding local route active. OMH never
 copies their tokens or keys.
 
 Agents and maintainers can replace named chains with a secret-free
-`model_recommendation_overrides/v1` JSON file. Only the existing category,
-`main` role, and `x_platform_data` domain keys are accepted; named chains
-replace rather than merge with shipped order. For example:
+`model_recommendation_overrides/v2` JSON file. Only the existing category,
+`main` role, `x_platform_data` domain, and shared `last_resort.any` keys are
+accepted; named chains replace rather than merge with shipped order. Legacy v1
+documents remain accepted but cannot define `last_resort`. For example:
 
 ```json
 {
-  "schema_version": "model_recommendation_overrides/v1",
+  "schema_version": "model_recommendation_overrides/v2",
   "categories": {
     "deep": [
       {
@@ -270,6 +277,16 @@ replace rather than merge with shipped order. For example:
         "preferred_provider_families": ["openrouter"],
         "reasoning_effort": "high",
         "reasoning": "Local editorial choice for this installation."
+      }
+    ]
+  },
+  "last_resort": {
+    "any": [
+      {
+        "model_alias": "claude-opus-5",
+        "model_family": "claude",
+        "preferred_provider_families": ["anthropic"],
+        "reasoning": "Local final metadata selection."
       }
     ]
   }

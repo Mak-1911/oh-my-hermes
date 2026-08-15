@@ -1980,7 +1980,7 @@ def _add_coding_commands(sub) -> None:
     model_route.add_argument(
         "--recommendations",
         default=None,
-        help="Optional model_recommendation_overrides/v1 JSON file for editable routing order.",
+        help="Optional model_recommendation_overrides/v2 JSON file for editable routing order.",
     )
     model_route.add_argument("--json", action="store_true", help="Emit the machine payload instead of plain text.")
     model_route.set_defaults(func=cmd_coding_model_route)

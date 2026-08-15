@@ -332,6 +332,14 @@ class WrapperPathParityTests(unittest.TestCase):
         self.assertEqual(empty_overlay["mode"], "parallel_handoff")
         self.assertNotIn("eval_strategy", claude_overlay)
         self.assertNotIn("eval_strategy", empty_overlay)
+        expected_inactive = ["kimi-k3", "claude-opus-5", "gpt-5.6-sol"]
+        for interaction in (gpt_interaction, claude_interaction, empty_interaction):
+            self.assertEqual(
+                interaction["delegation"]["runtime_handoff"]["hermes_native_model_binding"][
+                    "inactive_candidates"
+                ],
+                expected_inactive,
+            )
         serialized = json.dumps(
             [
                 self._without_catalog_candidates(gpt_interaction),

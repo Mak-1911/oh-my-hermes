@@ -400,6 +400,58 @@ class LastResortFallbackTests(unittest.TestCase):
     _OPUS_ONLY = (_active("claude-opus-5", provider="ccapi", family="claude"),)
     _SOL_ONLY = (_active("gpt-5.6-sol", provider="openai-codex", family="gpt"),)
 
+    def test_schema_versions_advance_and_legacy_override_remains_supported(self) -> None:
+        self.assertEqual(MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION, "model_recommendation_catalog/v2")
+        self.assertEqual(MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION, "model_recommendation_overrides/v2")
+        self.assertEqual(MODEL_RECOMMENDATION_RESOLUTION_SCHEMA_VERSION, "model_recommendation_resolution/v3")
+
+        legacy = load_recommendation_overrides({
+            "schema_version": "model_recommendation_overrides/v1",
+            "categories": {"quick": [{
+                "model_alias": "gemini-3.1-pro",
+                "model_family": "gemini",
+                "preferred_provider_families": ["google"],
+                "reasoning": "Legacy category override.",
+            }]},
+        })
+        self.assertEqual(legacy["schema_version"], "model_recommendation_overrides/v1")
+        self.assertNotIn("last_resort", legacy)
+        with self.assertRaises(ValueError):
+            load_recommendation_overrides({
+                "schema_version": "model_recommendation_overrides/v1",
+                "last_resort": {"any": []},
+            })
+
+    def test_legacy_catalog_without_last_resort_keeps_owner_default_behavior(self) -> None:
+        legacy_catalog = {
+            "schema_version": "model_recommendation_catalog/v1",
+            "categories": SHIPPED_MODEL_RECOMMENDATIONS["categories"],
+            "role_suggestions": SHIPPED_MODEL_RECOMMENDATIONS["role_suggestions"],
+            "domain_affinities": SHIPPED_MODEL_RECOMMENDATIONS["domain_affinities"],
+        }
+        route = resolve_model_recommendation(
+            owner="hermes",
+            category="quick",
+            active_models=self._OPUS_ONLY,
+            catalog=legacy_catalog,
+        )
+        self.assertEqual(route["status"], "owner_default")
+        self.assertEqual(route["source"], "owner_default")
+
+        upgraded = merge_recommendation_catalog(
+            legacy_catalog,
+            load_recommendation_overrides({
+                "schema_version": MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+                "last_resort": {"any": [{
+                    "model_alias": "claude-opus-5",
+                    "model_family": "claude",
+                    "preferred_provider_families": ["ccapi"],
+                    "reasoning": "Upgrade the legacy catalog with an explicit final chain.",
+                }]},
+            }),
+        )
+        self.assertEqual(upgraded["schema_version"], MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION)
+
     def test_dead_category_chain_falls_back_to_the_shared_subscription_chain(self) -> None:
         route = resolve_model_recommendation(
             owner="hermes", category="quick", active_models=self._OPUS_ONLY

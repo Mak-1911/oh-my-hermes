@@ -17,9 +17,11 @@ from typing import Final, Iterable, Mapping
 from .model_routing import MODEL_CATEGORIES, MODEL_ROLES
 
 
-MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION: Final[str] = "model_recommendation_catalog/v1"
-MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION: Final[str] = "model_recommendation_overrides/v1"
-MODEL_RECOMMENDATION_RESOLUTION_SCHEMA_VERSION: Final[str] = "model_recommendation_resolution/v2"
+MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION: Final[str] = "model_recommendation_catalog/v2"
+MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION: Final[str] = "model_recommendation_overrides/v2"
+MODEL_RECOMMENDATION_RESOLUTION_SCHEMA_VERSION: Final[str] = "model_recommendation_resolution/v3"
+_LEGACY_MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION: Final[str] = "model_recommendation_catalog/v1"
+_LEGACY_MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION: Final[str] = "model_recommendation_overrides/v1"
 MODEL_RECOMMENDATION_STATUSES: Final[tuple[str, ...]] = (
     "resolved",
     "choice_required",
@@ -204,22 +206,29 @@ def load_recommendation_overrides(
     if not isinstance(raw, Mapping):
         raise ValueError("model recommendation override must be a JSON object")
     _reject_secret_keys(raw)
-    if raw.get("schema_version") != MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION:
+    schema_version = str(raw.get("schema_version", ""))
+    supported_versions = (
+        _LEGACY_MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+        MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+    )
+    if schema_version not in supported_versions:
         raise ValueError(
-            f"model recommendation override must use {MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION}"
+            f"model recommendation override must use one of {supported_versions}"
         )
-    unknown_top = set(raw) - {
+    allowed_top = {
         "schema_version",
         "categories",
         "role_suggestions",
         "domain_affinities",
-        "last_resort",
     }
+    if schema_version == MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION:
+        allowed_top.add("last_resort")
+    unknown_top = set(raw) - allowed_top
     if unknown_top:
         raise ValueError(f"unsupported model recommendation override fields: {sorted(unknown_top)}")
 
     normalized: dict[str, object] = {
-        "schema_version": MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "categories": _normalize_section(
             raw.get("categories", {}), allowed=MODEL_CATEGORIES, section="categories"
         ),
@@ -233,12 +242,13 @@ def load_recommendation_overrides(
             allowed=MODEL_RECOMMENDATION_DOMAINS,
             section="domain_affinities",
         ),
-        "last_resort": _normalize_section(
+    }
+    if schema_version == MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION:
+        normalized["last_resort"] = _normalize_section(
             raw.get("last_resort", {}),
             allowed=MODEL_RECOMMENDATION_LAST_RESORT_SLOTS,
             section="last_resort",
-        ),
-    }
+        )
     return normalized
 
 
@@ -247,8 +257,18 @@ def merge_recommendation_catalog(
     overrides: Mapping[str, object] | None,
 ) -> dict[str, object]:
     """Return a new catalog with named user chains replacing editorial ones."""
-    if catalog.get("schema_version") != MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION:
+    schema_version = str(catalog.get("schema_version", ""))
+    supported_versions = (
+        _LEGACY_MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION,
+        MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION,
+    )
+    if schema_version not in supported_versions:
         raise ValueError("unsupported model recommendation catalog schema")
+    if (
+        schema_version == _LEGACY_MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION
+        and "last_resort" in catalog
+    ):
+        raise ValueError("model_recommendation_catalog/v1 cannot define last_resort")
     merged = deepcopy(dict(catalog))
     # A caller-supplied catalog predating the shared final attempt stays
     # meaningful: an absent section means "no last resort", not a malformed
@@ -267,6 +287,11 @@ def merge_recommendation_catalog(
             raise ValueError(f"malformed model recommendation catalog section: {section}")
         for name, chain in replacements.items():
             destination[str(name)] = deepcopy(chain)
+    if (
+        schema_version == _LEGACY_MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION
+        and normalized.get("last_resort")
+    ):
+        merged["schema_version"] = MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION
     return merged
 
 
