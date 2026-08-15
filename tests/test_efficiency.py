@@ -114,7 +114,7 @@ class EfficiencyContractTests(unittest.TestCase):
         expected_explicit = set(explicit_memory_context_skill_names())
 
         self.assertEqual(explicit_schema_skills, expected_explicit)
-        self.assertIn("ralph", explicit_schema_skills)
+        self.assertIn("loop", explicit_schema_skills)
         self.assertIn("plan", explicit_schema_skills)
         self.assertIn("code-review", explicit_schema_skills)
 
@@ -226,7 +226,7 @@ class EfficiencyContractTests(unittest.TestCase):
             "plan": "plan",  # core profile
             "ops-observability-card": "ops-observability-card",  # core profile
             "code-review": "code-review",  # full profile only
-            "ultragoal": "ultragoal",  # full profile only
+            "ultrawork": "ultrawork",  # full profile only
         }
         for name, expected_skill in representative.items():
             with self.subTest(skill=name):
@@ -334,7 +334,7 @@ class EfficiencyContractTests(unittest.TestCase):
         self.assertIn("instinct-ledger", cards["automation_and_status"]["representative_workflows"])
         self.assertIn("skill-scout", cards["automation_and_status"]["representative_workflows"])
         self.assertIn("skill-health", cards["automation_and_status"]["representative_workflows"])
-        self.assertIn("ultraprocess", cards["coding_handoff"]["representative_workflows"])
+        self.assertIn("ultrawork", cards["coding_handoff"]["representative_workflows"])
         self.assertIn("build-failure-triage", cards["coding_handoff"]["representative_workflows"])
         self.assertIn("not_evidence_until_observed", cards["intent_to_plan"])
         self.assertIn("prep/status/learning", payload["generic_tool_checkpoint"])
@@ -342,7 +342,7 @@ class EfficiencyContractTests(unittest.TestCase):
         self.assertEqual(tool_routes["image_tools"]["primary_workflow"], "img-summary")
         self.assertEqual(tool_routes["file_tools"]["primary_workflow"], "materials-package")
         self.assertEqual(tool_routes["search_tools"]["primary_workflow"], "research")
-        self.assertEqual(tool_routes["coding_tools"]["primary_workflow"], "ultraprocess")
+        self.assertEqual(tool_routes["coding_tools"]["primary_workflow"], "ultrawork")
         self.assertIn("visual QA", tool_routes["image_tools"]["not_evidence_yet"])
         self.assertEqual(
             awareness_generic_tool_checkpoint_payload()["schema_version"],
@@ -552,7 +552,7 @@ class EfficiencyContractTests(unittest.TestCase):
         )
         cache_info = awareness_module._awareness_route_hint_cached.cache_info()
 
-        self.assertEqual(payload["route_hint"]["primary_workflow"], "ultraprocess")
+        self.assertEqual(payload["route_hint"]["primary_workflow"], "ultrawork")
         self.assertEqual(payload["route_hint"]["primary_next_action"], "show_coding_handoff_status")
         self.assertIn("next_action=show_coding_handoff_status", payload["prompt_context"])
         self.assertEqual(cache_info.misses, 1)
@@ -568,7 +568,7 @@ class EfficiencyContractTests(unittest.TestCase):
         )
         cache_info = awareness_module._awareness_route_hint_cached.cache_info()
 
-        self.assertEqual(payload["route_hint"]["primary_workflow"], "ultraprocess")
+        self.assertEqual(payload["route_hint"]["primary_workflow"], "ultrawork")
         self.assertEqual(payload["route_hint"]["primary_next_action"], "show_coding_handoff_status")
         self.assertIn("next_action=show_coding_handoff_status", payload["prompt_context"])
         self.assertEqual(cache_info.misses, 1)
@@ -588,7 +588,7 @@ class EfficiencyContractTests(unittest.TestCase):
 
         self.assertIsNotNone(payload)
         assert payload is not None
-        self.assertEqual(payload["omh_context_brief"]["route_hint"]["primary_workflow"], "ultraprocess")
+        self.assertEqual(payload["omh_context_brief"]["route_hint"]["primary_workflow"], "ultrawork")
         self.assertEqual(
             payload["omh_context_brief"]["route_hint"]["primary_next_action"],
             "show_coding_handoff_status",
@@ -1376,7 +1376,7 @@ class EfficiencyContractTests(unittest.TestCase):
             ("자료 출처 찾아줘 데이터셋이랑 깃허브까지", "source-finder"),
             ("find papers datasets github repos and public presentations about agent memory", "source-finder"),
             ("arxiv 링크 찾아서 쉽게 설명해줘", "source-finder"),
-            ("코덱스로 이 이슈 PR 만들어줘", "ultraprocess"),
+            ("코덱스로 이 이슈 PR 만들어줘", "executor-runtime-readiness"),
             ("오늘 아침 경쟁사 뉴스 요약 자동화해줘", "automation-blueprint"),
         )
 
@@ -1454,9 +1454,9 @@ class EfficiencyContractTests(unittest.TestCase):
     def test_product_shaping_fast_path_does_not_steal_compound_requests(self) -> None:
         chat_module._route_chat_message_cached.cache_clear()
         cases = (
-            ("make onboarding feel smoother and implement it", "oh-my-hermes", "start_ultraprocess"),
+            ("make onboarding feel smoother and implement it", "ultrawork", "prepare_coding_runtime_handoff"),
             ("improve onboarding conversion with a plan and implementation", "plan", "present_plan"),
-            ("fix onboarding bug", "ultraprocess", "start_ultraprocess"),
+            ("fix onboarding bug", "ultrawork", "prepare_coding_runtime_handoff"),
         )
 
         for message, expected_skill, expected_action in cases:
@@ -1486,10 +1486,10 @@ class EfficiencyContractTests(unittest.TestCase):
             ("claude code로 새 세션 시작하게 해줘", "executor-runtime-readiness"),
             ("claude code 세션 연결해서 이어서 보게 해줘", "executor-runtime-readiness"),
             ("codex 세션 열고 방금 핸드오프 이어서 진행해줘", "executor-runtime-readiness"),
-            ("merge할때도 프리렌 author로 머지해", "ultraprocess"),
-            ("프리렌 author로 커밋하고 머지해", "ultraprocess"),
+            ("merge할때도 프리렌 author로 머지해", "ultrawork"),
+            ("프리렌 author로 커밋하고 머지해", "ultrawork"),
             ("github oss repo 찾아서 비교해줘", "source-finder"),
-            ("코덱스로 이 이슈 PR 만들어줘", "ultraprocess"),
+            ("코덱스로 이 이슈 PR 만들어줘", "executor-runtime-readiness"),
             ("오늘 아침 경쟁사 뉴스 요약 자동화해줘", "automation-blueprint"),
             ("매일 아침 리서치 요약을 보내게 준비해줘", "automation-blueprint"),
             ("workspace-audit 레포 스킬이랑 MCP 표면 감사해줘", "workspace-audit"),
@@ -1573,9 +1573,9 @@ class EfficiencyContractTests(unittest.TestCase):
             ("update 잘 됐어?", "doctor", "guard:doctor_health"),
             ("codex 연결돼 있어?", "executor-runtime-readiness", "guard:executor_runtime_readiness"),
             ("내 코딩 에이전트 연결 상태 확인해줘", "executor-runtime-readiness", "guard:executor_runtime_readiness"),
-            ("codex 작업 어디까지 됐어?", "ultraprocess", "guard:coding_progress_status"),
-            ("코덱스가 지금 뭐하고있는지 알려줘", "ultraprocess", "guard:coding_progress_status"),
-            ("codex 세션이 살아있는지 확인해줘", "ultraprocess", "guard:coding_progress_status"),
+            ("codex 작업 어디까지 됐어?", "ultrawork", "guard:coding_progress_status"),
+            ("코덱스가 지금 뭐하고있는지 알려줘", "executor-runtime-readiness", "ulw_owner_choice:named_cli"),
+            ("codex 세션이 살아있는지 확인해줘", "executor-runtime-readiness", "ulw_owner_choice:named_cli"),
             ("이미지 생성 툴 연결 안됐으면 뭐 써?", "toolbelt-readiness", "guard:toolbelt_readiness"),
             ("메모리 점검해줘", "memory-sync", "guard:memory_curation"),
             ("내 기억에 뭐 저장돼있는지 검토해줘", "memory-sync", "guard:memory_curation"),
@@ -1666,13 +1666,13 @@ class EfficiencyContractTests(unittest.TestCase):
                 "memory-sync",
                 "operator_surface_fast_path:memory",
             ),
-            ("merge할때도 프리렌 author로 머지해", "ultraprocess", "operator_surface_fast_path:delivery"),
+            ("merge할때도 프리렌 author로 머지해", "ultrawork", "operator_surface_fast_path:delivery"),
             ("hermes agent가 한개가 아니라 여러개일땐 어떻게 동작해?", "agent-board", "operator_surface_fast_path:agent_board"),
             ("슬랙에서 /omh 치면 뭐가 떠야해?", "oh-my-hermes", "native_entrypoint_question"),
             ("./ 쳤는데 omh가 안 떠", "oh-my-hermes", "native_entrypoint_question"),
             ("Hermes가 omh list 승인하라고 하는데 굳이 쳐야해?", "oh-my-hermes", "catalog_question"),
             ("what OMH workflows are available without running omh list?", "oh-my-hermes", "catalog_question"),
-            ("리드미 개선해줘", "ultraprocess", "operator_surface_fast_path:delivery"),
+            ("리드미 개선해줘", "ultrawork", "operator_surface_fast_path:delivery"),
             ("workflow trace 보고 다음에 스킬 고칠점 알려줘", "workflow-learning", "workflow_learning_fast_path"),
             (
                 "agent run stuck repeating the same command and burning tokens",

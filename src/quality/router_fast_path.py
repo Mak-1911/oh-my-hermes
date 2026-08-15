@@ -86,12 +86,12 @@ ROUTER_FAST_PATH_CASES: tuple[RouterFastPathCase, ...] = (
     ),
     RouterFastPathCase(
         "coding-progress-ko",
-        "Korean coding progress question uses coding status fast path",
+        "Korean Codex-named progress question resolves the owner-selection surface",
         "코덱스가 지금 뭐하고 있어?",
         "dispatch",
-        "ultraprocess",
-        "show_coding_handoff_status",
-        "guard_fast_path:coding_progress_status_before_clarify",
+        "executor-runtime-readiness",
+        "prepare_executor_runtime_readiness",
+        "ulw_owner_choice:named_cli",
     ),
     RouterFastPathCase(
         "visual-summary-ko",

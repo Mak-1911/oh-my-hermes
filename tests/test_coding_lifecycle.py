@@ -77,7 +77,7 @@ class CodingLifecycleTests(unittest.TestCase):
             (None, "unknown"),
             (("codex", "ai-slop-cleaner", "unavailable"), "observed_unavailable"),
             (("hermes", "ai-slop-cleaner", "host_observed"), "unknown"),
-            (("codex", "ultragoal", "host_observed"), "unknown"),
+            (("codex", "ultraqa", "host_observed"), "unknown"),
         )
         for recorded, expected_status in cases:
             with self.subTest(recorded=recorded), TemporaryDirectory() as tmp:

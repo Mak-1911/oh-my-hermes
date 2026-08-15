@@ -78,7 +78,7 @@ REPRESENTATIVE_CONTEXT_RAIL_SKILLS = (
     "frontend",
     "visual-qa",
     "loop",
-    "ultraprocess",
+    "ultrawork",
     "research",
     "materials-package",
 )
@@ -105,8 +105,12 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # in the PR body -- `ultrawork` absorbs four contracts while the four retiring
 # skills still ship, so cost rises until PR G removes them. PR G re-measures
 # and lowers the limit; it must not be bumped silently.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 730024
-FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 6455
+# Re-tightened to the measured post-retirement value when the four folded ULW
+# engines left the installable surface (#954 stage 5): the PR D reviewed
+# exception is retired with them, per plan §1.2 (the ceiling is relaxed exactly
+# once and re-tightened at retirement).
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 698642
+FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 
 @dataclass(frozen=True)

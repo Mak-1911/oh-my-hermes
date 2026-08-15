@@ -72,13 +72,13 @@ class RuntimeArtifactTests(unittest.TestCase):
         for profile, handoff_key, parent_dispatchable in cases:
             with self.subTest(profile=profile):
                 payload = build_coding_delegation_payload(
-                    "$ultragoal complete the goal",
+                    "$ultrawork complete the goal",
                     executor_target=profile,
                 )
                 handoff = payload[handoff_key]
                 binding = build_executor_local_workflow(
                     profile=profile,
-                    routed_workflow="ultragoal",
+                    routed_workflow="ultrawork",
                     parent_handoff_dispatchable=parent_dispatchable,
                 )
                 self.assertIsNotNone(binding)
@@ -86,7 +86,7 @@ class RuntimeArtifactTests(unittest.TestCase):
 
                 record_input = coding_delegation_record_payload(
                     payload,
-                    "$ultragoal complete the goal",
+                    "$ultrawork complete the goal",
                 )
                 compacted = build_coding_delegation_record(record_input)
                 replayed = json.loads(json.dumps(compacted))
@@ -96,30 +96,30 @@ class RuntimeArtifactTests(unittest.TestCase):
                 self.assertEqual(validator(replayed[handoff_key]), [])
 
         prompt = build_coding_delegation_payload(
-            "$ultragoal complete the goal",
+            "$ultrawork complete the goal",
             executor_target="claude-code",
         )
         compacted_prompt = build_coding_delegation_record(
-            coding_delegation_record_payload(prompt, "$ultragoal complete the goal")
+            coding_delegation_record_payload(prompt, "$ultrawork complete the goal")
         )["prompt_handoff"]
         self.assertNotIn("executor_local_workflow", compacted_prompt)
         self.assertEqual(validate_coding_prompt_handoff(compacted_prompt), [])
 
     def test_executor_local_workflow_compaction_is_idempotent(self) -> None:
         payload = build_coding_delegation_payload(
-            "$ultragoal complete the goal",
+            "$ultrawork complete the goal",
             executor_target="codex",
         )
         binding = build_executor_local_workflow(
             profile="codex",
-            routed_workflow="ultragoal",
+            routed_workflow="ultrawork",
             parent_handoff_dispatchable=True,
         )
         self.assertIsNotNone(binding)
         payload["executor_handoff"]["executor_local_workflow"] = binding
 
         first = build_coding_delegation_record(
-            coding_delegation_record_payload(payload, "$ultragoal complete the goal")
+            coding_delegation_record_payload(payload, "$ultrawork complete the goal")
         )
         second = build_coding_delegation_record(first)
 
@@ -145,12 +145,12 @@ class RuntimeArtifactTests(unittest.TestCase):
 
     def test_executor_local_workflow_rejects_cross_field_forgery(self) -> None:
         executor = build_coding_delegation_payload(
-            "$ultragoal complete the goal",
+            "$ultrawork complete the goal",
             executor_target="codex",
         )["executor_handoff"]
         executor_binding = build_executor_local_workflow(
             profile="codex",
-            routed_workflow="ultragoal",
+            routed_workflow="ultrawork",
             parent_handoff_dispatchable=True,
         )
         self.assertIsNotNone(executor_binding)
@@ -191,12 +191,12 @@ class RuntimeArtifactTests(unittest.TestCase):
                 self.assertIn(expected_path, json.dumps(validate_coding_executor_handoff(forged)))
 
         runtime = build_coding_delegation_payload(
-            "$ultragoal complete the goal",
+            "$ultrawork complete the goal",
             executor_target="omx-runtime",
         )["runtime_handoff"]
         runtime_binding = build_executor_local_workflow(
             profile="omx-runtime",
-            routed_workflow="ultragoal",
+            routed_workflow="ultrawork",
             parent_handoff_dispatchable=False,
         )
         self.assertIsNotNone(runtime_binding)
@@ -207,7 +207,7 @@ class RuntimeArtifactTests(unittest.TestCase):
         self.assertIn("executor_local_workflow.dispatchability.candidate_invocation_dispatchable", runtime_errors)
 
         prompt = build_coding_delegation_payload(
-            "$ultragoal complete the goal",
+            "$ultrawork complete the goal",
             executor_target="claude-code",
         )["prompt_handoff"]
         prompt["executor_local_workflow"] = deepcopy(executor_binding)
@@ -218,7 +218,7 @@ class RuntimeArtifactTests(unittest.TestCase):
 
     def test_executor_handoff_rejects_dispatch_template_when_candidate_is_not_dispatchable(self) -> None:
         handoff = build_coding_delegation_payload(
-            "$ultragoal complete the goal",
+            "$ultrawork complete the goal",
             executor_target="codex",
         )["executor_handoff"]
         self.assertFalse(
@@ -232,18 +232,18 @@ class RuntimeArtifactTests(unittest.TestCase):
 
     def test_executor_handoff_rejects_observed_binding_without_matching_snapshot_evidence(self) -> None:
         handoff = build_coding_delegation_payload(
-            "$ultragoal complete the goal",
+            "$ultrawork complete the goal",
             executor_target="codex",
         )["executor_handoff"]
         binding = build_executor_local_workflow(
             profile="codex",
-            routed_workflow="ultragoal",
+            routed_workflow="ultrawork",
             parent_handoff_dispatchable=True,
             availability_evidence={
                 "status": "host_observed",
                 "scope": {
                     "profile": "codex",
-                    "skill_id": "ultragoal",
+                    "skill_id": "ultrawork",
                     "environment": "local",
                 },
                 "recorded_at": "2026-08-02T12:00:01+09:00",
@@ -253,7 +253,7 @@ class RuntimeArtifactTests(unittest.TestCase):
         )
         self.assertIsNotNone(binding)
         handoff["executor_local_workflow"] = binding
-        handoff["codex_invocation"]["dispatch_text_template"] = "$ultragoal {message}"
+        handoff["codex_invocation"]["dispatch_text_template"] = "$ultrawork {message}"
 
         errors = validate_coding_executor_handoff(handoff)
 
@@ -273,12 +273,12 @@ class RuntimeArtifactTests(unittest.TestCase):
             for field, forged_value in mutations:
                 with self.subTest(profile=profile, field=field):
                     handoff = build_coding_delegation_payload(
-                        "$ultragoal complete the goal",
+                        "$ultrawork complete the goal",
                         executor_target=profile,
                     )[handoff_key]
                     binding = build_executor_local_workflow(
                         profile=profile,
-                        routed_workflow="ultragoal",
+                        routed_workflow="ultrawork",
                         parent_handoff_dispatchable=parent_dispatchable,
                     )
                     self.assertIsNotNone(binding)
@@ -293,7 +293,7 @@ class RuntimeArtifactTests(unittest.TestCase):
         for profile in ("omo-runtime", "omc-runtime"):
             with self.subTest(profile=profile):
                 handoff = build_coding_delegation_payload(
-                    "$ultragoal complete the goal",
+                    "$ultrawork complete the goal",
                     executor_target=profile,
                 )["runtime_handoff"]
 
@@ -303,7 +303,7 @@ class RuntimeArtifactTests(unittest.TestCase):
         for profile in ("hermes", "omx-runtime"):
             with self.subTest(profile=profile):
                 handoff = build_coding_delegation_payload(
-                    "$ultragoal complete the goal",
+                    "$ultrawork complete the goal",
                     executor_target=profile,
                 )["runtime_handoff"]
                 handoff["runtime_templates"] = []
@@ -568,7 +568,7 @@ class RuntimeArtifactTests(unittest.TestCase):
                 routing_record_payload(decision, message, source_event_id="m1"),
             )
 
-            self.assertEqual(routing["selected_skill"], "ultraprocess")
+            self.assertEqual(routing["selected_skill"], "ultrawork")
             self.assertEqual(routing["source_event_id"], "m1")
             self.assertEqual(routing["workflow_route_plan"]["schema_version"], "workflow_route_plan/v1")
             self.assertEqual(
@@ -576,7 +576,7 @@ class RuntimeArtifactTests(unittest.TestCase):
                 [
                     ("research", "research"),
                     ("plan", "ralplan"),
-                    ("deliver", "ultraprocess"),
+                    ("deliver", "ultrawork"),
                     ("review", "code-review"),
                 ],
             )
@@ -942,7 +942,7 @@ class RuntimeArtifactTests(unittest.TestCase):
         self.assertEqual(validate_isolation_plan(handoff["isolation_plan"], "isolation"), [])
         self.assertEqual(handoff["isolation_plan"]["strategy"], "worktree_recommended")
         self.assertIn("runtime_templates", handoff)
-        self.assertIn("$ultragoal {message}", {template["command_template"] for template in handoff["runtime_templates"]})
+        self.assertIn("$ultrawork {message}", {template["command_template"] for template in handoff["runtime_templates"]})
         self.assertEqual(handoff["observation_contract"]["record_schema"], "runtime_observation/v1")
         self.assertIn("worker_result", handoff["observation_contract"]["status_ladder"])
 

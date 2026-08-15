@@ -45,15 +45,15 @@ DISPATCH_CASES: tuple[tuple[str, str], ...] = (
 NO_FALSE_CANDIDATE_CASES: tuple[tuple[str, frozenset[str]], ...] = (
     (
         "문제 해결에 참고할 자료/데이터 찾아줘",
-        frozenset({"visual-qa", "deliverable-package", "parallel-tools", "ultraprocess"}),
+        frozenset({"visual-qa", "deliverable-package", "parallel-tools", "ultrawork"}),
     ),
     (
         "관련 자료와 데이터를 찾아줘",
-        frozenset({"visual-qa", "deliverable-package", "parallel-tools", "ultraprocess"}),
+        frozenset({"visual-qa", "deliverable-package", "parallel-tools", "ultrawork"}),
     ),
     (
         "공식 문서에서 OAuth PKCE를 확인해줘",
-        frozenset({"visual-qa", "deliverable-package", "parallel-tools", "ultraprocess"}),
+        frozenset({"visual-qa", "deliverable-package", "parallel-tools", "ultrawork"}),
     ),
 )
 
@@ -65,7 +65,7 @@ CANDIDATE_CASES: tuple[tuple[str, str], ...] = (
 
 NEGATIVE_CONTROLS: tuple[tuple[str, str], ...] = (
     ("check this checkout page for visual regressions", "visual-qa"),
-    ("fix the checkout bug in our app", "ultraprocess"),
+    ("fix the checkout bug in our app", "ultrawork"),
     ("create a slide deck from these meeting notes", "materials-package"),
     ("evaluate agent performance on the benchmark suite", "performance-goal"),
     ("triage this customer feedback backlog", "feedback-triage"),

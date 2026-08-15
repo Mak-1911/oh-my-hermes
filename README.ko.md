@@ -175,7 +175,7 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-12개의 `ulw-` workflow. 대화에서 트리거만 말하면 Hermes가 라우팅합니다 —
+8개의 `ulw-` workflow. 대화에서 트리거만 말하면 Hermes가 라우팅합니다 —
 전체 카탈로그는 [Workflow Reference](docs/WORKFLOWS.md).
 
 | Skill | 무엇을 하나 |
@@ -185,11 +185,7 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
 | ⚡ `ulw-research` | 실제 코드와 웹을 뒤져 조사하고, 출처를 남기고, 의심스러우면 검증합니다. |
 | ⚡ `ulw-plan` | 선택지 비교, 리스크, 완료 기준까지 합의된 검토 계획을 만듭니다. |
 | ⚡ `ulw-work` | 승인된 계획을 같은 파일을 건드리지 않는 병렬 레인으로 실행합니다. |
-| ⚡ `ulw-ralph` | 한 명이 끝까지 책임집니다 — 구현, 검증, 리뷰를 될 때까지 반복. |
-| ⚡ `ulw-team` | 여러 작업자, 하나의 작업 목록, 충돌 없음. |
 | ⚡ `ulw-loop` | 계획 → 구현 → 리뷰를 목표가 진짜 통과할 때까지 돌립니다. |
-| ⚡ `ulw-goal` | 체크포인트가 있는 장기 목표 — 컨텍스트가 날아가도 멈춘 곳부터 다시. |
-| ⚡ `ulw-process` | 작업 하나를 리서치부터 PR까지 끝까지 끌고 갑니다. |
 | ⚡ `ulw-qa` | 일부러 험한 시나리오로 공격해 보고, 깨지는 곳을 고칩니다. |
 | ⚡ `ulw-perf` | 어디가 진짜 느리고 비싼지 측정한 뒤, 핫패스를 하나씩 고칩니다. |
 

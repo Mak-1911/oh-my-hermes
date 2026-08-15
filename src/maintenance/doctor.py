@@ -316,6 +316,8 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
             ]
         )
     checks.append(_hook_integrity_check(paths))
+    checks.append(_retired_skill_install_check(paths))
+    checks.append(_plugin_ulw_lifecycle_check(paths))
     profile_installs = state.get("last_team_profile_install") if isinstance(state, dict) else None
     if not profile_installs:
         checks.append(Check("team_profile_packs", True, f"optional OMH team profile packs are not installed at {paths.hermes_agents_dir}"))
@@ -338,6 +340,101 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
             )
         )
     return checks
+
+
+def _retired_skill_install_check(paths: OmhPaths) -> Check:
+    """A retired ULW engine still installed under skills_dir is a finding.
+
+    Retirement (#954 stage 5) removed `ulw-team`/`ulw-ralph`/`ulw-goal`/
+    `ulw-process` from the installable catalog; `omh update` prunes them. A
+    leftover install keeps serving guidance for an intent that now runs as a
+    `ulw-work` capability, so doctor names the migration instead of staying
+    silent.
+    """
+    from ..skills.catalog import retired_display_names, retired_skill_migration_error
+
+    if not paths.skills_dir.is_dir():
+        return Check("retired_skills", True, "no skills directory yet", observed=False)
+    labels = retired_display_names()
+    installed = sorted(
+        entry.name
+        for entry in paths.skills_dir.iterdir()
+        if entry.is_dir() and entry.name in labels
+    )
+    if not installed:
+        return Check("retired_skills", True, "no retired ULW engine skill is installed")
+    messages = "; ".join(
+        str(retired_skill_migration_error(name).get("message", name)) for name in installed
+    )
+    return Check(
+        "retired_skills",
+        False,
+        f"retired ULW engine skill install(s) found: {messages}",
+        severity="warning",
+        remediation="the intents now run as `ulw-work` capabilities; retired installs are pruned on update",
+        next_action="run `omh update` to prune the retired skill directories",
+    )
+
+
+def _plugin_ulw_lifecycle_check(paths: OmhPaths) -> Check:
+    """A stale or incompatible plugin bundle's duplicated ULW tables are a finding.
+
+    The bundle duplicates the ULW lifecycle table on purpose (a copied bundle
+    has no catalog import). A copy that still lists a retired engine as
+    canonical routes legacy cues to a workflow the catalog no longer ships;
+    a copy without the table predates the lifecycle contract entirely.
+    """
+    from ..skills.catalog import ulw_inventory_payload
+
+    awareness_path = paths.hermes_plugin_dir / "awareness.py"
+    if not awareness_path.is_file():
+        return Check(
+            "plugin_ulw_lifecycle",
+            True,
+            f"managed OMH plugin bridge is not installed yet at {paths.hermes_plugin_dir}",
+            observed=False,
+        )
+    try:
+        text = awareness_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return Check(
+            "plugin_ulw_lifecycle",
+            False,
+            f"{awareness_path} unreadable: {exc}",
+            severity="warning",
+            next_action="run `omh setup` to refresh the plugin bundle",
+        )
+    if "_ULW_ENGINE_LIFECYCLE_STAGES" not in text:
+        return Check(
+            "plugin_ulw_lifecycle",
+            False,
+            (
+                f"{awareness_path} carries no ULW lifecycle table; the installed bundle version "
+                "is incompatible with this OMH package"
+            ),
+            severity="warning",
+            remediation="the bundle predates the ULW lifecycle contract",
+            next_action="run `omh setup` to refresh the plugin bundle",
+        )
+    stale = sorted(
+        str(engine["canonical"])
+        for engine in ulw_inventory_payload()["retired_engines"]
+        if f'"{engine["canonical"]}": "retired"' not in text
+    )
+    if stale:
+        return Check(
+            "plugin_ulw_lifecycle",
+            False,
+            f"installed plugin bundle still lists retired engine(s) as canonical: {', '.join(stale)}",
+            severity="warning",
+            remediation="the bundle's duplicated ULW tables are stale relative to the catalog",
+            next_action="run `omh setup` to refresh the plugin bundle",
+        )
+    return Check(
+        "plugin_ulw_lifecycle",
+        True,
+        "plugin bundle ULW lifecycle table matches the catalog",
+    )
 
 
 def _plugin_loader_observation_check(observation: dict[str, object] | None) -> Check:

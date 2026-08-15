@@ -449,7 +449,7 @@ merge_observed=false
                 )
                 inspected_loop = json.loads(handler({{"action": "inspect", "section": "skills", "id": "loop"}}))
                 inspected_visual = json.loads(handler({{"action": "inspect", "section": "skills", "id": "img-summary"}}))
-                inspected_process = json.loads(handler({{"action": "inspect", "section": "skills", "id": "ultraprocess"}}))
+                inspected_process = json.loads(handler({{"action": "inspect", "section": "skills", "id": "ultrawork"}}))
                 inspected_playbook = json.loads(
                     handler({{"action": "inspect", "section": "playbooks", "id": "research-department"}})
                 )
@@ -691,12 +691,12 @@ merge_observed=false
             self.assertIn("img-summary", payload["summary_visual_skills"])
             self.assertIn("request-to-handoff", payload["summary_intent_playbooks"])
             self.assertIn("feedback-triage", payload["summary_context_cards"]["research_and_ops"])
-            self.assertIn("ultraprocess", payload["summary_context_cards"]["coding_handoff"])
+            self.assertIn("ultrawork", payload["summary_context_cards"]["coding_handoff"])
             self.assertEqual(payload["summary_alias_roles"], "agent_roles")
             self.assertEqual(payload["keyword_schema"], "keyword_detector_manifest/v1")
             for skill in (
                 "img-summary",
-                "ultraprocess",
+                "ultrawork",
                 "research-department",
                 "materials-package",
                 "automation-blueprint",

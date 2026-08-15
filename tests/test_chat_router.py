@@ -97,20 +97,20 @@ class ChatRouterTests(unittest.TestCase):
         cases = (
             (
                 "$ultraprocess change one setting in config, then refactor the entire auth system and ship it end to end",
-                "ultraprocess",
+                "ultrawork",
             ),
             (
                 "rename one variable and then rewrite the whole scheduler until every test passes",
-                "ultraprocess",
+                "ultrawork",
             ),
-            ("team fix one typo and also build the new billing subsystem from scratch", "team"),
-            ("ralph fix one typo, then keep looping until the entire suite is green", "ralph"),
-            ("change one setting in config for every service in the fleet", "ultraprocess"),
+            ("team fix one typo and also build the new billing subsystem from scratch", "ultrawork"),
+            ("ralph fix one typo, then keep looping until the entire suite is green", "ultrawork"),
+            ("change one setting in config for every service in the fleet", "ultrawork"),
             ("idea-to-deploy change one setting and deploy to prod", "idea-to-deploy"),
-            ("$ultraprocess fix one typo then ship everything", "ultraprocess"),
-            ("team fix one typo and rebuild everything", "team"),
+            ("$ultraprocess fix one typo then ship everything", "ultrawork"),
+            ("team fix one typo and rebuild everything", "ultrawork"),
             ("idea-to-deploy change one setting and launch", "idea-to-deploy"),
-            ("$ultraprocess change one setting, own the roadmap", "ultraprocess"),
+            ("$ultraprocess change one setting, own the roadmap", "ultrawork"),
         )
         for message, expected_skill in cases:
             with self.subTest(message=message):
@@ -158,7 +158,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
 
         self.assertEqual(recommendations[0]["skill"], "workflow-learning")
         self.assertIn("guard:workflow_learning", recommendations[0]["matched"])
-        self.assertNotIn("ultraprocess", [recommendation["skill"] for recommendation in recommendations[:2]])
+        self.assertNotIn("ultrawork", [recommendation["skill"] for recommendation in recommendations[:2]])
         self.assertEqual(route["selected_skill"], "workflow-learning")
         self.assertEqual(route["action"], "dispatch")
 
@@ -226,31 +226,31 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         cases = (
             (
                 "what is the coding handoff status?",
-                "ultraprocess",
+                "ultrawork",
                 "show_coding_handoff_status",
                 None,
             ),
             (
                 "코딩 작업 지금 어디까지 됐어?",
-                "ultraprocess",
+                "ultrawork",
                 "show_coding_handoff_status",
                 None,
             ),
             (
                 "Claude Code session status 알려줘",
-                "ultraprocess",
+                "ultrawork",
                 "show_coding_handoff_status",
                 None,
             ),
             (
                 "merge할때도 프리렌 author로 머지해",
-                "ultraprocess",
+                "ultrawork",
                 "show_coding_handoff_status",
                 None,
             ),
             (
                 "프리렌 author로 커밋하고 머지해",
-                "ultraprocess",
+                "ultrawork",
                 "show_coding_handoff_status",
                 None,
             ),
@@ -540,7 +540,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             # is a separate machine-readable decision instead of an ambiguous picker label.
             (
                 "Use OMH ultraprocess for: improve README and open PR",
-                "ultraprocess",
+                "ultrawork",
                 "prepare_one_cycle_delivery",
                 None,
             ),
@@ -762,7 +762,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
     def test_coding_handoff_status_is_not_router_design_feedback(self) -> None:
         decision = route_chat_message("what is the coding handoff status?", source="discord")
 
-        self.assertEqual(decision["selected_skill"], "ultraprocess")
+        self.assertEqual(decision["selected_skill"], "ultrawork")
         self.assertIsNone(decision["task_card"])
         self.assertNotIn("task_card:router_design_feedback", decision["recommendations"][0]["matched"])
 
@@ -1191,7 +1191,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ("paper-learning: explain this arxiv paper", "paper-learning"),
             ("/paper-learning explain this paper", "paper-learning"),
             ("@paper-learning explain this paper", "paper-learning"),
-            ("$ultraprocess make setup easier", "ultraprocess"),
+            ("$ultraprocess make setup easier", "ultrawork"),
         )
 
         for message, selected_skill in cases:
@@ -1210,7 +1210,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(decision["selected_skill"], selected_skill)
             self.assertEqual(decision["selected_harness"], primary_harness_for_skill(selected_skill))
             self.assertTrue(decision["explicit"])
-            self.assertEqual(decision["recommendations"][0]["matched"], ["explicit_invocation", f"name:{selected_skill}"])
+            matched = decision["recommendations"][0]["matched"]
+            self.assertIn(
+                matched,
+                (["explicit_invocation", f"name:{selected_skill}"], ["ulw_alias:ultraprocess"]),
+            )
             self.assertIsNone(decision["workflow_route_plan"])
             public = public_route_payload(decision)
             self.assertNotIn("workflow_route_plan", public)
@@ -1626,11 +1630,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ),
             (
                 "Track the Codex work session and tell me what changed.",
-                "ultraprocess",
+                "ultrawork",
             ),
             (
                 "finish the invoice export recovery until the smoke test passes or a blocker is recorded.",
-                "ralph",
+                "ultrawork",
             ),
             (
                 "compare three onboarding analytics vendors using customer notes and confidence gaps.",
@@ -1666,7 +1670,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ),
             (
                 "What did the coding agent do while I was away?",
-                "ultraprocess",
+                "ultrawork",
             ),
             (
                 "PR 42 has failing CI, summarize the risk and next fix path.",
@@ -1682,7 +1686,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ),
             (
                 "The Claude Code session looks stuck; what is it doing and what should I do next?",
-                "ultraprocess",
+                "ultrawork",
             ),
             (
                 "Voice note: release risky. check fast and ask before action.",
@@ -1710,19 +1714,19 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ),
             (
                 "Use Codex to implement the accepted plan and keep me posted.",
-                "ultraprocess",
+                "ultrawork",
             ),
             (
                 "Claude Code says done; what evidence is still missing?",
-                "ultraprocess",
+                "ultrawork",
             ),
             (
                 "The coding agent says tests passed and PR is open; what is still missing?",
-                "ultraprocess",
+                "ultrawork",
             ),
             (
                 "What is the latest status of the Codex handoff?",
-                "ultraprocess",
+                "ultrawork",
             ),
             (
                 "I installed it but omh is not found in a new terminal.",
@@ -1762,11 +1766,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ),
             (
                 "Let Hermes itself code this with workers and worktrees.",
-                "team",
+                "ultrawork",
             ),
             (
                 "Hermes만으로 코딩팀처럼 작업하고 싶어",
-                "team",
+                "ultrawork",
             ),
             (
                 "decide whether our onboarding should prioritize solo founders or enterprise buyers.",
@@ -1923,12 +1927,12 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ),
             (
                 "what did the codex session do so far?",
-                "ultraprocess",
+                "ultrawork",
                 "guard:coding_progress_status",
             ),
             (
                 "coding-agent status for the codex handoff",
-                "ultraprocess",
+                "ultrawork",
                 "guard:coding_handoff_status",
             ),
             (
@@ -2018,8 +2022,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ),
             (
                 "codex 세션이 살아있는지 확인해줘",
-                "ultraprocess",
-                "guard:coding_progress_status",
+                "executor-runtime-readiness",
+                "ulw_owner_choice:named_cli",
             ),
             (
                 "메모리가 너무 쌓였는데 정리해줘",
@@ -2148,13 +2152,13 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ),
             (
                 "how do I see the current Codex session?",
-                "ultraprocess",
+                "ultrawork",
                 "guard:coding_progress_status",
             ),
             (
                 "코덱스가 지금 뭐하고있는지 알려줘",
-                "ultraprocess",
-                "guard:coding_progress_status",
+                "executor-runtime-readiness",
+                "ulw_owner_choice:named_cli",
             ),
             (
                 "Obsidian 말고 markdown folder에 리서치 결과 저장하고 싶어",
@@ -2305,7 +2309,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 self.assertEqual(decision["confidence"], "high")
 
     def test_exact_skill_id_capability_questions_use_catalog_metadata(self) -> None:
-        excluded = {"oh-my-hermes", "ask", "cancel", "plan", "skill", "team"}
+        excluded = {"oh-my-hermes", "ask", "cancel", "plan", "skill"}
         skills = tuple(definition.name for definition in routable_definitions() if definition.name not in excluded)
         self.assertGreaterEqual(len(skills), 40)
 
@@ -2444,8 +2448,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 "prepare_executor_runtime_readiness",
                 "guard:executor_runtime_readiness",
             ),
-            ("codex 작업 어디까지 됐어?", "ultraprocess", "show_coding_handoff_status", "guard:coding_progress_status"),
-            ("지금 PR 머지 준비 됐어?", "ultraprocess", "show_coding_handoff_status", "guard:coding_progress_status"),
+            ("codex 작업 어디까지 됐어?", "ultrawork", "show_coding_handoff_status", "guard:coding_progress_status"),
+            ("지금 PR 머지 준비 됐어?", "ultrawork", "show_coding_handoff_status", "guard:coding_progress_status"),
             (
                 "이미지 생성 툴 연결 안됐으면 뭐 써?",
                 "toolbelt-readiness",
@@ -2775,10 +2779,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 "prepare_quality_performance_and_usability_review",
                 "operator_surface_fast_path:performance",
             ),
-            ("리드미 개선해줘", "ultraprocess", "start_ultraprocess", "operator_surface_fast_path:delivery"),
+            ("리드미 개선해줘", "ultrawork", "prepare_coding_runtime_handoff", "operator_surface_fast_path:delivery"),
             (
                 "merge할때도 프리렌 author로 머지해",
-                "ultraprocess",
+                "ultrawork",
                 "show_coding_handoff_status",
                 "operator_surface_fast_path:delivery",
             ),
@@ -3357,7 +3361,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 self.assertEqual(decision["selected_harness"], "workflow-learning")
                 self.assertEqual(task_card["task_type"], "router_design_feedback")
                 self.assertFalse(decision["explicit"])
-                self.assertNotEqual(decision["selected_skill"], "ultraprocess")
+                self.assertNotEqual(decision["selected_skill"], "ultrawork")
 
     def test_explicit_learn_request_prepares_skill_candidate_card(self) -> None:
         decision = route_chat_message(
@@ -3486,7 +3490,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("learn", stages)
         self.assertIn("deliver", stages)
         self.assertLess(stages.index("learn"), stages.index("deliver"))
-        self.assertLess(skills.index("workflow-learning"), skills.index("ultraprocess"))
+        self.assertLess(skills.index("workflow-learning"), skills.index("ultrawork"))
         self.assertTrue(all(step["status"] == "prepared_not_observed" for step in route_plan["steps"]))
 
     def test_workflow_intent_prefers_structural_cues_over_language_tables(self) -> None:
@@ -3841,7 +3845,7 @@ selected_workflow=ultraprocess
         self.assertEqual(lookup["selected_skill"], "oh-my-hermes")
         self.assertNotEqual(edit["selected_skill"], "workspace-file-operator")
         self.assertEqual(materials["selected_skill"], "materials-package")
-        self.assertEqual(code["selected_skill"], "ultraprocess")
+        self.assertEqual(code["selected_skill"], "ultrawork")
 
     def test_data_analysis_does_not_steal_source_lookup_materials_or_coding(self) -> None:
         source_lookup = route_chat_message("find datasets and github repos for agent memory", source="discord")
@@ -3850,7 +3854,7 @@ selected_workflow=ultraprocess
 
         self.assertEqual(source_lookup["selected_skill"], "source-finder")
         self.assertEqual(materials["selected_skill"], "materials-package")
-        self.assertEqual(code["selected_skill"], "ultraprocess")
+        self.assertEqual(code["selected_skill"], "ultrawork")
         self.assertNotEqual(materials["selected_skill"], "data-analysis")
         self.assertNotEqual(code["selected_skill"], "data-analysis")
 
@@ -3874,7 +3878,7 @@ selected_workflow=ultraprocess
         file_task = route_chat_message("move old log files into archive", source="discord")
         build_failure = route_chat_message("npm test failed with this stack trace, find root cause", source="discord")
 
-        self.assertEqual(coding["selected_skill"], "ultraprocess")
+        self.assertEqual(coding["selected_skill"], "ultrawork")
         self.assertEqual(file_task["selected_skill"], "workspace-file-operator")
         self.assertEqual(build_failure["selected_skill"], "build-failure-triage")
         self.assertNotEqual(coding["selected_skill"], "command-operator")
@@ -3984,7 +3988,7 @@ selected_workflow=ultraprocess
         collisions = (
             ("AI agent usability research with current sources and find paper PDF datasets", "source-finder", "guard:source_finder"),
             ("AI agent usability research with current sources research every morning with a briefing", "research-department", "guard:research_department"),
-            ("AI agent usability research with current sources and make a PR", "ultraprocess", "guard:delivery_cycle_before_research_only"),
+            ("AI agent usability research with current sources and make a PR", "ultrawork", "guard:delivery_cycle_before_research_only"),
             ("AI agent usability research with current sources and explain this paper PDF", "paper-learning", "guard:paper_learning"),
             ("AI agent usability research with current sources keep researching until gap closed", "autoresearch-goal", "guard:durable_research_goal"),
             ("AI agent usability research with current sources create a research brief", "research-brief", "guard:research_brief"),
@@ -3992,7 +3996,7 @@ selected_workflow=ultraprocess
             ("AI agent usability current sources and prepare an image card", "img-summary", "guard:img_summary"),
             ("current sources and find paper PDF datasets", "source-finder", "guard:source_finder"),
             ("current sources research every morning with a briefing", "research-department", "guard:research_department"),
-            ("current sources and make a PR", "ultraprocess", "guard:delivery_cycle_before_research_only"),
+            ("current sources and make a PR", "ultrawork", "guard:delivery_cycle_before_research_only"),
         )
         for message, skill, marker in collisions:
             with self.subTest(message=message):
@@ -4011,8 +4015,9 @@ selected_workflow=ultraprocess
             "every morning competitor research then prepare a PR",
             "codex로 이 기능 구현 맡겨줘",
             "이 이슈를 Codex로 구현하게 맡기고 진행상태 추적해줘",
-            "코덱스로 이 이슈 PR 만들 수 있게 작업 시작해줘",
-            "코덱스로 이 이슈 PR 만들어줘",
+            # "코덱스로 이 이슈 PR ..." rows left this table at #954 stage 5:
+            # Codex-named issue-to-PR starts resolve the owner-selection
+            # surface (plan Q9), pinned in tests/test_ulw_retirement.py.
             "$ultraprocess로 이 repo 변경을 PR-ready까지 준비해줘",
             "Can OMH do one full research plan implementation review cycle?",
         )
@@ -4022,7 +4027,7 @@ selected_workflow=ultraprocess
                 decision = route_chat_message(message, source="discord")
 
                 self.assertEqual(decision["action"], "dispatch")
-                self.assertEqual(decision["selected_skill"], "ultraprocess")
+                self.assertEqual(decision["selected_skill"], "ultrawork")
                 self.assertEqual(decision["selected_harness"], "goal-execution")
                 self.assertEqual(decision["confidence"], "high")
 
@@ -4046,7 +4051,7 @@ selected_workflow=ultraprocess
                 decision = route_chat_message(message, source="discord")
 
                 self.assertEqual(decision["action"], "dispatch")
-                self.assertEqual(decision["selected_skill"], "ultraprocess")
+                self.assertEqual(decision["selected_skill"], "ultrawork")
                 self.assertEqual(decision["selected_harness"], "goal-execution")
                 self.assertEqual(decision["confidence"], "high")
                 self.assertIn("guard:direct_coding_task", decision["recommendations"][0]["matched"])
@@ -4076,7 +4081,7 @@ selected_workflow=ultraprocess
         route_plan = public_payload["workflow_route_plan"]
 
         self.assertEqual(decision["action"], "dispatch")
-        self.assertEqual(decision["selected_skill"], "ultraprocess")
+        self.assertEqual(decision["selected_skill"], "ultrawork")
         self.assertEqual(route_plan["schema_version"], "workflow_route_plan/v1")
         self.assertEqual(route_plan["mode"], "multi_workflow")
         self.assertEqual(
@@ -4084,7 +4089,7 @@ selected_workflow=ultraprocess
             [
                 ("research", "research"),
                 ("plan", "ralplan"),
-                ("deliver", "ultraprocess"),
+                ("deliver", "ultrawork"),
                 ("review", "code-review"),
             ],
         )
@@ -4099,7 +4104,7 @@ selected_workflow=ultraprocess
         self.assertEqual(decision["selected_skill"], "research-brief")
         if route_plan is not None:
             self.assertNotIn("deliver", route_plan["stages"])
-            self.assertNotIn("ultraprocess", [step["skill"] for step in route_plan["steps"]])
+            self.assertNotIn("ultrawork", [step["skill"] for step in route_plan["steps"]])
 
     def test_product_bug_route_plan_triages_before_coding_and_review(self) -> None:
         decision = route_chat_message(
@@ -4115,7 +4120,7 @@ selected_workflow=ultraprocess
             [
                 ("triage", "feedback-triage"),
                 ("plan", "plan"),
-                ("deliver", "ultraprocess"),
+                ("deliver", "ultrawork"),
                 ("review", "code-review"),
             ],
         )
@@ -4142,13 +4147,13 @@ selected_workflow=ultraprocess
             [
                 ("research", "research"),
                 ("plan", "ralplan"),
-                ("deliver", "ultraprocess"),
+                ("deliver", "ultrawork"),
                 ("review", "code-review"),
             ],
         )
         self.assertLess(
             [step["skill"] for step in route_plan["steps"]].index("ralplan"),
-            [step["skill"] for step in route_plan["steps"]].index("ultraprocess"),
+            [step["skill"] for step in route_plan["steps"]].index("ultrawork"),
         )
 
     def test_memory_context_chat_dispatches_to_curation_review(self) -> None:
@@ -4305,7 +4310,7 @@ selected_workflow=ultraprocess
             ("Explain the attached machine-learning paper for a beginner.", "paper-learning"),
             ("Translate 'Your trial ends tomorrow' into Korean.", "oh-my-hermes"),
             ("Write a LinkedIn launch post for our new feature.", "content-operator"),
-            ("Implement the accepted onboarding PRD and open a PR.", "ultraprocess"),
+            ("Implement the accepted onboarding PRD and open a PR.", "ultrawork"),
         )
 
         for message, expected_skill in cases:
@@ -4354,7 +4359,7 @@ selected_workflow=ultraprocess
                 "automation-blueprint",
             ),
             ("Save this PRD and prioritization decision to /tmp/product-brief.md.", "workspace-file-operator"),
-            ("Implement this accepted PRD and prioritization and open a PR.", "ultraprocess"),
+            ("Implement this accepted PRD and prioritization and open a PR.", "ultrawork"),
             ("Clean up Hermes memory: it contains actuals and budget notes.", "memory-sync"),
             (
                 "Use the browser to open the customer account and prepare an engineering escalation.",
@@ -4426,7 +4431,7 @@ selected_workflow=ultraprocess
     def test_direct_translation_fallback_does_not_steal_workflow_requests(self) -> None:
         cases = (
             ("Translate 'Your trial ends tomorrow' into Korean.", "oh-my-hermes"),
-            ("Translate this accepted PRD into code and open a PR.", "ultraprocess"),
+            ("Translate this accepted PRD into code and open a PR.", "ultrawork"),
             ("Translate this report into PDF and attach it to Slack.", "deliverable-package"),
             ("Translate this locale file into Korean and upload it to our TMS.", "materials-package"),
         )
@@ -4530,7 +4535,7 @@ class PiFamilyExecutorCueTests(unittest.TestCase):
             with self.subTest(message=message):
                 decision = route_chat_message(message)
 
-                self.assertEqual(decision["selected_skill"], "ultraprocess")
+                self.assertEqual(decision["selected_skill"], "ultrawork")
                 self.assertEqual(decision["action"], "dispatch")
 
     def test_raspberry_pi_messages_never_route_to_the_coding_handoff(self) -> None:
@@ -4538,7 +4543,7 @@ class PiFamilyExecutorCueTests(unittest.TestCase):
             with self.subTest(message=message):
                 decision = route_chat_message(message)
 
-                self.assertNotEqual(decision["selected_skill"], "ultraprocess")
+                self.assertNotEqual(decision["selected_skill"], "ultrawork")
 
     def test_pi_family_session_inventory_requests_open_harness_session_inventory(self) -> None:
         for message in (
@@ -4622,7 +4627,7 @@ class VerbInvocationPrecedenceTests(unittest.TestCase):
         coding = route_chat_message("use research to fix the flaky test")
         browser = route_chat_message("apply frontend fixes to the login page")
 
-        self.assertEqual(coding["selected_skill"], "ultraprocess")
+        self.assertEqual(coding["selected_skill"], "ultrawork")
         self.assertFalse(coding["explicit"])
         self.assertEqual(browser["selected_skill"], "browser-operator")
         self.assertFalse(browser["explicit"])

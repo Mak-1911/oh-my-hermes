@@ -21,8 +21,8 @@ This is a Hermes-native `ralplan` workflow skill.
 ## Do Not Use When
 
 - The request is still too ambiguous to name requirements, non-goals, or acceptance criteria; use `deep-interview` first.
-- The user asks for one full research-plan-implementation-review-PR cycle; use `ultraprocess` and keep ralplan as the planning stage.
-- The change is a small local refactor or cleanup with no architectural or regression risk; use `ultraprocess`, or `ai-slop-cleaner` when observable behavior must stay identical.
+- The user asks for one full research-plan-implementation-review-PR cycle; use `ultrawork` (its `delivery_boundary` capability) and keep ralplan as the planning stage.
+- The change is a small local refactor or cleanup with no architectural or regression risk; use `ultrawork`, or `ai-slop-cleaner` when observable behavior must stay identical.
 - The user wants a pure source lookup, citation check, or paper explanation with no implementation plan.
 - The unresolved work is repository terminology alignment or a project-language decision frontier; use `context` before planning.
 
@@ -37,7 +37,7 @@ Good example:
 Bad example:
 
 - Prompt: $ralplan implement the refactor now and open the PR.
-- Expected behavior: Stop at the reviewed plan or route the full delivery cycle to `ultraprocess` after plan acceptance.
+- Expected behavior: Stop at the reviewed plan or route the full delivery cycle to `ultrawork` after plan acceptance.
 - Why: Ralplan is a planning gate, not implementation, review, CI, or PR evidence.
 
 ## Completion Checklist
@@ -54,7 +54,7 @@ Bad example:
 - If requirements are still fuzzy, route back to deep-interview before planning.
 - If current-source evidence is missing, route a `research` step before accepting the plan.
 - If the plan depends on unstudied reference implementations or contested external claims, route a deep research step and consume its dossier before accepting the plan.
-- If the user asks for implementation after acceptance, recommend the follow-on path that fits the work's shape (`ultragoal`, `ultrawork`, `ralph`, `ultraprocess`, or a direct selected executor handoff) with a one-line fit reason, and start it only on the user's explicit go-ahead — never auto-start an engine from acceptance alone.
+- If the user asks for implementation after acceptance, recommend the follow-on path that fits the work's shape (`ultrawork` with the matching capability — durable checkpoint, coordinated lanes, single-owner persistence, or one delivery cycle — or a direct selected executor handoff) with a one-line fit reason, and start it only on the user's explicit go-ahead — never auto-start an engine from acceptance alone.
 
 ## Workflow Lane
 

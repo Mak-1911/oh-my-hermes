@@ -50,8 +50,15 @@ REPO_ROOT = repo_root_default()
 README_ROW_PATTERN = re.compile(r"^\| ⚡ `ulw-", re.MULTILINE)
 
 
+RETIRED_ENGINES = ("team", "ralph", "ultragoal", "ultraprocess")
+
+
 def _all_engines(payload: dict[str, object]) -> list[dict[str, object]]:
-    return list(payload["canonical_engines"]) + list(payload["alias_engines"])
+    return (
+        list(payload["canonical_engines"])
+        + list(payload["alias_engines"])
+        + list(payload["retired_engines"])
+    )
 
 
 class UlwInventoryProducerTests(unittest.TestCase):
@@ -67,23 +74,34 @@ class UlwInventoryProducerTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], ULW_INVENTORY_SCHEMA_VERSION)
         self.assertEqual(payload["counts"]["canonical"], len(payload["canonical_engines"]))
         self.assertEqual(payload["counts"]["alias"], len(payload["alias_engines"]))
+        self.assertEqual(payload["counts"]["retired"], len(payload["retired_engines"]))
         self.assertEqual(payload["counts"]["total"], len(_all_engines(payload)))
-        # Stage 0 contract: every engine is canonical and carries no migration
-        # metadata yet. Later lifecycle PRs move rows and edit this test in the
-        # same commit.
-        self.assertEqual(payload["counts"], {"canonical": 12, "alias": 0, "total": 12})
-        for engine in _all_engines(payload):
+        # Stage 5 contract (#954, window=0): eight canonical engines, four
+        # retired engines enumerated separately (never silently dropped), no
+        # alias/warning stage in between.
+        self.assertEqual(payload["counts"], {"canonical": 8, "alias": 0, "retired": 4, "total": 12})
+        self.assertEqual(
+            {engine["canonical"] for engine in payload["retired_engines"]},
+            set(RETIRED_ENGINES),
+        )
+        for engine in payload["canonical_engines"]:
             with self.subTest(engine=engine["canonical"]):
                 self.assertIn(engine["lifecycle_stage"], SURFACE_LIFECYCLE_STAGES)
                 self.assertEqual(engine["lifecycle_stage"], "canonical")
                 self.assertIsNone(engine["target_home"])
                 self.assertIsNone(engine["migration_release"])
+        for engine in payload["retired_engines"]:
+            with self.subTest(engine=engine["canonical"]):
+                self.assertEqual(engine["lifecycle_stage"], "retired")
+                self.assertEqual(engine["target_home"], "ultrawork")
+                self.assertTrue(engine["migration_release"])
 
-    def test_twelve_explicit_exposure_rows_change_nothing(self) -> None:
-        """§9.2 criterion: each materialized row equals the default on every
-        field except `lifecycle_stage`, which is explicit `canonical`."""
+    def test_canonical_explicit_exposure_rows_change_nothing(self) -> None:
+        """§9.2 criterion: each canonical materialized row equals the default
+        on every field except `lifecycle_stage`, which is explicit
+        `canonical`."""
         by_name = _surface_exposure_by_name()
-        for name in sorted(ULW_ENGINE_SKILL_NAMES):
+        for name in sorted(set(ULW_ENGINE_SKILL_NAMES) - set(RETIRED_ENGINES)):
             with self.subTest(name=name):
                 self.assertIn(name, by_name, "engine fell back to the implicit default row")
                 explicit = asdict(by_name[name])
@@ -92,23 +110,47 @@ class UlwInventoryProducerTests(unittest.TestCase):
                 default.pop("lifecycle_stage")
                 self.assertEqual(explicit, default)
 
+    def test_retired_exposure_rows_use_the_reference_only_shape(self) -> None:
+        """Retirement is an exposure change, not a deletion (P2): projections
+        narrow to `workflow_reference` with install visibility off, and
+        `compatibility_alias` stays true so a stale workflow hint resolves as
+        a compatibility concern (§9.1)."""
+        by_name = _surface_exposure_by_name()
+        for name in RETIRED_ENGINES:
+            with self.subTest(name=name):
+                exposure = by_name[name]
+                self.assertEqual(exposure.projections, ("workflow_reference",))
+                self.assertFalse(exposure.install_visibility)
+                self.assertTrue(exposure.compatibility_alias)
+                self.assertEqual(exposure.lifecycle_stage, "retired")
+                self.assertEqual(exposure.target_home, "ultrawork")
+                self.assertTrue(exposure.migration_release)
+
     def test_exposure_payload_carries_lifecycle_fields(self) -> None:
         for name in sorted(ULW_ENGINE_SKILL_NAMES):
             with self.subTest(name=name):
                 payload = skill_exposure_payload(name)
-                self.assertEqual(payload["lifecycle_stage"], "canonical")
-                self.assertIsNone(payload["target_home"])
-                self.assertIsNone(payload["migration_release"])
+                if name in RETIRED_ENGINES:
+                    self.assertEqual(payload["lifecycle_stage"], "retired")
+                    self.assertEqual(payload["target_home"], "ultrawork")
+                    self.assertTrue(payload["migration_release"])
+                else:
+                    self.assertEqual(payload["lifecycle_stage"], "canonical")
+                    self.assertIsNone(payload["target_home"])
+                    self.assertIsNone(payload["migration_release"])
 
     def test_drift_metrics_read_len_off_the_producer(self) -> None:
         metrics = {metric.name: metric for metric in count_metrics()}
         canonical = metrics["ulw_canonical_engine_count"]
         alias = metrics["ulw_alias_engine_count"]
-        self.assertEqual(canonical.expected, 12)
-        self.assertEqual(canonical.live(), 12)
+        retired = metrics["ulw_retired_engine_count"]
+        self.assertEqual(canonical.expected, 8)
+        self.assertEqual(canonical.live(), 8)
         self.assertEqual(alias.expected, 0)
         self.assertEqual(alias.live(), 0)
-        for metric in (canonical, alias):
+        self.assertEqual(retired.expected, 4)
+        self.assertEqual(retired.live(), 4)
+        for metric in (canonical, alias, retired):
             for site in metric.sites:
                 with self.subTest(metric=metric.name, site=site):
                     self.assertTrue((REPO_ROOT / site).is_file())
@@ -129,7 +171,8 @@ class UlwGeneratedSurfaceTests(unittest.TestCase):
 
     def test_generated_readme_rows_derive_from_the_producer(self) -> None:
         region = ulw_readme_region()
-        self.assertEqual(len(README_ROW_PATTERN.findall(region)), len(ULW_ENGINE_SKILL_NAMES))
+        expected_rows = len(ulw_inventory_payload()["canonical_engines"])
+        self.assertEqual(len(README_ROW_PATTERN.findall(region)), expected_rows)
         for engine in ulw_inventory_payload()["canonical_engines"]:
             with self.subTest(engine=engine["canonical"]):
                 self.assertIn(f"`{engine['display_name']}`", region)
@@ -174,7 +217,7 @@ class UlwGeneratedSurfaceTests(unittest.TestCase):
         for name, numeral in (
             ("README.ko.md", f"{expected}개"),
             ("README.ja.md", f"{expected} 個"),
-            ("README.zh.md", "十二个"),
+            ("README.zh.md", "八个"),
         ):
             with self.subTest(readme=name):
                 text = (REPO_ROOT / name).read_text(encoding="utf-8")

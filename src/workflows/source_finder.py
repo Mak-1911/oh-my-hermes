@@ -51,7 +51,7 @@ SOURCE_FINDER_DOWNSTREAM_WORKFLOWS = (
     "research-brief",
     "research-department",
     "materials-package",
-    "ultraprocess",
+    "ultrawork",
     "unknown",
 )
 SOURCE_FINDER_NOT_OBSERVED = (

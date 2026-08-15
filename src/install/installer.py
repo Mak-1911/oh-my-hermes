@@ -92,6 +92,16 @@ def install_skill_pack(
         raise OmhError(f"unknown skill profile {profile!r}; choose one of {', '.join(SKILL_PROFILES)}")
     all_templates = convert_from_dir(source_dir) if source_dir else builtin_skill_templates()
     reference_templates = [] if source_dir else builtin_skill_reference_templates()
+    if source_dir:
+        # A retired ULW engine copied from a stale tap or checkout fails with
+        # the explicit migration error, never a silent install of a contract
+        # the catalog no longer ships (#954 stage 5, plan Q3: no tombstones).
+        from ..skills.catalog import retired_skill_migration_error
+
+        for template in all_templates:
+            migration_error = retired_skill_migration_error(template.name)
+            if migration_error:
+                raise OmhError(str(migration_error["message"]))
     # Profile filtering only applies to the packaged builtin catalog: an explicit
     # `source_dir` is a caller-scoped skill set, not the curated core/full catalog,
     # so every skill it names is installed regardless of `profile`.

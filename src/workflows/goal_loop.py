@@ -137,9 +137,8 @@ LOOP_CORE_ROLES = (
     },
     {
         "id": "builder",
-        "skill": "ultragoal",
-        "adjacent_skills": ["team", "ultrawork"],
-        "responsibility": "Prepare the concrete goal, team lanes, or executor handoff for implementation without claiming execution.",
+        "skill": "ultrawork",
+        "responsibility": "Prepare the concrete goal, coordinated lanes, or executor handoff for implementation without claiming execution.",
     },
     {
         "id": "reviewer",

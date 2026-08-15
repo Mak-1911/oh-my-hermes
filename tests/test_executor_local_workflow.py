@@ -63,11 +63,11 @@ class ExecutorLocalWorkflowTests(unittest.TestCase):
         )
 
     def test_hermes_uses_installed_display_name_and_reference_profiles_are_empty(self) -> None:
-        hermes = self._binding("hermes", "ultragoal")
-        self.assertEqual(hermes["candidate"]["invocation"]["template"], "/ulw-goal {message}")
+        hermes = self._binding("hermes", "ultrawork")
+        self.assertEqual(hermes["candidate"]["invocation"]["template"], "/ulw-work {message}")
         for profile in ("omo-runtime", "omc-runtime"):
             with self.subTest(profile=profile):
-                binding = self._binding(profile, "ultragoal")
+                binding = self._binding(profile, "ultrawork")
                 invocation = binding["candidate"]["invocation"]
                 self.assertEqual(invocation["template"], "")
                 self.assertEqual(invocation["message_placeholder"], "")
@@ -111,7 +111,7 @@ class ExecutorLocalWorkflowTests(unittest.TestCase):
             (None, "unknown", "availability_not_observed"),
             (self._evidence("codex", "ultrawork", "unavailable"), "observed_unavailable", "candidate_observed_unavailable"),
             (self._evidence("hermes", "ultrawork", "host_observed"), "unknown", "availability_not_observed"),
-            (self._evidence("codex", "ultragoal", "host_observed"), "unknown", "availability_not_observed"),
+            (self._evidence("codex", "ultraqa", "host_observed"), "unknown", "availability_not_observed"),
             ({"status": "prepared"}, "unknown", "availability_not_observed"),
         )
         for evidence, status, reason in cases:
@@ -156,7 +156,7 @@ class ExecutorLocalWorkflowTests(unittest.TestCase):
             ),
             "forged root observation": lambda item: item.update({"status": "observed_available"}),
             "profile mismatch": lambda item: item["availability"].update({"profile": "hermes"}),
-            "skill mismatch": lambda item: item["candidate"].update({"skill_id": "ultragoal"}),
+            "skill mismatch": lambda item: item["candidate"].update({"skill_id": "ultraqa"}),
             "duplicate placeholder": lambda item: item["candidate"]["invocation"].update(
                 {"template": "$ultrawork {message} {message}"}
             ),
@@ -175,9 +175,9 @@ class ExecutorLocalWorkflowTests(unittest.TestCase):
     def test_validator_rejects_runtime_invocability_and_arbitrary_invocations(self) -> None:
         runtime = build_executor_local_workflow(
             profile="omx-runtime",
-            routed_workflow="ultragoal",
+            routed_workflow="ultrawork",
             parent_handoff_dispatchable=False,
-            availability_evidence=self._evidence("omx-runtime", "ultragoal", "host_observed"),
+            availability_evidence=self._evidence("omx-runtime", "ultrawork", "host_observed"),
         )
         self.assertIsNotNone(runtime)
         assert runtime is not None

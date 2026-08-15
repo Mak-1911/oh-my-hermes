@@ -21,7 +21,7 @@ This is a Hermes-native `codegraph-refresh` workflow skill.
 ## Do Not Use When
 
 - The user needs a narrative first-read tour of an unfamiliar repo; use `codebase-onboarding`.
-- The user already has accepted implementation criteria and wants code changes; use `ultraprocess` or a coding handoff.
+- The user already has accepted implementation criteria and wants code changes; use `ultrawork` or a coding handoff.
 - The user asks for visual, frontend, or rendered UI QA; use `frontend`, `design-quality-gate`, or `visual-qa`.
 
 ## Examples

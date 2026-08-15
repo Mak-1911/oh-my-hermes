@@ -24,9 +24,7 @@ Role selection is prepared guidance only. It is not worker dispatch, tool execut
 
 ## Primary Skills
 
-- `ultragoal`
 - `ultrawork`
-- `ralph`
 
 ## Primary Harnesses
 

@@ -396,10 +396,10 @@ class CliTests(unittest.TestCase):
     def test_coding_delegate_local_workflow_profile_matrix(self) -> None:
         cases = (
             ("codex", "$ai-slop-cleaner clean delegation code", "executor_handoff", "ai-slop-cleaner", "command_template", "$ai-slop-cleaner {message}", True),
-            ("omx-runtime", "$ultragoal complete the goal", "runtime_handoff", "ultragoal", "display_only", "$ultragoal {message}", False),
-            ("omo-runtime", "$ultragoal complete the goal", "runtime_handoff", "ultragoal", "skill_reference", "", False),
-            ("omc-runtime", "$ultragoal complete the goal", "runtime_handoff", "ultragoal", "descriptor_only", "", False),
-            ("hermes", "$ultragoal complete the goal", "runtime_handoff", "ultragoal", "display_only", "/ulw-goal {message}", False),
+            ("omx-runtime", "$ultrawork complete the goal", "runtime_handoff", "ultrawork", "display_only", "$ultrawork {message}", False),
+            ("omo-runtime", "$ultrawork complete the goal", "runtime_handoff", "ultrawork", "skill_reference", "", False),
+            ("omc-runtime", "$ultrawork complete the goal", "runtime_handoff", "ultrawork", "descriptor_only", "", False),
+            ("hermes", "$ultrawork complete the goal", "runtime_handoff", "ultrawork", "display_only", "/ulw-work {message}", False),
         )
 
         for profile, message, lane, workflow, mode, template, handoff_dispatchable in cases:
@@ -434,7 +434,7 @@ class CliTests(unittest.TestCase):
         observations = (
             ("matching", "host_observed", "codex", "ai-slop-cleaner", "observed_available", True),
             ("profile-mismatch", "host_observed", "omx-runtime", "ai-slop-cleaner", "unknown", False),
-            ("skill-mismatch", "host_observed", "codex", "ultragoal", "unknown", False),
+            ("skill-mismatch", "host_observed", "codex", "ultraqa", "unknown", False),
             ("unavailable", "unavailable", "codex", "ai-slop-cleaner", "observed_unavailable", False),
         )
 
@@ -717,10 +717,10 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(stderr, "")
                 payload = json.loads(stdout)
                 route_hint = payload["route_hint"]
-                self.assertEqual(route_hint["primary_workflow"], "ultraprocess")
+                self.assertEqual(route_hint["primary_workflow"], "ultrawork")
                 self.assertEqual(route_hint["primary_next_action"], "prepare_one_cycle_delivery")
                 self.assertNotEqual(route_hint["hints"][0]["workflow"], "feedback-triage")
-                self.assertIn("selected=ultraprocess", payload["prompt_context"])
+                self.assertIn("selected=ultrawork", payload["prompt_context"])
                 self.assertIn("not workflow execution", route_hint["claim_boundary"])
                 self.assertFalse(payload["message"]["raw_prompt_echoed"])
                 self.assertFalse(payload["message"]["raw_prompt_stored"])
@@ -5533,10 +5533,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 self.assertEqual(stderr, "")
                 self.assertEqual(status, 0)
                 recommendations = json.loads(stdout)["recommendations"]
-                self.assertEqual(recommendations[0]["skill"], "ultraprocess")
-                self.assertEqual(recommendations[0]["next_action"], "start_ultraprocess")
+                self.assertEqual(recommendations[0]["skill"], "ultrawork")
+                self.assertEqual(recommendations[0]["next_action"], "prepare_coding_runtime_handoff")
                 self.assertIn("guard:direct_coding_task", recommendations[0]["matched"])
-                self.assertIn("process orchestration", recommendations[0]["evidence_boundary"])
+                self.assertIn("prepared coding runtime handoff", recommendations[0]["evidence_boundary"])
 
         status, stdout, stderr = run_cli(["recommend", "결제 실패 이슈가 자주 나와", "--limit", "3"])
         self.assertEqual(stderr, "")
@@ -5558,7 +5558,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             [
                 ("research", "research"),
                 ("plan", "ralplan"),
-                ("deliver", "ultraprocess"),
+                ("deliver", "ultrawork"),
                 ("review", "code-review"),
             ],
         )
@@ -5633,11 +5633,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 self.assertEqual(stderr, "")
                 self.assertEqual(status, 0)
                 recommendations = json.loads(stdout)["recommendations"]
-                self.assertEqual(recommendations[0]["skill"], "ultraprocess")
-                self.assertEqual(recommendations[0]["next_action"], "start_ultraprocess")
+                self.assertEqual(recommendations[0]["skill"], "ultrawork")
+                self.assertEqual(recommendations[0]["next_action"], "prepare_coding_runtime_handoff")
                 self.assertIn("guard:omh_quality_improvement_loop", recommendations[0]["matched"])
                 self.assertNotEqual(recommendations[0]["skill"], "feedback-triage")
-                self.assertIn("process orchestration", recommendations[0]["evidence_boundary"])
+                self.assertIn("prepared coding runtime handoff", recommendations[0]["evidence_boundary"])
 
     def test_recommend_customer_bug_feedback_stays_feedback_triage(self) -> None:
         cases = (
@@ -6257,10 +6257,9 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 self.assertEqual(stderr, "")
                 self.assertEqual(status, 0)
                 top = json.loads(stdout)["recommendations"][0]
-                self.assertEqual(top["skill"], "ultraprocess")
-                self.assertEqual(top["next_action"], "start_ultraprocess")
-                self.assertIn("process orchestration", top["evidence_boundary"])
-                self.assertIn("prepared_not_observed", top["wrapper_guidance"])
+                self.assertEqual(top["skill"], "ultrawork")
+                self.assertEqual(top["next_action"], "prepare_coding_runtime_handoff")
+                self.assertIn("prepared coding runtime handoff", top["evidence_boundary"])
 
     def test_recommend_build_failure_triage_beats_verification_gate(self) -> None:
         message = "CI failed on Python 3.12 test with pytest failure and PR checks failed; triage the build failure"
@@ -7379,7 +7378,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ("deploy and monitor this release with rollback and health checks", "deploy-and-monitor", "deploy_monitor_plan", "prepare_deploy_monitor_plan"),
             ("./loop make this project a 10k star OSS", "loop", "loop", "start_loop_cycle"),
             ("현재 repo 설치 후 10분 안에 가치 못 느끼는 이유를 줄여가며 개선해줘", "loop", "loop", "choose_permission_profile"),
-            ("research the repo, plan, implement, code-review, sync docs, and prepare a PR", "ultraprocess", "handoff", "choose_executor"),
+            ("research the repo, plan, implement, code-review, sync docs, and prepare a PR", "ultrawork", "handoff", "choose_executor"),
             ("Hermes가 기억하는 맥락을 점검하고 정리해줘", "memory-sync", "memory_curation", "prepare_memory_sync"),
             ("Hermes가 기억하는 내용 한번 점검하자", "memory-sync", "memory_curation", "prepare_memory_sync"),
             ("내가 말한 memory가 잘못 저장된 것 같아 정리해줘", "memory-sync", "memory_curation", "prepare_memory_sync"),
@@ -7391,11 +7390,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ("PPT 만들어줘", "materials-package", "materials_package", "prepare_material_package"),
             ("이 회의록을 발표자료로 만들어줘", "materials-package", "materials_package", "prepare_material_package"),
             ("첨부한 엑셀을 월간 보고서 PDF랑 PPT로 만들 수 있게 정리해줘", "materials-package", "materials_package", "prepare_material_package"),
-            ("Codex 작업이 어디까지 진행됐는지 알려줘", "ultraprocess", "handoff", "show_coding_handoff_status"),
-            ("코덱스가 지금 뭐하고있는지 알려줘", "ultraprocess", "handoff", "show_coding_handoff_status"),
-            ("지금 PR 머지 준비 됐는지 알려줘", "ultraprocess", "handoff", "show_coding_handoff_status"),
-            ("이 PR 리뷰어 코멘트 반영됐는지 보고 머지 준비해줘", "ultraprocess", "handoff", "show_coding_handoff_status"),
-            ("merge할때도 프리렌 author로 머지해", "ultraprocess", "handoff", "show_coding_handoff_status"),
+            ("Codex 작업이 어디까지 진행됐는지 알려줘", "ultrawork", "handoff", "show_coding_handoff_status"),
+            ("코덱스가 지금 뭐하고있는지 알려줘", "executor-runtime-readiness", "executor_runtime_readiness", "prepare_executor_runtime_readiness"),
+            ("지금 PR 머지 준비 됐는지 알려줘", "ultrawork", "handoff", "show_coding_handoff_status"),
+            ("이 PR 리뷰어 코멘트 반영됐는지 보고 머지 준비해줘", "ultrawork", "handoff", "show_coding_handoff_status"),
+            ("merge할때도 프리렌 author로 머지해", "ultrawork", "handoff", "show_coding_handoff_status"),
             ("今何してる？", "agent-ops-review", "agent_ops_review", "refresh_agent_ops_status"),
             ("现在在做什么？", "agent-ops-review", "agent_ops_review", "refresh_agent_ops_status"),
             ("qué está pasando?", "agent-ops-review", "agent_ops_review", "refresh_agent_ops_status"),
@@ -7410,7 +7409,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ("claude code 연결돼 있어?", "executor-runtime-readiness", "executor_runtime_readiness", "prepare_executor_runtime_readiness"),
             ("I want to use codex as my coding agent", "executor-runtime-readiness", "executor_runtime_readiness", "prepare_executor_runtime_readiness"),
             ("코딩 에이전트 codex로 바꾸고 싶어", "executor-runtime-readiness", "executor_runtime_readiness", "prepare_executor_runtime_readiness"),
-            ("how do I see the current Codex session?", "ultraprocess", "handoff", "show_coding_handoff_status"),
+            ("how do I see the current Codex session?", "ultrawork", "handoff", "show_coding_handoff_status"),
             ("릴리즈 준비 상태 점검해줘", "code-review", "review_check", "prepare_review_or_followup_handoff"),
             ("실제 사용자처럼 QA 시나리오 돌려줘", "ultraqa", "qa_review", "dispatch_to_workflow"),
             ("루프 비용이랑 지연시간 상태 보여줘", "ops-observability-card", "ops_observability", "prepare_ops_observability_card"),
@@ -7468,7 +7467,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                     5,
                 )
                 option_ids = {option["id"] for option in picker["options"]}
-                self.assertTrue({"oh-my-hermes", "deep-interview", "ralplan", "loop", "ultraprocess"} <= option_ids)
+                self.assertTrue({"oh-my-hermes", "deep-interview", "ralplan", "loop", "ultrawork"} <= option_ids)
                 self.assertEqual(picker["featured_options"][0]["id"], "oh-my-hermes")
                 families = {family["id"]: family for family in picker["capability_families"]}
                 self.assertIn("paper-learning", families["learn_and_gather"]["primary_workflows"])
@@ -8502,10 +8501,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             "research-to-strategy-brief",
         )
         self.assertEqual(direct["korean-github-issue-label-pr"]["observed"]["playbook"]["id"], "github-event-ops")
-        self.assertEqual(direct["coding-agent-progress-status"]["observed"]["playbook"]["id"], "ultraprocess")
-        self.assertEqual(direct["korean-pr-merge-readiness-status"]["observed"]["playbook"]["id"], "ultraprocess")
-        self.assertEqual(direct["korean-codex-progress-status"]["observed"]["playbook"]["id"], "ultraprocess")
-        self.assertEqual(direct["korean-codex-current-activity-status"]["observed"]["playbook"]["id"], "ultraprocess")
+        self.assertEqual(direct["coding-agent-progress-status"]["observed"]["playbook"]["id"], "ultrawork")
+        self.assertEqual(direct["korean-pr-merge-readiness-status"]["observed"]["playbook"]["id"], "ultrawork")
+        self.assertEqual(direct["korean-codex-progress-status"]["observed"]["playbook"]["id"], "ultrawork")
+        self.assertEqual(direct["korean-codex-current-activity-status"]["observed"]["playbook"]["id"], "ultrawork")
         self.assertEqual(
             direct["korean-claude-code-open-session"]["observed"]["playbook"]["id"],
             "executor-runtime-readiness",
@@ -11660,7 +11659,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
 
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full"])[0], 0)
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full"])[0], 0)
-            skill_file = omh_home / "skills" / "ulw-ralph" / "SKILL.md"
+            skill_file = omh_home / "skills" / "ulw-work" / "SKILL.md"
             skill_file.write_text(skill_file.read_text(encoding="utf-8") + "\nlocal edit\n", encoding="utf-8")
 
             status, _, stderr = run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full"])
@@ -11673,7 +11672,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertFalse(checks["local_modifications"]["ok"])
             self.assertEqual(checks["local_modifications"]["severity"], "blocking")
             self.assertIn("omh install --force", checks["local_modifications"]["next_action"])
-            self.assertIn("ralph/SKILL.md", checks["local_modifications"]["message"])
+            self.assertIn("ulw-work/SKILL.md", checks["local_modifications"]["message"])
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full", "--force"])[0], 0)
 
     def test_doctor_reports_wrong_runtime_home(self) -> None:
@@ -11700,26 +11699,26 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
     def test_convert_from_local_skill_fixture(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            source = root / "local-skills" / "ralph"
+            source = root / "local-skills" / "loop"
             source.mkdir(parents=True)
             source.joinpath("SKILL.md").write_text(
-                "---\nname: ralph\ndescription: Upstream Ralph\n---\n# Ralph\nUse durable goal tools.\n",
+                "---\nname: loop\ndescription: Upstream Loop\n---\n# Loop\nUse durable goal tools.\n",
                 encoding="utf-8",
             )
             omh_home = root / ".omh"
 
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "convert", "--from-skills-dir", str(root / "local-skills")])[0], 0)
-            converted = (omh_home / "skills" / "ulw-ralph" / "SKILL.md").read_text(encoding="utf-8")
-            self.assertIn("description: [omh] Ralph - one owner drives", converted)
+            converted = (omh_home / "skills" / "ulw-loop" / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("description: [omh] Hermes Loop workflow", converted)
             self.assertIn("Hermes Compatibility Contract", converted)
 
     def test_mocked_source_install_update(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            source = root / "release-archive" / "team"
+            source = root / "release-archive" / "loop"
             source.mkdir(parents=True)
             source.joinpath("SKILL.md").write_text(
-                "---\nname: team\ndescription: Upstream Team\n---\n# Team\n",
+                "---\nname: loop\ndescription: Upstream Loop\n---\n# Loop\n",
                 encoding="utf-8",
             )
             omh_home = root / ".omh"
@@ -11729,11 +11728,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(first_manifest["source"], str((root / "release-archive").resolve()))
 
             source.joinpath("SKILL.md").write_text(
-                "---\nname: team\ndescription: Upstream Team\n---\n# Team\nUpdated.\n",
+                "---\nname: loop\ndescription: Upstream Loop\n---\n# Loop\nUpdated.\n",
                 encoding="utf-8",
             )
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "update", "--source", str(root / "release-archive")])[0], 0)
-            updated = (omh_home / "skills" / "ulw-team" / "SKILL.md").read_text(encoding="utf-8")
+            updated = (omh_home / "skills" / "ulw-loop" / "SKILL.md").read_text(encoding="utf-8")
             self.assertIn("Updated.", updated)
 
     def test_release_channel_metadata_and_validation(self) -> None:

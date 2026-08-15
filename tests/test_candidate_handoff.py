@@ -105,12 +105,12 @@ class CodingLaneTests(unittest.TestCase):
 
     Observed live: "...백엔드 구현해줘" reached model selection carrying
     instinct-ledger, materials-package, and memory-new at score 3 -- decomposed
-    -token noise -- while the engines that deliver coding work (ultraprocess,
-    team, ultragoal) never surfaced. The same session's picker offered
+    -token noise -- while the engine that delivers coding work (ultrawork)
+    never surfaced. The same session's picker offered
     idea-to-deploy and planning flows for what was an implementation ask.
     """
 
-    LANE = ["ultraprocess", "team", "ultragoal", "executor-runtime-readiness"]
+    LANE = ["ultrawork", "executor-runtime-readiness"]
 
     def _handoff(self, message: str) -> dict:
         from omh.routing.chat import route_chat_message
@@ -126,9 +126,17 @@ class CodingLaneTests(unittest.TestCase):
         self.assertIn("implementation_shaped_request", handoff["reasons"])
         self.assertIn("Do not route implementation work to planning-only flows", handoff["question"])
 
-    def test_english_implementation_asks_get_the_same_lane(self) -> None:
-        handoff = self._handoff("implement the backend for observer lookup")
-        self.assertEqual([c["skill"] for c in handoff["candidates"]], self.LANE)
+    def test_english_implementation_asks_now_dispatch_the_delivery_engine(self) -> None:
+        # #954 stage 5: `ultrawork` absorbed the delivery vocabulary, so the
+        # English phrasing that used to stall into the candidate lane now
+        # dispatches directly -- the lane stays reserved for requests that
+        # still reach no owner (the Korean case above).
+        from omh.routing.chat import route_chat_message
+
+        route = route_chat_message("implement the backend for observer lookup", source="slack")
+        self.assertEqual(route["action"], "dispatch")
+        self.assertEqual(route["selected_skill"], "ultrawork")
+        self.assertNotIn("candidate_handoff", route)
 
     def test_a_strong_match_keeps_its_own_shortlist(self) -> None:
         # The lane replaces noise, never signal: a real trigger match must not
@@ -146,7 +154,9 @@ class CodingLaneTests(unittest.TestCase):
         self.assertNotIn("implementation_shaped_request", handoff.get("reasons", []))
 
     def test_lane_candidates_carry_the_routing_only_boundary(self) -> None:
-        handoff = self._handoff("implement the backend for observer lookup")
+        handoff = self._handoff(
+            "document-harness에서 프로젝트 링크만 주면 observer 결과를 자동 조회하게 백엔드 구현해줘"
+        )
         for candidate in handoff["candidates"]:
             self.assertIn("routing input only", candidate["evidence_boundary"])
 
@@ -171,7 +181,7 @@ class WrapperPathParityTests(unittest.TestCase):
         handoff = route.get("candidate_handoff") or {}
         self.assertEqual(
             [candidate["skill"] for candidate in handoff.get("candidates", [])],
-            ["ultraprocess", "team", "ultragoal", "executor-runtime-readiness"],
+            ["ultrawork", "executor-runtime-readiness"],
         )
         self.assertIn("input_language", route)
         self.assertTrue(
@@ -298,10 +308,10 @@ class WrapperPathParityTests(unittest.TestCase):
                 interaction = self._plugin_ulw_interaction(
                     root,
                     model="gpt-5.6-sol",
-                    workflow="ultraprocess",
+                    workflow="ultrawork",
                 )
 
-        self.assertEqual(interaction["route"]["selected_skill"], "ultraprocess")
+        self.assertEqual(interaction["route"]["selected_skill"], "ultrawork")
         overlay = interaction["delegation"]["runtime_handoff"]["executor_prompting_contract"]["throughput_overlay"]
         self.assertEqual(overlay["mode"], "gpt_hermes_ulw")
 

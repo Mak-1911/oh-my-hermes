@@ -2401,8 +2401,8 @@ _SURFACE_PLAYBOOKS = (
         evidence_boundary="Observability cards are not billing truth, provider quota truth, live metric-provider access, complete tracing, SLO pass, incident closure, remediation completion, performance proof, or workflow completion evidence.",
     ),
     _surface_playbook(
-        "ultraprocess",
-        "Ultra Process session status",
+        "ultrawork",
+        "Coding session status",
         "Show the one-cycle delivery lane for coding-agent handoff, session progress, result, review, docs sync, PR, and missing evidence.",
         "Use when the user asks what a specific Codex, Claude Code, Hermes coding, or coding-agent session/handoff has done or still needs.",
         (
@@ -2457,7 +2457,7 @@ _SURFACE_PLAYBOOKS = (
             "머지 준비 됐는지",
             "머지 준비 상태",
         ),
-        owner="ultraprocess",
+        owner="ultrawork",
         contract="ultraprocess_status/v1",
         pipeline=("read_prepared_handoff", "summarize_session_context", "show_missing_evidence", "prepare_next_action"),
         first_action="read_prepared_handoff",

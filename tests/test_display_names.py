@@ -326,7 +326,11 @@ class UlwBundleParityTests(unittest.TestCase):
         payload = ulw_inventory_payload()
         catalog_stages = {
             engine["canonical"]: engine["lifecycle_stage"]
-            for engine in (*payload["canonical_engines"], *payload["alias_engines"])
+            for engine in (
+                *payload["canonical_engines"],
+                *payload["alias_engines"],
+                *payload["retired_engines"],
+            )
         }
 
         self.assertEqual(set(awareness_module._ULW_ENGINE_WORKFLOWS), set(ULW_ENGINE_SKILL_NAMES))

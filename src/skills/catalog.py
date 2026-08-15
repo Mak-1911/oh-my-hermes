@@ -127,6 +127,14 @@ _DEFAULT_SURFACE_PROJECTIONS = ("routable", "installable", "workflow_reference",
 _DEFAULT_SURFACE_PREFERRED_USAGE = (
     "Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle."
 )
+# Retired ULW engines keep only the reference projection -- the
+# `quality-evidence-loop` precedent: the contract exists but is not an
+# installed, routable, user-facing skill.
+_RETIRED_SURFACE_PROJECTIONS = ("workflow_reference",)
+_RETIRED_SURFACE_PREFERRED_USAGE = (
+    "Retired workflow engine: the intent now runs as a `ulw-work` capability; keep this contract as a "
+    "workflow reference only."
+)
 _SURFACE_EXPOSURES = (
     SurfaceExposure(
         "design-orchestration",
@@ -450,11 +458,12 @@ _SURFACE_EXPOSURES = (
     ),
     # The twelve ULW workflow engines, materialized as explicit rows so each
     # engine's lifecycle stage is answerable from the exposure table instead of
-    # falling through `_default_surface_exposure()`. Every field other than
-    # `lifecycle_stage` must stay byte-identical to that default --
-    # `tests/test_ulw_inventory.py` pins the equality -- so a later lifecycle
-    # move (#954 stages 3-5) is a one-row edit here, never a behavior change
-    # smuggled through a default.
+    # falling through `_default_surface_exposure()`. For the eight canonical
+    # engines every field other than `lifecycle_stage` must stay byte-identical
+    # to that default -- `tests/test_ulw_inventory.py` pins the equality -- so
+    # a lifecycle move is a one-row edit here, never a behavior change smuggled
+    # through a default. The four retired engines (#954 stage 5) use the
+    # retired shape declared above.
     SurfaceExposure(
         "context",
         "direct_skill",
@@ -500,23 +509,37 @@ _SURFACE_EXPOSURES = (
         _DEFAULT_SURFACE_PREFERRED_USAGE,
         lifecycle_stage="canonical",
     ),
+    # The four retired engines (#954 stage 5, shipped with a window=0
+    # maintainer decision: canonical -> retired directly, no alias or warning
+    # release in between). Each keeps its `SkillDefinition` and its
+    # `workflow_reference` projection (P2: retirement is an exposure change,
+    # not a deletion), keeps `compatibility_alias=True` so a stale workflow
+    # hint resolves as a compatibility concern, and names its `ulw-work`
+    # target home. Rollback is a one-row edit back to the canonical shape;
+    # `tests/test_ulw_retirement.py` exercises it per contract.
     SurfaceExposure(
         "ralph",
         "direct_skill",
-        _DEFAULT_SURFACE_PROJECTIONS,
-        True,
-        "primary_workflow_skill",
-        _DEFAULT_SURFACE_PREFERRED_USAGE,
-        lifecycle_stage="canonical",
+        _RETIRED_SURFACE_PROJECTIONS,
+        False,
+        "workflow_reference",
+        _RETIRED_SURFACE_PREFERRED_USAGE,
+        compatibility_alias=True,
+        lifecycle_stage="retired",
+        target_home="ultrawork",
+        migration_release="1.0.7",
     ),
     SurfaceExposure(
         "team",
         "direct_skill",
-        _DEFAULT_SURFACE_PROJECTIONS,
-        True,
-        "primary_workflow_skill",
-        _DEFAULT_SURFACE_PREFERRED_USAGE,
-        lifecycle_stage="canonical",
+        _RETIRED_SURFACE_PROJECTIONS,
+        False,
+        "workflow_reference",
+        _RETIRED_SURFACE_PREFERRED_USAGE,
+        compatibility_alias=True,
+        lifecycle_stage="retired",
+        target_home="ultrawork",
+        migration_release="1.0.7",
     ),
     SurfaceExposure(
         "loop",
@@ -530,20 +553,26 @@ _SURFACE_EXPOSURES = (
     SurfaceExposure(
         "ultragoal",
         "direct_skill",
-        _DEFAULT_SURFACE_PROJECTIONS,
-        True,
-        "primary_workflow_skill",
-        _DEFAULT_SURFACE_PREFERRED_USAGE,
-        lifecycle_stage="canonical",
+        _RETIRED_SURFACE_PROJECTIONS,
+        False,
+        "workflow_reference",
+        _RETIRED_SURFACE_PREFERRED_USAGE,
+        compatibility_alias=True,
+        lifecycle_stage="retired",
+        target_home="ultrawork",
+        migration_release="1.0.7",
     ),
     SurfaceExposure(
         "ultraprocess",
         "direct_skill",
-        _DEFAULT_SURFACE_PROJECTIONS,
-        True,
-        "primary_workflow_skill",
-        _DEFAULT_SURFACE_PREFERRED_USAGE,
-        lifecycle_stage="canonical",
+        _RETIRED_SURFACE_PROJECTIONS,
+        False,
+        "workflow_reference",
+        _RETIRED_SURFACE_PREFERRED_USAGE,
+        compatibility_alias=True,
+        lifecycle_stage="retired",
+        target_home="ultrawork",
+        migration_release="1.0.7",
     ),
     SurfaceExposure(
         "ultraqa",
@@ -799,16 +828,93 @@ def ulw_inventory_payload() -> dict[str, object]:
             }
         )
     canonical_engines = [engine for engine in engines if engine["lifecycle_stage"] == "canonical"]
-    alias_engines = [engine for engine in engines if engine["lifecycle_stage"] != "canonical"]
+    alias_engines = [engine for engine in engines if engine["lifecycle_stage"] in {"alias", "warning"}]
+    # Retired engines are enumerated separately, never silently dropped: the
+    # drift gate reads all three lists, so a stage flip that loses an engine
+    # from every list fails the total-count parity below.
+    retired_engines = [engine for engine in engines if engine["lifecycle_stage"] == "retired"]
     return {
         "schema_version": ULW_INVENTORY_SCHEMA_VERSION,
         "canonical_engines": canonical_engines,
         "alias_engines": alias_engines,
+        "retired_engines": retired_engines,
         "counts": {
             "canonical": len(canonical_engines),
             "alias": len(alias_engines),
+            "retired": len(retired_engines),
             "total": len(engines),
         },
+    }
+
+
+# The `ulw-work` capability each retired engine's intent now runs as. Kept in
+# the catalog (not derived from `src/quality/ulw_equivalence.py`) because
+# routing must not import the quality gate; `tests/test_ulw_retirement.py`
+# pins this table against the equivalence cases so the two cannot disagree.
+ULW_RETIRED_CAPABILITIES = {
+    "team": "coordinated_scope",
+    "ultraprocess": "delivery_boundary",
+    "ralph": "single_owner_persistence",
+    "ultragoal": "durable_checkpoint",
+}
+
+
+def retired_ulw_engine_names() -> tuple[str, ...]:
+    """Canonical names of ULW engines whose lifecycle stage is `retired`."""
+    return tuple(
+        engine["canonical"] for engine in ulw_inventory_payload()["retired_engines"]
+    )
+
+
+def retired_ulw_engine_definitions() -> list[SkillDefinition]:
+    names = set(retired_ulw_engine_names())
+    return [definition for definition in _builtin_definitions_cached() if definition.name in names]
+
+
+def retired_display_names() -> dict[str, str]:
+    """Map every current and historical display label of a retired engine to its canonical name.
+
+    Consulted after `_canonical_skill_by_display_name()` misses: retirement
+    narrows a skill out of the routable projection, which ends ordinary label
+    resolution, so a stale label must produce a named migration error instead
+    of a silent miss.
+    """
+    mapping: dict[str, str] = {}
+    for name in retired_ulw_engine_names():
+        mapping[name] = name
+        mapping[omh_skill_display_name(name)] = name
+        for label in historical_skill_display_names(name):
+            mapping[label] = name
+    return mapping
+
+
+def retired_skill_migration_error(label: str) -> dict[str, str]:
+    """Named migration error for a retired engine label or tap path.
+
+    Returns an empty dict when the label names no retired engine. The message
+    is informational migration copy, not a deprecation warning: the intent now
+    runs as the named `ulw-work` capability.
+    """
+    text = label.strip()
+    canonical = retired_display_names().get(text, "")
+    if not canonical:
+        tail = text.rstrip("/").rsplit("/", 1)[-1]
+        canonical = retired_display_names().get(tail, "")
+    if not canonical:
+        return {}
+    capability = ULW_RETIRED_CAPABILITIES[canonical]
+    display = omh_skill_display_name(canonical)
+    return {
+        "error": "retired_skill",
+        "retired_contract_id": canonical,
+        "retired_display_name": display,
+        "target_contract_id": "ultrawork",
+        "target_display_name": omh_skill_display_name("ultrawork"),
+        "selected_capability": capability,
+        "message": (
+            f"`{display}` is retired; this intent now runs as `ulw-work` capability "
+            f"`{capability}`. Install or invoke `ulw-work` (canonical `ultrawork`) instead."
+        ),
     }
 
 
@@ -955,11 +1061,7 @@ def _catalog_intent_delegation_skill_names_cached() -> tuple[str, ...]:
 
 MEMORY_CONTEXT_POLICIES = ("compact", "explicit")
 _EXPLICIT_MEMORY_CONTEXT_SKILLS = (
-    "ralph",
-    "ultragoal",
     "loop",
-    "ultraprocess",
-    "team",
     "ultrawork",
     "idea-to-deploy",
     "cto-loop",

@@ -1,6 +1,10 @@
 """Count gates for the ULW engine roster on human-facing surfaces.
 
-The ULW engine roster is owned by ``omh.skills.catalog_types.ULW_ENGINE_SKILL_NAMES``.
+The user-facing ULW engine roster is the canonical list of
+``omh.skills.catalog.ulw_inventory_payload()`` -- retired engines left these
+surfaces when #954 stage 5 shipped, so the count gates read the canonical
+count, not ``ULW_ENGINE_SKILL_NAMES`` (which keeps all twelve names for
+display prefixing and reference contracts).
 Five surfaces state that count in prose: the site's ``ulw.lead`` sentence
 (``site/index.html`` fallback text plus all four locales of ``site/i18n.js``)
 and the count sentence in each of the four READMEs. Each README also carries a
@@ -22,9 +26,11 @@ import unittest
 from _local_package import load_local_package
 
 load_local_package()
-from omh.skills.catalog_types import ULW_ENGINE_SKILL_NAMES
+from omh.skills.catalog import ulw_inventory_payload
 
 _ENGLISH_NUMBER_WORDS = {
+    "Eight": 8,
+    "Nine": 9,
     "Ten": 10,
     "Eleven": 11,
     "Twelve": 12,
@@ -34,6 +40,8 @@ _ENGLISH_NUMBER_WORDS = {
 }
 
 _CHINESE_NUMERALS = {
+    "八": 8,
+    "九": 9,
     "十": 10,
     "十一": 11,
     "十二": 12,
@@ -48,14 +56,14 @@ _README_COUNT_PATTERNS = {
     "README.md": re.compile(r"\b([A-Z][a-z]+) `ulw-` workflows\."),
     "README.ko.md": re.compile(r"\b(\d+)개의 `ulw-` workflow\."),
     "README.ja.md": re.compile(r"\b(\d+) 個の `ulw-` workflow。"),
-    "README.zh.md": re.compile(r"([十一二三四五]+)个 `ulw-` workflow。"),
+    "README.zh.md": re.compile(r"([八九十一二三四五]+)个 `ulw-` workflow。"),
 }
 
 _SITE_LEAD_PATTERNS = {
     "en": re.compile(r"^([A-Z][a-z]+) long-horizon lanes\."),
     "ko": re.compile(r"^(\d+)개의 장기 레인\."),
     "ja": re.compile(r"^(\d+) の長期レーン。"),
-    "zh": re.compile(r"^([十一二三四五]+)条长周期车道。"),
+    "zh": re.compile(r"^([八九十一二三四五]+)条长周期车道。"),
 }
 
 
@@ -84,7 +92,7 @@ def _site_lead_entries() -> dict[str, str]:
 
 class UlwCountGateTest(unittest.TestCase):
     def test_site_lead_states_engine_count_in_all_locales(self) -> None:
-        expected = len(ULW_ENGINE_SKILL_NAMES)
+        expected = len(ulw_inventory_payload()["canonical_engines"])
         entries = _site_lead_entries()
         for locale, pattern in _SITE_LEAD_PATTERNS.items():
             with self.subTest(locale=locale):
@@ -103,7 +111,7 @@ class UlwCountGateTest(unittest.TestCase):
                 )
 
     def test_site_html_fallback_states_engine_count(self) -> None:
-        expected = len(ULW_ENGINE_SKILL_NAMES)
+        expected = len(ulw_inventory_payload()["canonical_engines"])
         html = Path("site/index.html").read_text(encoding="utf-8")
         match = re.search(r'data-i18n="ulw\.lead">([A-Z][a-z]+) long-horizon lanes\.', html)
         self.assertIsNotNone(match, "site/index.html: ulw.lead fallback sentence not found")
@@ -116,7 +124,7 @@ class UlwCountGateTest(unittest.TestCase):
         )
 
     def test_site_hero_stat_states_engine_count(self) -> None:
-        expected = len(ULW_ENGINE_SKILL_NAMES)
+        expected = len(ulw_inventory_payload()["canonical_engines"])
         html = Path("site/index.html").read_text(encoding="utf-8")
         match = re.search(
             r'data-count-to="(\d+)">(\d+)</strong>'
@@ -133,7 +141,7 @@ class UlwCountGateTest(unittest.TestCase):
             )
 
     def test_readme_count_sentences_state_engine_count(self) -> None:
-        expected = len(ULW_ENGINE_SKILL_NAMES)
+        expected = len(ulw_inventory_payload()["canonical_engines"])
         for name, pattern in _README_COUNT_PATTERNS.items():
             with self.subTest(readme=name):
                 text = Path(name).read_text(encoding="utf-8")
@@ -147,7 +155,7 @@ class UlwCountGateTest(unittest.TestCase):
                 )
 
     def test_readme_ulw_table_row_counts_match_source(self) -> None:
-        expected = len(ULW_ENGINE_SKILL_NAMES)
+        expected = len(ulw_inventory_payload()["canonical_engines"])
         for name in _README_COUNT_PATTERNS:
             with self.subTest(readme=name):
                 text = Path(name).read_text(encoding="utf-8")

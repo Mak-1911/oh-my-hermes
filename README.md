@@ -256,7 +256,7 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
 </p>
 
 <!-- omh:ulw-inventory:begin (generated: uv run python -m omh.cli docs ulw-inventory; source: src/skills/catalog.py) -->
-Twelve `ulw-` workflows. Say the trigger in chat — Hermes routes the
+Eight `ulw-` workflows. Say the trigger in chat — Hermes routes the
 rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
 
 | Workflow&nbsp;command | What it does |
@@ -266,11 +266,7 @@ rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
 | ⚡ `ulw-research` | Digs through real code and the live web, keeps sources, and verifies anything doubtful. |
 | ⚡ `ulw-plan` | Builds a reviewed plan: options compared, risks named, done-criteria agreed. |
 | ⚡ `ulw-work` | Runs an accepted plan in parallel lanes that never touch the same file. |
-| ⚡ `ulw-ralph` | One owner grinds a task to done — build, verify, review, repeat. |
-| ⚡ `ulw-team` | Multiple workers, one task list, no collisions. |
 | ⚡ `ulw-loop` | Cycles plan → build → review until the goal actually passes. |
-| ⚡ `ulw-goal` | Long-running goals with checkpoints — survives lost context, resumes where it stopped. |
-| ⚡ `ulw-process` | Takes one task all the way from research to an open PR. |
 | ⚡ `ulw-qa` | Attacks the build with hostile scenarios and fixes what breaks. |
 | ⚡ `ulw-perf` | Measures where it is actually slow or expensive, then fixes one hot path at a time. |
 <!-- omh:ulw-inventory:end -->

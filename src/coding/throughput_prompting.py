@@ -3,7 +3,7 @@ from __future__ import annotations
 from .model_routing import model_family
 
 
-_ULW_THROUGHPUT_WORKFLOWS = frozenset({"ultragoal", "ultraprocess", "ultrawork"})
+_ULW_THROUGHPUT_WORKFLOWS = frozenset({"ultrawork"})
 _BASE_THROUGHPUT_RULES = (
     "Parallel independent tool calls, repository reads, searches, and reasoning lanes in one batch whenever their inputs do not depend on each other.",
     "Keep dependency-bound work sequential; collect the upstream result before starting work that consumes it.",

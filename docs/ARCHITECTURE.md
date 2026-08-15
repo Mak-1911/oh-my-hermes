@@ -533,7 +533,7 @@ The profile mapping is deliberately narrow:
 profiles omit the binding entirely. OMH has no `pi` profile: a pi or generic
 alias is treated as an unmapped generic boundary, not as a new executor.
 Canonical Hermes display names come from the catalog (for example,
-`ultragoal` displays as `/ulw-goal` and `ultrawork` as `/ulw-work`); the
+`ultrawork` displays as `/ulw-work` and `ultraqa` as `/ulw-qa`); the
 canonical `skill_id` remains unchanged in the metadata.
 
 Availability is an evidence state machine, not an installation probe. The

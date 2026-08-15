@@ -797,7 +797,38 @@ _DEFINITIONS = [
     SkillDefinition(
         "ultrawork",
         "Ultrawork - split an accepted plan into disjoint parallel lanes with per-lane acceptance criteria, verification commands, and owners; prevents two lanes editing the same file.",
-        ("ultrawork", "$ultrawork", "ulw", "$ulw", "parallel work", "parallel implementation", "high throughput"),
+        (
+            "ultrawork",
+            "$ultrawork",
+            "ulw",
+            "$ulw",
+            "parallel work",
+            "parallel implementation",
+            "high throughput",
+            # Coordination vocabulary absorbed with the `coordinated_scope`
+            # capability (#954 stage 5).
+            "coding team",
+            "coordinated workers",
+            # Single-owner persistence vocabulary absorbed with the
+            # `single_owner_persistence` capability (#954 stage 5).
+            "finish until done",
+            "persistent execution",
+            # Delivery-cycle vocabulary absorbed with the `delivery_boundary`
+            # capability (#954 stage 5). Executor-neutral by contract: no
+            # trigger here may name a coding CLI -- naming a CLI is an
+            # owner-choice signal, never an engine trigger (plan Q9).
+            "implement",
+            "one-cycle delivery",
+            "single-cycle delivery",
+            "end-to-end process",
+            "delivery process",
+            "research plan implement review docs pr",
+            "plan implement review docs pr",
+            "prepare a pr",
+            "make a pr",
+            "open a pr",
+            "pr-ready",
+        ),
         "Use when an accepted implementation plan can be split into independent, reviewable work lanes.",
         aliases=("ulw",),
         category="execution",
@@ -1044,7 +1075,7 @@ _DEFINITIONS = [
         ),
         why_this_exists="`research` exists to make Hermes a careful research engine: it routes research demands to source-backed evidence gathering - from live web citations to studied reference implementations - verifies contested claims, and distills decision-grounding output so planning starts from evidence instead of guesses.",
         do_not_use_when=(
-            "The user asks for a full plan-to-PR delivery cycle; use `ultraprocess` or a planning workflow after research instead.",
+            "The user asks for a full plan-to-PR delivery cycle; use `ultrawork` (its `delivery_boundary` capability) or a planning workflow after research instead.",
             "The request is purely local repo inspection with no external, current, citation, or source-comparison need.",
             "The study target is this repository itself rather than external references; use `codebase-onboarding`.",
             "The user needs coding execution, review, CI, or merge evidence rather than research synthesis.",
@@ -2030,7 +2061,7 @@ _DEFINITIONS = [
         do_not_use_when=(
             "The input is unprocessed feedback, bug reports, or feature asks that first need clustering and evidence boundaries; use `feedback-triage`.",
             "The user needs a company or product strategy decision across high-level options rather than a requirements or roadmap artifact; use `strategy-brief`.",
-            "The request is an accepted, code-ready change with repository constraints and verification needs; use `ralplan` or `ultraprocess` rather than recreating a PRD.",
+            "The request is an accepted, code-ready change with repository constraints and verification needs; use `ralplan` or `ultrawork` rather than recreating a PRD.",
             "The user asks to create or update Jira, Linear, Aha!, or a roadmap system directly; use `connector-operator` with explicit target, approval, and observed evidence.",
         ),
         good_example=SkillExample(
@@ -2040,7 +2071,7 @@ _DEFINITIONS = [
         ),
         bad_example=SkillExample(
             prompt="Implement the accepted onboarding PRD and open a PR.",
-            expected="Route to `ultraprocess` or `ralplan`, not `product-brief`.",
+            expected="Route to `ultrawork` or `ralplan`, not `product-brief`.",
             why="Accepted implementation work should move into planning or delivery rather than recreate a PRD.",
         ),
     ),
@@ -3778,7 +3809,7 @@ _DEFINITIONS = [
             "so unfamiliar repos become navigable before implementation pressure starts."
         ),
         do_not_use_when=(
-            "The user already named a concrete implementation task and acceptance criteria; use `ultraprocess` or `idea-to-deploy`.",
+            "The user already named a concrete implementation task and acceptance criteria; use `ultrawork` or `idea-to-deploy`.",
             "The user needs a whole-workspace capability inventory; use `workspace-audit`.",
             "The user wants a code diff review; use `code-review`.",
         ),
@@ -3872,7 +3903,7 @@ _DEFINITIONS = [
         ),
         do_not_use_when=(
             "The user needs a narrative first-read tour of an unfamiliar repo; use `codebase-onboarding`.",
-            "The user already has accepted implementation criteria and wants code changes; use `ultraprocess` or a coding handoff.",
+            "The user already has accepted implementation criteria and wants code changes; use `ultrawork` or a coding handoff.",
             "The user asks for visual, frontend, or rendered UI QA; use `frontend`, `design-quality-gate`, or `visual-qa`.",
         ),
         good_example=SkillExample(
@@ -4279,7 +4310,7 @@ _DEFINITIONS = [
             "Mark deploy, monitoring, and rollback as unobserved until the wrapper or operator records evidence.",
         ),
         do_not_use_when=(
-            "The task is already a concrete repo change whose stopping point is one PR-ready cycle, not product or release operations; use `ultraprocess`.",
+            "The task is already a concrete repo change whose stopping point is one PR-ready cycle, not product or release operations; use `ultrawork`.",
             "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of opening a product delivery loop.",
         ),
     ),
@@ -4526,8 +4557,8 @@ _DEFINITIONS = [
         why_this_exists="`ralplan` exists to make planning reviewable before execution: Hermes should gather codebase/source facts, compare options, expose risks, define acceptance criteria, and prepare a handoff without pretending implementation already happened.",
         do_not_use_when=(
             "The request is still too ambiguous to name requirements, non-goals, or acceptance criteria; use `deep-interview` first.",
-            "The user asks for one full research-plan-implementation-review-PR cycle; use `ultraprocess` and keep ralplan as the planning stage.",
-            "The change is a small local refactor or cleanup with no architectural or regression risk; use `ultraprocess`, or `ai-slop-cleaner` when observable behavior must stay identical.",
+            "The user asks for one full research-plan-implementation-review-PR cycle; use `ultrawork` (its `delivery_boundary` capability) and keep ralplan as the planning stage.",
+            "The change is a small local refactor or cleanup with no architectural or regression risk; use `ultrawork`, or `ai-slop-cleaner` when observable behavior must stay identical.",
             "The user wants a pure source lookup, citation check, or paper explanation with no implementation plan.",
             "The unresolved work is repository terminology alignment or a project-language decision frontier; use `context` before planning.",
         ),
@@ -4538,7 +4569,7 @@ _DEFINITIONS = [
         ),
         bad_example=SkillExample(
             prompt="$ralplan implement the refactor now and open the PR.",
-            expected="Stop at the reviewed plan or route the full delivery cycle to `ultraprocess` after plan acceptance.",
+            expected="Stop at the reviewed plan or route the full delivery cycle to `ultrawork` after plan acceptance.",
             why="Ralplan is a planning gate, not implementation, review, CI, or PR evidence.",
         ),
         final_checklist=(
@@ -4553,7 +4584,7 @@ _DEFINITIONS = [
             "If requirements are still fuzzy, route back to deep-interview before planning.",
             "If current-source evidence is missing, route a `research` step before accepting the plan.",
             "If the plan depends on unstudied reference implementations or contested external claims, route a deep research step and consume its dossier before accepting the plan.",
-            "If the user asks for implementation after acceptance, recommend the follow-on path that fits the work's shape (`ultragoal`, `ultrawork`, `ralph`, `ultraprocess`, or a direct selected executor handoff) with a one-line fit reason, and start it only on the user's explicit go-ahead — never auto-start an engine from acceptance alone.",
+            "If the user asks for implementation after acceptance, recommend the follow-on path that fits the work's shape (`ultrawork` with the matching capability — durable checkpoint, coordinated lanes, single-owner persistence, or one delivery cycle — or a direct selected executor handoff) with a one-line fit reason, and start it only on the user's explicit go-ahead — never auto-start an engine from acceptance alone.",
         ),
     ),
     SkillDefinition(
@@ -4656,7 +4687,7 @@ _DEFINITIONS = [
         category="maintenance",
         phase="cleanup",
         do_not_use_when=(
-            "The goal is new or changed behavior rather than removing existing code; a plain refactor, feature, or fix request belongs to `ultraprocess`.",
+            "The goal is new or changed behavior rather than removing existing code; a plain refactor, feature, or fix request belongs to `ultrawork`.",
             "The cleanup would change architecture, module boundaries, or carry regression risk that needs a reviewed plan first; use `ralplan`.",
             "The user wants existing code judged rather than changed; use `code-review` for a bug-first review and `failure-signal-audit` for swallowed failures.",
         ),

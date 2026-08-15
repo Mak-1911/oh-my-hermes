@@ -45,12 +45,12 @@ class CodingStatusAgentTermTests(unittest.TestCase):
     def test_pi_family_status_questions_apply_on_the_status_workflow(self) -> None:
         for message in self.POSITIVE:
             with self.subTest(message=message):
-                self.assertTrue(_coding_status_request_applies(message.lower(), "ultraprocess"))
+                self.assertTrue(_coding_status_request_applies(message.lower(), "ultrawork"))
 
     def test_raspberry_pi_and_api_context_never_applies(self) -> None:
         for message in self.NEGATIVE:
             with self.subTest(message=message):
-                self.assertFalse(_coding_status_request_applies(message.lower(), "ultraprocess"))
+                self.assertFalse(_coding_status_request_applies(message.lower(), "ultrawork"))
 
     def test_status_terms_only_apply_on_the_status_workflow(self) -> None:
         self.assertFalse(_coding_status_request_applies("how far along is senpi?", "loop"))

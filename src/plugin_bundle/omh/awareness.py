@@ -318,7 +318,7 @@ except ImportError:  # pragma: no cover - exercised by standalone plugin hosts.
         handoff_cues: tuple[str, ...]
         customer_feedback_cues: tuple[str, ...]
         matched_label: str = "semantic:omh_quality_improvement_loop"
-        primary_workflow: str = "ultraprocess"
+        primary_workflow: str = "ultrawork"
 
         @property
         def matched_cues(self) -> tuple[str, ...]:
@@ -935,8 +935,8 @@ GENERIC_TOOL_CHECKPOINT_ROUTES = (
     {
         "tool_family": "coding_tools",
         "applies_before": ("Codex", "Claude Code", "Hermes coding", "oh-my runtime handoff"),
-        "primary_workflow": "ultraprocess",
-        "preferred_workflows": ("ultraprocess", "ralplan", "code-review", "agent-ops-review"),
+        "primary_workflow": "ultrawork",
+        "preferred_workflows": ("ultrawork", "ralplan", "code-review", "agent-ops-review"),
         "primary_next_action": "prepare_one_cycle_delivery",
         "fallback_action": "choose_coding_agent_or_runtime",
         "not_evidence_yet": ("executor dispatch", "implementation", "review", "CI", "merge"),
@@ -946,9 +946,7 @@ ROUTER_KEYWORD_SKILLS = (
     "deep-interview",
     "ultraperf",
     "ralplan",
-    "ultragoal",
     "loop",
-    "ultraprocess",
     "research",
     "research-department",
     "source-finder",
@@ -995,7 +993,6 @@ ROUTER_KEYWORD_SKILLS = (
     "security-safety-review",
     "code-review",
     "build-failure-triage",
-    "team",
     "ultrawork",
     "ultraqa",
     "doctor",
@@ -1182,14 +1179,10 @@ WORKFLOW_CONTEXT_CARDS = (
         "user_signal": "risky code change, issue-to-PR, review, CI, merge, coding-agent progress, or Hermes coding request",
         "omh_pattern": "choose the coding owner, prepare executor-neutral handoff or Hermes coding team path, then track dispatch and result evidence",
         "representative_workflows": (
-            "ultraprocess",
+            "ultrawork",
             "code-review",
             "build-failure-triage",
             "verification-gate",
-            "team",
-            "ultrawork",
-            "ralph",
-            "ultragoal",
             "ultraqa",
         ),
         "user_examples": ("Turn this issue into a PR-ready plan", "Is the Codex run done yet?"),
@@ -4713,8 +4706,8 @@ _ROUTE_HINT_RULES = (
         "id": "setup_output_improvement",
         "workflow": "ultraprocess",
         "lane": "coding_handoff",
-        "next_action": "answer_clarification",
-        "reason": "The user is asking to improve OMH setup logs or terminal output, which needs a scoped one-cycle implementation path after clarification.",
+        "next_action": "choose_executor",
+        "reason": "The user is asking to improve OMH setup logs or terminal output, which needs a scoped delivery cycle with an explicit coding owner.",
         "fallback_action": "ask_which_setup_surface_or_log_output_to_improve",
         "phrases": (
             "setup log",
@@ -5049,16 +5042,17 @@ def _awareness_route_hint_cached(message: str, max_hints: int) -> dict[str, obje
             if not phrase_matches and not token_matches:
                 continue
             workflow = str(rule["workflow"])
-            if any(isinstance(hint, dict) and hint.get("workflow") == workflow for hint in hints):
-                continue
-            if workflow == "workflow-learning" and any(hint.get("workflow") == workflow for hint in hints):
-                continue
-            context_card = workflow_context_card_for_workflow(workflow)
             next_action = str(rule["next_action"])
             if workflow == "loop":
                 next_action = _loop_route_hint_next_action(message, next_action, degraded)
             if rule["id"] == "coding_delivery":
                 next_action = _coding_delivery_route_hint_next_action(message, next_action)
+            workflow, next_action = _ulw_retired_hint_target(workflow, next_action, routing_normalized)
+            if any(isinstance(hint, dict) and hint.get("workflow") == workflow for hint in hints):
+                continue
+            if workflow == "workflow-learning" and any(hint.get("workflow") == workflow for hint in hints):
+                continue
+            context_card = workflow_context_card_for_workflow(workflow)
             hints.append(
                 {
                     "id": str(rule["id"]),
@@ -5728,10 +5722,6 @@ def awareness_primer_payload() -> dict[str, object]:
                 "verification-gate",
                 "security-safety-review",
                 "ultrawork",
-                "team",
-                "ralph",
-                "ultragoal",
-                "ultraprocess",
                 "ultraqa",
                 "ai-slop-cleaner",
                 "executor-runtime-readiness",
@@ -6138,11 +6128,12 @@ def _direct_workflow_invocation_hint(
     if not direct_prefix_workflow and "workflow_marker" not in structural and not direct_omh_form:
         return {}
     workflow = direct_prefix_workflow or mentioned[0]
-    context_card = workflow_context_card_for_workflow(workflow)
-    lane = str(context_card.get("id") or _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW.get(workflow.casefold(), "intent_to_plan"))
     next_action = _DIRECT_WORKFLOW_NEXT_ACTIONS.get(workflow, "route_to_downstream_workflow")
     if workflow == "loop":
         next_action = _loop_route_hint_next_action(message, next_action, degraded)
+    workflow, next_action = _ulw_retired_hint_target(workflow, next_action, routing_normalized)
+    context_card = workflow_context_card_for_workflow(workflow)
+    lane = str(context_card.get("id") or _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW.get(workflow.casefold(), "intent_to_plan"))
     return {
         "id": "direct_workflow_invocation",
         "workflow": workflow,
@@ -6203,16 +6194,57 @@ _ULW_ENGINE_LIFECYCLE_STAGES = {
     "context": "canonical",
     "deep-interview": "canonical",
     "loop": "canonical",
-    "ralph": "canonical",
+    "ralph": "retired",
     "ralplan": "canonical",
     "research": "canonical",
-    "team": "canonical",
-    "ultragoal": "canonical",
-    "ultraprocess": "canonical",
+    "team": "retired",
+    "ultragoal": "retired",
+    "ultraprocess": "retired",
     "ultraperf": "canonical",
     "ultraqa": "canonical",
     "ultrawork": "canonical",
 }
+
+
+# Target home for the retired engines, duplicated from the catalog exposure
+# rows on purpose (a copied bundle has no catalog import). A hint that
+# resolves a retired engine follows the fold to `ulw-work`; the Codex-named
+# legacy session flows divert to the owner-selection surface instead,
+# mirroring the canonical router (plan Q9: naming a CLI is an owner-choice
+# signal, never an engine trigger).
+_ULW_RETIRED_TARGET_HOME = "ultrawork"
+_ULW_RETIRED_WORKFLOWS = frozenset(
+    name for name, stage in _ULW_ENGINE_LIFECYCLE_STAGES.items() if stage == "retired"
+)
+_CODEX_OWNER_CHOICE_MARKERS = ("codex", "코덱스")
+_CODEX_OWNER_CHOICE_FLOWS = (
+    "세션이 살아있는지",
+    "세션 살아있는지",
+    "session alive",
+    "세션 상태",
+    "session status",
+    "지금 뭐",
+    "뭐하고",
+    "뭐 하고",
+    "진행상황",
+    "진행 상황",
+    "작업 시작해",
+    "이슈 pr",
+    "issue pr",
+)
+
+
+def _ulw_retired_hint_target(
+    workflow: str, next_action: str, routing_normalized: str
+) -> tuple[str, str]:
+    if workflow not in _ULW_RETIRED_WORKFLOWS:
+        return workflow, next_action
+    if any(marker in routing_normalized for marker in _CODEX_OWNER_CHOICE_MARKERS) and any(
+        flow in routing_normalized for flow in _CODEX_OWNER_CHOICE_FLOWS
+    ):
+        return "executor-runtime-readiness", "prepare_executor_runtime_readiness"
+    remapped_actions = {"start_goal": "prepare_parallel_delivery"}
+    return _ULW_RETIRED_TARGET_HOME, remapped_actions.get(next_action, next_action)
 
 
 @lru_cache(maxsize=1)
@@ -6380,7 +6412,7 @@ def _matched_text_cues(cues: tuple[str, ...], text: str, compact: str) -> tuple[
 
 
 def _omh_quality_improvement_hint(intent: object) -> dict[str, object]:
-    workflow = "ultraprocess"
+    workflow = "ultrawork"
     context_card = workflow_context_card_for_workflow(workflow)
     return {
         "id": "omh_quality_improvement_loop",

@@ -141,7 +141,7 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "report_merged": "reporting the merge",
     "start_loop_cycle": "starting the loopability-gated cycle",
     "start_loop": "starting the loop",
-    "start_ultraprocess": "preparing the one-cycle delivery process",
+    "start_delivery_cycle": "preparing the one-cycle delivery process",
     "route_direct_task": "routing the direct task",
     "triage_feedback": "triaging the feedback signal",
     "wait_for_executor_evidence": "waiting for coding-agent evidence",

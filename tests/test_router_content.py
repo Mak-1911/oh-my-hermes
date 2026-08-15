@@ -50,16 +50,14 @@ from omh.skills.catalog import (
     primary_harness_for_skill,
     retained_delegation_skill_names,
 )
-from omh.skills.render import frontmatter_description, workflow_reference_markdown, workflow_reference_payload
+from omh.skills.render import frontmatter_description, workflow_reference_markdown, workflow_reference_payload, workflow_skill
 from omh.snippet import WORKSPACE_SNIPPET
 from omh.use_cases import USE_CASES, list_use_cases
 
 
 FLAGSHIP_SKILLS = {
     "oh-my-hermes",
-    "ultragoal",
     "loop",
-    "ultraprocess",
     "deep-interview",
     "ultrawork",
     "meeting-brief",
@@ -403,8 +401,6 @@ class RouterContentTests(unittest.TestCase):
         installable_names = {definition.name for definition in installable_skill_definitions()}
 
         for expected in {
-            "ralph",
-            "ultragoal",
             "ultrawork",
             "deep-interview",
             "research",
@@ -445,8 +441,6 @@ class RouterContentTests(unittest.TestCase):
             "cto-loop",
             "deploy-and-monitor",
             "loop",
-            "ultraprocess",
-            "team",
             "ultraqa",
             "plan",
             "ralplan",
@@ -554,7 +548,7 @@ class RouterContentTests(unittest.TestCase):
             "leadership": "run_cto_loop",
             "monitoring": "prepare_deploy_monitor_plan",
             "goal-loop": "assess_loopability",
-            "process": "start_ultraprocess",
+            "process": "start_delivery_cycle",
             "materials": "prepare_material_package",
         }
 
@@ -836,8 +830,9 @@ class RouterContentTests(unittest.TestCase):
                 definition = definitions[name]
                 self.assertEqual(definition.aliases, aliases)
                 self.assertTrue(set(aliases).issubset(definition.triggers))
-                frontmatter = templates[name].split("---", 2)[1]
-                self.assertIn(f"Aliases: {', '.join(aliases)}.", frontmatter)
+                if name in templates:  # retired engines render no installed template
+                    frontmatter = templates[name].split("---", 2)[1]
+                    self.assertIn(f"Aliases: {', '.join(aliases)}.", frontmatter)
 
     def test_unsafe_picker_aliases_fail_loudly(self) -> None:
         definition = next(item for item in builtin_definitions() if item.name == "ultrawork")
@@ -1008,7 +1003,7 @@ class RouterContentTests(unittest.TestCase):
         escalate into a durable goal ledger or a coding-executor handoff. The guard lives in
         catalog data so every generated ulw-goal install carries it.
         """
-        definitions = {definition.name: definition for definition in installable_skill_definitions()}
+        definitions = {definition.name: definition for definition in builtin_definitions()}
         ultragoal = definitions["ultragoal"]
 
         guard_lines = [line for line in ultragoal.do_not_use_when if "settings-only" in line]
@@ -1045,7 +1040,7 @@ class RouterContentTests(unittest.TestCase):
         from omh.skills.catalog import ENGINE_ENTRY_CONFIRMATION_RULE
 
         engines = ("ralph", "ultragoal", "ultraprocess", "team", "ultrawork", "ultraqa")
-        definitions = {definition.name: definition for definition in installable_skill_definitions()}
+        definitions = {definition.name: definition for definition in builtin_definitions()}
         for name in engines:
             with self.subTest(engine=name):
                 self.assertEqual(
@@ -1055,7 +1050,8 @@ class RouterContentTests(unittest.TestCase):
                 )
         templates = {template.name: template for template in builtin_skill_templates()}
         for name in engines:
-            self.assertIn("not permission", templates[name].content, name)
+            if name in templates:  # retired engines render no installed template
+                self.assertIn("not permission", templates[name].content, name)
         # Planning skills recommend an engine; they never gate their own entry on one.
         for planning_name in ("ralplan", "plan", "deep-interview"):
             self.assertNotIn(
@@ -1110,7 +1106,7 @@ class RouterContentTests(unittest.TestCase):
             if definition.hermes_role in {"handoff-guide", "runtime-handoff-guidance"}
             or definition.quality_tier == "handoff-gated"
         }
-        self.assertLessEqual({"ralph", "ultragoal", "ultraprocess", "team", "ultrawork"}, handoff_shaped)
+        self.assertLessEqual({"ultrawork", "ai-slop-cleaner"}, handoff_shaped)
         for name in sorted(handoff_shaped):
             with self.subTest(skill=name):
                 content = templates[name].content
@@ -2754,7 +2750,7 @@ class RouterContentTests(unittest.TestCase):
 
         templates = {template.name: template for template in builtin_skill_templates()}
         self.assertIn("Reasoning demand: `light`", templates["oh-my-hermes"].content)
-        self.assertIn("Reasoning demand: `heavy`", templates["ralph"].content)
+        self.assertIn("Reasoning demand: `heavy`", workflow_skill("ralph").content)
         payload = workflow_reference_payload()
         skills = {skill["name"]: skill for skill in payload["skills"]}
         self.assertEqual(skills["ralph"]["reasoning_demand"], "heavy")
@@ -2845,7 +2841,6 @@ class RouterContentTests(unittest.TestCase):
         self.assertEqual(primary_harness_for_skill("cto-loop"), "app-delivery-loop")
         self.assertEqual(primary_harness_for_skill("deploy-and-monitor"), "app-delivery-loop")
         self.assertEqual(primary_harness_for_skill("loop"), "goal-loop")
-        self.assertEqual(primary_harness_for_skill("ultraprocess"), "goal-execution")
         self.assertEqual(primary_harness_for_skill("best-practice-research"), "research")
         self.assertEqual(primary_harness_for_skill("autoresearch-goal"), "research")
         self.assertIn("deep-interview", retained)
@@ -2905,6 +2900,10 @@ class RouterContentTests(unittest.TestCase):
 
     def test_workflow_skills_refer_to_harness_discipline(self) -> None:
         skills = {skill.name: skill for skill in builtin_skill_templates()}
+        # The retired reference contract still renders the shared discipline
+        # even though it no longer installs (#954 stage 5).
+        skills["ultragoal"] = workflow_skill("ultragoal")
+        skills["ultraprocess"] = workflow_skill("ultraprocess")
         common_rail = next(
             template.content
             for template in builtin_skill_reference_templates()
@@ -2924,9 +2923,10 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("Workflow Lane", skills["ultragoal"].content)
         self.assertIn("Completion Checklist", skills["ultragoal"].content)
         self.assertIn("Recovery Notes", skills["ultragoal"].content)
-        # ULW fold (issue #954, PR D): the folded contracts share the fold
-        # target's coding-handoff lane.
-        self.assertIn("Current lane: **Coding handoff**", skills["ultragoal"].content)
+        # #954 stage 5: the retired reference contract no longer belongs to a
+        # primer lane roster; its rendered reference falls back to the router
+        # guidance line.
+        self.assertIn("Use `omh_recommend` or the `oh-my-hermes` router", skills["ultragoal"].content)
         self.assertIn("hand back to `oh-my-hermes`", skills["ultragoal"].content)
         self.assertIn("Prepared OMH routing", skills["ultragoal"].content)
         self.assertIn("OMH Context Rail", common_rail)
@@ -2940,7 +2940,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("hermes_coding_harness/v1", skills["ultragoal"].content)
         self.assertIn("builder, verifier, reviewer, docs, and PR lanes", skills["ultragoal"].content)
         self.assertIn("PR head SHA", skills["ultragoal"].content)
-        self.assertIn("omh runtime record --skill ultragoal --harness goal-execution --status started", skills["ultragoal"].content)
+        self.assertIn("omh runtime record --skill ultragoal --harness coding-handling --status started", skills["ultragoal"].content)
         self.assertIn("goal_completion_gate/v1", skills["ultragoal"].content)
         self.assertIn("inspect .omh/goals", skills["ultragoal"].content)
         self.assertIn("Current lane: **Materials and visual summaries**", skills["img-summary"].content)
@@ -3000,7 +3000,7 @@ class RouterContentTests(unittest.TestCase):
                 self.assertTrue(all(item.strip() for item in definition.recovery_notes))
 
     def test_default_completion_and_recovery_guidance_varies_by_lane(self) -> None:
-        definitions = {definition.name: definition for definition in installable_skill_definitions()}
+        definitions = {definition.name: definition for definition in builtin_definitions()}
         completion_sets = {tuple(definition.final_checklist) for definition in definitions.values()}
         recovery_sets = {tuple(definition.recovery_notes) for definition in definitions.values()}
 
@@ -3020,7 +3020,7 @@ class RouterContentTests(unittest.TestCase):
             or definition.quality_tier == "handoff-gated"
         }
 
-        self.assertTrue({"ralph", "ultragoal", "ultraprocess", "team", "ultrawork", "ai-slop-cleaner"} <= handoff_names)
+        self.assertTrue({"ultrawork", "ai-slop-cleaner"} <= handoff_names)
         for name in handoff_names:
             with self.subTest(skill=name):
                 content = templates[name]
@@ -3485,7 +3485,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[Roles](ROLES.md)", docs_readme)
         self.assertIn("Agent Install Protocol", docs_readme)
         self.assertIn("`deep-interview`, `ralplan`, `ultragoal`, `loop`", docs_readme)
-        self.assertIn("**106 installable skills**", docs_readme)
+        self.assertIn("**102 installable skills**", docs_readme)
         self.assertIn("**Retain knowledge**", docs_readme)
         self.assertIn("python -m unittest discover -s tests", ci)
         self.assertIn("python -m compileall src", ci)
@@ -3564,13 +3564,15 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("104", site)
         self.assertIn("omh update", site)
         self.assertIn("omh doctor", site)
-        # All eleven flagship workflows are named by exact skill name.
+        # Every canonical flagship workflow is named by exact skill name; the
+        # four retired engines left the site at #954 stage 5.
         for slug in (
-            "ulw-work", "ulw-plan", "ulw-interview", "ulw-goal", "ulw-loop",
-            "ulw-ralph", "ulw-team", "ulw-process", "ulw-qa", "ulw-research",
-            "ulw-perf",
+            "ulw-work", "ulw-plan", "ulw-interview", "ulw-loop",
+            "ulw-qa", "ulw-research", "ulw-perf",
         ):
             self.assertIn(f'ulw-row__slug">{slug}</code>', site)
+        for slug in ("ulw-goal", "ulw-ralph", "ulw-team", "ulw-process"):
+            self.assertNotIn(f'ulw-row__slug">{slug}</code>', site)
         # Evidence vocabulary matches the 1.0.5 README stage badges.
         self.assertIn("Plan · not run", site)
         self.assertIn("Code · running", site)

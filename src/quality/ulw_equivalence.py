@@ -1213,15 +1213,18 @@ COORDINATED_SCOPE_TEARDOWN_TEXT = (
     "closed instead of lingering as implicit owners."
 )
 
-# Frozen source baselines captured from `main` @ acb9a060 (post PR A/B/C,
-# before PR D's first edit). The pin test recomputes each digest from live
-# producers; the four retiring definitions are untouched during PR D, so a
-# mismatch means someone edited a retiring contract mid-migration.
+# Frozen source baselines, re-pinned at retirement (#954 stage 5, window=0).
+# The PR D captures pinned the pre-fold routing and harness legs; stage 5
+# deliberately moved both -- the representative cues now resolve the
+# `ulw-work` alias and the retired contracts left the primary-harness map --
+# so the digests were recomputed once, in the same commit as the change that
+# moved them, and disclosed in the PR body. The definition-field leg is
+# unchanged; a future mismatch still means someone edited a retired contract.
 _SOURCE_BASELINE_DIGESTS = {
-    "team": "32966e8d1efd7fa15c7cc6af0d85a7d7e515d3e79887a05421fb9e9c426ca3dc",
-    "ultraprocess": "fa09c06e7e82c347641d011fc8882bffe08ba97c62f795fa12e9b083a028064b",
-    "ralph": "4b26367d4480a72d1d66c2013dd6b6e995f3aea99766d923b177eb7c324d9cf0",
-    "ultragoal": "a17e92a848d49ad6e6da04aa203671d72dfe3bcf4d4031ea0de15f77d4d98991",
+    "team": "50918dc931ca52c9ca1fda1a9088e0e4f1997faa45eab6bc4a0d4645fd69b835",
+    "ultraprocess": "0168d5886a4fa18c0a4b86b5007c80b4e229f5ce0e3a92fbbe40ae411f9eba5b",
+    "ralph": "99a7d3146874ebc3a4ed31c3dcebf2466f16f952a606beae7fbba9b6d75f2bf3",
+    "ultragoal": "5f22c848d61e0c7ffa2a6230e8eaba8803a28f852431bc8b7be8a8b50a184db9",
 }
 
 CONTRACT_EQUIVALENCE_CASES = (

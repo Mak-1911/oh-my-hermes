@@ -1424,7 +1424,7 @@ def _intent_for(message: str, workflow: str, score: int) -> str:
 
 
 def _coding_status_request_applies(lowered: str, workflow: str) -> bool:
-    if workflow != "ultraprocess":
+    if workflow != "ultrawork":
         return False
     if not _has_any(lowered, _CODING_STATUS_REQUEST_TERMS):
         return False

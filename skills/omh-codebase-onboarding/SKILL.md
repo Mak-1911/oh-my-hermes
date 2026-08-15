@@ -20,7 +20,7 @@ This is a Hermes-native `codebase-onboarding` workflow skill.
 
 ## Do Not Use When
 
-- The user already named a concrete implementation task and acceptance criteria; use `ultraprocess` or `idea-to-deploy`.
+- The user already named a concrete implementation task and acceptance criteria; use `ultrawork` or `idea-to-deploy`.
 - The user needs a whole-workspace capability inventory; use `workspace-audit`.
 - The user wants a code diff review; use `code-review`.
 

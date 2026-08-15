@@ -1,8 +1,8 @@
 {
  "schema_version": "omh_routing_precision_subset/v1",
- "captured_at": "main @ acb9a060 (after PR C merged, before PR D's first edit)",
+ "captured_at": "case ids: main @ acb9a060 (PR C merge); digest: re-pinned once at #954 stage 5 (window=0 retirement PR)",
  "serialization": "sha256 over json.dumps({'cases': sorted(cases, key=id), 'intervention_cases': sorted(intervention_cases, key=id)}, sort_keys=True, ensure_ascii=False).encode() with both row lists filtered to case_ids; the summary block is excluded by construction",
- "digest": "a3fa05cd93360f6e324013c4bc1a31142f7987e3af682442927d8ece08a3561c",
+ "digest": "e61bf7797d8623ab7a9b96b5c740bce1b24f2cd22d879fdba0430ddb293f49f6",
  "case_ids": [
   "bounded-slow-query-stays-direct",
   "catalog-no-shell-approval-korean",
@@ -241,5 +241,6 @@
   "visual-summary",
   "web-crawler-concept-direct",
   "workflow-learning"
- ]
+ ],
+ "note": "Re-pinned at #954 stage 5 (window=0): the retirement PR deliberately reroutes the four retiring engines' cues and edits their corpus rows, so the subset digest moved once, disclosed in that PR body."
 }

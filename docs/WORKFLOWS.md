@@ -162,11 +162,13 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Quality tier: `handoff-gated`
 - Reasoning demand: `heavy`
 - Exposure: `direct_skill`
-- Install visibility: `true`
-- Docs visibility: `primary_workflow_skill`
-- Compatibility alias: `false`
-- Lifecycle stage: `canonical`
-- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Install visibility: `false`
+- Docs visibility: `workflow_reference`
+- Compatibility alias: `true`
+- Lifecycle stage: `retired`
+- Target home: `ultrawork`
+- Migration release: `1.0.7`
+- Preferred usage: Retired workflow engine: the intent now runs as a `ulw-work` capability; keep this contract as a workflow reference only.
 - Handoff policy: Keep as compatibility guidance; for implementation, ask the wrapper to prepare/track the selected coding runtime path instead of hiding execution inside chat narration.
 - Why this exists: `ralph` exists to keep `execution` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use after scope is concrete and the user wants one owner to continue through implementation and verification.
@@ -221,11 +223,13 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Quality tier: `checkpoint-gated`
 - Reasoning demand: `heavy`
 - Exposure: `direct_skill`
-- Install visibility: `true`
-- Docs visibility: `primary_workflow_skill`
-- Compatibility alias: `false`
-- Lifecycle stage: `canonical`
-- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Install visibility: `false`
+- Docs visibility: `workflow_reference`
+- Compatibility alias: `true`
+- Lifecycle stage: `retired`
+- Target home: `ultrawork`
+- Migration release: `1.0.7`
+- Preferred usage: Retired workflow engine: the intent now runs as a `ulw-work` capability; keep this contract as a workflow reference only.
 - Handoff policy: Use Hermes to maintain .omh/goals goal_ledger/v1 state, show goal_status_card/v1 / goal_continuation/v1 next actions, and route coding milestones to the selected runtime profile with only observed runtime evidence.
 - Why this exists: `ultragoal` exists for work that can outlive one chat turn: it turns ambition into durable stories, checkpoints, and completion gates so progress can resume without pretending a summary is evidence.
 - Use when: Use when work needs durable goal artifacts, checkpointed progress, and final quality gates.
@@ -390,11 +394,13 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Quality tier: `process-gated`
 - Reasoning demand: `heavy`
 - Exposure: `direct_skill`
-- Install visibility: `true`
-- Docs visibility: `primary_workflow_skill`
-- Compatibility alias: `false`
-- Lifecycle stage: `canonical`
-- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Install visibility: `false`
+- Docs visibility: `workflow_reference`
+- Compatibility alias: `true`
+- Lifecycle stage: `retired`
+- Target home: `ultrawork`
+- Migration release: `1.0.7`
+- Preferred usage: Retired workflow engine: the intent now runs as a `ulw-work` capability; keep this contract as a workflow reference only.
 - Handoff policy: Keep the one-cycle process orchestration, source/codebase research, planning, review framing, docs-sync checks, PR narration, and evidence boundaries in Hermes; convert implementation into a selected executor/runtime handoff such as Codex, Claude Code, OMX/OMO/OMC, another coding agent, or explicit Hermes coding runtime only when the user accepts that owner.
 - Why this exists: `ultraprocess` exists to give Hermes one clean plan-to-PR operating cycle: research, reviewed plan, selected implementation handoff, review gate, docs sync, and PR-ready evidence.
 - Use when: Use when the user asks Hermes to take a concrete task through one full delivery cycle: research/codebase context, reviewed plan, selected implementation handoff, code review, docs sync when needed, and PR preparation.
@@ -675,11 +681,13 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Quality tier: `coordination-gated`
 - Reasoning demand: `heavy`
 - Exposure: `direct_skill`
-- Install visibility: `true`
-- Docs visibility: `primary_workflow_skill`
-- Compatibility alias: `false`
-- Lifecycle stage: `canonical`
-- Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
+- Install visibility: `false`
+- Docs visibility: `workflow_reference`
+- Compatibility alias: `true`
+- Lifecycle stage: `retired`
+- Target home: `ultrawork`
+- Migration release: `1.0.7`
+- Preferred usage: Retired workflow engine: the intent now runs as a `ulw-work` capability; keep this contract as a workflow reference only.
 - Handoff policy: Use Hermes for lane framing and status; implementation lanes should become selected runtime handoff tasks, including Hermes-owned coding when the user chooses that runtime.
 - Why this exists: `team` exists to keep `execution` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use when multiple independent lanes materially improve throughput or verification.
@@ -753,7 +761,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - [capability:durable_checkpoint] One concrete, already-scoped task only needs one owner to finish and verify; use the `single_owner_persistence` capability.
   - [capability:durable_checkpoint] The next work must be discovered or reframed repeatedly through research and feedback cycles; use `loop`.
   - [capability:durable_checkpoint] Acceptance criteria, current checkpoint, and final gate expectations are too vague to make a goal inspectable.
-- Strong routing signals: `ultrawork`, `$ultrawork`, `ulw`, `$ulw`, `parallel work`, `parallel implementation`, `high throughput`
+- Strong routing signals: `ultrawork`, `$ultrawork`, `ulw`, `$ulw`, `parallel work`, `parallel implementation`, `high throughput`, `coding team`, `coordinated workers`, `finish until done`, `persistent execution`, `implement`, `one-cycle delivery`, `single-cycle delivery`, `end-to-end process`, `delivery process`, `research plan implement review docs pr`, `plan implement review docs pr`, `prepare a pr`, `make a pr`, `open a pr`, `pr-ready`
 - Good example:
   - Prompt: $ultrawork split the accepted docs refresh, CLI output polish, and test updates into parallel implementation lanes.
   - Expected behavior: Create disjoint lane prompts with acceptance criteria, verification commands, and review evidence requirements.
@@ -842,7 +850,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `research` exists to make Hermes a careful research engine: it routes research demands to source-backed evidence gathering - from live web citations to studied reference implementations - verifies contested claims, and distills decision-grounding output so planning starts from evidence instead of guesses.
 - Use when: Use for research before planning, deciding, or handoff - from current web evidence and citations to exhaustive grounding with studied reference implementations and verified contested claims.
 - Do not use when:
-  - The user asks for a full plan-to-PR delivery cycle; use `ultraprocess` or a planning workflow after research instead.
+  - The user asks for a full plan-to-PR delivery cycle; use `ultrawork` (its `delivery_boundary` capability) or a planning workflow after research instead.
   - The request is purely local repo inspection with no external, current, citation, or source-comparison need.
   - The study target is this repository itself rather than external references; use `codebase-onboarding`.
   - The user needs coding execution, review, CI, or merge evidence rather than research synthesis.
@@ -1812,7 +1820,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Do not use when:
   - The input is unprocessed feedback, bug reports, or feature asks that first need clustering and evidence boundaries; use `feedback-triage`.
   - The user needs a company or product strategy decision across high-level options rather than a requirements or roadmap artifact; use `strategy-brief`.
-  - The request is an accepted, code-ready change with repository constraints and verification needs; use `ralplan` or `ultraprocess` rather than recreating a PRD.
+  - The request is an accepted, code-ready change with repository constraints and verification needs; use `ralplan` or `ultrawork` rather than recreating a PRD.
   - The user asks to create or update Jira, Linear, Aha!, or a roadmap system directly; use `connector-operator` with explicit target, approval, and observed evidence.
 - Strong routing signals: `product requirements document`, `PRD`, `roadmap prioritization`, `제품 요구사항 문서`, `제품 기획서`, `로드맵 우선순위`
 - Good example:
@@ -1821,7 +1829,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Why: The request needs a decision-ready requirements and prioritization artifact before delivery planning.
 - Bad example:
   - Prompt: Implement the accepted onboarding PRD and open a PR.
-  - Expected behavior: Route to `ultraprocess` or `ralplan`, not `product-brief`.
+  - Expected behavior: Route to `ultrawork` or `ralplan`, not `product-brief`.
   - Why: Accepted implementation work should move into planning or delivery rather than recreate a PRD.
 - Quality bar:
   - Name problem, user, metric, goals, non-goals, requirements, dependencies, risks, and acceptance shape.
@@ -3033,7 +3041,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `codebase-onboarding` adapts ECC's code-tour and onboarding surfaces into an OMH-native first-read workflow so unfamiliar repos become navigable before implementation pressure starts.
 - Use when: Use when Hermes should help an operator or coding executor understand an unfamiliar repository before planning implementation.
 - Do not use when:
-  - The user already named a concrete implementation task and acceptance criteria; use `ultraprocess` or `idea-to-deploy`.
+  - The user already named a concrete implementation task and acceptance criteria; use `ultrawork` or `idea-to-deploy`.
   - The user needs a whole-workspace capability inventory; use `workspace-audit`.
   - The user wants a code diff review; use `code-review`.
 - Strong routing signals: `codebase-onboarding`, `codebase onboarding`, `repo onboarding`, `repository onboarding`, `codebase tour`, `code tour`, `new repo orientation`, `understand this repo`, `how this repo works`, `first task runway`, `개발자 온보딩`, `레포 온보딩`, `코드베이스 온보딩`, `처음 보는 레포`, `레포 구조 설명`
@@ -3101,7 +3109,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Use when: Use when Hermes should refresh or summarize local repo code intelligence before planning, handoff, review, or implementation.
 - Do not use when:
   - The user needs a narrative first-read tour of an unfamiliar repo; use `codebase-onboarding`.
-  - The user already has accepted implementation criteria and wants code changes; use `ultraprocess` or a coding handoff.
+  - The user already has accepted implementation criteria and wants code changes; use `ultrawork` or a coding handoff.
   - The user asks for visual, frontend, or rendered UI QA; use `frontend`, `design-quality-gate`, or `visual-qa`.
 - Strong routing signals: `codegraph-refresh`, `codegraph refresh`, `refresh codegraph`, `update codegraph`, `codegraph stale`, `stale codegraph`, `codegraph handoff`, `codegraph summary`, `codemap`, `codemaps`, `update codemaps`, `refresh codemap`, `code map`, `code maps`, `stale code index`, `refresh code index`, `codegraph index`, `codegraph index refresh`, `codemap index`, `코드그래프`, `코드그래프 갱신`, `코드맵`, `코드맵 갱신`, `코드 인덱스`, `코드 인덱스 갱신`
 - Good example:
@@ -3427,7 +3435,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `idea-to-deploy` exists to keep `delivery` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use when Hermes should carry a product or app idea through shaping, decision gates, plan acceptance, executor handoff, verification, release readiness, deploy, and monitoring boundaries.
 - Do not use when:
-  - The task is already a concrete repo change whose stopping point is one PR-ready cycle, not product or release operations; use `ultraprocess`.
+  - The task is already a concrete repo change whose stopping point is one PR-ready cycle, not product or release operations; use `ultrawork`.
   - The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of opening a product delivery loop.
 - Strong routing signals: `idea-to-deploy`, `idea to deploy`, `from idea to deploy`, `plan to deploy`, `idea to launch`, `ship this idea`, `ship this feature`, `launch this feature`, `product delivery loop`, `app delivery loop`, `complete product loop`, `end-to-end app operation`, `완제품 루프`, `아이디어부터 배포`, `기획부터 배포`, `출시까지`, `앱 운영 루프`, `서비스로 만들어서 배포`, `아이디어를 서비스로`, `배포까지 가보자`, `ship this idea to production`
 - Good example:
@@ -3721,8 +3729,8 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Use when: Use when requirements are clear enough for planning but architecture, evidence, alternatives, risks, or tests need a reviewed plan before execution.
 - Do not use when:
   - The request is still too ambiguous to name requirements, non-goals, or acceptance criteria; use `deep-interview` first.
-  - The user asks for one full research-plan-implementation-review-PR cycle; use `ultraprocess` and keep ralplan as the planning stage.
-  - The change is a small local refactor or cleanup with no architectural or regression risk; use `ultraprocess`, or `ai-slop-cleaner` when observable behavior must stay identical.
+  - The user asks for one full research-plan-implementation-review-PR cycle; use `ultrawork` (its `delivery_boundary` capability) and keep ralplan as the planning stage.
+  - The change is a small local refactor or cleanup with no architectural or regression risk; use `ultrawork`, or `ai-slop-cleaner` when observable behavior must stay identical.
   - The user wants a pure source lookup, citation check, or paper explanation with no implementation plan.
   - The unresolved work is repository terminology alignment or a project-language decision frontier; use `context` before planning.
 - Strong routing signals: `ralplan`, `$ralplan`, `consensus plan`, `reviewed plan`, `issue to PR`, `acceptance criteria`, `verification command`, `reviewable PR`, `risky planning`, `dangerous planning`, `unsafe change`, `refactor safety`, `PR로 만들`, `PR로 만들 수 있게`, `위험한 리팩터링`, `리팩터링 위험`, `리스크 있는 리팩터링`, `검증 command`, `리뷰 가능한 단위`, `코드베이스 조사`, `웹리서치 계획`, `대안 비교`, `리스크 검토`
@@ -3732,7 +3740,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Why: The request is clear enough to plan but risky enough to require consensus-style review before execution.
 - Bad example:
   - Prompt: $ralplan implement the refactor now and open the PR.
-  - Expected behavior: Stop at the reviewed plan or route the full delivery cycle to `ultraprocess` after plan acceptance.
+  - Expected behavior: Stop at the reviewed plan or route the full delivery cycle to `ultrawork` after plan acceptance.
   - Why: Ralplan is a planning gate, not implementation, review, CI, or PR evidence.
 - Quality bar:
   - Start from observed repo facts and source/web evidence when freshness or external behavior matters.
@@ -3754,7 +3762,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - If requirements are still fuzzy, route back to deep-interview before planning.
   - If current-source evidence is missing, route a `research` step before accepting the plan.
   - If the plan depends on unstudied reference implementations or contested external claims, route a deep research step and consume its dossier before accepting the plan.
-  - If the user asks for implementation after acceptance, recommend the follow-on path that fits the work's shape (`ultragoal`, `ultrawork`, `ralph`, `ultraprocess`, or a direct selected executor handoff) with a one-line fit reason, and start it only on the user's explicit go-ahead — never auto-start an engine from acceptance alone.
+  - If the user asks for implementation after acceptance, recommend the follow-on path that fits the work's shape (`ultrawork` with the matching capability — durable checkpoint, coordinated lanes, single-owner persistence, or one delivery cycle — or a direct selected executor handoff) with a one-line fit reason, and start it only on the user's explicit go-ahead — never auto-start an engine from acceptance alone.
 - Required inputs:
   - requirements
   - codebase facts
@@ -3861,7 +3869,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `ai-slop-cleaner` exists to keep `maintenance` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
 - Use when: Use when the goal is removing existing low-quality, duplicated, or AI-generated code and the observable behavior must not change; lock behavior with tests before and after the edits.
 - Do not use when:
-  - The goal is new or changed behavior rather than removing existing code; a plain refactor, feature, or fix request belongs to `ultraprocess`.
+  - The goal is new or changed behavior rather than removing existing code; a plain refactor, feature, or fix request belongs to `ultrawork`.
   - The cleanup would change architecture, module boundaries, or carry regression risk that needs a reviewed plan first; use `ralplan`.
   - The user wants existing code judged rather than changed; use `code-review` for a bug-first review and `failure-signal-audit` for swallowed failures.
 - Strong routing signals: `ai-slop-cleaner`, `$ai-slop-cleaner`, `cleanup`, `deslop`, `refactor`, `risky`, `behavior-preserving refactor`, `risk analysis`, `refactor workflow`, `legacy refactor`, `리팩터링`, `리팩토링`, `위험 분석`, `변경 범위 제한`, `회귀 테스트`

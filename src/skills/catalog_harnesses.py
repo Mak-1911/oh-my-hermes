@@ -3141,12 +3141,9 @@ _FEATURE_SURFACE_HARNESSES = (
 
 
 _PRIMARY_HARNESSES = {
-    "ralph": "goal-execution",
-    "ultragoal": "goal-execution",
     "context": "decision-frontier",
     "deep-interview": "deep-interview",
     "jit-learn": "jit-learn",
-    "team": "goal-execution",
     "ultrawork": "goal-execution",
     "research": "research",
     "research-brief": "business-research",
@@ -3182,7 +3179,6 @@ _PRIMARY_HARNESSES = {
     "cto-loop": "app-delivery-loop",
     "deploy-and-monitor": "app-delivery-loop",
     "loop": "goal-loop",
-    "ultraprocess": "goal-execution",
     "ultraqa": "qa-specialist",
     "plan": "planning",
     "ralplan": "planning",

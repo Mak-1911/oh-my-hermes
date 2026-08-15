@@ -162,7 +162,7 @@ VISIBLE_ACTIONS = (
     "convert_to_loop_goal",
     "route_direct_task",
     "state_goal_success_criteria",
-    "start_ultraprocess",
+    "start_delivery_cycle",
     "start_loop",
     "run_loop_tick",
     "show_loop_status",
@@ -511,7 +511,7 @@ _SKILL_PICKER_ENTRIES = (
     ("deep-interview", "Deep Interview", "Clarify fuzzy goals before planning.", "./deep-interview <request>"),
     ("ralplan", "Ralplan", "Research and plan before execution.", "./ralplan <request>"),
     ("loop", "Loop", "Iterate on a loopable long-horizon goal.", "./loop <goal>"),
-    ("ultraprocess", "Ultra Process", "Run one research-plan-implement-review-sync cycle.", "./ultraprocess <request>"),
+    ("ultrawork", "Ultra Work", "Run an accepted plan or one bounded delivery cycle in explicit lanes.", "./ultrawork <request>"),
     ("feedback-triage", "Feedback Triage", "Turn customer or product signals into investigation.", "./feedback-triage <signal>"),
     ("research", "Research", "Gather source-backed evidence, from live citations to studied reference implementations.", "./research <question>"),
     ("source-finder", "Source Finder", "Prepare typed source candidates before downstream work.", "./source-finder <target>"),
@@ -529,7 +529,7 @@ _CONTEXT_PRIMER_GROUPS = (
     {
         "id": "intent_to_plan",
         "label": "Intent to plan",
-        "workflows": ("deep-interview", "ralplan", "ultragoal", "loop", "ultraprocess"),
+        "workflows": ("deep-interview", "ralplan", "loop", "ultrawork"),
         "use_when": "The user has a fuzzy goal, a large goal, or one delivery cycle that needs research, planning, execution, review, and sync.",
     },
     {
@@ -586,17 +586,13 @@ _CODING_OWNER_NEXT_ACTIONS = frozenset(
     {
         "prepare_coding_handoff",
         "prepare_coding_runtime_handoff",
-        "start_ultraprocess",
+        "start_delivery_cycle",
     }
 )
 _CODING_OWNER_WORKFLOWS = frozenset(
     {
-        "ultraprocess",
         "ultrawork",
-        "ultragoal",
-        "ralph",
         "ai-slop-cleaner",
-        "team",
     }
 )
 _CODING_OWNER_WHEN_CODE_SHAPED = frozenset({"code-review"})
@@ -891,7 +887,7 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "assess_loopability": ("assess_loopability", "Assess loopability"),
     "prepare_visual_prompt_card": ("prepare_visual_prompt_card", "Prepare image card"),
     "prepare_agent_ops_review": ("prepare_agent_ops_review", "Open ops review"),
-    "start_ultraprocess": ("start_ultraprocess", "Start ultraprocess"),
+    "start_delivery_cycle": ("start_delivery_cycle", "Start delivery cycle"),
     "audit_learning_readiness": ("audit_learning_readiness", "Audit learning"),
     "run_omh_update": ("run_omh_update", "Run omh update"),
     "run_omh_setup": ("run_omh_setup", "Run omh setup"),
@@ -4535,6 +4531,34 @@ def _route_requires_coding_owner(route_payload: dict[str, object], route_respons
     return False
 
 
+def _route_is_delivery_capability_request(route_payload: dict[str, object]) -> bool:
+    """A route that lands on ultrawork's delivery-boundary capability.
+
+    Two producers mark it: a retired-engine alias resolution selecting
+    `delivery_boundary`, or the delivery-shaped routing guards that used to
+    prefer `ultraprocess` (#954 stage 5).
+    """
+    alias_resolution = route_payload.get("alias_resolution")
+    if isinstance(alias_resolution, dict) and (
+        alias_resolution.get("selected_capability") == "delivery_boundary"
+    ):
+        return True
+    recommendations = route_payload.get("recommendations", [])
+    if not isinstance(recommendations, list):
+        return False
+    for recommendation in recommendations:
+        if not isinstance(recommendation, dict):
+            continue
+        matched = {str(item) for item in recommendation.get("matched", []) if str(item)}
+        if {
+            "guard:direct_coding_task",
+            "guard:delivery_cycle_before_research_only",
+            "guard:named_coding_agent_delivery",
+        } & matched:
+            return True
+    return False
+
+
 def _route_is_coding_status_request(route_payload: dict[str, object]) -> bool:
     reason = str(route_payload.get("reason", "")).lower()
     if "coding progress questions" in reason or "progress/status" in reason:
@@ -4550,10 +4574,10 @@ def _route_is_coding_status_request(route_payload: dict[str, object]) -> bool:
 
 def _route_is_explicit_hermes_coding_team_request(route_payload: dict[str, object], message: str) -> bool:
     selected = str(route_payload.get("selected_skill", ""))
-    if selected != "team":
+    if selected != "ultrawork":
         return False
     for recommendation in route_payload.get("recommendations", []):
-        if not isinstance(recommendation, dict) or str(recommendation.get("skill", "")) != "team":
+        if not isinstance(recommendation, dict) or str(recommendation.get("skill", "")) != "ultrawork":
             continue
         matched = {str(item) for item in recommendation.get("matched", []) if str(item)}
         if "guard:hermes_coding_team" in matched:
@@ -4891,6 +4915,12 @@ def build_chat_response_from_route(
             )
         policy = _selected_recommendation_policy(decision, selected)
         policy_next_action = str(policy.get("next_action", ""))
+        alias_resolution = decision.get("alias_resolution")
+        alias_selected_capability = (
+            str(alias_resolution.get("selected_capability", ""))
+            if isinstance(alias_resolution, dict)
+            else ""
+        )
         workflow_explanation_reason = _workflow_explanation_reason_for_route(decision, policy, selected)
         task_card = _route_task_card(decision)
         if task_card and str(task_card.get("task_type", "")) != "router_design_feedback":
@@ -5117,7 +5147,7 @@ def build_chat_response_from_route(
                     "runtime_tick_contract": "After start, wrappers may call the loop tick backend with deterministic queue shape to prepare the next queued worktree/subagent/connector step without claiming observation.",
                 },
             )
-        if selected == "ultraprocess" and _route_is_coding_status_request(decision):
+        if selected == "ultrawork" and _route_is_coding_status_request(decision):
             evidence_boundary = str(policy.get("evidence_boundary", "")) or "Coding-agent status is observed only after runtime evidence is recorded."
             body = (
                 "I can show the coding-agent status card and explain which handoff, dispatch, result, verification, review, CI, "
@@ -5157,7 +5187,9 @@ def build_chat_response_from_route(
                     ],
                 },
             )
-        if selected == "ultraprocess" or policy_next_action == "start_ultraprocess":
+        if policy_next_action == "start_delivery_cycle" or (
+            selected == "ultrawork" and alias_selected_capability == "delivery_boundary"
+        ):
             evidence_boundary = str(policy.get("evidence_boundary", "")) or "A delivery process route is not execution evidence."
             body = str(policy.get("wrapper_guidance", "")) or (
                 "I will shape this into one planning, implementation handoff, review, docs sync, and PR-ready cycle."
@@ -5167,10 +5199,10 @@ def build_chat_response_from_route(
                 headline="I can run one delivery process cycle for this.",
                 body=body,
                 phase="process_setup",
-                next_action="start_ultraprocess",
+                next_action="start_delivery_cycle",
                 thread_key=thread_key,
                 actions=[
-                    _action("start_ultraprocess", "Start process", "primary"),
+                    _action("start_delivery_cycle", "Start process", "primary"),
                     _action("prepare_handoff", "Prepare handoff", "secondary", enabled=False),
                     _action("show_status", "Show status", "secondary"),
                     _action("cancel", "Cancel", "secondary"),
@@ -7407,6 +7439,14 @@ def _finish_interaction(payload: dict[str, object], target_notice: dict[str, obj
     response = payload.get("chat_response")
     if isinstance(response, dict):
         response = _chat_response_with_route_explanation(response, _nested(payload, "route"))
+        # A retired-engine alias route (#954 stage 5) shows exactly one line on
+        # the status card -- the capability reason -- while the full
+        # machine-readable selection stays on `route.alias_resolution` (Q5).
+        alias_resolution = _nested(payload, "route").get("alias_resolution")
+        if isinstance(alias_resolution, dict) and alias_resolution.get("capability_reason"):
+            state = response.get("state")
+            if isinstance(state, dict):
+                state["capability_reason"] = str(alias_resolution["capability_reason"])
         if target_notice:
             response = _chat_response_with_target_notice(
                 response, target_notice, source=str(payload.get("source", "generic"))
@@ -7678,6 +7718,16 @@ def _resolve_mode(mode: str, route: dict[str, object], *, message: str = "") -> 
     if selected in _CLARIFICATION_SKILLS:
         return "clarify"
     if _route_is_explicit_hermes_coding_team_request(route, message):
+        return "route"
+    # Coding-status questions that land on the folded delivery engine render
+    # the status card, not a plan: the delivery-boundary capability absorbed
+    # `ultraprocess`'s session-status surface (#954 stage 5).
+    if selected == "ultrawork" and _route_is_coding_status_request(route):
+        return "route"
+    # Delivery-shaped requests on the folded engine keep the coding-owner
+    # flow `ultraprocess`'s retained-delegation route used to provide, while
+    # ordinary ultrawork lane planning keeps its plan card.
+    if selected == "ultrawork" and _route_is_delivery_capability_request(route):
         return "route"
     if selected in _DIRECT_WORKFLOW_SKILLS:
         return "route"

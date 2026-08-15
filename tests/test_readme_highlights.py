@@ -89,10 +89,12 @@ class ReadmeHighlightsTests(unittest.TestCase):
             "README.ja.md": "## ウルトラスキル",
             "README.zh.md": "## Ultra 技能",
         }
+        # The canonical engines only: the four retired engines (#954 stage 5)
+        # left every advertised surface and their intents run as `ulw-work`
+        # capabilities.
         engines = (
-            "ulw-work", "ulw-plan", "ulw-interview", "ulw-goal", "ulw-loop",
-            "ulw-ralph", "ulw-team", "ulw-process", "ulw-qa", "ulw-research",
-            "ulw-perf",
+            "ulw-work", "ulw-plan", "ulw-interview", "ulw-loop",
+            "ulw-qa", "ulw-research", "ulw-perf",
         )
         for rel, head in section_heads.items():
             text = Path(rel).read_text(encoding="utf-8")

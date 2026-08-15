@@ -115,6 +115,12 @@ def _ulw_alias_engine_count() -> int:
     return len(ulw_inventory_payload()["alias_engines"])
 
 
+def _ulw_retired_engine_count() -> int:
+    from ..skills.catalog import ulw_inventory_payload
+
+    return len(ulw_inventory_payload()["retired_engines"])
+
+
 def _awareness_primer_markdown_chars() -> int:
     from ..plugin_bundle.omh.awareness import awareness_primer_markdown
 
@@ -182,7 +188,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             name="installable_skill_count",
             describe="Installable workflow skills quoted in reference surfaces",
             live=_installable_skill_count,
-            expected=106,
+            expected=102,
             sites=(
                 "docs/README.md",
             ),
@@ -203,7 +209,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             name="ulw_canonical_engine_count",
             describe="ULW engines in the canonical lifecycle stage",
             live=_ulw_canonical_engine_count,
-            expected=12,
+            expected=8,
             sites=(
                 "README.ko.md",
                 "README.ja.md",
@@ -212,9 +218,18 @@ def count_metrics() -> tuple[CountMetric, ...]:
         ),
         CountMetric(
             name="ulw_alias_engine_count",
-            describe="ULW engines past the canonical lifecycle stage",
+            describe="ULW engines in the alias or warning lifecycle stage",
             live=_ulw_alias_engine_count,
             expected=0,
+            sites=(
+                "tests/test_ulw_inventory.py",
+            ),
+        ),
+        CountMetric(
+            name="ulw_retired_engine_count",
+            describe="ULW engines in the retired lifecycle stage",
+            live=_ulw_retired_engine_count,
+            expected=4,
             sites=(
                 "tests/test_ulw_inventory.py",
             ),
@@ -260,11 +275,6 @@ def budget_metrics() -> tuple[BudgetMetric, ...]:
             limit=FULL_PROFILE_SKILL_BODY_CHAR_LIMIT,
             limit_site="src/maintenance/release.py",
             reviewed_exception=FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS,
-            exception_reason=(
-                "ULW fold (issue #954, PR D): ultrawork absorbs the team/ultraprocess/ralph/"
-                "ultragoal contract obligations while the four retiring skills still ship; "
-                "cost stays elevated until PR G retires them."
-            ),
         ),
     )
 

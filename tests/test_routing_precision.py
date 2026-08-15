@@ -175,7 +175,7 @@ class RoutingPrecisionTests(unittest.TestCase):
             interventions["korean-image-generator-connector-readiness"]["observed"]["next_action"],
             "prepare_toolbelt_readiness",
         )
-        self.assertEqual(interventions["korean-hermes-coding-team-only"]["observed"]["route_workflow"], "team")
+        self.assertEqual(interventions["korean-hermes-coding-team-only"]["observed"]["route_workflow"], "ultrawork")
         self.assertEqual(
             interventions["korean-hermes-coding-team-only"]["observed"]["next_action"],
             "show_runtime_handoff",
@@ -225,7 +225,7 @@ class RoutingPrecisionTests(unittest.TestCase):
                 self.assertEqual(interventions[case_id]["observed"]["route_workflow"], "agent-ops-review")
                 self.assertEqual(interventions[case_id]["observed"]["next_action"], "refresh_agent_ops_status")
         self.assertEqual(interventions["loopable-project"]["observed"]["route_workflow"], "loop")
-        self.assertEqual(interventions["one-cycle-delivery"]["observed"]["route_workflow"], "ultraprocess")
+        self.assertEqual(interventions["one-cycle-delivery"]["observed"]["route_workflow"], "ultrawork")
         self.assertEqual(
             interventions["owner-learning-ulw-delivery"]["observed"]["next_action"],
             "choose_executor",
@@ -293,20 +293,20 @@ class RoutingPrecisionTests(unittest.TestCase):
             interventions["korean-workflow-trace-skill-improvement"]["observed"]["next_action"],
             "audit_learning_readiness",
         )
-        self.assertEqual(interventions["korean-test-until-pass-coding"]["observed"]["route_workflow"], "ultraprocess")
+        self.assertEqual(interventions["korean-test-until-pass-coding"]["observed"]["route_workflow"], "ultrawork")
         self.assertEqual(interventions["korean-test-until-pass-coding"]["observed"]["next_action"], "choose_executor")
         self.assertEqual(
             interventions["korean-codex-current-activity-status"]["observed"]["route_workflow"],
-            "ultraprocess",
+            "executor-runtime-readiness",
         )
         self.assertEqual(
             interventions["korean-codex-current-activity-status"]["observed"]["next_action"],
-            "show_coding_handoff_status",
+            "prepare_executor_runtime_readiness",
         )
-        self.assertEqual(interventions["korean-setup-output-improvement"]["observed"]["route_workflow"], "ultraprocess")
+        self.assertEqual(interventions["korean-setup-output-improvement"]["observed"]["route_workflow"], "ultrawork")
         self.assertEqual(
             interventions["korean-setup-output-improvement"]["observed"]["next_action"],
-            "answer_clarification",
+            "choose_executor",
         )
         self.assertEqual(interventions["korean-hud-menubar-restart"]["observed"]["route_workflow"], "agent-ops-review")
         self.assertEqual(
@@ -466,7 +466,7 @@ class TrivialMessageGuardTests(unittest.TestCase):
         # skill is the one legitimate one-word message.
         from omh.routing.chat import DIRECT_ANSWER_REASON, route_chat_message
 
-        for message, expected in (("wiki", "wiki"), ("/wiki", "wiki"), ("ask", "ask"), ("team", "team")):
+        for message, expected in (("wiki", "wiki"), ("/wiki", "wiki"), ("ask", "ask"), ("team", "ultrawork")):
             with self.subTest(message=message):
                 route = route_chat_message(message, source="slack")
                 self.assertEqual(route["action"], "dispatch")
