@@ -12610,6 +12610,55 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(status, 2)
         self.assertIn("cannot be combined", stderr)
 
+    def test_docs_ulw_inventory_and_site_commands_generate_and_check(self) -> None:
+        status, stdout, stderr = run_cli(["docs", "ulw-inventory", "--json"])
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["schema_version"], "omh_ulw_inventory/v1")
+        self.assertEqual(payload["counts"]["canonical"], len(payload["canonical_engines"]))
+        self.assertEqual(payload["counts"]["alias"], len(payload["alias_engines"]))
+        self.assertEqual(payload["counts"]["alias"], 0)
+
+        status, stdout, stderr = run_cli(["docs", "ulw-inventory", "--check"])
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+        self.assertTrue(json.loads(stdout)["ok"])
+
+        status, stdout, stderr = run_cli(["docs", "ulw-site", "--check"])
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+        self.assertTrue(json.loads(stdout)["ok"])
+
+        with TemporaryDirectory() as tmp:
+            stale_copy = Path(tmp) / "README.md"
+            stale_copy.write_text(
+                Path("README.md")
+                .read_text(encoding="utf-8")
+                .replace("| ⚡ `ulw-perf`", "| ⚡ `ulw-perf-hand-edited`"),
+                encoding="utf-8",
+            )
+            status, _, stderr = run_cli(["docs", "ulw-inventory", "--check", "--path", str(stale_copy)])
+            self.assertEqual(status, 2)
+            self.assertIn("stale", stderr)
+
+            status, stdout, stderr = run_cli(["docs", "ulw-inventory", "--path", str(stale_copy)])
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            self.assertIn("written", stdout)
+            status, _, stderr = run_cli(["docs", "ulw-inventory", "--check", "--path", str(stale_copy)])
+            self.assertEqual(status, 0)
+
+            no_markers = Path(tmp) / "NO_MARKERS.md"
+            no_markers.write_text("no generated region here\n", encoding="utf-8")
+            status, _, stderr = run_cli(["docs", "ulw-inventory", "--check", "--path", str(no_markers)])
+            self.assertEqual(status, 2)
+            self.assertIn("markers", stderr)
+
+        status, _, stderr = run_cli(["docs", "ulw-inventory", "--json", "--check"])
+        self.assertEqual(status, 2)
+        self.assertIn("cannot be combined", stderr)
+
     def test_harness_cli_lists_inspects_and_validates_contracts(self) -> None:
         status, stdout, stderr = run_cli(["harness", "list"])
         self.assertEqual(stderr, "")

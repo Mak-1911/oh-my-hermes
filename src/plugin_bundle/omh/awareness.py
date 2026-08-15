@@ -6190,6 +6190,27 @@ _ULW_ENGINE_WORKFLOWS = frozenset(
     }
 )
 
+# Lifecycle stage per workflow engine. Duplicated from the catalog's exposure
+# rows (`skills/catalog.ulw_inventory_payload()`) on purpose: a copied plugin
+# bundle has no catalog import, and `tests/test_display_names.py` locks the two
+# tables together so the copy cannot drift. Explicit per-engine entries, not a
+# comprehension, because a later lifecycle move flips one row here in the same
+# commit that flips the catalog row.
+_ULW_ENGINE_LIFECYCLE_STAGES = {
+    "context": "canonical",
+    "deep-interview": "canonical",
+    "loop": "canonical",
+    "ralph": "canonical",
+    "ralplan": "canonical",
+    "research": "canonical",
+    "team": "canonical",
+    "ultragoal": "canonical",
+    "ultraprocess": "canonical",
+    "ultraperf": "canonical",
+    "ultraqa": "canonical",
+    "ultrawork": "canonical",
+}
+
 
 @lru_cache(maxsize=1)
 def _canonical_workflow_by_display_name() -> dict[str, str]:

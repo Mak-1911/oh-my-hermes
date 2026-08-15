@@ -108,6 +108,7 @@ from .catalog_types import (
     OMH_SKILL_NAME_PREFIX,
     SkillDefinition,
     SkillExample,
+    SURFACE_LIFECYCLE_STAGES,
     SurfaceExposure,
     ULW_ENGINE_SKILL_NAMES,
     ULW_SKILL_NAME_PREFIX,
@@ -123,6 +124,9 @@ _DEFINITIONS.extend(_FEATURE_SURFACE_SKILLS)
 
 
 _DEFAULT_SURFACE_PROJECTIONS = ("routable", "installable", "workflow_reference", "capability")
+_DEFAULT_SURFACE_PREFERRED_USAGE = (
+    "Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle."
+)
 _SURFACE_EXPOSURES = (
     SurfaceExposure(
         "design-orchestration",
@@ -444,6 +448,121 @@ _SURFACE_EXPOSURES = (
         "primary_workflow_skill",
         "Use as an installed Hermes workflow skill when the user wants to learn from a workflow run, review an improvement candidate, create a regression case, or export a redacted review bundle.",
     ),
+    # The twelve ULW workflow engines, materialized as explicit rows so each
+    # engine's lifecycle stage is answerable from the exposure table instead of
+    # falling through `_default_surface_exposure()`. Every field other than
+    # `lifecycle_stage` must stay byte-identical to that default --
+    # `tests/test_ulw_inventory.py` pins the equality -- so a later lifecycle
+    # move (#954 stages 3-5) is a one-row edit here, never a behavior change
+    # smuggled through a default.
+    SurfaceExposure(
+        "context",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "deep-interview",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "research",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "ralplan",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "ultrawork",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "ralph",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "team",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "loop",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "ultragoal",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "ultraprocess",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "ultraqa",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "ultraperf",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
 )
 
 
@@ -514,6 +633,182 @@ def skill_exposure_payload(name: str) -> dict[str, object]:
         "docs_visibility": exposure.docs_visibility,
         "preferred_usage": exposure.preferred_usage,
         "compatibility_alias": exposure.compatibility_alias,
+        "lifecycle_stage": exposure.lifecycle_stage,
+        "target_home": exposure.target_home,
+        "migration_release": exposure.migration_release,
+    }
+
+
+ULW_INVENTORY_SCHEMA_VERSION = "omh_ulw_inventory/v1"
+
+# Reader-facing enumeration order for the twelve workflow engines: the request
+# pipeline (clarify -> research -> plan -> execute -> verify -> optimize), the
+# same order the English README table has always used. Membership is pinned to
+# `ULW_ENGINE_SKILL_NAMES` by `ulw_inventory_payload()` itself, so adding or
+# dropping an engine in only one of the two fails loudly.
+_ULW_ENGINE_ORDER = (
+    "context",
+    "deep-interview",
+    "research",
+    "ralplan",
+    "ultrawork",
+    "ralph",
+    "team",
+    "loop",
+    "ultragoal",
+    "ultraprocess",
+    "ultraqa",
+    "ultraperf",
+)
+
+# Reader-facing copy per engine. `summary` is the English README table cell;
+# `site_*` feed the generated site region (`omh docs ulw-site`). Localized row
+# prose stays hand-maintained by decision -- these are the English projections
+# only. Data, not derivation: catalog descriptions are contract prose, and the
+# marketing surfaces deliberately say less.
+_ULW_ENGINE_PRESENTATIONS: dict[str, dict[str, object]] = {
+    "context": {
+        "summary": (
+            "Aligns reviewed project terms, captures confirmed candidates, and interviews the next "
+            "decision frontier without giving terminology routing authority."
+        ),
+        "site_tag": "Terminology alignment",
+        "site_title": "Context",
+        "site_body": "Aligns the words a repository uses before plans and handoffs.",
+        "site_cues": ("ulw-context", "review project terms"),
+    },
+    "deep-interview": {
+        "summary": "Asks one question at a time until it knows exactly what you want.",
+        "site_tag": "Clarification",
+        "site_title": "Deep Interview",
+        "site_body": "One question at a time until the brief is clear.",
+        "site_cues": ("deep-interview", "clarify"),
+    },
+    "research": {
+        "summary": "Digs through real code and the live web, keeps sources, and verifies anything doubtful.",
+        "site_tag": "Decision grounding",
+        "site_title": "Research",
+        "site_body": "Reference implementations, live web evidence, verified claims.",
+        "site_cues": ("web research", "source-backed research"),
+    },
+    "ralplan": {
+        "summary": "Builds a reviewed plan: options compared, risks named, done-criteria agreed.",
+        "site_tag": "Reviewed plan",
+        "site_title": "Ralplan",
+        "site_body": "Consensus planning with review gates.",
+        "site_cues": ("ralplan", "consensus plan"),
+    },
+    "ultrawork": {
+        "summary": "Runs an accepted plan in parallel lanes that never touch the same file.",
+        "site_tag": "Parallel delivery",
+        "site_title": "Ultrawork",
+        "site_body": "Splits an accepted plan into disjoint lanes.",
+        "site_cues": ("ultrawork", "parallel work"),
+    },
+    "ralph": {
+        "summary": "One owner grinds a task to done — build, verify, review, repeat.",
+        "site_tag": "Drive to done",
+        "site_title": "Ralph",
+        "site_body": "One owner drives a task to done.",
+        "site_cues": ("ralph", "finish until done"),
+    },
+    "team": {
+        "summary": "Multiple workers, one task list, no collisions.",
+        "site_tag": "Coordination",
+        "site_title": "Team",
+        "site_body": "N coordinated workers on one shared task list.",
+        "site_cues": ("team", "parallel agents"),
+    },
+    "loop": {
+        "summary": "Cycles plan → build → review until the goal actually passes.",
+        "site_tag": "Goal loop",
+        "site_title": "Loop",
+        "site_body": "Interview → plan → research → build → review.",
+        "site_cues": ("loop", "long horizon goal"),
+    },
+    "ultragoal": {
+        "summary": "Long-running goals with checkpoints — survives lost context, resumes where it stopped.",
+        "site_tag": "Durable goals",
+        "site_title": "Ultragoal",
+        "site_body": "A checkpointed ledger survives context loss.",
+        "site_cues": ("ultragoal", "goal ledger"),
+    },
+    "ultraprocess": {
+        "summary": "Takes one task all the way from research to an open PR.",
+        "site_tag": "Task to PR",
+        "site_title": "Ultraprocess",
+        "site_body": "One clean plan-to-PR cycle.",
+        "site_cues": ("ultraprocess", "end-to-end process"),
+    },
+    "ultraqa": {
+        "summary": "Attacks the build with hostile scenarios and fixes what breaks.",
+        "site_tag": "Adversarial QA",
+        "site_title": "UltraQA",
+        "site_body": "Hostile scenarios, end-to-end runs, release QA.",
+        "site_cues": ("ultraqa", "release qa"),
+    },
+    "ultraperf": {
+        "summary": "Measures where it is actually slow or expensive, then fixes one hot path at a time.",
+        "site_tag": "Measured optimization",
+        "site_title": "Ultraperf",
+        "site_body": "Finds where the system is actually slow, leaking, or expensive.",
+        "site_cues": ("ultraperf", "find the bottleneck"),
+    },
+}
+
+
+def ulw_inventory_payload() -> dict[str, object]:
+    """Single producer for the ULW engine inventory and per-engine lifecycle state.
+
+    Every downstream ULW surface derives from this payload: the release-drift
+    count metrics, the generated site region (`omh docs ulw-site`), the
+    generated English README table (`omh docs ulw-inventory`), and the plugin
+    bundle parity test. Two producers that can disagree is exactly the
+    site-says-eleven-README-says-twelve defect this exists to end.
+    """
+    if set(_ULW_ENGINE_ORDER) != set(ULW_ENGINE_SKILL_NAMES) or len(_ULW_ENGINE_ORDER) != len(
+        ULW_ENGINE_SKILL_NAMES
+    ):
+        raise ValueError(
+            "ULW inventory order drifted from ULW_ENGINE_SKILL_NAMES; "
+            "update _ULW_ENGINE_ORDER in src/skills/catalog.py"
+        )
+    engines: list[dict[str, object]] = []
+    for name in _ULW_ENGINE_ORDER:
+        exposure = surface_exposure_for_skill(name)
+        if exposure.lifecycle_stage not in SURFACE_LIFECYCLE_STAGES:
+            raise ValueError(f"unknown lifecycle stage for {name}: {exposure.lifecycle_stage}")
+        presentation = _ULW_ENGINE_PRESENTATIONS[name]
+        display_name = omh_skill_display_name(name)
+        engines.append(
+            {
+                "canonical": name,
+                "display_name": display_name,
+                "historical_display_names": list(historical_skill_display_names(name)),
+                "lifecycle_stage": exposure.lifecycle_stage,
+                "target_home": exposure.target_home,
+                "migration_release": exposure.migration_release,
+                "summary": presentation["summary"],
+                "site": {
+                    "i18n_stem": display_name.removeprefix(ULW_SKILL_NAME_PREFIX),
+                    "tag": presentation["site_tag"],
+                    "title": presentation["site_title"],
+                    "body": presentation["site_body"],
+                    "cues": list(presentation["site_cues"]),
+                },
+            }
+        )
+    canonical_engines = [engine for engine in engines if engine["lifecycle_stage"] == "canonical"]
+    alias_engines = [engine for engine in engines if engine["lifecycle_stage"] != "canonical"]
+    return {
+        "schema_version": ULW_INVENTORY_SCHEMA_VERSION,
+        "canonical_engines": canonical_engines,
+        "alias_engines": alias_engines,
+        "counts": {
+            "canonical": len(canonical_engines),
+            "alias": len(alias_engines),
+            "total": len(engines),
+        },
     }
 
 
@@ -538,7 +833,7 @@ def _default_surface_exposure(name: str) -> SurfaceExposure:
         _DEFAULT_SURFACE_PROJECTIONS,
         True,
         "primary_workflow_skill",
-        "Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
     )
 
 

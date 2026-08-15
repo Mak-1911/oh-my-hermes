@@ -255,6 +255,7 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
+<!-- omh:ulw-inventory:begin (generated: uv run python -m omh.cli docs ulw-inventory; source: src/skills/catalog.py) -->
 Twelve `ulw-` workflows. Say the trigger in chat — Hermes routes the
 rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
 
@@ -272,6 +273,7 @@ rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
 | ⚡ `ulw-process` | Takes one task all the way from research to an open PR. |
 | ⚡ `ulw-qa` | Attacks the build with hostile scenarios and fixes what breaks. |
 | ⚡ `ulw-perf` | Measures where it is actually slow or expensive, then fixes one hot path at a time. |
+<!-- omh:ulw-inventory:end -->
 
 <br>
 

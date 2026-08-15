@@ -186,6 +186,50 @@ class DomainContextResolutionDiagnosticTests(
             ("excluded", "compatibility_only_workflow_hint"),
         )
 
+    def test_retired_lifecycle_stage_keeps_the_compatibility_hint_reason(self) -> None:
+        """`lifecycle_stage` is independent state, not a derivation source.
+
+        A retired engine keeps `compatibility_alias=True` (plan #954 §9.1), so a
+        stale workflow hint naming it must still resolve as a compatibility
+        concern. Deriving `compatibility_alias` from the stage would flip this
+        to `non_routable_workflow_hint`, which is why the field stayed plain.
+        """
+        with TemporaryDirectory() as temporary:
+            root = _repository(Path(temporary) / "retired-hint")
+            routable = catalog.routable_definitions()
+            retired_definition = replace(
+                routable[0],
+                name="retired-domain-alias",
+            )
+            retired_exposure = replace(
+                catalog.surface_exposure_for_skill(routable[0].name),
+                compatibility_alias=True,
+                lifecycle_stage="retired",
+            )
+            with (
+                patch.object(
+                    catalog,
+                    "builtin_definitions",
+                    return_value=[*routable, retired_definition],
+                ),
+                patch.object(
+                    catalog,
+                    "surface_exposure_for_skill",
+                    return_value=retired_exposure,
+                ),
+            ):
+                result = self._resolve(
+                    root,
+                    (_profile(root, hints=["retired-domain-alias"]),),
+                )
+
+        self.assertEqual(retired_exposure.lifecycle_stage, "retired")
+        self.assertTrue(retired_exposure.compatibility_alias)
+        self.assertEqual(
+            (result.status, result.reason),
+            ("excluded", "compatibility_only_workflow_hint"),
+        )
+
     def test_unexpected_programmer_errors_are_not_silently_masked(self) -> None:
         with TemporaryDirectory() as temporary:
             root = _repository(Path(temporary) / "programmer-error")

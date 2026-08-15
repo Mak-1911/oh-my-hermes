@@ -94,6 +94,18 @@ def _common_request_case_count() -> int:
     return int(build_common_request_coverage_demo()["summary"]["case_count"])
 
 
+def _ulw_canonical_engine_count() -> int:
+    from ..skills.catalog import ulw_inventory_payload
+
+    return len(ulw_inventory_payload()["canonical_engines"])
+
+
+def _ulw_alias_engine_count() -> int:
+    from ..skills.catalog import ulw_inventory_payload
+
+    return len(ulw_inventory_payload()["alias_engines"])
+
+
 def _awareness_primer_markdown_chars() -> int:
     from ..plugin_bundle.omh.awareness import awareness_primer_markdown
 
@@ -167,6 +179,26 @@ def count_metrics() -> tuple[CountMetric, ...]:
                 "tests/test_hermes_ux_quality.py",
                 "tests/test_release_smoke.py",
                 "tests/test_common_request_coverage.py",
+            ),
+        ),
+        CountMetric(
+            name="ulw_canonical_engine_count",
+            describe="ULW engines in the canonical lifecycle stage",
+            live=_ulw_canonical_engine_count,
+            expected=12,
+            sites=(
+                "README.ko.md",
+                "README.ja.md",
+                "tests/test_ulw_inventory.py",
+            ),
+        ),
+        CountMetric(
+            name="ulw_alias_engine_count",
+            describe="ULW engines past the canonical lifecycle stage",
+            live=_ulw_alias_engine_count,
+            expected=0,
+            sites=(
+                "tests/test_ulw_inventory.py",
             ),
         ),
     )
