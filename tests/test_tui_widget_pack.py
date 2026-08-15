@@ -48,7 +48,9 @@ class TuiWidgetPackTests(unittest.TestCase):
                 (hermes_home / "config.yaml").read_text(encoding="utf-8"),
             )
 
-    def test_setup_preserves_existing_config_without_display_interface(self) -> None:
+    def test_setup_defaults_existing_config_without_display_interface_to_tui(self) -> None:
+        # Upgraders whose config predates display.interface get the same TUI
+        # default as fresh installs; only an explicit choice is user-owned.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             omh_home = root / ".omh"
@@ -71,11 +73,11 @@ class TuiWidgetPackTests(unittest.TestCase):
 
             self.assertEqual((status, stderr), (0, ""))
             config_text = config.read_text(encoding="utf-8")
-            self.assertIn("display:\n  compact: true\n", config_text)
-            self.assertNotIn("interface:", config_text)
+            self.assertIn("  compact: true", config_text)
+            self.assertIn("  interface: tui", config_text)
             tui_interface = json.loads(stdout)["steps"]["apply"]["tui_interface"]
-            self.assertFalse(tui_interface["changed"])
-            self.assertEqual(tui_interface["selected"], "")
+            self.assertTrue(tui_interface["changed"])
+            self.assertEqual(tui_interface["selected"], "tui")
 
     def test_setup_preserves_an_explicit_classic_interface(self) -> None:
         with TemporaryDirectory() as tmp:

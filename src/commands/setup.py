@@ -1121,7 +1121,6 @@ def cmd_apply(args: argparse.Namespace) -> int:
 def _apply_result(args: argparse.Namespace) -> dict[str, object]:
     paths = _paths(args)
     memory_mode = str(getattr(args, "memory_mode", "") or "") or "review-first"
-    config_existed = paths.hermes_config_path.exists()
     current = read_config(paths.hermes_config_path)
     try:
         change = ensure_external_dir(current, paths.skills_dir)
@@ -1131,12 +1130,10 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
         # structural check while no OMH tool is reachable in chat.
         plugin_enable = ensure_plugin_enabled(compression.text, PLUGIN_NAME)
         # Hermes loads tui-widgets only in its official Ink TUI. Installing the
-        # widget while leaving a fresh install on the classic REPL makes the
-        # HUD unreachable. An explicit display preference remains user-owned.
-        tui_interface = ensure_tui_interface(
-            plugin_enable.text,
-            insert_default=not config_existed,
-        )
+        # widget while leaving the install on the classic REPL makes the HUD
+        # unreachable -- for upgraders with an older config just as much as for
+        # fresh installs. An explicit display preference remains user-owned.
+        tui_interface = ensure_tui_interface(plugin_enable.text)
         # Same reasoning one layer down. OMH's memory provider ships inside the
         # bundle, and a provider Hermes never selects is a provider that never
         # runs -- so requiring a control-plane command to switch it on meant the

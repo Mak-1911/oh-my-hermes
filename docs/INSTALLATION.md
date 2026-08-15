@@ -417,10 +417,11 @@ OMH's setup footprint is intentionally bounded:
 - It enables the managed `omh` plugin and selects the OMH memory provider only
   when the corresponding provider slot is free. Existing foreign ownership is
   preserved.
-- On a fresh Hermes config only, it adds `display.interface: tui` so the
-  installed HUD is reachable. Existing configs without an interface are left
-  unchanged, explicit display choices are always preserved, and uninstall does
-  not remove this fresh-install default.
+- It defaults `display.interface: tui` whenever the user has not chosen an
+  interface — on fresh configs and on existing configs alike, so upgraders
+  reach the installed HUD without knowing about `hermes --tui`. Explicit or
+  noncanonical display choices are always preserved, and uninstall does not
+  remove this default.
 - It adds `auxiliary.compression.fallback_chain` when the config pins
   compression to a single provider and already lists other fallback providers.
   Without a compression fallback, one unreachable endpoint leaves a session
