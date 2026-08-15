@@ -450,6 +450,22 @@ class LastResortFallbackTests(unittest.TestCase):
         self.assertEqual(route["status"], "owner_default")
         self.assertEqual(route["source"], "owner_default")
 
+        v2_category_only = merge_recommendation_catalog(
+            legacy_catalog,
+            load_recommendation_overrides({
+                "schema_version": MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+                "categories": {"quick": [{
+                    "model_alias": "gemini-3.1-pro",
+                    "model_family": "gemini",
+                    "preferred_provider_families": ["google"],
+                    "reasoning": "Version 2 override using only a legacy-compatible section.",
+                }]},
+            }),
+        )
+        self.assertEqual(v2_category_only["schema_version"], "model_recommendation_catalog/v1")
+        self.assertNotIn("last_resort", v2_category_only)
+        self.assertEqual(v2_category_only["categories"]["quick"][0]["model_alias"], "gemini-3.1-pro")
+
         upgraded = merge_recommendation_catalog(
             legacy_catalog,
             load_recommendation_overrides({

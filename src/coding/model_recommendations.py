@@ -281,7 +281,9 @@ def merge_recommendation_catalog(
         replacements = normalized.get(section)
         if replacements is None:
             continue
-        if section == "last_resort" and destination is None and replacements:
+        if section == "last_resort" and destination is None:
+            if not replacements:
+                continue
             merged[section] = {}
             destination = merged[section]
         if not isinstance(destination, dict) or not isinstance(replacements, Mapping):
