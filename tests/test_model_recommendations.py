@@ -416,6 +416,12 @@ class LastResortFallbackTests(unittest.TestCase):
         })
         self.assertEqual(legacy["schema_version"], "model_recommendation_overrides/v1")
         self.assertNotIn("last_resort", legacy)
+        merged = merge_recommendation_catalog(SHIPPED_MODEL_RECOMMENDATIONS, legacy)
+        self.assertEqual(merged["categories"]["quick"][0]["model_alias"], "gemini-3.1-pro")
+        self.assertEqual(
+            merged["last_resort"]["any"][0]["model_alias"],
+            "claude-opus-5",
+        )
         with self.assertRaises(ValueError):
             load_recommendation_overrides({
                 "schema_version": "model_recommendation_overrides/v1",
@@ -429,6 +435,12 @@ class LastResortFallbackTests(unittest.TestCase):
             "role_suggestions": SHIPPED_MODEL_RECOMMENDATIONS["role_suggestions"],
             "domain_affinities": SHIPPED_MODEL_RECOMMENDATIONS["domain_affinities"],
         }
+        untouched = merge_recommendation_catalog(legacy_catalog, None)
+        self.assertNotIn("last_resort", untouched)
+        self.assertEqual(
+            merge_recommendation_catalog(untouched, None)["schema_version"],
+            "model_recommendation_catalog/v1",
+        )
         route = resolve_model_recommendation(
             owner="hermes",
             category="quick",

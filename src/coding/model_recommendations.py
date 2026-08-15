@@ -270,10 +270,6 @@ def merge_recommendation_catalog(
     ):
         raise ValueError("model_recommendation_catalog/v1 cannot define last_resort")
     merged = deepcopy(dict(catalog))
-    # A caller-supplied catalog predating the shared final attempt stays
-    # meaningful: an absent section means "no last resort", not a malformed
-    # catalog, so resolution keeps dropping straight to the owner default.
-    merged.setdefault("last_resort", {})
     if overrides is None:
         return merged
     # Revalidate even a payload returned by the loader. Callers may mutate a
@@ -283,6 +279,11 @@ def merge_recommendation_catalog(
     for section in ("categories", "role_suggestions", "domain_affinities", "last_resort"):
         destination = merged.get(section)
         replacements = normalized.get(section)
+        if replacements is None:
+            continue
+        if section == "last_resort" and destination is None and replacements:
+            merged[section] = {}
+            destination = merged[section]
         if not isinstance(destination, dict) or not isinstance(replacements, Mapping):
             raise ValueError(f"malformed model recommendation catalog section: {section}")
         for name, chain in replacements.items():
