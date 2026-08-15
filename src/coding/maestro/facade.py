@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Mapping, cast
 
 from ..coding_delegation import _build_coding_delegation_payload_native
+from ..executors import EXTERNAL_CLI_PROFILES
 from .contracts import (
     ExternalHandoffCapability,
     ExternalHandoffRequest,
@@ -22,8 +23,12 @@ _HANDOFF_FIELD_BY_OWNER_MODE: dict[str, HandoffField] = {
     "prompt_only_handoff": "prompt_handoff",
     "runtime_handoff": "runtime_handoff",
 }
+# Everything this facade will build a handoff for. Derived from the narrow
+# external-CLI tuple so `set(EXTERNAL_CLI_PROFILES) < _EXTERNAL_PROFILES`
+# holds by construction: the handoff builder also serves runtime profiles and
+# the generic prompt fallback, which are not Maestro.
 _EXTERNAL_PROFILES = frozenset(
-    {"codex", "claude-code", "omx-runtime", "omo-runtime", "omc-runtime", "generic"}
+    {*EXTERNAL_CLI_PROFILES, "omx-runtime", "omo-runtime", "omc-runtime", "generic"}
 )
 
 
