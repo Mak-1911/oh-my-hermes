@@ -394,5 +394,202 @@ class RecommendationResolverTests(unittest.TestCase):
         self.assertEqual(serialize_recommendation_payload(first), serialize_recommendation_payload(second))
 
 
+class LastResortFallbackTests(unittest.TestCase):
+    """The shared final attempt used only after a selected chain is exhausted."""
+
+    _OPUS_ONLY = (_active("claude-opus-5", provider="ccapi", family="claude"),)
+    _SOL_ONLY = (_active("gpt-5.6-sol", provider="openai-codex", family="gpt"),)
+
+    def test_schema_versions_advance_and_legacy_override_remains_supported(self) -> None:
+        self.assertEqual(MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION, "model_recommendation_catalog/v2")
+        self.assertEqual(MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION, "model_recommendation_overrides/v2")
+        self.assertEqual(MODEL_RECOMMENDATION_RESOLUTION_SCHEMA_VERSION, "model_recommendation_resolution/v3")
+
+        legacy = load_recommendation_overrides({
+            "schema_version": "model_recommendation_overrides/v1",
+            "categories": {"quick": [{
+                "model_alias": "gemini-3.1-pro",
+                "model_family": "gemini",
+                "preferred_provider_families": ["google"],
+                "reasoning": "Legacy category override.",
+            }]},
+        })
+        self.assertEqual(legacy["schema_version"], "model_recommendation_overrides/v1")
+        self.assertNotIn("last_resort", legacy)
+        merged = merge_recommendation_catalog(SHIPPED_MODEL_RECOMMENDATIONS, legacy)
+        self.assertEqual(merged["categories"]["quick"][0]["model_alias"], "gemini-3.1-pro")
+        self.assertEqual(
+            merged["last_resort"]["any"][0]["model_alias"],
+            "claude-opus-5",
+        )
+        with self.assertRaises(ValueError):
+            load_recommendation_overrides({
+                "schema_version": "model_recommendation_overrides/v1",
+                "last_resort": {"any": []},
+            })
+
+    def test_legacy_catalog_without_last_resort_keeps_owner_default_behavior(self) -> None:
+        legacy_catalog = {
+            "schema_version": "model_recommendation_catalog/v1",
+            "categories": SHIPPED_MODEL_RECOMMENDATIONS["categories"],
+            "role_suggestions": SHIPPED_MODEL_RECOMMENDATIONS["role_suggestions"],
+            "domain_affinities": SHIPPED_MODEL_RECOMMENDATIONS["domain_affinities"],
+        }
+        untouched = merge_recommendation_catalog(legacy_catalog, None)
+        self.assertNotIn("last_resort", untouched)
+        self.assertEqual(
+            merge_recommendation_catalog(untouched, None)["schema_version"],
+            "model_recommendation_catalog/v1",
+        )
+        route = resolve_model_recommendation(
+            owner="hermes",
+            category="quick",
+            active_models=self._OPUS_ONLY,
+            catalog=legacy_catalog,
+        )
+        self.assertEqual(route["status"], "owner_default")
+        self.assertEqual(route["source"], "owner_default")
+
+        v2_category_only = merge_recommendation_catalog(
+            legacy_catalog,
+            load_recommendation_overrides({
+                "schema_version": MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+                "categories": {"quick": [{
+                    "model_alias": "gemini-3.1-pro",
+                    "model_family": "gemini",
+                    "preferred_provider_families": ["google"],
+                    "reasoning": "Version 2 override using only a legacy-compatible section.",
+                }]},
+            }),
+        )
+        self.assertEqual(v2_category_only["schema_version"], "model_recommendation_catalog/v1")
+        self.assertNotIn("last_resort", v2_category_only)
+        self.assertEqual(v2_category_only["categories"]["quick"][0]["model_alias"], "gemini-3.1-pro")
+
+        upgraded = merge_recommendation_catalog(
+            legacy_catalog,
+            load_recommendation_overrides({
+                "schema_version": MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+                "last_resort": {"any": [{
+                    "model_alias": "claude-opus-5",
+                    "model_family": "claude",
+                    "preferred_provider_families": ["ccapi"],
+                    "reasoning": "Upgrade the legacy catalog with an explicit final chain.",
+                }]},
+            }),
+        )
+        self.assertEqual(upgraded["schema_version"], MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION)
+
+    def test_dead_category_chain_falls_back_to_the_shared_subscription_chain(self) -> None:
+        route = resolve_model_recommendation(
+            owner="hermes", category="quick", active_models=self._OPUS_ONLY
+        )
+        self.assertEqual(route["status"], "resolved")
+        self.assertEqual(route["source"], "last_resort_chain")
+        self.assertEqual(route["selected"]["model_alias"], "claude-opus-5")
+        self.assertEqual(route["available_chain"], ["claude-opus-5"])
+        self.assertEqual(
+            route["inactive_candidates"], ["glm-5.2-ultrafast", "kimi-k3", "gpt-5.6-sol"]
+        )
+        self.assertEqual(route["projection"]["kind"], "hermes_native_binding")
+        self.assertEqual(route["projection"]["apply_state"], "approval_required")
+
+    def test_last_resort_never_outranks_an_eligible_selected_chain_candidate(self) -> None:
+        route = resolve_model_recommendation(
+            owner="hermes",
+            category="quick",
+            active_models=(
+                _active("glm-5.2-ultrafast", provider="zai", family="glm"),
+                *self._OPUS_ONLY,
+            ),
+        )
+        self.assertEqual(route["source"], "recommendation_chain")
+        self.assertEqual(route["selected"]["model_alias"], "glm-5.2-ultrafast")
+
+    def test_last_resort_also_serves_role_slot_and_domain_selectors(self) -> None:
+        route = resolve_model_recommendation(
+            owner="hermes", domain="x_platform_data", active_models=self._SOL_ONLY
+        )
+        self.assertEqual(route["source"], "last_resort_chain")
+        self.assertEqual(route["selected"]["model_alias"], "gpt-5.6-sol")
+        self.assertEqual(
+            route["inactive_candidates"],
+            ["grok-code-fast", "kimi-k3", "gemini-3.1-pro", "claude-opus-5"],
+        )
+
+    def test_unavailable_explicit_model_stays_fail_closed_against_last_resort(self) -> None:
+        route = resolve_model_recommendation(
+            owner="hermes",
+            category="quick",
+            explicit_model="glm-5.2-ultrafast",
+            active_models=self._OPUS_ONLY,
+        )
+        self.assertEqual(route["status"], "choice_required")
+        self.assertIsNone(route["selected"])
+
+    def test_no_active_model_at_all_still_reaches_owner_default(self) -> None:
+        route = resolve_model_recommendation(owner="hermes", category="quick", active_models=[])
+        self.assertEqual(route["status"], "owner_default")
+        self.assertEqual(
+            route["inactive_candidates"],
+            ["glm-5.2-ultrafast", "kimi-k3", "claude-opus-5", "gpt-5.6-sol"],
+        )
+
+    def test_maestro_projection_carries_the_whole_last_resort_order(self) -> None:
+        route = resolve_model_recommendation(
+            owner="maestro",
+            category="quick",
+            active_models=(*self._OPUS_ONLY, *self._SOL_ONLY),
+        )
+        self.assertEqual(
+            [entry["model_alias"] for entry in route["projection"]["chain"]],
+            ["claude-opus-5", "gpt-5.6-sol"],
+        )
+
+    def test_last_resort_chain_is_user_overridable_through_the_same_closed_surface(self) -> None:
+        override = load_recommendation_overrides({
+            "schema_version": MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+            "last_resort": {"any": [{
+                "model_alias": "gemini-3.1-pro",
+                "model_family": "gemini",
+                "preferred_provider_families": ["google"],
+                "reasoning": "Operator-selected final attempt.",
+            }]},
+        })
+        route = resolve_model_recommendation(
+            owner="hermes",
+            category="quick",
+            active_models=[_active("gemini-3.1-pro", provider="google", family="gemini")],
+            overrides=override,
+        )
+        self.assertEqual(route["source"], "last_resort_chain")
+        self.assertEqual(route["selected"]["model_alias"], "gemini-3.1-pro")
+        self.assertEqual(route["selected"]["recommendation_source"], "user_override")
+        self.assertEqual(
+            SHIPPED_MODEL_RECOMMENDATIONS["last_resort"]["any"][0]["model_alias"],
+            "claude-opus-5",
+        )
+
+    def test_override_rejects_unknown_last_resort_slots_and_secret_fields(self) -> None:
+        bad_payloads = (
+            {
+                "schema_version": MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+                "last_resort": {"quick": []},
+            },
+            {
+                "schema_version": MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+                "last_resort": {"any": [{
+                    "model_alias": "gemini-3.1-pro", "model_family": "gemini",
+                    "preferred_provider_families": ["google"],
+                    "reasoning": "x", "api_key": "must-not-be-stored",
+                }]},
+            },
+        )
+        for payload in bad_payloads:
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    load_recommendation_overrides(payload)
+
+
 if __name__ == "__main__":
     unittest.main()

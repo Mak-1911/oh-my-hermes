@@ -109,7 +109,7 @@
           <p>
             A category names the kind of work, never a vendor. Each category
             holds an ordered list of candidate models. OMH ships an editorial
-            order; a <code>model_recommendation_overrides/v1</code> document
+            order; a <code>model_recommendation_overrides/v2</code> document
             replaces the chains it names and leaves the rest untouched.
           </p>
           <div class="reference-grid">
@@ -124,14 +124,16 @@
           </div>
           <p>
             Setup skips unavailable candidates, selects the first active model,
-            and preserves the remaining active candidates as fallbacks. A
-            category with no active candidate keeps the selected owner's default
-            model instead of blocking installation. An override cannot add a
-            category, invent a role slot, or carry provider configuration, and
-            secret-looking fields are rejected.
+            and preserves the remaining active candidates as fallbacks. Only
+            after every selected category, role-slot, and domain chain is
+            exhausted does OMH consult one shared final order: Claude Opus 5,
+            then GPT-5.6 Sol. If neither is confirmed active, the selected owner
+            keeps its default model. An override cannot add a category, invent
+            a role slot, or carry provider configuration, and secret-looking
+            fields are rejected.
           </p>
           <div class="command" role="region" aria-label="Model recommendation override example" tabindex="0"><code>{
-  "schema_version": "model_recommendation_overrides/v1",
+  "schema_version": "model_recommendation_overrides/v2",
   "categories": {
     "quick": [
       {
@@ -139,6 +141,16 @@
         "model_family": "qwen",
         "preferred_provider_families": ["openrouter"],
         "reasoning": "Local preference for short tasks."
+      }
+    ]
+  },
+  "last_resort": {
+    "any": [
+      {
+        "model_alias": "claude-opus-5",
+        "model_family": "claude",
+        "preferred_provider_families": ["anthropic"],
+        "reasoning": "Local final metadata selection."
       }
     ]
   }
@@ -158,10 +170,11 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
             <p>
               You are not expected to hold every model. Resolution walks the
               chain, skips candidates that are not confirmed active, and selects
-              the next eligible one. When no candidate in a chain is eligible,
-              the result is <code>owner_default</code> &mdash; the selected
-              owner keeps its native default without blocking the surrounding
-              installation.
+              the next eligible one. When all selected chains are exhausted,
+              resolution checks the shared Claude Opus 5 then GPT-5.6 Sol final
+              order. When no candidate is confirmed anywhere, the result is
+              <code>owner_default</code> &mdash; the selected owner keeps its
+              native default without blocking the surrounding installation.
             </p>
             <p>
               An explicitly requested model behaves differently on purpose: it

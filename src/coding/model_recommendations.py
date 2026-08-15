@@ -17,9 +17,11 @@ from typing import Final, Iterable, Mapping
 from .model_routing import MODEL_CATEGORIES, MODEL_ROLES
 
 
-MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION: Final[str] = "model_recommendation_catalog/v1"
-MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION: Final[str] = "model_recommendation_overrides/v1"
-MODEL_RECOMMENDATION_RESOLUTION_SCHEMA_VERSION: Final[str] = "model_recommendation_resolution/v2"
+MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION: Final[str] = "model_recommendation_catalog/v2"
+MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION: Final[str] = "model_recommendation_overrides/v2"
+MODEL_RECOMMENDATION_RESOLUTION_SCHEMA_VERSION: Final[str] = "model_recommendation_resolution/v3"
+_LEGACY_MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION: Final[str] = "model_recommendation_catalog/v1"
+_LEGACY_MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION: Final[str] = "model_recommendation_overrides/v1"
 MODEL_RECOMMENDATION_STATUSES: Final[tuple[str, ...]] = (
     "resolved",
     "choice_required",
@@ -28,6 +30,7 @@ MODEL_RECOMMENDATION_STATUSES: Final[tuple[str, ...]] = (
 MODEL_RECOMMENDATION_OWNERS: Final[tuple[str, ...]] = ("hermes", "maestro")
 HERMES_MODEL_SETUP_ROLE_SLOTS: Final[tuple[str, ...]] = ("main",)
 MODEL_RECOMMENDATION_DOMAINS: Final[tuple[str, ...]] = ("x_platform_data",)
+MODEL_RECOMMENDATION_LAST_RESORT_SLOTS: Final[tuple[str, ...]] = ("any",)
 
 _CANDIDATE_FIELDS: Final[frozenset[str]] = frozenset(
     {
@@ -165,6 +168,15 @@ SHIPPED_MODEL_RECOMMENDATIONS: Final[dict[str, object]] = {
     "domain_affinities": {
         "x_platform_data": [deepcopy(_GROK), deepcopy(_KIMI_K3), deepcopy(_GEMINI)],
     },
+    # One shared final attempt, consulted only after every candidate of the
+    # selected chain is unavailable. A profile whose chains concentrate in one
+    # provider ecosystem otherwise drops straight to the owner default when
+    # that ecosystem is not confirmed active. This is not a per-category
+    # anchor: it never outranks a category, role, or domain candidate, and it
+    # never rescues an unavailable explicit model.
+    "last_resort": {
+        "any": [deepcopy(_OPUS_5), deepcopy(_SOL)],
+    },
 }
 
 
@@ -194,21 +206,29 @@ def load_recommendation_overrides(
     if not isinstance(raw, Mapping):
         raise ValueError("model recommendation override must be a JSON object")
     _reject_secret_keys(raw)
-    if raw.get("schema_version") != MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION:
+    schema_version = str(raw.get("schema_version", ""))
+    supported_versions = (
+        _LEGACY_MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+        MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+    )
+    if schema_version not in supported_versions:
         raise ValueError(
-            f"model recommendation override must use {MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION}"
+            f"model recommendation override must use one of {supported_versions}"
         )
-    unknown_top = set(raw) - {
+    allowed_top = {
         "schema_version",
         "categories",
         "role_suggestions",
         "domain_affinities",
     }
+    if schema_version == MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION:
+        allowed_top.add("last_resort")
+    unknown_top = set(raw) - allowed_top
     if unknown_top:
         raise ValueError(f"unsupported model recommendation override fields: {sorted(unknown_top)}")
 
     normalized: dict[str, object] = {
-        "schema_version": MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "categories": _normalize_section(
             raw.get("categories", {}), allowed=MODEL_CATEGORIES, section="categories"
         ),
@@ -223,6 +243,12 @@ def load_recommendation_overrides(
             section="domain_affinities",
         ),
     }
+    if schema_version == MODEL_RECOMMENDATION_OVERRIDE_SCHEMA_VERSION:
+        normalized["last_resort"] = _normalize_section(
+            raw.get("last_resort", {}),
+            allowed=MODEL_RECOMMENDATION_LAST_RESORT_SLOTS,
+            section="last_resort",
+        )
     return normalized
 
 
@@ -231,8 +257,18 @@ def merge_recommendation_catalog(
     overrides: Mapping[str, object] | None,
 ) -> dict[str, object]:
     """Return a new catalog with named user chains replacing editorial ones."""
-    if catalog.get("schema_version") != MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION:
+    schema_version = str(catalog.get("schema_version", ""))
+    supported_versions = (
+        _LEGACY_MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION,
+        MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION,
+    )
+    if schema_version not in supported_versions:
         raise ValueError("unsupported model recommendation catalog schema")
+    if (
+        schema_version == _LEGACY_MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION
+        and "last_resort" in catalog
+    ):
+        raise ValueError("model_recommendation_catalog/v1 cannot define last_resort")
     merged = deepcopy(dict(catalog))
     if overrides is None:
         return merged
@@ -240,13 +276,25 @@ def merge_recommendation_catalog(
     # normal-looking dict before reuse; no alternate path may bypass the same
     # closed-surface and secret-field checks as a file-loaded override.
     normalized = load_recommendation_overrides(overrides)
-    for section in ("categories", "role_suggestions", "domain_affinities"):
+    for section in ("categories", "role_suggestions", "domain_affinities", "last_resort"):
         destination = merged.get(section)
         replacements = normalized.get(section)
+        if replacements is None:
+            continue
+        if section == "last_resort" and destination is None:
+            if not replacements:
+                continue
+            merged[section] = {}
+            destination = merged[section]
         if not isinstance(destination, dict) or not isinstance(replacements, Mapping):
             raise ValueError(f"malformed model recommendation catalog section: {section}")
         for name, chain in replacements.items():
             destination[str(name)] = deepcopy(chain)
+    if (
+        schema_version == _LEGACY_MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION
+        and normalized.get("last_resort")
+    ):
+        merged["schema_version"] = MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION
     return merged
 
 
@@ -266,9 +314,11 @@ def resolve_model_recommendation(
     Explicit models are fail-closed: an unavailable explicit request returns
     ``choice_required`` and never falls through to an editorial candidate.
     Recommendation chains skip unavailable heads and select the next confirmed,
-    owner-compatible candidate. With no eligible candidate, ``owner_default``
-    keeps the selected owner's native default model in effect without blocking
-    the surrounding installation.
+    owner-compatible candidate. When the whole selected chain is unavailable,
+    the shared ``last_resort`` chain is tried as one final attempt and, when it
+    resolves, is reported with source ``last_resort_chain``. With no eligible
+    candidate anywhere, ``owner_default`` keeps the selected owner's native
+    default model in effect without blocking the surrounding installation.
     """
     normalized_owner = str(owner or "").strip().casefold()
     if normalized_owner not in MODEL_RECOMMENDATION_OWNERS:
@@ -318,6 +368,28 @@ def resolve_model_recommendation(
         )
 
     if not eligible_chain:
+        for candidate in _last_resort_chain(merged):
+            active = _active_for_candidate(candidate, normalized_active)
+            if active is None:
+                alias = str(candidate["model_alias"])
+                if alias not in inactive_candidates:
+                    inactive_candidates.append(alias)
+                continue
+            eligible_chain.append(_resolved_candidate(candidate, active))
+        if eligible_chain:
+            selected = eligible_chain[0]
+            return _resolution_payload(
+                owner=normalized_owner,
+                selector_section=selector_section,
+                selector_name=selector_name,
+                status="resolved",
+                source="last_resort_chain",
+                selected=selected,
+                projection=_projection(normalized_owner, selector_name, eligible_chain),
+                requested_model="",
+                available_chain=[str(entry["model_alias"]) for entry in eligible_chain],
+                inactive_candidates=inactive_candidates,
+            )
         return _resolution_payload(
             owner=normalized_owner,
             selector_section=selector_section,
@@ -461,6 +533,14 @@ def _catalog_chain(
     if not all(isinstance(candidate, Mapping) for candidate in chain):
         raise ValueError(f"malformed model recommendation candidate: {section}.{name}")
     return list(chain)
+
+
+def _last_resort_chain(catalog: Mapping[str, object]) -> list[Mapping[str, object]]:
+    """Return the shared final-attempt chain, or empty when none is configured."""
+    table = catalog.get("last_resort")
+    if not isinstance(table, Mapping) or "any" not in table:
+        return []
+    return _catalog_chain(catalog, "last_resort", "any")
 
 
 def _normalized_active_models(

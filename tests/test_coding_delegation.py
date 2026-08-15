@@ -130,6 +130,36 @@ class HermesNativeModelBindingTests(unittest.TestCase):
         self.assertNotIn("maestro", str(payload).casefold())
         self.assertIn("runtime observation", binding["claim_boundary"].casefold())
 
+    def test_last_resort_resolution_provenance_reaches_native_handoff(self) -> None:
+        recommendation = {
+            "schema_version": "model_recommendation_resolution/v3",
+            "owner": "hermes",
+            "status": "resolved",
+            "source": "last_resort_chain",
+            "selected": {
+                "model_alias": "claude-opus-5",
+                "provider": "ccapi",
+                "model_id": "claude-opus-5",
+                "recommendation_source": "shipped_editorial",
+            },
+            "projection": {
+                "kind": "hermes_native_binding",
+                "alias": "quick",
+                "provider": "ccapi",
+                "model_id": "claude-opus-5",
+                "binding": "ccapi/claude-opus-5",
+                "apply_state": "approval_required",
+            },
+        }
+
+        payload = build_coding_delegation_payload(
+            "implement a risky refactor with Hermes",
+            executor_target="hermes",
+            model_recommendation=recommendation,
+        )
+        binding = payload["runtime_handoff"]["hermes_native_model_binding"]
+        self.assertEqual(binding["provenance"], "last_resort_chain")
+
     def test_owner_default_recommendation_keeps_native_default_without_model_pin(self) -> None:
         recommendation = {
             "schema_version": "model_recommendation_resolution/v2",

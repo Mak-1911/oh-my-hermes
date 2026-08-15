@@ -802,13 +802,17 @@ no network request.
 `coding/model_recommendations.py` owns secret-free editorial candidate order.
 The categories reuse the closed `MODEL_CATEGORIES` vocabulary; `main` is a
 separate Hermes role suggestion and `x_platform_data` is a separate domain
-affinity. User override documents can replace only those named chains and
-cannot extend the vocabularies or contain secret/provider configuration.
-Resolution filters order against caller-confirmed active models. A missing head
-falls through to the next eligible candidate; no eligible candidate returns
-`owner_default` without blocking setup or preparing a model-config write. An
-unavailable explicit model instead returns `choice_required` and freezes
-fallthrough.
+affinity. `last_resort.any` is one shared final chain outside those selectors;
+it is considered only after every selected category, role-slot, and domain
+chain is exhausted. Version 2 user override documents can replace only those
+named chains and the shared `any` slot; legacy v1 documents remain accepted but
+cannot define the new slot. Overrides cannot extend the vocabularies or contain
+secret/provider configuration. Resolution filters order against
+caller-confirmed active models. A missing head falls through to the next
+eligible candidate, then the shared final order tries Claude Opus 5 followed by
+GPT-5.6 Sol. No eligible candidate anywhere returns `owner_default` without
+blocking setup or preparing a model-config write. An unavailable explicit model
+instead returns `choice_required` and freezes fallthrough.
 
 The shipped Kimi, Claude, GPT, GLM, Grok, and Gemini order is editorial, not
 benchmarked. Qwen is a valid confirmed user alternative through an override or

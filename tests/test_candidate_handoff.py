@@ -251,6 +251,16 @@ class WrapperPathParityTests(unittest.TestCase):
             )
         )
 
+    @staticmethod
+    def _without_catalog_candidates(interaction: dict[str, Any]) -> dict[str, Any]:
+        """Remove shipped skipped candidates before checking live-model leakage."""
+        import copy
+
+        stripped = copy.deepcopy(interaction)
+        binding = stripped["delegation"]["runtime_handoff"]["hermes_native_model_binding"]
+        binding.pop("inactive_candidates")
+        return stripped
+
     def test_plugin_ultrawork_uses_active_gpt_model_overlay(self) -> None:
         import os
         from pathlib import Path
@@ -265,7 +275,16 @@ class WrapperPathParityTests(unittest.TestCase):
         self.assertEqual(interaction["route"]["selected_skill"], "ultrawork")
         overlay = interaction["delegation"]["runtime_handoff"]["executor_prompting_contract"]["throughput_overlay"]
         self.assertEqual(overlay["mode"], "gpt_hermes_ulw")
-        self.assertNotIn("gpt-5.6-sol", json.dumps(interaction, sort_keys=True))
+        self.assertEqual(
+            interaction["delegation"]["runtime_handoff"]["hermes_native_model_binding"][
+                "inactive_candidates"
+            ],
+            ["kimi-k3", "claude-opus-5", "gpt-5.6-sol"],
+        )
+        self.assertNotIn(
+            "gpt-5.6-sol",
+            json.dumps(self._without_catalog_candidates(interaction), sort_keys=True),
+        )
 
     def test_plugin_ultraprocess_uses_active_gpt_model_overlay(self) -> None:
         import os
@@ -313,8 +332,20 @@ class WrapperPathParityTests(unittest.TestCase):
         self.assertEqual(empty_overlay["mode"], "parallel_handoff")
         self.assertNotIn("eval_strategy", claude_overlay)
         self.assertNotIn("eval_strategy", empty_overlay)
+        expected_inactive = ["kimi-k3", "claude-opus-5", "gpt-5.6-sol"]
+        for interaction in (gpt_interaction, claude_interaction, empty_interaction):
+            self.assertEqual(
+                interaction["delegation"]["runtime_handoff"]["hermes_native_model_binding"][
+                    "inactive_candidates"
+                ],
+                expected_inactive,
+            )
         serialized = json.dumps(
-            [gpt_interaction, claude_interaction, empty_interaction],
+            [
+                self._without_catalog_candidates(gpt_interaction),
+                self._without_catalog_candidates(claude_interaction),
+                self._without_catalog_candidates(empty_interaction),
+            ],
             sort_keys=True,
         )
         self.assertNotIn("gpt-5.6-sol", serialized)

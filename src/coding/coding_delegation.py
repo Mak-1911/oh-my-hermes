@@ -869,6 +869,12 @@ def _hermes_native_model_binding(recommendation: dict[str, object]) -> dict[str,
     binding = str(projection.get("binding", "")).strip()
     if not alias or not provider or not model_id or binding != f"{provider}/{model_id}":
         raise ValueError("Hermes native binding projection is incomplete")
+    resolution_source = str(recommendation.get("source", ""))
+    provenance = (
+        resolution_source
+        if resolution_source == "last_resort_chain"
+        else str(selected.get("recommendation_source", resolution_source))
+    )
     return {
         "schema_version": "hermes_native_model_handoff_binding/v1",
         "status": "prepared_not_observed",
@@ -876,7 +882,7 @@ def _hermes_native_model_binding(recommendation: dict[str, object]) -> dict[str,
         "provider": provider,
         "model_id": model_id,
         "binding": binding,
-        "provenance": str(selected.get("recommendation_source", recommendation.get("source", ""))),
+        "provenance": provenance,
         "kanban_task_override": {
             "command": f"set-model {binding}",
             "model": binding,
