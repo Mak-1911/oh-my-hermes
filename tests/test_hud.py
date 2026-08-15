@@ -290,6 +290,12 @@ class HudCliTests(unittest.TestCase):
             "executor_profile": "claude_code",
         }
         self.assertEqual(_hud_executor_role(run_row), "claude_code")
+        wrapper_row = {
+            "target_type": "wrapper_session",
+            "target_id": "ws-3fa2b1c9d0e4f56a78b9c0d1",
+            "executor_profile": "claude_code",
+        }
+        self.assertEqual(_hud_executor_role(wrapper_row), "claude_code")
         subagent_row = {
             "target_type": "subagent",
             "target_id": "explore",

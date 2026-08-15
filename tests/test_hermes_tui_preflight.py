@@ -76,6 +76,7 @@ class HermesTuiPreflightTests(unittest.TestCase):
             self.assertTrue(preflight["install"]["found"])
             self.assertEqual(preflight["install"]["version"], "0.20.1")
             self.assertEqual(preflight["widget_loader"]["marker"], "ui-tui-source")
+            self.assertTrue(preflight["sdk_surface"]["parsed"])
             self.assertEqual(preflight["sdk_surface"]["missing"], [])
             self.assertEqual(preflight["display_interface"]["value"], "tui")
             self.assertTrue(preflight["widget"]["installed"])
@@ -129,6 +130,7 @@ class HermesTuiPreflightTests(unittest.TestCase):
 
             unset = hermes_tui_preflight(paths)
             self.assertFalse(unset["display_interface"]["explicit"])
+            self.assertTrue(unset["display_interface"]["settable"])
             self.assertEqual(
                 [blocker for blocker in widget_render_blockers(unset) if "omh setup" in blocker and "classic REPL" in blocker],
                 widget_render_blockers(unset),
@@ -186,6 +188,46 @@ class HermesTuiPreflightTests(unittest.TestCase):
             self.assertIn(key, destructure, f"widget no longer destructures {key}")
 
 
+    def test_noncanonical_display_config_is_not_reported_as_a_blocker(self) -> None:
+        # ensure_tui_interface refuses to touch an inline user-owned display
+        # block, so calling it "unset — run omh setup" would loop forever.
+        with TemporaryDirectory() as tmp:
+            paths = _make_paths(Path(tmp))
+            _make_hermes_install(paths.hermes_home)
+            paths.hermes_home.mkdir(parents=True, exist_ok=True)
+            (paths.hermes_home / "config.yaml").write_text(
+                "display: {interface: tui}\n", encoding="utf-8"
+            )
+            install_tui_widget(paths.hermes_home)
+
+            preflight = hermes_tui_preflight(paths)
+
+            self.assertFalse(preflight["display_interface"]["explicit"])
+            self.assertFalse(preflight["display_interface"]["settable"])
+            self.assertEqual(
+                [b for b in widget_render_blockers(preflight) if "omh setup" in b], []
+            )
+
+    def test_unrecognizable_sdk_export_reports_unparsed_not_all_missing(self) -> None:
+        # Without the closing marker the block would be the whole file and a
+        # stripped SDK could never be detected; unparseable must say so.
+        reshaped = _MODERN_SDK_SOURCE.replace("} as const", "} satisfies WidgetSdk")
+        with TemporaryDirectory() as tmp:
+            paths = _make_paths(Path(tmp))
+            _make_hermes_install(paths.hermes_home, sdk_source=reshaped)
+            _write_display_interface(paths.hermes_home, "tui")
+            install_tui_widget(paths.hermes_home)
+
+            preflight = hermes_tui_preflight(paths)
+            blockers = widget_render_blockers(preflight)
+
+            self.assertTrue(preflight["sdk_surface"]["checked"])
+            self.assertFalse(preflight["sdk_surface"]["parsed"])
+            self.assertEqual(preflight["sdk_surface"]["missing"], [])
+            self.assertEqual(len(blockers), 1)
+            self.assertIn("cannot be verified", blockers[0])
+
+
 class DoctorHermesTuiChecksTests(unittest.TestCase):
     def _checks_by_name(self, paths: OmhPaths) -> dict[str, object]:
         return {check.name: check for check in run_doctor(paths)}
@@ -217,7 +259,9 @@ class DoctorHermesTuiChecksTests(unittest.TestCase):
             checks = self._checks_by_name(paths)
             support = checks["hermes_tui_support"]
 
-            self.assertFalse(support.ok)
+            # Degraded optional surfaces never flip the doctor exit code:
+            # ok stays True, the warning severity and next action carry it.
+            self.assertTrue(support.ok)
             self.assertEqual(support.severity, "warning")
             self.assertIn("hermes update", support.next_action)
             self.assertNotIn("hermes_tui_sdk_surface", checks)

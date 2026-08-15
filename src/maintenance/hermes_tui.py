@@ -65,44 +65,46 @@ def _hermes_version(install_dir: Path) -> str:
 
 
 def _widget_sdk_block(loader_text: str) -> str | None:
+    """The ``widgetSdk`` export block, or None when the shape is unrecognizable.
+
+    Without the closing ``} as const`` the "block" would be the rest of the
+    file, where every key matches some identifier — a fail-open check that can
+    never report a stripped SDK. Unparseable is reported as unparseable.
+    """
     marker = "export const widgetSdk"
     start = loader_text.find(marker)
     if start < 0:
         return None
     end = loader_text.find("} as const", start)
-    return loader_text[start:end] if end > start else loader_text[start:]
+    return loader_text[start:end] if end > start else None
 
 
-def _missing_sdk_keys(loader_text: str) -> list[str]:
+def _missing_sdk_keys(loader_text: str) -> list[str] | None:
     block = _widget_sdk_block(loader_text)
     if block is None:
-        return list(REQUIRED_WIDGET_SDK_KEYS)
+        return None
     return [key for key in REQUIRED_WIDGET_SDK_KEYS if not re.search(rf"\b{key}\b", block)]
 
 
-def _display_interface(config_text: str) -> tuple[str, bool]:
-    """Return (value, explicit) for ``display.interface`` in Hermes config.
+def _display_interface(config_text: str) -> dict[str, Any]:
+    """Classify ``display.interface`` with the canonical reader/writer pair.
 
-    Mirrors the shape ``ensure_tui_interface`` writes: a top-level ``display:``
-    block with an indented ``interface:`` line, or a dotted top-level
-    ``display.interface:`` key. Anything unreadable reports as unset.
+    Three states matter, not two: an explicit value; genuinely unset (the
+    canonical writer would add the default, so ``omh setup`` can fix it); and
+    user-owned-but-noncanonical shapes (inline maps, dotted keys, duplicate
+    blocks) that the writer refuses to touch — reporting those as "unset"
+    would send the user into a repair loop ``omh setup`` can never close.
     """
-    dotted = re.search(r"^display\.interface\s*:\s*(\S+)", config_text, re.MULTILINE)
-    if dotted:
-        return dotted.group(1).strip().strip("'\""), True
-    in_display = False
-    for line in config_text.splitlines():
-        if re.match(r"^display\s*:\s*$", line):
-            in_display = True
-            continue
-        if in_display:
-            if line.strip() and not line.startswith((" ", "\t")):
-                in_display = False
-                continue
-            match = re.match(r"^\s+interface\s*:\s*(\S+)", line)
-            if match:
-                return match.group(1).strip().strip("'\""), True
-    return "", False
+    from ..install.config_adapter import display_interface_selection, ensure_tui_interface
+
+    value = display_interface_selection(config_text)
+    if value:
+        return {"value": value, "explicit": True, "settable": False}
+    try:
+        settable = ensure_tui_interface(config_text).changed
+    except ValueError:
+        settable = False
+    return {"value": "", "explicit": False, "settable": settable}
 
 
 def _widget_interpreter(widget_text: str) -> str:
@@ -130,13 +132,14 @@ def hermes_tui_preflight(paths: OmhPaths) -> dict[str, Any]:
     elif install_found and bundle_path.is_file():
         loader_marker = "prebuilt-bundle"
 
-    missing_keys: list[str] = []
-    sdk_checked = loader_text is not None
-    if sdk_checked:
+    missing_keys: list[str] | None = None
+    sdk_parsed = False
+    if loader_text is not None:
         missing_keys = _missing_sdk_keys(loader_text)
+        sdk_parsed = missing_keys is not None
 
     config_text = _read_text_bounded(paths.hermes_config_path) or ""
-    interface_value, interface_explicit = _display_interface(config_text)
+    interface = _display_interface(config_text)
 
     widget_path = paths.hermes_home / "tui-widgets" / WIDGET_FILENAME
     manifest_path = paths.hermes_home / "tui-widgets" / MANIFEST_FILENAME
@@ -156,13 +159,11 @@ def hermes_tui_preflight(paths: OmhPaths) -> dict[str, Any]:
             "marker": loader_marker,
         },
         "sdk_surface": {
-            "checked": sdk_checked,
-            "missing": missing_keys,
+            "checked": loader_text is not None,
+            "parsed": sdk_parsed,
+            "missing": missing_keys or [],
         },
-        "display_interface": {
-            "value": interface_value,
-            "explicit": interface_explicit,
-        },
+        "display_interface": interface,
         "widget": {
             "installed": widget_text is not None,
             "managed": manifest_path.is_file(),
@@ -186,9 +187,16 @@ def widget_render_blockers(preflight: dict[str, Any]) -> list[str]:
     if not loader.get("present"):
         version = str(install.get("version") or "unknown version")
         blockers.append(
-            f"this Hermes ({version}) has no TUI widget loader — it predates the modern TUI; run `hermes update`."
+            f"no TUI widget loader was found in this Hermes ({version}) — an old Hermes predates the modern "
+            "TUI (run `hermes update`); if `hermes --tui` renders fine, the Hermes layout changed and this "
+            "check needs updating — report it."
         )
-    if sdk.get("checked") and sdk.get("missing"):
+    if sdk.get("checked") and not sdk.get("parsed"):
+        blockers.append(
+            "the Hermes widget SDK export changed shape and cannot be verified — if the HUD stops rendering, "
+            "report the incompatibility."
+        )
+    elif sdk.get("parsed") and sdk.get("missing"):
         missing = ", ".join(sdk["missing"])
         blockers.append(
             f"the Hermes widget SDK no longer exposes: {missing} — the loader will skip the OMH widget; "
@@ -199,7 +207,7 @@ def widget_render_blockers(preflight: dict[str, Any]) -> list[str]:
             f"display.interface is set to {interface['value']!r} — the OMH HUD renders only in the modern TUI "
             "(`hermes --tui` still reaches it)."
         )
-    elif not interface.get("explicit"):
+    elif not interface.get("explicit") and interface.get("settable"):
         blockers.append(
             "display.interface is unset, so bare `hermes` opens the classic REPL where the HUD cannot render; "
             "run `omh setup` to default it to the TUI."

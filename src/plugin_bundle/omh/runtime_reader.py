@@ -1042,10 +1042,11 @@ def _hud_executor_role(row: dict[str, Any]) -> str:
     target_id = str(row.get("target_id", ""))
     target_type = str(row.get("target_type", ""))
     profile = str(row.get("executor_profile", ""))
-    # A run's target_id is its timestamped artifact id (20260815T...-skill-...),
-    # which is an identifier, not a role; the profile is what a human reads.
-    # Wrapper-session targets keep their human-named session id as the role.
-    if target_type == "run" or target_id.startswith(("run-", "session-")):
+    # A run's target_id is its timestamped artifact id (20260815T...-skill-...)
+    # and a wrapper session's is an opaque ws-<hash> — identifiers, not roles;
+    # the executor profile is what a human reads. Subagent targets keep their
+    # role-named target_id ("explore", "librarian").
+    if target_type in ("run", "wrapper_session") or target_id.startswith(("run-", "session-", "ws-")):
         return profile[:40]
     return (target_id or profile)[:40]
 
