@@ -2309,9 +2309,18 @@ def _evaluate_precision_case(case: RoutingPrecisionCase, *, source: str) -> dict
         issues.append(f"unexpected source {observed['source']}")
     # `fallback` is the ordinary negative-control shape; `clarify` is equally
     # non-hijacking — the router asks one question instead of opening a
-    # workflow, picker, or handoff — so both count as staying out of the way.
-    if observed["route_action"] not in ("fallback", "clarify"):
-        issues.append(f"expected fallback or clarify route, observed {observed['route_action']}")
+    # workflow, picker, or handoff — but it is accepted only for cases that
+    # expect the clarification path, so a pre-existing fallback control that
+    # drifts to `clarify` still fails on route_action alone.
+    allowed_route_actions = (
+        ("fallback", "clarify")
+        if case.expected_next_action == "answer_clarification"
+        else ("fallback",)
+    )
+    if observed["route_action"] not in allowed_route_actions:
+        issues.append(
+            f"expected {' or '.join(allowed_route_actions)} route, observed {observed['route_action']}"
+        )
     if observed["route_workflow"] != "oh-my-hermes":
         issues.append(f"expected router workflow, observed {observed['route_workflow']}")
     if observed["next_action"] != case.expected_next_action:

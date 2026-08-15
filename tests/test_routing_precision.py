@@ -84,9 +84,14 @@ class RoutingPrecisionTests(unittest.TestCase):
         for case in cases.values():
             self.assertFalse(case["observed"]["overrouted"])
             self.assertFalse(case["observed"]["catalog_picker_opened"])
-            # Negative controls stay out of the way as a plain fallback or, for
-            # the unnamed-CLI paraphrase control, a single clarification.
-            self.assertIn(case["observed"]["route_action"], ("fallback", "clarify"))
+            # Negative controls stay out of the way as a plain fallback.
+            # `clarify` is accepted only for controls that expect the
+            # clarification path (the unnamed-CLI paraphrase control), so a
+            # fallback control drifting to clarify still fails here.
+            if case["expected"]["next_action"] == "answer_clarification":
+                self.assertIn(case["observed"]["route_action"], ("fallback", "clarify"))
+            else:
+                self.assertEqual(case["observed"]["route_action"], "fallback")
             self.assertEqual(case["observed"]["route_workflow"], "oh-my-hermes")
 
         interventions = {case["id"]: case for case in payload["intervention_cases"]}
