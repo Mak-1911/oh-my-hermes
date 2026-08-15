@@ -727,8 +727,11 @@ merge_observed=false
             self.assertIn("ambitious goal -> loopability check", " ".join(payload["loop_cross_lane_examples"]))
             self.assertEqual(payload["visual_lane"], "materials_and_visuals")
             self.assertEqual(payload["visual_owner"], "operator")
-            self.assertEqual(payload["process_lane"], "intent_to_plan")
-            self.assertEqual(payload["process_owner"], "planner")
+            # ULW fold (issue #954, PR D): ultraprocess's context-card lane
+            # moved to coding_handoff so its family is lane-derived like its
+            # fold target's.
+            self.assertEqual(payload["process_lane"], "coding_handoff")
+            self.assertEqual(payload["process_owner"], "handoff-guide")
             self.assertEqual(payload["playbook_section"], "playbooks")
             self.assertEqual(payload["playbook_runtime_claim"], "playbook_guidance_not_execution")
             self.assertIn("situation-level workflow maps", payload["playbook_context_rule"])

@@ -500,6 +500,16 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         "answer_clarification",
         "",
     ),
+    # ULW fold negative control (issue #954, PR D §8.3): a one-owner
+    # one-line fix must not open the folded coordination/persistence
+    # capabilities of `ultrawork` -- it stays a clarification, not a route.
+    RoutingPrecisionCase(
+        "one-owner-one-line-fix",
+        "A one-owner one-line fix stays out of coordination and persistence engines",
+        "have one person finish this one-line fix",
+        "answer_clarification",
+        "",
+    ),
 )
 
 
@@ -2099,6 +2109,29 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "reliability-review",
         "prepare_reliability_review",
         "reliability_review",
+    ),
+    # ULW fold controls (issue #954, PR D §8.3 step 5). PR D adds the
+    # `coordinated_scope` capability text to `ultrawork` with NO routing
+    # change, so both cases pin the pre-fold routes: the coordination cue
+    # still reaches `team`, and a disjoint-lanes phrasing still reaches
+    # `ultrawork`'s existing lane path rather than any new capability route.
+    RoutingInterventionCase(
+        "coordinated-workers-shared-task-list",
+        "The coordination cue still reaches the team engine after the fold text lands",
+        "run three coordinated workers on one shared task list",
+        "dispatch",
+        "team",
+        "forward_plan_to_selected_workflow",
+        "plan",
+    ),
+    RoutingInterventionCase(
+        "disjoint-lanes-reaches-existing-path",
+        "Disjoint parallel lanes still reach ultrawork's existing lane path",
+        "split this into parallel work lanes with disjoint ownership",
+        "dispatch",
+        "ultrawork",
+        "forward_plan_to_selected_workflow",
+        "plan",
     ),
 )
 

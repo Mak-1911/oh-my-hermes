@@ -2924,7 +2924,9 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("Workflow Lane", skills["ultragoal"].content)
         self.assertIn("Completion Checklist", skills["ultragoal"].content)
         self.assertIn("Recovery Notes", skills["ultragoal"].content)
-        self.assertIn("Current lane: **Intent -> plan**", skills["ultragoal"].content)
+        # ULW fold (issue #954, PR D): the folded contracts share the fold
+        # target's coding-handoff lane.
+        self.assertIn("Current lane: **Coding handoff**", skills["ultragoal"].content)
         self.assertIn("hand back to `oh-my-hermes`", skills["ultragoal"].content)
         self.assertIn("Prepared OMH routing", skills["ultragoal"].content)
         self.assertIn("OMH Context Rail", common_rail)

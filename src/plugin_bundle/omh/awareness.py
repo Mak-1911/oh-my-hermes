@@ -1069,9 +1069,7 @@ WORKFLOW_CONTEXT_CARDS = (
             "ralplan",
             "codebase-onboarding",
             "codegraph-refresh",
-            "ultragoal",
             "loop",
-            "ultraprocess",
         ),
         "user_examples": ("Make onboarding feel smoother", "Make this repo star-worthy"),
         "first_response_shape": "Name the ambiguity, choose clarify/plan/loop/process, then state the next concrete action and what is not evidence yet.",
@@ -1190,6 +1188,8 @@ WORKFLOW_CONTEXT_CARDS = (
             "verification-gate",
             "team",
             "ultrawork",
+            "ralph",
+            "ultragoal",
             "ultraqa",
         ),
         "user_examples": ("Turn this issue into a PR-ready plan", "Is the Codex run done yet?"),
@@ -1203,10 +1203,7 @@ _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW = {
     "deep-interview": "intent_to_plan",
     "plan": "intent_to_plan",
     "ralplan": "intent_to_plan",
-    "ralph": "intent_to_plan",
-    "ultragoal": "intent_to_plan",
     "loop": "intent_to_plan",
-    "ultraprocess": "intent_to_plan",
     "performance-goal": "intent_to_plan",
     "ultraperf": "intent_to_plan",
     "codebase-onboarding": "intent_to_plan",
@@ -1303,6 +1300,12 @@ _WORKFLOW_CONTEXT_CARD_BY_WORKFLOW = {
     "team": "coding_handoff",
     "ultraqa": "coding_handoff",
     "ultrawork": "coding_handoff",
+    # ULW fold (issue #954, PR D): the four contracts folding into
+    # `ulw-work` share its coding-handoff lane so their capability family is
+    # lane-derived (`delegate_coding_and_ship`) like their fold target.
+    "ralph": "coding_handoff",
+    "ultragoal": "coding_handoff",
+    "ultraprocess": "coding_handoff",
 }
 _AWARENESS_MESSAGE_MARKERS = (
     "ulw-context",
@@ -1634,7 +1637,7 @@ _ROUTE_HINT_RULES = (
         # `status`/`running` are shared with ultraprocess and the domain
         # lanes; whole phrases only.
         "tokens": (),
-        "adjacent_workflows": ("agent-ops-review", "ultraprocess", "doctor"),
+        "adjacent_workflows": ("agent-ops-review", "ultrawork", "doctor"),
     },
     {
         "id": "missed_workflow",
@@ -1816,7 +1819,7 @@ _ROUTE_HINT_RULES = (
         "fallback_action": "ask_for_product_evidence_user_outcome_or_decision_owner",
         "phrases": ("product requirements document", "PRD", "roadmap prioritization", "제품 요구사항 문서", "제품 기획서", "로드맵 우선순위"),
         "tokens": (),
-        "adjacent_workflows": ("feedback-triage", "strategy-brief", "ralplan", "ultraprocess", "connector-operator"),
+        "adjacent_workflows": ("feedback-triage", "strategy-brief", "ralplan", "ultrawork", "connector-operator"),
         "not_evidence_yet": ("stakeholder acceptance", "roadmap-system mutation", "implementation", "test evidence", "delivery"),
     },
     {
@@ -1986,7 +1989,7 @@ _ROUTE_HINT_RULES = (
             "통과하는가 봐줘",
         ),
         "tokens": (),
-        "adjacent_workflows": ("reliability-review", "ultraprocess", "workflow-learning"),
+        "adjacent_workflows": ("reliability-review", "ultrawork", "workflow-learning"),
     },
     {
         "id": "ai_coding_safety_review",
@@ -2003,7 +2006,7 @@ _ROUTE_HINT_RULES = (
             "실제로 무엇을 했는지",
         ),
         "tokens": (),
-        "adjacent_workflows": ("agent-ops-review", "ultraprocess", "workflow-learning"),
+        "adjacent_workflows": ("agent-ops-review", "ultrawork", "workflow-learning"),
     },
     {
         "id": "agent_product_qa",
@@ -2039,7 +2042,7 @@ _ROUTE_HINT_RULES = (
             "부드럽게 만들고 싶어",
         ),
         "tokens": (),
-        "adjacent_workflows": ("ralplan", "ultraprocess", "loop"),
+        "adjacent_workflows": ("ralplan", "ultrawork", "loop"),
     },
     {
         "id": "repeated_refactor_workflow",
@@ -2056,7 +2059,7 @@ _ROUTE_HINT_RULES = (
             "레거시 서비스를",
         ),
         "tokens": (),
-        "adjacent_workflows": ("ralplan", "code-review", "ultraprocess"),
+        "adjacent_workflows": ("ralplan", "code-review", "ultrawork"),
     },
     {
         "id": "multi_agent_hub_plan",
@@ -2073,7 +2076,7 @@ _ROUTE_HINT_RULES = (
             "답할 차례인지",
         ),
         "tokens": (),
-        "adjacent_workflows": ("agent-board", "ultraprocess", "workflow-learning"),
+        "adjacent_workflows": ("agent-board", "ultrawork", "workflow-learning"),
     },
     {
         "id": "agency_operating_template",
@@ -2089,7 +2092,7 @@ _ROUTE_HINT_RULES = (
             "요구사항 정리, 조사, 구현 handoff",
         ),
         "tokens": (),
-        "adjacent_workflows": ("operating-rhythm", "report-package", "ultraprocess"),
+        "adjacent_workflows": ("operating-rhythm", "report-package", "ultrawork"),
     },
     {
         "id": "operating_rhythm_history",
@@ -2348,7 +2351,7 @@ _ROUTE_HINT_RULES = (
             "dco 실패",
         ),
         "tokens": (),
-        "adjacent_workflows": ("verification-gate", "code-review", "failure-signal-audit", "ultraprocess"),
+        "adjacent_workflows": ("verification-gate", "code-review", "failure-signal-audit", "ultrawork"),
     },
     {
         "id": "design_quality_gate",
@@ -2393,7 +2396,7 @@ _ROUTE_HINT_RULES = (
         "fallback_action": "prepare_plan_or_route_to_loop",
         "phrases": ("performance-goal",),
         "tokens": ("performance-goal",),
-        "adjacent_workflows": ("plan", "loop", "ultragoal"),
+        "adjacent_workflows": ("plan", "loop", "ultrawork"),
     },
     {
         "id": "ultraperf",
@@ -2419,7 +2422,7 @@ _ROUTE_HINT_RULES = (
             "\uc131\ub2a5 \uc804\ubc18 \uc810\uac80",
         ),
         "tokens": ("ultraperf",),
-        "adjacent_workflows": ("performance-goal", "ops-observability-card", "code-review", "ultraprocess"),
+        "adjacent_workflows": ("performance-goal", "ops-observability-card", "code-review", "ultrawork"),
         "not_evidence_yet": ("baseline measurement", "profile", "benchmark execution", "code change", "regression gate"),
     },
     {
@@ -2448,7 +2451,7 @@ _ROUTE_HINT_RULES = (
             "머지 전 검증",
         ),
         "tokens": (),
-        "adjacent_workflows": ("code-review", "production-audit", "ultraprocess"),
+        "adjacent_workflows": ("code-review", "production-audit", "ultrawork"),
     },
     {
         "id": "agent_evaluation",
@@ -2524,7 +2527,7 @@ _ROUTE_HINT_RULES = (
             "레포 구조 설명",
         ),
         "tokens": (),
-        "adjacent_workflows": ("workspace-audit", "ralplan", "ultraprocess"),
+        "adjacent_workflows": ("workspace-audit", "ralplan", "ultrawork"),
     },
     {
         "id": "codegraph_refresh",
@@ -2563,7 +2566,7 @@ _ROUTE_HINT_RULES = (
             "코드 인덱스 갱신",
         ),
         "tokens": (),
-        "adjacent_workflows": ("codebase-onboarding", "workspace-audit", "ultraprocess"),
+        "adjacent_workflows": ("codebase-onboarding", "workspace-audit", "ultrawork"),
     },
     {
         "id": "context_budget_review",
@@ -2887,7 +2890,7 @@ _ROUTE_HINT_RULES = (
             "idea-to-deploy",
         ),
         "tokens": (),
-        "adjacent_workflows": ("cto-loop", "deploy-and-monitor", "ultraprocess"),
+        "adjacent_workflows": ("cto-loop", "deploy-and-monitor", "ultrawork"),
     },
     {
         "id": "deploy_and_monitor_specific",
@@ -2987,7 +2990,7 @@ _ROUTE_HINT_RULES = (
             "PR 준비",
         ),
         "tokens": (),
-        "adjacent_workflows": ("ralplan", "ultraprocess", "code-review"),
+        "adjacent_workflows": ("ralplan", "ultrawork", "code-review"),
     },
     {
         "id": "executor_named_coding_delivery",
@@ -3072,7 +3075,7 @@ _ROUTE_HINT_RULES = (
             "헤르메스에게 코딩",
         ),
         "tokens": (),
-        "adjacent_workflows": ("ultraprocess", "toolbelt-readiness", "agent-ops-review"),
+        "adjacent_workflows": ("ultrawork", "toolbelt-readiness", "agent-ops-review"),
     },
     {
         "id": "agent_board_collaboration",
@@ -3835,7 +3838,7 @@ _ROUTE_HINT_RULES = (
             "품질을 제3자",
         ),
         "tokens": (),
-        "adjacent_workflows": ("workflow-learning", "ultraprocess", "ops-observability-card"),
+        "adjacent_workflows": ("workflow-learning", "ultrawork", "ops-observability-card"),
     },
     {
         "id": "agent_ops_status_surface",
@@ -4096,7 +4099,7 @@ _ROUTE_HINT_RULES = (
             "show oh-my-hermes menu",
         ),
         "tokens": (),
-        "adjacent_workflows": ("deep-interview", "ralplan", "loop", "ultraprocess"),
+        "adjacent_workflows": ("deep-interview", "ralplan", "loop", "ultrawork"),
     },
     {
         "id": "hermes_coding_team_path",
@@ -4122,7 +4125,7 @@ _ROUTE_HINT_RULES = (
             "헤르메스가 직접 코딩 팀",
         ),
         "tokens": (),
-        "adjacent_workflows": ("ultraprocess", "executor-runtime-readiness", "agent-ops-review"),
+        "adjacent_workflows": ("ultrawork", "executor-runtime-readiness", "agent-ops-review"),
     },
     {
         "id": "coding_progress_status",
@@ -4244,7 +4247,7 @@ _ROUTE_HINT_RULES = (
             "기능 안전하게",
         ),
         "tokens": (),
-        "adjacent_workflows": ("deep-interview", "ultraprocess", "code-review"),
+        "adjacent_workflows": ("deep-interview", "ultrawork", "code-review"),
     },
     {
         "id": "risky_refactor_plan",
@@ -4263,7 +4266,7 @@ _ROUTE_HINT_RULES = (
             "위험한 리팩토링",
         ),
         "tokens": (),
-        "adjacent_workflows": ("code-review", "ai-slop-cleaner", "ultraprocess"),
+        "adjacent_workflows": ("code-review", "ai-slop-cleaner", "ultrawork"),
     },
     {
         "id": "issue_to_pr_plan",
@@ -4286,7 +4289,7 @@ _ROUTE_HINT_RULES = (
             "pr로 만들 수 있게",
         ),
         "tokens": (),
-        "adjacent_workflows": ("ralplan", "ultraprocess", "code-review"),
+        "adjacent_workflows": ("ralplan", "ultrawork", "code-review"),
     },
     {
         "id": "loopability_goal",
@@ -4333,7 +4336,7 @@ _ROUTE_HINT_RULES = (
             "루프로 해야",
         ),
         "tokens": (),
-        "adjacent_workflows": ("ultragoal", "ultraprocess", "workflow-learning"),
+        "adjacent_workflows": ("ultrawork", "workflow-learning"),
     },
     {
         "id": "visual_summary",
@@ -5604,10 +5607,7 @@ def awareness_primer_payload() -> dict[str, object]:
                 "ralplan",
                 "codebase-onboarding",
                 "codegraph-refresh",
-                "ultragoal",
-                "ultraprocess",
                 "loop",
-                "ralph",
                 "performance-goal",
                 "ultraperf",
                 "product-brief",
@@ -5729,6 +5729,9 @@ def awareness_primer_payload() -> dict[str, object]:
                 "security-safety-review",
                 "ultrawork",
                 "team",
+                "ralph",
+                "ultragoal",
+                "ultraprocess",
                 "ultraqa",
                 "ai-slop-cleaner",
                 "executor-runtime-readiness",
