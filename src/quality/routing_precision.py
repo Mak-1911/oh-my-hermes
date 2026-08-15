@@ -488,6 +488,18 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         "answer_file_lookup",
         "file_or_text",
     ),
+    # Negative control for the naming-is-choosing carve-out: the same Korean
+    # issue-to-PR request as `korean-codex-issue-pr-start` with the CLI name
+    # removed. Without a named CLI the message must resolve no external owner
+    # and no owner-choice provenance; a failure here means genuine inference
+    # from message content was reintroduced.
+    RoutingPrecisionCase(
+        "korean-issue-pr-start-no-named-cli",
+        "Unnamed-CLI issue-to-PR paraphrase resolves no external owner",
+        "이 이슈 PR 만들 수 있게 작업 시작해줘",
+        "answer_clarification",
+        "",
+    ),
 )
 
 
@@ -2295,13 +2307,16 @@ def _evaluate_precision_case(case: RoutingPrecisionCase, *, source: str) -> dict
         issues.append(f"unexpected schema {observed['schema_version']}")
     if observed["source"] != source:
         issues.append(f"unexpected source {observed['source']}")
-    if observed["route_action"] != "fallback":
-        issues.append(f"expected fallback route, observed {observed['route_action']}")
+    # `fallback` is the ordinary negative-control shape; `clarify` is equally
+    # non-hijacking — the router asks one question instead of opening a
+    # workflow, picker, or handoff — so both count as staying out of the way.
+    if observed["route_action"] not in ("fallback", "clarify"):
+        issues.append(f"expected fallback or clarify route, observed {observed['route_action']}")
     if observed["route_workflow"] != "oh-my-hermes":
         issues.append(f"expected router workflow, observed {observed['route_workflow']}")
     if observed["next_action"] != case.expected_next_action:
         issues.append(f"expected next action {case.expected_next_action}, observed {observed['next_action']}")
-    if observed["lookup_kind"] != case.expected_lookup_kind:
+    if str(observed["lookup_kind"] or "") != case.expected_lookup_kind:
         issues.append(f"expected lookup kind {case.expected_lookup_kind}, observed {observed['lookup_kind']}")
     if observed["response_kind"] != "clarification":
         issues.append(f"expected clarification response, observed {observed['response_kind']}")
@@ -2317,7 +2332,11 @@ def _evaluate_precision_case(case: RoutingPrecisionCase, *, source: str) -> dict
         issues.append("exposed coding handoff or executor action")
     if observed["raw_message_echoed"]:
         issues.append("raw message echoed in machine payload")
-    if not str(observed["claim_boundary"] or "").startswith("No OMH workflow"):
+    boundary = str(observed["claim_boundary"] or "")
+    if observed["route_action"] == "clarify":
+        if boundary != "No execution has started.":
+            issues.append("missing no-execution claim boundary")
+    elif not boundary.startswith("No OMH workflow"):
         issues.append("missing no-workflow claim boundary")
 
     return {

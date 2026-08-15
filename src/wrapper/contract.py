@@ -31,8 +31,10 @@ from ..routing.localization import normalized_phrase
 from ..routing.owner_preference import (
     read_owner_preference,
     record_accepted_explicit_choice,
+    record_in_message_explicit_naming,
     write_owner_preference,
 )
+from ..coding.executors import EXTERNAL_CLI_PROFILES
 from ..routing.missed_route import is_missed_route_feedback
 from ..routing.omh_help import (
     is_omh_intro_question as _is_omh_intro_question,
@@ -3430,6 +3432,7 @@ def build_chat_interaction_payload(
     )
     if paths is not None:
         _record_accepted_owner_choice(payload, paths)
+        _record_in_message_named_owner(payload, paths)
     # Attached at the one point every chat surface passes through -- the plugin
     # tool's session and no-session paths both land here -- so Slack, Telegram,
     # Discord, CLI, and desktop all carry the notice from a single seam. The
@@ -3464,6 +3467,54 @@ def _record_accepted_owner_choice(payload: Mapping[str, object], paths: OmhPaths
         read_owner_preference(paths),
         route_family=route_family,
         selected_owner=selected_owner,
+        occurred_at=datetime.now(timezone.utc).isoformat(),
+    )
+    write_owner_preference(paths, updated)
+
+
+def _record_in_message_named_owner(payload: Mapping[str, object], paths: OmhPaths) -> None:
+    """Persist an in-message CLI naming as explicit-choice provenance.
+
+    Naming is choosing: when routing resolved an external coding CLI because
+    the user named that CLI in their own message, the naming is recorded by
+    the in-message explicit-choice writer at the resolution site, so no card
+    or prepared handoff ever carries an external owner without recorded
+    explicit-choice provenance. Only the routing cue (for example
+    ``named_executor:codex``) is stored — never the message prose.
+    """
+    resolution = payload.get("executor_resolution")
+    decision = payload.get("coding_route_decision")
+    delegation = payload.get("delegation")
+    if (
+        not isinstance(resolution, Mapping)
+        or resolution.get("source") != "message_mention"
+        or not isinstance(decision, Mapping)
+        or decision.get("source") != "request_named_executor"
+        or decision.get("owner_preference_reason_code") != "owner_named_in_request"
+        or not isinstance(delegation, Mapping)
+    ):
+        return
+    selected_owner = str(delegation.get("selected_executor_profile", "") or "")
+    route_family = str(decision.get("owner_preference_route_family", "") or "")
+    if (
+        selected_owner not in EXTERNAL_CLI_PROFILES
+        or selected_owner != resolution.get("resolved_executor_target")
+        or not route_family
+    ):
+        return
+    matched_cues = decision.get("matched_cues")
+    cues = matched_cues if isinstance(matched_cues, (list, tuple)) else ()
+    naming_cue = next(
+        (str(cue) for cue in cues if str(cue) == f"named_executor:{selected_owner}"),
+        "",
+    )
+    if not naming_cue:
+        return
+    updated = record_in_message_explicit_naming(
+        read_owner_preference(paths),
+        route_family=route_family,
+        selected_owner=selected_owner,
+        naming_cue=naming_cue,
         occurred_at=datetime.now(timezone.utc).isoformat(),
     )
     write_owner_preference(paths, updated)

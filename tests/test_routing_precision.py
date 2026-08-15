@@ -15,10 +15,10 @@ class RoutingPrecisionTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], "routing_precision/v1")
         self.assertEqual(payload["source"], "discord")
         self.assertTrue(payload["summary"]["all_passing"])
-        self.assertEqual(payload["summary"]["case_count"], 63)
-        self.assertEqual(payload["summary"]["passing_count"], 63)
-        self.assertEqual(payload["summary"]["negative_case_count"], 63)
-        self.assertEqual(payload["summary"]["negative_passing_count"], 63)
+        self.assertEqual(payload["summary"]["case_count"], 64)
+        self.assertEqual(payload["summary"]["passing_count"], 64)
+        self.assertEqual(payload["summary"]["negative_case_count"], 64)
+        self.assertEqual(payload["summary"]["negative_passing_count"], 64)
         self.assertEqual(payload["summary"]["direct_answer_count"], 59)
         self.assertEqual(payload["summary"]["file_lookup_count"], 4)
         self.assertEqual(payload["summary"]["overroute_count"], 0)
@@ -28,8 +28,8 @@ class RoutingPrecisionTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["intervention_passing_count"], 173)
         self.assertEqual(payload["summary"]["missed_intervention_count"], 0)
         self.assertEqual(payload["summary"]["intervention_generic_ack_count"], 0)
-        self.assertEqual(payload["summary"]["total_case_count"], 236)
-        self.assertEqual(payload["summary"]["total_passing_count"], 236)
+        self.assertEqual(payload["summary"]["total_case_count"], 237)
+        self.assertEqual(payload["summary"]["total_passing_count"], 237)
         self.assertEqual(routing_precision_errors(payload), [])
         self.assertIn("over-intervention and missed-intervention guards", payload["claim_boundary"])
 
@@ -84,7 +84,9 @@ class RoutingPrecisionTests(unittest.TestCase):
         for case in cases.values():
             self.assertFalse(case["observed"]["overrouted"])
             self.assertFalse(case["observed"]["catalog_picker_opened"])
-            self.assertEqual(case["observed"]["route_action"], "fallback")
+            # Negative controls stay out of the way as a plain fallback or, for
+            # the unnamed-CLI paraphrase control, a single clarification.
+            self.assertIn(case["observed"]["route_action"], ("fallback", "clarify"))
             self.assertEqual(case["observed"]["route_workflow"], "oh-my-hermes")
 
         interventions = {case["id"]: case for case in payload["intervention_cases"]}
@@ -394,7 +396,7 @@ class RoutingPrecisionTests(unittest.TestCase):
         self.assertEqual(status, 0, stderr)
         self.assertEqual(stderr, "")
         self.assertIn("OMH routing precision", stdout)
-        self.assertIn("63/63 negative-control cases passing", stdout)
+        self.assertIn("64/64 negative-control cases passing", stdout)
         self.assertIn("Interventions: 173/173 expected workflow cases passing", stdout)
         self.assertIn("overroutes: 0", stdout)
         self.assertIn("catalog pickers: 0", stdout)

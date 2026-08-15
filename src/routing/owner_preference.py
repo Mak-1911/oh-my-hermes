@@ -31,6 +31,16 @@ OWNER_PREFERENCE_EXCLUDED_SIGNALS: Final = (
     "model_choice",
 )
 OWNER_PREFERENCE_PATH_SEGMENTS: Final = ("routing", "owner-preference.json")
+# The two explicit-choice writers. An external coding CLI may appear as the
+# selected owner only when route state carries one of these provenances:
+# the user answered the coding-owner question (`record_accepted_explicit_choice`)
+# or named the CLI in their own words (`record_in_message_explicit_naming`).
+# Deriving an external owner from a message that does NOT name that CLI —
+# topic, language, history, or heuristics — stays forbidden.
+OWNER_PREFERENCE_EXPLICIT_CHOICE_PROVENANCES: Final = (
+    "accepted_explicit_choice",
+    "in_message_naming",
+)
 
 _STATE_KEYS: Final = {
     "schema_version",
@@ -49,6 +59,8 @@ _ROUTE_KEYS: Final = {
     "learned_at",
     "reset_at",
     "reset_reason",
+    "provenance",
+    "naming_cue",
 }
 
 
@@ -205,10 +217,86 @@ def record_accepted_explicit_choice(
         "reset_reason": (
             "explicit_owner_changed" if changed else str(previous["reset_reason"]) if previous else ""
         ),
+        "provenance": "accepted_explicit_choice",
+        "naming_cue": "",
     }
     updated["updated_at"] = timestamp
     _raise_if_invalid(updated)
     return updated
+
+
+def record_in_message_explicit_naming(
+    state: Mapping[str, Any] | None,
+    *,
+    route_family: str,
+    selected_owner: str,
+    naming_cue: str,
+    occurred_at: str,
+) -> dict[str, Any]:
+    """Record that the user named the coding owner in their own message.
+
+    Naming is choosing: a message that names a coding CLI is an explicit
+    in-message choice, and this writer records it as such at resolution time,
+    preserving the routing cue (for example ``named_executor:codex``) as the
+    diagnostic — never the message prose, which this store must not hold.
+
+    Unlike `record_accepted_explicit_choice`, an in-message naming never
+    advances the learning streak: the learned visible default remains earned
+    exclusively by accepted answers to the coding-owner question. A naming for
+    an unrecorded or changed owner starts the route at a streak of one; a
+    naming for the already-recorded owner refreshes the timestamp and the cue
+    without touching the streak.
+    """
+    family = require_opaque_metadata_ref(route_family, field="route_family")
+    owner = require_opaque_metadata_ref(selected_owner, field="selected_owner")
+    cue = require_opaque_metadata_ref(naming_cue, field="naming_cue")
+    timestamp = _require_timestamp(occurred_at, field="occurred_at")
+    updated = deepcopy(_safe_state(state))
+    previous = updated["routes"].get(family)
+    changed = previous is not None and previous["selected_owner"] != owner
+    if previous is None or changed or not previous["selected_owner"]:
+        route = {
+            "route_family": family,
+            "selected_owner": owner,
+            "consecutive_accepted_explicit_choices": 1,
+            "first_choice_at": timestamp,
+            "last_choice_at": timestamp,
+            "learned_at": "",
+            "reset_at": timestamp if changed else "",
+            "reset_reason": "explicit_owner_changed" if changed else "",
+            "provenance": "in_message_naming",
+            "naming_cue": cue,
+        }
+    else:
+        route = dict(previous)
+        route["last_choice_at"] = timestamp
+        route["provenance"] = "in_message_naming"
+        route["naming_cue"] = cue
+    updated["routes"][family] = route
+    updated["updated_at"] = timestamp
+    _raise_if_invalid(updated)
+    return updated
+
+
+def explicit_choice_provenance(
+    state: Mapping[str, Any] | None,
+    *,
+    route_family: str,
+) -> str:
+    """Return the explicit-choice provenance recorded for one route family.
+
+    Empty string means no explicit-choice writer recorded an owner for the
+    family — including missing, malformed, reset, or raw-written state — and
+    therefore no external coding CLI may appear as the selected owner.
+    """
+    safe = _safe_state(state)
+    route = safe["routes"].get(route_family)
+    if not route or not route.get("selected_owner"):
+        return ""
+    provenance = str(route.get("provenance", "") or "")
+    if provenance in OWNER_PREFERENCE_EXPLICIT_CHOICE_PROVENANCES:
+        return provenance
+    return ""
 
 
 def reset_owner_preference(
@@ -232,6 +320,8 @@ def reset_owner_preference(
         "learned_at": "",
         "reset_at": timestamp,
         "reset_reason": reset_reason,
+        "provenance": "",
+        "naming_cue": "",
     }
     updated["updated_at"] = timestamp
     _raise_if_invalid(updated)
@@ -383,6 +473,29 @@ def _route_errors(key: object, route: object) -> list[str]:
             errors.append(str(exc))
     if bool(reason) != bool(route.get("reset_at")):
         errors.append(f"route {family} reset_reason and reset_at must appear together")
+
+    provenance = route.get("provenance")
+    allowed_provenances = ("", *OWNER_PREFERENCE_EXPLICIT_CHOICE_PROVENANCES)
+    if not isinstance(provenance, str) or provenance not in allowed_provenances:
+        errors.append(
+            f"route {family} provenance must be empty or one of "
+            f"{', '.join(OWNER_PREFERENCE_EXPLICIT_CHOICE_PROVENANCES)}"
+        )
+        provenance = ""
+    cue = route.get("naming_cue")
+    if not isinstance(cue, str):
+        errors.append(f"route {family} naming_cue must be a string")
+    elif cue:
+        try:
+            require_opaque_metadata_ref(cue, field=f"route {family} naming_cue")
+        except ValueError as exc:
+            errors.append(str(exc))
+        if provenance != "in_message_naming":
+            errors.append(
+                f"route {family} naming_cue requires in_message_naming provenance"
+            )
+    elif provenance == "in_message_naming":
+        errors.append(f"route {family} in_message_naming provenance requires a naming_cue")
     return errors
 
 
