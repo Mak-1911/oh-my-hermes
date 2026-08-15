@@ -245,6 +245,10 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("TodoPanel", widget)
         self.assertIn("truncateCells(item.text", widget)
         self.assertIn("safeText(todo.title)", widget)
+        # An installed OMH stays discoverable from an idle session: only the
+        # activity rows are gated on live work, never the header.
+        self.assertNotIn("|| !payload.active", widget)
+        self.assertIn("const active = !!payload.active", widget)
         self.assertIn("width: '100%'", widget)
         self.assertIn("marginTop: 1", widget)
         self.assertNotIn("borderStyle:", widget)

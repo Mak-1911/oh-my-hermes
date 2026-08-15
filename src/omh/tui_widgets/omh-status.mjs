@@ -165,14 +165,18 @@ export default function register(sdk) {
   function Hud({ columns, state, t, viewportRows }) {
     const spinnerPhase = useShimmerPhase(30_000) + state.tick
     const payload = state.payload
-    if (!payload || payload.error || payload.privacy !== 'metadata_only' || !payload.active) return null
+    if (!payload || payload.error || payload.privacy !== 'metadata_only') return null
 
+    // The header stays visible whenever the plugin answers, so an installed
+    // OMH is discoverable from an idle session; activity rows are the only
+    // part gated on live work.
+    const active = !!payload.active
     const agents = payload.subagents || {}
     const version = safeText(payload.version) || 'unknown'
     const maestro = payload.maestro || {}
-    const mainRows = Array.isArray(maestro.rows) ? maestro.rows.slice(0, 1) : []
+    const mainRows = active && Array.isArray(maestro.rows) ? maestro.rows.slice(0, 1) : []
     const activityLimit = Math.max(1, Math.min(3, viewportRows - 3))
-    const rows = Array.isArray(agents.rows)
+    const rows = active && Array.isArray(agents.rows)
       ? agents.rows.slice(0, Math.max(0, activityLimit - mainRows.length))
       : []
     return h(

@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from _cli_harness import run_cli
+from _platform_support import requires_posix_permissions
 
 
 class HudCliTests(unittest.TestCase):
@@ -1140,7 +1141,7 @@ class TodoHudTests(unittest.TestCase):
             self.assertTrue(invalid["error"])
             self.assertEqual(absent["status"], "already_absent")
 
-    def test_todo_store_rejects_item_cap_symlinked_home_and_unwritable_home(self) -> None:
+    def test_todo_store_rejects_item_cap_and_symlinked_home(self) -> None:
         from omh.plugin_bundle.omh.todo_store import (
             MAX_TODO_ITEMS,
             TodoStoreError,
@@ -1164,11 +1165,16 @@ class TodoHudTests(unittest.TestCase):
             with self.assertRaises(TodoStoreError):
                 write_todo(linked_home, record)
 
-            sealed_home = root / "sealed"
+    @requires_posix_permissions
+    def test_todo_store_reports_unwritable_home_as_store_error(self) -> None:
+        from omh.plugin_bundle.omh.todo_store import TodoStoreError, build_todo_record, write_todo
+
+        with TemporaryDirectory() as tmp:
+            sealed_home = Path(tmp) / "sealed"
             sealed_home.mkdir(mode=0o500)
             try:
                 with self.assertRaises(TodoStoreError):
-                    write_todo(sealed_home, record)
+                    write_todo(sealed_home, build_todo_record("t", [{"text": "x"}], source="cli"))
             finally:
                 sealed_home.chmod(0o700)
 
