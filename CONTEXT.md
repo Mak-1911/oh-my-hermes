@@ -1,9 +1,10 @@
 # oh-my-hermes
 
-Shared language for the boundary between OMH and Hermes Agent. Agents keep
-confusing which product owns which surface; these terms pin the identity down.
-Product direction lives in `docs/DIRECTION.md`; the operating contract lives in
-`AGENTS.md`. This file is a glossary only.
+Shared language for oh-my-hermes, written for coding agents. Users mostly need
+`omh setup`, `omh update`, and `omh doctor`; agents work across every surface
+below and keep blurring which product or record owns which term — these
+definitions pin that down. Product direction lives in `docs/DIRECTION.md`; the
+operating contract lives in `AGENTS.md`. This file is a glossary only.
 
 ## Language
 
@@ -27,26 +28,146 @@ _Avoid_: Hermes runtime (that names an OMH executor path), our agent
 **Hermes home**:
 `$HERMES_HOME`, default `~/.hermes` — Hermes Agent's own state root. OMH only
 adds managed, explicitly installed artifacts under it (`plugins/omh`,
-`tui-widgets/`).
+`tui-widgets/`, skill registration in `config.yaml`).
 _Avoid_: using it for OMH runtime state
 
 **OMH home**:
-`$OMH_HOME`, default `~/.omh` — OMH's state root; the runtime metadata the HUD
-reads lives here.
+`$OMH_HOME`, default `~/.omh` — OMH's state root; managed skills and the
+runtime metadata the HUD reads live here.
 _Avoid_: `.omh` inside a repo (that is not a thing), Hermes home
+
+### Skills and routing
+
+**Managed skill**:
+A generated workflow document (`skills/*/SKILL.md`) OMH installs under the OMH
+home and registers into Hermes' `skills.external_dirs` so Hermes can invoke it
+in chat. Generated from the skill catalog; never hand-edited.
+_Avoid_: slash command, prompt template, OMC skill (that is a different
+product's concept)
+
+**Skill catalog**:
+The source of truth for every skill and its metadata (`src/skills/catalog.py`
+plus render code). Skills, `docs/WORKFLOWS.md`, `docs/ROLES.md`, and the demo
+cards are byte-exact projections of it.
+_Avoid_: editing any generated projection directly
+
+**Router**:
+OMH's deterministic chat-intake classifier that maps a natural-language
+request to a workflow, skill, or intervention using normalized phrase and
+token matching. Not a model and not an LLM dispatcher.
+_Avoid_: LLM router, model routing (that names executor model selection)
+
+**Route hint**:
+A non-binding recommendation of the nearest OMH workflow for a message, as
+returned by `omh_recommend` or `omh recommend`. It records nothing and
+authorizes nothing.
+_Avoid_: dispatch, delegation, decision
+
+### Runtime evidence
+
+**Run**:
+One recorded unit of coding work under `$OMH_HOME/runtime/runs/<id>` — the
+place prepared handoffs, observations, and effect receipts about that work
+accumulate.
+_Avoid_: session (wrapper sessions are a different record), task
+
+**Prepared handoff**:
+OMH's output contract for coding work — a payload a coding owner may execute
+later. Preparing one is not dispatch, execution, review, CI, or merge
+evidence; its status is `prepared_not_observed`.
+_Avoid_: run, execution, delegation result
+
+**Observed evidence**:
+A recorded observation that something actually happened (dispatch, execution,
+verification, review, CI, merge), as opposed to something being prepared or
+claimed. The only basis for completion claims in reports and status surfaces.
+_Avoid_: treating a prepared artifact, a declaration, or an executor's
+self-report as evidence
+
+**Claim boundary**:
+The sentence attached to a record stating what that record is *not* evidence
+of. Every metadata artifact OMH writes carries one.
+_Avoid_: disclaimer (it is a validated contract field, not prose)
+
+**Executor progress binding**:
+The metadata record that links a run or wrapper session to a live executor so
+its progress events can be projected as HUD activity rows. Bindings age from
+active to stale to expired; they never prove results.
+_Avoid_: process handle, job
+
+**Plan todo**:
+The declared checklist at `$OMH_HOME/runtime/todo.json` that HUD surfaces
+render above the Hermes prompt input. Items are plan declarations; a done mark
+never upgrades into observed evidence.
+_Avoid_: task list as evidence, TodoWrite (that is another product's tool name)
+
+### Coding delegation
+
+**Coding owner**:
+The executor selected to perform coding work for a run: Codex, Claude Code, a
+Hermes runtime/handoff path, or a generic executor profile. OMH language,
+schemas, and reports stay neutral across all of them.
+_Avoid_: defaulting to Codex in wording, the agent
+
+**Fanout dispatch**:
+OMH's one sanctioned execution surface — the explicit, operator-invoked
+`omh coding fanout dispatch` that spawns local agent CLIs as subprocesses.
+Nothing else in OMH executes anything.
+_Avoid_: implicit execution, background dispatch
+
+**Wrapper session**:
+The metadata record of a chat-surface interaction (Discord, Slack, hosted
+chat) driving OMH through the chat contract. A wrapper session is
+conversation state, not coding evidence.
+_Avoid_: run, transcript
+
+### OMH surfaces inside Hermes
+
+**OMH plugin**:
+The Python bundle OMH distributes into `$HERMES_HOME/plugins/omh` — Hermes
+tools (`omh_*`), lifecycle hooks, the memory provider, and the runtime reader.
+A managed copy of `src/plugin_bundle/omh`, never a symlink, and enabled via
+Hermes' `plugins.enabled` list.
+_Avoid_: equating it with OMH itself
+
+**Plugin tool**:
+One of the `omh_*` tools the plugin registers with Hermes (for example
+`omh_recommend`, `omh_hud`, `omh_todo`). Tools are metadata-only; the ones
+that write touch only OMH-owned artifacts in the configured OMH home.
+_Avoid_: MCP tool (the MCP bridge is a separate, allowlisted surface), shell
+command
+
+**Awareness**:
+The bounded guidance the plugin's hooks inject into Hermes context so Hermes
+knows which OMH tools and workflows exist and when to use them. Awareness is
+instruction, never state and never evidence.
+_Avoid_: system prompt, memory
+
+**Memory provider**:
+OMH's deterministic file-backed memory implementation that Hermes loads only
+when `memory.provider: omh` is selected in Hermes config. Hermes runs at most
+one external provider, so the key is a slot, not a list.
+_Avoid_: claiming the slot when another product holds it
+
+**HUD payload**:
+The metadata-only JSON projection built by `read_omh_hud()` from OMH home and
+Hermes home — plugin readiness, activity rows, the plan todo, display lines.
+Status narration, never execution, review, CI, merge, or token-usage evidence.
+_Avoid_: runtime state (the payload is a read-only projection of it)
 
 ### Hermes terminal surfaces
 
 **Classic TUI**:
-Hermes Agent's Python prompt_toolkit terminal UI — what plain `hermes` runs.
-It does not load user widget files; its extension point is wrapper-CLI method
-hooks.
+Hermes Agent's Python prompt_toolkit terminal UI — what `hermes` runs when
+`display.interface` selects the classic REPL. It does not load user widget
+files; its extension point is wrapper-CLI method hooks.
 _Avoid_: treating it as the surface OMH widgets render in
 
 **Modern TUI**:
-Hermes Agent's TypeScript terminal UI — what `hermes --tui` runs. Loads user
-widget apps from `$HERMES_HOME/tui-widgets/*.mjs`. The only Hermes surface
-that renders OMH's status widget.
+Hermes Agent's TypeScript terminal UI — what `hermes --tui` runs, and what
+bare `hermes` runs when `display.interface: tui` is set. Loads user widget
+apps from `$HERMES_HOME/tui-widgets/*.mjs`. The only Hermes surface that
+renders OMH's widgets.
 _Avoid_: ui-tui (internal directory name), dashboard TUI
 
 **Widget zone**:
@@ -55,29 +176,32 @@ A named slot in the Modern TUI layout where an ambient widget app renders.
 `dock-bottom` sits below the prompt input (above the bottom status rule).
 _Avoid_: assuming dock-bottom means above the input
 
-### OMH surfaces inside Hermes
-
-**OMH plugin**:
-The Python bundle OMH distributes into `$HERMES_HOME/plugins/omh` — Hermes
-tools, hooks, and the runtime reader. A managed copy of `src/plugin_bundle/omh`,
-never a symlink.
-_Avoid_: equating it with OMH itself
-
 **OMH status widget**:
-`omh-status.mjs`, the managed Modern-TUI widget app OMH installs into
-`$HERMES_HOME/tui-widgets/`. Renders the HUD payload in the `dock-bottom`
-zone — below the prompt input.
+`omh-status.mjs`, the managed Modern-TUI widget file OMH installs into
+`$HERMES_HOME/tui-widgets/`. It registers two apps: the status HUD in
+`dock-bottom` (header always visible when installed; activity rows only
+during live work) and the plan-todo checklist in `dock-top`.
 _Avoid_: statusline (that is a different, host-owned surface), HUD (the widget
 renders the HUD payload; it is not the payload)
 
-**HUD payload**:
-The metadata-only JSON projection built by `read_omh_hud()` from OMH home and
-Hermes home. Status narration, never execution, review, CI, merge, or
-token-usage evidence.
-_Avoid_: runtime state (the payload is a read-only projection of it)
+### Repo guard vocabulary
 
-**Prepared handoff**:
-OMH's output contract for coding work — a payload a coding owner may execute
-later. Preparing one is not dispatch, execution, review, CI, or merge
-evidence.
-_Avoid_: run, execution, delegation result
+**Byte gate**:
+A CI check that compares a generated artifact byte-for-byte against its
+regeneration from source (`omh docs … --check`). A one-character drift fails;
+the fix is always to edit the source and regenerate, never the artifact.
+_Avoid_: lint (byte gates prove provenance, not style)
+
+**Routing corpora**:
+The two named guard corpora for router changes: `ROUTING_PRECISION_CASES`
+(negative controls; failure metric `overroute_count`) and
+`ROUTING_INTERVENTION_CASES` (positive interventions; failure metric
+`missed_intervention_count`). Every trigger change ships cases in both.
+_Avoid_: underroute (that name matches nothing in the code)
+
+**Managed artifact**:
+A file OMH installs and refreshes under a host-owned root and may safely
+overwrite on setup/update — the plugin bundle, the widget file, managed
+skills, and the config keys OMH inserted. Everything else under a host root is
+user-owned and preserved.
+_Avoid_: overwriting anything OMH did not write
