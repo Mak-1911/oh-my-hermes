@@ -3,7 +3,9 @@
 Practical Claude Code guidance for this repo. Product direction, delivery
 grain, PR report style, evidence boundaries, and commit trailers are defined in
 `AGENTS.md` and `docs/DIRECTION.md` — read those first; this file does not
-repeat them.
+repeat them. `CONTEXT.md` is the glossary for the OMH ↔ Hermes Agent boundary
+(which product owns which surface, state root, and TUI); use its terms before
+reasoning about anything that touches Hermes Agent.
 
 ## What This Repo Is
 
