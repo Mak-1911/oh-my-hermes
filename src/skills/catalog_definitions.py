@@ -344,7 +344,7 @@ _DEFINITIONS = [
             "Expose core OMH roles: interviewer, planner, researcher, builder, reviewer, and loop controller.",
             "Route tiny direct tasks to one-cycle delivery surfaces instead of forcing loop overhead.",
             "Reframe a north-star ambition into a bounded arena, observable problem, next loop goal, and next verification without shrinking its ambition.",
-            "Separate task discovery, distribution, execution, verification, next-task decision, runtime tick queueing, ultragoal/handoff, feedback, waiting, and resume decisions.",
+            "Separate task discovery, distribution, execution, verification, next-task decision, runtime tick queueing, durable-checkpoint/handoff, feedback, waiting, and resume decisions.",
             "Expose a permission profile before executor/runtime dispatch, repository mutation, PR, merge, or external publishing.",
             "Expose the automation, worktree, skill, connector, and subagent building-block states without treating planned blocks as observed work.",
             "Choose workflow patterns such as single-step, fan-out-and-synthesize, adversarial verification, tournament, or triage batch as orchestration metadata only.",
@@ -356,8 +356,8 @@ _DEFINITIONS = [
         ),
         why_this_exists="`loop` exists for goals whose correct implementation cannot be known upfront but can be discovered through bounded cycles of definition, action, verification, and revision without confusing planned cycles with observed progress.",
         do_not_use_when=(
-            "The user asks for one bounded delivery cycle; use `ultraprocess` or `ultragoal` instead.",
-            "Scope and milestones are already known and only durable checkpoint/resume tracking is needed; use `ultragoal`.",
+            "The user asks for one bounded delivery cycle; use `ultrawork`'s delivery-boundary capability instead.",
+            "Scope and milestones are already known and only durable checkpoint/resume tracking is needed; use `ultrawork`'s durable-checkpoint capability.",
             "The user gives only a north-star outcome such as revenue, stars, or adoption and has not accepted a bounded first loop goal.",
             "The goal is too vague to name an observable problem, next artifact, verification signal, or stop condition.",
             "The goal depends mainly on external waiting, adoption, revenue, or community response without observable local next actions.",
@@ -927,7 +927,7 @@ _DEFINITIONS = [
             "[capability:durable_checkpoint] Branch, PR, CI, review, and merge claims are verified against local HEAD, remote branch SHA, PR head SHA, and merge commit before saying a fix landed.",
         ),
         recovery_notes=(
-            "If lanes are non-disjoint, collapse to one owner or route back to ultragoal before coding starts.",
+            "If lanes are non-disjoint, collapse to one owner or route back to the durable-checkpoint goal ledger before coding starts.",
             "If a worker does not ACK or return a result, keep that lane blocked/not_observed and expose the retry or reassignment action.",
             "If a worktree or shared-file conflict appears, pause parallel delivery and re-plan ownership before more edits.",
             "[capability:coordinated_scope] If a coordinated worker has no ACK or result, mark that lane not_observed or blocked rather than infer progress.",
@@ -1137,7 +1137,7 @@ _DEFINITIONS = [
         (
             "Use when the requested output is a typed source candidate inventory and acquisition status across papers, web links, "
             "datasets, GitHub repositories, public presentations, docs/specs, or unknown source material before choosing "
-            "paper-learning, research, research-brief, research-department, materials-package, or ultraprocess."
+            "paper-learning, research, research-brief, research-department, materials-package, or an ultrawork delivery cycle."
         ),
         category="research",
         phase="source-acquisition",
@@ -2045,7 +2045,7 @@ _DEFINITIONS = [
             "problem, user, evidence, metric, goal, and non-goal brief",
             "PRD with requirements, open questions, risks, dependencies, and acceptance shape",
             "prioritization/roadmap options with tradeoffs and decision owner",
-            "explicit downstream route to ralplan, strategy-brief, or ultraprocess only when its prerequisite is satisfied",
+            "explicit downstream route to ralplan, strategy-brief, or ultrawork only when its prerequisite is satisfied",
         ),
         artifact_expectations=("prepared product brief or PRD when a wrapper captures it",),
         safety_rules=(
@@ -3802,7 +3802,7 @@ _DEFINITIONS = [
             "Name the audience, depth, repo root, read-only boundary, and stop condition.",
             "Separate observed files and commands from inferred architecture and unknowns.",
             "Produce a practical reading path and first-task runway rather than a flat file tour.",
-            "Route follow-up implementation to plan, ultraprocess, verification-gate, or workspace-audit as needed.",
+            "Route follow-up implementation to plan, ultrawork, verification-gate, or workspace-audit as needed.",
         ),
         why_this_exists=(
             "`codebase-onboarding` adapts ECC's code-tour and onboarding surfaces into an OMH-native first-read workflow "
@@ -3895,7 +3895,7 @@ _DEFINITIONS = [
             "Name repo root, refresh depth, task focus, artifact write policy, and stop condition.",
             "Choose build, summary, handoff, `--write`, and `--json` deliberately instead of treating all codegraph commands as equivalent.",
             "Separate prepared command plans from observed command outputs, generated artifacts, and executor-ready handoffs.",
-            "Route broader first-read orientation to codebase-onboarding and implementation to ultraprocess or the selected coding owner.",
+            "Route broader first-read orientation to codebase-onboarding and implementation to ultrawork or the selected coding owner.",
         ),
         why_this_exists=(
             "`codegraph-refresh` adapts ECC-style codemap freshness into OMH's local codegraph commands so operators can "

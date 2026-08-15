@@ -304,8 +304,8 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Why this exists: `loop` exists for goals whose correct implementation cannot be known upfront but can be discovered through bounded cycles of definition, action, verification, and revision without confusing planned cycles with observed progress.
 - Use when: Use when the user starts a high-level goal or invokes loop. Direct loop invocation means start/continue through interviewer, planner, researcher, builder, reviewer, and loop-controller lanes until a real gate stops it.
 - Do not use when:
-  - The user asks for one bounded delivery cycle; use `ultraprocess` or `ultragoal` instead.
-  - Scope and milestones are already known and only durable checkpoint/resume tracking is needed; use `ultragoal`.
+  - The user asks for one bounded delivery cycle; use `ultrawork`'s delivery-boundary capability instead.
+  - Scope and milestones are already known and only durable checkpoint/resume tracking is needed; use `ultrawork`'s durable-checkpoint capability.
   - The user gives only a north-star outcome such as revenue, stars, or adoption and has not accepted a bounded first loop goal.
   - The goal is too vague to name an observable problem, next artifact, verification signal, or stop condition.
   - The goal depends mainly on external waiting, adoption, revenue, or community response without observable local next actions.
@@ -325,7 +325,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Expose core OMH roles: interviewer, planner, researcher, builder, reviewer, and loop controller.
   - Route tiny direct tasks to one-cycle delivery surfaces instead of forcing loop overhead.
   - Reframe a north-star ambition into a bounded arena, observable problem, next loop goal, and next verification without shrinking its ambition.
-  - Separate task discovery, distribution, execution, verification, next-task decision, runtime tick queueing, ultragoal/handoff, feedback, waiting, and resume decisions.
+  - Separate task discovery, distribution, execution, verification, next-task decision, runtime tick queueing, durable-checkpoint/handoff, feedback, waiting, and resume decisions.
   - Expose a permission profile before executor/runtime dispatch, repository mutation, PR, merge, or external publishing.
   - Expose the automation, worktree, skill, connector, and subagent building-block states without treating planned blocks as observed work.
   - Choose workflow patterns such as single-step, fan-out-and-synthesize, adversarial verification, tournament, or triage batch as orchestration metadata only.
@@ -800,7 +800,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - [capability:durable_checkpoint] Long-running or background executor milestones report observed handles, current state, changed-file summaries, missing checks, and prepared-vs-observed boundaries while work is running.
   - [capability:durable_checkpoint] Branch, PR, CI, review, and merge claims are verified against local HEAD, remote branch SHA, PR head SHA, and merge commit before saying a fix landed.
 - Recovery notes:
-  - If lanes are non-disjoint, collapse to one owner or route back to ultragoal before coding starts.
+  - If lanes are non-disjoint, collapse to one owner or route back to the durable-checkpoint goal ledger before coding starts.
   - If a worker does not ACK or return a result, keep that lane blocked/not_observed and expose the retry or reassignment action.
   - If a worktree or shared-file conflict appears, pause parallel delivery and re-plan ownership before more edits.
   - [capability:coordinated_scope] If a coordinated worker has no ACK or result, mark that lane not_observed or blocked rather than infer progress.
@@ -943,7 +943,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Preferred usage: Use as an installed Hermes workflow skill when the user asks to find or classify source candidates before learning, research, materials, or coding work.
 - Handoff policy: Keep source acquisition planning in Hermes. Do not claim search, download, clone, extraction, license check, verification, or downstream processing unless a wrapper or user records observed evidence.
 - Why this exists: `source-finder` exists so Hermes can turn vague source discovery requests into typed candidates, acquisition status, and downstream workflow choice without pretending OMH searched, downloaded, or verified the material.
-- Use when: Use when the requested output is a typed source candidate inventory and acquisition status across papers, web links, datasets, GitHub repositories, public presentations, docs/specs, or unknown source material before choosing paper-learning, research, research-brief, research-department, materials-package, or ultraprocess.
+- Use when: Use when the requested output is a typed source candidate inventory and acquisition status across papers, web links, datasets, GitHub repositories, public presentations, docs/specs, or unknown source material before choosing paper-learning, research, research-brief, research-department, materials-package, or an ultrawork delivery cycle.
 - Do not use when:
   - The requested output is factual findings, comparison, or a summary rather than a typed candidate inventory and acquisition status; use `research`.
   - The user needs a business decision brief with evidence-versus-inference treatment; use `research-brief`.
@@ -1854,7 +1854,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - problem, user, evidence, metric, goal, and non-goal brief
   - PRD with requirements, open questions, risks, dependencies, and acceptance shape
   - prioritization/roadmap options with tradeoffs and decision owner
-  - explicit downstream route to ralplan, strategy-brief, or ultraprocess only when its prerequisite is satisfied
+  - explicit downstream route to ralplan, strategy-brief, or ultrawork only when its prerequisite is satisfied
 - Artifact expectations:
   - prepared product brief or PRD when a wrapper captures it
 - Safety rules:
@@ -3057,7 +3057,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Name the audience, depth, repo root, read-only boundary, and stop condition.
   - Separate observed files and commands from inferred architecture and unknowns.
   - Produce a practical reading path and first-task runway rather than a flat file tour.
-  - Route follow-up implementation to plan, ultraprocess, verification-gate, or workspace-audit as needed.
+  - Route follow-up implementation to plan, ultrawork, verification-gate, or workspace-audit as needed.
 - Completion checklist:
   - The plan names goals, non-goals, assumptions, acceptance criteria, and verification shape.
   - Draft recommendations, accepted decisions, and executor handoffs are separate states.
@@ -3124,7 +3124,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Name repo root, refresh depth, task focus, artifact write policy, and stop condition.
   - Choose build, summary, handoff, `--write`, and `--json` deliberately instead of treating all codegraph commands as equivalent.
   - Separate prepared command plans from observed command outputs, generated artifacts, and executor-ready handoffs.
-  - Route broader first-read orientation to codebase-onboarding and implementation to ultraprocess or the selected coding owner.
+  - Route broader first-read orientation to codebase-onboarding and implementation to ultrawork or the selected coding owner.
 - Completion checklist:
   - Repo root, refresh depth, task focus, command choices, and write policy are explicit.
   - Prepared command plans, observed outputs, generated artifacts, and executor handoff readiness are separated.
@@ -3686,7 +3686,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Make goals, non-goals, risks, acceptance criteria, and verification shape explicit.
   - Keep draft plans unapproved until a user or wrapper accepts them.
   - Only prepare coding handoff guidance after the plan is accepted.
-  - Plan acceptance approves the plan content, not execution: after acceptance, recommend the follow-on path that fits the work's shape — `ultragoal` for progress that must survive sessions as a checkpointed ledger, `ultrawork` for an accepted plan split into disjoint parallel lanes, `ralph` for one already-scoped task with a single owner, `ultraprocess` for one bounded delivery cycle, or a direct selected executor/runtime handoff for a single prepared coding change — state the fit reason in one line, and start it only after the user's explicit go-ahead.
+  - Plan acceptance approves the plan content, not execution: after acceptance, recommend the follow-on path that fits the work's shape — `ultrawork` durable checkpoints for progress that must survive sessions as a checkpointed ledger, `ultrawork` coordinated lanes for an accepted plan split into disjoint parallel lanes, `ultrawork` single-owner persistence for one already-scoped task with a single owner, `ultrawork` for one bounded delivery cycle, or a direct selected executor/runtime handoff for a single prepared coding change — state the fit reason in one line, and start it only after the user's explicit go-ahead.
 - Completion checklist:
   - The plan names goals, non-goals, assumptions, acceptance criteria, and verification shape.
   - Draft recommendations, accepted decisions, and executor handoffs are separate states.
@@ -3749,7 +3749,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Record unresolved tradeoffs and evidence gaps instead of flattening uncertainty.
   - Consume a recorded `research` dossier when one exists: plan options and rejected alternatives should cite its decision drivers and verified claims.
   - End with a selected executor/runtime handoff shape only after the plan is accepted.
-  - Plan acceptance approves the plan content, not execution: after acceptance, recommend the follow-on path that fits the work's shape — `ultragoal` for progress that must survive sessions as a checkpointed ledger, `ultrawork` for an accepted plan split into disjoint parallel lanes, `ralph` for one already-scoped task with a single owner, `ultraprocess` for one bounded delivery cycle, or a direct selected executor/runtime handoff for a single prepared coding change — state the fit reason in one line, and start it only after the user's explicit go-ahead.
+  - Plan acceptance approves the plan content, not execution: after acceptance, recommend the follow-on path that fits the work's shape — `ultrawork` durable checkpoints for progress that must survive sessions as a checkpointed ledger, `ultrawork` coordinated lanes for an accepted plan split into disjoint parallel lanes, `ultrawork` single-owner persistence for one already-scoped task with a single owner, `ultrawork` for one bounded delivery cycle, or a direct selected executor/runtime handoff for a single prepared coding change — state the fit reason in one line, and start it only after the user's explicit go-ahead.
   - Do not implement directly from consensus planning.
 - Completion checklist:
   - Observed repo facts and source/web evidence gaps are named.
@@ -8777,7 +8777,7 @@ Prepare typed source candidates, acquisition states, observation provenance, and
 - Overclaim guards:
   - A source_finder_plan/v1 artifact is not web search, download, clone, extraction, license check, source verification, or downstream processing evidence.
   - A source candidate is not proof the source exists, is accessible, is licensed, or supports the user's claim until observed evidence exists.
-  - A downstream workflow recommendation is not proof that paper-learning, research, materials-package, research-department, or ultraprocess ran.
+  - A downstream workflow recommendation is not proof that paper-learning, research, materials-package, research-department, or an ultrawork delivery cycle ran.
 - Fallback: If a request asks for current facts, citations, explanation, recurring monitoring, file packaging, or image-card generation, route to the narrower downstream workflow.
 
 ### paper-learning

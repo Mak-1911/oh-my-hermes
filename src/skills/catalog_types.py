@@ -322,9 +322,10 @@ DELEGATION_TRANSPARENCY_RULES = (
 # bars so a chained start still stops for the user's go-ahead.
 ENGINE_FIT_RECOMMENDATION_RULE = (
     "Plan acceptance approves the plan content, not execution: after acceptance, recommend the follow-on "
-    "path that fits the work's shape — `ultragoal` for progress that must survive sessions as a "
-    "checkpointed ledger, `ultrawork` for an accepted plan split into disjoint parallel lanes, `ralph` "
-    "for one already-scoped task with a single owner, `ultraprocess` for one bounded delivery cycle, or "
+    "path that fits the work's shape — `ultrawork` durable checkpoints for progress that must survive "
+    "sessions as a checkpointed ledger, `ultrawork` coordinated lanes for an accepted plan split into "
+    "disjoint parallel lanes, `ultrawork` single-owner persistence for one already-scoped task with a "
+    "single owner, `ultrawork` for one bounded delivery cycle, or "
     "a direct selected executor/runtime handoff for a single prepared coding change — state the fit "
     "reason in one line, and start it only after the user's explicit go-ahead."
 )

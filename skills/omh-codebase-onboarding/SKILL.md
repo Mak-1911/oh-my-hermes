@@ -74,7 +74,7 @@ Quality bar:
 - Name the audience, depth, repo root, read-only boundary, and stop condition.
 - Separate observed files and commands from inferred architecture and unknowns.
 - Produce a practical reading path and first-task runway rather than a flat file tour.
-- Route follow-up implementation to plan, ultraprocess, verification-gate, or workspace-audit as needed.
+- Route follow-up implementation to plan, ultrawork, verification-gate, or workspace-audit as needed.
 
 Handoff policy:
 

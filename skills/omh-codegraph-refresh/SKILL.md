@@ -76,7 +76,7 @@ Quality bar:
 - Name repo root, refresh depth, task focus, artifact write policy, and stop condition.
 - Choose build, summary, handoff, `--write`, and `--json` deliberately instead of treating all codegraph commands as equivalent.
 - Separate prepared command plans from observed command outputs, generated artifacts, and executor-ready handoffs.
-- Route broader first-read orientation to codebase-onboarding and implementation to ultraprocess or the selected coding owner.
+- Route broader first-read orientation to codebase-onboarding and implementation to ultrawork or the selected coding owner.
 
 Handoff policy:
 

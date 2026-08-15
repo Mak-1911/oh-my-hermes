@@ -96,7 +96,7 @@ Expected outputs:
 - problem, user, evidence, metric, goal, and non-goal brief
 - PRD with requirements, open questions, risks, dependencies, and acceptance shape
 - prioritization/roadmap options with tradeoffs and decision owner
-- explicit downstream route to ralplan, strategy-brief, or ultraprocess only when its prerequisite is satisfied
+- explicit downstream route to ralplan, strategy-brief, or ultrawork only when its prerequisite is satisfied
 
 Artifact expectations:
 

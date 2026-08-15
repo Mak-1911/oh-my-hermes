@@ -108,8 +108,11 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # Re-tightened to the measured post-retirement value when the four folded ULW
 # engines left the installable surface (#954 stage 5): the PR D reviewed
 # exception is retired with them, per plan §1.2 (the ceiling is relaxed exactly
-# once and re-tightened at retirement).
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 698642
+# once and re-tightened at retirement). Re-measured after the retirement
+# review repointed the remaining retired-name recommendation copy to
+# `ultrawork` capability phrasing (the fit-recommendation rule grew by the
+# capability wording); the ceiling stays exactly the measured value.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 698935
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

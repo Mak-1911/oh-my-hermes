@@ -61,7 +61,7 @@ Bad example:
 
 ## Recovery Notes
 
-- If lanes are non-disjoint, collapse to one owner or route back to ultragoal before coding starts.
+- If lanes are non-disjoint, collapse to one owner or route back to the durable-checkpoint goal ledger before coding starts.
 - If a worker does not ACK or return a result, keep that lane blocked/not_observed and expose the retry or reassignment action.
 - If a worktree or shared-file conflict appears, pause parallel delivery and re-plan ownership before more edits.
 - [capability:coordinated_scope] If a coordinated worker has no ACK or result, mark that lane not_observed or blocked rather than infer progress.

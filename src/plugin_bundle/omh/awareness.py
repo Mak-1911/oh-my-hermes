@@ -1000,7 +1000,7 @@ ROUTER_KEYWORD_SKILLS = (
 
 LANE_CROSS_LANE_EXAMPLES = {
     "intent_to_plan": [
-        "ambitious goal -> loopability check -> loop or ultraprocess -> verification status",
+        "ambitious goal -> loopability check -> loop or ultrawork delivery cycle -> verification status",
         "new repo -> codebase-onboarding -> reading path -> first-task runway",
         "stale code index -> codegraph-refresh -> summary or task-scoped handoff",
         "fuzzy feature request -> deep-interview -> ralplan -> accepted plan",
@@ -1048,7 +1048,7 @@ LANE_CROSS_LANE_EXAMPLES = {
         "runtime confusion -> doctor or agent-ops-review -> status card -> next repair action",
     ],
     "coding_handoff": [
-        "accepted plan -> ultraprocess -> coding handoff -> review and CI evidence",
+        "accepted plan -> ultrawork delivery cycle -> coding handoff -> review and CI evidence",
         "failed checks -> build-failure-triage -> minimal fix handoff -> verification-gate",
         "agentic action risk -> security-safety-review -> safe action policy -> remediation handoff",
         "risky change -> ralplan -> executor selection -> observed coding-agent status",
@@ -1059,7 +1059,7 @@ WORKFLOW_CONTEXT_CARDS = (
         "id": "intent_to_plan",
         "label": "Intent to plan",
         "user_signal": "fuzzy goal, ambitious target, safe feature, or one-cycle delivery request",
-        "omh_pattern": "clarify or plan first, then move to ultragoal, ultraprocess, loop, or handoff only when concrete and only after the user confirms the recommended follow-on path",
+        "omh_pattern": "clarify or plan first, then move to an ultrawork delivery cycle, loop, or handoff only when concrete and only after the user confirms the recommended follow-on path",
         "representative_workflows": (
             "context",
             "deep-interview",
@@ -5782,7 +5782,7 @@ def awareness_primer_payload() -> dict[str, object]:
             },
             {
                 "cue": "coding, risky changes, executor status, review, CI, or merge state",
-                "route": "ultraprocess, coding handoff, code-review, or agent-ops-review with observed evidence boundaries",
+                "route": "ultrawork, coding handoff, code-review, or agent-ops-review with observed evidence boundaries",
             },
             {
                 "cue": "workflow trace, skill improvement, regression corpus, or why-routing questions",
@@ -5992,7 +5992,7 @@ def _compact_workflow_cue_line() -> str:
         "notes/retros -> operating-rhythm/meeting-brief; PR/issue/bug/feedback/release -> github-event-ops, "
         "feedback-triage, report-package, or img-summary; papers -> paper-learning; sources/news -> research/research-department; "
         "premium visuals -> design-quality-gate; frontend -> frontend; accessibility/WCAG -> accessibility-audit; screenshots/render -> visual-qa; files/docs -> materials/report-package; image cards -> img-summary; "
-        "failed checks -> build-failure-triage; code/CI/merge -> ultraprocess/code-review/verification-gate; "
+        "failed checks -> build-failure-triage; code/CI/merge -> ultrawork/code-review/verification-gate; "
         "agent failure/drift -> agent-debug; hidden failures -> failure-signal-audit; lessons -> instinct-ledger; regression -> workflow-learning"
     )
 
@@ -6004,7 +6004,7 @@ def _compact_workflow_context_cards_line() -> str:
         "materials -> design-quality-gate/frontend/accessibility-audit/visual-qa/materials-package; "
         "ops -> automation/workspace/production/context-budget/agent-debug/failure-signal-audit/instinct-ledger/skill-health/learning/doctor; "
         "eval/rules -> agent-evaluation/rules-distill; "
-        "code -> ultraprocess/code-review/build-failure-triage/verification-gate/team/ultraqa"
+        "code -> ultrawork/code-review/build-failure-triage/verification-gate/ultraqa"
     )
 
 
@@ -6012,7 +6012,7 @@ def _compact_generic_tool_checkpoint_line() -> str:
     return (
         "image->img-summary; frontend->frontend/a11y/visual-qa; paper->paper-learning; content->content-operator; media->media-input-operator; file->materials-package; "
         "search->research; live->live-info-operator; audit->workspace/production/security; "
-        "failures->build-failure; verify->verification-gate; code->codegraph/onboarding/ultraprocess"
+        "failures->build-failure; verify->verification-gate; code->codegraph/onboarding/ultrawork"
     )
 
 

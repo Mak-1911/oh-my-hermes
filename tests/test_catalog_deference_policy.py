@@ -97,9 +97,13 @@ NON_SKILL_BACKTICKS = frozenset(
 # here, and that is the moment to confirm the router honours the new boundary.
 # ULW fold (issue #954, PR D): ultrawork's carried delivery/durable boundaries
 # add one deference statement naming `loop`.
-EXPECTED_DEFERENCE_CASES = 131
-EXPECTED_DEFERENCE_PAIRS = 141
-EXPECTED_DEFERRING_OWNERS = 45
+# ULW retirement (#954 stage 5): loop's bad-examples repoint from the retired
+# `ultraprocess`/`ultragoal` to `ultrawork`'s delivery-boundary and
+# durable-checkpoint capabilities, adding two loop -> ultrawork cases, one new
+# pair, and loop as a new deferring owner.
+EXPECTED_DEFERENCE_CASES = 133
+EXPECTED_DEFERENCE_PAIRS = 142
+EXPECTED_DEFERRING_OWNERS = 46
 
 # The ratchet. Recording a new inversion must be a visible edit to this number,
 # not one more dict line with a plausible sentence attached.

@@ -27,7 +27,7 @@
   ],
   "route_summary": "Clarify the goal, choose the planning depth, and show the next concrete action.",
   "source_examples": [
-   "ambitious goal -> loopability check -> loop or ultraprocess -> verification status",
+   "ambitious goal -> loopability check -> loop or ultrawork delivery cycle -> verification status",
    "new repo -> codebase-onboarding -> reading path -> first-task runway",
    "stale code index -> codegraph-refresh -> summary or task-scoped handoff",
    "fuzzy feature request -> deep-interview -> ralplan -> accepted plan"
@@ -187,7 +187,7 @@
   ],
   "route_summary": "Choose model, runtime, and coding-owner targets only after scope is concrete, then track observed evidence separately.",
   "source_examples": [
-   "accepted plan -> ultraprocess -> coding handoff -> review and CI evidence",
+   "accepted plan -> ultrawork delivery cycle -> coding handoff -> review and CI evidence",
    "failed checks -> build-failure-triage -> minimal fix handoff -> verification-gate",
    "agentic action risk -> security-safety-review -> safe action policy -> remediation handoff",
    "risky change -> ralplan -> executor selection -> observed coding-agent status"

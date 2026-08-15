@@ -413,7 +413,7 @@ class CapabilityManifestTests(unittest.TestCase):
         self.assertIn("missing", skill["fallback_rule"])
         self.assertIn("omh_context", awareness["tool_hints"][0])
         self.assertIn("omh_capabilities", " ".join(awareness["tool_hints"]))
-        self.assertIn("accepted plan -> ultraprocess -> coding handoff", " ".join(skill["cross_lane_examples"]))
+        self.assertIn("accepted plan -> ultrawork delivery cycle -> coding handoff", " ".join(skill["cross_lane_examples"]))
         self.assertEqual(ops_surface["surface_exposure"], "workflow_skill")
         self.assertEqual(awareness["schema_version"], "omh_awareness/v1")
         # The rule discriminates by the shape of the result, not by a list of
