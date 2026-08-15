@@ -38,6 +38,13 @@ CODING_EXECUTOR_HANDOFF_TARGETS = ("codex",)
 CODING_RUNTIME_HANDOFF_TARGETS = ("hermes", "omx-runtime", "omo-runtime", "omc-runtime")
 CODING_EXECUTOR_TARGETS = ("choose", *EXECUTOR_PROFILES)
 PROMPT_ONLY_EXECUTOR_PROFILES = ("claude-code", "generic")
+# The external coding CLIs a user can be offered as a coding owner. This set
+# is deliberately narrower than the maestro facade's serviceable profiles:
+# runtime handoffs and the generic prompt fallback are not external coding
+# CLIs, so selecting one of them never requires explicit-choice provenance.
+# The facade derives its own membership from this tuple, keeping the subset
+# relation structural.
+EXTERNAL_CLI_PROFILES = ("claude-code", "codex")
 
 
 RUNTIME_PROFILE_DETAILS = {
