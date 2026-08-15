@@ -318,6 +318,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
     checks.append(_hook_integrity_check(paths))
     checks.append(_retired_skill_install_check(paths))
     checks.append(_plugin_ulw_lifecycle_check(paths))
+    checks.extend(_hermes_tui_checks(paths))
     profile_installs = state.get("last_team_profile_install") if isinstance(state, dict) else None
     if not profile_installs:
         checks.append(Check("team_profile_packs", True, f"optional OMH team profile packs are not installed at {paths.hermes_agents_dir}"))
@@ -339,6 +340,101 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
                 ),
             )
         )
+    return checks
+
+
+def _hermes_tui_checks(paths: OmhPaths) -> list[Check]:
+    """Hermes-side TUI preflight findings.
+
+    The OMH HUD/todo surface renders only inside Hermes' modern TUI, and none
+    of the conditions for that are visible from OMH's own install state. An
+    old Hermes, a stripped widget SDK, an unset ``display.interface``, or a
+    stale embedded interpreter each degrade to a silent no-render — doctor
+    names the condition and the repair instead of leaving the user to diff
+    screenshots.
+    """
+    from .hermes_tui import hermes_tui_preflight
+
+    preflight = hermes_tui_preflight(paths)
+    install = preflight["install"]
+    if not install["found"]:
+        return [
+            Check(
+                "hermes_tui_support",
+                True,
+                f"Hermes install not found at {install['path']}; TUI checks skipped",
+                observed=False,
+            )
+        ]
+    checks: list[Check] = []
+    loader = preflight["widget_loader"]
+    version = str(install.get("version") or "unknown")
+    checks.append(
+        Check(
+            "hermes_tui_support",
+            bool(loader["present"]),
+            (
+                f"Hermes {version} ships the TUI widget loader ({loader['marker']})"
+                if loader["present"]
+                else f"Hermes {version} has no TUI widget loader — it predates the modern TUI, so the OMH HUD and todo panel cannot render"
+            ),
+            severity="ok" if loader["present"] else "warning",
+            next_action="" if loader["present"] else "run `hermes update` to get the modern TUI, then rerun `omh doctor`",
+        )
+    )
+    sdk = preflight["sdk_surface"]
+    if sdk["checked"]:
+        checks.append(
+            Check(
+                "hermes_tui_sdk_surface",
+                not sdk["missing"],
+                (
+                    "Hermes widget SDK exposes every API the OMH widget uses"
+                    if not sdk["missing"]
+                    else f"Hermes widget SDK no longer exposes: {', '.join(sdk['missing'])} — the loader will skip the OMH widget"
+                ),
+                severity="ok" if not sdk["missing"] else "warning",
+                next_action="" if not sdk["missing"] else "run `omh update` for a compatible widget, or report the incompatibility",
+            )
+        )
+    interface = preflight["display_interface"]
+    interface_ok = interface["explicit"]
+    if interface["explicit"] and interface["value"] not in ("", "tui"):
+        message = (
+            f"display.interface is set to {interface['value']!r} (user-owned); the OMH HUD renders only in the modern TUI"
+        )
+    elif interface["explicit"]:
+        message = "display.interface defaults bare `hermes` to the modern TUI"
+    else:
+        message = "display.interface is unset — bare `hermes` opens the classic REPL where the HUD cannot render"
+    checks.append(
+        Check(
+            "hermes_tui_interface_default",
+            interface_ok,
+            message,
+            severity="ok" if interface_ok else "warning",
+            next_action="" if interface_ok else "run `omh setup` to default display.interface to the TUI",
+        )
+    )
+    widget = preflight["widget"]
+    widget_ok = bool(widget["installed"]) and (not widget["interpreter"] or widget["interpreter_ok"])
+    if not widget["installed"]:
+        widget_message = "OMH status widget is not installed under tui-widgets/"
+    elif widget["interpreter"] and not widget["interpreter_ok"]:
+        widget_message = (
+            f"OMH status widget points at a missing Python interpreter ({widget['interpreter']})"
+        )
+    else:
+        widget_message = "OMH status widget installed and its embedded interpreter resolves"
+    checks.append(
+        Check(
+            "hermes_tui_widget_state",
+            widget_ok,
+            widget_message,
+            severity="ok" if widget_ok else "warning",
+            next_action="" if widget_ok else "run `omh setup` to (re)install the managed TUI widget",
+        )
+    )
     return checks
 
 

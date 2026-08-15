@@ -279,6 +279,24 @@ class HudCliTests(unittest.TestCase):
             self.assertTrue(swapped or replacement_blocked)
             self.assertEqual(payload, {"version": "safe"})
 
+    def test_run_target_binding_projects_the_profile_as_role_not_the_run_id(self) -> None:
+        # A run's target_id is its timestamped artifact id; showing it as the
+        # "role" put a 40-char identifier where a human-readable owner belongs.
+        from omh.plugin_bundle.omh.runtime_reader import _hud_executor_role
+
+        run_row = {
+            "target_type": "run",
+            "target_id": "20260815T172724312406Z-ultrawork-goal-execution-1c8041",
+            "executor_profile": "claude_code",
+        }
+        self.assertEqual(_hud_executor_role(run_row), "claude_code")
+        subagent_row = {
+            "target_type": "subagent",
+            "target_id": "explore",
+            "executor_profile": "hermes",
+        }
+        self.assertEqual(_hud_executor_role(subagent_row), "explore")
+
     def test_role_catalog_detection_falls_back_when_directory_open_is_unsupported(self) -> None:
         from omh.plugin_bundle.omh import runtime_reader
 
