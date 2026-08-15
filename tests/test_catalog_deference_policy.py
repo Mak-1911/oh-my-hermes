@@ -78,12 +78,25 @@ _ANY_BACKTICKED_TOKEN = re.compile(r"`([^`]+)`")
 # Backticked tokens in `do_not_use_when` that are deliberately not skills: file
 # and artifact names quoted in the prose. Enumerated so a genuinely misspelled
 # skill name cannot hide among them.
-NON_SKILL_BACKTICKS = frozenset({".env", ".pptx"})
+# The three `ulw-work` internal capability ids that its do_not_use_when
+# boundaries reference after the ULW fold (issue #954, PR D) are deliberate
+# non-skill names: they are capabilities of `ultrawork`, not catalog siblings.
+NON_SKILL_BACKTICKS = frozenset(
+    {
+        ".env",
+        ".pptx",
+        "coordinated_scope",
+        "single_owner_persistence",
+        "durable_checkpoint",
+    }
+)
 
 # A statement that names a sibling, and the sibling(s) it names. The counts are
 # contracts: a new skill whose do_not_use_when points at a sibling adds a case
 # here, and that is the moment to confirm the router honours the new boundary.
-EXPECTED_DEFERENCE_CASES = 139
+# ULW fold (issue #954, PR D): ultrawork's carried delivery/durable boundaries
+# add one deference statement naming `loop`.
+EXPECTED_DEFERENCE_CASES = 140
 EXPECTED_DEFERENCE_PAIRS = 150
 EXPECTED_DEFERRING_OWNERS = 50
 

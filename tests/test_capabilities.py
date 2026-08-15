@@ -403,7 +403,9 @@ class CapabilityManifestTests(unittest.TestCase):
 
         self.assertEqual(skill["schema_version"], "skill_capability/v1")
         self.assertIn("prepared_not_observed", skill["evidence_boundary"])
-        self.assertEqual(skill["awareness_lane"], "intent_to_plan")
+        # ULW fold (issue #954, PR D): ultragoal's context-card lane moved to
+        # coding_handoff with the other folded contracts.
+        self.assertEqual(skill["awareness_lane"], "coding_handoff")
         self.assertIn("Use `ultragoal`", skill["workflow_routing_hint"])
         self.assertEqual(wiki_skill["awareness_lane"], "retained_knowledge")
         self.assertIn("Retained knowledge", wiki_skill["workflow_routing_hint"])
@@ -413,7 +415,7 @@ class CapabilityManifestTests(unittest.TestCase):
         self.assertIn("missing", skill["fallback_rule"])
         self.assertIn("omh_context", awareness["tool_hints"][0])
         self.assertIn("omh_capabilities", " ".join(awareness["tool_hints"]))
-        self.assertIn("ambitious goal -> loopability check", " ".join(skill["cross_lane_examples"]))
+        self.assertIn("accepted plan -> ultraprocess -> coding handoff", " ".join(skill["cross_lane_examples"]))
         self.assertEqual(ops_surface["surface_exposure"], "workflow_skill")
         self.assertEqual(awareness["schema_version"], "omh_awareness/v1")
         # The rule discriminates by the shape of the result, not by a list of

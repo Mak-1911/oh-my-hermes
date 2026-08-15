@@ -98,6 +98,15 @@ FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 340000
 FULL_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 9000
 STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT = 100000
 STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
+# ULW fold context ceiling (issue #954, PR D). The limit is the pre-D measured
+# value of the full profile's `skill_body` chars on `main` @ acb9a060, in the
+# producer's own unit (Python str length; the payload field is named `bytes`
+# but counts characters). PR D's fold growth is a reviewed exception recorded
+# in the PR body -- `ultrawork` absorbs four contracts while the four retiring
+# skills still ship, so cost rises until PR G removes them. PR G re-measures
+# and lowers the limit; it must not be bumped silently.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 730024
+FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 6455
 
 
 @dataclass(frozen=True)

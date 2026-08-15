@@ -2837,7 +2837,9 @@ class WrapperContractTests(unittest.TestCase):
                 self.assertIn("paper-learning", summary_families["learn_and_gather"]["primary_workflows"])
                 self.assertIn("Claude Code", summary_families["delegate_coding_and_ship"]["executor_choices"])
                 self.assertIn("img-summary", lanes["materials_and_visuals"]["primary_skills"])
-                self.assertIn("ultraprocess", lanes["intent_to_plan"]["primary_skills"])
+                # ULW fold (issue #954, PR D): ultraprocess's awareness lane
+                # moved to coding_handoff with the other folded contracts.
+                self.assertIn("ultraprocess", lanes["coding_handoff"]["primary_skills"])
                 self.assertIn("feedback-triage", summary_cards["research_and_ops"]["representative_workflows"])
                 self.assertIn("source-finder", summary_cards["research_and_ops"]["representative_workflows"])
                 self.assertIn("paper-learning", summary_cards["research_and_ops"]["representative_workflows"])
@@ -3220,7 +3222,10 @@ class WrapperContractTests(unittest.TestCase):
                 self.assertEqual(payload["delegation"]["executor_selection"]["choice_required"], choice_required)
                 explanation = payload["chat_response"]["state"]["workflow_explanation"]
                 self.assertEqual(explanation["selected_workflow"], "ultraprocess")
-                self.assertEqual(explanation["workflow_context_id"], "intent_to_plan")
+                # ULW fold (issue #954, PR D): ultraprocess's context card
+                # moved to the coding_handoff lane with the other folded
+                # contracts.
+                self.assertEqual(explanation["workflow_context_id"], "coding_handoff")
                 self.assertIn("ultraprocess", explanation["workflow_context_card"]["representative_workflows"])
                 self.assertIn(
                     "executor/runtime dispatch" if choice_required else "execution",

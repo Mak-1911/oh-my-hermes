@@ -1628,8 +1628,18 @@ until executed against that deployment. Static Compose inspection is not E2E
 evidence.
 """
 
-def workflow_skill(name: str) -> SkillTemplate:
-    definition = _definitions_by_name()[name]
+def workflow_skill_from_definition(definition: SkillDefinition, name: str) -> SkillTemplate:
+    """Render one workflow skill from an explicit definition.
+
+    Production entry point added for the ULW contract-equivalence gate
+    (issue #954, PR D): a renderer that can only render the global catalog
+    cannot be exercised against a mutated definition, so the mutation tests in
+    `tests/test_ulw_equivalence.py` route hypothetical `SkillDefinition`
+    mutants through this function instead of monkeypatching the cached
+    catalog lookup. `workflow_skill` below stays the catalog-backed path and
+    byte-parity between the two is pinned by
+    `test_workflow_skill_paths_are_byte_identical`.
+    """
     title = name.replace("-", " ").title()
     triggers = ", ".join(f"`{trigger}`" for trigger in definition.triggers)
     primary_harness = primary_harness_for_skill(name)
@@ -1654,6 +1664,10 @@ This is a Hermes-native `{name}` workflow skill.
 {_common_rail_sections(definition, primary_harness)}
 """
     return SkillTemplate(name, _frontmatter(name, definition.description) + "\n" + body)
+
+
+def workflow_skill(name: str) -> SkillTemplate:
+    return workflow_skill_from_definition(_definitions_by_name()[name], name)
 
 
 def jit_learn_skill() -> SkillTemplate:

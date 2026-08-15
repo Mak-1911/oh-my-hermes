@@ -444,7 +444,6 @@ _DEFINITIONS = [
         aliases=("ulp",),
         category="process",
         phase="single-cycle-plan-to-pr",
-        capability_family="delegate_coding_and_ship",
         hermes_role="retained-cognition",
         delegation_boundary="retained-catalog-intent",
         handoff_policy="Keep the one-cycle process orchestration, source/codebase research, planning, review framing, docs-sync checks, PR narration, and evidence boundaries in Hermes; convert implementation into a selected executor/runtime handoff such as Codex, Claude Code, OMX/OMO/OMC, another coding agent, or explicit Hermes coding runtime only when the user accepts that owner.",
@@ -804,14 +803,35 @@ _DEFINITIONS = [
         category="execution",
         phase="parallel-delivery",
         hermes_role="runtime-handoff-guidance",
-        handoff_policy="Keep the workflow name for compatibility, but convert coding lanes into explicit selected runtime handoffs with disjoint scope, verification, review evidence, worker protocol, and worktree guidance.",
+        handoff_policy=(
+            "Keep the workflow name for compatibility, but convert coding lanes into explicit selected runtime "
+            "handoffs with disjoint scope, verification, review evidence, worker protocol, and worktree guidance. "
+            "[capability:delivery_boundary] Convert implementation into a selected executor/runtime handoff such as "
+            "Codex, Claude Code, OMX/OMO/OMC, another coding agent, or explicit Hermes coding runtime only when the "
+            "user accepts that owner; no external CLI is the default owner."
+        ),
         required_inputs=("accepted plan", "lane list", "disjoint file or responsibility scopes", "verification commands"),
-        expected_outputs=("runtime handoff prompts or lane instructions", "status summary", "review/CI evidence requirements"),
-        artifact_expectations=("prepared coding delegation record per implementation lane when wrappers can record them",),
+        expected_outputs=(
+            "runtime handoff prompts or lane instructions",
+            "status summary",
+            "review/CI evidence requirements",
+            "[capability:delivery_boundary] `durable_checkpoint` or selected executor/runtime handoff",
+        ),
+        artifact_expectations=(
+            "prepared coding delegation record per implementation lane when wrappers can record them",
+            "[capability:single_owner_persistence] goal-execution run record with checkpoint or final evidence when available",
+        ),
         safety_rules=(
             "Do not start parallel coding without disjoint ownership boundaries.",
             "Keep Hermes responsible for orchestration/status; when Hermes itself is selected for coding, still preserve runtime evidence boundaries.",
             "Record unobserved executor work as prepared_not_observed or not_observed.",
+            "[capability:coordinated_scope] Use coordination lanes only when work is independent; if two lanes are not independent, collapse them under one owner or re-plan before dispatch.",
+            "[capability:coordinated_scope] Keep shared-file edits under one owner; if integration reveals a shared-file conflict, stop lane fan-out and reassign ownership before continuing.",
+            "[capability:coordinated_scope] Record unobserved delegation as not_observed; a delegation record exists only when separate participants are observed.",
+            "[capability:delivery_boundary] Do not continue into a repeated feedback loop; recommend `loop` when the user wants ongoing cycles.",
+            "[capability:delivery_boundary] Do not skip planning when the delivery request is broad, risky, or user-visible; a ralplan-style or reviewed plan names acceptance criteria, risks, and verification commands.",
+            "[capability:delivery_boundary] Run docs sync only when behavior, setup, commands, examples, or public claims changed.",
+            "[capability:delivery_boundary] Keep web research source-backed and permission-aware; do not run hidden network or LLM calls from OMH core.",
         ),
         quality_tier="handoff-gated",
         quality_bar=(
@@ -819,14 +839,38 @@ _DEFINITIONS = [
             "Require disjoint lane ownership before preparing multiple coding runtime handoffs.",
             "Attach acceptance criteria, verification commands, and review expectations to each lane.",
             "Keep dispatch, execution, review, CI, and merge status evidence separate.",
+            "[capability:coordinated_scope] Keep Hermes as coordinator and status narrator for lane framing and status while coding lanes become runtime handoffs with explicit ownership.",
+            "[capability:delivery_boundary] Complete exactly one plan-to-PR delivery cycle, then stop with status, evidence gaps, or a next recommended workflow.",
+            "[capability:delivery_boundary] Start a delivery cycle with codebase/source research and a ralplan-style decision record before implementation handoff.",
+            "[capability:delivery_boundary] Run code-review as a gate after implementation evidence exists; review preparation alone is not review evidence.",
+            "[capability:delivery_boundary] End a delivery cycle with a PR-ready or PR-observed report that separates prepared, executed, reviewed, verified, CI, and PR evidence.",
+            "[capability:delivery_boundary] For implementation, hand off to the `durable_checkpoint` capability or the selected executor/runtime path with acceptance criteria and verification commands attached.",
+            "[capability:single_owner_persistence] Do not enter a finish-until-done loop until scope, acceptance criteria, and verification commands are concrete.",
+            "[capability:single_owner_persistence] For single-owner coding edits, prepare and track the selected runtime path instead of implying unobserved work happened or hiding execution inside chat narration.",
+            "[capability:single_owner_persistence] Report single-owner completion only from observed execution and verification evidence, with remaining risks named.",
+            "[capability:durable_checkpoint] Keep goal state durable, inspectable, and separate from chat narration in the metadata-only .omh/goals goal_ledger/v1.",
+            "[capability:durable_checkpoint] Checkpoint every success, blocker, and final quality gate with fresh evidence.",
+            "[capability:durable_checkpoint] Reject completion with a summary-only goal_completion_gate/v1 result until required criteria, blockers, and explicitly linked runtime runs are satisfied.",
         ),
-        why_this_exists="`ultrawork` exists to split an accepted implementation plan into independent lanes without letting parallelism blur ownership, verification, worker protocol, worktree isolation, or observed runtime evidence.",
+        why_this_exists=(
+            "`ultrawork` exists to split an accepted implementation plan into independent lanes without letting "
+            "parallelism blur ownership, verification, worker protocol, worktree isolation, or observed runtime "
+            "evidence. It also carries four named internal capabilities absorbed from sibling engines: "
+            "`coordinated_scope` (coordinated worker lanes), `delivery_boundary` (one bounded plan-to-PR cycle), "
+            "`single_owner_persistence` (one owner finishes and verifies), and `durable_checkpoint` (durable goal "
+            "ledger with checkpoints and a final gate)."
+        ),
         do_not_use_when=(
             "The work touches the same files or invariants in ways that need one owner.",
             "The plan is not accepted, lane boundaries are unclear, or verification commands are missing.",
             "The user expects Hermes to secretly execute coding lanes instead of preparing explicit selected-runtime handoffs.",
-            "The lanes are exploratory research or QA coordination without an accepted implementation plan; use `team`.",
-            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of opening parallel delivery lanes.",
+            "[capability:coordinated_scope] The lanes are exploratory research or QA coordination without an accepted implementation plan; frame them with the `coordinated_scope` capability before parallel delivery.",
+            "[capability:single_owner_persistence] The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of opening parallel delivery lanes, a finish-until-done loop, or a goal ledger.",
+            "[capability:delivery_boundary] The user wants an open-ended feedback loop or long-horizon campaign; use `loop` instead.",
+            "[capability:single_owner_persistence] Progress must survive sessions as a ledger with multiple checkpoints and a final gate; use the `durable_checkpoint` capability.",
+            "[capability:durable_checkpoint] One concrete, already-scoped task only needs one owner to finish and verify; use the `single_owner_persistence` capability.",
+            "[capability:durable_checkpoint] The next work must be discovered or reframed repeatedly through research and feedback cycles; use `loop`.",
+            "[capability:durable_checkpoint] Acceptance criteria, current checkpoint, and final gate expectations are too vague to make a goal inspectable.",
         ),
         good_example=SkillExample(
             prompt="$ultrawork split the accepted docs refresh, CLI output polish, and test updates into parallel implementation lanes.",
@@ -844,11 +888,20 @@ _DEFINITIONS = [
             "When Hermes owns the coding path, use `hermes_coding_harness/v1` to separate builder, verifier, reviewer, docs, and PR lanes.",
             "Worker ACK, dispatch, result, review, CI, and merge evidence are observed or explicitly missing.",
             "Integration verification ran after lane results before the final status claims completion.",
+            "[capability:coordinated_scope] The integrated status names which coordination lanes are observed, blocked, or still prepared_not_observed.",
+            "[capability:coordinated_scope] Coordination teardown is explicit: released lanes are named and closed instead of lingering as implicit owners.",
+            "[capability:durable_checkpoint] The goal_status_card/v1 or goal_continuation/v1 names the next action and the final status says complete, blocked, or continue with the exact remaining checkpoint.",
+            "[capability:durable_checkpoint] All explicitly linked coding milestones have matching observed runtime evidence or stay prepared_not_observed and named as gaps without closing the goal.",
+            "[capability:durable_checkpoint] Long-running or background executor milestones report observed handles, current state, changed-file summaries, missing checks, and prepared-vs-observed boundaries while work is running.",
+            "[capability:durable_checkpoint] Branch, PR, CI, review, and merge claims are verified against local HEAD, remote branch SHA, PR head SHA, and merge commit before saying a fix landed.",
         ),
         recovery_notes=(
             "If lanes are non-disjoint, collapse to one owner or route back to ultragoal before coding starts.",
             "If a worker does not ACK or return a result, keep that lane blocked/not_observed and expose the retry or reassignment action.",
             "If a worktree or shared-file conflict appears, pause parallel delivery and re-plan ownership before more edits.",
+            "[capability:coordinated_scope] If a coordinated worker has no ACK or result, mark that lane not_observed or blocked rather than infer progress.",
+            "[capability:durable_checkpoint] If the goal ledger is stale or missing, inspect .omh/goals and ask which checkpoint to resume before continuing.",
+            "[capability:durable_checkpoint] If a blocker checkpoint exists, keep the goal open and record the blocker plus the smallest unblock action.",
         ),
     ),
     SkillDefinition(

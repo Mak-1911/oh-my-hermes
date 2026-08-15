@@ -29,7 +29,6 @@ _FAMILY_DEFINITIONS = (
             "ralplan",
             "codebase-onboarding",
             "codegraph-refresh",
-            "ultragoal",
             "loop",
             "strategy-brief",
         ),
