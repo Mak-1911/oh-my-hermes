@@ -245,8 +245,15 @@ def display_interface_selection(config_text: str) -> str:
     return _scalar_value(entries[0])
 
 
-def ensure_tui_interface(config_text: str, *, insert_default: bool = True) -> ConfigChange:
-    """Select the TUI on fresh config only; preserve existing display ownership."""
+def ensure_tui_interface(config_text: str) -> ConfigChange:
+    """Default `display.interface` to tui whenever the user has not chosen one.
+
+    Existing installs matter as much as fresh ones: OMH's HUD widgets render
+    only in Hermes' official Ink TUI, so an upgrading user whose config predates
+    this key would otherwise keep landing in the classic REPL where the HUD
+    cannot exist. Every explicit or noncanonical display choice below stays
+    user-owned; only the genuinely unset case is defaulted.
+    """
     lines = config_text.splitlines()
     display_lines = [
         line
@@ -291,12 +298,6 @@ def ensure_tui_interface(config_text: str, *, insert_default: bool = True) -> Co
         return ConfigChange(False, "display.interface is already tui", config_text)
     if selected:
         return ConfigChange(False, f"display.interface is {selected}; leaving user preference unchanged", config_text)
-    if not insert_default:
-        return ConfigChange(
-            False,
-            "existing config has no display.interface; leaving it unchanged",
-            config_text,
-        )
 
     if display_index is None:
         text = (config_text.rstrip() + "\n\ndisplay:\n  interface: tui\n").lstrip("\n")

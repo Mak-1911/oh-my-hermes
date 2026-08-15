@@ -48,7 +48,9 @@ class TuiWidgetPackTests(unittest.TestCase):
                 (hermes_home / "config.yaml").read_text(encoding="utf-8"),
             )
 
-    def test_setup_preserves_existing_config_without_display_interface(self) -> None:
+    def test_setup_defaults_existing_config_without_display_interface_to_tui(self) -> None:
+        # Upgraders whose config predates display.interface get the same TUI
+        # default as fresh installs; only an explicit choice is user-owned.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             omh_home = root / ".omh"
@@ -71,11 +73,11 @@ class TuiWidgetPackTests(unittest.TestCase):
 
             self.assertEqual((status, stderr), (0, ""))
             config_text = config.read_text(encoding="utf-8")
-            self.assertIn("display:\n  compact: true\n", config_text)
-            self.assertNotIn("interface:", config_text)
+            self.assertIn("  compact: true", config_text)
+            self.assertIn("  interface: tui", config_text)
             tui_interface = json.loads(stdout)["steps"]["apply"]["tui_interface"]
-            self.assertFalse(tui_interface["changed"])
-            self.assertEqual(tui_interface["selected"], "")
+            self.assertTrue(tui_interface["changed"])
+            self.assertEqual(tui_interface["selected"], "tui")
 
     def test_setup_preserves_an_explicit_classic_interface(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -237,7 +239,18 @@ class TuiWidgetPackTests(unittest.TestCase):
 
         self.assertIn("zone: 'dock-bottom'", widget)
         self.assertNotIn("zone: 'top-right'", widget)
-        self.assertNotIn("zone: 'dock-top'", widget)
+        # The todo checklist is the one dock-top app; the status app stays
+        # dock-bottom so the panel renders above the prompt input and the
+        # activity rows below it.
+        self.assertEqual(widget.count("zone: 'dock-top'"), 1)
+        self.assertIn("id: 'omh-todo'", widget)
+        self.assertIn("TodoPanel", widget)
+        self.assertIn("truncateCells(item.text", widget)
+        self.assertIn("safeText(todo.title)", widget)
+        # An installed OMH stays discoverable from an idle session: only the
+        # activity rows are gated on live work, never the header.
+        self.assertNotIn("|| !payload.active", widget)
+        self.assertIn("const active = !!payload.active", widget)
         self.assertIn("width: '100%'", widget)
         self.assertIn("marginTop: 1", widget)
         self.assertNotIn("borderStyle:", widget)
@@ -275,7 +288,10 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("generation !== globalThis[generationKey]", widget)
         self.assertIn("clearTimeout(", widget)
         self.assertNotIn("payload ? { payload } : state", widget)
-        self.assertEqual(widget.count("{ ...state, payload, tick: state.tick + 1 }"), 2)
+        # One immutable snapshot-apply helper feeds both widget apps, and both
+        # the initial read and the refresh timer go through it.
+        self.assertEqual(widget.count("{ ...state, payload, tick: state.tick + 1 }"), 1)
+        self.assertEqual(widget.count("applySnapshot(payload)"), 2)
         self.assertNotIn("friendlyWorkflow", widget)
         self.assertNotIn("'fanout-unit': 'Parallel work'", widget)
         self.assertIn("t.color.ok", widget)

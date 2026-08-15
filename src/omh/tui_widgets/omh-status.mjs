@@ -29,11 +29,13 @@ export default function register(sdk) {
       {
         encoding: 'utf8',
         env: READER_ENV,
-        maxBuffer: 16384,
+        // Headroom over the payload's worst case (todo panel included) so an
+        // oversized snapshot degrades to null instead of blanking the HUD.
+        maxBuffer: 65536,
         timeout: 1500,
       },
       (error, stdout) => {
-        if (error || !stdout || stdout.length > 16384) return resolve(null)
+        if (error || !stdout || stdout.length > 65536) return resolve(null)
         try {
           resolve(JSON.parse(stdout))
         } catch {
@@ -163,14 +165,18 @@ export default function register(sdk) {
   function Hud({ columns, state, t, viewportRows }) {
     const spinnerPhase = useShimmerPhase(30_000) + state.tick
     const payload = state.payload
-    if (!payload || payload.error || payload.privacy !== 'metadata_only' || !payload.active) return null
+    if (!payload || payload.error || payload.privacy !== 'metadata_only') return null
 
+    // The header stays visible whenever the plugin answers, so an installed
+    // OMH is discoverable from an idle session; activity rows are the only
+    // part gated on live work.
+    const active = !!payload.active
     const agents = payload.subagents || {}
     const version = safeText(payload.version) || 'unknown'
     const maestro = payload.maestro || {}
-    const mainRows = Array.isArray(maestro.rows) ? maestro.rows.slice(0, 1) : []
+    const mainRows = active && Array.isArray(maestro.rows) ? maestro.rows.slice(0, 1) : []
     const activityLimit = Math.max(1, Math.min(3, viewportRows - 3))
-    const rows = Array.isArray(agents.rows)
+    const rows = active && Array.isArray(agents.rows)
       ? agents.rows.slice(0, Math.max(0, activityLimit - mainRows.length))
       : []
     return h(
@@ -212,6 +218,64 @@ export default function register(sdk) {
     )
   }
 
+  function TodoPanel({ columns, state, t }) {
+    const payload = state.payload
+    if (!payload || payload.error || payload.privacy !== 'metadata_only') return null
+    // Deliberately not gated on payload.active: a declared plan outlives
+    // subagent activity, and the reader's 24h staleness rule bounds it. The
+    // READER always projects the focused preset, which display_items encode.
+    const todo = payload.todo || {}
+    if (todo.status !== 'established' && todo.status !== 'all_done') return null
+    const counts = todo.counts || {}
+    const title = safeText(todo.title)
+    const label = title ? `Todo · ${title}` : 'Todo'
+    if (todo.status === 'all_done') {
+      return h(
+        Box,
+        { flexDirection: 'column', width: '100%' },
+        h(
+          Text,
+          { wrap: 'truncate-end' },
+          h(Text, { bold: true, color: t.color.warn }, ` ${label}`),
+          h(Text, { color: t.color.ok }, ` ✓ ${counts.done ?? 0}/${counts.total ?? 0}`),
+        ),
+      )
+    }
+    const shown = Array.isArray(todo.display_items) ? todo.display_items : []
+    const more = Number.isFinite(todo.more_count) ? todo.more_count : 0
+    const markers = { active: '[•]', done: '[✓]', pending: '[ ]' }
+    const budget = Math.max(16, columns - 10)
+    return h(
+      Box,
+      { flexDirection: 'column', width: '100%' },
+      h(
+        Text,
+        { wrap: 'truncate-end' },
+        h(Text, { bold: true, color: t.color.warn }, ` ${label}`),
+        h(Text, { color: t.color.muted }, `   ${counts.done ?? 0}/${counts.total ?? 0}`),
+      ),
+      ...shown.map((item, index) => {
+        const withMore = more > 0 && index === shown.length - 1
+        // Reserve the "+N more" suffix width so truncation never eats it.
+        const rowBudget = withMore ? Math.max(12, budget - 11) : budget
+        return h(
+          Text,
+          { key: `todo-${index}`, wrap: 'truncate-end' },
+          h(
+            Text,
+            {
+              bold: item.state === 'active',
+              color: item.state === 'active' ? t.color.ok : item.state === 'done' ? t.color.muted : t.color.text,
+              strikethrough: item.state === 'done',
+            },
+            ` ${Object.hasOwn(markers, item.state) ? markers[item.state] : '[ ]'} ${truncateCells(item.text, rowBudget)}`,
+          ),
+          withMore ? h(Text, { color: t.color.muted }, `   +${more} more`) : null,
+        )
+      }),
+    )
+  }
+
   const app = defineWidgetApp({
     id: 'omh-status',
     help: 'OMH workflow and subagent status',
@@ -225,7 +289,28 @@ export default function register(sdk) {
     render: ({ cols, rows, state, t }) => h(Hud, { columns: cols, state, t, viewportRows: rows }),
   })
 
+  const todoApp = defineWidgetApp({
+    id: 'omh-todo',
+    help: 'OMH plan todo checklist above the prompt input',
+    mode: 'ambient',
+    zone: 'dock-top',
+    init: () => ({ payload: null, tick: 0 }),
+    reduce: (state, input) =>
+      input.kind === 'snapshot'
+        ? { ...state, payload: input.payload, tick: state.tick + 1 }
+        : state,
+    render: ({ cols, state, t }) => h(TodoPanel, { columns: cols, state, t }),
+  })
+
   openWidget(app, app.init(''))
+  openWidget(todoApp, todoApp.init(''))
+  const applySnapshot = payload => {
+    for (const target of [app, todoApp]) {
+      updateWidget(target, state =>
+        payload ? { ...state, payload, tick: state.tick + 1 } : state
+      )
+    }
+  }
   const timerKey = Symbol.for('omh.hermes-tui-widget.refresh')
   const generationKey = Symbol.for('omh.hermes-tui-widget.generation')
   const generation = (globalThis[generationKey] || 0) + 1
@@ -235,9 +320,7 @@ export default function register(sdk) {
     globalThis[timerKey] = setTimeout(async () => {
       const payload = await readHud()
       if (generation !== globalThis[generationKey]) return
-      updateWidget(app, state =>
-        payload ? { ...state, payload, tick: state.tick + 1 } : state
-      )
+      applySnapshot(payload)
       schedule()
     }, 2000)
     globalThis[timerKey].unref?.()
@@ -245,9 +328,7 @@ export default function register(sdk) {
   clearTimeout(globalThis[timerKey])
   void readHud().then(payload => {
     if (generation !== globalThis[generationKey]) return
-    updateWidget(app, state =>
-      payload ? { ...state, payload, tick: state.tick + 1 } : state
-    )
+    applySnapshot(payload)
   })
   schedule()
 }

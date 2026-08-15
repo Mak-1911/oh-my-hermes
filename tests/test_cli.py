@@ -13209,5 +13209,80 @@ class RuntimeReceiptsViewCliTests(unittest.TestCase):
             self.assertEqual(read_external_effect_receipts(paths), [])
 
 
+class RuntimeTodoCliTests(unittest.TestCase):
+    def test_runtime_todo_set_show_clear_round_trip(self) -> None:
+        with TemporaryDirectory() as tmp:
+            omh_home = str(Path(tmp) / ".omh")
+            base = ["--omh-home", omh_home, "runtime", "todo"]
+
+            status, stdout, stderr = run_cli(
+                base
+                + [
+                    "set",
+                    "--title",
+                    "Foundation",
+                    "--items-json",
+                    json.dumps(
+                        [
+                            {"text": "Restore RED baseline", "state": "done"},
+                            {"text": "Inspect routing fixtures", "state": "active"},
+                            {"text": "Run byte gates"},
+                        ]
+                    ),
+                ]
+            )
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            written = json.loads(stdout)
+            self.assertEqual(written["status"], "written")
+            self.assertEqual(written["todo"]["status"], "established")
+            self.assertEqual(written["todo"]["counts"], {"total": 3, "done": 1, "active": 1, "pending": 1})
+
+            status, stdout, _ = run_cli(base + ["show"])
+            self.assertEqual(status, 0)
+            shown = json.loads(stdout)
+            self.assertEqual(shown["todo_lines"][0], "Todo · Foundation   1/3")
+            self.assertIn("not execution", shown["claim_boundary"])
+
+            status, stdout, _ = run_cli(base + ["clear"])
+            self.assertEqual(status, 0)
+            self.assertEqual(json.loads(stdout)["status"], "cleared")
+
+            status, stdout, _ = run_cli(base + ["show"])
+            self.assertEqual(status, 0)
+            self.assertEqual(json.loads(stdout)["todo"]["status"], "absent")
+
+    def test_runtime_todo_set_supports_repeated_pending_items(self) -> None:
+        with TemporaryDirectory() as tmp:
+            omh_home = str(Path(tmp) / ".omh")
+            status, stdout, _ = run_cli(
+                ["--omh-home", omh_home, "runtime", "todo", "set", "--item", "first", "--item", "second"]
+            )
+
+            self.assertEqual(status, 0)
+            written = json.loads(stdout)
+            self.assertEqual(
+                written["todo"]["items"],
+                [{"text": "first", "state": "pending"}, {"text": "second", "state": "pending"}],
+            )
+
+    def test_runtime_todo_set_rejects_invalid_items_with_error_payload(self) -> None:
+        with TemporaryDirectory() as tmp:
+            omh_home = str(Path(tmp) / ".omh")
+            cases = [
+                ["--items-json", "not json"],
+                ["--items-json", json.dumps([{"text": "x", "state": "later"}])],
+                ["--items-json", json.dumps([])],
+            ]
+            for items_args in cases:
+                status, stdout, _ = run_cli(["--omh-home", omh_home, "runtime", "todo", "set"] + items_args)
+
+                self.assertEqual(status, 1)
+                payload = json.loads(stdout)
+                self.assertEqual(payload["status"], "invalid_todo")
+                self.assertTrue(payload["error"])
+            self.assertFalse((Path(omh_home) / "runtime" / "todo.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

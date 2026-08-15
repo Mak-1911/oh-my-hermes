@@ -1,0 +1,128 @@
+"""Shared store for the HUD todo artifact.
+
+One todo list per OMH home, written to ``$OMH_HOME/runtime/todo.json``. The
+CLI (`omh runtime todo`) and the `omh_todo` plugin tool both write through this
+module so the schema has a single source of truth; `runtime_reader` projects
+the file into the HUD payload read-only.
+"""
+from __future__ import annotations
+
+import json
+import os
+import secrets
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+TODO_SCHEMA_VERSION = "omh_todo/v1"
+TODO_FILENAME = "todo.json"
+TODO_ITEM_STATES = ("pending", "active", "done")
+MAX_TODO_ITEMS = 20
+MAX_TODO_TEXT_CHARS = 200
+MAX_TODO_TITLE_CHARS = 80
+MAX_TODO_SOURCE_CHARS = 80
+TODO_CLAIM_BOUNDARY = (
+    "Todo items are plan declarations. They are not execution, verification, "
+    "review, CI, merge-readiness, or merge evidence."
+)
+
+
+class TodoValidationError(ValueError):
+    """The supplied todo payload does not satisfy the omh_todo/v1 contract."""
+
+
+class TodoStoreError(RuntimeError):
+    """The todo destination under the OMH home is unsafe to write."""
+
+
+# C0/C1 control characters (ESC, BEL, CR, LF included) are stripped on write
+# and again on read so neither the artifact at rest nor the HUD projection can
+# carry terminal escapes or forge extra checklist lines.
+_CONTROL_CHARACTERS = {code: None for code in (*range(0x00, 0x20), 0x7F, *range(0x80, 0xA0))}
+
+
+def strip_control_characters(value: object) -> str:
+    return str(value or "").translate(_CONTROL_CHARACTERS).strip()
+
+
+def validate_todo_items(items: object) -> list[dict[str, str]]:
+    if not isinstance(items, list) or not items:
+        raise TodoValidationError("todo items must be a non-empty list")
+    if len(items) > MAX_TODO_ITEMS:
+        raise TodoValidationError(f"todo items are capped at {MAX_TODO_ITEMS}")
+    validated: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise TodoValidationError("each todo item must be an object")
+        text = strip_control_characters(item.get("text", ""))
+        if not text:
+            raise TodoValidationError("each todo item needs non-empty text")
+        if len(text) > MAX_TODO_TEXT_CHARS:
+            raise TodoValidationError(f"todo item text is capped at {MAX_TODO_TEXT_CHARS} characters")
+        state = str(item.get("state", "pending"))
+        if state not in TODO_ITEM_STATES:
+            raise TodoValidationError(f"todo item state must be one of {', '.join(TODO_ITEM_STATES)}")
+        validated.append({"text": text, "state": state})
+    return validated
+
+
+def build_todo_record(title: object, items: object, *, source: str) -> dict[str, Any]:
+    safe_title = strip_control_characters(title)
+    if len(safe_title) > MAX_TODO_TITLE_CHARS:
+        raise TodoValidationError(f"todo title is capped at {MAX_TODO_TITLE_CHARS} characters")
+    safe_source = strip_control_characters(source)[:MAX_TODO_SOURCE_CHARS]
+    return {
+        "schema_version": TODO_SCHEMA_VERSION,
+        "title": safe_title,
+        "source": safe_source,
+        "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "items": validate_todo_items(items),
+        "claim_boundary": TODO_CLAIM_BOUNDARY,
+    }
+
+
+def todo_path(omh_home: Path) -> Path:
+    return omh_home / "runtime" / TODO_FILENAME
+
+
+def write_todo(omh_home: Path, record: dict[str, Any]) -> Path:
+    destination = todo_path(omh_home)
+    _reject_symlink_ancestry(destination, root=omh_home)
+    temporary = destination.with_name(f".{destination.name}.{os.getpid()}-{secrets.token_hex(8)}.tmp")
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        # Post-mkdir TOCTOU recheck; the ancestry walk above already rejected a
+        # pre-existing symlink at this path.
+        if destination.is_symlink():
+            raise TodoStoreError(f"refusing symlinked todo destination: {destination}")
+        with temporary.open("x", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+        os.replace(temporary, destination)
+    except OSError as error:
+        raise TodoStoreError(f"todo destination is not writable: {error}") from error
+    finally:
+        if temporary.exists() and not temporary.is_symlink():
+            temporary.unlink()
+    return destination
+
+
+def clear_todo(omh_home: Path) -> bool:
+    destination = todo_path(omh_home)
+    _reject_symlink_ancestry(destination, root=omh_home)
+    if not destination.is_file() or destination.is_symlink():
+        return False
+    try:
+        destination.unlink()
+    except OSError as error:
+        raise TodoStoreError(f"todo destination is not removable: {error}") from error
+    return True
+
+
+def _reject_symlink_ancestry(path: Path, *, root: Path) -> None:
+    current = path
+    while True:
+        if current.is_symlink():
+            raise TodoStoreError(f"refusing symlinked todo path: {current}")
+        if current == root or current == current.parent:
+            return
+        current = current.parent
