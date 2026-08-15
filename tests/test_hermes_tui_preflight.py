@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -78,7 +80,7 @@ class HermesTuiPreflightTests(unittest.TestCase):
             self.assertEqual(preflight["display_interface"]["value"], "tui")
             self.assertTrue(preflight["widget"]["installed"])
             self.assertTrue(preflight["widget"]["managed"])
-            self.assertEqual(preflight["widget"]["interpreter"], str(Path(sys.executable).resolve()))
+            self.assertEqual(preflight["widget"]["interpreter"], os.path.realpath(sys.executable))
             self.assertTrue(preflight["widget"]["interpreter_ok"])
             self.assertEqual(widget_render_blockers(preflight), [])
 
@@ -147,9 +149,11 @@ class HermesTuiPreflightTests(unittest.TestCase):
             install_tui_widget(paths.hermes_home)
             widget = paths.hermes_home / "tui-widgets" / "omh-status.mjs"
             gone = str(Path(tmp).resolve() / "missing-python")
+            # The installer embeds the path via json.dumps, which escapes
+            # Windows backslashes — replace the encoded form, not the raw one.
             widget.write_text(
                 widget.read_text(encoding="utf-8").replace(
-                    str(Path(sys.executable).resolve()), gone
+                    json.dumps(os.path.realpath(sys.executable)), json.dumps(gone)
                 ),
                 encoding="utf-8",
             )
