@@ -237,7 +237,14 @@ class TuiWidgetPackTests(unittest.TestCase):
 
         self.assertIn("zone: 'dock-bottom'", widget)
         self.assertNotIn("zone: 'top-right'", widget)
-        self.assertNotIn("zone: 'dock-top'", widget)
+        # The todo checklist is the one dock-top app; the status app stays
+        # dock-bottom so the panel renders above the prompt input and the
+        # activity rows below it.
+        self.assertEqual(widget.count("zone: 'dock-top'"), 1)
+        self.assertIn("id: 'omh-todo'", widget)
+        self.assertIn("TodoPanel", widget)
+        self.assertIn("truncateCells(item.text", widget)
+        self.assertIn("safeText(todo.title)", widget)
         self.assertIn("width: '100%'", widget)
         self.assertIn("marginTop: 1", widget)
         self.assertNotIn("borderStyle:", widget)
@@ -275,7 +282,10 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("generation !== globalThis[generationKey]", widget)
         self.assertIn("clearTimeout(", widget)
         self.assertNotIn("payload ? { payload } : state", widget)
-        self.assertEqual(widget.count("{ ...state, payload, tick: state.tick + 1 }"), 2)
+        # One immutable snapshot-apply helper feeds both widget apps, and both
+        # the initial read and the refresh timer go through it.
+        self.assertEqual(widget.count("{ ...state, payload, tick: state.tick + 1 }"), 1)
+        self.assertEqual(widget.count("applySnapshot(payload)"), 2)
         self.assertNotIn("friendlyWorkflow", widget)
         self.assertNotIn("'fanout-unit': 'Parallel work'", widget)
         self.assertIn("t.color.ok", widget)

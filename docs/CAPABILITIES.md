@@ -194,7 +194,7 @@ evidence only.
 The managed plugin bridge has the same split. Local install/import/register
 smoke proves the bundle is present and importable, including tools such as
 `omh_interact`, `omh_context`, `omh_recommend`, `omh_capabilities`,
-`omh_probe`, `omh_hud`, and `omh_status`.
+`omh_probe`, `omh_hud`, `omh_status`, and `omh_todo`.
 `omh_probe` can return the same capability roadmap shape as `omh probe
 --roadmap`; in standalone plugin-bundle mode it returns a degraded roadmap that
 only uses local files and metadata. Host or wrapper evidence that Hermes

@@ -62,6 +62,7 @@ def register(ctx):
     from .tools.role_tool import OMH_ROLE_SCHEMA, omh_role_handler
     from .tools.source_trust_tool import OMH_SOURCE_TRUST_SCHEMA, omh_source_trust_handler
     from .tools.status_tool import OMH_STATUS_SCHEMA, omh_status_handler
+    from .tools.todo_tool import OMH_TODO_SCHEMA, omh_todo_handler
 
     ctx.register_tool(
         "omh_capabilities",
@@ -139,6 +140,13 @@ def register(ctx):
         OMH_STATUS_SCHEMA,
         omh_status_handler,
         description=OMH_STATUS_SCHEMA["description"],
+    )
+    ctx.register_tool(
+        "omh_todo",
+        _TOOLSET,
+        OMH_TODO_SCHEMA,
+        omh_todo_handler,
+        description=OMH_TODO_SCHEMA["description"],
     )
     ctx.register_hook("on_session_end", on_session_end)
     ctx.register_hook("pre_llm_call", pre_llm_call)

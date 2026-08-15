@@ -12,6 +12,7 @@ PROVIDED_TOOLS = (
     "omh_role",
     "omh_source_trust",
     "omh_status",
+    "omh_todo",
 )
 REQUIRED_HOOKS = ("on_session_end", "pre_llm_call", "pre_tool_call")
 OPTIONAL_HOOKS = ("pre_verify",)
@@ -29,6 +30,7 @@ TOOL_FILE_STEMS = {
     "omh_role": "role_tool",
     "omh_source_trust": "source_trust_tool",
     "omh_status": "status_tool",
+    "omh_todo": "todo_tool",
 }
 
 TOOLS_REQUIRING_ROLE_CATALOG = frozenset({"omh_role"})

@@ -16,6 +16,7 @@ provides_tools:
   - omh_role
   - omh_source_trust
   - omh_status
+  - omh_todo
 provides_hooks:
   - on_session_end
   - pre_llm_call

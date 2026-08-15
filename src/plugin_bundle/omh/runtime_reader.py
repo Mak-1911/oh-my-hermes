@@ -18,10 +18,22 @@ from .metadata import (
     TOOL_FILE_STEMS,
     TOOLS_REQUIRING_ROLE_CATALOG,
 )
+from .todo_store import (
+    MAX_TODO_ITEMS,
+    MAX_TODO_SOURCE_CHARS,
+    MAX_TODO_TEXT_CHARS,
+    MAX_TODO_TITLE_CHARS,
+    TODO_ITEM_STATES,
+    TODO_SCHEMA_VERSION,
+    strip_control_characters,
+    todo_path,
+)
 
 STATUS_SCHEMA_VERSION = "omh_status/v1"
 HUD_SCHEMA_VERSION = "omh_hud/v1"
 HUD_PRESETS = {"minimal", "focused", "full"}
+TODO_STALE_SECONDS = 86400
+TODO_DISPLAY_ITEM_LIMIT = 3
 HUD_REQUIRED_TOOLS = PROVIDED_TOOLS
 HUD_REQUIRED_HOOKS = REQUIRED_HOOKS
 HUD_OPTIONAL_HOOKS = OPTIONAL_HOOKS
@@ -623,8 +635,10 @@ def read_omh_hud(
         "runtime": _hud_runtime_summary(status_payload, latest_run),
         "achievements": _achievements_summary(hermes),
         "tokens": _token_summary(token_metadata or {}),
+        "todo": _todo_summary(home),
         "evidence_boundary": (
-            "HUD is metadata-only. Prepared handoffs are not execution, review, CI, merge, or token-usage evidence."
+            "HUD is metadata-only. Prepared handoffs are not execution, review, CI, merge, or token-usage evidence. "
+            "Todo items are plan declarations, not execution evidence."
         ),
         "privacy": "metadata_only",
     }
@@ -642,6 +656,7 @@ def read_omh_hud(
         "line": format_omh_hud_line(payload, preset=safe_preset),
         "segments": _hud_segments(payload, preset=safe_preset),
         "widget_lines": _hud_widget_lines(payload),
+        "todo_lines": _hud_todo_lines(payload["todo"], preset=safe_preset),
     }
     return payload
 
@@ -1091,6 +1106,105 @@ def _evidence_state(run: dict[str, Any]) -> str:
     if run.get("prepared_handoff"):
         return "prepared_not_observed"
     return str(run.get("observation_status", "unknown") or "unknown")
+
+
+def read_omh_todo(omh_home: str | Path | None = None) -> dict[str, Any]:
+    """Public todo projection for tools and hosts that only need the panel."""
+    home = _expand_path(omh_home) if omh_home else _default_omh_home()
+    return _todo_summary(home)
+
+
+def default_omh_home() -> Path:
+    """Public alias so tools can target the configured home without private imports."""
+    return _default_omh_home()
+
+
+def _todo_summary(home: Path) -> dict[str, Any]:
+    empty = {
+        "status": "absent",
+        "title": "",
+        "source": "",
+        "updated_at": "",
+        "counts": {"total": 0, "done": 0, "active": 0, "pending": 0},
+        "items": [],
+        "display_items": [],
+        "more_count": 0,
+    }
+    record = _read_hud_json(todo_path(home), root=home)
+    if record.get("schema_version") != TODO_SCHEMA_VERSION:
+        return empty
+    items: list[dict[str, str]] = []
+    raw_items = record.get("items")
+    for raw in raw_items if isinstance(raw_items, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        text = strip_control_characters(raw.get("text", ""))[:MAX_TODO_TEXT_CHARS]
+        state = str(raw.get("state", ""))
+        if text and state in TODO_ITEM_STATES:
+            items.append({"text": text, "state": state})
+        if len(items) >= MAX_TODO_ITEMS:
+            break
+    if not items:
+        return empty
+    summary = dict(empty)
+    summary["display_items"] = []
+    summary["more_count"] = 0
+    summary["title"] = strip_control_characters(record.get("title", ""))[:MAX_TODO_TITLE_CHARS]
+    summary["source"] = strip_control_characters(record.get("source", ""))[:MAX_TODO_SOURCE_CHARS]
+    summary["updated_at"] = strip_control_characters(record.get("updated_at", ""))[:40]
+    summary["items"] = items
+    counts = {
+        "total": len(items),
+        "done": sum(1 for item in items if item["state"] == "done"),
+        "active": sum(1 for item in items if item["state"] == "active"),
+        "pending": sum(1 for item in items if item["state"] == "pending"),
+    }
+    summary["counts"] = counts
+    age = _seconds_since(summary["updated_at"])
+    if age is None or age > TODO_STALE_SECONDS:
+        summary["status"] = "stale"
+        return summary
+    if counts["done"] == counts["total"]:
+        summary["status"] = "all_done"
+        return summary
+    summary["status"] = "established"
+    summary["display_items"] = _collapse_todo_items(items)
+    # "+N more" counts hidden remaining work only; hidden done items are
+    # already summarized by the header's done/total counter.
+    shown_remaining = sum(1 for item in summary["display_items"] if item["state"] != "done")
+    summary["more_count"] = counts["active"] + counts["pending"] - shown_remaining
+    return summary
+
+
+def _collapse_todo_items(items: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Latest done, then active, then upcoming pending — capped for the HUD."""
+    done_items = [item for item in items if item["state"] == "done"]
+    shown = done_items[-1:]
+    shown += [item for item in items if item["state"] == "active"]
+    shown += [item for item in items if item["state"] == "pending"]
+    return shown[:TODO_DISPLAY_ITEM_LIMIT]
+
+
+def _hud_todo_lines(todo: dict[str, Any], *, preset: str = "focused") -> list[str]:
+    status = str(todo.get("status", "absent"))
+    if status not in {"established", "all_done"}:
+        return []
+    counts = todo.get("counts", {})
+    title = str(todo.get("title", ""))
+    label = f"Todo · {title}" if title else "Todo"
+    if status == "all_done":
+        return [f"{label} ✓ {counts.get('done', 0)}/{counts.get('total', 0)}"]
+    header = f"{label}   {counts.get('done', 0)}/{counts.get('total', 0)}"
+    if preset == "minimal":
+        return [header]
+    full = preset == "full"
+    shown = todo.get("items", []) if full else todo.get("display_items", [])
+    marker = {"done": "[✓]", "active": "[•]", "pending": "[ ]"}
+    lines = [header] + [f"{marker[item['state']]} {item['text']}" for item in shown]
+    more = 0 if full else int(todo.get("more_count", 0) or 0)
+    if more > 0:
+        lines[-1] = f"{lines[-1]}   +{more} more"
+    return lines
 
 
 def _token_summary(metadata: dict[str, Any]) -> dict[str, Any]:

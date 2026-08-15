@@ -929,5 +929,276 @@ class HudCliTests(unittest.TestCase):
             self.assertEqual(payload["runtime"]["recent_run_count"], 0)
 
 
+class TodoHudTests(unittest.TestCase):
+    def _write_todo(self, omh_home: Path, record: dict) -> Path:
+        runtime_dir = omh_home / "runtime"
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        path = runtime_dir / "todo.json"
+        path.write_text(json.dumps(record), encoding="utf-8")
+        return path
+
+    def _record(self, **overrides: object) -> dict:
+        from datetime import datetime, timezone
+
+        record = {
+            "schema_version": "omh_todo/v1",
+            "title": "Foundation",
+            "source": "cli",
+            "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "items": [
+                {"text": "Restore RED baseline", "state": "done"},
+                {"text": "Inspect routing fixtures", "state": "active"},
+                {"text": "Update count assertions", "state": "pending"},
+                {"text": "Run byte gates", "state": "pending"},
+            ],
+        }
+        record.update(overrides)
+        return record
+
+    def test_hud_projects_established_todo_with_collapse_and_lines(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_todo(root / ".omh", self._record())
+            payload = read_omh_hud(root / ".omh", root / ".hermes")
+
+            todo = payload["todo"]
+            self.assertEqual(todo["status"], "established")
+            self.assertEqual(todo["counts"], {"total": 4, "done": 1, "active": 1, "pending": 2})
+            self.assertEqual(
+                [item["text"] for item in todo["display_items"]],
+                ["Restore RED baseline", "Inspect routing fixtures", "Update count assertions"],
+            )
+            self.assertEqual(todo["more_count"], 1)
+            self.assertEqual(
+                payload["display"]["todo_lines"],
+                [
+                    "Todo · Foundation   1/4",
+                    "[✓] Restore RED baseline",
+                    "[•] Inspect routing fixtures",
+                    "[ ] Update count assertions   +1 more",
+                ],
+            )
+            self.assertIn("Todo items are plan declarations", payload["evidence_boundary"])
+
+    def test_hud_todo_lines_respect_minimal_and_full_presets(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_todo(root / ".omh", self._record())
+            minimal = read_omh_hud(root / ".omh", root / ".hermes", preset="minimal")
+            full = read_omh_hud(root / ".omh", root / ".hermes", preset="full")
+
+            self.assertEqual(minimal["display"]["todo_lines"], ["Todo · Foundation   1/4"])
+            self.assertEqual(len(full["display"]["todo_lines"]), 5)
+            self.assertNotIn("more", full["display"]["todo_lines"][-1])
+
+    def test_hud_collapses_all_done_todo_to_single_header_line(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = [{"text": "Restore RED baseline", "state": "done"}, {"text": "Run byte gates", "state": "done"}]
+            self._write_todo(root / ".omh", self._record(items=items))
+            payload = read_omh_hud(root / ".omh", root / ".hermes")
+
+            self.assertEqual(payload["todo"]["status"], "all_done")
+            self.assertEqual(payload["todo"]["display_items"], [])
+            self.assertEqual(payload["display"]["todo_lines"], ["Todo · Foundation ✓ 2/2"])
+
+    def test_hud_hides_stale_and_unparseable_todo_updates(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for updated_at in ("2020-01-01T00:00:00Z", "not-a-timestamp"):
+                self._write_todo(root / ".omh", self._record(updated_at=updated_at))
+                payload = read_omh_hud(root / ".omh", root / ".hermes")
+
+                self.assertEqual(payload["todo"]["status"], "stale")
+                self.assertEqual(payload["display"]["todo_lines"], [])
+
+    def test_hud_ignores_invalid_todo_schema_and_malformed_items(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            invalid_records = [
+                self._record(schema_version="omh_todo/v0"),
+                self._record(items=[]),
+                self._record(items=[{"text": "", "state": "done"}, {"text": "x", "state": "later"}, "raw"]),
+            ]
+            for record in invalid_records:
+                self._write_todo(root / ".omh", record)
+                payload = read_omh_hud(root / ".omh", root / ".hermes")
+
+                self.assertEqual(payload["todo"]["status"], "absent")
+                self.assertEqual(payload["display"]["todo_lines"], [])
+
+    def test_hud_rejects_symlinked_todo_file(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outside = root / "outside-todo.json"
+            outside.write_text(json.dumps(self._record()), encoding="utf-8")
+            runtime_dir = root / ".omh" / "runtime"
+            runtime_dir.mkdir(parents=True)
+            (runtime_dir / "todo.json").symlink_to(outside)
+            payload = read_omh_hud(root / ".omh", root / ".hermes")
+
+            self.assertEqual(payload["todo"]["status"], "absent")
+
+    def test_todo_plugin_tool_set_show_clear_round_trip(self) -> None:
+        import os
+
+        from omh.plugin_bundle.omh.tools.todo_tool import omh_todo_handler
+
+        with TemporaryDirectory() as tmp:
+            home = str(Path(tmp) / ".omh")
+            with patch.dict(os.environ, {"OMH_HOME": home}):
+                written = json.loads(
+                    omh_todo_handler(
+                        {
+                            "action": "set",
+                            "title": "Foundation",
+                            "items": [{"text": "Inspect routing fixtures", "state": "active"}],
+                        }
+                    )
+                )
+                self.assertEqual(written["status"], "written")
+                self.assertEqual(written["todo"]["status"], "established")
+
+            shown = json.loads(omh_todo_handler({"action": "show", "omh_home": home}))
+            self.assertEqual(shown["status"], "read")
+            self.assertEqual(shown["todo"]["counts"]["total"], 1)
+
+            with patch.dict(os.environ, {"OMH_HOME": home}):
+                cleared = json.loads(omh_todo_handler({"action": "clear"}))
+                self.assertEqual(cleared["status"], "cleared")
+                self.assertEqual(cleared["todo"]["status"], "absent")
+
+    def test_todo_plugin_tool_rejects_omh_home_override_for_mutations(self) -> None:
+        from omh.plugin_bundle.omh.tools.todo_tool import omh_todo_handler
+
+        with TemporaryDirectory() as tmp:
+            target = Path(tmp) / "victim"
+            for action, extra in (("set", {"items": [{"text": "x"}]}), ("clear", {})):
+                payload = json.loads(
+                    omh_todo_handler({"action": action, "omh_home": str(target), **extra})
+                )
+
+                self.assertEqual(payload["status"], "invalid_todo")
+                self.assertIn("configured OMH home", payload["error"])
+            self.assertFalse(target.exists())
+
+    def test_todo_plugin_tool_reports_invalid_items_without_writing(self) -> None:
+        import os
+
+        from omh.plugin_bundle.omh.tools.todo_tool import omh_todo_handler
+
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / ".omh"
+            with patch.dict(os.environ, {"OMH_HOME": str(home)}):
+                payload = json.loads(
+                    omh_todo_handler({"action": "set", "items": [{"text": "x", "state": "later"}]})
+                )
+
+            self.assertEqual(payload["status"], "invalid_todo")
+            self.assertEqual(payload["todo"]["status"], "absent")
+            self.assertFalse((home / "runtime" / "todo.json").exists())
+
+    def test_todo_more_count_ignores_hidden_done_items(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = [{"text": f"done {n}", "state": "done"} for n in range(4)]
+            items.append({"text": "current", "state": "active"})
+            self._write_todo(root / ".omh", self._record(items=items))
+            payload = read_omh_hud(root / ".omh", root / ".hermes")
+
+            self.assertEqual(payload["todo"]["more_count"], 0)
+            self.assertEqual(
+                payload["display"]["todo_lines"],
+                ["Todo · Foundation   4/5", "[✓] done 3", "[•] current"],
+            )
+
+    def test_todo_plugin_tool_reports_invalid_action_and_already_absent(self) -> None:
+        import os
+
+        from omh.plugin_bundle.omh.tools.todo_tool import omh_todo_handler
+
+        with TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"OMH_HOME": str(Path(tmp) / ".omh")}):
+                invalid = json.loads(omh_todo_handler({"action": "purge"}))
+                absent = json.loads(omh_todo_handler({"action": "clear"}))
+
+            self.assertEqual(invalid["status"], "invalid_action")
+            self.assertTrue(invalid["error"])
+            self.assertEqual(absent["status"], "already_absent")
+
+    def test_todo_store_rejects_item_cap_symlinked_home_and_unwritable_home(self) -> None:
+        from omh.plugin_bundle.omh.todo_store import (
+            MAX_TODO_ITEMS,
+            TodoStoreError,
+            TodoValidationError,
+            build_todo_record,
+            write_todo,
+        )
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = build_todo_record("t", [{"text": "x"}], source="cli")
+
+            with self.assertRaises(TodoValidationError):
+                build_todo_record("t", [{"text": "x"}] * (MAX_TODO_ITEMS + 1), source="cli")
+
+            outside = root / "outside"
+            outside.mkdir()
+            linked_home = root / ".omh"
+            linked_home.mkdir()
+            (linked_home / "runtime").symlink_to(outside)
+            with self.assertRaises(TodoStoreError):
+                write_todo(linked_home, record)
+
+            sealed_home = root / "sealed"
+            sealed_home.mkdir(mode=0o500)
+            try:
+                with self.assertRaises(TodoStoreError):
+                    write_todo(sealed_home, record)
+            finally:
+                sealed_home.chmod(0o700)
+
+    def test_todo_surfaces_strip_control_characters_on_write_and_read(self) -> None:
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+        from omh.plugin_bundle.omh.todo_store import build_todo_record
+
+        record = build_todo_record(
+            "A\x1b[2J\x1b[1;1Hpwned",
+            [{"text": "ok\x1b]0;hijack\x07 \r\n done", "state": "active"}],
+            source="cli",
+        )
+        self.assertEqual(record["title"], "A[2J[1;1Hpwned")
+        self.assertEqual(record["items"][0]["text"], "ok]0;hijack  done")
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_todo(
+                root / ".omh",
+                self._record(
+                    title="B\x1bad",
+                    items=[{"text": "line\r\nsplit", "state": "active"}],
+                ),
+            )
+            payload = read_omh_hud(root / ".omh", root / ".hermes")
+
+            self.assertEqual(payload["todo"]["title"], "Bad")
+            self.assertEqual(payload["todo"]["items"], [{"text": "linesplit", "state": "active"}])
+            self.assertEqual(len(payload["display"]["todo_lines"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
