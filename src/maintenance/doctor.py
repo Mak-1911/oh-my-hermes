@@ -318,6 +318,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
     checks.append(_hook_integrity_check(paths))
     checks.append(_retired_skill_install_check(paths))
     checks.append(_plugin_ulw_lifecycle_check(paths))
+    checks.extend(_hermes_tui_checks(paths))
     profile_installs = state.get("last_team_profile_install") if isinstance(state, dict) else None
     if not profile_installs:
         checks.append(Check("team_profile_packs", True, f"optional OMH team profile packs are not installed at {paths.hermes_agents_dir}"))
@@ -339,6 +340,136 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
                 ),
             )
         )
+    return checks
+
+
+def _hermes_tui_checks(paths: OmhPaths) -> list[Check]:
+    """Hermes-side TUI preflight findings.
+
+    The OMH HUD/todo surface renders only inside Hermes' modern TUI, and none
+    of the conditions for that are visible from OMH's own install state. An
+    old Hermes, a stripped widget SDK, an unset ``display.interface``, or a
+    stale embedded interpreter each degrade to a silent no-render — doctor
+    names the condition and the repair instead of leaving the user to diff
+    screenshots.
+    """
+    from .hermes_tui import hermes_tui_preflight
+
+    preflight = hermes_tui_preflight(paths)
+    install = preflight["install"]
+    if not install["found"]:
+        return [
+            Check(
+                "hermes_tui_support",
+                True,
+                f"Hermes install not found at {install['path']}; TUI checks skipped",
+                observed=False,
+            )
+        ]
+    # Every check keeps ok=True: the HUD is an optional surface, and the
+    # sibling degraded-optional checks (command_path, plugin_runtime_observed,
+    # memory_records) deliberately never flip the doctor exit code or the
+    # persisted last_doctor.ok over one. Degraded states carry
+    # severity="warning" plus a next action instead.
+    checks: list[Check] = []
+    loader = preflight["widget_loader"]
+    version = str(install.get("version") or "unknown")
+    checks.append(
+        Check(
+            "hermes_tui_support",
+            True,
+            (
+                f"Hermes {version} ships the TUI widget loader ({loader['marker']})"
+                if loader["present"]
+                else (
+                    f"no TUI widget loader found in Hermes {version} — an old Hermes predates the modern TUI; "
+                    "a changed Hermes layout can also hide it from this check"
+                )
+            ),
+            severity="ok" if loader["present"] else "warning",
+            next_action=(
+                ""
+                if loader["present"]
+                else "run `hermes update`; if `hermes --tui` already renders the HUD, report this check instead"
+            ),
+        )
+    )
+    sdk = preflight["sdk_surface"]
+    if sdk["checked"]:
+        if not sdk["parsed"]:
+            sdk_message = "Hermes widget SDK export changed shape; the OMH surface cannot be verified from here"
+            sdk_severity = "warning"
+            sdk_action = "if the HUD stops rendering, report the incompatibility"
+        elif sdk["missing"]:
+            sdk_message = (
+                f"Hermes widget SDK no longer exposes: {', '.join(sdk['missing'])} — the loader will skip the OMH widget"
+            )
+            sdk_severity = "warning"
+            sdk_action = "run `omh update` for a compatible widget, or report the incompatibility"
+        else:
+            sdk_message = "Hermes widget SDK exposes every API the OMH widget uses"
+            sdk_severity = "ok"
+            sdk_action = ""
+        checks.append(
+            Check(
+                "hermes_tui_sdk_surface",
+                True,
+                sdk_message,
+                severity=sdk_severity,
+                next_action=sdk_action,
+            )
+        )
+    interface = preflight["display_interface"]
+    if interface["explicit"] and interface["value"] not in ("", "tui"):
+        message = (
+            f"display.interface is set to {interface['value']!r} (user-owned); the OMH HUD renders only in the "
+            "modern TUI (`hermes --tui` still reaches it)"
+        )
+        interface_severity = "warning"
+        interface_action = "set display.interface to tui (or use `hermes --tui`) to see the OMH HUD"
+    elif interface["explicit"]:
+        message = "display.interface defaults bare `hermes` to the modern TUI"
+        interface_severity = "ok"
+        interface_action = ""
+    elif interface["settable"]:
+        message = "display.interface is unset — bare `hermes` opens the classic REPL where the HUD cannot render"
+        interface_severity = "warning"
+        interface_action = "run `omh setup` to default display.interface to the TUI"
+    else:
+        message = (
+            "display configuration is user-owned in a shape this check cannot read; the OMH HUD needs the "
+            "modern TUI either way"
+        )
+        interface_severity = "ok"
+        interface_action = ""
+    checks.append(
+        Check(
+            "hermes_tui_interface_default",
+            True,
+            message,
+            severity=interface_severity,
+            next_action=interface_action,
+        )
+    )
+    widget = preflight["widget"]
+    widget_degraded = not widget["installed"] or (bool(widget["interpreter"]) and not widget["interpreter_ok"])
+    if not widget["installed"]:
+        widget_message = "OMH status widget is not installed under tui-widgets/"
+    elif widget["interpreter"] and not widget["interpreter_ok"]:
+        widget_message = (
+            f"OMH status widget points at a missing Python interpreter ({widget['interpreter']})"
+        )
+    else:
+        widget_message = "OMH status widget installed and its embedded interpreter resolves"
+    checks.append(
+        Check(
+            "hermes_tui_widget_state",
+            True,
+            widget_message,
+            severity="warning" if widget_degraded else "ok",
+            next_action="run `omh setup` to (re)install the managed TUI widget" if widget_degraded else "",
+        )
+    )
     return checks
 
 

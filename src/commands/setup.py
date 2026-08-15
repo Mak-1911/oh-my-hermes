@@ -61,7 +61,7 @@ from ..manifest import read_manifest
 from ..menubar_app import setup_menubar_app, uninstall_menubar_app
 from ..mcp.host_config import install_mcp_host_config
 from ..mcp_bridge import MCP_HOST_CONFIG_RECIPE_HOSTS
-from ..paths import managed_command_venv_dir
+from ..paths import OmhPaths, managed_command_venv_dir
 from ..plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
 from ..plugin_pack import PLUGIN_NAME, PluginPackError, install_plugin_bundle
 from ..probe import probe_capabilities
@@ -323,11 +323,47 @@ def _refresh_installed_plugin_bundle(args: argparse.Namespace) -> dict[str, obje
     return result
 
 
+def _hermes_tui_preflight_step(
+    paths: OmhPaths, *, quiet: bool, dry_run: bool = False
+) -> dict[str, object]:
+    """Report whether the just-installed HUD can actually render, and why not.
+
+    Installing the widget while the Hermes side cannot load it (old Hermes,
+    stripped SDK, classic-REPL default, stale interpreter) is a success that
+    behaves like a failure: every check passes and the user still sees no
+    HUD. Setup and update therefore say so at install time instead of leaving
+    the diagnosis to a screenshot comparison. A dry run skips the inspection —
+    the state it would inspect is exactly the state the real run writes. In
+    JSON mode the note goes to stderr so machine output stays parseable while
+    a human watching the pipe still sees it. An absent Hermes install prints
+    nothing: PATH-installed Hermes layouts are real, and "cannot render" would
+    be a false claim there — doctor reports that state as unobserved instead.
+    """
+    from ..maintenance.hermes_tui import hermes_tui_preflight, widget_render_blockers
+
+    if dry_run:
+        return {"status": "skipped_dry_run"}
+    preflight = hermes_tui_preflight(paths)
+    blockers = widget_render_blockers(preflight)
+    install_found = bool(preflight.get("install", {}).get("found"))
+    if blockers and install_found:
+        stream = sys.stderr if quiet else sys.stdout
+        print("note: the OMH HUD may not render on this Hermes:", file=stream)
+        for blocker in blockers:
+            print(f"  - {blocker}", file=stream)
+    preflight["render_blockers"] = blockers
+    return preflight
+
+
 def _refresh_installed_tui_widget(args: argparse.Namespace) -> dict[str, object] | None:
     paths = _paths(args)
     if not paths.hermes_plugin_dir.is_dir():
         return None
-    return install_tui_widget(paths.hermes_home, dry_run=bool(args.dry_run))
+    result = install_tui_widget(paths.hermes_home, dry_run=bool(args.dry_run))
+    # A refreshed widget that the Hermes side cannot load is a success that
+    # behaves like a failure; say so at update time (same note as setup).
+    _hermes_tui_preflight_step(paths, quiet=_wants_json(args), dry_run=bool(args.dry_run))
+    return result
 
 
 def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, object]:
@@ -1557,6 +1593,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
     progress.step(step_index, total_steps, tr(language, "step_plugin"), detail=str(paths.hermes_plugin_dir))
     steps["plugin"] = _plugin_setup_result(args, paths)
     steps["tui_widget"] = install_tui_widget(paths.hermes_home, dry_run=bool(args.dry_run))
+    steps["hermes_tui_preflight"] = _hermes_tui_preflight_step(
+        paths, quiet=_wants_json(args), dry_run=bool(args.dry_run)
+    )
     plugin_status = steps["plugin"].get("status", "installed") if isinstance(steps["plugin"], dict) else "installed"
     progress.done(_plugin_status_label(language, str(plugin_status)))
     step_index += 1
