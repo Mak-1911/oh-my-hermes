@@ -153,10 +153,10 @@ window.OMH_I18N = {
     "ulw.kicker": { en: "Flagship workflows", ko: "대표 워크플로", ja: "フラッグシップ", zh: "旗舰工作流" },
     "ulw.title": { en: "The ulw-* family.", ko: "ulw-* 패밀리.", ja: "ulw-* ファミリー。", zh: "ulw-* 家族。" },
     "ulw.lead": {
-      en: "Eleven long-horizon lanes. Say the trigger in normal language — Hermes routes the rest.",
-      ko: "11개의 장기 레인. 평범한 말로 트리거만 말하면 나머지는 Hermes가 라우팅합니다.",
-      ja: "11 の長期レーン。普通の言葉でトリガーを言えば、あとは Hermes がルーティング。",
-      zh: "十一条长周期车道。用日常语言说出触发词，其余交给 Hermes 路由。"
+      en: "Twelve long-horizon lanes. Say the trigger in normal language — Hermes routes the rest.",
+      ko: "12개의 장기 레인. 평범한 말로 트리거만 말하면 나머지는 Hermes가 라우팅합니다.",
+      ja: "12 の長期レーン。普通の言葉でトリガーを言えば、あとは Hermes がルーティング。",
+      zh: "十二条长周期车道。用日常语言说出触发词，其余交给 Hermes 路由。"
     },
     "ulw.trigger": { en: "Say", ko: "이렇게 말하세요", ja: "こう言う", zh: "这样说" },
 
