@@ -160,6 +160,14 @@ window.OMH_I18N = {
     },
     "ulw.trigger": { en: "Say", ko: "이렇게 말하세요", ja: "こう言う", zh: "这样说" },
 
+    "ulw.context.title": { en: "Context", ko: "Context", ja: "Context", zh: "Context" },
+    "ulw.context.tag": { en: "Terminology alignment", ko: "용어 정렬", ja: "用語アラインメント", zh: "术语对齐" },
+    "ulw.context.body": {
+      en: "Aligns the words a repository uses before plans and handoffs.",
+      ko: "계획과 핸드오프 전에 저장소가 쓰는 용어부터 맞춥니다.",
+      ja: "計画とハンドオフの前に、リポジトリが使う言葉を揃えます。",
+      zh: "在计划与交接之前，先对齐仓库使用的词汇。"
+    },
     "ulw.work.title": { en: "Ultrawork", ko: "Ultrawork", ja: "Ultrawork", zh: "Ultrawork" },
     "ulw.work.tag": { en: "Parallel delivery", ko: "병렬 전달", ja: "並列デリバリー", zh: "并行交付" },
     "ulw.work.body": {

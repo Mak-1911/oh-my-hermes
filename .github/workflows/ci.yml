@@ -45,6 +45,10 @@ jobs:
         run: python -m omh.cli docs roles --check
       - name: Generated capability families check
         run: python -m omh.cli docs capability-families --check
+      - name: Generated ULW README region check
+        run: python -m omh.cli docs ulw-inventory --check
+      - name: Generated ULW site region check
+        run: python -m omh.cli docs ulw-site --check
       - name: Whitespace and conflict-marker check
         if: matrix.python-version == '3.11' && github.event_name == 'pull_request'
         run: git diff --check "origin/${{ github.base_ref }}...HEAD"

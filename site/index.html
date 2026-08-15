@@ -388,34 +388,24 @@
       </section>
 
       <!-- ============================================================ ULW -->
+      <!-- omh:ulw-site:begin (generated: uv run python -m omh.cli docs ulw-site; source: src/skills/catalog.py) -->
       <section class="section section--rail" id="workflows" aria-labelledby="ulw-title">
         <div class="section__head" data-reveal>
           <p class="kicker" data-i18n="ulw.kicker">Flagship workflows</p>
           <h2 id="ulw-title" data-i18n="ulw.title">The ulw-* family.</h2>
-          <p class="section__lead" data-i18n="ulw.lead">Eleven long-horizon lanes.</p>
+          <p class="section__lead" data-i18n="ulw.lead">Twelve long-horizon lanes.</p>
         </div>
 
         <ol class="ulw-list">
           <li class="glass-card ulw-row" data-reveal>
             <div class="ulw-row__head">
-              <code class="ulw-row__slug">ulw-work</code>
-              <span class="ulw-row__tag" data-i18n="ulw.work.tag">Parallel delivery</span>
+              <code class="ulw-row__slug">ulw-context</code>
+              <span class="ulw-row__tag" data-i18n="ulw.context.tag">Terminology alignment</span>
             </div>
             <div class="ulw-row__body">
-              <h3 data-i18n="ulw.work.title">Ultrawork</h3>
-              <p data-i18n="ulw.work.body">Splits an accepted plan into disjoint lanes.</p>
-              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ultrawork</q> <q>parallel work</q></p>
-            </div>
-          </li>
-          <li class="glass-card ulw-row" data-reveal>
-            <div class="ulw-row__head">
-              <code class="ulw-row__slug">ulw-plan</code>
-              <span class="ulw-row__tag" data-i18n="ulw.plan.tag">Reviewed plan</span>
-            </div>
-            <div class="ulw-row__body">
-              <h3 data-i18n="ulw.plan.title">Ralplan</h3>
-              <p data-i18n="ulw.plan.body">Consensus planning with review gates.</p>
-              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ralplan</q> <q>consensus plan</q></p>
+              <h3 data-i18n="ulw.context.title">Context</h3>
+              <p data-i18n="ulw.context.body">Aligns the words a repository uses before plans and handoffs.</p>
+              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ulw-context</q> <q>review project terms</q></p>
             </div>
           </li>
           <li class="glass-card ulw-row" data-reveal>
@@ -431,24 +421,35 @@
           </li>
           <li class="glass-card ulw-row" data-reveal>
             <div class="ulw-row__head">
-              <code class="ulw-row__slug">ulw-goal</code>
-              <span class="ulw-row__tag" data-i18n="ulw.goal.tag">Durable goals</span>
+              <code class="ulw-row__slug">ulw-research</code>
+              <span class="ulw-row__tag" data-i18n="ulw.research.tag">Decision grounding</span>
             </div>
             <div class="ulw-row__body">
-              <h3 data-i18n="ulw.goal.title">Ultragoal</h3>
-              <p data-i18n="ulw.goal.body">A checkpointed ledger survives context loss.</p>
-              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ultragoal</q> <q>goal ledger</q></p>
+              <h3 data-i18n="ulw.research.title">Research</h3>
+              <p data-i18n="ulw.research.body">Reference implementations, live web evidence, verified claims.</p>
+              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>web research</q> <q>source-backed research</q></p>
             </div>
           </li>
           <li class="glass-card ulw-row" data-reveal>
             <div class="ulw-row__head">
-              <code class="ulw-row__slug">ulw-loop</code>
-              <span class="ulw-row__tag" data-i18n="ulw.loop.tag">Goal loop</span>
+              <code class="ulw-row__slug">ulw-plan</code>
+              <span class="ulw-row__tag" data-i18n="ulw.plan.tag">Reviewed plan</span>
             </div>
             <div class="ulw-row__body">
-              <h3 data-i18n="ulw.loop.title">Loop</h3>
-              <p data-i18n="ulw.loop.body">Interview → plan → research → build → review.</p>
-              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>loop</q> <q>long horizon goal</q></p>
+              <h3 data-i18n="ulw.plan.title">Ralplan</h3>
+              <p data-i18n="ulw.plan.body">Consensus planning with review gates.</p>
+              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ralplan</q> <q>consensus plan</q></p>
+            </div>
+          </li>
+          <li class="glass-card ulw-row" data-reveal>
+            <div class="ulw-row__head">
+              <code class="ulw-row__slug">ulw-work</code>
+              <span class="ulw-row__tag" data-i18n="ulw.work.tag">Parallel delivery</span>
+            </div>
+            <div class="ulw-row__body">
+              <h3 data-i18n="ulw.work.title">Ultrawork</h3>
+              <p data-i18n="ulw.work.body">Splits an accepted plan into disjoint lanes.</p>
+              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ultrawork</q> <q>parallel work</q></p>
             </div>
           </li>
           <li class="glass-card ulw-row" data-reveal>
@@ -475,6 +476,28 @@
           </li>
           <li class="glass-card ulw-row" data-reveal>
             <div class="ulw-row__head">
+              <code class="ulw-row__slug">ulw-loop</code>
+              <span class="ulw-row__tag" data-i18n="ulw.loop.tag">Goal loop</span>
+            </div>
+            <div class="ulw-row__body">
+              <h3 data-i18n="ulw.loop.title">Loop</h3>
+              <p data-i18n="ulw.loop.body">Interview → plan → research → build → review.</p>
+              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>loop</q> <q>long horizon goal</q></p>
+            </div>
+          </li>
+          <li class="glass-card ulw-row" data-reveal>
+            <div class="ulw-row__head">
+              <code class="ulw-row__slug">ulw-goal</code>
+              <span class="ulw-row__tag" data-i18n="ulw.goal.tag">Durable goals</span>
+            </div>
+            <div class="ulw-row__body">
+              <h3 data-i18n="ulw.goal.title">Ultragoal</h3>
+              <p data-i18n="ulw.goal.body">A checkpointed ledger survives context loss.</p>
+              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ultragoal</q> <q>goal ledger</q></p>
+            </div>
+          </li>
+          <li class="glass-card ulw-row" data-reveal>
+            <div class="ulw-row__head">
               <code class="ulw-row__slug">ulw-process</code>
               <span class="ulw-row__tag" data-i18n="ulw.process.tag">Task to PR</span>
             </div>
@@ -497,17 +520,6 @@
           </li>
           <li class="glass-card ulw-row" data-reveal>
             <div class="ulw-row__head">
-              <code class="ulw-row__slug">ulw-research</code>
-              <span class="ulw-row__tag" data-i18n="ulw.research.tag">Decision grounding</span>
-            </div>
-            <div class="ulw-row__body">
-              <h3 data-i18n="ulw.research.title">Research</h3>
-              <p data-i18n="ulw.research.body">Reference implementations, live web evidence, verified claims.</p>
-              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>web research</q> <q>source-backed research</q></p>
-            </div>
-          </li>
-          <li class="glass-card ulw-row" data-reveal>
-            <div class="ulw-row__head">
               <code class="ulw-row__slug">ulw-perf</code>
               <span class="ulw-row__tag" data-i18n="ulw.perf.tag">Measured optimization</span>
             </div>
@@ -519,6 +531,7 @@
           </li>
         </ol>
       </section>
+      <!-- omh:ulw-site:end -->
 
       <!-- ======================================================== FAMILIES -->
       <section class="section" id="capabilities" aria-labelledby="fam-title">

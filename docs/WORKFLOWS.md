@@ -43,6 +43,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Classify requests into Hermes-retained planning/research/interview lanes, executor choice, or prepared coding handoffs; do not execute code.
 - Why this exists: `oh-my-hermes` exists to keep Hermes chat routing conservative: it maps plain requests to the right workflow, explains evidence boundaries, and avoids making every keyword look like hidden implementation.
@@ -105,6 +106,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Reason over the /omh remainder, select or chain concrete workflows from the live catalog, and prepare a selected executor/runtime handoff only when the chosen chain requires code edits; do not execute code.
 - Why this exists: `meta-router` exists to turn a leading /omh command into a live catalog lookup: it reasons over the imperative task, selects or chains concrete workflows, and keeps the decision inside the observed/prepared evidence boundary instead of guessing from memory.
@@ -163,6 +165,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep as compatibility guidance; for implementation, ask the wrapper to prepare/track the selected coding runtime path instead of hiding execution inside chat narration.
 - Why this exists: `ralph` exists to keep `execution` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -221,6 +224,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Use Hermes to maintain .omh/goals goal_ledger/v1 state, show goal_status_card/v1 / goal_continuation/v1 next actions, and route coding milestones to the selected runtime profile with only observed runtime evidence.
 - Why this exists: `ultragoal` exists for work that can outlive one chat turn: it turns ambition into durable stories, checkpoints, and completion gates so progress can resume without pretending a summary is evidence.
@@ -290,6 +294,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep loop orchestration, role sequencing, verification-tier selection, deterministic runtime ticks, loop_engineering/v1 status, feedback evaluation, and permission narration in Hermes; prepare executor/runtime/worktree/connector/verifier handoffs only for concrete work and record completion only from linked evidence.
 - Why this exists: `loop` exists for goals whose correct implementation cannot be known upfront but can be discovered through bounded cycles of definition, action, verification, and revision without confusing planned cycles with observed progress.
@@ -388,6 +393,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep the one-cycle process orchestration, source/codebase research, planning, review framing, docs-sync checks, PR narration, and evidence boundaries in Hermes; convert implementation into a selected executor/runtime handoff such as Codex, Claude Code, OMX/OMO/OMC, another coding agent, or explicit Hermes coding runtime only when the user accepts that owner.
 - Why this exists: `ultraprocess` exists to give Hermes one clean plan-to-PR operating cycle: research, reviewed plan, selected implementation handoff, review gate, docs sync, and PR-ready evidence.
@@ -462,6 +468,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep terminology lookup, source inspection, and decision-frontier facilitation in Hermes. Stage project candidates only after explicit confirmation, activate them only through the existing separate review lifecycle, and prepare `ulw-plan` or a selected executor-neutral coding handoff only after the user confirms shared understanding and the next path.
 - Why this exists: `context` exists to reduce repository terminology drift without creating a second machine store or a vocabulary router: Hermes can answer lookups, facilitate dependency-aware alignment, and project approved results into existing review and handoff boundaries.
@@ -535,6 +542,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Run directly in Hermes or the chat wrapper; produce a clarified brief before any coding handoff is prepared.
 - Why this exists: `deep-interview` exists to stop Hermes from guessing through ambiguous product, workflow, or implementation intent; it converts uncertainty into a clarified brief before planning or handoff.
@@ -592,6 +600,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep reviewed-context interpretation, the bounded one-question-at-a-time interview, target selection, source research, and Markdown brief preparation in Hermes. Do not create a learner profile, take an external action, or claim that a recommendation was consumed, learned, applied, or resolved the blocker.
 - Why this exists: `jit-learn` exists to choose what is worth learning for the user's present problem and convert credible sources into an immediate application path, instead of returning a generic self-help shelf or a popularity list.
@@ -669,6 +678,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Use Hermes for lane framing and status; implementation lanes should become selected runtime handoff tasks, including Hermes-owned coding when the user chooses that runtime.
 - Why this exists: `team` exists to keep `execution` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -727,6 +737,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep the workflow name for compatibility, but convert coding lanes into explicit selected runtime handoffs with disjoint scope, verification, review evidence, worker protocol, and worktree guidance.
 - Why this exists: `ultrawork` exists to split an accepted implementation plan into independent lanes without letting parallelism blur ownership, verification, worker protocol, worktree isolation, or observed runtime evidence.
@@ -790,6 +801,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Run as a Hermes-side research lane when web or repository access is available; Hermes and its delegated readers study sources, distill evidence or the dossier before any planning or coding handoff, and never treat research as implementation.
 - Why this exists: `research` exists to make Hermes a careful research engine: it routes research demands to source-backed evidence gathering - from live web citations to studied reference implementations - verifies contested claims, and distills decision-grounding output so planning starts from evidence instead of guesses.
@@ -884,6 +896,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user asks to find or classify source candidates before learning, research, materials, or coding work.
 - Handoff policy: Keep source acquisition planning in Hermes. Do not claim search, download, clone, extraction, license check, verification, or downstream processing unless a wrapper or user records observed evidence.
 - Why this exists: `source-finder` exists so Hermes can turn vague source discovery requests into typed candidates, acquisition status, and downstream workflow choice without pretending OMH searched, downloaded, or verified the material.
@@ -954,6 +967,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep business research in Hermes; prepare a selected executor/runtime handoff only after a later accepted plan requires code changes.
 - Why this exists: `research-brief` exists to keep `research` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -1011,6 +1025,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep the research operating model in Hermes. Map Scout to `research`/`autoresearch-goal`, Analyst to `research-brief`/`best-practice-research`, and Briefer to `report-package` or meeting/report workflows. Record retrieval, synthesis-tool output, knowledge-store writes, delivery, and verification only from observed evidence.
 - Why this exists: `research-department` exists so Hermes users can start complex research-ops patterns without manually designing profiles, cron, knowledge storage, synthesis tooling, and delivery glue, while OMH keeps every runtime claim observed-only.
@@ -1073,6 +1088,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user asks to understand a supplied paper or paper PDF by level without dropping section coverage.
 - Handoff policy: Keep paper explanation in Hermes. Route file export to `materials-package`, current-source discovery to `research`, recurring monitoring to `research-department`, and reproduction or implementation to an accepted coding handoff only after the explanation plan is accepted.
 - Why this exists: `paper-learning` exists so Hermes can act like a strong human tutor for papers: choose the right explanation level, walk through the full paper section by section, and keep PDF extraction and validation evidence honest.
@@ -1143,6 +1159,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep strategy synthesis in Hermes; do not create implementation handoff until a decision is accepted and code work is explicit.
 - Why this exists: `strategy-brief` exists to keep `strategy` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -1200,6 +1217,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Run meeting preparation in Hermes; only create follow-up coding handoff from observed decisions or accepted plans.
 - Why this exists: `meeting-brief` exists to turn scattered context into a focused agenda, discussion prompts, decision points, and a record template without pretending the meeting already happened.
@@ -1258,6 +1276,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep feedback triage in Hermes; recommend the next workflow and prepare a selected executor/runtime handoff only after explicit coding intent or accepted plan evidence.
 - Why this exists: `feedback-triage` exists to keep customer and community signals from jumping straight into roadmap or coding; it clusters evidence, ranks signals, and chooses the next workflow.
@@ -1316,6 +1335,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. Calculations are only as authoritative as supplied or observed sources and methods; no ERP, bank, ledger, tax, payment, or filing action is implied.
 - Why this exists: `finance-analysis` turns bounded accounting and finance context into a decision brief without presenting a prepared calculation as an authoritative financial action.
@@ -1377,6 +1397,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. Hermes can prepare fair process guidance and interview artifacts; it cannot claim a candidate was contacted, evaluated, hired, rejected, or recorded in an HR system.
 - Why this exists: `people-ops` keeps recruiting and people-process guidance fair, structured, and evidence bounded before any human decision or external HR action.
@@ -1438,6 +1459,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. The result is a prepared review and escalation aid, not legal advice, counsel sign-off, compliance certification, contract execution, filing, or regulator communication.
 - Why this exists: `legal-compliance-review` surfaces scoped legal and compliance issues before a human legal decision without pretending Hermes is counsel or an external filing surface.
@@ -1499,6 +1521,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. Reply text is a draft, escalation is a recommendation, and no ticket state, message send, refund, account action, or customer outcome is claimed.
 - Why this exists: `support-operations` turns a bounded customer case into response and escalation guidance without treating drafts or recommendations as helpdesk actions.
@@ -1560,6 +1583,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. Hermes designs an instructional plan; it does not create an LMS course, enroll learners, grade submissions, certify learning, publish materials, or claim learning outcomes occurred.
 - Why this exists: `curriculum-design` makes instructional outcomes, sequence, assessment, and learner constraints reviewable before materials, LMS, or grading work.
@@ -1621,6 +1645,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. Hermes may draft and review language guidance; it does not alter locale files, upload strings, publish translations, validate a rendered build, or claim market approval.
 - Why this exists: `localization-review` makes terminology, context, cultural fit, and locale QA reviewable without treating a drafted translation as a published or visually validated release.
@@ -1682,6 +1707,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. Hermes prepares research, discovery, and message guidance; it does not research unobserved facts as facts, contact prospects, create opportunities, change CRM data, book meetings, or claim revenue or progress.
 - Why this exists: `sales-development` prepares account-level discovery and qualification guidance without turning research hypotheses or draft outreach into sales execution claims.
@@ -1743,6 +1769,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep domain framing, clarification, source/evidence synthesis, draft outputs, and next-work routing in Hermes. A prepared brief, review, reply, or plan is not an external action, approval, filing, send, publish, data mutation, implementation, review, CI, or merge claim. Prepare a connector, file, coding, or human-review handoff only when the user explicitly accepts that next step; report it only from observed evidence. A PRD or roadmap is prepared planning, not stakeholder acceptance, Jira or Linear mutation, implementation, test evidence, delivery, or a market commitment.
 - Why this exists: `product-brief` turns product evidence into a reviewable PRD and prioritization frame before delivery planning without treating a draft as an accepted roadmap commitment.
@@ -1804,6 +1831,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep operating review and status narration in Hermes; delegate code fixes only from explicit accepted follow-up items.
 - Why this exists: `ops-review` exists to keep `operations` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -1861,6 +1889,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep cadence records, minutes scaffolds, decisions, and follow-up history in Hermes; delegate implementation only from separately accepted action items.
 - Why this exists: `operating-rhythm` exists so recurring operating work has durable minutes, decisions, and follow-up history without pretending a meeting outcome was observed.
@@ -1919,6 +1948,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep report narrative, sectioning, and Markdown/JSON outline packaging in Hermes; do not require reliability evidence unless the user asks for a reliability review.
 - Why this exists: `report-package` exists to make reporting a first-class operations surface: Hermes can produce clean report and slide outlines while keeping approvals, delivery, and binary deck export as separate evidence.
@@ -1977,6 +2007,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep source organization, outline planning, target-format selection, QA ladder, and missing-input review in Hermes; prepare an executor-neutral document-generation handoff only when a binary file is needed.
 - Why this exists: `materials-package` exists so Hermes can handle document, deck, spreadsheet, PDF, Word, Keynote, HWP, and Markdown work as a first-class material-processing workflow without becoming a hidden file generator.
@@ -2036,6 +2067,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep card copy shaping, source-kind selection, language mode, prompt assembly, and evidence narration in Hermes. Use wrapper-reported image generation only as an optional action; record generated image, visual QA, and delivery claims only from visual_observation/v1 evidence.
 - Why this exists: `img-summary` exists so Hermes can turn common communication work into provider-neutral image-card prompts while adapting format, domain mood, background, texture, lighting, camera, and poster grammar, and keeping generation, QA, and delivery as observed-only evidence.
@@ -2124,6 +2156,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill for broad design ownership before handing a narrowed concern to design-quality-gate, frontend, accessibility-audit, or visual-qa.
 - Handoff policy: Keep design intent, opaque project context references, deliberate direction, and existing-lane composition in Hermes; prepare an executor-neutral handoff only. The selected executor owns implementation, while existing visual-QA and web-QA paths own observed rendered evidence.
 - Why this exists: `design-orchestration` lets Hermes users say that they want design handled without making them manually compose four specialist lanes or confusing preparation with completed visual work.
@@ -2191,6 +2224,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when a visual, web, frontend, deck, PDF, poster, or publishing deliverable must meet a superior design/content/layout QA bar.
 - Handoff policy: Keep the quality brief, reference selection, design rubric, content-structure review, and QA checklist in Hermes; delegate implementation or binary generation only after the surface, owner, references, and observed QA path are explicit.
 - Why this exists: `design-quality-gate` makes high-stakes visual deliverables premium and trustworthy by treating taste, content, layout, accessibility, and render QA as first-class evidence.
@@ -2269,6 +2303,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when a web UI or frontend surface needs design-system, layout, responsive, accessibility, performance, and visual-QA handoff preparation.
 - Handoff policy: Keep product framing, reference selection, design-system contract, viewport/state matrix, and implementation brief in Hermes. Record code changes, browser screenshots, Lighthouse/Core Web Vitals, accessibility scans, and visual QA only from executor or wrapper observed evidence.
 - Why this exists: `frontend` gives OMH a first-class web UI creation and polishing workflow so Hermes can prepare high-quality layout, design-system, accessibility, performance, and visual-QA handoffs without becoming the hidden coding or browser runtime.
@@ -2360,6 +2395,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when a UI surface needs WCAG, keyboard, focus, screen-reader, target-size, contrast, and reflow audit gates.
 - Handoff policy: Keep accessibility scope, WCAG mapping, focus-flow expectations, screen-reader semantics, and remediation routing in Hermes. Automated scans, browser keyboard walks, screen-reader observations, contrast measurements, and code fixes require observed wrapper, executor, or user evidence.
 - Why this exists: `accessibility-audit` adapts ECC's accessibility-architect posture into an OMH-native workflow so frontend quality includes WCAG, keyboard, screen-reader, pointer, contrast, and reflow gates without pretending a plan is observed compliance.
@@ -2442,6 +2478,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when a rendered web, image, document, or TUI surface needs fresh visual evidence, diff review, and PASS/REVISE/BLOCK gating.
 - Handoff policy: Keep the QA plan, evidence manifest, freshness rule, and verdict narration in Hermes. Screenshots, TUI captures, image diffs, browser runs, OCR/CJK checks, and oracle reviews are observed evidence supplied by the wrapper, executor, or user.
 - Why this exists: `visual-qa` gives OMH a completion gate for rendered surfaces so layout breaks, AI-looking polish gaps, CJK text problems, and stale screenshot claims cannot be mistaken for verified quality.
@@ -2553,6 +2590,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when failing build, lint, typecheck, test, CI, or DCO evidence needs minimal-fix triage.
 - Handoff policy: Keep failure collection, grouping, root-cause hypothesis, retry policy, and minimal-fix handoff in Hermes. Command reruns, code edits, dependency installs, CI reruns, and merge readiness require observed executor, wrapper, or user evidence.
 - Why this exists: `build-failure-triage` adapts ECC's build-fix and PR-test-analysis posture into an OMH-native workflow so failed checks become evidence-backed minimal handoffs instead of ad hoc debugging or false-green verification claims.
@@ -2630,6 +2668,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep the audit as Hermes-retained local evidence gathering. Prepare executor handoff only for later code changes, and record file reads, tool availability, config checks, and runtime observations only when observed.
 - Why this exists: `workspace-audit` gives OMH an ECC-inspired but OMH-native front door for understanding a large agent workspace before strengthening it, without turning inventory into hidden mutation or runtime proof.
@@ -2695,6 +2734,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep readiness synthesis in Hermes. Code fixes, deploys, infrastructure changes, security scans, and platform actions require selected executor/runtime or operator evidence.
 - Why this exists: `production-audit` gives OMH a preflight release surface so operators can see production risks before launch while OMH stays out of deploy and infrastructure execution.
@@ -2758,6 +2798,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Hermes owns the gate contract and verdict narration. Running commands, CI, browser checks, external scanners, and code fixes require observed executor, wrapper, or operator evidence.
 - Why this exists: `verification-gate` gives OMH a deterministic evidence surface before done/merge claims, inspired by ECC-style gates but rebuilt around OMH's prepared-versus-observed contract.
@@ -2821,6 +2862,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep evaluation design and scoring in Hermes. Actual executor runs, costs, timings, tool calls, code edits, and review results must come from observed runtime or supplied artifacts.
 - Why this exists: `agent-evaluation` gives OMH a way to improve executor choice empirically, not by vibes, while preserving executor-neutral product language across Codex, Claude Code, Hermes, and generic runtimes.
@@ -2886,6 +2928,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep principle extraction and candidate review in Hermes. Editing AGENTS.md, catalog data, prompts, skills, or docs requires explicit approved implementation work and verification.
 - Why this exists: `rules-distill` gives OMH a disciplined way to learn from large skill ecosystems like ECC without wholesale copying: extract principles, review them, then patch OMH only through explicit verified work.
@@ -2949,6 +2992,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep codebase orientation in Hermes as prepared local context. File reads, generated maps, and first-task recommendations need observed repo evidence; code edits and executor handoffs happen only after onboarding identifies a concrete task.
 - Why this exists: `codebase-onboarding` adapts ECC's code-tour and onboarding surfaces into an OMH-native first-read workflow so unfamiliar repos become navigable before implementation pressure starts.
@@ -3015,6 +3059,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep codegraph refresh as prepared local code-intelligence context. Running `omh codegraph build`, `omh codegraph summary`, or `omh codegraph handoff` requires observed command evidence before reporting artifact writes, summaries, focus files, or executor-ready handoff context.
 - Why this exists: `codegraph-refresh` adapts ECC-style codemap freshness into OMH's local codegraph commands so operators can refresh navigation context before handoff without pretending code intelligence is execution evidence.
@@ -3082,6 +3127,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep budget design and status narration in Hermes. Provider billing, exact token usage, runtime compaction, and executor cost evidence require observed wrapper, runtime, or provider data.
 - Why this exists: `context-budget-review` ports ECC's context-budget and token-budget instincts into OMH as a compactness gate that protects long-running work without redefining success around a smaller task.
@@ -3147,6 +3193,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep safety review in Hermes. Scans, dependency updates, sandbox changes, credential checks, external security tools, and code fixes require explicit observed executor or operator evidence.
 - Why this exists: `security-safety-review` adapts ECC's AgentShield and safety-review posture into OMH as a review-first gate for agentic coding and operator workflows without adding hidden scanners or external dependencies.
@@ -3216,6 +3263,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user asks for recurring automation or scheduled ops planning.
 - Handoff policy: Keep schedule intent, delivery policy, silence rules, context-chain selection, and status narration in Hermes; prepare host automation or no-agent follow-up only after an operator/wrapper records observed runtime evidence.
 - Why this exists: `automation-blueprint` exists so Hermes can make recurring operational work feel native and scheduled without OMH becoming a hidden cron runner, transport bot, source retriever, or executor.
@@ -3280,6 +3328,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep incident/SLO/error-budget review in Hermes; prepare remediation handoffs only after an accepted fix direction exists and record closure only from observed evidence.
 - Why this exists: `reliability-review` exists to make SRE-style review strict: service reliability claims must point to metrics or references, and remediation remains separate from the review narrative.
@@ -3337,6 +3386,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep idea shaping, decision gates, planning, release narration, and status in Hermes; prepare selected executor/runtime handoffs only for accepted code work and record deploy/monitoring only from observed operator or wrapper evidence.
 - Why this exists: `idea-to-deploy` exists to keep `delivery` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -3395,6 +3445,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep CTO/PM-style synthesis, tradeoffs, risk ranking, decision notes, and status in Hermes; convert accepted implementation follow-ups into executor-neutral handoffs.
 - Why this exists: `cto-loop` exists to keep `leadership` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -3453,6 +3504,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep release checklist, health criteria, rollback gates, and status narration in Hermes; record deploy, monitor, incident, or rollback evidence only when the wrapper or operator observes it.
 - Why this exists: `deploy-and-monitor` exists to keep `monitoring` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -3512,6 +3564,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Hermes can design scenarios and report observed results; code fixes discovered by QA should become selected executor/runtime handoffs.
 - Why this exists: `ultraqa` exists to keep `verification` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -3569,6 +3622,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep planning in Hermes; if the accepted plan requires code edits, prepare a selected executor/runtime handoff after acceptance, and start a follow-on workflow engine only after the user explicitly confirms the recommended path.
 - Why this exists: `plan` exists to keep `planning` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -3625,6 +3679,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep consensus planning and review in Hermes; produce explicit selected executor/runtime handoff guidance only after the plan is accepted, and start a follow-on workflow engine only after the user explicitly confirms the recommended path.
 - Why this exists: `ralplan` exists to make planning reviewable before execution: Hermes should gather codebase/source facts, compare options, expose risks, define acceptance criteria, and prepare a handoff without pretending implementation already happened.
@@ -3701,6 +3756,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Hermes may frame and summarize review evidence; fixes or code mutations found during review should be delegated to the selected coding executor.
 - Why this exists: `code-review` exists to make review bug-first and evidence-grounded: findings must cite concrete files, diffs, commands, or artifacts before any summary or fix proposal.
@@ -3764,6 +3820,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Use Hermes to define cleanup scope and regression checks; route behavior-preserving edits to the selected coding runtime once tests are clear.
 - Why this exists: `ai-slop-cleaner` exists to keep `maintenance` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -3822,6 +3879,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Run as Hermes-side evidence gathering; hand coding to the selected executor/runtime only after source-backed guidance is summarized.
 - Why this exists: `best-practice-research` exists to keep `research` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -3876,6 +3934,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep durable research in Hermes-managed artifacts; do not convert to executor handoff unless the research produces an accepted coding task.
 - Why this exists: `autoresearch-goal` exists to keep `research` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -3931,6 +3990,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Hermes can own baselines, benchmark plans, and status; optimization code changes should be selected executor/runtime handoffs.
 - Why this exists: `performance-goal` exists to keep `optimization` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -3985,6 +4045,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Hermes owns the audit, baseline, hypothesis, budget, and status; every optimization code edit becomes a selected executor/runtime handoff and returns as observed re-measurement.
 - Why this exists: `ultraperf` exists because most performance work starts unlocalized: something is slow, leaking, or expensive and nobody knows where. It forces measurement before edits, one hypothesis at a time, executor-owned changes, and a regression budget, so an optimization loop cannot end in unverified claims.
@@ -4052,6 +4113,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Run directly in Hermes as wiki design and retained knowledge capture; prepare connector/runtime handoff only when a separate observed external write or coding task is explicitly required.
 - Why this exists: `wiki` exists to keep `knowledge` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -4121,6 +4183,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Use as optional advice gathering; evaluate the advice in Hermes and delegate coding changes separately.
 - Why this exists: `ask` exists to keep `review` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -4175,6 +4238,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Run directly in Hermes/runtime state; never delegate cancellation to a coding executor.
 - Why this exists: `cancel` exists to keep `operator` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -4226,6 +4290,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Use Hermes for inventory and guidance; delegate only repository code changes to the selected coding executor.
 - Why this exists: `skill` exists to keep `operator` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
@@ -4277,6 +4342,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Run directly as local health inspection; propose executor work only when a repo fix is required.
 - Why this exists: `doctor` exists to turn confusing install/setup states into grouped, local health evidence and the next repair action without treating a check as a fix.
@@ -4334,6 +4400,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Read and write the local capability policy directly; propose executor work only when a repository fix is required.
 - Why this exists: `capability-toggle` exists because OMH shipped one binary install lever -- 9 core skills or all of them -- so a user who wanted the coding surface but not the memory surface had to take both. It turns that into a per-family choice without uninstalling OMH.
@@ -4389,6 +4456,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Read local dispatch and progress artifacts directly and render the board; never dispatch or modify a unit from this workflow.
 - Why this exists: `running-work-board` exists because multi-session coding work was invisible: the runtime was tracked but the model was dropped, token counts had no write site at all, and a blocking dispatch could not report that it was still running. The board answers which model on which runtime, or says unknown.
@@ -4443,6 +4511,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Keep Hermes-native model setup in Hermes: inspect its config, provider plugins, auth presence, and aliases, then use Hermes-native config/auth flows for an approved change. Maestro coordinates prepared external coding handoffs for Codex, Claude Code, OMO/OMC/OMX, and generic owners; it is not an executor and never owns Hermes aliases, providers, skill execution, or Kanban model selection. Diagnosis uses local Hermes config/auth commands and reads only config plus auth/plugin presence; it never reads `.env` values, credential material, or session prose. Show the exact Hermes-native command/config preview, bind it to the inspected config digest, and apply only after explicit approval; verify by re-inspecting Hermes state. A prepared Hermes binding or Maestro handoff is not model invocation, dispatch, or execution evidence.
 - Why this exists: `model-setup` exists to turn local model history into a safe, user-confirmed activation flow: Hermes retains native aliases and providers, Maestro remains an external-handoff coordinator, and editable recommendations can fall through missing preferred models without turning metadata into availability or execution claims.
@@ -4517,6 +4586,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Run diagnosis and reporting directly in Hermes for parallel-tool capability. Diagnosis only reads the existing Hermes config, `.env` keys, and installed version; it never writes anything on its own. Show the exact diff for any config or `.env` change and write it only after the user explicitly approves that diff. Secret values such as tokens and API keys are pasted by the user directly in chat and are never stored, logged, or echoed back beyond the immediate diff confirmation. Delegate to a selected coding executor only if the user needs a change outside a local version/config check.
 - Why this exists: `parallel-tools` exists to give a quick, read-first answer to whether parallel tool calls are current and enabled, with an update path only when currency is actually missing.
@@ -4574,6 +4644,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Run diagnosis and guidance directly in Hermes for web search setup. Diagnosis only reads the existing Hermes config, `.env` keys, and installed version; it never writes anything on its own. Show the exact diff for any config or `.env` change and write it only after the user explicitly approves that diff. Secret values such as tokens and API keys are pasted by the user directly in chat and are never stored, logged, or echoed back beyond the immediate diff confirmation. Delegate to a selected coding executor only if the user needs a change outside chat-driven config or `.env` edits.
 - Why this exists: `websearch-setup` exists to make web search cost and routing configurable through two clearly separated, diff-approved steps instead of one opaque edit.
@@ -4632,6 +4703,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Run diagnosis and guidance directly in Hermes for the mail/calendar connection. Diagnosis only reads the existing Hermes config, `.env` keys, and installed version; it never writes anything on its own. Show the exact diff for any config or `.env` change and write it only after the user explicitly approves that diff. Secret values such as tokens and API keys are pasted by the user directly in chat and are never stored, logged, or echoed back beyond the immediate diff confirmation. Delegate to a selected coding executor only if the user needs a change outside chat-driven MCP config edits.
 - Why this exists: `morning-brief` exists to connect mail and calendar access for an on-demand brief while keeping the connection strictly read and draft-only and the user's credentials unstored.
@@ -4690,6 +4762,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `false`
 - Docs visibility: `operator_reference`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as agent-facing catalog guidance for QA scenarios, independent review, and source-bound assessment; invoke the quality-evidence CLI only as a backend/operator control plane.
 - Handoff policy: Keep scenario design, review independence, and evidence-boundary narration in Hermes; prepare a selected executor handoff only when concrete coding work is accepted.
 - Why this exists: Quality work needs an inspectable preparation and assessment loop without letting a prepared package masquerade as executed QA or review.
@@ -4751,6 +4824,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.
 - Handoff policy: Operate through Hermes' native Buzz adapter and official Buzz surfaces. Keep state-changing self-host commands user-driven and delegate repository code changes only when the user explicitly asks for them.
 - Why this exists: Hermes already owns the Buzz transport, but users need one discoverable OMH entry point that safely selects setup, attachment, or self-host operations and reports only the evidence actually observed.
@@ -4815,6 +4889,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask how to triage GitHub PR, issue, review, webhook, or CI events into label, review, or fix-handoff actions without claiming GitHub mutation.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `github-event-ops` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -4871,6 +4946,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to coordinate multiple Hermes agents, subagents, roles, handoffs, blockers, heartbeats, or board-shaped collaboration without claiming other agents accepted or completed work.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `agent-board` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -4927,6 +5003,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user wants to add new project, product, or durable context memory through capture, review, and approval.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `memory-new` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -4987,6 +5064,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user asks to review stale, duplicate, or conflicting memory and skill context.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `memory-sync` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5046,6 +5124,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to route, notify, post, or package Discord, Slack, Telegram, webhook, thread, attachment, or silent/status-update gateway intent without claiming delivery.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `gateway-intent-card` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5102,6 +5181,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask whether Codex, Claude Code, Hermes coding, or another runtime has the tools, credentials, worktree posture, and handoff mode needed before dispatch.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `executor-runtime-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5160,6 +5240,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user asks for file deliverable packaging and attachment lifecycle status.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `deliverable-package` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5216,6 +5297,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when voice, mobile, dictated, or short commands need normalization, ambiguity checks, and safe confirmation before selecting a concrete workflow.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `voice-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5272,6 +5354,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to open URLs, click pages, log in, fill forms, capture blockers, or supervise browser interactions without claiming browser execution.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `browser-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5336,6 +5419,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to list, search, organize, copy, move, rename, archive, or delete local files and folders without claiming filesystem mutation.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `workspace-file-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5399,6 +5483,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to prepare or supervise terminal, shell, CLI, package-manager, or test commands without claiming command execution.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `command-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5462,6 +5547,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to prepare or supervise external app, SaaS, email, ticket, calendar, CRM, or connector actions without claiming provider execution.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `connector-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5527,6 +5613,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to prepare or supervise read-only weather, finance, sports, map, place, exchange-rate, or time-zone lookups without claiming live data retrieval.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `live-info-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5590,6 +5677,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask whether an external plugin, connector, API, multimodal route, or live-data tool is ready enough to adopt, route, or trial without claiming provider execution.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `external-connector-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5659,6 +5747,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask whether external CLI-agent prompt files can be safely reviewed, normalized, and exposed as Hermes slash-command candidates without claiming prompt mutation.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `prompt-import-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5731,6 +5820,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use when physical device workflows need a safety envelope, gates, approval, dry-run, and observed-only trial boundary.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `physical-device-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5803,6 +5893,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask for publish-ready writing, rewriting, summarization, translation, release notes, newsletter, customer copy, or email-draft work with audience, tone, source, and review gates.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `content-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5869,6 +5960,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to prepare or supervise audio/video transcription, YouTube/video summaries, OCR, screenshot text extraction, receipt image parsing, meeting recordings, timestamps, or clip summaries without claiming media access, transcript, OCR, or parsed-field evidence.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `media-input-operator` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -5934,6 +6026,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask to analyze supplied CSV, JSON, logs, tables, or metric-like data with schema, method, and hallucination guards.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `data-analysis` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6002,6 +6095,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when users ask which plugins, MCP servers, CLIs, APIs, credentials, or external connectors a workflow needs before it can run.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `toolbelt-readiness` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6058,6 +6152,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when operators need a cross-harness session, MCP config, connector, wrapper, and worktree inventory with drift boundaries.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `harness-session-inventory` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6121,6 +6216,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when operators need an evidence-bounded command-board for telemetry, supplied metric-provider payloads, and service-quality gaps.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `ops-observability-card` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6184,6 +6280,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user asks about unlocked hermes-achievements badges, tiers, recent unlocks, or badge progress.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `achievements` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6241,6 +6338,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when a manager wants quality, blockers, next actions, and throughput guidance for AI-agent work.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `agent-ops-review` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6297,6 +6395,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when an agent run is stuck, looping, drifting, or failing repeatedly and needs evidence-bounded diagnosis plus contained recovery guidance.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `agent-debug` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6357,6 +6456,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when operators need to find swallowed errors, dangerous fallbacks, propagation gaps, and false-green claims before routing remediation.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `failure-signal-audit` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6423,6 +6523,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when repeated lessons should become reviewed, confidence-scored project or global instinct candidates without automatic hook-based learning or mutation.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `instinct-ledger` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6485,6 +6586,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill before creating, forking, installing, or adapting a skill so operators can compare candidates and risks first.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `skill-scout` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6548,6 +6650,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when operators need a portfolio health dashboard for skills, generated surfaces, failure-pattern signals, pending amendments, and safe improvement actions.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `skill-health` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6607,6 +6710,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill when the user wants to learn from a workflow run, review an improvement candidate, create a regression case, or export a redacted review bundle.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `workflow-learning` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6663,6 +6767,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill to recall scoped rejected alternatives without promoting them to approved memory or execution evidence.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `decision-recall` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6719,6 +6824,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill to render bounded local run efficiency from supplied metadata and keep provider/host gaps visible.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `run-efficiency` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.
@@ -6775,6 +6881,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Install visibility: `true`
 - Docs visibility: `primary_workflow_skill`
 - Compatibility alias: `false`
+- Lifecycle stage: `canonical`
 - Preferred usage: Use as an installed Hermes workflow skill to prepare provider/profile metadata without reading secrets, calling providers, or routing models.
 - Handoff policy: Keep this as Hermes-facing orchestration guidance first. Prepare executor, connector, gateway, or host-runtime handoff only when the user accepts that next step and observed evidence can be recorded.
 - Why this exists: `provider-profile-posture` exists so Hermes users can ask for this workflow in chat and receive a structured, evidence-bounded OMH operating surface instead of ad hoc narration.

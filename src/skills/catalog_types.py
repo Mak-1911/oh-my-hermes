@@ -789,6 +789,13 @@ _DEFAULT_GOOD_EXAMPLES = {
 }
 
 
+# The per-engine lifecycle ladder for the ULW consolidation (#954). The stage
+# is an independent field, not a derivation of `compatibility_alias`: a retired
+# engine keeps `compatibility_alias=True` so a stale workflow hint still
+# resolves as a compatibility concern rather than a generic non-routable name.
+SURFACE_LIFECYCLE_STAGES = ("canonical", "alias", "warning", "retired")
+
+
 @dataclass(frozen=True)
 class SurfaceExposure:
     name: str
@@ -798,6 +805,9 @@ class SurfaceExposure:
     docs_visibility: str
     preferred_usage: str
     compatibility_alias: bool = False
+    lifecycle_stage: str = "canonical"
+    target_home: str | None = None
+    migration_release: str | None = None
 
 
 @dataclass(frozen=True)

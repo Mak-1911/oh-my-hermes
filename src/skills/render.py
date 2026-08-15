@@ -1875,6 +1875,13 @@ def _workflow_reference_markdown_cached() -> str:
                 f"- Install visibility: `{str(exposure.install_visibility).lower()}`",
                 f"- Docs visibility: `{exposure.docs_visibility}`",
                 f"- Compatibility alias: `{str(exposure.compatibility_alias).lower()}`",
+                f"- Lifecycle stage: `{exposure.lifecycle_stage}`",
+                *([f"- Target home: `{exposure.target_home}`"] if exposure.target_home else []),
+                *(
+                    [f"- Migration release: `{exposure.migration_release}`"]
+                    if exposure.migration_release
+                    else []
+                ),
                 f"- Preferred usage: {exposure.preferred_usage}",
                 f"- Handoff policy: {definition.handoff_policy}",
                 f"- Why this exists: {definition.why_this_exists}",
