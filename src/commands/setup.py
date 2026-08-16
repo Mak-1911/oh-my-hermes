@@ -499,34 +499,49 @@ def _run_command_package_self_update(args: argparse.Namespace, plan: dict[str, o
         "Updating omh command package",
         detail=f"{package_url} ({note})" if note else package_url,
     )
+    pip_command = [
+        python,
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        # A branch archive keeps one URL while its contents change, and pip
+        # caches by URL. Without this, `omh update` reinstalls whatever
+        # `main.zip` was downloaded last - it reports success, the version
+        # string does not move, and the user gets an older tree. Observed:
+        # a fresh venv still printed "Using cached main.zip" and installed
+        # a build from before the merge it was run to pick up.
+        # `--force-reinstall` does not help; it forces the reinstall, not
+        # the download.
+        "--no-cache-dir",
+        "--force-reinstall",
+        "--upgrade",
+        package_url,
+    ]
+    # Human mode hands pip the terminal so its own download and build lines
+    # appear as they happen. This step fetches an archive and builds an sdist,
+    # which takes minutes on the preview channel, and a terminal that prints
+    # nothing for that long is indistinguishable from a hang -- the reported
+    # symptom was `omh update` "stuck" on the URL line, from a run that was
+    # working the whole time. The wait is expected and the step line above
+    # already names its size; what was missing was any sign of progress.
+    # JSON mode keeps capturing, because stdout there has to stay parseable.
+    if wants_json:
+        pip_command.insert(pip_command.index("install") + 1, "-q")
+    capture = subprocess.PIPE if wants_json else None
     completed = subprocess.run(
-        [
-            python,
-            "-m",
-            "pip",
-            "install",
-            "--disable-pip-version-check",
-            "-q",
-            # A branch archive keeps one URL while its contents change, and pip
-            # caches by URL. Without this, `omh update` reinstalls whatever
-            # `main.zip` was downloaded last - it reports success, the version
-            # string does not move, and the user gets an older tree. Observed:
-            # a fresh venv still printed "Using cached main.zip" and installed
-            # a build from before the merge it was run to pick up.
-            # `--force-reinstall` does not help; it forces the reinstall, not
-            # the download.
-            "--no-cache-dir",
-            "--force-reinstall",
-            "--upgrade",
-            package_url,
-        ],
+        pip_command,
         text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=capture,
+        stderr=capture,
     )
     if completed.returncode != 0:
         detail = _bounded_command_error(
-            completed.stderr or completed.stdout or "pip install failed"
+            completed.stderr
+            or completed.stdout
+            # Human mode streamed pip straight to the terminal, so there is
+            # nothing captured to quote back -- the user already saw it.
+            or f"pip install failed with exit code {completed.returncode}"
         )
         hint = missing_release_asset_hint(release) if isinstance(release, ReleaseSelection) else ""
         message = f"command package update failed: {detail}"
