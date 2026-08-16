@@ -22,21 +22,12 @@ export default function register(sdk) {
 
   const safeText = value => String(value ?? '').replace(/[^\p{L}\p{N} .:/_·|+\-]/gu, '').slice(0, 96)
 
-  // Panel chrome. Both apps draw their own bordered, padded card so the OMH
-  // surface reads as a piece of the TUI instead of loose text floating around
-  // the prompt. Every colour comes from the active theme the host hands
-  // `render`, never a literal: `primary` is the token Hermes' own Dialog card
-  // borders with, so the panel follows whatever skin is active (default gold,
-  // ares crimson, mono, …) with no OMH-side palette to keep in sync.
-  // The card costs two columns of border plus two of padding, and two rows of
-  // border; the render callsites hand the components the INNER budget.
-  const PANEL_CHROME_COLUMNS = 4
-  const PANEL_CHROME_ROWS = 2
-  // Shared header grammar for both panels: mark, then muted detail, then the
-  // one segment that carries state. Kept as constants so the two headers can
-  // never drift into looking like two different products.
-  const BRAND_MARK = '◆'
-  const SEPARATOR = '  ·  '
+  // Text, not chrome. The owner's direction after living with the bordered
+  // cards: the OMH surface should read like the host's own status line
+  // (` ─ ready │ gpt 5.6 sol │ … `) and like oh-my-claudecode's HUD -- dense
+  // text in the TUI's idiom, not a boxed widget that announces itself.
+  // Colours still resolve only through the active theme, never literals.
+  const SEPARATOR = ' │ '
 
   const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
 
@@ -52,14 +43,6 @@ export default function register(sdk) {
     if (blocked) parts.push(`${blocked} blocked`)
     return parts.join(' · ')
   }
-  const panelProps = t => ({
-    borderColor: t.color.primary,
-    borderStyle: 'round',
-    flexDirection: 'column',
-    paddingX: 1,
-    width: '100%',
-  })
-
   const readHud = () => new Promise(resolve => {
     execFile(
       __OMH_PYTHON_EXECUTABLE__,
@@ -210,7 +193,7 @@ export default function register(sdk) {
     // part gated on live work.
     const active = !!payload.active
     const agents = payload.subagents || {}
-    const version = safeText(payload.version) || 'unknown'
+    const version = safeText(payload.version)
     const maestro = payload.maestro || {}
     const mainRows = active && Array.isArray(maestro.rows) ? maestro.rows.slice(0, 1) : []
     const activityLimit = Math.max(1, Math.min(3, viewportRows - 3))
@@ -219,19 +202,16 @@ export default function register(sdk) {
       : []
     return h(
       Box,
-      { ...panelProps(t), marginTop: 1 },
+      { flexDirection: 'column', marginTop: 1, width: '100%' },
       h(
         Text,
         { wrap: 'truncate-end' },
-        // One role per colour, so state is what the eye lands on and the
-        // decoration never competes with it: the mark and name carry the
-        // panel's own border colour, the version recedes into muted, and only
-        // the state segment changes hue. The previous header spent its width
-        // naming the product twice ("[OMH] … Oh My Hermes") and then claimed
-        // "Ultra Work Ready" whether or not anything was actually running.
-        h(Text, { bold: true, color: t.color.primary }, `${BRAND_MARK} OMH`),
-        h(Text, { color: t.color.border }, SEPARATOR),
-        h(Text, { color: t.color.muted }, `v${version}`),
+        // One role per colour: the bracket tag carries the brand, the version
+        // recedes into muted, and only the state segment changes hue. Idle
+        // says "ready"; active derives its counts from the same payload the
+        // activity rows below render.
+        h(Text, { bold: true, color: t.color.primary }, '[OMH]'),
+        version ? h(Text, { color: t.color.muted }, ` v${version}`) : null,
         h(Text, { color: t.color.border }, SEPARATOR),
         h(Text, { color: active ? t.color.warn : t.color.ok }, hudStateLabel(active, agents)),
       ),
@@ -270,15 +250,14 @@ export default function register(sdk) {
     if (todo.status === 'all_done') {
       return h(
         Box,
-        panelProps(t),
+        { flexDirection: 'column', width: '100%' },
         h(
           Text,
           { wrap: 'truncate-end' },
-          // Same grammar as the status header, so the two panels read as one
-          // surface rather than two widgets that happen to share a border.
-          h(Text, { bold: true, color: t.color.primary }, `${BRAND_MARK} Plan`),
-          title ? h(Text, { color: t.color.border }, SEPARATOR) : null,
-          title ? h(Text, { color: t.color.muted }, title) : null,
+          // Same grammar as the status line below the prompt, so the two
+          // surfaces read as one product.
+          h(Text, { bold: true, color: t.color.primary }, '[Plan]'),
+          title ? h(Text, { color: t.color.muted }, ` ${title}`) : null,
           h(Text, { color: t.color.border }, SEPARATOR),
           h(Text, { color: t.color.ok }, `✓ ${counts.done ?? 0}/${counts.total ?? 0}`),
         ),
@@ -290,13 +269,12 @@ export default function register(sdk) {
     const budget = Math.max(16, columns - 10)
     return h(
       Box,
-      panelProps(t),
+      { flexDirection: 'column', width: '100%' },
       h(
         Text,
         { wrap: 'truncate-end' },
-        h(Text, { bold: true, color: t.color.primary }, `${BRAND_MARK} Plan`),
-        title ? h(Text, { color: t.color.border }, SEPARATOR) : null,
-        title ? h(Text, { color: t.color.muted }, title) : null,
+        h(Text, { bold: true, color: t.color.primary }, '[Plan]'),
+        title ? h(Text, { color: t.color.muted }, ` ${title}`) : null,
         h(Text, { color: t.color.border }, SEPARATOR),
         h(Text, { color: t.color.warn }, `${counts.done ?? 0}/${counts.total ?? 0}`),
       ),
@@ -332,13 +310,11 @@ export default function register(sdk) {
       input.kind === 'snapshot'
         ? { ...state, payload: input.payload, tick: state.tick + 1 }
         : state,
-    // The panel's own border and padding are not content space, so both
-    // components budget against the INNER card, not the raw terminal.
     render: ({ cols, rows, state, t }) => h(Hud, {
-      columns: Math.max(20, cols - PANEL_CHROME_COLUMNS),
+      columns: Math.max(20, cols),
       state,
       t,
-      viewportRows: Math.max(1, rows - PANEL_CHROME_ROWS),
+      viewportRows: Math.max(1, rows),
     }),
   })
 
@@ -352,7 +328,7 @@ export default function register(sdk) {
       input.kind === 'snapshot'
         ? { ...state, payload: input.payload, tick: state.tick + 1 }
         : state,
-    render: ({ cols, state, t }) => h(TodoPanel, { columns: Math.max(20, cols - PANEL_CHROME_COLUMNS), state, t }),
+    render: ({ cols, state, t }) => h(TodoPanel, { columns: Math.max(20, cols), state, t }),
   })
 
   openWidget(app, app.init(''))

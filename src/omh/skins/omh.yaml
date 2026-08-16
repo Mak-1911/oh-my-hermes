@@ -10,7 +10,11 @@ name: omh
 description: OH-MY-HERMES — sky turquoise orchestration identity
 
 colors:
-  background: "#081C22"
+  # No `background` token on purpose: the classic banner paints text runs on
+  # it, and any value that differs from the user's actual terminal background
+  # renders every run as a lighter "selected-looking" box (observed on a real
+  # terminal). Omitting it inherits the default seed, which is what stock
+  # Hermes ships and what nobody reports boxes against.
   banner_border: "#1E8A99"
   banner_title: "#7FDBFF"
   banner_accent: "#00CED1"

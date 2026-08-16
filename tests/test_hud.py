@@ -1033,6 +1033,29 @@ class TodoHudTests(unittest.TestCase):
             self.assertEqual(payload["todo"]["display_items"], [])
             self.assertEqual(payload["display"]["todo_lines"], ["Todo · Foundation ✓ 2/2"])
 
+    def test_hud_retires_a_finished_plan_after_its_linger_window(self) -> None:
+        # A finished plan is a receipt, not ambient chrome: it lingers briefly
+        # for the session that finished it, then leaves. Without this, a plan
+        # completed in one session greeted every NEW session as a "Plan 3/3"
+        # panel for a full day (observed on a fresh boot the morning after).
+        from datetime import datetime, timedelta, timezone
+
+        from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            done_items = [{"text": "Ship", "state": "done"}]
+            old_stamp = (
+                (datetime.now(timezone.utc) - timedelta(minutes=20))
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
+            self._write_todo(root / ".omh", self._record(items=done_items, updated_at=old_stamp))
+            payload = read_omh_hud(root / ".omh", root / ".hermes")
+
+            self.assertEqual(payload["todo"]["status"], "absent")
+            self.assertEqual(payload["display"]["todo_lines"], [])
+
     def test_hud_hides_stale_and_unparseable_todo_updates(self) -> None:
         from omh.plugin_bundle.omh.runtime_reader import read_omh_hud
 

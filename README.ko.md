@@ -141,7 +141,7 @@ omh doctor
 
 ## OH-MY-HERMES 터미널
 
-`omh`만 입력하면 OMH 정체성을 입은 Hermes 모던 TUI가 열립니다:
+`omh`만 입력하면 `hermes`와 동일한 문으로, OMH 정체성을 입은 Hermes가 열립니다:
 
 ```sh
 omh

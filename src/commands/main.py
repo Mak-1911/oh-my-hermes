@@ -370,15 +370,18 @@ Run `omh --help` for the full command list."""
 
 
 def _launch_hermes_tui() -> int | None:
-    """Open the OH-MY-HERMES terminal: bare `omh` boots Hermes' Ink TUI.
+    """Open the OH-MY-HERMES terminal: bare `omh` is the same door as `hermes`.
 
     The oh-my-zsh contract, applied here: the wrapper's bare name IS the
-    styled experience. This execs the user's own `hermes` binary with
-    `--tui` -- a user-invoked local launch, not background dispatch, and the
-    one flag Hermes documents for opening the Ink TUI for a single session
-    without touching `display.interface`. No terminal or no Hermes install
-    means there is nothing to launch, and the caller falls back to the
-    welcome text.
+    styled experience. This execs the user's own `hermes` binary with no
+    flags -- a user-invoked local launch, not background dispatch. It used to
+    force `--tui`, which made the two doors open DIFFERENT terminals whenever
+    `display.interface` selected the classic REPL: `omh` showed the HUD, bare
+    `hermes` showed no OMH surface at all, and the split read as a bug from
+    the first boot. Which terminal opens belongs to Hermes' own
+    `display.interface`; OMH's door just walks through it. No terminal or no
+    Hermes install means there is nothing to launch, and the caller falls
+    back to the welcome text.
     """
     import shutil
     import subprocess
@@ -389,7 +392,7 @@ def _launch_hermes_tui() -> int | None:
     if not hermes:
         return None
     try:
-        return int(subprocess.run([hermes, "--tui"]).returncode)
+        return int(subprocess.run([hermes]).returncode)
     except (OSError, KeyboardInterrupt):
         return None
 
