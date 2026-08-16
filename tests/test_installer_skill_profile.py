@@ -13,7 +13,14 @@ load_local_package()
 from _cli_harness import run_cli
 from omh.core.errors import OmhError
 from omh.hashutil import sha256_file
-from omh.installer import install_skill_pack, reconcile_skill_profile, skill_directory_name, skill_profile_report
+from omh.installer import (
+    install_skill_pack,
+    installed_skill_names,
+    reconcile_skill_profile,
+    skill_directory_name,
+    skill_install_relative_dir,
+    skill_profile_report,
+)
 from omh.maintenance.doctor import run_doctor
 from omh.manifest import new_manifest, read_manifest, skill_records, write_manifest
 from omh.paths import resolve_paths
@@ -26,57 +33,92 @@ from omh.skill_pack import (
 
 
 def _installed_names(paths) -> set[str]:
-    return {entry.name for entry in paths.skills_dir.iterdir() if entry.is_dir()}
+    """Canonical names of the skills on disk, under either install layout."""
+    return set(installed_skill_names(paths.skills_dir))
 
 
 class InstallerSkillProfileTests(unittest.TestCase):
-    def test_installing_over_a_pre_relabel_pack_removes_the_old_directories(self) -> None:
-        """The relabel must not leave both layouts installed.
+    def test_installing_over_a_flat_pack_removes_the_old_directories(self) -> None:
+        """A layout move must not leave both layouts installed.
 
-        Skills moved from `skills/<canonical>/` to `skills/<label>/`. Installs are
-        non-destructive, so the first install after that change wrote the new
+        Skills moved from `skills/<canonical>/` to `skills/<label>/`, and then to
+        `skills/<category>/<label>/` so Hermes can read a dashboard category off
+        the path. Installs are non-destructive, so each move wrote the new
         directories and left the old ones beside them: an observed machine went
-        from 92 skills to 184, doubling the pack's per-turn context weight, and
-        the manifest then reported every vanished old path as a local
-        modification.
+        from 92 skills to 184 after the relabel, doubling the pack's per-turn
+        context weight, and the manifest then reported every vanished old path as
+        a local modification. A leftover flat copy after the category move also
+        keeps a "general" group in the Hermes banner, which is what the
+        categorized layout exists to remove.
         """
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
             install_skill_pack(paths, profile="full")
-            labelled = _installed_names(paths)
+            categorized = _installed_names(paths)
 
-            # Recreate the pre-relabel layout: every skill also present under its
-            # canonical directory, recorded in the manifest.
-            relabelled = [
-                name for name in installable_skill_names() if skill_directory_name(name) != name
-            ]
-            self.assertTrue(relabelled, "fixture needs at least one relabelled skill")
-            for name in relabelled:
-                legacy = paths.skills_dir / name
+            # Recreate the pre-category layout: every skill also present flat
+            # under its label, recorded in the manifest.
+            flat_names = sorted(installable_skill_names())
+            for name in flat_names:
+                legacy = paths.skills_dir / skill_directory_name(name)
                 legacy.mkdir(parents=True, exist_ok=True)
                 (legacy / "SKILL.md").write_text(
-                    (paths.skills_dir / skill_directory_name(name) / "SKILL.md").read_text(encoding="utf-8"),
+                    (paths.skills_dir / skill_install_relative_dir(name) / "SKILL.md").read_text(encoding="utf-8"),
                     encoding="utf-8",
                 )
             manifest = new_manifest("builtin", paths.skills_dir, skill_records(paths.skills_dir, "builtin"))
             write_manifest(paths.manifest_path, manifest)
-            self.assertEqual(len(_installed_names(paths)), len(labelled) + len(relabelled))
+            self.assertEqual(
+                len(list(paths.skills_dir.glob("*/SKILL.md"))),
+                len(flat_names),
+                "fixture did not recreate the flat layout",
+            )
 
             result = install_skill_pack(paths, profile="full", force=True)
 
-            self.assertEqual(_installed_names(paths), labelled)
-            self.assertEqual(sorted(result["relabelled_skills_removed"]), sorted(relabelled))
-            self.assertEqual(result["relabelled_skills_retained"], [])
+            self.assertEqual(_installed_names(paths), categorized)
+            self.assertEqual(list(paths.skills_dir.glob("*/SKILL.md")), [])
+            self.assertEqual(sorted(result["flat_layout_skills_removed"]), flat_names)
+            self.assertEqual(result["flat_layout_skills_retained"], [])
+
+    def test_the_ultrawork_category_survives_pruning_its_own_flat_namesake(self) -> None:
+        """`ultrawork` is both a pre-relabel skill directory and a category name.
+
+        The pre-relabel install put the ULW engine at `skills/ultrawork/SKILL.md`;
+        the ULW family now installs under the `ultrawork/` CATEGORY. Removing the
+        stale flat copy as a tree would delete the eight skills just written into
+        the category beside it.
+        """
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            install_skill_pack(paths, profile="full")
+            category = paths.skills_dir / skill_install_relative_dir("ultrawork").parts[0]
+            members = sorted(child.name for child in category.iterdir())
+            self.assertIn(skill_directory_name("ultrawork"), members)
+
+            (category / "SKILL.md").write_text(
+                "---\nname: ultrawork\n---\nstale pre-relabel render\n", encoding="utf-8"
+            )
+            write_manifest(
+                paths.manifest_path,
+                new_manifest("builtin", paths.skills_dir, skill_records(paths.skills_dir, "builtin")),
+            )
+
+            result = install_skill_pack(paths, profile="full", force=True)
+
+            self.assertFalse((category / "SKILL.md").exists(), "stale flat copy survived")
+            self.assertEqual(sorted(child.name for child in category.iterdir()), members)
+            self.assertIn("ultrawork", result["flat_layout_skills_removed"])
 
     def test_a_core_refresh_migrates_a_pre_relabel_only_directory(self) -> None:
         """The refresh gate must accept the pre-relabel directory name.
 
         A pre-relabel install has only `skills/<canonical>/` on disk. Matching the
         refresh gate on the labelled name alone dropped such a skill from refresh
-        entirely: the labelled replacement was never written, the relabel pruner
-        then kept the old directory ("no replacement yet"), and the host kept
-        serving the stale pre-label SKILL.md forever — the observed
-        `Reading skill ultragoal` long after the catalog moved to `ulw-goal`.
+        entirely: the replacement was never written, the pruner then kept the old
+        directory ("no replacement yet"), and the host kept serving the stale
+        pre-label SKILL.md forever - the observed `Reading skill ultragoal` long
+        after the catalog moved to `ulw-goal`.
         """
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
@@ -96,22 +138,22 @@ class InstallerSkillProfileTests(unittest.TestCase):
 
             result = install_skill_pack(paths, profile="core", force=True)
 
-            labelled = paths.skills_dir / skill_directory_name(victim)
-            self.assertTrue((labelled / "SKILL.md").is_file(), "labelled replacement was not written")
+            categorized = paths.skills_dir / skill_install_relative_dir(victim)
+            self.assertTrue((categorized / "SKILL.md").is_file(), "categorized replacement was not written")
             self.assertFalse(legacy.exists(), "pre-relabel directory survived the refresh")
-            self.assertIn(victim, result["relabelled_skills_removed"])
+            self.assertIn(victim, result["flat_layout_skills_removed"])
             self.assertIn(
                 f"name: {skill_directory_name(victim)}",
-                (labelled / "SKILL.md").read_text(encoding="utf-8"),
+                (categorized / "SKILL.md").read_text(encoding="utf-8"),
             )
 
-    def test_a_locally_edited_pre_relabel_directory_blocks_the_install(self) -> None:
+    def test_a_locally_edited_flat_directory_blocks_the_install(self) -> None:
         """The migration never gets to delete an edit; the existing guard stops first.
 
         `install_skill_pack` refuses outright when a managed file differs from the
-        manifest, so an edited pre-relabel directory makes the install ask the user
-        to resolve it rather than being quietly cleaned up. `--force` is the
-        explicit way through, and it does remove the directory.
+        manifest, so an edited flat directory makes the install ask the user to
+        resolve it rather than being quietly cleaned up. `--force` is the explicit
+        way through, and it does remove the directory.
         """
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
@@ -136,7 +178,7 @@ class InstallerSkillProfileTests(unittest.TestCase):
             result = install_skill_pack(paths, profile="full", force=True)
 
             self.assertFalse(legacy.exists())
-            self.assertIn(victim, result["relabelled_skills_removed"])
+            self.assertIn(victim, result["flat_layout_skills_removed"])
 
     def test_a_core_refresh_updates_full_only_skills_already_on_disk(self) -> None:
         """`omh update` must leave nothing stale, whatever profile is recorded.
@@ -153,7 +195,7 @@ class InstallerSkillProfileTests(unittest.TestCase):
             full_only = sorted(set(name for name in _installed_names(paths)) - set(CORE_PROFILE_SKILLS))
             self.assertTrue(full_only, "fixture needs at least one full-only skill")
 
-            victim = paths.skills_dir / skill_directory_name(full_only[0]) / "SKILL.md"
+            victim = paths.skills_dir / skill_install_relative_dir(full_only[0]) / "SKILL.md"
             fresh = victim.read_text(encoding="utf-8")
             victim.write_text("---\nname: stale-on-purpose\n" + fresh.split("---\n", 2)[2], encoding="utf-8")
 
@@ -314,7 +356,7 @@ class InstallerSkillProfileTests(unittest.TestCase):
             full_only_names = full_names - set(CORE_PROFILE_SKILLS)
             self.assertTrue(full_only_names)
             for name in full_only_names:
-                self.assertTrue((paths.skills_dir / skill_directory_name(name) / "SKILL.md").exists(), name)
+                self.assertTrue((paths.skills_dir / skill_install_relative_dir(name) / "SKILL.md").exists(), name)
 
             result = install_skill_pack(paths, profile="core", force=True)
 
@@ -322,7 +364,7 @@ class InstallerSkillProfileTests(unittest.TestCase):
             # still keeps every sha-unmodified full-only skill on a full->core reinstall.
             self.assertEqual(result["pruned_skills"], [])
             for name in full_only_names:
-                self.assertTrue((paths.skills_dir / skill_directory_name(name) / "SKILL.md").exists(), name)
+                self.assertTrue((paths.skills_dir / skill_install_relative_dir(name) / "SKILL.md").exists(), name)
 
             # ...but the recorded profile must no longer imply the core footprint.
             state = result["skill_profile_state"]
@@ -458,7 +500,7 @@ class SkillProfileReconcileTests(unittest.TestCase):
             report = skill_profile_report(paths)
             self.assertEqual(set(report["reconcilable_skills"]), self._full_only_names())
             for name in self._full_only_names():
-                self.assertTrue((paths.skills_dir / skill_directory_name(name) / "SKILL.md").exists(), name)
+                self.assertTrue((paths.skills_dir / skill_install_relative_dir(name) / "SKILL.md").exists(), name)
 
     def test_reconcile_full_to_core_removes_only_unmodified_managed_full_only_skills(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -477,9 +519,9 @@ class SkillProfileReconcileTests(unittest.TestCase):
             self.assertTrue(result["profile_state_after"]["matches_requested_profile"])
 
             for name in full_only_names:
-                self.assertFalse((paths.skills_dir / skill_directory_name(name)).exists(), name)
+                self.assertFalse((paths.skills_dir / skill_install_relative_dir(name)).exists(), name)
             for name in CORE_PROFILE_SKILLS:
-                self.assertTrue((paths.skills_dir / skill_directory_name(name) / "SKILL.md").exists(), name)
+                self.assertTrue((paths.skills_dir / skill_install_relative_dir(name) / "SKILL.md").exists(), name)
 
             on_disk = json.loads(paths.manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(on_disk["skill_profile"], "core")
@@ -509,7 +551,7 @@ class SkillProfileReconcileTests(unittest.TestCase):
             self.assertNotIn("profile_state_after", result)
             self.assertEqual(result["profile_state_before"]["effective_profile"], "full")
             for name in full_only_names:
-                self.assertTrue((paths.skills_dir / skill_directory_name(name) / "SKILL.md").exists(), name)
+                self.assertTrue((paths.skills_dir / skill_install_relative_dir(name) / "SKILL.md").exists(), name)
             self.assertEqual(paths.manifest_path.read_text(encoding="utf-8"), before)
 
     def test_reconcile_retains_modified_and_unmanaged_skill_directories(self) -> None:
@@ -517,7 +559,7 @@ class SkillProfileReconcileTests(unittest.TestCase):
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
             install_skill_pack(paths, profile="full")
             modified_name = sorted(self._full_only_names())[0]
-            modified_file = paths.skills_dir / skill_directory_name(modified_name) / "SKILL.md"
+            modified_file = paths.skills_dir / skill_install_relative_dir(modified_name) / "SKILL.md"
             modified_file.write_text(
                 modified_file.read_text(encoding="utf-8") + "\nlocal operator note\n",
                 encoding="utf-8",
@@ -546,7 +588,7 @@ class SkillProfileReconcileTests(unittest.TestCase):
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
             install_skill_pack(paths, profile="full")
             skill_name = sorted(self._full_only_names())[0]
-            extra = paths.skills_dir / skill_directory_name(skill_name) / "references" / "team-note.md"
+            extra = paths.skills_dir / skill_install_relative_dir(skill_name) / "references" / "team-note.md"
             extra.parent.mkdir(parents=True, exist_ok=True)
             extra.write_text("# team note\n", encoding="utf-8")
 
@@ -604,7 +646,7 @@ class SkillProfileReconcileTests(unittest.TestCase):
             self.assertTrue(preview["dry_run"])
             self.assertEqual(set(preview["would_remove_skills"]), full_only_names)
             for name in full_only_names:
-                self.assertTrue((paths.skills_dir / skill_directory_name(name) / "SKILL.md").exists(), name)
+                self.assertTrue((paths.skills_dir / skill_install_relative_dir(name) / "SKILL.md").exists(), name)
 
             status, stdout, stderr = run_cli(
                 base + ["skill-profile", "reconcile", "--to", "core", "--json"],
@@ -615,7 +657,7 @@ class SkillProfileReconcileTests(unittest.TestCase):
             self.assertEqual(set(applied["removed_skills"]), full_only_names)
             self.assertEqual(applied["profile_state_after"]["effective_profile"], "core")
             for name in full_only_names:
-                self.assertFalse((paths.skills_dir / skill_directory_name(name)).exists(), name)
+                self.assertFalse((paths.skills_dir / skill_install_relative_dir(name)).exists(), name)
 
             # The reconcile command also refreshes the runtime state manifest hash, so
             # doctor's manifest/skill checks stay healthy after the removal.

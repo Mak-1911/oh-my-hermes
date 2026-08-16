@@ -289,7 +289,9 @@ class DoctorDiagnosisTests(unittest.TestCase):
     def test_doctor_flags_a_leftover_retired_skill_install(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             skills_dir = Path(tmp) / "skills"
-            (skills_dir / "ulw-team").mkdir(parents=True)
+            retired = skills_dir / "ultrawork" / "ulw-team"
+            retired.mkdir(parents=True)
+            (retired / "SKILL.md").write_text("---\nname: ulw-team\n---\n", encoding="utf-8")
             paths = SimpleNamespace(skills_dir=skills_dir)
             check = _retired_skill_install_check(paths)
             self.assertFalse(check.ok)
@@ -299,7 +301,9 @@ class DoctorDiagnosisTests(unittest.TestCase):
     def test_doctor_passes_when_no_retired_skill_is_installed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             skills_dir = Path(tmp) / "skills"
-            (skills_dir / "ulw-work").mkdir(parents=True)
+            current = skills_dir / "ultrawork" / "ulw-work"
+            current.mkdir(parents=True)
+            (current / "SKILL.md").write_text("---\nname: ulw-work\n---\n", encoding="utf-8")
             check = _retired_skill_install_check(SimpleNamespace(skills_dir=skills_dir))
             self.assertTrue(check.ok)
 

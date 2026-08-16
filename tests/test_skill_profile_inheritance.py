@@ -29,6 +29,7 @@ from _cli_harness import run_cli
 from _local_package import load_local_package
 
 load_local_package()
+from omh.installer import installed_skill_names
 from omh.skill_pack import CORE_PROFILE_SKILLS
 
 
@@ -40,7 +41,9 @@ class SkillProfileInheritanceTests(unittest.TestCase):
         return str(json.loads((root / ".omh" / "manifest.json").read_text(encoding="utf-8"))["skill_profile"])
 
     def _installed(self, root: Path) -> int:
-        return len([child for child in (root / ".omh" / "skills").iterdir() if child.is_dir()])
+        # Skills sit under `<skills_dir>/<category>/<label>/`, so a top-level
+        # directory count reads the category groups, not the skills in them.
+        return len(installed_skill_names(root / ".omh" / "skills"))
 
     def test_update_keeps_a_full_install_full(self) -> None:
         with TemporaryDirectory() as tmp:

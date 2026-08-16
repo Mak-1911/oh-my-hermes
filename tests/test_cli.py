@@ -11704,7 +11704,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
 
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full"])[0], 0)
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full"])[0], 0)
-            skill_file = omh_home / "skills" / "ulw-work" / "SKILL.md"
+            skill_file = omh_home / "skills" / "ultrawork" / "ulw-work" / "SKILL.md"
             skill_file.write_text(skill_file.read_text(encoding="utf-8") + "\nlocal edit\n", encoding="utf-8")
 
             status, _, stderr = run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full"])
@@ -11717,7 +11717,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertFalse(checks["local_modifications"]["ok"])
             self.assertEqual(checks["local_modifications"]["severity"], "blocking")
             self.assertIn("omh install --force", checks["local_modifications"]["next_action"])
-            self.assertIn("ulw-work/SKILL.md", checks["local_modifications"]["message"])
+            self.assertIn("ultrawork/ulw-work/SKILL.md", checks["local_modifications"]["message"])
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full", "--force"])[0], 0)
 
     def test_doctor_reports_wrong_runtime_home(self) -> None:
@@ -11753,7 +11753,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             omh_home = root / ".omh"
 
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "convert", "--from-skills-dir", str(root / "local-skills")])[0], 0)
-            converted = (omh_home / "skills" / "ulw-loop" / "SKILL.md").read_text(encoding="utf-8")
+            converted = (omh_home / "skills" / "ultrawork" / "ulw-loop" / "SKILL.md").read_text(encoding="utf-8")
             self.assertIn("description: [omh] Hermes Loop workflow", converted)
             self.assertIn("Hermes Compatibility Contract", converted)
 
@@ -11777,7 +11777,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 encoding="utf-8",
             )
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "update", "--source", str(root / "release-archive")])[0], 0)
-            updated = (omh_home / "skills" / "ulw-loop" / "SKILL.md").read_text(encoding="utf-8")
+            updated = (omh_home / "skills" / "ultrawork" / "ulw-loop" / "SKILL.md").read_text(encoding="utf-8")
             self.assertIn("Updated.", updated)
 
     def test_release_channel_metadata_and_validation(self) -> None:

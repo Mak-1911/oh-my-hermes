@@ -25,6 +25,13 @@ the file and structure to edit.
   `definition.triggers` canonical. Routing accepts the display form back through
   `canonical_display_mentions()` in `src/routing/display_names.py`, so a new
   skill gets echo-back for free; `tests/test_display_names.py` locks all three.
+- The skill's `hermes_role` also decides the directory it installs into:
+  `hermes_skill_category()` in `src/skills/catalog.py` maps role to the Hermes
+  dashboard category, and installs land at
+  `<skills_dir>/<category>/<label>/SKILL.md`. Hermes reads a skill's banner
+  group off that directory, not off frontmatter, so a new role is a new banner
+  line — `tests/test_skill_install_layout.py` asserts the category set, and a
+  category name may never collide with a skill label.
 
 ## 2. Hand-authored surfaces (curated order and UX copy)
 

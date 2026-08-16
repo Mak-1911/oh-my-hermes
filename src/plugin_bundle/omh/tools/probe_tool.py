@@ -151,10 +151,11 @@ def _standalone_capabilities(
     plugin_observation: dict[str, Any] | None,
 ) -> list[dict[str, str]]:
     skills_dir = home / "skills"
-    # `oh-my-hermes` installs under its display label; see
+    # `oh-my-hermes` installs under its Hermes category directory and its
+    # display label; see skills/catalog.hermes_skill_category and
     # skills/catalog_types.OMH_SKILL_DISPLAY_NAME_OVERRIDES. Literal because a
     # copied plugin bundle has no catalog import.
-    managed_skill = skills_dir / "omh-routing" / "SKILL.md"
+    managed_skill = skills_dir / "guide" / "omh-routing" / "SKILL.md"
     hermes_config = hermes / "config.yaml"
     config_text = _read_text(hermes_config)
     plugin_dir = hermes / "plugins" / "omh"
