@@ -380,6 +380,19 @@ class ProviderRegistrationTests(unittest.TestCase):
         def register_hook(self, name, callback) -> None:
             self.hooks.append(name)
 
+    class _NoMemorySurfaceCtx:
+        """Mirrors compatible hosts that expose only tool and hook methods."""
+
+        def __init__(self) -> None:
+            self.tools: list[str] = []
+            self.hooks: list[str] = []
+
+        def register_tool(self, name, *args, **kwargs) -> None:
+            self.tools.append(name)
+
+        def register_hook(self, name, callback) -> None:
+            self.hooks.append(name)
+
     def test_the_memory_loader_gets_a_provider_and_every_tool(self) -> None:
         # Inverted deliberately. This used to assert the memory path registered
         # NO tools, which was true only while `register()` returned early on
@@ -403,6 +416,13 @@ class ProviderRegistrationTests(unittest.TestCase):
         # memory-only path or return before tool/hook registration.
         ctx = self._PluginCtx()
         self.assertTrue(hasattr(ctx, "register_memory_provider"))
+        register(ctx)
+        self.assertEqual(sorted(ctx.tools), sorted(PROVIDED_TOOLS))
+        self.assertIn("on_session_end", ctx.hooks)
+
+    def test_registration_survives_a_host_without_a_memory_surface(self) -> None:
+        ctx = self._NoMemorySurfaceCtx()
+        self.assertFalse(hasattr(ctx, "register_memory_provider"))
         register(ctx)
         self.assertEqual(sorted(ctx.tools), sorted(PROVIDED_TOOLS))
         self.assertIn("on_session_end", ctx.hooks)

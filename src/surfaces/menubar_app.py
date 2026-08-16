@@ -6,7 +6,8 @@ import platform
 import plistlib
 import shutil
 import subprocess
-from pathlib import Path
+import sys
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ..command_path import inspect_omh_command_path
@@ -240,18 +241,33 @@ def _write_launch_agent(plist_path: Path, executable: Path, omh_command: str, pa
 
 def _launch_agent_path(omh_command: str) -> str:
     node_command = shutil.which("node")
-    command_parent = Path(omh_command).expanduser().parent
     candidates = [
-        str(Path(node_command).expanduser().parent) if node_command else "",
-        str(command_parent) if command_parent != Path(".") else "",
+        _launch_agent_executable_parent(node_command or ""),
+        _launch_agent_executable_parent(sys.executable),
+        _launch_agent_executable_parent(omh_command),
         *_LAUNCH_AGENT_SYSTEM_PATHS,
     ]
     path_entries: list[str] = []
+    canonical_entries: set[str] = set()
     for candidate in candidates:
-        expanded = str(Path(candidate).expanduser()) if candidate else ""
-        if expanded and expanded not in path_entries:
-            path_entries.append(expanded)
+        if not candidate:
+            continue
+        canonical = str(Path(candidate).resolve()) if platform.system() == "Darwin" else candidate
+        if canonical not in canonical_entries:
+            path_entries.append(candidate)
+            canonical_entries.add(canonical)
     return ":".join(path_entries)
+
+
+def _launch_agent_executable_parent(command: str) -> str:
+    if not command:
+        return ""
+    expanded = os.path.expanduser(command)
+    if platform.system() == "Darwin":
+        command_path = Path(expanded)
+        return str(command_path.resolve().parent) if command_path.parent != Path(".") else ""
+    command_path = PurePosixPath(expanded)
+    return str(command_path.parent) if command_path.parent != PurePosixPath(".") else ""
 
 
 def _run_launchctl(args: list[str], *, check: bool) -> subprocess.CompletedProcess[str]:

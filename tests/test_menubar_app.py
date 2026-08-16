@@ -45,6 +45,10 @@ class MenubarAppTests(unittest.TestCase):
                         "node": "/Users/example/.nvm/versions/node/v24/bin/node",
                     }.get(name),
                 ),
+                patch(
+                    "sys.executable",
+                    "/Users/example/.pyenv/versions/3.12/bin/python3",
+                ),
                 patch("omh.menubar_app._compile_swift_helper"),
             ):
                 payload = setup_menubar_app(
@@ -65,9 +69,10 @@ class MenubarAppTests(unittest.TestCase):
             self.assertEqual(arguments[icon_argument + 1], str(icon_path))
             launch_path = launch_agent_payload["EnvironmentVariables"]["PATH"].split(":")
             self.assertEqual(
-                launch_path[:2],
+                launch_path[:3],
                 [
                     "/Users/example/.nvm/versions/node/v24/bin",
+                    "/Users/example/.pyenv/versions/3.12/bin",
                     "/Users/example/.npm-global/bin",
                 ],
             )
@@ -77,6 +82,29 @@ class MenubarAppTests(unittest.TestCase):
             self.assertIn("/bin", launch_path)
             self.assertIn("/usr/sbin", launch_path)
             self.assertIn("/sbin", launch_path)
+
+    @unittest.skipUnless(platform.system() == "Darwin", "symlink resolution targets launchd")
+    def test_launch_agent_path_resolves_node_shim_and_deduplicates_real_bin(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real_bin = root / "runtime" / "bin"
+            shim_bin = root / "shims"
+            real_bin.mkdir(parents=True)
+            shim_bin.mkdir()
+            real_node = real_bin / "node"
+            real_node.write_text("", encoding="utf-8")
+            shim_node = shim_bin / "node"
+            shim_node.symlink_to(real_node)
+
+            with (
+                patch("omh.menubar_app.shutil.which", return_value=str(shim_node)),
+                patch("sys.executable", str(real_bin / "python3")),
+            ):
+                launch_path = menubar_app_module._launch_agent_path(str(real_bin / "omh"))
+
+        path_entries = launch_path.split(":")
+        self.assertEqual(path_entries.count(str(real_bin.resolve())), 1)
+        self.assertNotIn(str(shim_bin), path_entries)
 
     def test_setup_menubar_app_skips_unsupported_platform(self) -> None:
         with TemporaryDirectory() as tmp:
