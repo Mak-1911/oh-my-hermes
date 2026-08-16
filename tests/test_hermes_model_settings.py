@@ -91,6 +91,19 @@ class HermesModelSettingsTests(unittest.TestCase):
         self.assertEqual(result["configured_count"], 0)
         self.assertEqual(result["inherit_count"], 0)
 
+    def test_malformed_utf8_config_degrades_to_config_unreadable(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hermes_home = root / ".hermes"
+            hermes_home.mkdir()
+            (hermes_home / "config.yaml").write_bytes(b"model:\n  default: \xff\n")
+
+            result = read_hermes_model_settings(OmhPaths(root / ".omh", hermes_home))
+
+        self.assertFalse(result["observed"])
+        self.assertEqual(result["reason"], "config_unreadable")
+        self.assertEqual(result["aliases"], [])
+
     def test_alias_order_is_the_exact_hermes_contract(self) -> None:
         result = self._read("model:\n  default:\n")
         self.assertEqual(

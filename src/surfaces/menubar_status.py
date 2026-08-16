@@ -545,12 +545,17 @@ def _models_card(hermes_sessions: dict[str, Any], model_settings: dict[str, Any]
     main = aliases.get("main")
     if main is not None and len(rows) < 5:
         rows.append({"kind": "table_row", "left": "main", "right": str(main.get("label", "") or "inherit")})
+    inherit_count = sum(
+        1
+        for alias in HERMES_AUX_ALIASES
+        if (entry := aliases.get(alias)) is not None and not entry.get("configured")
+    )
+    configured_row_limit = 4 if inherit_count > 0 else 5
     for alias in HERMES_AUX_ALIASES:
         entry = aliases.get(alias)
-        if entry is None or not entry.get("configured") or len(rows) >= 5:
+        if entry is None or not entry.get("configured") or len(rows) >= configured_row_limit:
             continue
         rows.append({"kind": "table_row", "left": alias, "right": str(entry.get("label", "") or "inherit")})
-    inherit_count = _safe_int(model_settings.get("inherit_count"), 0)
     if inherit_count > 0 and len(rows) < 5:
         rows.append({"kind": "table_row", "left": f"+{inherit_count} aliases", "right": "inherit default"})
     return {

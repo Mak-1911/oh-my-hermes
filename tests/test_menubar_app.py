@@ -103,6 +103,59 @@ class MenubarAppTests(unittest.TestCase):
         self.assertIn('return fixedWidth(value, 18)', source)
         self.assertNotIn('fixedWidth(value, 12)', source)
 
+    def test_native_helper_bounds_table_values_without_truncating_tooltips(self) -> None:
+        source = menubar_app_module._SWIFT_SOURCE
+
+        self.assertIn('fixedWidth((row["right"] as? String) ?? "", 24)', source)
+        self.assertIn('item.toolTip = rowToolTip(row)', source)
+        self.assertIn('return fixedWidth(value, 24)', source)
+        tooltip_start = source.index("    private func rowToolTip")
+        tooltip_end = source.index("\n    private func menuCards", tooltip_start)
+        tooltip_source = source[tooltip_start:tooltip_end]
+        self.assertIn('let right = (row["right"] as? String) ?? ""', tooltip_source)
+        self.assertIn('return "\\(left): \\(right)"', tooltip_source)
+        self.assertNotIn("fixedWidth", tooltip_source)
+
+    def test_native_helper_fixed_width_truncates_a_long_value_to_24_characters(self) -> None:
+        swiftc = shutil.which("swiftc")
+        if swiftc is None:
+            self.skipTest("Native fixed-width behavior coverage requires swiftc")
+
+        source = menubar_app_module._SWIFT_SOURCE
+        function_start = source.index("    private func fixedWidth")
+        function_end = source.index("\n    private func rowTitle", function_start)
+        fixed_width_source = source[function_start:function_end].replace(
+            "    private func fixedWidth",
+            "func fixedWidth",
+            1,
+        )
+        long_value = "abcdefghijklmnopqrstuvwxyz0123456789"
+        expected = long_value[:23] + "…"
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            harness = root / "main.swift"
+            executable = root / "fixed-width-test"
+            harness.write_text(
+                f'import Foundation\n{fixed_width_source}\nprint(fixedWidth("{long_value}", 24))\n',
+                encoding="utf-8",
+            )
+            compile_result = subprocess.run(
+                [swiftc, str(harness), "-o", str(executable)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(compile_result.returncode, 0, compile_result.stderr or compile_result.stdout)
+            run_result = subprocess.run(
+                [str(executable)], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
+            )
+
+        self.assertEqual(run_result.returncode, 0, run_result.stderr or run_result.stdout)
+        self.assertEqual(run_result.stdout.rstrip("\n"), expected)
+        self.assertEqual(len(expected), 24)
+
     def test_native_helper_swift_source_compiles_on_darwin(self) -> None:
         swiftc = shutil.which("swiftc")
         if platform.system() != "Darwin" or swiftc is None:

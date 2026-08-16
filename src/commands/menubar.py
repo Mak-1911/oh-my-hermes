@@ -9,6 +9,9 @@ from ..menubar_status import build_menubar_status_payload, read_process_overlay_
 from .common import _paths, _print_json, _wants_json
 
 
+_TABLE_VALUE_DISPLAY_LIMIT = 48
+
+
 def cmd_menubar_status(args: argparse.Namespace) -> int:
     try:
         overlay = read_process_overlay_file(args.overlay) if args.overlay else None
@@ -70,7 +73,7 @@ def _add_menubar_commands(sub) -> None:
         help="Opt in to local Hermes process observation for the native menu bar helper.",
     )
     status.add_argument("--now", default=None, help="Optional ISO timestamp for deterministic overlay TTL evaluation.")
-    status.add_argument("--json", action="store_true", help="Print the full menubar_status/v1 payload.")
+    status.add_argument("--json", action="store_true", help="Print the full menubar_status/v2 payload.")
     status.set_defaults(func=cmd_menubar_status)
 
     install = menubar_sub.add_parser("install", help="Install and start the native macOS OMH menu bar helper when supported.")
@@ -145,7 +148,10 @@ def _format_menubar_status(payload: Mapping[str, object]) -> str:
         if columns and table_rows:
             lines.append(f"  {_pad(columns[0], 20)} {columns[1]}")
             for row in table_rows:
-                lines.append(f"  {_pad(_text(row.get('left')), 20)} {_text(row.get('right'))}")
+                lines.append(
+                    f"  {_pad(_text(row.get('left')), 20)} "
+                    f"{_truncate(_text(row.get('right')), _TABLE_VALUE_DISPLAY_LIMIT)}"
+                )
         else:
             for row in rows:
                 label = _text(row.get("label"))
@@ -240,7 +246,11 @@ def _truthy(value: object) -> bool:
     return bool(value) and str(value).lower() not in {"false", "0", "none", "null"}
 
 
+def _truncate(value: str, limit: int) -> str:
+    if len(value) > limit:
+        return f"{value[: max(0, limit - 3)]}..."
+    return value
+
+
 def _pad(value: str, width: int) -> str:
-    if len(value) > width:
-        return f"{value[: max(0, width - 3)]}..."
-    return value.ljust(width)
+    return _truncate(value, width).ljust(width)

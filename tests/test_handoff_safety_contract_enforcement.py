@@ -177,8 +177,9 @@ PROCESS_SPAWN_ALLOWLIST: dict[str, str] = {
     "src/surfaces/menubar_app.py": (
         "`swiftc` compile plus `launchctl` load for the opt-in macOS menubar helper install."
     ),
-    "src/surfaces/menubar_status.py": (
-        "`ps -axo` local process scan to render menubar status; reads, spawns no agent."
+    "src/surfaces/hermes_processes.py": (
+        "explicit `omh menubar status --observe-local-processes` (also invoked by the opted-in "
+        "native helper); reads local process status, spawns no agent."
     ),
 }
 

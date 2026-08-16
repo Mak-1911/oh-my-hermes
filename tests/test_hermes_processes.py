@@ -55,6 +55,21 @@ class HermesProcessObservationTests(unittest.TestCase):
         self.assertEqual(result["process_count"], 2)
         self.assertEqual({row["role"] for row in result["rows"]}, {"agent"})
 
+    def test_ignores_unrelated_commands_with_hermes_path_arguments(self) -> None:
+        ps_output = """\
+43000 1 /Applications/Electron.app/Contents/MacOS/Electron /Users/u/.hermes/hermes-agent/hermes
+43001 1 /Applications/Visual Studio Code.app/Contents/MacOS/Electron --goto /Users/u/.hermes/hermes-agent/hermes
+43002 1 /usr/bin/printf /Users/u/.hermes/hermes-agent/hermes
+"""
+        with patch("omh.surfaces.hermes_processes.os.getpid", return_value=90001), patch(
+            "omh.surfaces.hermes_processes.os.getppid", return_value=90000
+        ):
+            result = observe_hermes_processes(ps_output=ps_output)
+
+        self.assertEqual(result["agent_count"], 0)
+        self.assertEqual(result["process_count"], 0)
+        self.assertEqual(result["rows"], [])
+
     def test_empty_output_is_a_successful_zero_observation(self) -> None:
         result = observe_hermes_processes(now="2026-08-16T04:30:00Z", ps_output="")
 
@@ -103,18 +118,17 @@ class HermesProcessObservationTests(unittest.TestCase):
 
         self.assertEqual(result["rows"], [])
 
-    def test_labels_use_entrypoint_basenames_and_are_truncated(self) -> None:
-        long_second = "/a/" + "entrypoint-name-that-is-far-too-long-for-the-label.js"
-        ps_output = f"61000 1 /opt/homebrew/bin/node {long_second} ui-tui/dist/entry.js\n"
+    def test_labels_use_entrypoint_basenames(self) -> None:
+        ps_output = (
+            "61000 1 /opt/homebrew/bin/node "
+            "/a/path/that/is/longer/than/the/display/limit/ui-tui/dist/entry.js\n"
+        )
         with patch("omh.surfaces.hermes_processes.os.getpid", return_value=90001), patch(
             "omh.surfaces.hermes_processes.os.getppid", return_value=90000
         ):
             result = observe_hermes_processes(ps_output=ps_output)
 
-        label = result["rows"][0]["label"]
-        self.assertEqual(len(label), 40)
-        self.assertTrue(label.startswith("node "))
-        self.assertTrue(label.endswith("…"))
+        self.assertEqual(result["rows"][0]["label"], "node entry.js")
 
 
 if __name__ == "__main__":

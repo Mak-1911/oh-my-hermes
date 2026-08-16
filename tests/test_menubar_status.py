@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import sqlite3
 import subprocess
@@ -12,12 +13,150 @@ from _cli_harness import run_cli
 from _local_package import load_local_package
 
 load_local_package()
+from omh.cli import build_parser
 from omh.menubar_status import build_menubar_status_payload, model_icon_descriptor, source_icon_descriptor
 from omh.paths import resolve_paths
+from omh.surfaces.menubar_status import _models_card
 from omh.targets import record_target_observation
 
 
 class MenubarStatusTests(unittest.TestCase):
+    def test_menubar_status_help_advertises_current_payload_schema(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("sys.stdout", stdout), self.assertRaises(SystemExit) as exit_context:
+            build_parser().parse_args(["menubar", "status", "--help"])
+
+        self.assertEqual(exit_context.exception.code, 0)
+        self.assertIn("Print the full menubar_status/v2 payload.", " ".join(stdout.getvalue().split()))
+        self.assertNotIn("menubar_status/v1", stdout.getvalue())
+
+    def test_long_model_is_bounded_in_human_output_but_preserved_in_payload(self) -> None:
+        long_model = "provider/" + "model-segment-" * 6
+        expected_display = long_model[:45] + "..."
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "setup"])[0], 0)
+            self._seed_hermes_observers(hermes_home)
+            connection = sqlite3.connect(hermes_home / "state.db")
+            connection.execute(
+                "update sessions set model = ?, model_config = '{}' where ended_at is null",
+                (long_model,),
+            )
+            connection.commit()
+            connection.close()
+
+            status, stdout, stderr = run_cli(
+                ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "menubar", "status"],
+                output_json=False,
+            )
+
+            self.assertEqual((status, stderr), (0, ""))
+            current_line = next(line for line in stdout.splitlines() if line.startswith("  current"))
+            self.assertEqual(current_line, f"  {'current'.ljust(20)} {expected_display}")
+            self.assertEqual(len(current_line.rsplit(" ", 1)[-1]), 48)
+            self.assertNotIn(long_model, stdout)
+            self.assertTrue(
+                stdout.endswith(
+                    "Observation\n"
+                    "  Process overlay: not supplied\n"
+                    "  Boundary: configured targets are not PID evidence unless observed by the helper.\n\n"
+                    "For machine-readable output, rerun with `--json`.\n"
+                )
+            )
+
+            status, stdout, stderr = run_cli(
+                ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "menubar", "status", "--json"],
+                output_json=False,
+            )
+
+            self.assertEqual((status, stderr), (0, ""))
+            payload = json.loads(stdout)
+            current_row = next(row for row in payload["display"]["menu_cards"][1]["rows"] if row["left"] == "current")
+            self.assertEqual(current_row["right"], long_model)
+
+    def test_models_card_reserves_final_row_for_inherited_auxiliary_summary(self) -> None:
+        card = _models_card(
+            {"current_model": {"observed": True, "label": "current-model"}},
+            {
+                "aliases": [
+                    {"alias": "main", "configured": True, "label": "main-model"},
+                    {"alias": "vision", "configured": True, "label": "vision-model"},
+                    {"alias": "web_extract", "configured": True, "label": "extract-model"},
+                    {"alias": "compression", "configured": True, "label": "compression-model"},
+                    *[
+                        {"alias": alias, "configured": False, "label": "inherit"}
+                        for alias in (
+                            "skills_hub",
+                            "approval",
+                            "mcp",
+                            "title_generation",
+                            "memory_query_rewrite",
+                            "tts_audio_tags",
+                            "triage_specifier",
+                            "kanban_decomposer",
+                            "profile_describer",
+                            "goal_judge",
+                            "curator",
+                        )
+                    ],
+                ],
+                "inherit_count": 11,
+            },
+        )
+
+        self.assertEqual(
+            [(row["left"], row["right"]) for row in card["rows"]],
+            [
+                ("current", "current-model"),
+                ("main", "main-model"),
+                ("vision", "vision-model"),
+                ("web_extract", "extract-model"),
+                ("+11 aliases", "inherit default"),
+            ],
+        )
+
+    def test_models_card_excludes_separately_rendered_main_from_inherited_auxiliary_count(self) -> None:
+        card = _models_card(
+            {"current_model": {"observed": True, "label": "current-model"}},
+            {
+                "aliases": [
+                    {"alias": "main", "configured": False, "label": "inherit"},
+                    *[
+                        {"alias": alias, "configured": False, "label": "inherit"}
+                        for alias in (
+                            "vision",
+                            "web_extract",
+                            "compression",
+                            "skills_hub",
+                            "approval",
+                            "mcp",
+                            "title_generation",
+                            "memory_query_rewrite",
+                            "tts_audio_tags",
+                            "triage_specifier",
+                            "kanban_decomposer",
+                            "profile_describer",
+                            "goal_judge",
+                            "curator",
+                        )
+                    ],
+                ],
+                "inherit_count": 15,
+            },
+        )
+
+        self.assertEqual(
+            [(row["left"], row["right"]) for row in card["rows"]],
+            [
+                ("current", "current-model"),
+                ("main", "inherit"),
+                ("+14 aliases", "inherit default"),
+            ],
+        )
+
     def test_menubar_status_keeps_hermes_agents_and_external_executors_separate(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

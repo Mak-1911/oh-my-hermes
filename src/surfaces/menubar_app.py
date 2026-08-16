@@ -348,7 +348,7 @@ final class OMHMenuBarDelegate: NSObject, NSApplicationDelegate {
                 for row in rows.prefix(6) {
                     let line = rowTitle(row)
                     let item = disabledItem("   \(line)")
-                    item.toolTip = line
+                    item.toolTip = rowToolTip(row)
                     if (row["kind"] as? String) == "table_row" {
                         item.attributedTitle = NSAttributedString(
                             string: "   \(line)",
@@ -382,7 +382,7 @@ final class OMHMenuBarDelegate: NSObject, NSApplicationDelegate {
                 return fixedWidth(value, 18)
             }
             if index == 1 {
-                return fixedWidth(value, 13)
+                return fixedWidth(value, 24)
             }
             return value
         }
@@ -400,7 +400,7 @@ final class OMHMenuBarDelegate: NSObject, NSApplicationDelegate {
     private func rowTitle(_ row: [String: Any]) -> String {
         if (row["kind"] as? String) == "table_row" {
             let left = fixedWidth((row["left"] as? String) ?? "", 18)
-            let right = (row["right"] as? String) ?? ""
+            let right = fixedWidth((row["right"] as? String) ?? "", 24)
             return "\(left)\(right)"
         }
         let label = (row["label"] as? String) ?? ""
@@ -418,6 +418,15 @@ final class OMHMenuBarDelegate: NSObject, NSApplicationDelegate {
             title += " — \(detail)"
         }
         return title.isEmpty ? "Unavailable" : title
+    }
+
+    private func rowToolTip(_ row: [String: Any]) -> String {
+        if (row["kind"] as? String) == "table_row" {
+            let left = (row["left"] as? String) ?? ""
+            let right = (row["right"] as? String) ?? ""
+            return "\(left): \(right)"
+        }
+        return rowTitle(row)
     }
 
     private func menuCards(from payload: [String: Any]) -> [[String: Any]] {

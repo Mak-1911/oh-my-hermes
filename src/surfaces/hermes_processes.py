@@ -8,13 +8,6 @@ from typing import Any
 
 
 HERMES_PROCESS_SCHEMA_VERSION = "hermes_process_observation/v1"
-_HERMES_PROCESS_MARKERS = (
-    "hermes-agent/hermes",
-    "hermes_cli.main",
-    "tui_gateway.entry",
-    "ui-tui/dist/entry.js",
-)
-
 _SHELL_NAMES = {"sh", "bash", "zsh", "dash"}
 _CLAIM_BOUNDARY = (
     "Local process observation is bounded, best-effort, and is not execution, review, CI, or merge evidence."
@@ -72,10 +65,36 @@ def _process_rows(ps_output: str) -> list[dict[str, Any]]:
             continue
         if pid in self_pids or _is_filtered_command(command):
             continue
-        if not any(marker in command for marker in _HERMES_PROCESS_MARKERS):
+        if not _is_hermes_command(command):
             continue
         rows.append({"pid": pid, "ppid": ppid, "command": command})
     return rows
+
+
+def _is_hermes_command(command: str) -> bool:
+    argv = command.split()
+    if not argv:
+        return False
+
+    executable = Path(argv[0]).name
+    if _is_python_executable(executable):
+        if len(argv) >= 2 and Path(argv[1]).parts[-2:] == ("hermes-agent", "hermes"):
+            return True
+        return len(argv) >= 3 and argv[1] == "-m" and argv[2] in {
+            "hermes_cli.main",
+            "tui_gateway.entry",
+        }
+
+    if executable == "node":
+        entrypoint = next((argument for argument in argv[1:] if not argument.startswith("-")), "")
+        return Path(entrypoint).parts[-3:] == ("ui-tui", "dist", "entry.js")
+
+    return False
+
+
+def _is_python_executable(executable: str) -> bool:
+    suffix = executable.removeprefix("python")
+    return executable.startswith("python") and (not suffix or all(part.isdigit() for part in suffix.split(".")))
 
 
 def _is_filtered_command(command: str) -> bool:

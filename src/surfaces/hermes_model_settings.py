@@ -113,7 +113,7 @@ def _unreadable_result() -> dict[str, Any]:
 def read_hermes_model_settings(paths: OmhPaths) -> dict[str, Any]:
     try:
         config_text = (paths.hermes_home / "config.yaml").read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return _unreadable_result()
 
     settings, auxiliary = _parse_settings(config_text)
