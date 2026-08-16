@@ -149,6 +149,9 @@ src/
   surfaces/
     context.py
     demo.py
+    hermes_model_settings.py
+    hermes_processes.py
+    hermes_sessions.py
     hud.py
     menubar_app.py
     menubar_status.py
@@ -232,22 +235,22 @@ context is prompt guidance only; it is not proof
 that a separate role, worker, or executor ran.
 
 `menubar_status.py` owns the platform-neutral macOS menu bar view model exposed
-by `omh menubar status --json`. Its `menubar_status/v1` payload is a UI
-projection over the same local HUD, target registry, and runtime evidence. It is
-intentionally not the source of truth. The payload separates `hermes_agents` from
-`external_coding_executors` so Codex, Claude Code, OMX, OMO, OMC, or generic
-coding tools cannot be rendered as Hermes agents by accident. Compact surfaces
-receive source and model `icon_id` values plus tooltip text rather than Markdown
-tables or prose-only labels. `display.menu_cards` is the human-facing card model
-for the native menu bar helper, grouping the same contract into Agent Status,
-Coding Agent, and Evidence sections so compact UI surfaces do not need to render
-raw JSON-like text. The Agent Status section uses an explicit `Agent | PID |
-Status` row shape.
+by `omh menubar status --json`. Its `menubar_status/v2` payload is a UI
+projection over local HUD, target-registry, runtime, and read-only Hermes
+observations; it is intentionally not the source of truth. The payload retains
+separate `hermes_agents` and `external_coding_executors` metadata so Codex,
+Claude Code, OMX, OMO, OMC, or generic coding tools cannot be rendered as
+Hermes agents by accident. `display.menu_cards` is the human-facing model for
+the native helper: a Sessions table, a Models table, and one compact coding
+metadata footer. Sessions uses the exact columns `Hermes session` / `Count` and
+only the `live` and `total` rows. Session source or TUI breakdown is
+intentionally not exposed. In Models, `current` is the model observed on the
+live Hermes session; `main` and auxiliary aliases are configuration values.
 
 Plain `omh menubar status` renders a short terminal summary from the same
-payload so operators see Summary, Agent Status, Coding Agent, Evidence, and
-Observation sections without reading raw JSON. Machine consumers should request
-`--json` or set `OMH_OUTPUT=json`.
+payload so operators see Summary, Sessions, Models, the compact coding metadata
+footer, and Observation without reading raw JSON. Machine consumers should
+request `--json` or set `OMH_OUTPUT=json`.
 
 `current_external_coding_executor` names the selected row explicitly, preferring
 `runtime/state.json` `last_run_id` when it matches the recent executor list, so
@@ -261,15 +264,27 @@ JSON files. Setup records `project_memory_policy/v1` with `off`,
 prepared context only; they are not execution, review, CI, merge, or Hermes
 internal-memory evidence.
 
+The three observer modules keep these inputs separate.
+`hermes_processes.py` performs the bounded local process-tree scan and reports
+Hermes agent roots and total matching processes. `hermes_sessions.py` opens
+Hermes `state.db` read-only for visible live/total session counts and the newest
+live session's model. `hermes_model_settings.py` reads `config.yaml` for the
+configured `main` and auxiliary model aliases. The status path does not invoke
+Hermes, make network requests, or write any Hermes-owned file.
+
+Session counts are a read-only observation of Hermes' own session store; they are not execution, review, CI, merge, or token-usage evidence.
+
+Model settings are read from Hermes configuration; a configured alias is not evidence that a request used that model.
+
 The menu bar status contract reports configured Hermes targets and prepared
 handoffs without inventing process state. PID, `running`, and `restarting`
 values are applied only from a caller-provided `menubar_process_overlay/v1`
 payload or an explicit `omh menubar status --observe-local-processes --json`
-request from the native macOS helper. That observation is app-local, expires
+request. The native macOS helper makes that explicit request; plain `omh menubar
+status` performs no process scan. Process observation is app-local, expires
 after a short TTL, and applies restarting state only inside its restart window.
-OMH does not turn prepared handoffs into observed execution, review, CI, or merge
-evidence. Plain `omh menubar status` remains metadata-only, even though its
-default terminal output is human-readable.
+OMH does not turn prepared handoffs into observed execution, review, CI, or
+merge evidence.
 
 `cli.py` is a compatibility adapter. `commands/main.py` owns parser assembly,
 top-level error handling, and the public command handler re-export surface.

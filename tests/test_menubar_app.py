@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import base64
 import json
+import platform
+import plistlib
+import shutil
+import struct
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -16,6 +22,41 @@ from omh.paths import resolve_paths
 
 
 class MenubarAppTests(unittest.TestCase):
+    def test_embedded_character_icon_is_a_non_empty_36_pixel_png(self) -> None:
+        icon_bytes = base64.b64decode(menubar_app_module.MENUBAR_ICON_BASE64, validate=True)
+
+        self.assertGreater(len(icon_bytes), 24)
+        self.assertEqual(icon_bytes[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(icon_bytes[12:16], b"IHDR")
+        self.assertEqual(struct.unpack(">II", icon_bytes[16:24]), (36, 36))
+
+    def test_install_materializes_exact_icon_bytes_and_passes_icon_path(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            expected_icon = base64.b64decode(menubar_app_module.MENUBAR_ICON_BASE64, validate=True)
+
+            with (
+                patch.object(menubar_app_module.Path, "home", return_value=root),
+                patch("omh.menubar_app.shutil.which", return_value="/usr/bin/swiftc"),
+                patch("omh.menubar_app._compile_swift_helper"),
+            ):
+                payload = setup_menubar_app(
+                    paths,
+                    platform_name="Darwin",
+                    start=False,
+                    command_path="/usr/local/bin/omh",
+                )
+
+            icon_path = paths.omh_home / "menubar" / "omh-character-mask.png"
+            self.assertEqual(payload["icon"], str(icon_path))
+            self.assertEqual(icon_path.read_bytes(), expected_icon)
+            self.assertGreater(len(icon_path.read_bytes()), 0)
+            launch_agent = root / "Library" / "LaunchAgents" / "com.rlaope.omh.menubar.plist"
+            arguments = plistlib.loads(launch_agent.read_bytes())["ProgramArguments"]
+            icon_argument = arguments.index("--icon")
+            self.assertEqual(arguments[icon_argument + 1], str(icon_path))
+
     def test_setup_menubar_app_skips_unsupported_platform(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -82,6 +123,109 @@ class MenubarAppTests(unittest.TestCase):
             '["menubar", "status", "--observe-local-processes", "--json"]',
             menubar_app_module._SWIFT_SOURCE,
         )
+
+    def test_native_helper_renders_v2_table_rows_and_count_title(self) -> None:
+        source = menubar_app_module._SWIFT_SOURCE
+
+        self.assertIn('== "table_row"', source)
+        self.assertIn('fixedWidth((row["left"] as? String) ?? "", 18)', source)
+        self.assertIn('(row["right"] as? String) ?? ""', source)
+        self.assertIn('rows.prefix(6)', source)
+        self.assertIn('display?["menu_bar_title"]', source)
+        self.assertNotIn('agent_status', source)
+
+    def test_native_helper_loads_template_icon_at_18_points_with_accessible_label(self) -> None:
+        source = menubar_app_module._SWIFT_SOURCE
+
+        self.assertIn('case "--icon":', source)
+        self.assertIn('NSImage(contentsOfFile: iconPath)', source)
+        self.assertIn('image.size = NSSize(width: 18, height: 18)', source)
+        self.assertIn('image.isTemplate = true', source)
+        self.assertIn('button.imagePosition = .imageLeading', source)
+        self.assertIn('button.setAccessibilityLabel(', source)
+        self.assertIn('"OMH — \(headline) — \(summary)"', source)
+        self.assertNotIn('statusItem.button?.title = "omh !"', source)
+        self.assertNotIn('? "\(title) \(mark)" : menuBarTitle', source)
+
+    def test_native_helper_keeps_sessions_table_header_visible(self) -> None:
+        source = menubar_app_module._SWIFT_SOURCE
+
+        self.assertIn('let line = tableHeaderTitle(columns)', source)
+        self.assertIn('return fixedWidth(value, 18)', source)
+        self.assertNotIn('fixedWidth(value, 12)', source)
+
+    def test_native_helper_bounds_table_values_without_truncating_tooltips(self) -> None:
+        source = menubar_app_module._SWIFT_SOURCE
+
+        self.assertIn('fixedWidth((row["right"] as? String) ?? "", 24)', source)
+        self.assertIn('item.toolTip = rowToolTip(row)', source)
+        self.assertIn('return fixedWidth(value, 24)', source)
+        tooltip_start = source.index("    private func rowToolTip")
+        tooltip_end = source.index("\n    private func menuCards", tooltip_start)
+        tooltip_source = source[tooltip_start:tooltip_end]
+        self.assertIn('let right = (row["right"] as? String) ?? ""', tooltip_source)
+        self.assertIn('return "\\(left): \\(right)"', tooltip_source)
+        self.assertNotIn("fixedWidth", tooltip_source)
+
+    def test_native_helper_fixed_width_truncates_a_long_value_to_24_characters(self) -> None:
+        swiftc = shutil.which("swiftc")
+        if swiftc is None:
+            self.skipTest("Native fixed-width behavior coverage requires swiftc")
+
+        source = menubar_app_module._SWIFT_SOURCE
+        function_start = source.index("    private func fixedWidth")
+        function_end = source.index("\n    private func rowTitle", function_start)
+        fixed_width_source = source[function_start:function_end].replace(
+            "    private func fixedWidth",
+            "func fixedWidth",
+            1,
+        )
+        long_value = "abcdefghijklmnopqrstuvwxyz0123456789"
+        expected = long_value[:23] + "…"
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            harness = root / "main.swift"
+            executable = root / "fixed-width-test"
+            harness.write_text(
+                f'import Foundation\n{fixed_width_source}\nprint(fixedWidth("{long_value}", 24))\n',
+                encoding="utf-8",
+            )
+            compile_result = subprocess.run(
+                [swiftc, str(harness), "-o", str(executable)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(compile_result.returncode, 0, compile_result.stderr or compile_result.stdout)
+            run_result = subprocess.run(
+                [str(executable)], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
+            )
+
+        self.assertEqual(run_result.returncode, 0, run_result.stderr or run_result.stdout)
+        self.assertEqual(run_result.stdout.rstrip("\n"), expected)
+        self.assertEqual(len(expected), 24)
+
+    def test_native_helper_swift_source_compiles_on_darwin(self) -> None:
+        swiftc = shutil.which("swiftc")
+        if platform.system() != "Darwin" or swiftc is None:
+            self.skipTest("Swift/AppKit compile coverage requires swiftc on Darwin")
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "OMHMenuBar.swift"
+            executable = root / "omh-menubar"
+            source.write_text(menubar_app_module._SWIFT_SOURCE, encoding="utf-8")
+            result = subprocess.run(
+                [swiftc, "-framework", "AppKit", str(source), "-o", str(executable)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
     def test_menubar_start_defaults_to_human_readable_output(self) -> None:
         payload = {
