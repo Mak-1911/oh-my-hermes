@@ -2,6 +2,7 @@
 set -eu
 
 OMH_REPO_ARCHIVE_ROOT="${OMH_REPO_ARCHIVE_ROOT:-https://github.com/rlaope/oh-my-hermes/archive/refs}"
+OMH_REPO_ASSET_ROOT="${OMH_REPO_ASSET_ROOT:-https://github.com/rlaope/oh-my-hermes/releases/download}"
 OMH_CHANNEL="${OMH_CHANNEL:-preview}"
 OMH_VERSION="${OMH_VERSION:-}"
 OMH_PACKAGE_URL="${OMH_PACKAGE_URL:-}"
@@ -352,7 +353,17 @@ if [ -z "$OMH_PACKAGE_URL" ]; then
         v*) OMH_TAG="$OMH_VERSION" ;;
         *) OMH_TAG="v$OMH_VERSION" ;;
       esac
-      OMH_PACKAGE_URL="$OMH_REPO_ARCHIVE_ROOT/tags/$OMH_TAG.zip"
+      # The release workflow only accepts a vX.Y.Z tag and uploads a wheel
+      # named from that version, so the asset URL is predictable. It is ~2.7 MB
+      # against ~44 MB for the tag archive, which carries assets, tests, and
+      # site that nothing needs to run omh. A version outside that shape has no
+      # published asset to name, so it keeps the archive.
+      OMH_RELEASE_VERSION="${OMH_TAG#v}"
+      if printf '%s' "$OMH_RELEASE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+        OMH_PACKAGE_URL="$OMH_REPO_ASSET_ROOT/$OMH_TAG/oh_my_hermes-$OMH_RELEASE_VERSION-py3-none-any.whl"
+      else
+        OMH_PACKAGE_URL="$OMH_REPO_ARCHIVE_ROOT/tags/$OMH_TAG.zip"
+      fi
       if [ -z "$OMH_SOURCE_REF" ]; then
         OMH_SOURCE_REF="$OMH_TAG"
       fi

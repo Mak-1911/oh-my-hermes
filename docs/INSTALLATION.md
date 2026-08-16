@@ -843,8 +843,30 @@ For pinned stable installs, pass a release version after the matching
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_CHANNEL=stable OMH_VERSION=<version> sh
 ```
 
+The two channels download different artifacts, and the difference is large
+enough to plan around:
+
+| Channel | Artifact | Measured size |
+| --- | --- | --- |
+| `stable` | `oh_my_hermes-<version>-py3-none-any.whl` release asset | 2,714,885 bytes at v1.0.6 |
+| `preview` | `main` branch repository archive | 46,012,605 bytes on 2026-08-15 |
+
+The preview archive is the whole repository, including `assets/`, `tests/`,
+and `site/`, none of which is needed to run `omh`. It stays an archive because
+GitHub publishes release assets per tag and there is no per-branch wheel to
+point at. Prefer `stable` unless you specifically need unreleased `main`.
+
+Releases published before the wheel-publishing workflow existed carry no
+asset. If a stable install reports a 404 for the wheel, install that tag from
+the repository archive instead:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_PACKAGE_URL=https://github.com/rlaope/oh-my-hermes/archive/refs/tags/v<version>.zip sh
+```
+
 For custom release archives or local package sources accepted by `pip`, pass
-`OMH_PACKAGE_URL`.
+`OMH_PACKAGE_URL`. To install from a fork or mirror, override
+`OMH_REPO_ASSET_ROOT` and `OMH_REPO_ARCHIVE_ROOT`.
 
 The installer creates an isolated OMH virtual environment and links the `omh`
 command into `~/.local/bin` when possible. It does not run `omh setup`, register

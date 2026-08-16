@@ -31,13 +31,21 @@ hermes skills tap add rlaope/oh-my-hermes
 hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes
 ```
 
-Pinned stable install:
+Pinned stable install, which resolves to the published
+`oh_my_hermes-<version>-py3-none-any.whl` release asset:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_CHANNEL=stable OMH_VERSION=<version> sh
 ```
 
-Preview install:
+Because the stable channel names that asset by convention, a release that
+publishes no wheel leaves `OMH_CHANNEL=stable` with nothing to fetch. The
+"Required Checks" wheel steps below are what keep the asset present; do not
+tag a release that skips them.
+
+Preview install, which downloads the full `main` repository archive (measured
+46,012,605 bytes on 2026-08-15) because GitHub publishes release assets per
+tag only:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
@@ -49,7 +57,8 @@ Preview update with an auditable source ref:
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_SOURCE_REF=main@<sha> sh
 ```
 
-Custom archive:
+Custom archive, and the documented fallback for a tag with no published wheel
+asset:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_PACKAGE_URL=https://github.com/rlaope/oh-my-hermes/archive/refs/tags/v<version>.zip sh
