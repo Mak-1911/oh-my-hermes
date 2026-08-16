@@ -536,31 +536,31 @@ untouched for 24 hours is hidden as stale.
 `omh setup` deliberately records a safety-first `choose` preference and asks
 no upfront coding-owner question, so Hermes asks which coding agent to use at
 the first coding request instead of at install time. The HUD line and the
-`menubar_status/v1` payload follow the same three-state model so that an
-unselected coding agent never reads as an idle external agent named
-`choose`/`ask`:
+coding metadata retained by the `menubar_status/v2` payload follow the same
+three-state model so that an unselected coding agent never reads as an idle
+external agent named `choose`/`ask`:
 
 1. **No-run.** No coding request has been routed yet.
    - No preference recorded (the normal safety-first default): the HUD
      `coding-agent` segment is executor-neutral,
-     `coding-agent:not-selected`, and the menu bar's `settings.coding_handoff`
-     reads `Coding agent: Not selected` with `source: "none"`. The Coding
-     Agent card shows `Status: ready` with the detail "Hermes routes the next
-     request to a coding agent" instead of an idle-agent row.
+     `coding-agent:not-selected`, and the menu bar payload's
+     `settings.coding_handoff` reads `Coding agent: Not selected` with
+     `source: "none"`. The menu ends with a compact `coding` metadata footer
+     rather than presenting this as an observed run.
    - A real preference was recorded (for example `omh setup
      --default-executor codex`): the executor name is shown because it is a
      genuine user choice, not a placeholder — `coding-agent:idle(codex)` on
      the HUD line, and `Coding agent: Codex` with `source: "user_preference"`
-     and `Status: preferred` (detail "no request routed yet") in the menu bar.
+     in the menu bar payload.
 2. **Prepared handoff.** `omh coding delegate --record` prepared a handoff for
    a run but execution has not been observed: `coding-agent:prepared(codex)`
-   on the HUD line, and the menu bar shows `source: "prepared_handoff"` with
-   the executor's prepared status.
+   on the HUD line, and the menu bar payload records
+   `source: "prepared_handoff"`.
 3. **Observed run.** A run recorded observed evidence (dispatch, execution,
    verification, review, CI, or merge): the HUD line shows the run's actual
-   phase, for example `coding-agent:runtime(codex)`, and the menu bar shows
-   `source: "observed_runtime"`. The `evidence` HUD segment and the menu bar's
-   Evidence card carry the same prepared-versus-observed boundary as before.
+   phase, for example `coding-agent:runtime(codex)`, and the menu bar payload
+   records `source: "observed_runtime"`. The `evidence` HUD segment keeps the
+   same prepared-versus-observed boundary as before.
 
 A quiet no-run line looks like
 `[omh] v1.0.6 | plugin:ready | target:single | coding-agent:not-selected`.
@@ -588,36 +588,38 @@ human-readable summary:
 omh menubar status
 ```
 
-It prints Summary, Agent Status, Coding Agent, Evidence, and Observation
-sections instead of a raw JSON blob. For native menu bar, status-widget, wrapper,
-or automation integrations, use the platform-neutral view model:
+It prints Summary, Sessions, Models, the compact coding metadata footer, and
+Observation sections instead of a raw JSON blob. For native menu bar,
+status-widget, wrapper, or automation integrations, use the platform-neutral
+view model:
 
 ```sh
 omh menubar status --json
 ```
 
-The `menubar_status/v1` JSON has separate `hermes_agents` and
-`external_coding_executors` sections, friendly labels such as `OMH connection:
-Ready`, `Hermes targets: 2`, `Coding agent: Codex` (or `Coding agent: Not
-selected` in the no-run/no-preference state), and `Open mode: Ask before
-opening Codex`, plus source/model icon IDs with tooltip text. The
-`settings.coding_handoff.source` field distinguishes why an executor name is
-or is not shown — `"none"`, `"user_preference"`, `"prepared_handoff"`, or
-`"observed_runtime"` — per the status model above. It also includes
-`display.menu_cards`, a compact Agent Status/Coding Agent/Evidence card model
-for native menu bar surfaces. The Agent Status card is a small `Agent | PID |
-Status` list. Codex and other coding tools are external executors, not Hermes
-agents. Without an explicit process overlay or local process observation, the
-payload reports configured/prepared state only and shows PID as not observed.
+The `menubar_status/v2` JSON retains the separate `hermes_agents` and
+`external_coding_executors` metadata and adds read-only Hermes process, session,
+and model observations. Its `display.menu_cards` contains Sessions and Models
+tables followed by one compact `coding` metadata footer. The Sessions columns
+are exactly `Hermes session` / `Count`, and its rows are only `live` and
+`total`; source or TUI breakdown is intentionally not shown. Session counts
+come from a read-only read of Hermes' own session store. In Models, `current`
+is the model observed on the live Hermes session, while `main` and any auxiliary
+alias rows are settings read from Hermes configuration. A configured model is
+not evidence that a request used it. The `settings.coding_handoff.source` field
+continues to distinguish `"none"`, `"user_preference"`,
+`"prepared_handoff"`, and `"observed_runtime"` per the status model above.
 
 On macOS, a normal user-scope `omh setup` also attempts to build and start the
 small OMH menu bar helper when `swiftc` is available. The helper lives under
 `~/.omh/menubar`, is started with a user LaunchAgent, and refreshes the same
 `omh menubar status --observe-local-processes --json` payload. The visible menu is
-intentionally grouped as Agent Status, Coding Agent, and Evidence sections
-instead of a raw text list, and it shows process/PID detail only when a fresh
-overlay or explicit local observation saw that process. Use explicit commands
-when you want to manage it yourself:
+grouped as Sessions and Models tables with a compact coding metadata footer
+instead of a raw text list. The helper explicitly requests the bounded local
+process scan so its header can show observed Hermes agent/process counts; plain
+`omh menubar status` does not scan processes unless
+`--observe-local-processes` is supplied. Use explicit commands when you want to
+manage it yourself:
 
 ```sh
 omh menubar install
@@ -643,7 +645,8 @@ omh menubar status --observe-local-processes
 
 The overlay and local observation are app-local and expire by TTL. OMH does not
 infer that a prepared coding-agent action was executed, reviewed, passed CI, or
-merged.
+merged. The session-store and configuration observers are local and read-only:
+the status path makes no network request and does not write Hermes-owned files.
 
 MCP bridge setup is also optional and intentionally conservative:
 
