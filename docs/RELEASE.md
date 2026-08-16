@@ -14,10 +14,44 @@ public claims are all checked.
 
 ## Package-manager distribution
 
-The tag-driven npm/Bun, GitHub wheel, and Homebrew tap release is defined by
-`.github/workflows/release.yml`. Its release order, one-time external setup,
+The tag-driven npm/Bun, PyPI, GitHub wheel, and Homebrew tap release is defined
+by `.github/workflows/release.yml`. Its release order, one-time external setup,
 resume rules, rollback matrix, immutable artifact checks, and pending-first-
 release status are the single contract in [Distribution](DISTRIBUTION.md).
+
+### PyPI, and why it exists
+
+The workflow publishes the same immutable wheel to PyPI that it uploads as the
+GitHub release asset. This is not a convenience mirror -- it is what lets a
+version-less update stay fast without breaking a product boundary.
+
+`omh update` has to answer "which version is newest". Core `omh` may not ask
+that question itself: `AGENTS.md` forbids network calls inside core features
+without an owner-approved scoped integration, and `plugin_risk_audit.py` flags
+the pattern. Having pip resolve the version against an index moves the network
+call to the package manager, where it already lives, so the boundary stays
+true.
+
+The alternative was rejected on evidence, not taste: pip cannot resolve
+"latest" from GitHub releases at all. `pip install --no-index --find-links
+https://github.com/rlaope/oh-my-hermes/releases oh-my-hermes` fails with
+"from versions: none", because that page carries no `.whl` hrefs -- the assets
+are lazy-loaded.
+
+**One-time owner setup, required before this step can succeed.** Configure PyPI
+Trusted Publishing for the `oh-my-hermes` project against this repository, the
+`release.yml` workflow, and the `npm` environment the job already declares. The
+job needs no token: it publishes through the `id-token: write` permission the
+workflow already grants. Until that is configured, the step fails and the
+release stops there -- deliberately, rather than shipping a release whose
+artifacts disagree across indexes.
+
+**Sequencing.** The installer scripts already default to the newest release and
+resolve it through the `releases/latest` redirect in shell, so fresh installs
+are slim today. Switching `omh update`'s own default to a name-based
+`pip install --upgrade oh-my-hermes` is a follow-up, and it must not land until
+at least one release has actually been published to PyPI; otherwise every
+existing install's update path breaks on a package the index does not carry.
 
 Those package-manager artifacts extend the stable channel; they do not replace
 the installer, Hermes skill tap, generated-document, or evidence checks below.
@@ -31,25 +65,45 @@ hermes skills tap add rlaope/oh-my-hermes
 hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes
 ```
 
-Pinned stable install:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_CHANNEL=stable OMH_VERSION=<version> sh
-```
-
-Preview install:
+Default install, which resolves the newest release through the
+`releases/latest` redirect *in the installer script* and fetches its published
+`oh_my_hermes-<version>-py3-none-any.whl` asset. The lookup lives in
+`install.sh`/`install.ps1` rather than in `omh` because core `omh` makes no
+network calls:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
 ```
 
+Pinned stable install:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_VERSION=<version> sh
+```
+
+Because the stable channel names that asset by convention, **a release that
+publishes no wheel breaks the default install path for everyone**, not just
+for people who pinned that version. The "Required Checks" wheel steps below are
+what keep the asset present; do not tag a release that skips them. The same
+applies to the `latest` pointer: whatever GitHub marks as the latest release
+must carry a wheel.
+
+Preview install, now explicit opt-in, which downloads the full `main`
+repository archive (measured 46,012,605 bytes on 2026-08-15) because GitHub
+publishes release assets per tag only:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_CHANNEL=preview sh
+```
+
 Preview update with an auditable source ref:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_SOURCE_REF=main@<sha> sh
+curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_CHANNEL=preview OMH_SOURCE_REF=main@<sha> sh
 ```
 
-Custom archive:
+Custom archive, and the documented fallback for a tag with no published wheel
+asset:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_PACKAGE_URL=https://github.com/rlaope/oh-my-hermes/archive/refs/tags/v<version>.zip sh

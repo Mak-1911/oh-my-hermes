@@ -60,7 +60,20 @@ from ..use_cases import (
 )
 
 REPOSITORY_ARCHIVE_ROOT = "https://github.com/rlaope/oh-my-hermes/archive/refs"
+RELEASE_ASSET_ROOT = "https://github.com/rlaope/oh-my-hermes/releases/download"
 RELEASE_CHANNELS = ("stable", "preview", "local")
+# `.github/workflows/release.yml` refuses any tag that is not `vX.Y.Z` and
+# names the wheel it uploads after that version, so a stable version of this
+# shape has a predictable release-asset URL. Anything else does not, and falls
+# back to the repository archive rather than pointing pip at a guess.
+RELEASE_WHEEL_VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+# Measured 2026-08-15 with `curl -sL -o /dev/null -w '%{size_download}'`: the
+# v1.0.6 tag archive is 45,921,555 bytes and the main branch archive is
+# 46,012,605 bytes, against 2,714,885 bytes for the published v1.0.6 wheel.
+# The archive carries assets/, tests/, and site/; none of the three is needed
+# to run omh, and downloading them is what made `omh update` take minutes.
+RELEASE_ARCHIVE_APPROX_SIZE = "~44 MB"
+RELEASE_WHEEL_APPROX_SIZE = "~2.7 MB"
 HERMES_SMOKE_SCHEMA = "hermes_release_smoke/v1"
 RELEASE_CHECKLIST_SCHEMA = "release_readiness_checklist/v1"
 INSTALLED_COMMAND_SMOKE_SCHEMA = "installed_omh_command_smoke/v1"
@@ -122,21 +135,71 @@ class ReleaseSelection:
     version: str
     package_url: str
     source_label: str
+    artifact_kind: str = "repository-archive"
+
+
+def release_tag_for(version: str) -> str:
+    return version if version.startswith("v") else f"v{version}"
+
+
+def release_wheel_name(release_version: str) -> str:
+    return f"oh_my_hermes-{release_version}-py3-none-any.whl"
+
+
+def repository_archive_url(tag: str) -> str:
+    return f"{REPOSITORY_ARCHIVE_ROOT}/tags/{tag}.zip"
 
 
 def package_url_for(channel: str, version: str = "", package_url: str = "") -> ReleaseSelection:
     if channel not in RELEASE_CHANNELS:
         raise ValueError(f"unsupported release channel: {channel}")
     if package_url:
-        return ReleaseSelection(channel, version, package_url, "custom-url")
+        return ReleaseSelection(channel, version, package_url, "custom-url", "custom-url")
     if channel == "stable":
         if not version:
             raise ValueError("stable channel requires --version or OMH_VERSION")
-        tag = version if version.startswith("v") else f"v{version}"
-        return ReleaseSelection(channel, version, f"{REPOSITORY_ARCHIVE_ROOT}/tags/{tag}.zip", tag)
+        tag = release_tag_for(version)
+        release_version = tag[1:]
+        if RELEASE_WHEEL_VERSION_RE.fullmatch(release_version):
+            wheel_url = f"{RELEASE_ASSET_ROOT}/{tag}/{release_wheel_name(release_version)}"
+            return ReleaseSelection(channel, version, wheel_url, tag, "release-wheel")
+        return ReleaseSelection(channel, version, repository_archive_url(tag), tag, "repository-archive")
     if channel == "preview":
-        return ReleaseSelection(channel, version, f"{REPOSITORY_ARCHIVE_ROOT}/heads/main.zip", "main")
-    return ReleaseSelection(channel, version, "local", "local")
+        # Preview tracks branch `main`, and GitHub publishes release assets per
+        # tag only, so there is no slim artifact to point at here. The branch
+        # archive stays, labelled with what it costs, rather than inventing an
+        # endpoint the release workflow does not produce.
+        return ReleaseSelection(channel, version, f"{REPOSITORY_ARCHIVE_ROOT}/heads/main.zip", "main", "repository-archive")
+    return ReleaseSelection(channel, version, "local", "local", "local")
+
+
+def release_artifact_note(selection: ReleaseSelection) -> str:
+    """Say what the resolved artifact is and what downloading it costs."""
+    if selection.artifact_kind == "release-wheel":
+        return f"release wheel, {RELEASE_WHEEL_APPROX_SIZE}"
+    if selection.artifact_kind == "repository-archive":
+        return (
+            f"full repository archive, {RELEASE_ARCHIVE_APPROX_SIZE} "
+            "including assets, tests, and site; this download can take minutes"
+        )
+    return ""
+
+
+def missing_release_asset_hint(selection: ReleaseSelection) -> str:
+    """Name the fallback when a stable version has no published wheel asset.
+
+    Releases before the wheel-publishing workflow existed carry no asset, and
+    v1.0.3 through v1.0.5 carry none either. pip reports those as a bare 404
+    against a URL nobody typed, so the failure has to name the archive that
+    does exist for the same tag.
+    """
+    if selection.artifact_kind != "release-wheel":
+        return ""
+    tag = selection.source_label
+    return (
+        f"if {tag} has no published wheel asset, install from the full repository archive instead: "
+        f"--package-url {repository_archive_url(tag)}"
+    )
 
 
 @dataclass(frozen=True)

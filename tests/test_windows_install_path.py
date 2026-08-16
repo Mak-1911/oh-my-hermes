@@ -123,7 +123,18 @@ class WindowsInstallerContractParityTests(unittest.TestCase):
         self.assertEqual(sorted(powershell_flags - shell_flags), [], "install.ps1 forwards setup flags install.sh does not")
 
     def test_package_source_resolution_matches(self) -> None:
-        for fragment in ("/heads/main.zip", "/tags/", "custom-url", "preview", "stable", "local"):
+        for fragment in (
+            "/heads/main.zip",
+            "/tags/",
+            # Stable resolves the slim release wheel; the tag archive stays
+            # only as the fallback for a tag that published no asset.
+            "releases/download",
+            "-py3-none-any.whl",
+            "custom-url",
+            "preview",
+            "stable",
+            "local",
+        ):
             self.assertIn(fragment, self.powershell, f"channel resolution lost {fragment!r}")
 
     def test_windows_installer_uses_the_windows_virtualenv_layout(self) -> None:

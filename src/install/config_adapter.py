@@ -233,6 +233,16 @@ def display_skin_selection(config_text: str) -> str:
     return _section_scalar(config_text, "display", "skin")
 
 
+def model_scalar_selection(config_text: str, key: str) -> str:
+    """The scalar `model.<key>` (`default`, `provider`, `base_url`), or "".
+
+    Read-only: OMH writes `model.aliases.*` through Hermes' own `config set`
+    and never touches these keys. `maintenance.hermes_model_routing` reads them
+    to report when they disagree.
+    """
+    return _section_scalar(config_text, "model", key)
+
+
 def display_interface_selection(config_text: str) -> str:
     """The unambiguous scalar `display.interface`, or "" for other shapes."""
     lines = config_text.splitlines()

@@ -319,6 +319,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
     checks.append(_retired_skill_install_check(paths))
     checks.append(_plugin_ulw_lifecycle_check(paths))
     checks.extend(_hermes_tui_checks(paths))
+    checks.append(_hermes_model_routing_check(paths))
     profile_installs = state.get("last_team_profile_install") if isinstance(state, dict) else None
     if not profile_installs:
         checks.append(Check("team_profile_packs", True, f"optional OMH team profile packs are not installed at {paths.hermes_agents_dir}"))
@@ -497,6 +498,51 @@ def _hermes_tui_checks(paths: OmhPaths) -> list[Check]:
             )
         )
     return checks
+
+
+def _hermes_model_routing_check(paths: OmhPaths) -> Check:
+    """Does Hermes' config name the provider that serves `model.default`?
+
+    Users read a mismatch here as OMH hardcoding a model: they authenticate as
+    one provider, the picker keeps showing the family pinned in
+    `model.default`, and nothing says why. OMH writes only `model.aliases.*`,
+    so this is a Hermes user-config fault — doctor names the observed
+    disagreement and leaves the repair to the user.
+
+    ok stays True like the sibling `hermes_tui_*` checks: an inconsistent
+    Hermes model config is not an OMH install failure and must not flip the
+    doctor exit code. `severity="warning"` plus a next action carries it.
+    """
+    from .hermes_model_routing import (
+        hermes_model_routing_preflight,
+        model_routing_consistent_summary,
+        model_routing_disagreements,
+        model_routing_next_action,
+    )
+
+    preflight = hermes_model_routing_preflight(paths)
+    config = preflight["config"]
+    if not config["readable"]:
+        return Check(
+            "hermes_model_routing",
+            True,
+            (
+                f"Hermes config not found at {config['path']}; model routing consistency not checked"
+                if not config["found"]
+                else f"the `model:` block in {config['path']} is user-owned in a shape this check cannot read"
+            ),
+            observed=False,
+        )
+    disagreements = model_routing_disagreements(preflight)
+    if not disagreements:
+        return Check("hermes_model_routing", True, model_routing_consistent_summary(preflight))
+    return Check(
+        "hermes_model_routing",
+        True,
+        "; ".join(disagreements),
+        severity="warning",
+        next_action=model_routing_next_action(preflight),
+    )
 
 
 def _retired_skill_install_check(paths: OmhPaths) -> Check:
