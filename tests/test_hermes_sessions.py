@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import unittest
 from pathlib import Path
@@ -125,24 +126,40 @@ class HermesSessionObservationTests(unittest.TestCase):
             self.assertFalse(payload["current_model"]["observed"])
 
     def test_special_characters_in_hermes_home_use_a_uri_safe_readonly_path(self) -> None:
-        with TemporaryDirectory() as tmp:
-            paths = self._paths(Path(tmp) / "Hermes ? # Home")
-            paths.hermes_home.mkdir(parents=True)
-            connection = sqlite3.connect(paths.hermes_home / "state.db")
-            connection.execute(CREATE_SESSIONS)
-            connection.execute(
-                "insert into sessions values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                ("api", "gpt-5.6-sol", None, None, 0, 0, "2026-08-01", None, "secret", 1),
-            )
-            connection.commit()
-            connection.close()
+        home_names = ["Hermes % # Home"]
+        if os.name != "nt":
+            home_names.append("Hermes ? # Home")
 
-            payload = observe_hermes_sessions(paths)
+        for home_name in home_names:
+            with self.subTest(home_name=home_name), TemporaryDirectory() as tmp:
+                paths = self._paths(Path(tmp) / home_name)
+                paths.hermes_home.mkdir(parents=True)
+                connection = sqlite3.connect(paths.hermes_home / "state.db")
+                connection.execute(CREATE_SESSIONS)
+                connection.execute(
+                    "insert into sessions values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        "api",
+                        "gpt-5.6-sol",
+                        None,
+                        None,
+                        0,
+                        0,
+                        "2026-08-01",
+                        None,
+                        "secret",
+                        1,
+                    ),
+                )
+                connection.commit()
+                connection.close()
 
-        self.assertTrue(payload["observed"])
-        self.assertEqual(payload["reason"], "")
-        self.assertEqual(payload["live"], 1)
-        self.assertEqual(payload["total"], 1)
+                payload = observe_hermes_sessions(paths)
+
+                self.assertTrue(payload["observed"])
+                self.assertEqual(payload["reason"], "")
+                self.assertEqual(payload["live"], 1)
+                self.assertEqual(payload["total"], 1)
 
     def test_missing_or_malformed_model_config_preserves_the_observed_model(self) -> None:
         for model_config in (None, "not-json", "[]", '{"reasoning_config": []}'):
