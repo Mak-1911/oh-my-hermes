@@ -200,33 +200,6 @@ jobs:
             npm publish "$OMH_TARBALL" --access public --provenance
           fi
 
-      - name: Publish or verify PyPI package
-        shell: bash
-        run: |
-          set -euo pipefail
-          # The same immutable wheel that became the GitHub release asset also
-          # goes to PyPI, so `pip install --upgrade oh-my-hermes` resolves the
-          # newest version itself. That is what lets `omh update` leave the
-          # ~44 MB on-demand branch archive behind WITHOUT omh's own process
-          # ever opening a socket to ask which version is newest -- the
-          # no-network boundary in AGENTS.md stays intact because the index
-          # does the resolving.
-          # Idempotent across re-runs, and it re-verifies rather than trusting
-          # a previous run: a version already on PyPI must carry this exact
-          # wheel, byte for byte.
-          published_sha256=""
-          if response="$(curl -fsS "https://pypi.org/pypi/oh-my-hermes/$OMH_VERSION/json" 2>/dev/null)"; then
-            published_sha256="$(
-              printf '%s' "$response" \
-                | python3 -c 'import json,sys; print(next((u["digests"]["sha256"] for u in json.load(sys.stdin)["urls"] if u["packagetype"] == "bdist_wheel"), ""))'
-            )"
-          fi
-          if [ -n "$published_sha256" ]; then
-            test "$published_sha256" = "$OMH_WHEEL_SHA256"
-          else
-            uv publish --trusted-publishing always "$OMH_WHEEL"
-          fi
-
       - name: Render verified Homebrew formula
         shell: bash
         run: |
