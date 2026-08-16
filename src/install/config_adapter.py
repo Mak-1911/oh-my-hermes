@@ -224,6 +224,15 @@ def memory_provider_selection(config_text: str) -> str:
     return _section_scalar(config_text, "memory", "provider")
 
 
+def display_skin_selection(config_text: str) -> str:
+    """The name in `display.skin`, or "" when Hermes resolves its built-in default.
+
+    Read-only: OMH never writes this key. The active skin is what colours the
+    OMH widget's panel border, so doctor names it when reporting the chrome.
+    """
+    return _section_scalar(config_text, "display", "skin")
+
+
 def model_scalar_selection(config_text: str, key: str) -> str:
     """The scalar `model.<key>` (`default`, `provider`, `base_url`), or "".
 

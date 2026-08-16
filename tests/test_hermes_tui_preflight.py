@@ -83,7 +83,49 @@ class HermesTuiPreflightTests(unittest.TestCase):
             self.assertTrue(preflight["widget"]["managed"])
             self.assertEqual(preflight["widget"]["interpreter"], os.path.realpath(sys.executable))
             self.assertTrue(preflight["widget"]["interpreter_ok"])
+            self.assertTrue(preflight["widget"]["themed_panel"])
+            self.assertEqual(preflight["display_skin"], {"value": "default", "explicit": False})
             self.assertEqual(widget_render_blockers(preflight), [])
+
+    def test_preflight_names_an_explicit_skin_and_a_borderless_widget(self) -> None:
+        # A widget that predates panel chrome loads fine, so it is a degraded
+        # look and never a render blocker.
+        with TemporaryDirectory() as tmp:
+            paths = _make_paths(Path(tmp))
+            _make_hermes_install(paths.hermes_home)
+            (paths.hermes_home / "config.yaml").write_text(
+                "display:\n  interface: tui\n  skin: ares\n", encoding="utf-8"
+            )
+            install_tui_widget(paths.hermes_home)
+            widget = paths.hermes_home / "tui-widgets" / "omh-status.mjs"
+            widget.write_text(
+                widget.read_text(encoding="utf-8").replace("borderStyle:", "noBorderStyle:"),
+                encoding="utf-8",
+            )
+
+            preflight = hermes_tui_preflight(paths)
+
+            self.assertFalse(preflight["widget"]["themed_panel"])
+            self.assertEqual(preflight["display_skin"], {"value": "ares", "explicit": True})
+            self.assertEqual(widget_render_blockers(preflight), [])
+
+    def test_preflight_rejects_a_hardcoded_border_colour_as_unthemed(self) -> None:
+        # A border alone is not the contract: a literal palette would fight
+        # whatever skin the user runs, so it reads as unthemed chrome.
+        with TemporaryDirectory() as tmp:
+            paths = _make_paths(Path(tmp))
+            _make_hermes_install(paths.hermes_home)
+            _write_display_interface(paths.hermes_home, "tui")
+            install_tui_widget(paths.hermes_home)
+            widget = paths.hermes_home / "tui-widgets" / "omh-status.mjs"
+            widget.write_text(
+                widget.read_text(encoding="utf-8").replace(
+                    "borderColor: t.color.primary", "borderColor: '#FFD700'"
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertFalse(hermes_tui_preflight(paths)["widget"]["themed_panel"])
 
     def test_old_hermes_without_widget_loader_names_hermes_update(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -232,7 +274,7 @@ class DoctorHermesTuiChecksTests(unittest.TestCase):
     def _checks_by_name(self, paths: OmhPaths) -> dict[str, object]:
         return {check.name: check for check in run_doctor(paths)}
 
-    def test_doctor_reports_all_four_checks_ok_on_modern_install(self) -> None:
+    def test_doctor_reports_all_five_checks_ok_on_modern_install(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = _make_paths(Path(tmp))
             _make_hermes_install(paths.hermes_home)
@@ -246,9 +288,45 @@ class DoctorHermesTuiChecksTests(unittest.TestCase):
                 "hermes_tui_sdk_surface",
                 "hermes_tui_interface_default",
                 "hermes_tui_widget_state",
+                "hermes_tui_widget_chrome",
             ):
                 self.assertIn(name, checks)
                 self.assertTrue(checks[name].ok, name)
+                self.assertEqual(checks[name].severity, "ok", name)
+
+    def test_doctor_warns_on_a_borderless_widget_without_flipping_the_exit_code(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _make_paths(Path(tmp))
+            _make_hermes_install(paths.hermes_home)
+            _write_display_interface(paths.hermes_home, "tui")
+            install_tui_widget(paths.hermes_home)
+            widget = paths.hermes_home / "tui-widgets" / "omh-status.mjs"
+            widget.write_text(
+                widget.read_text(encoding="utf-8").replace("borderStyle:", "noBorderStyle:"),
+                encoding="utf-8",
+            )
+
+            checks = self._checks_by_name(paths)
+            chrome = checks["hermes_tui_widget_chrome"]
+
+            self.assertTrue(chrome.ok)
+            self.assertEqual(chrome.severity, "warning")
+            self.assertIn("borderless", chrome.message)
+            self.assertIn("omh setup", chrome.next_action)
+            # The widget itself is still installed and loadable; only its look
+            # is stale, so the sibling state check stays clean.
+            self.assertEqual(checks["hermes_tui_widget_state"].severity, "ok")
+
+    def test_doctor_omits_the_chrome_check_when_no_widget_is_installed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _make_paths(Path(tmp))
+            _make_hermes_install(paths.hermes_home)
+            _write_display_interface(paths.hermes_home, "tui")
+
+            checks = self._checks_by_name(paths)
+
+            self.assertNotIn("hermes_tui_widget_chrome", checks)
+            self.assertEqual(checks["hermes_tui_widget_state"].severity, "warning")
 
     def test_doctor_warns_with_hermes_update_next_action_on_old_hermes(self) -> None:
         with TemporaryDirectory() as tmp:

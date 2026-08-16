@@ -253,7 +253,24 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("const active = !!payload.active", widget)
         self.assertIn("width: '100%'", widget)
         self.assertIn("marginTop: 1", widget)
-        self.assertNotIn("borderStyle:", widget)
+        # Panel chrome, changed on purpose (this used to assert
+        # `assertNotIn("borderStyle:")`). The borderless design rendered the
+        # HUD as loose text floating around the prompt instead of a piece of
+        # the TUI. Both apps now draw a bordered, padded card, and the border
+        # colour must come from the ACTIVE THEME the host hands `render` — a
+        # literal hex would freeze the panel on one palette while the rest of
+        # the TUI followed the user's skin.
+        self.assertIn("borderStyle: 'round'", widget)
+        self.assertIn("borderColor: t.color.primary", widget)
+        self.assertIn("paddingX: 1", widget)
+        self.assertNotIn("color: '#", widget)
+        # One panel definition serves the status HUD and both todo states, so
+        # the chrome can never drift between them.
+        self.assertEqual(widget.count("panelProps(t)"), 3)
+        # Border + padding are chrome, not content: both apps budget against
+        # the inner card, not the raw terminal.
+        self.assertIn("cols - PANEL_CHROME_COLUMNS", widget)
+        self.assertIn("rows - PANEL_CHROME_ROWS", widget)
         self.assertNotIn("metricRow", widget)
         self.assertIn("...rows.map", widget)
         self.assertNotIn("...maestroRows.map", widget)

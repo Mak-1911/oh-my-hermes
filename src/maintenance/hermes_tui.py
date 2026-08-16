@@ -107,6 +107,32 @@ def _display_interface(config_text: str) -> dict[str, Any]:
     return {"value": "", "explicit": False, "settable": settable}
 
 
+def _display_skin(config_text: str) -> dict[str, Any]:
+    """The skin whose palette colours the OMH panel. User-owned, never written.
+
+    An unset key means Hermes resolves its built-in ``default`` skin, which is
+    a real answer here, not a gap: the widget takes its border colour from
+    whichever skin is active either way.
+    """
+    from ..install.config_adapter import display_skin_selection
+
+    value = display_skin_selection(config_text)
+    return {"value": value or "default", "explicit": bool(value)}
+
+
+def _widget_draws_themed_panel(widget_text: str) -> bool:
+    """Does the INSTALLED widget draw a bordered card coloured by the theme?
+
+    A widget left over from an OMH that predated panel chrome loads and runs
+    fine — it just renders as borderless text beside the prompt, which reads
+    as "the HUD still looks like the old version" with nothing else wrong.
+    Both halves matter: a border alone could be a hardcoded palette that
+    fights the user's skin, so the colour must resolve through the theme
+    object the host hands the app.
+    """
+    return "borderStyle:" in widget_text and re.search(r"borderColor:\s*t\.color\.", widget_text) is not None
+
+
 def _widget_interpreter(widget_text: str) -> str:
     match = re.search(r"execFile\(\s*\n?\s*(\"(?:[^\"\\]|\\.)+\")", widget_text)
     if not match:
@@ -140,6 +166,7 @@ def hermes_tui_preflight(paths: OmhPaths) -> dict[str, Any]:
 
     config_text = _read_text_bounded(paths.hermes_config_path) or ""
     interface = _display_interface(config_text)
+    skin = _display_skin(config_text)
 
     widget_path = paths.hermes_home / "tui-widgets" / WIDGET_FILENAME
     manifest_path = paths.hermes_home / "tui-widgets" / MANIFEST_FILENAME
@@ -164,11 +191,13 @@ def hermes_tui_preflight(paths: OmhPaths) -> dict[str, Any]:
             "missing": missing_keys or [],
         },
         "display_interface": interface,
+        "display_skin": skin,
         "widget": {
             "installed": widget_text is not None,
             "managed": manifest_path.is_file(),
             "interpreter": interpreter,
             "interpreter_ok": interpreter_ok,
+            "themed_panel": widget_text is not None and _widget_draws_themed_panel(widget_text),
         },
     }
 
