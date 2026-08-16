@@ -284,11 +284,26 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertNotIn("...maestroRows.map", widget)
         self.assertNotIn("latest ? h(Text", widget)
         self.assertIn("const version = safeText(payload.version)", widget)
-        self.assertIn("`[OMH] ${version}`", widget)
-        self.assertIn("}, '-'),", widget)
-        self.assertIn("'Oh My Hermes'", widget)
-        self.assertIn("'Ultra Work'", widget)
-        self.assertIn("'Ready'", widget)
+        # Header composition, changed on purpose (this used to assert the
+        # literal "`[OMH] ${version}`"). That header named the product twice
+        # and then claimed "Ultra Work Ready" whether or not anything was
+        # running, so it read identically at four active agents and at zero.
+        # What matters now is the contract, not the wording: the version is
+        # still shown, every colour still resolves through the active theme,
+        # and the state segment is derived rather than fixed.
+        self.assertIn("`v${version}`", widget)
+        self.assertIn("hudStateLabel(active, agents)", widget)
+        self.assertIn("if (!active) return 'ready'", widget)
+        # Both panels share one header grammar so they cannot drift into
+        # looking like two different products.
+        self.assertEqual(widget.count("`${BRAND_MARK} Plan`"), 2)
+        self.assertIn("`${BRAND_MARK} OMH`", widget)
+        # The old header's literal pieces ("-", "Oh My Hermes", "Ultra Work",
+        # "Ready") are gone on purpose; asserting them back would re-pin the
+        # wording this change exists to replace. The separator is now shared
+        # between both panels instead of hand-written per segment.
+        self.assertIn("const SEPARATOR = '  ·  '", widget)
+        self.assertNotIn("'Ultra Work'", widget)
         self.assertIn("SPINNER_FRAMES", widget)
         self.assertIn("useShimmerPhase", widget)
         self.assertNotIn("Number.MAX_SAFE_INTEGER", widget)
@@ -306,7 +321,6 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("'MAIN'", widget)
         self.assertIn("maestro.rows", widget)
         self.assertIn("fallback:", widget)
-        self.assertIn("'•'", widget)
         self.assertIn("execFile(", widget)
         self.assertIn("Symbol.for(", widget)
         self.assertIn("generationKey", widget)

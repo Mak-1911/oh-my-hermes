@@ -32,6 +32,26 @@ export default function register(sdk) {
   // border; the render callsites hand the components the INNER budget.
   const PANEL_CHROME_COLUMNS = 4
   const PANEL_CHROME_ROWS = 2
+  // Shared header grammar for both panels: mark, then muted detail, then the
+  // one segment that carries state. Kept as constants so the two headers can
+  // never drift into looking like two different products.
+  const BRAND_MARK = '◆'
+  const SEPARATOR = '  ·  '
+
+  const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
+
+  function hudStateLabel(active, agents) {
+    // Idle says "ready" and nothing more. Claiming work that is not running is
+    // what made the old fixed "Ultra Work Ready" header meaningless -- it read
+    // identically whether four agents were running or none were.
+    if (!active) return 'ready'
+    const running = Number(agents.running) || 0
+    const blocked = Number(agents.blocked) || 0
+    const parts = [plural(Number(agents.active) || 0, 'agent')]
+    if (running) parts.push(`${running} running`)
+    if (blocked) parts.push(`${blocked} blocked`)
+    return parts.join(' · ')
+  }
   const panelProps = t => ({
     borderColor: t.color.primary,
     borderStyle: 'round',
@@ -201,14 +221,19 @@ export default function register(sdk) {
       Box,
       { ...panelProps(t), marginTop: 1 },
       h(
-        Box,
-        { columnGap: 1, flexDirection: 'row' },
-        h(Text, { bold: true, color: t.color.warn }, `[OMH] ${version}`),
-        h(Text, { color: t.color.border }, '-'),
-        h(Text, { bold: true, color: t.color.label }, 'Oh My Hermes'),
-        h(Text, { color: t.color.border }, '•'),
-        h(Text, { color: t.color.label }, 'Ultra Work'),
-        h(Text, { color: t.color.ok }, 'Ready'),
+        Text,
+        { wrap: 'truncate-end' },
+        // One role per colour, so state is what the eye lands on and the
+        // decoration never competes with it: the mark and name carry the
+        // panel's own border colour, the version recedes into muted, and only
+        // the state segment changes hue. The previous header spent its width
+        // naming the product twice ("[OMH] … Oh My Hermes") and then claimed
+        // "Ultra Work Ready" whether or not anything was actually running.
+        h(Text, { bold: true, color: t.color.primary }, `${BRAND_MARK} OMH`),
+        h(Text, { color: t.color.border }, SEPARATOR),
+        h(Text, { color: t.color.muted }, `v${version}`),
+        h(Text, { color: t.color.border }, SEPARATOR),
+        h(Text, { color: active ? t.color.warn : t.color.ok }, hudStateLabel(active, agents)),
       ),
       ...mainRows.map((row, index) =>
         h(ActivityRow, {
@@ -242,7 +267,6 @@ export default function register(sdk) {
     if (todo.status !== 'established' && todo.status !== 'all_done') return null
     const counts = todo.counts || {}
     const title = safeText(todo.title)
-    const label = title ? `Todo · ${title}` : 'Todo'
     if (todo.status === 'all_done') {
       return h(
         Box,
@@ -250,8 +274,13 @@ export default function register(sdk) {
         h(
           Text,
           { wrap: 'truncate-end' },
-          h(Text, { bold: true, color: t.color.warn }, label),
-          h(Text, { color: t.color.ok }, ` ✓ ${counts.done ?? 0}/${counts.total ?? 0}`),
+          // Same grammar as the status header, so the two panels read as one
+          // surface rather than two widgets that happen to share a border.
+          h(Text, { bold: true, color: t.color.primary }, `${BRAND_MARK} Plan`),
+          title ? h(Text, { color: t.color.border }, SEPARATOR) : null,
+          title ? h(Text, { color: t.color.muted }, title) : null,
+          h(Text, { color: t.color.border }, SEPARATOR),
+          h(Text, { color: t.color.ok }, `✓ ${counts.done ?? 0}/${counts.total ?? 0}`),
         ),
       )
     }
@@ -265,8 +294,11 @@ export default function register(sdk) {
       h(
         Text,
         { wrap: 'truncate-end' },
-        h(Text, { bold: true, color: t.color.warn }, label),
-        h(Text, { color: t.color.muted }, `   ${counts.done ?? 0}/${counts.total ?? 0}`),
+        h(Text, { bold: true, color: t.color.primary }, `${BRAND_MARK} Plan`),
+        title ? h(Text, { color: t.color.border }, SEPARATOR) : null,
+        title ? h(Text, { color: t.color.muted }, title) : null,
+        h(Text, { color: t.color.border }, SEPARATOR),
+        h(Text, { color: t.color.warn }, `${counts.done ?? 0}/${counts.total ?? 0}`),
       ),
       ...shown.map((item, index) => {
         const withMore = more > 0 && index === shown.length - 1
