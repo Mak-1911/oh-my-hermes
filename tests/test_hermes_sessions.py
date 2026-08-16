@@ -71,7 +71,7 @@ class HermesSessionObservationTests(unittest.TestCase):
 
             self.assertEqual(
                 connect_calls,
-                [(f"file:{db_path}?mode=ro", {"uri": True, "timeout": 1.0})],
+                [(f"{db_path.resolve().as_uri()}?mode=ro", {"uri": True, "timeout": 1.0})],
             )
             self.assertEqual(len(statements), 3)
             self.assertTrue(all(statement.lower().startswith("select ") for statement in statements))
@@ -123,6 +123,26 @@ class HermesSessionObservationTests(unittest.TestCase):
             self.assertFalse(payload["observed"])
             self.assertEqual(payload["reason"], "state_db_unreadable")
             self.assertFalse(payload["current_model"]["observed"])
+
+    def test_special_characters_in_hermes_home_use_a_uri_safe_readonly_path(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp) / "Hermes ? # Home")
+            paths.hermes_home.mkdir(parents=True)
+            connection = sqlite3.connect(paths.hermes_home / "state.db")
+            connection.execute(CREATE_SESSIONS)
+            connection.execute(
+                "insert into sessions values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("api", "gpt-5.6-sol", None, None, 0, 0, "2026-08-01", None, "secret", 1),
+            )
+            connection.commit()
+            connection.close()
+
+            payload = observe_hermes_sessions(paths)
+
+        self.assertTrue(payload["observed"])
+        self.assertEqual(payload["reason"], "")
+        self.assertEqual(payload["live"], 1)
+        self.assertEqual(payload["total"], 1)
 
     def test_missing_or_malformed_model_config_preserves_the_observed_model(self) -> None:
         for model_config in (None, "not-json", "[]", '{"reasoning_config": []}'):

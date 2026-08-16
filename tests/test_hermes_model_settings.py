@@ -104,6 +104,39 @@ class HermesModelSettingsTests(unittest.TestCase):
         self.assertEqual(result["reason"], "config_unreadable")
         self.assertEqual(result["aliases"], [])
 
+    def test_block_scalar_degrades_instead_of_publishing_yaml_syntax(self) -> None:
+        result = self._read("model:\n  default: >-\n    gpt-5.6-sol\n")
+
+        self.assertFalse(result["observed"])
+        self.assertEqual(result["reason"], "config_unreadable")
+        self.assertEqual(result["aliases"], [])
+
+    def test_yaml_null_scalars_mean_inherit(self) -> None:
+        result = self._read(
+            "model:\n  default: null\nauxiliary:\n"
+            "  web_extract:\n    model: ~\n"
+        )
+
+        aliases = {entry["alias"]: entry for entry in result["aliases"]}
+        self.assertTrue(result["observed"])
+        self.assertFalse(aliases["main"]["configured"])
+        self.assertEqual(aliases["main"]["label"], "inherit")
+        self.assertFalse(aliases["web_extract"]["configured"])
+        self.assertEqual(result["configured_count"], 0)
+        self.assertEqual(result["inherit_count"], 15)
+
+    def test_tab_indentation_degrades_as_unreadable(self) -> None:
+        result = self._read("model:\n\tdefault: gpt-5.6-sol\n")
+
+        self.assertFalse(result["observed"])
+        self.assertEqual(result["reason"], "config_unreadable")
+
+    def test_flow_mapping_degrades_as_unreadable(self) -> None:
+        result = self._read("model: {default: gpt-5.6-sol}\n")
+
+        self.assertFalse(result["observed"])
+        self.assertEqual(result["reason"], "config_unreadable")
+
     def test_alias_order_is_the_exact_hermes_contract(self) -> None:
         result = self._read("model:\n  default:\n")
         self.assertEqual(

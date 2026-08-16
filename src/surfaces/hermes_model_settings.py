@@ -25,32 +25,42 @@ HERMES_AUX_ALIASES = (
 )
 
 _KEY = re.compile(r"^([a-z_]+):")
+_NULL_SCALARS = {"null", "~"}
+_UNSUPPORTED_SCALAR_PREFIXES = ("|", ">", "[", "{", "&", "*", "!")
 _CLAIM_BOUNDARY = (
     "Model settings are read from Hermes configuration; a configured alias is not evidence "
     "that a request used that model."
 )
 
 
-def _scalar_value(line: str) -> str:
+def _scalar_value(line: str) -> str | None:
     value = line.partition(":")[2].strip()
     if not value:
         return ""
     if value[0] in {'"', "'"}:
         quote = value[0]
+        closing_index = 0
         for index in range(len(value) - 1, 0, -1):
             if value[index] == quote:
                 remainder = value[index + 1 :].strip()
                 if not remainder or remainder.startswith("#"):
+                    closing_index = index
                     value = value[: index + 1]
                     break
+        if not closing_index:
+            return None
     elif " #" in value:
         value = value.split(" #", 1)[0].rstrip()
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
         return value[1:-1]
+    if value.lower() in _NULL_SCALARS:
+        return ""
+    if value.startswith(_UNSUPPORTED_SCALAR_PREFIXES):
+        return None
     return value
 
 
-def _parse_settings(config_text: str) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+def _parse_settings(config_text: str) -> tuple[dict[str, str], dict[str, dict[str, str]]] | None:
     settings: dict[str, str] = {}
     auxiliary: dict[str, dict[str, str]] = {}
     top_level = ""
@@ -58,14 +68,25 @@ def _parse_settings(config_text: str) -> tuple[dict[str, str], dict[str, dict[st
     for line in config_text.splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
+        indentation = line[: len(line) - len(line.lstrip(" \t"))]
+        if "\t" in indentation:
+            return None
         if not line.startswith(" "):
             match = _KEY.match(line)
             top_level = match.group(1) if match else ""
             auxiliary_task = ""
+            if top_level in {"model", "agent", "auxiliary"}:
+                value = _scalar_value(line)
+                if value is None or value:
+                    return None
             continue
         if top_level == "auxiliary" and line.startswith("  ") and not line.startswith("    "):
             match = _KEY.match(line[2:])
             auxiliary_task = match.group(1) if match else ""
+            if match:
+                value = _scalar_value(line[2:])
+                if value is None or value:
+                    return None
             continue
         if top_level in {"model", "agent"} and line.startswith("  ") and not line.startswith("    "):
             match = _KEY.match(line[2:])
@@ -76,12 +97,18 @@ def _parse_settings(config_text: str) -> tuple[dict[str, str], dict[str, dict[st
                     ("model", "provider"),
                     ("agent", "reasoning_effort"),
                 }:
-                    settings[f"{top_level}.{key}"] = _scalar_value(line)
+                    value = _scalar_value(line)
+                    if value is None:
+                        return None
+                    settings[f"{top_level}.{key}"] = value
             continue
         if top_level == "auxiliary" and auxiliary_task and line.startswith("    ") and not line.startswith("      "):
             match = _KEY.match(line[4:])
             if match and match.group(1) in {"model", "reasoning_effort"}:
-                auxiliary.setdefault(auxiliary_task, {})[match.group(1)] = _scalar_value(line)
+                value = _scalar_value(line)
+                if value is None:
+                    return None
+                auxiliary.setdefault(auxiliary_task, {})[match.group(1)] = value
     return settings, auxiliary
 
 
@@ -116,7 +143,10 @@ def read_hermes_model_settings(paths: OmhPaths) -> dict[str, Any]:
     except (OSError, UnicodeDecodeError):
         return _unreadable_result()
 
-    settings, auxiliary = _parse_settings(config_text)
+    parsed_settings = _parse_settings(config_text)
+    if parsed_settings is None:
+        return _unreadable_result()
+    settings, auxiliary = parsed_settings
     aliases = [
         _alias_entry(
             alias="main",

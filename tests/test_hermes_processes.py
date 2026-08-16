@@ -70,6 +70,36 @@ class HermesProcessObservationTests(unittest.TestCase):
         self.assertEqual(result["process_count"], 0)
         self.assertEqual(result["rows"], [])
 
+    def test_quoted_paths_with_spaces_preserve_the_hermes_entrypoint(self) -> None:
+        ps_output = (
+            '44000 1 "/Users/Example User/.hermes/hermes-agent/venv/bin/python" '
+            '"/Users/Example User/.hermes/hermes-agent/hermes"\n'
+        )
+        with patch("omh.surfaces.hermes_processes.os.getpid", return_value=90001), patch(
+            "omh.surfaces.hermes_processes.os.getppid", return_value=90000
+        ):
+            result = observe_hermes_processes(ps_output=ps_output)
+
+        self.assertEqual(result["agent_count"], 1)
+        self.assertEqual(result["process_count"], 1)
+        self.assertEqual(result["rows"][0]["label"], "python hermes")
+
+    def test_ignores_one_shot_hermes_cli_commands(self) -> None:
+        ps_output = """\
+45000 1 /usr/bin/python -m hermes_cli.main config check
+45001 1 /usr/bin/python -m hermes_cli.main status
+45002 1 /usr/bin/python /opt/hermes-agent/hermes doctor
+45003 1 /usr/bin/python -m hermes_cli.main gateway status
+"""
+        with patch("omh.surfaces.hermes_processes.os.getpid", return_value=90001), patch(
+            "omh.surfaces.hermes_processes.os.getppid", return_value=90000
+        ):
+            result = observe_hermes_processes(ps_output=ps_output)
+
+        self.assertEqual(result["agent_count"], 0)
+        self.assertEqual(result["process_count"], 0)
+        self.assertEqual(result["rows"], [])
+
     def test_empty_output_is_a_successful_zero_observation(self) -> None:
         result = observe_hermes_processes(now="2026-08-16T04:30:00Z", ps_output="")
 

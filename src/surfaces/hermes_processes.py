@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,6 +10,8 @@ from typing import Any
 
 HERMES_PROCESS_SCHEMA_VERSION = "hermes_process_observation/v1"
 _SHELL_NAMES = {"sh", "bash", "zsh", "dash"}
+_PERSISTENT_MAIN_COMMANDS = {"chat", "acp"}
+_PERSISTENT_MAIN_FLAGS = {"--tui", "--classic"}
 _CLAIM_BOUNDARY = (
     "Local process observation is bounded, best-effort, and is not execution, review, CI, or merge evidence."
 )
@@ -43,7 +46,7 @@ def observe_hermes_processes(
             "pid": row["pid"],
             "ppid": row["ppid"],
             "role": "child" if row["ppid"] in kept_pids else "agent",
-            "label": _process_label(row["command"]),
+            "label": _process_label(row["argv"]),
         }
         for row in kept
     ]
@@ -63,27 +66,35 @@ def _process_rows(ps_output: str) -> list[dict[str, Any]]:
             ppid = int(raw_ppid)
         except ValueError:
             continue
-        if pid in self_pids or _is_filtered_command(command):
+        argv = _command_argv(command)
+        if pid in self_pids or _is_filtered_command(argv):
             continue
-        if not _is_hermes_command(command):
+        if not _is_hermes_command(argv):
             continue
-        rows.append({"pid": pid, "ppid": ppid, "command": command})
+        rows.append({"pid": pid, "ppid": ppid, "argv": argv})
     return rows
 
 
-def _is_hermes_command(command: str) -> bool:
-    argv = command.split()
+def _command_argv(command: str) -> list[str]:
+    try:
+        return shlex.split(command)
+    except ValueError:
+        return []
+
+
+def _is_hermes_command(argv: list[str]) -> bool:
     if not argv:
         return False
 
     executable = Path(argv[0]).name
     if _is_python_executable(executable):
         if len(argv) >= 2 and Path(argv[1]).parts[-2:] == ("hermes-agent", "hermes"):
+            return _is_persistent_main_command(argv[2:])
+        if len(argv) < 3 or argv[1] != "-m":
+            return False
+        if argv[2] == "tui_gateway.entry":
             return True
-        return len(argv) >= 3 and argv[1] == "-m" and argv[2] in {
-            "hermes_cli.main",
-            "tui_gateway.entry",
-        }
+        return argv[2] == "hermes_cli.main" and _is_persistent_main_command(argv[3:])
 
     if executable == "node":
         entrypoint = next((argument for argument in argv[1:] if not argument.startswith("-")), "")
@@ -92,23 +103,31 @@ def _is_hermes_command(command: str) -> bool:
     return False
 
 
+def _is_persistent_main_command(arguments: list[str]) -> bool:
+    if not arguments:
+        return True
+    command = arguments[0]
+    if command in _PERSISTENT_MAIN_COMMANDS or command in _PERSISTENT_MAIN_FLAGS:
+        return True
+    return command == "gateway" and (len(arguments) == 1 or arguments[1] == "run")
+
+
 def _is_python_executable(executable: str) -> bool:
     suffix = executable.removeprefix("python")
     return executable.startswith("python") and (not suffix or all(part.isdigit() for part in suffix.split(".")))
 
 
-def _is_filtered_command(command: str) -> bool:
-    tokens = command.split()
-    if not tokens:
+def _is_filtered_command(argv: list[str]) -> bool:
+    if not argv:
         return True
-    if Path(tokens[0]).name in _SHELL_NAMES or " -c " in command:
+    executable = Path(argv[0]).name
+    if executable in _SHELL_NAMES or "-c" in argv:
         return True
-    return "grep " in command or "rg " in command
+    return executable in {"grep", "rg"}
 
 
-def _process_label(command: str) -> str:
-    tokens = command.split()
-    names = [Path(token).name for token in tokens[:2]]
+def _process_label(argv: list[str]) -> str:
+    names = [Path(token).name for token in argv[:2]]
     return _short_text(" ".join(names), limit=40)
 
 

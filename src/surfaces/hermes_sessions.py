@@ -21,7 +21,7 @@ def observe_hermes_sessions(paths: OmhPaths) -> dict[str, Any]:
         return _unobserved("state_db_missing")
 
     try:
-        connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=1.0)
+        connection = sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True, timeout=1.0)
         try:
             cursor = connection.cursor()
             total = int(
