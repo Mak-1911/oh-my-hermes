@@ -16,11 +16,52 @@ load_local_package()
 from omh.cli import build_parser
 from omh.menubar_status import build_menubar_status_payload, model_icon_descriptor, source_icon_descriptor
 from omh.paths import resolve_paths
-from omh.surfaces.menubar_status import _models_card
+from omh.surfaces.menubar_status import _display, _models_card
 from omh.targets import record_target_observation
 
 
 class MenubarStatusTests(unittest.TestCase):
+    def test_menu_bar_title_is_count_only_when_processes_and_sessions_are_observed(self) -> None:
+        display = _display(
+            {"omh_connection": {"value": "ready"}},
+            {"observed": True, "agent_count": 2, "process_count": 3},
+            {"observed": True, "live": 1, "total": 4},
+            {},
+            {},
+        )
+
+        self.assertEqual(display["menu_bar_title"], "2·1")
+        self.assertNotIn("omh ✓", display["menu_bar_title"])
+
+    def test_menu_bar_title_uses_only_attention_mark_when_connection_is_not_ready(self) -> None:
+        display = _display(
+            {"omh_connection": {"value": "stale"}},
+            {"observed": True, "agent_count": 2, "process_count": 3},
+            {"observed": True, "live": 1, "total": 4},
+            {},
+            {},
+        )
+
+        self.assertEqual(display["menu_bar_title"], "!")
+        self.assertNotIn("omh ✓", display["menu_bar_title"])
+
+    def test_ready_menu_bar_title_is_empty_until_both_observations_exist(self) -> None:
+        for processes_observed, sessions_observed in ((False, False), (True, False), (False, True)):
+            with self.subTest(
+                processes_observed=processes_observed,
+                sessions_observed=sessions_observed,
+            ):
+                display = _display(
+                    {"omh_connection": {"value": "ready"}},
+                    {"observed": processes_observed, "agent_count": 2, "process_count": 3},
+                    {"observed": sessions_observed, "live": 1, "total": 4},
+                    {},
+                    {},
+                )
+
+                self.assertEqual(display["menu_bar_title"], "")
+                self.assertNotIn("omh ✓", display["menu_bar_title"])
+
     def test_menubar_status_help_advertises_current_payload_schema(self) -> None:
         stdout = io.StringIO()
 

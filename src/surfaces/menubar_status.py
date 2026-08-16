@@ -468,8 +468,12 @@ def _display(
         pieces.append(f"sessions live {live} / total {_safe_int(hermes_sessions.get('total'), 0)}")
     else:
         pieces.append("sessions not observed")
-    mark = "✓" if connection_ready else "!"
-    menu_bar_title = f"omh {mark} {agent_count}·{live}" if processes_observed and sessions_observed else f"omh {mark}"
+    if not connection_ready:
+        menu_bar_title = "!"
+    elif processes_observed and sessions_observed:
+        menu_bar_title = f"{agent_count}·{live}"
+    else:
+        menu_bar_title = ""
     return {
         "menu_title": "omh",
         "menu_bar_title": menu_bar_title,

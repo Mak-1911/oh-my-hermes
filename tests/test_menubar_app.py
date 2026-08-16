@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
 import json
 import platform
+import plistlib
 import shutil
+import struct
 import subprocess
 import unittest
 from pathlib import Path
@@ -19,6 +22,41 @@ from omh.paths import resolve_paths
 
 
 class MenubarAppTests(unittest.TestCase):
+    def test_embedded_character_icon_is_a_non_empty_36_pixel_png(self) -> None:
+        icon_bytes = base64.b64decode(menubar_app_module.MENUBAR_ICON_BASE64, validate=True)
+
+        self.assertGreater(len(icon_bytes), 24)
+        self.assertEqual(icon_bytes[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(icon_bytes[12:16], b"IHDR")
+        self.assertEqual(struct.unpack(">II", icon_bytes[16:24]), (36, 36))
+
+    def test_install_materializes_exact_icon_bytes_and_passes_icon_path(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            expected_icon = base64.b64decode(menubar_app_module.MENUBAR_ICON_BASE64, validate=True)
+
+            with (
+                patch.object(menubar_app_module.Path, "home", return_value=root),
+                patch("omh.menubar_app.shutil.which", return_value="/usr/bin/swiftc"),
+                patch("omh.menubar_app._compile_swift_helper"),
+            ):
+                payload = setup_menubar_app(
+                    paths,
+                    platform_name="Darwin",
+                    start=False,
+                    command_path="/usr/local/bin/omh",
+                )
+
+            icon_path = paths.omh_home / "menubar" / "omh-character-mask.png"
+            self.assertEqual(payload["icon"], str(icon_path))
+            self.assertEqual(icon_path.read_bytes(), expected_icon)
+            self.assertGreater(len(icon_path.read_bytes()), 0)
+            launch_agent = root / "Library" / "LaunchAgents" / "com.rlaope.omh.menubar.plist"
+            arguments = plistlib.loads(launch_agent.read_bytes())["ProgramArguments"]
+            icon_argument = arguments.index("--icon")
+            self.assertEqual(arguments[icon_argument + 1], str(icon_path))
+
     def test_setup_menubar_app_skips_unsupported_platform(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -95,6 +133,19 @@ class MenubarAppTests(unittest.TestCase):
         self.assertIn('rows.prefix(6)', source)
         self.assertIn('display?["menu_bar_title"]', source)
         self.assertNotIn('agent_status', source)
+
+    def test_native_helper_loads_template_icon_at_18_points_with_accessible_label(self) -> None:
+        source = menubar_app_module._SWIFT_SOURCE
+
+        self.assertIn('case "--icon":', source)
+        self.assertIn('NSImage(contentsOfFile: iconPath)', source)
+        self.assertIn('image.size = NSSize(width: 18, height: 18)', source)
+        self.assertIn('image.isTemplate = true', source)
+        self.assertIn('button.imagePosition = .imageLeading', source)
+        self.assertIn('button.setAccessibilityLabel(', source)
+        self.assertIn('"OMH — \(headline) — \(summary)"', source)
+        self.assertNotIn('statusItem.button?.title = "omh !"', source)
+        self.assertNotIn('? "\(title) \(mark)" : menuBarTitle', source)
 
     def test_native_helper_keeps_sessions_table_header_visible(self) -> None:
         source = menubar_app_module._SWIFT_SOURCE
