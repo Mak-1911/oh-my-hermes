@@ -141,6 +141,22 @@ omh doctor
 把 `--full` 安装收敛回 core 这类维护路径，见
 [Installation](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core)。
 
+## OH-MY-HERMES 终端
+
+只需输入 `omh`,即可打开带有 OMH 标识的 Hermes 现代 TUI:
+
+```sh
+omh
+```
+
+setup 会安装受管理的 `omh` 皮肤 — 以上方徽章颜色为基准的天空绿松石配色,
+横幅、欢迎语和响应标签均重塑为 OH-MY-HERMES。仅当未选择任何皮肤时才会默认
+激活。`hermes skin use <name>`(包括 `default`)将永久优先,OMH 绝不改写
+显式选择。在 TUI 中,OMH HUD 以主题面板呈现:工作进行时显示带成本、轮次和
+缓存指标的子代理活动行,提示符上方显示计划 todo 清单。
+
+<br>
+
 ## 推荐模型
 
 OMH 随附以下可编辑的有序 recommendation chain。guided model setup 只会依据用户确认 active 的 candidate 来解析 chain。结果是已准备的 routing config，不是 provider availability、credential、dispatch 或 execution 证据。

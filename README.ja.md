@@ -138,6 +138,26 @@ omh doctor
 [Installation](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core)
 にあります。
 
+## OH-MY-HERMES ターミナル
+
+`omh` と入力するだけで、OMH のアイデンティティをまとった Hermes のモダン TUI が
+開きます:
+
+```sh
+omh
+```
+
+setup は管理された `omh` スキンをインストールします — 上のバッジ色を基準とした
+スカイターコイズのパレットで、バナー・ウェルカム行・レスポンスラベルが
+OH-MY-HERMES にリブランドされます。スキンが未選択の場合にのみデフォルトとして
+有効化されます。`hermes skin use <name>`(`default` を含む)は恒久的に優先され、
+OMH が明示的な選択を書き換えることはありません。TUI 内では OMH HUD がテーマ
+パネルとして描画されます: 作業中はコスト・ターン・キャッシュ指標付きの
+サブエージェント活動行、プロンプトの上にはプラン todo チェックリストが
+表示されます。
+
+<br>
+
 ## 推奨モデル
 
 OMH には次の編集可能な順序付き recommendation chain が含まれています。guided model setup は、ユーザーが active と確認した candidate だけを基準に chain を解決します。その結果は準備済み routing config であり、provider availability、credential、dispatch、execution の証拠ではありません。
