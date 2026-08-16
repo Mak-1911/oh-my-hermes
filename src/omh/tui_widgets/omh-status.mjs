@@ -22,6 +22,24 @@ export default function register(sdk) {
 
   const safeText = value => String(value ?? '').replace(/[^\p{L}\p{N} .:/_·|+\-]/gu, '').slice(0, 96)
 
+  // Panel chrome. Both apps draw their own bordered, padded card so the OMH
+  // surface reads as a piece of the TUI instead of loose text floating around
+  // the prompt. Every colour comes from the active theme the host hands
+  // `render`, never a literal: `primary` is the token Hermes' own Dialog card
+  // borders with, so the panel follows whatever skin is active (default gold,
+  // ares crimson, mono, …) with no OMH-side palette to keep in sync.
+  // The card costs two columns of border plus two of padding, and two rows of
+  // border; the render callsites hand the components the INNER budget.
+  const PANEL_CHROME_COLUMNS = 4
+  const PANEL_CHROME_ROWS = 2
+  const panelProps = t => ({
+    borderColor: t.color.primary,
+    borderStyle: 'round',
+    flexDirection: 'column',
+    paddingX: 1,
+    width: '100%',
+  })
+
   const readHud = () => new Promise(resolve => {
     execFile(
       __OMH_PYTHON_EXECUTABLE__,
@@ -181,11 +199,7 @@ export default function register(sdk) {
       : []
     return h(
       Box,
-      {
-        flexDirection: 'column',
-        marginTop: 1,
-        width: '100%',
-      },
+      { ...panelProps(t), marginTop: 1 },
       h(
         Box,
         { columnGap: 1, flexDirection: 'row' },
@@ -232,11 +246,11 @@ export default function register(sdk) {
     if (todo.status === 'all_done') {
       return h(
         Box,
-        { flexDirection: 'column', width: '100%' },
+        panelProps(t),
         h(
           Text,
           { wrap: 'truncate-end' },
-          h(Text, { bold: true, color: t.color.warn }, ` ${label}`),
+          h(Text, { bold: true, color: t.color.warn }, label),
           h(Text, { color: t.color.ok }, ` ✓ ${counts.done ?? 0}/${counts.total ?? 0}`),
         ),
       )
@@ -247,11 +261,11 @@ export default function register(sdk) {
     const budget = Math.max(16, columns - 10)
     return h(
       Box,
-      { flexDirection: 'column', width: '100%' },
+      panelProps(t),
       h(
         Text,
         { wrap: 'truncate-end' },
-        h(Text, { bold: true, color: t.color.warn }, ` ${label}`),
+        h(Text, { bold: true, color: t.color.warn }, label),
         h(Text, { color: t.color.muted }, `   ${counts.done ?? 0}/${counts.total ?? 0}`),
       ),
       ...shown.map((item, index) => {
@@ -268,7 +282,7 @@ export default function register(sdk) {
               color: item.state === 'active' ? t.color.ok : item.state === 'done' ? t.color.muted : t.color.text,
               strikethrough: item.state === 'done',
             },
-            ` ${Object.hasOwn(markers, item.state) ? markers[item.state] : '[ ]'} ${truncateCells(item.text, rowBudget)}`,
+            `${Object.hasOwn(markers, item.state) ? markers[item.state] : '[ ]'} ${truncateCells(item.text, rowBudget)}`,
           ),
           withMore ? h(Text, { color: t.color.muted }, `   +${more} more`) : null,
         )
@@ -286,7 +300,14 @@ export default function register(sdk) {
       input.kind === 'snapshot'
         ? { ...state, payload: input.payload, tick: state.tick + 1 }
         : state,
-    render: ({ cols, rows, state, t }) => h(Hud, { columns: cols, state, t, viewportRows: rows }),
+    // The panel's own border and padding are not content space, so both
+    // components budget against the INNER card, not the raw terminal.
+    render: ({ cols, rows, state, t }) => h(Hud, {
+      columns: Math.max(20, cols - PANEL_CHROME_COLUMNS),
+      state,
+      t,
+      viewportRows: Math.max(1, rows - PANEL_CHROME_ROWS),
+    }),
   })
 
   const todoApp = defineWidgetApp({
@@ -299,7 +320,7 @@ export default function register(sdk) {
       input.kind === 'snapshot'
         ? { ...state, payload: input.payload, tick: state.tick + 1 }
         : state,
-    render: ({ cols, state, t }) => h(TodoPanel, { columns: cols, state, t }),
+    render: ({ cols, state, t }) => h(TodoPanel, { columns: Math.max(20, cols - PANEL_CHROME_COLUMNS), state, t }),
   })
 
   openWidget(app, app.init(''))
