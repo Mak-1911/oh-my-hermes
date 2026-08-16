@@ -65,12 +65,18 @@ def _parse_settings(config_text: str) -> tuple[dict[str, str], dict[str, dict[st
     auxiliary: dict[str, dict[str, str]] = {}
     top_level = ""
     auxiliary_task = ""
+    empty_scalar_indent: int | None = None
     for line in config_text.splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         indentation = line[: len(line) - len(line.lstrip(" \t"))]
         if "\t" in indentation:
             return None
+        current_indent = len(indentation)
+        if empty_scalar_indent is not None:
+            if current_indent > empty_scalar_indent:
+                return None
+            empty_scalar_indent = None
         if not line.startswith(" "):
             match = _KEY.match(line)
             top_level = match.group(1) if match else ""
@@ -101,6 +107,8 @@ def _parse_settings(config_text: str) -> tuple[dict[str, str], dict[str, dict[st
                     if value is None:
                         return None
                     settings[f"{top_level}.{key}"] = value
+                    if not line.partition(":")[2].strip():
+                        empty_scalar_indent = current_indent
             continue
         if top_level == "auxiliary" and auxiliary_task and line.startswith("    ") and not line.startswith("      "):
             match = _KEY.match(line[4:])
@@ -109,6 +117,8 @@ def _parse_settings(config_text: str) -> tuple[dict[str, str], dict[str, dict[st
                 if value is None:
                     return None
                 auxiliary.setdefault(auxiliary_task, {})[match.group(1)] = value
+                if not line.partition(":")[2].strip():
+                    empty_scalar_indent = current_indent
     return settings, auxiliary
 
 

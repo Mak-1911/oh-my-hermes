@@ -137,6 +137,18 @@ class HermesModelSettingsTests(unittest.TestCase):
         self.assertFalse(result["observed"])
         self.assertEqual(result["reason"], "config_unreadable")
 
+    def test_nested_tracked_scalar_degrades_as_unreadable(self) -> None:
+        configs = (
+            "model:\n  default:\n    name: gpt-5.6-sol\n",
+            "auxiliary:\n  web_extract:\n    model:\n      name: gpt-5.6-sol\n",
+        )
+        for config_text in configs:
+            with self.subTest(config_text=config_text):
+                result = self._read(config_text)
+
+                self.assertFalse(result["observed"])
+                self.assertEqual(result["reason"], "config_unreadable")
+
     def test_alias_order_is_the_exact_hermes_contract(self) -> None:
         result = self._read("model:\n  default:\n")
         self.assertEqual(

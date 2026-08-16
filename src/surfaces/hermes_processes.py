@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 from datetime import datetime, timezone
@@ -11,7 +12,10 @@ from typing import Any
 HERMES_PROCESS_SCHEMA_VERSION = "hermes_process_observation/v1"
 _SHELL_NAMES = {"sh", "bash", "zsh", "dash"}
 _PERSISTENT_MAIN_COMMANDS = {"chat", "acp"}
-_PERSISTENT_MAIN_FLAGS = {"--tui", "--classic"}
+_PERSISTENT_MAIN_FLAGS = {"--tui", "--cli"}
+_PYTHON_COMMAND = re.compile(
+    r"^(?P<executable>.*?python(?:\d+(?:\.\d+)*)?)\s+(?P<arguments>.+)$"
+)
 _CLAIM_BOUNDARY = (
     "Local process observation is bounded, best-effort, and is not execution, review, CI, or merge evidence."
 )
@@ -66,9 +70,10 @@ def _process_rows(ps_output: str) -> list[dict[str, Any]]:
             ppid = int(raw_ppid)
         except ValueError:
             continue
-        argv = _command_argv(command)
-        if pid in self_pids or _is_filtered_command(argv):
+        parsed_argv = _command_argv(command)
+        if pid in self_pids or _is_filtered_command(parsed_argv):
             continue
+        argv = parsed_argv if _is_hermes_command(parsed_argv) else _unquoted_hermes_argv(command)
         if not _is_hermes_command(argv):
             continue
         rows.append({"pid": pid, "ppid": ppid, "argv": argv})
@@ -80,6 +85,34 @@ def _command_argv(command: str) -> list[str]:
         return shlex.split(command)
     except ValueError:
         return []
+
+
+def _unquoted_hermes_argv(command: str) -> list[str]:
+    match = _PYTHON_COMMAND.match(command)
+    if not match:
+        return []
+
+    executable = match.group("executable")
+    arguments = match.group("arguments")
+    if arguments.startswith("-m "):
+        try:
+            return [executable, *shlex.split(arguments)]
+        except ValueError:
+            return []
+
+    entrypoint_suffix = "/hermes-agent/hermes"
+    entrypoint_end = arguments.find(entrypoint_suffix)
+    if entrypoint_end < 0:
+        return []
+    entrypoint_end += len(entrypoint_suffix)
+    if len(arguments) > entrypoint_end and not arguments[entrypoint_end].isspace():
+        return []
+    entrypoint = arguments[:entrypoint_end]
+    try:
+        trailing_argv = shlex.split(arguments[entrypoint_end:])
+    except ValueError:
+        return []
+    return [executable, entrypoint, *trailing_argv]
 
 
 def _is_hermes_command(argv: list[str]) -> bool:
@@ -104,6 +137,14 @@ def _is_hermes_command(argv: list[str]) -> bool:
 
 
 def _is_persistent_main_command(arguments: list[str]) -> bool:
+    if arguments and arguments[0] in {"--profile", "-p"}:
+        if len(arguments) < 2 or not arguments[1]:
+            return False
+        arguments = arguments[2:]
+    elif arguments and arguments[0].startswith("--profile="):
+        if not arguments[0].partition("=")[2]:
+            return False
+        arguments = arguments[1:]
     if not arguments:
         return True
     command = arguments[0]

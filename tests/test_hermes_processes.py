@@ -84,12 +84,27 @@ class HermesProcessObservationTests(unittest.TestCase):
         self.assertEqual(result["process_count"], 1)
         self.assertEqual(result["rows"][0]["label"], "python hermes")
 
+    def test_unquoted_ps_paths_with_spaces_preserve_the_hermes_entrypoint(self) -> None:
+        ps_output = (
+            "44500 1 python "
+            "/tmp/Hermes Bare Space/hermes-agent/hermes --cli\n"
+        )
+        with patch("omh.surfaces.hermes_processes.os.getpid", return_value=90001), patch(
+            "omh.surfaces.hermes_processes.os.getppid", return_value=90000
+        ):
+            result = observe_hermes_processes(ps_output=ps_output)
+
+        self.assertEqual(result["agent_count"], 1)
+        self.assertEqual(result["process_count"], 1)
+        self.assertEqual(result["rows"][0]["label"], "python hermes")
+
     def test_ignores_one_shot_hermes_cli_commands(self) -> None:
         ps_output = """\
 45000 1 /usr/bin/python -m hermes_cli.main config check
 45001 1 /usr/bin/python -m hermes_cli.main status
 45002 1 /usr/bin/python /opt/hermes-agent/hermes doctor
 45003 1 /usr/bin/python -m hermes_cli.main gateway status
+45004 1 /usr/bin/python -m hermes_cli.main --profile work status
 """
         with patch("omh.surfaces.hermes_processes.os.getpid", return_value=90001), patch(
             "omh.surfaces.hermes_processes.os.getppid", return_value=90000
@@ -99,6 +114,22 @@ class HermesProcessObservationTests(unittest.TestCase):
         self.assertEqual(result["agent_count"], 0)
         self.assertEqual(result["process_count"], 0)
         self.assertEqual(result["rows"], [])
+
+    def test_profile_selector_before_persistent_command_is_counted(self) -> None:
+        ps_output = """\
+46000 1 /usr/bin/python -m hermes_cli.main --profile work gateway run
+46001 1 /usr/bin/python /opt/hermes-agent/hermes --profile=personal chat
+46002 1 /usr/bin/python -m hermes_cli.main -p work gateway run
+46003 1 /usr/bin/python /opt/hermes-agent/hermes --profile=personal --tui
+46004 1 /usr/bin/python /opt/hermes-agent/hermes --cli
+"""
+        with patch("omh.surfaces.hermes_processes.os.getpid", return_value=90001), patch(
+            "omh.surfaces.hermes_processes.os.getppid", return_value=90000
+        ):
+            result = observe_hermes_processes(ps_output=ps_output)
+
+        self.assertEqual(result["agent_count"], 5)
+        self.assertEqual(result["process_count"], 5)
 
     def test_empty_output_is_a_successful_zero_observation(self) -> None:
         result = observe_hermes_processes(now="2026-08-16T04:30:00Z", ps_output="")
