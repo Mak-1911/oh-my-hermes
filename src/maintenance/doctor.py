@@ -419,29 +419,32 @@ def _hermes_tui_checks(paths: OmhPaths) -> list[Check]:
                 next_action=sdk_action,
             )
         )
+    # `display.interface` is Hermes-owned and OMH never writes it. Which
+    # terminal the user runs is a real trade-off and theirs to make: the modern
+    # TUI is the only surface that loads `tui-widgets/`, so it is where the OMH
+    # HUD renders, while the classic REPL draws the banner, status line, and
+    # the rules framing the prompt that the modern TUI does not. Naming the
+    # trade-off is the whole job here; picking a side for the user was the bug.
     interface = preflight["display_interface"]
+    hud_hint = "`hermes --tui` opens the modern TUI for one session without changing any setting"
     if interface["explicit"] and interface["value"] not in ("", "tui"):
         message = (
-            f"display.interface is set to {interface['value']!r} (user-owned); the OMH HUD renders only in the "
-            "modern TUI (`hermes --tui` still reaches it)"
+            f"display.interface is {interface['value']!r} (Hermes-owned) — bare `hermes` opens the classic REPL, "
+            "which keeps its banner and prompt rules but loads no OMH HUD widget"
         )
-        interface_severity = "warning"
-        interface_action = "set display.interface to tui (or use `hermes --tui`) to see the OMH HUD"
+        interface_severity = "ok"
+        interface_action = hud_hint
     elif interface["explicit"]:
-        message = "display.interface defaults bare `hermes` to the modern TUI"
+        message = "display.interface is 'tui' (Hermes-owned) — bare `hermes` opens the modern TUI, where the OMH HUD renders"
         interface_severity = "ok"
         interface_action = ""
-    elif interface["settable"]:
-        message = "display.interface is unset — bare `hermes` opens the classic REPL where the HUD cannot render"
-        interface_severity = "warning"
-        interface_action = "run `omh setup` to default display.interface to the TUI"
     else:
         message = (
-            "display configuration is user-owned in a shape this check cannot read; the OMH HUD needs the "
-            "modern TUI either way"
+            "display.interface is unset, so bare `hermes` opens Hermes' default classic REPL — it keeps its banner "
+            "and prompt rules, and loads no OMH HUD widget"
         )
         interface_severity = "ok"
-        interface_action = ""
+        interface_action = hud_hint
     checks.append(
         Check(
             "hermes_tui_interface_default",
