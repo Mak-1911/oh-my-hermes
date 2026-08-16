@@ -113,11 +113,12 @@ First-run expectation:
 4. You restart or reload Hermes Agent.
 5. You ask Hermes normally, for example: `I want to safely add a feature to this repo.`
 
-By default, `omh setup` installs the **core** skill profile: the doctor health
-floor plus the chat/plan/status/handoff essentials a messenger-first user needs
-for a first session, not every packaged skill. Pass `--full` to install every
-skill in the catalog; see [Skill Profiles: Core vs Full](#skill-profiles-core-vs-full)
-for why the smaller default exists and how to opt in.
+By default, `omh setup` installs the **full** skill profile: every packaged
+skill, the ULW engines included — installing OMH means getting OMH. Pass
+`--core` for the lightweight footprint (the doctor health floor plus the
+chat/plan/status/handoff essentials); see
+[Skill Profiles: Core vs Full](#skill-profiles-core-vs-full) for the
+context-weight trade-off each choice makes.
 
 You do not need to know or name a workflow. The quickstart card offers
 representative natural-language starters from the locally tested request corpus
@@ -1599,7 +1600,7 @@ Then restart Hermes Agent.
 `omh setup`, `omh install`, and `omh update` install one of two skill
 profiles:
 
-- **`core` (default).** Installs the doctor health floor (the router plus the
+- **`core`** (opt-in via `--core`). Installs the doctor health floor (the router plus the
   `doctor`, `skill`, `cancel`, and `agent-ops-review` operator skills OMH needs
   to describe, diagnose, manage, and stop itself) plus the workflow skills a
   messenger-first user needs for a first chat/plan/status/handoff session
@@ -1607,13 +1608,14 @@ profiles:
   delivery/status-update policy, `executor-runtime-readiness` for handoff
   readiness, and `ops-observability-card` for status questions). Everything
   else in the catalog stays opt-in.
-- **`full`.** Installs every packaged skill (~89 skills, growing over time).
-  Pass `--full` to opt in:
+- **`full` (default).** Installs every packaged skill, ULW engines included.
+  This is what a plain `omh setup` does; `--full` remains for upgrading an
+  install that previously chose core and for script compatibility:
 
 ```sh
-omh setup --full
-omh install --full
-omh update --full
+omh setup            # full catalog
+omh setup --core     # lightweight footprint instead
+omh update --full    # widen an existing core install
 ```
 
 Every skill OMH installs is skill guidance that Hermes carries into its

@@ -26,7 +26,13 @@ from ..skill_pack import (
 )
 
 SKILL_PROFILES = ("core", "full")
-DEFAULT_SKILL_PROFILE = "core"
+# The full catalog is the default: installing OMH means getting OMH, ULW
+# engines included -- a fresh setup that silently withheld 90+ skills read as
+# "ULW is broken" to the owner, not as a context optimisation. `--core` is the
+# explicit opt-in for the lightweight footprint, and reconcile still shrinks
+# to core only (CORE_SKILL_PROFILE below), decoupled from this default.
+DEFAULT_SKILL_PROFILE = "full"
+CORE_SKILL_PROFILE = "core"
 CONTEXT_COST_WARNING_SCHEMA_VERSION = "omh_skill_profile_context_cost_warning/v1"
 SKILL_PROFILE_STATE_SCHEMA_VERSION = "omh_skill_profile_state/v1"
 SKILL_PROFILE_RECONCILE_SCHEMA_VERSION = "omh_skill_profile_reconcile/v1"
@@ -678,7 +684,7 @@ def skill_profile_report(paths: OmhPaths) -> dict:
 def reconcile_skill_profile(
     paths: OmhPaths,
     *,
-    target_profile: str = DEFAULT_SKILL_PROFILE,
+    target_profile: str = CORE_SKILL_PROFILE,
     dry_run: bool = False,
 ) -> dict:
     """Explicitly shrink an existing install down to the core profile.
@@ -687,9 +693,9 @@ def reconcile_skill_profile(
     setup/install/update. It removes only unmodified managed full-only skills; locally modified and
     non-managed directories stay on disk and are reported as retained exceptions.
     """
-    if target_profile != DEFAULT_SKILL_PROFILE:
+    if target_profile != CORE_SKILL_PROFILE:
         raise OmhError(
-            f"skill profile reconcile only shrinks to {DEFAULT_SKILL_PROFILE!r}; "
+            f"skill profile reconcile only shrinks to {CORE_SKILL_PROFILE!r}; "
             "install the wider catalog with `omh install --full` instead"
         )
     manifest = read_manifest(paths.manifest_path)

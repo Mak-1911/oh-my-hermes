@@ -66,9 +66,13 @@ class SkillProfileInheritanceTests(unittest.TestCase):
             self.assertEqual(self._profile(root), "full")
 
     def test_a_core_install_stays_core(self) -> None:
+        # `--core` is now the explicit opt-in (the default flipped to full: an
+        # install that silently withheld the ULW engines read as "ULW is
+        # broken", not as an optimisation). The inheritance contract is
+        # unchanged: once core is chosen, plain updates never widen it.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            run_cli(self._base(root) + ["install"])
+            run_cli(self._base(root) + ["install", "--core"])
             self.assertEqual(self._profile(root), "core")
             self.assertEqual(self._installed(root), len(CORE_PROFILE_SKILLS))
 
@@ -76,23 +80,38 @@ class SkillProfileInheritanceTests(unittest.TestCase):
             self.assertEqual(self._profile(root), "core")
             self.assertEqual(self._installed(root), len(CORE_PROFILE_SKILLS))
 
-    def test_a_first_install_with_no_flag_is_core(self) -> None:
-        # Inheritance must not turn the default into "whatever was there", and
-        # there is nothing to inherit on a fresh machine.
+    def test_a_first_install_with_no_flag_is_full(self) -> None:
+        # Inverted deliberately when the default flipped: installing OMH means
+        # getting OMH, ULW engines included. There is nothing to inherit on a
+        # fresh machine, so the recorded profile is the full default.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             run_cli(self._base(root) + ["update"])
-            self.assertEqual(self._profile(root), "core")
+            self.assertEqual(self._profile(root), "full")
 
     def test_the_full_flag_still_widens_a_core_install(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            run_cli(self._base(root) + ["install"])
+            run_cli(self._base(root) + ["install", "--core"])
             self.assertEqual(self._profile(root), "core")
 
             run_cli(self._base(root) + ["update", "--full"])
             self.assertEqual(self._profile(root), "full")
             self.assertGreater(self._installed(root), len(CORE_PROFILE_SKILLS))
+
+    def test_the_core_flag_never_shrinks_an_existing_full_install(self) -> None:
+        # Installs never delete; `--core` on a full install records core going
+        # forward but the wider skill set stays on disk until an explicit
+        # `omh skill-profile reconcile --to core`.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_cli(self._base(root) + ["install"])
+            self.assertEqual(self._profile(root), "full")
+            installed = self._installed(root)
+
+            run_cli(self._base(root) + ["update", "--core"])
+            self.assertEqual(self._profile(root), "core")
+            self.assertEqual(self._installed(root), installed)
 
     def test_update_no_longer_reports_a_divergence_it_created(self) -> None:
         with TemporaryDirectory() as tmp:

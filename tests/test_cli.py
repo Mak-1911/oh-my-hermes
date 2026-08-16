@@ -24,7 +24,7 @@ from omh.paths import resolve_paths
 from omh.plugin_bundle.omh.memory_governance import canonical_payload_digest
 from omh.record_revision import MAX_MUTATION_ID_CHARS
 from omh.routing.intent import classify_omh_quality_intent
-from omh.skill_pack import CORE_PROFILE_SKILLS, builtin_skill_reference_templates, builtin_skill_templates
+from omh.skill_pack import builtin_skill_reference_templates, builtin_skill_templates
 from omh.skills.catalog import builtin_harnesses, installable_skill_names
 from omh.wrapper.localized_copy import detect_copy_locale
 from omh.wrapper_sessions import (
@@ -2879,7 +2879,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(status, 0, stderr)
             self.assertEqual(stderr, "")
             self.assertIn("刷新 OMH 工作流包", stdout)
-            self.assertIn(f"已准备 {len(CORE_PROFILE_SKILLS)} 个工作流", stdout)
+            self.assertIn(f"已准备 {len(builtin_skill_templates())} 个工作流", stdout)
             self.assertIn("OMH install 已完成。", stdout)
 
     def test_setup_reports_status_helper_conflict_in_plain_language(self) -> None:
@@ -2929,7 +2929,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(stderr, "")
             self.assertIn("Installing OMH workflows", stdout)
             self.assertIn("OMH install complete.", stdout)
-            self.assertIn(f"OMH workflows: {len(CORE_PROFILE_SKILLS)} ready", stdout)
+            self.assertIn(f"OMH workflows: {len(builtin_skill_templates())} ready", stdout)
             self.assertIn("Run `omh setup`", stdout)
             with self.assertRaises(json.JSONDecodeError):
                 json.loads(stdout)
@@ -2983,7 +2983,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(state["last_update"]["operation"], "update")
             self.assertEqual(state["last_update"]["command_package"]["status"], "not_updated")
             self.assertEqual(state["last_update"]["release_update"]["status"], "refreshed")
-            self.assertEqual(state["last_update"]["managed_skills"]["count"], len(CORE_PROFILE_SKILLS))
+            self.assertEqual(state["last_update"]["managed_skills"]["count"], len(builtin_skill_templates()))
 
     def test_package_manager_update_uses_native_command_guidance(self) -> None:
         with TemporaryDirectory() as tmp:
