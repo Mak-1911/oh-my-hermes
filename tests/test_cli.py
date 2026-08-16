@@ -3593,6 +3593,51 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("--command-package-updated", reentry_args)
         self.assertEqual(run.call_args_list[1].kwargs["env"][setup_commands.SELF_UPDATE_REENTRY_ENV], "1")
 
+    def test_stable_self_update_downloads_the_release_wheel(self) -> None:
+        # The tag archive is ~44 MB of assets, tests, and site; the wheel is
+        # ~2.7 MB. This is the URL `omh update --channel stable` hands pip.
+        args = Namespace(json=True)
+        release = setup_commands.package_url_for("stable", "1.0.6")
+        plan = {"release": release, "python": sys.executable}
+        first = subprocess.CompletedProcess(args=["pip"], returncode=0, stdout="", stderr="")
+        second = subprocess.CompletedProcess(args=["omh"], returncode=0, stdout="", stderr="")
+
+        with patch.object(setup_commands.subprocess, "run", side_effect=[first, second]):
+            with patch.object(setup_commands.sys, "argv", ["omh", "update", "--json"]):
+                status = setup_commands._run_command_package_self_update(args, plan)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            release.package_url,
+            "https://github.com/rlaope/oh-my-hermes/releases/download/v1.0.6/"
+            "oh_my_hermes-1.0.6-py3-none-any.whl",
+        )
+
+    def test_a_failed_wheel_update_names_the_archive_fallback(self) -> None:
+        # v1.0.3 through v1.0.5 published no wheel asset, so pip answers with a
+        # bare 404 against a URL the user never typed. The failure has to name
+        # the archive that does exist for the same tag.
+        args = Namespace(json=True)
+        plan = {
+            "release": setup_commands.package_url_for("stable", "1.0.4"),
+            "python": sys.executable,
+        }
+        failed = subprocess.CompletedProcess(
+            args=["pip"], returncode=1, stdout="", stderr="ERROR: HTTP error 404"
+        )
+
+        with patch.object(setup_commands.subprocess, "run", side_effect=[failed]):
+            with self.assertRaises(OmhError) as raised:
+                setup_commands._run_command_package_self_update(args, plan)
+
+        message = str(raised.exception)
+        self.assertIn("404", message)
+        self.assertIn("--package-url", message)
+        self.assertIn(
+            "https://github.com/rlaope/oh-my-hermes/archive/refs/tags/v1.0.4.zip",
+            message,
+        )
+
     def test_update_self_update_skips_local_channel_without_package_source(self) -> None:
         args = Namespace(
             command_package_updated=False,
@@ -11746,7 +11791,15 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             dry_run = json.loads(stdout)
             self.assertEqual(dry_run["release_channel"], "stable")
             self.assertEqual(dry_run["release_source_ref"], "v1.0.0")
-            self.assertIn("/tags/v1.0.0.zip", dry_run["release_package_url"])
+            # Stable resolves the published wheel asset, not the tag archive:
+            # the archive is ~44 MB of assets/tests/site against ~2.7 MB for
+            # the wheel, and downloading it is what made `omh update` slow.
+            self.assertEqual(
+                dry_run["release_package_url"],
+                "https://github.com/rlaope/oh-my-hermes/releases/download/v1.0.0/"
+                "oh_my_hermes-1.0.0-py3-none-any.whl",
+            )
+            self.assertEqual(dry_run["release_artifact_kind"], "release-wheel")
 
             status, _, stderr = run_cli(["--omh-home", str(omh_home), "install", "--dry-run", "--channel", "stable"])
             self.assertEqual(status, 2)

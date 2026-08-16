@@ -65,7 +65,13 @@ from ..paths import OmhPaths, managed_command_venv_dir
 from ..plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
 from ..plugin_pack import PLUGIN_NAME, PluginPackError, install_plugin_bundle
 from ..probe import probe_capabilities
-from ..release import RELEASE_CHANNELS, package_url_for
+from ..release import (
+    RELEASE_CHANNELS,
+    ReleaseSelection,
+    missing_release_asset_hint,
+    package_url_for,
+    release_artifact_note,
+)
 from ..tui_widget_pack import install_tui_widget, uninstall_tui_widget
 from ..routing.recommend import recommend_skills
 from ..routing.route_plan import build_workflow_route_plan, compact_workflow_route_plan
@@ -206,6 +212,8 @@ def _install_result(args: argparse.Namespace) -> dict[str, object]:
             "release_channel": release.channel,
             "release_version": release.version,
             "release_package_url": release.package_url,
+            "release_artifact_kind": release.artifact_kind,
+            "release_artifact_note": release_artifact_note(release),
             "release_source_ref": source_ref,
             "language": language,
         }
@@ -481,7 +489,16 @@ def _run_command_package_self_update(args: argparse.Namespace, plan: dict[str, o
     wants_json = _wants_json(args)
     progress = _HumanProgress(enabled=not wants_json, use_color=_use_color())
     progress.header("OMH update", "Refresh the OMH command package and workflow pack.")
-    progress.step(1, 2, "Updating omh command package", detail=package_url)
+    # The size goes on the line printed before pip starts, not after it
+    # finishes: a stable wheel is a second, and the repository archive is the
+    # multi-minute wait people were left staring at with no explanation.
+    note = release_artifact_note(release) if isinstance(release, ReleaseSelection) else ""
+    progress.step(
+        1,
+        2,
+        "Updating omh command package",
+        detail=f"{package_url} ({note})" if note else package_url,
+    )
     completed = subprocess.run(
         [
             python,
@@ -511,7 +528,9 @@ def _run_command_package_self_update(args: argparse.Namespace, plan: dict[str, o
         detail = _bounded_command_error(
             completed.stderr or completed.stdout or "pip install failed"
         )
-        raise OmhError(f"command package update failed: {detail}")
+        hint = missing_release_asset_hint(release) if isinstance(release, ReleaseSelection) else ""
+        message = f"command package update failed: {detail}"
+        raise OmhError(f"{message}; {hint}" if hint else message)
     progress.done("command package updated")
     if not wants_json:
         progress.step(2, 2, "Refreshing OMH workflows with the updated command")
