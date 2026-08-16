@@ -199,10 +199,11 @@ _Avoid_: opening a PR for it, reaching for `hermes update`
 **Hermes user-config fault**:
 A key that the user or `hermes setup` owns, and that OMH must never write, is
 set inconsistently with what the reporter expects — `model.default`,
-`model.provider`, `model.base_url`, anything under `display.`, the active
+`model.provider`, `model.base_url`, `display.interface`, an explicitly chosen
 skin. Reading the key proves it. OMH reports the inconsistency and stops
 there; it only ever writes the managed keys it installed (see Managed
-artifact). Check it alongside the install fault, before reproducing anything.
+artifact) — `display.skin` counts as managed only in its unset-default case.
+Check it alongside the install fault, before reproducing anything.
 _Avoid_: writing the key from OMH, filing it as a product fault
 
 **OMH product fault**:
@@ -243,7 +244,11 @@ _Avoid_: underroute (that name matches nothing in the code)
 
 **Managed artifact**:
 A file OMH installs and refreshes under a host-owned root and may safely
-overwrite on setup/update — the plugin bundle, the widget file, managed
-skills, and the config keys OMH inserted. Everything else under a host root is
-user-owned and preserved.
-_Avoid_: overwriting anything OMH did not write
+overwrite on setup/update — the plugin bundle, the widget file, the identity
+skin (`skins/omh.yaml`), managed skills, and the config keys OMH inserted.
+`display.skin` is the one identity default OMH sets, and only when the user
+has not chosen a skin; an explicit choice — including `hermes skin use` over
+OMH's default — is user-owned from then on. Everything else under a host root
+is user-owned and preserved.
+_Avoid_: overwriting anything OMH did not write, rewriting an explicit skin
+choice back to `omh`

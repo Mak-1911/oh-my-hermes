@@ -33,7 +33,9 @@ from ..coding.model_recommendations import resolve_model_recommendation
 from ..config_adapter import (
     ConfigChange,
     display_interface_selection,
+    display_skin_selection,
     ensure_external_dir,
+    ensure_omh_skin,
     ensure_plugin_enabled,
     external_dirs,
     maybe_set_memory_provider,
@@ -72,6 +74,7 @@ from ..release import (
     package_url_for,
     release_artifact_note,
 )
+from ..skin_pack import SKIN_NAME, install_skin, uninstall_skin
 from ..tui_widget_pack import install_tui_widget, uninstall_tui_widget
 from ..routing.recommend import recommend_skills
 from ..routing.route_plan import build_workflow_route_plan, compact_workflow_route_plan
@@ -368,6 +371,7 @@ def _refresh_installed_tui_widget(args: argparse.Namespace) -> dict[str, object]
     if not paths.hermes_plugin_dir.is_dir():
         return None
     result = install_tui_widget(paths.hermes_home, dry_run=bool(args.dry_run))
+    install_skin(paths.hermes_home, dry_run=bool(args.dry_run))
     # A refreshed widget that the Hermes side cannot load is a success that
     # behaves like a failure; say so at update time (same note as setup).
     _hermes_tui_preflight_step(paths, quiet=_wants_json(args), dry_run=bool(args.dry_run))
@@ -1209,16 +1213,22 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
         # non-default value the user had not chosen, which is exactly what
         # Managed artifact forbids.
         # OMH now reads the interface and adapts to it instead: the widget
-        # still renders when the user runs the Ink TUI, and the plugin's
-        # `on_session_start` line carries the same status in the classic REPL.
+        # renders when the user runs the Ink TUI, and doctor names the
+        # trade-off for the classic REPL.
         tui_interface = ConfigChange(False, "display.interface is Hermes-owned; OMH reads it and never writes it", plugin_enable.text)
+        # Identity is different from terminal choice. The managed skin themes
+        # whichever surface the user already runs -- classic CLI, Ink TUI, and
+        # desktop all read the same YAML -- so defaulting `display.skin` to it
+        # costs no chrome and changes no behaviour, and an explicit skin
+        # choice is never rewritten (see `ensure_omh_skin`).
+        skin_active = ensure_omh_skin(tui_interface.text, SKIN_NAME)
         # Same reasoning one layer down. OMH's memory provider ships inside the
         # bundle, and a provider Hermes never selects is a provider that never
         # runs -- so requiring a control-plane command to switch it on meant the
         # people AGENTS.md says should only need setup/update/doctor would never
         # have it. Claims the slot only when it is free; `set_memory_provider`
         # refuses when another product holds it, because Hermes runs exactly one.
-        memory_provider = maybe_set_memory_provider(tui_interface.text, MEMORY_PROVIDER_NAME, memory_mode)
+        memory_provider = maybe_set_memory_provider(skin_active.text, MEMORY_PROVIDER_NAME, memory_mode)
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
     if not args.dry_run and (
@@ -1226,6 +1236,7 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
         or compression.changed
         or plugin_enable.changed
         or tui_interface.changed
+        or skin_active.changed
         or memory_provider.changed
     ):
         write_config(paths.hermes_config_path, memory_provider.text)
@@ -1244,6 +1255,7 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
             or compression.changed
             or plugin_enable.changed
             or tui_interface.changed
+            or skin_active.changed
             or memory_provider.changed
         ),
         "message": change.message,
@@ -1256,6 +1268,11 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
             "changed": tui_interface.changed,
             "message": tui_interface.message,
             "selected": display_interface_selection(memory_provider.text),
+        },
+        "skin": {
+            "changed": skin_active.changed,
+            "message": skin_active.message,
+            "selected": display_skin_selection(memory_provider.text),
         },
         "memory_provider": {
             "changed": memory_provider.changed,
@@ -1296,6 +1313,11 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         if remove_all
         else {"status": "not_requested"}
     )
+    skin_result = (
+        uninstall_skin(paths.hermes_home, dry_run=bool(args.dry_run))
+        if remove_all
+        else {"status": "not_requested"}
+    )
     scope = (
         tr(language, "uninstall_scope_all")
         if remove_all
@@ -1313,6 +1335,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
             "dry_run": args.dry_run,
             "menubar_app": menubar_result,
             "tui_widget": tui_widget_result,
+            "skin": skin_result,
             "language": language,
         }
     )
@@ -1635,6 +1658,10 @@ def cmd_setup(args: argparse.Namespace) -> int:
     progress.step(step_index, total_steps, tr(language, "step_plugin"), detail=str(paths.hermes_plugin_dir))
     steps["plugin"] = _plugin_setup_result(args, paths)
     steps["tui_widget"] = install_tui_widget(paths.hermes_home, dry_run=bool(args.dry_run))
+    # The OMH identity skin ships next to the widget: same managed-artifact
+    # discipline, same refresh cadence. Activation happens in the config
+    # apply step (`ensure_omh_skin`), never here.
+    steps["skin"] = install_skin(paths.hermes_home, dry_run=bool(args.dry_run))
     steps["hermes_tui_preflight"] = _hermes_tui_preflight_step(
         paths, quiet=_wants_json(args), dry_run=bool(args.dry_run)
     )

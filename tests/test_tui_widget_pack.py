@@ -107,7 +107,11 @@ class TuiWidgetPackTests(unittest.TestCase):
 
             self.assertEqual((status, stderr), (0, ""))
             config_text = config.read_text(encoding="utf-8")
-            self.assertIn("display:\n  interface: classic\n", config_text)
+            # The identity skin default lands in the same display section, so
+            # the interface line is no longer adjacent to the header; what this
+            # test protects is that the explicit classic choice SURVIVES setup.
+            self.assertIn("  interface: classic\n", config_text)
+            self.assertIn("  skin: omh\n", config_text)
             self.assertEqual(config_text.count("interface:"), 1)
             self.assertEqual(json.loads(stdout)["steps"]["apply"]["tui_interface"]["selected"], "classic")
 

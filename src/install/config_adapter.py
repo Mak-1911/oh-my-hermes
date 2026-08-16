@@ -227,10 +227,42 @@ def memory_provider_selection(config_text: str) -> str:
 def display_skin_selection(config_text: str) -> str:
     """The name in `display.skin`, or "" when Hermes resolves its built-in default.
 
-    Read-only: OMH never writes this key. The active skin is what colours the
-    OMH widget's panel border, so doctor names it when reporting the chrome.
+    The active skin is what colours the OMH widget's panel border, so doctor
+    names it when reporting the chrome. `ensure_omh_skin` is the one writer,
+    and only for the unset case.
     """
     return _section_scalar(config_text, "display", "skin")
+
+
+def ensure_omh_skin(config_text: str, name: str) -> ConfigChange:
+    """Default `display.skin` to the managed OMH skin when no skin is chosen.
+
+    This is the owner-directed identity default: installing OMH is opting into
+    the OH-MY-HERMES look, the way installing oh-my-zsh restyles the shell it
+    wraps. It is deliberately narrower than the retired `display.interface`
+    write that #986 removed — that write moved users off Hermes' default
+    terminal and cost them chrome; this one selects a palette on the terminal
+    they already use, only when `display.skin` is unset, and `hermes skin use
+    <anything>` immediately and permanently overrides it because an explicit
+    value is never rewritten.
+    """
+    selected = display_skin_selection(config_text)
+    if selected == name:
+        return ConfigChange(False, f"display.skin is already {name}", config_text)
+    if selected:
+        return ConfigChange(False, f"display.skin is {selected}; leaving user preference unchanged", config_text)
+
+    lines = config_text.splitlines()
+    if any(line.startswith("display.skin:") for line in lines):
+        return ConfigChange(False, "dotted display.skin is user-owned; leaving it alone", config_text)
+    display_indices = [index for index, line in enumerate(lines) if line == "display:"]
+    if len(display_indices) > 1:
+        return ConfigChange(False, "duplicate display sections are ambiguous; leaving them alone", config_text)
+    if not display_indices:
+        text = (config_text.rstrip() + f"\n\ndisplay:\n  skin: {name}\n").lstrip("\n")
+        return ConfigChange(True, "appended display.skin", text)
+    lines.insert(display_indices[0] + 1, f"  skin: {name}")
+    return ConfigChange(True, f"set display.skin to {name}", "\n".join(lines) + "\n")
 
 
 def model_scalar_selection(config_text: str, key: str) -> str:
