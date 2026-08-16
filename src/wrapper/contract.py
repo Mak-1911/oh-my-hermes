@@ -61,6 +61,7 @@ from ..skills.catalog import (
     decision_frontier_policy,
     installable_skill_definitions,
     omh_skill_display_name,
+    omh_skill_install_path,
     primary_harness_for_skill,
     retained_delegation_skill_names,
 )
@@ -6774,7 +6775,7 @@ def _omh_status_probe_projection(probe: dict[str, object]) -> dict[str, object]:
 def _omh_status_probe_fingerprint(paths: OmhPaths) -> tuple[tuple[str, int, int, int], ...]:
     watched = (
         paths.hermes_config_path,
-        paths.skills_dir / omh_skill_display_name("oh-my-hermes") / "SKILL.md",
+        paths.skills_dir / omh_skill_install_path("oh-my-hermes") / "SKILL.md",
         paths.runtime_state_path,
         paths.runtime_runs_dir,
         paths.runtime_wrapper_sessions_dir,

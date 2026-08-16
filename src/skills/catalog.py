@@ -649,6 +649,58 @@ def installable_skill_names() -> tuple[str, ...]:
     return tuple(definition.name for definition in installable_skill_definitions())
 
 
+ULTRAWORK_HERMES_CATEGORY = "ultrawork"
+HERMES_CATEGORY_FALLBACK = "workflow"
+
+
+def hermes_skill_category(name: str) -> str:
+    """The Hermes dashboard group a skill installs under.
+
+    Hermes derives a skill's category from DIRECTORY STRUCTURE, not from
+    frontmatter: `tools/skills_tool.py::_get_category_from_path` takes the path
+    relative to each configured skills dir and uses the first path component
+    only when the relative path has three or more parts. A flat
+    `<skills_dir>/<skill>/SKILL.md` install therefore resolves to no category at
+    all, and the startup banner filed every OMH skill under "general". Installs
+    are nested one level deeper -- `<skills_dir>/<category>/<skill>/SKILL.md` --
+    so the group a reader sees is a group OMH chose.
+
+    The group is deliberately NOT `SkillDefinition.category`. That field is the
+    catalog's fine-grained phase vocabulary (41 values across ~100 skills), and
+    one banner line per value is not a dashboard. `hermes_role` is the coarse
+    axis the product already documents in `docs/ROLES.md`, so it is what the
+    directories mirror.
+
+    The ULW engines are the one carve-out: they span six catalog categories and
+    five roles, but a user reaching for them is reaching for the ULW engine
+    family by name. Grouping them under `ultrawork` is what makes the banner
+    able to say so. Membership reuses `ULW_ENGINE_SKILL_NAMES`, the same list
+    that owns the `ulw-` label prefix, so a skill cannot be a ULW engine in one
+    surface and not the other.
+    """
+    text = name.strip()
+    if text in ULW_ENGINE_SKILL_NAMES:
+        return ULTRAWORK_HERMES_CATEGORY
+    return _hermes_category_by_skill().get(text, HERMES_CATEGORY_FALLBACK)
+
+
+def hermes_skill_categories() -> tuple[str, ...]:
+    """Every category an installable skill lands in, sorted."""
+    return tuple(
+        sorted({hermes_skill_category(name) for name in installable_skill_names()})
+    )
+
+
+def omh_skill_install_path(name: str) -> str:
+    """Posix relative path of a skill's install directory under the skills dir."""
+    return f"{hermes_skill_category(name)}/{omh_skill_display_name(name)}"
+
+
+@lru_cache(maxsize=1)
+def _hermes_category_by_skill() -> dict[str, str]:
+    return {definition.name: definition.hermes_role for definition in _builtin_definitions_cached()}
+
+
 def surface_exposure_for_skill(name: str) -> SurfaceExposure:
     return _surface_exposure_by_name().get(name, _default_surface_exposure(name))
 

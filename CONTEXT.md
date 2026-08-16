@@ -45,6 +45,18 @@ in chat. Generated from the skill catalog; never hand-edited.
 _Avoid_: slash command, prompt template, OMC skill (that is a different
 product's concept)
 
+**Hermes skill category**:
+The dashboard group Hermes shows a skill under in its startup banner and skills
+list. Hermes derives it from the SKILL.md's DIRECTORY, not from frontmatter, and
+only when the path relative to a registered skills dir has three or more parts —
+so managed skills install at `<skills_dir>/<category>/<label>/SKILL.md`.
+`hermes_skill_category()` in `src/skills/catalog.py` owns the mapping: the
+skill's Hermes role, with the ULW engines carved out as `ultrawork`. The repo's
+own `skills/` tap tree stays flat, because Hermes' tap lister reads only one
+directory level below a tap path.
+_Avoid_: `SkillDefinition.category` (the catalog's fine-grained phase field,
+which Hermes never reads), capability family
+
 **Skill catalog**:
 The source of truth for every skill and its metadata (`src/skills/catalog.py`
 plus render code). Skills, `docs/WORKFLOWS.md`, `docs/ROLES.md`, and the demo

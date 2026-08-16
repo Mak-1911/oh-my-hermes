@@ -108,7 +108,7 @@ class HermesReadinessCliTests(unittest.TestCase):
 
 
 def _write_ready_fixture(omh_home: Path, hermes_home: Path) -> None:
-    managed_skill = omh_home / "skills" / "omh-routing" / "SKILL.md"
+    managed_skill = omh_home / "skills" / "guide" / "omh-routing" / "SKILL.md"
     managed_skill.parent.mkdir(parents=True)
     managed_skill.write_text("# oh-my-hermes\n", encoding="utf-8")
     (hermes_home / "skills").mkdir(parents=True)

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from ..skills.catalog import omh_skill_display_name
+from ..skills.catalog import omh_skill_install_path
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -19,6 +19,7 @@ from ..local_store import can_write_dir
 from ..install.guidance_projection import build_guidance_projection_status
 from ..install.hook_integrity import HOOK_HOST_TARGET, VALID_HOOK_EVENTS, build_hook_integrity_status
 from ..install.identity_conflicts import build_identity_conflict_report
+from ..install.installer import installed_skill_directories
 from ..install.plugin_loader_observation import observe_real_loader_registration
 from ..manifest import local_modifications, read_manifest
 from ..paths import OmhPaths
@@ -130,7 +131,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
             )
         )
     for skill in CORE_SKILLS:
-        path = paths.skills_dir / omh_skill_display_name(skill) / "SKILL.md"
+        path = paths.skills_dir / omh_skill_install_path(skill) / "SKILL.md"
         checks.append(Check(f"skill:{skill}", path.exists(), str(path)))
     config_text = read_config(paths.hermes_config_path)
     dirs = external_dirs(config_text)
@@ -317,6 +318,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
         )
     checks.append(_hook_integrity_check(paths))
     checks.append(_retired_skill_install_check(paths))
+    checks.append(_flat_skill_layout_check(paths))
     checks.append(_plugin_ulw_lifecycle_check(paths))
     checks.extend(_hermes_tui_checks(paths))
     checks.append(_hermes_model_routing_check(paths))
@@ -563,9 +565,11 @@ def _retired_skill_install_check(paths: OmhPaths) -> Check:
         return Check("retired_skills", True, "no skills directory yet", observed=False)
     labels = retired_display_names()
     installed = sorted(
-        entry.name
-        for entry in paths.skills_dir.iterdir()
-        if entry.is_dir() and entry.name in labels
+        {
+            directory.name
+            for directory in installed_skill_directories(paths.skills_dir)
+            if directory.name in labels
+        }
     )
     if not installed:
         return Check("retired_skills", True, "no retired ULW engine skill is installed")
@@ -579,6 +583,40 @@ def _retired_skill_install_check(paths: OmhPaths) -> Check:
         severity="warning",
         remediation="the intents now run as `ulw-work` capabilities; retired installs are pruned on update",
         next_action="run `omh update` to prune the retired skill directories",
+    )
+
+
+def _flat_skill_layout_check(paths: OmhPaths) -> Check:
+    """A managed skill still sitting flat under skills_dir is a finding.
+
+    Skills install under `<skills_dir>/<category>/<label>/SKILL.md` so Hermes can
+    read a dashboard category off the path. A copy left at the old flat depth is
+    a second SKILL.md with the same `name:` frontmatter, and Hermes resolves the
+    category of that copy to nothing -- so the banner keeps a "general" group and
+    the skill is registered twice. `omh update` prunes them; doctor names the
+    ones an interrupted or half-forced update left behind.
+    """
+    if not paths.skills_dir.is_dir():
+        return Check("skill_layout", True, "no skills directory yet", observed=False)
+    labels = {omh_skill_install_path(template.name).split("/")[-1] for template in builtin_skill_templates()}
+    flat = sorted(
+        directory.name
+        for directory in installed_skill_directories(paths.skills_dir)
+        if directory.parent == paths.skills_dir and directory.name in labels
+    )
+    if not flat:
+        return Check("skill_layout", True, "every managed skill sits under a category directory")
+    listed = ", ".join(flat[:5]) + (", ..." if len(flat) > 5 else "")
+    return Check(
+        "skill_layout",
+        False,
+        f"{len(flat)} managed skill(s) still installed at the pre-category flat depth: {listed}",
+        severity="warning",
+        remediation=(
+            "a flat copy registers the same skill a second time and keeps a \"general\" group in the "
+            "Hermes banner"
+        ),
+        next_action="run `omh update` to move them under their category directory",
     )
 
 
@@ -1026,7 +1064,7 @@ def _skill_freshness_check(paths: OmhPaths, manifest: dict) -> Check:
     }
     stale: list[str] = []
     for template in builtin_skill_templates():
-        rel = f"{omh_skill_display_name(template.name)}/SKILL.md"
+        rel = f"{omh_skill_install_path(template.name)}/SKILL.md"
         if rel not in manifest_sha_by_rel:
             continue
         path = paths.skills_dir / rel

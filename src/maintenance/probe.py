@@ -1,5 +1,5 @@
 from __future__ import annotations
-from ..skills.catalog import omh_skill_display_name
+from ..skills.catalog import omh_skill_install_path
 
 import os
 import sys
@@ -472,7 +472,7 @@ def probe_capabilities(paths: OmhPaths, *, include_parity: bool = False, include
             ),
         )
     )
-    managed_skill_path = paths.skills_dir / omh_skill_display_name("oh-my-hermes") / "SKILL.md"
+    managed_skill_path = paths.skills_dir / omh_skill_install_path("oh-my-hermes") / "SKILL.md"
 
     capabilities.append(
         Capability(

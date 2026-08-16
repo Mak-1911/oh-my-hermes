@@ -1,5 +1,5 @@
 from __future__ import annotations
-from ..skills.catalog import omh_skill_display_name
+from ..skills.catalog import omh_skill_install_path
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -107,7 +107,7 @@ def official_basis() -> dict[str, str | list[str]]:
 
 
 def surface_specs(paths: OmhPaths) -> list[SurfaceSpec]:
-    managed_skill = paths.skills_dir / omh_skill_display_name("oh-my-hermes") / "SKILL.md"
+    managed_skill = paths.skills_dir / omh_skill_install_path("oh-my-hermes") / "SKILL.md"
     return [
         SurfaceSpec(
             "hermes_config",
