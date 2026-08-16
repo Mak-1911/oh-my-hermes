@@ -307,7 +307,8 @@ final class OMHMenuBarDelegate: NSObject, NSApplicationDelegate {
         let summary = (display?["summary_line"] as? String) ?? "OMH ready"
         let connection = ((settings?["omh_connection"] as? [String: Any])?["value"] as? String) ?? "unknown"
         let mark = connection == "ready" ? "✓" : "!"
-        statusItem.button?.title = "\(title) \(mark)"
+        let menuBarTitle = (display?["menu_bar_title"] as? String) ?? ""
+        statusItem.button?.title = menuBarTitle.isEmpty ? "\(title) \(mark)" : menuBarTitle
         statusItem.button?.toolTip = "\(headline) — \(summary)"
         configureMenu(headline: headline, summary: summary, cards: menuCards(from: payload))
     }
@@ -344,11 +345,11 @@ final class OMHMenuBarDelegate: NSObject, NSApplicationDelegate {
                 menu.addItem(item)
             }
             if let rows = card["rows"] as? [[String: Any]] {
-                for row in rows.prefix(5) {
+                for row in rows.prefix(6) {
                     let line = rowTitle(row)
                     let item = disabledItem("   \(line)")
                     item.toolTip = line
-                    if (row["kind"] as? String) == "agent_status" {
+                    if (row["kind"] as? String) == "table_row" {
                         item.attributedTitle = NSAttributedString(
                             string: "   \(line)",
                             attributes: [.font: NSFont.monospacedSystemFont(ofSize: font.pointSize, weight: .regular)]
@@ -397,11 +398,10 @@ final class OMHMenuBarDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func rowTitle(_ row: [String: Any]) -> String {
-        if (row["kind"] as? String) == "agent_status" {
-            let agent = fixedWidth((row["agent"] as? String) ?? "unknown", 18)
-            let pid = fixedWidth((row["pid"] as? String) ?? "not observed", 13)
-            let status = (row["status"] as? String) ?? "unknown"
-            return "\(agent)\(pid)\(status)"
+        if (row["kind"] as? String) == "table_row" {
+            let left = fixedWidth((row["left"] as? String) ?? "", 18)
+            let right = (row["right"] as? String) ?? ""
+            return "\(left)\(right)"
         }
         let label = (row["label"] as? String) ?? ""
         let value = (row["value"] as? String) ?? ""

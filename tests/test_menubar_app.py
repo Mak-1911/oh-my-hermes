@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import platform
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -82,6 +85,43 @@ class MenubarAppTests(unittest.TestCase):
             '["menubar", "status", "--observe-local-processes", "--json"]',
             menubar_app_module._SWIFT_SOURCE,
         )
+
+    def test_native_helper_renders_v2_table_rows_and_count_title(self) -> None:
+        source = menubar_app_module._SWIFT_SOURCE
+
+        self.assertIn('== "table_row"', source)
+        self.assertIn('fixedWidth((row["left"] as? String) ?? "", 18)', source)
+        self.assertIn('(row["right"] as? String) ?? ""', source)
+        self.assertIn('rows.prefix(6)', source)
+        self.assertIn('display?["menu_bar_title"]', source)
+        self.assertNotIn('agent_status', source)
+
+    def test_native_helper_keeps_sessions_table_header_visible(self) -> None:
+        source = menubar_app_module._SWIFT_SOURCE
+
+        self.assertIn('let line = tableHeaderTitle(columns)', source)
+        self.assertIn('return fixedWidth(value, 18)', source)
+        self.assertNotIn('fixedWidth(value, 12)', source)
+
+    def test_native_helper_swift_source_compiles_on_darwin(self) -> None:
+        swiftc = shutil.which("swiftc")
+        if platform.system() != "Darwin" or swiftc is None:
+            self.skipTest("Swift/AppKit compile coverage requires swiftc on Darwin")
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "OMHMenuBar.swift"
+            executable = root / "omh-menubar"
+            source.write_text(menubar_app_module._SWIFT_SOURCE, encoding="utf-8")
+            result = subprocess.run(
+                [swiftc, "-framework", "AppKit", str(source), "-o", str(executable)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
     def test_menubar_start_defaults_to_human_readable_output(self) -> None:
         payload = {
