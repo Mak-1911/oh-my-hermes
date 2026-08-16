@@ -43,14 +43,20 @@ class TuiWidgetPackTests(unittest.TestCase):
             self.assertEqual((widget_dir / "omh-status.mjs").read_bytes(), expected)
             self.assertEqual(unrelated.read_bytes(), unrelated_bytes)
             self.assertEqual(payload["steps"]["tui_widget"]["status"], "installed")
-            self.assertIn(
-                "display:\n  interface: tui\n",
+            # `display.interface` is Hermes-owned. Installing the widget must
+            # not move the user's terminal to make that widget reachable.
+            self.assertNotIn(
+                "interface:",
                 (hermes_home / "config.yaml").read_text(encoding="utf-8"),
             )
 
-    def test_setup_defaults_existing_config_without_display_interface_to_tui(self) -> None:
-        # Upgraders whose config predates display.interface get the same TUI
-        # default as fresh installs; only an explicit choice is user-owned.
+    def test_setup_never_writes_display_interface(self) -> None:
+        # Inverted deliberately. OMH used to write `display.interface: tui`
+        # here so its widget -- which Hermes loads only in the Ink TUI -- would
+        # be reachable. That moved the user off Hermes' own default classic
+        # REPL, and with it the banner, status line, and the rules framing the
+        # prompt, to serve an OMH surface. `display.interface` is Hermes-owned:
+        # OMH reads it and adapts, and never writes it.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             omh_home = root / ".omh"
@@ -74,10 +80,9 @@ class TuiWidgetPackTests(unittest.TestCase):
             self.assertEqual((status, stderr), (0, ""))
             config_text = config.read_text(encoding="utf-8")
             self.assertIn("  compact: true", config_text)
-            self.assertIn("  interface: tui", config_text)
+            self.assertNotIn("interface:", config_text)
             tui_interface = json.loads(stdout)["steps"]["apply"]["tui_interface"]
-            self.assertTrue(tui_interface["changed"])
-            self.assertEqual(tui_interface["selected"], "tui")
+            self.assertFalse(tui_interface["changed"])
 
     def test_setup_preserves_an_explicit_classic_interface(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -122,8 +127,11 @@ class TuiWidgetPackTests(unittest.TestCase):
             widget = hermes_home / "tui-widgets" / "omh-status.mjs"
             widget.unlink()
             config = hermes_home / "config.yaml"
+            # Authored here rather than derived from a value OMH wrote: OMH no
+            # longer writes display.interface at all, so the explicit classic
+            # preference this test protects has to come from the user.
             config.write_text(
-                config.read_text(encoding="utf-8").replace("interface: tui", "interface: cli"),
+                config.read_text(encoding="utf-8") + "\ndisplay:\n  interface: cli\n",
                 encoding="utf-8",
             )
 

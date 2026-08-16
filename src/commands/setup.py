@@ -31,10 +31,10 @@ from ..coding.hermes_model_config import (
 from ..coding.model_discovery import discover_local_models
 from ..coding.model_recommendations import resolve_model_recommendation
 from ..config_adapter import (
+    ConfigChange,
     display_interface_selection,
     ensure_external_dir,
     ensure_plugin_enabled,
-    ensure_tui_interface,
     external_dirs,
     maybe_set_memory_provider,
     memory_provider_selection,
@@ -1184,11 +1184,19 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
         # Hermes. Doing only the first leaves an install that passes every
         # structural check while no OMH tool is reachable in chat.
         plugin_enable = ensure_plugin_enabled(compression.text, PLUGIN_NAME)
-        # Hermes loads tui-widgets only in its official Ink TUI. Installing the
-        # widget while leaving the install on the classic REPL makes the HUD
-        # unreachable -- for upgraders with an older config just as much as for
-        # fresh installs. An explicit display preference remains user-owned.
-        tui_interface = ensure_tui_interface(plugin_enable.text)
+        # `display.interface` is Hermes' own, and its default is the classic
+        # REPL. OMH used to write `tui` here so its widget would be reachable,
+        # because Hermes loads tui-widgets only in the Ink TUI. That traded the
+        # user's terminal for OMH's convenience: the classic REPL draws the
+        # banner, the status line, and the rules framing the prompt, and the
+        # Ink TUI does not, so installing OMH visibly stripped chrome the user
+        # never asked to lose -- and it wrote a Hermes-owned key to a
+        # non-default value the user had not chosen, which is exactly what
+        # Managed artifact forbids.
+        # OMH now reads the interface and adapts to it instead: the widget
+        # still renders when the user runs the Ink TUI, and the plugin's
+        # `on_session_start` line carries the same status in the classic REPL.
+        tui_interface = ConfigChange(False, "display.interface is Hermes-owned; OMH reads it and never writes it", plugin_enable.text)
         # Same reasoning one layer down. OMH's memory provider ships inside the
         # bundle, and a provider Hermes never selects is a provider that never
         # runs -- so requiring a control-plane command to switch it on meant the
