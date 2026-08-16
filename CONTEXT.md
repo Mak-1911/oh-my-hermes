@@ -184,6 +184,48 @@ during live work) and the plan-todo checklist in `dock-top`.
 _Avoid_: statusline (that is a different, host-owned surface), HUD (the widget
 renders the HUD payload; it is not the payload)
 
+### Fault domains
+
+**OMH install fault**:
+A managed artifact under a host root is missing, stale, or was never refreshed
+on this machine; the repo itself is fine. `omh doctor` proves it — it reports
+plugin, widget, and managed-skill state — and `omh setup` or `omh update`
+fixes it. Measure the domain before assuming one: this and the Hermes
+user-config fault are cheap reads and come first, an OMH product fault needs a
+clean-tree reproduction, and a Hermes-side fault comes last and only with both
+of its proofs in hand.
+_Avoid_: opening a PR for it, reaching for `hermes update`
+
+**Hermes user-config fault**:
+A key that the user or `hermes setup` owns, and that OMH must never write, is
+set inconsistently with what the reporter expects — `model.default`,
+`model.provider`, `model.base_url`, anything under `display.`, the active
+skin. Reading the key proves it. OMH reports the inconsistency and stops
+there; it only ever writes the managed keys it installed (see Managed
+artifact). Check it alongside the install fault, before reproducing anything.
+_Avoid_: writing the key from OMH, filing it as a product fault
+
+**OMH product fault**:
+The behaviour reproduces from a clean install and on the repo dev tree,
+independent of the reporter's machine — prove it by running
+`uv run python -m omh.cli …` in a clean checkout. The fix is a repo change
+with tests, which makes this the only fault domain that produces a PR.
+_Avoid_: claiming it before a clean-tree reproduction
+
+**Hermes-side fault**:
+Hermes Agent's own code or built assets are genuinely behind, which is what
+makes `hermes update` the answer. Two proofs are required together, never
+either one alone: `git -C "$HERMES_HOME/hermes-agent" rev-parse HEAD` behind
+that repo's `origin/main`, and the built Modern-TUI bundle older than its
+TypeScript sources. A visual symptom that reads as "an old TUI" is almost
+always an OMH product fault or a Hermes user-config fault instead — in one
+real session Hermes sat at its `origin/main` HEAD with a freshly built
+Modern-TUI bundle while the visual complaint was entirely valid, and the
+missing chrome turned out to be an OMH product gap. OMH never patches Hermes
+either way.
+_Avoid_: prescribing `hermes update` from a visual symptom alone, treating one
+of the two proofs as sufficient
+
 ### Repo guard vocabulary
 
 **Byte gate**:
