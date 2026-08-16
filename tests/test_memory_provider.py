@@ -365,11 +365,14 @@ class ProviderRegistrationTests(unittest.TestCase):
             pass
 
     class _PluginCtx:
-        """Mirrors the real Hermes plugin context, which has no provider method."""
+        """Mirrors Hermes' general context, including its inert provider stub."""
 
         def __init__(self) -> None:
             self.tools: list[str] = []
             self.hooks: list[str] = []
+
+        def register_memory_provider(self, provider) -> None:
+            pass
 
         def register_tool(self, name, *args, **kwargs) -> None:
             self.tools.append(name)
@@ -394,14 +397,15 @@ class ProviderRegistrationTests(unittest.TestCase):
         self.assertIsInstance(collector.provider, OmhMemoryProvider)
         self.assertEqual(sorted(collector.tools), sorted(PROVIDED_TOOLS))
 
-    def test_registration_survives_a_host_without_a_memory_surface(self) -> None:
-        # The guard that replaced the branch: a host that offers no
-        # `register_memory_provider` must still get every tool and hook, rather
-        # than dying on a missing attribute the way Hermes' own note describes.
+    def test_general_context_memory_stub_does_not_short_circuit_tools(self) -> None:
+        # Current Hermes exposes an inert `register_memory_provider` stub on
+        # the general plugin context. Its presence must not select a
+        # memory-only path or return before tool/hook registration.
         ctx = self._PluginCtx()
-        self.assertFalse(hasattr(ctx, "register_memory_provider"))
+        self.assertTrue(hasattr(ctx, "register_memory_provider"))
         register(ctx)
         self.assertEqual(sorted(ctx.tools), sorted(PROVIDED_TOOLS))
+        self.assertIn("on_session_end", ctx.hooks)
 
     def test_the_plugin_loader_still_gets_every_tool_and_hook(self) -> None:
         ctx = self._PluginCtx()
