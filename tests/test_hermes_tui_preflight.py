@@ -87,9 +87,10 @@ class HermesTuiPreflightTests(unittest.TestCase):
             self.assertEqual(preflight["display_skin"], {"value": "default", "explicit": False})
             self.assertEqual(widget_render_blockers(preflight), [])
 
-    def test_preflight_names_an_explicit_skin_and_a_borderless_widget(self) -> None:
-        # A widget that predates panel chrome loads fine, so it is a degraded
-        # look and never a render blocker.
+    def test_preflight_names_an_explicit_skin_and_a_stale_widget(self) -> None:
+        # A widget from an older OMH loads fine, so it is a degraded look and
+        # never a render blocker. Staleness is simulated by stripping the
+        # current design's marker (the derived state label).
         with TemporaryDirectory() as tmp:
             paths = _make_paths(Path(tmp))
             _make_hermes_install(paths.hermes_home)
@@ -99,7 +100,7 @@ class HermesTuiPreflightTests(unittest.TestCase):
             install_tui_widget(paths.hermes_home)
             widget = paths.hermes_home / "tui-widgets" / "omh-status.mjs"
             widget.write_text(
-                widget.read_text(encoding="utf-8").replace("borderStyle:", "noBorderStyle:"),
+                widget.read_text(encoding="utf-8").replace("hudStateLabel", "oldStateLabel"),
                 encoding="utf-8",
             )
 
@@ -109,9 +110,9 @@ class HermesTuiPreflightTests(unittest.TestCase):
             self.assertEqual(preflight["display_skin"], {"value": "ares", "explicit": True})
             self.assertEqual(widget_render_blockers(preflight), [])
 
-    def test_preflight_rejects_a_hardcoded_border_colour_as_unthemed(self) -> None:
-        # A border alone is not the contract: a literal palette would fight
-        # whatever skin the user runs, so it reads as unthemed chrome.
+    def test_preflight_rejects_the_retired_bordered_card_as_stale(self) -> None:
+        # The bordered card was the interim design; its border marker now
+        # identifies a widget that predates the text-line HUD.
         with TemporaryDirectory() as tmp:
             paths = _make_paths(Path(tmp))
             _make_hermes_install(paths.hermes_home)
@@ -120,7 +121,9 @@ class HermesTuiPreflightTests(unittest.TestCase):
             widget = paths.hermes_home / "tui-widgets" / "omh-status.mjs"
             widget.write_text(
                 widget.read_text(encoding="utf-8").replace(
-                    "borderColor: t.color.primary", "borderColor: '#FFD700'"
+                    "{ flexDirection: 'column', width: '100%' }",
+                    "{ borderStyle: 'round', flexDirection: 'column', width: '100%' }",
+                    1,
                 ),
                 encoding="utf-8",
             )
@@ -294,7 +297,7 @@ class DoctorHermesTuiChecksTests(unittest.TestCase):
                 self.assertTrue(checks[name].ok, name)
                 self.assertEqual(checks[name].severity, "ok", name)
 
-    def test_doctor_warns_on_a_borderless_widget_without_flipping_the_exit_code(self) -> None:
+    def test_doctor_warns_on_a_stale_widget_without_flipping_the_exit_code(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = _make_paths(Path(tmp))
             _make_hermes_install(paths.hermes_home)
@@ -302,7 +305,7 @@ class DoctorHermesTuiChecksTests(unittest.TestCase):
             install_tui_widget(paths.hermes_home)
             widget = paths.hermes_home / "tui-widgets" / "omh-status.mjs"
             widget.write_text(
-                widget.read_text(encoding="utf-8").replace("borderStyle:", "noBorderStyle:"),
+                widget.read_text(encoding="utf-8").replace("hudStateLabel", "oldStateLabel"),
                 encoding="utf-8",
             )
 
@@ -311,7 +314,7 @@ class DoctorHermesTuiChecksTests(unittest.TestCase):
 
             self.assertTrue(chrome.ok)
             self.assertEqual(chrome.severity, "warning")
-            self.assertIn("borderless", chrome.message)
+            self.assertIn("predates the current text HUD", chrome.message)
             self.assertIn("omh setup", chrome.next_action)
             # The widget itself is still installed and loadable; only its look
             # is stale, so the sibling state check stays clean.

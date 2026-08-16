@@ -33,6 +33,8 @@ STATUS_SCHEMA_VERSION = "omh_status/v1"
 HUD_SCHEMA_VERSION = "omh_hud/v1"
 HUD_PRESETS = {"minimal", "focused", "full"}
 TODO_STALE_SECONDS = 86400
+# How long a fully-done plan keeps rendering after its last update.
+ALL_DONE_TODO_LINGER_SECONDS = 15 * 60
 TODO_DISPLAY_ITEM_LIMIT = 3
 HUD_REQUIRED_TOOLS = PROVIDED_TOOLS
 HUD_REQUIRED_HOOKS = REQUIRED_HOOKS
@@ -1170,6 +1172,14 @@ def _todo_summary(home: Path) -> dict[str, Any]:
         summary["status"] = "stale"
         return summary
     if counts["done"] == counts["total"]:
+        # A finished plan is a receipt, not ambient chrome. It lingers briefly
+        # so the session that finished it sees the ✓, then leaves -- without
+        # this, a plan completed in one session greeted every NEW session as a
+        # "Plan ... 3/3" box for a full day, reading as state the new session
+        # never created (observed on a fresh boot the morning after a QA run).
+        if age > ALL_DONE_TODO_LINGER_SECONDS:
+            summary["status"] = "absent"
+            return summary
         summary["status"] = "all_done"
         return summary
     summary["status"] = "established"

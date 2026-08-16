@@ -213,7 +213,8 @@ Maintenance paths such as reconciling a `--full` install back to core live in
 
 ## The OH-MY-HERMES terminal
 
-Bare `omh` opens Hermes' modern TUI wearing the OMH identity:
+Bare `omh` opens Hermes — the same door as `hermes` — wearing the OMH
+identity:
 
 ```sh
 omh

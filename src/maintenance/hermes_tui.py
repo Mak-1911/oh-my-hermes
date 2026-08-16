@@ -121,16 +121,22 @@ def _display_skin(config_text: str) -> dict[str, Any]:
 
 
 def _widget_draws_themed_panel(widget_text: str) -> bool:
-    """Does the INSTALLED widget draw a bordered card coloured by the theme?
+    """Does the INSTALLED widget render the current text-line HUD?
 
-    A widget left over from an OMH that predated panel chrome loads and runs
-    fine — it just renders as borderless text beside the prompt, which reads
-    as "the HUD still looks like the old version" with nothing else wrong.
-    Both halves matter: a border alone could be a hardcoded palette that
-    fights the user's skin, so the colour must resolve through the theme
-    object the host hands the app.
+    A widget left over from an older OMH loads and runs fine — it just
+    renders yesterday's surface beside the prompt, which reads as "the HUD
+    still looks like the old version" with nothing else wrong. The current
+    design is dense text in the host's own status-line idiom (the bordered
+    card that briefly replaced it was retired by owner direction), so the
+    markers are the derived state label the text header carries and colours
+    resolving through the theme object — never a border, whose presence now
+    marks the RETIRED card design.
     """
-    return "borderStyle:" in widget_text and re.search(r"borderColor:\s*t\.color\.", widget_text) is not None
+    return (
+        "hudStateLabel" in widget_text
+        and "borderStyle:" not in widget_text
+        and re.search(r"color:\s*t\.color\.", widget_text) is not None
+    )
 
 
 def _widget_interpreter(widget_text: str) -> str:

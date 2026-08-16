@@ -477,28 +477,30 @@ def _hermes_tui_checks(paths: OmhPaths) -> list[Check]:
         )
     )
     if widget["installed"]:
-        # A widget from an OMH that predated panel chrome loads and runs, so
-        # every check above stays green while the HUD renders as borderless
-        # text beside the prompt — the exact "it still looks like the old
-        # version, and has no bright border" report this check exists to name.
+        # A widget from an older OMH loads and runs, so every check above
+        # stays green while the HUD renders yesterday's surface beside the
+        # prompt — the exact "it still looks like the old version" report this
+        # check exists to name. Current design: dense text in the host's
+        # status-line idiom, themed from the active skin; a bordered card
+        # marks the retired interim design.
         skin = preflight["display_skin"]
         checks.append(
             Check(
                 "hermes_tui_widget_chrome",
                 True,
                 (
-                    f"OMH status widget borders its panel from the active Hermes skin ({skin['value']})"
+                    f"OMH status widget renders the current text HUD themed from the active Hermes skin ({skin['value']})"
                     if widget["themed_panel"]
                     else (
-                        "installed OMH status widget predates themed panel chrome; it renders as borderless "
-                        f"text instead of a card bordered from the active skin ({skin['value']})"
+                        "installed OMH status widget predates the current text HUD; it renders an older "
+                        f"surface instead of the status-line-style HUD themed from the active skin ({skin['value']})"
                     )
                 ),
                 severity="ok" if widget["themed_panel"] else "warning",
                 next_action=(
                     ""
                     if widget["themed_panel"]
-                    else "run `omh setup` to refresh the managed TUI widget with themed panel chrome"
+                    else "run `omh setup` to refresh the managed TUI widget"
                 ),
             )
         )

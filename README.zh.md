@@ -143,7 +143,7 @@ omh doctor
 
 ## OH-MY-HERMES 终端
 
-只需输入 `omh`,即可打开带有 OMH 标识的 Hermes 现代 TUI:
+只需输入 `omh`,即可从与 `hermes` 相同的入口,打开带有 OMH 标识的 Hermes:
 
 ```sh
 omh

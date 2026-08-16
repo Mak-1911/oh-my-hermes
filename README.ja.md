@@ -140,8 +140,8 @@ omh doctor
 
 ## OH-MY-HERMES ターミナル
 
-`omh` と入力するだけで、OMH のアイデンティティをまとった Hermes のモダン TUI が
-開きます:
+`omh` と入力するだけで、`hermes` と同じ入口から、OMH のアイデンティティをまとった
+Hermes が開きます:
 
 ```sh
 omh
