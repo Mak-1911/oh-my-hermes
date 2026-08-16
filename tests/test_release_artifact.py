@@ -149,6 +149,37 @@ class InstallerParityTests(unittest.TestCase):
         self.assertIn('OMH_PACKAGE_URL="$OMH_REPO_ARCHIVE_ROOT/tags/$OMH_TAG.zip"', self.shell)
         self.assertIn('$OmhPackageUrl = "$OmhRepoArchiveRoot/tags/$OmhTag.zip"', self.powershell)
 
+    def test_both_installers_default_to_stable(self) -> None:
+        # A fresh install used to default to the `main` branch archive, which
+        # GitHub generates per request rather than serving from a CDN: 46,012,605
+        # bytes measured, and over five minutes on an ordinary connection. The
+        # default is now the newest release wheel; tracking main is opt-in.
+        self.assertIn('OMH_CHANNEL="${OMH_CHANNEL:-stable}"', self.shell)
+        self.assertIn("Get-OmhEnv 'OMH_CHANNEL' 'stable'", self.powershell)
+
+    def test_both_installers_resolve_latest_from_the_releases_redirect(self) -> None:
+        # The installers are download scripts, so resolving "newest release" is
+        # theirs to do -- `src/` stays offline, which INVARIANT 2 in
+        # tests/test_handoff_safety_contract_enforcement.py enforces.
+        for name, source in (("install.sh", self.shell), ("install.ps1", self.powershell)):
+            with self.subTest(installer=name):
+                self.assertIn("releases/latest", source)
+                self.assertIn("/releases/tag/v", source)
+
+    def test_a_failed_latest_lookup_names_both_ways_out(self) -> None:
+        # An unresolvable redirect must not become a guessed URL.
+        for name, source in (("install.sh", self.shell), ("install.ps1", self.powershell)):
+            with self.subTest(installer=name):
+                self.assertIn("could not resolve the latest release", source)
+                self.assertIn("OMH_CHANNEL=preview", source)
+
+    def test_the_installers_never_hand_omh_a_version_less_stable_channel(self) -> None:
+        # `src/` refuses a version-less stable selection rather than reaching
+        # the network, so the installer must always resolve a concrete version
+        # before it forwards --channel stable to `omh setup`.
+        self.assertIn('set -- setup --channel "$OMH_CHANNEL"', self.shell)
+        self.assertIn('set -- "$@" --version "$OMH_VERSION"', self.shell)
+
 
 if __name__ == "__main__":
     unittest.main()

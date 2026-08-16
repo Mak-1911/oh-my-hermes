@@ -351,9 +351,12 @@ equivalent — this is what the installer automates:
 ```powershell
 py -m venv $env:LOCALAPPDATA\omh\venv
 & $env:LOCALAPPDATA\omh\venv\Scripts\python.exe -m pip install --upgrade `
-    https://github.com/rlaope/oh-my-hermes/archive/refs/heads/main.zip
+    https://github.com/rlaope/oh-my-hermes/releases/download/v<version>/oh_my_hermes-<version>-py3-none-any.whl
 & $env:LOCALAPPDATA\omh\venv\Scripts\omh.exe setup
 ```
+
+The installer resolves `<version>` for you from the `releases/latest` redirect.
+Doing it by hand means naming the release you want.
 
 Where it differs from `install.sh`, it differs because the platform does:
 
@@ -835,26 +838,53 @@ Run the installer:
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
 ```
 
-By default this installs the preview channel from the `main` branch archive.
-For pinned stable installs, pass a release version after the matching
-`v<version>` tag exists:
+By default this installs the `stable` channel: the newest published release,
+as a wheel. To pin a specific release instead, pass its version — the channel
+is already the default, so naming it is optional but harmless:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_CHANNEL=stable OMH_VERSION=<version> sh
 ```
 
+To track the unreleased `main` branch instead, ask for `preview` explicitly:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_CHANNEL=preview sh
+```
+
 The two channels download different artifacts, and the difference is large
 enough to plan around:
 
-| Channel | Artifact | Measured size |
-| --- | --- | --- |
-| `stable` | `oh_my_hermes-<version>-py3-none-any.whl` release asset | 2,714,885 bytes at v1.0.6 |
-| `preview` | `main` branch repository archive | 46,012,605 bytes on 2026-08-15 |
+| Channel | Artifact | Measured size | Measured time |
+| --- | --- | --- | --- |
+| `stable` (default) | `oh_my_hermes-<version>-py3-none-any.whl` release asset | 2,714,885 bytes at v1.0.6 | 0.55s |
+| `preview` | `main` branch repository archive | 46,012,605 bytes on 2026-08-15 | 5.71s |
 
-The preview archive is the whole repository, including `assets/`, `tests/`,
-and `site/`, none of which is needed to run `omh`. It stays an archive because
-GitHub publishes release assets per tag and there is no per-branch wheel to
-point at. Prefer `stable` unless you specifically need unreleased `main`.
+Sizes and times measured 2026-08-15 with `curl`. Two things make the gap
+bigger than the byte ratio suggests. The preview archive is the whole
+repository, including `assets/`, `tests/`, and `site/`, none of which is
+needed to run `omh`. And GitHub *generates* `archive/refs/heads/<branch>.zip`
+on demand for every request rather than serving a cached object, so preview
+pays generation latency each time — on an ordinary connection that download
+has been observed to take over five minutes. Release assets are static objects
+served from a CDN.
+
+Preview stays an archive because GitHub publishes release assets per tag and
+there is no per-branch wheel to point at. Use it only when you specifically
+need unreleased `main`.
+
+A version-less `stable` install asks GitHub which release is newest by reading
+a single redirect (`releases/latest`), which costs about 0.25s. If that lookup
+fails, the installer says so and tells you to pass `OMH_VERSION` or switch to
+`OMH_CHANNEL=preview`; it never guesses a URL. The installer does this lookup
+itself and passes the resolved version to `omh setup`, because `omh` makes no
+network calls of its own.
+
+> **`omh update` still defaults to `preview`.** Only the installer default
+> moved. Until the release-version lookup has a home inside `omh` that does not
+> break its no-network boundary, a plain `omh update` keeps fetching the branch
+> archive. To get the slim path from `omh update` today, name the release:
+> `omh update --channel stable --version <version>`.
 
 Releases published before the wheel-publishing workflow existed carry no
 asset. If a stable install reports a 404 for the wheel, install that tag from

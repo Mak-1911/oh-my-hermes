@@ -3,7 +3,12 @@ set -eu
 
 OMH_REPO_ARCHIVE_ROOT="${OMH_REPO_ARCHIVE_ROOT:-https://github.com/rlaope/oh-my-hermes/archive/refs}"
 OMH_REPO_ASSET_ROOT="${OMH_REPO_ASSET_ROOT:-https://github.com/rlaope/oh-my-hermes/releases/download}"
-OMH_CHANNEL="${OMH_CHANNEL:-preview}"
+OMH_REPO_LATEST_URL="${OMH_REPO_LATEST_URL:-https://github.com/rlaope/oh-my-hermes/releases/latest}"
+# Stable installs the ~2.7 MB release wheel; preview installs the ~44 MB branch
+# archive, which GitHub generates per request rather than serving from a CDN.
+# Defaulting to the newest release is the contract every package manager
+# honours; preview stays available for tracking main.
+OMH_CHANNEL="${OMH_CHANNEL:-stable}"
 OMH_VERSION="${OMH_VERSION:-}"
 OMH_PACKAGE_URL="${OMH_PACKAGE_URL:-}"
 OMH_SOURCE_REF="${OMH_SOURCE_REF:-}"
@@ -346,8 +351,23 @@ if [ -z "$OMH_PACKAGE_URL" ]; then
       ;;
     stable)
       if [ -z "$OMH_VERSION" ]; then
-        say "omh installer: OMH_CHANNEL=stable requires OMH_VERSION, for example OMH_VERSION=1.0.1."
-        exit 1
+        # GitHub answers /releases/latest with a 302 whose Location carries the
+        # newest tag, so "latest" costs one header read and no API token. Only
+        # the redirect target is fetched, never the release page.
+        OMH_LATEST_LOCATION=""
+        if command -v curl >/dev/null 2>&1; then
+          OMH_LATEST_LOCATION="$(curl -sSI "$OMH_REPO_LATEST_URL" 2>/dev/null | tr -d '\r' | awk 'tolower($1) == "location:" { print $2 }' | tail -1)"
+        elif command -v wget >/dev/null 2>&1; then
+          OMH_LATEST_LOCATION="$(wget -qS --max-redirect=0 -O /dev/null "$OMH_REPO_LATEST_URL" 2>&1 | tr -d '\r' | awk 'tolower($1) == "location:" { print $2 }' | tail -1)"
+        fi
+        case "$OMH_LATEST_LOCATION" in
+          */releases/tag/v*) OMH_VERSION="${OMH_LATEST_LOCATION##*/releases/tag/v}" ;;
+          *)
+            say "omh installer: could not resolve the latest release from $OMH_REPO_LATEST_URL."
+            say "omh installer: set OMH_VERSION=1.0.6 to pin one, or OMH_CHANNEL=preview to track main."
+            exit 1
+            ;;
+        esac
       fi
       case "$OMH_VERSION" in
         v*) OMH_TAG="$OMH_VERSION" ;;
