@@ -18,6 +18,22 @@ def _host_supports_hook(hook_name: str) -> bool:
     return hook_name in valid_hooks
 
 
+def _register_optional_surface(ctx, method_name: str, *args: object) -> None:
+    """Call a host registration method when this host offers one.
+
+    OMH must not assume a Hermes context shape: assuming one is what silently
+    unregistered every tool and hook. A host without the method is a host that
+    does not want that surface, not an error.
+    """
+    method = getattr(ctx, method_name, None)
+    if not callable(method):
+        return
+    try:
+        method(*args)
+    except (TypeError, ValueError):
+        return
+
+
 def _register_optional_hook(ctx, hook_name: str, callback: object) -> None:
     if not _host_supports_hook(hook_name):
         return
@@ -30,22 +46,35 @@ def _register_optional_hook(ctx, hook_name: str, callback: object) -> None:
 def register(ctx):
     """Register the OMH thin native bridge with Hermes.
 
-    Two different loaders call this with two different contexts. The plugin
-    loader passes a context that registers tools and hooks. The *memory
-    provider* loader in ``plugins/memory/__init__.py`` passes a collector whose
-    only real method is ``register_memory_provider`` -- it no-ops the rest -- so
-    running the tool wiring for it would import ten modules to no effect.
+    Two different loaders call this with two different contexts: the plugin
+    loader, and the *memory provider* loader in ``plugins/memory/__init__.py``.
+    Both now get the full registration, deliberately.
 
-    The real plugin context has no ``register_memory_provider``, which is what
-    makes the two safely distinguishable. Mentioning the name here is also what
-    makes this directory visible to Hermes' provider discovery, which text-scans
-    ``__init__.py`` for it.
+    This used to branch on ``hasattr(ctx, "register_memory_provider")`` and
+    return early, assuming only the memory collector had that attribute. Hermes
+    made both halves of the assumption false, and the failure was silent.
+    ``PluginContext`` gained ``register_memory_provider`` -- recorded and inert
+    unless ``memory.provider`` selects the plugin, added so a plugin's
+    ``register()`` would stop dying on a missing attribute -- so OMH took the
+    memory branch on the plugin path and returned. Meanwhile the collector's
+    ``__getattr__`` began delegating every other ``register_*`` call to a real
+    ``PluginContext``, so a provider "has the same registration surface as any
+    other plugin". Result: every OMH tool and hook registered nowhere, while
+    the plugin still reported ``enabled`` with no error. The only symptom was
+    `omh_*` tools quietly absent from Hermes.
+
+    Nothing is left to discriminate on, and nothing needs discriminating.
+    Registering the provider on the plugin path is inert, and running the tool
+    wiring on the memory path reaches the same registry. The early return only
+    ever saved importing the tool modules on the memory path; that is the price
+    of not silently registering nothing.
+
+    Naming ``register_memory_provider`` here is also what makes this directory
+    visible to Hermes' provider discovery, which text-scans ``__init__.py``.
     """
-    if hasattr(ctx, "register_memory_provider"):
-        from .memory_provider import OmhMemoryProvider
+    from .memory_provider import OmhMemoryProvider
 
-        ctx.register_memory_provider(OmhMemoryProvider())
-        return
+    _register_optional_surface(ctx, "register_memory_provider", OmhMemoryProvider())
 
     from .hooks.llm_hooks import pre_llm_call
     from .hooks.session_hooks import on_session_end
