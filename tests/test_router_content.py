@@ -3821,6 +3821,14 @@ class RouterContentTests(unittest.TestCase):
         readme_section_translations = (
             ("## Quick Start", {"ko": "## 빠른 시작", "ja": "## クイックスタート", "zh": "## 快速开始"}),
             (
+                "## The OH-MY-HERMES terminal",
+                {
+                    "ko": "## OH-MY-HERMES 터미널",
+                    "ja": "## OH-MY-HERMES ターミナル",
+                    "zh": "## OH-MY-HERMES 终端",
+                },
+            ),
+            (
                 "## Recommended models",
                 {
                     "ko": "## 권장 모델",

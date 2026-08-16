@@ -154,6 +154,10 @@ PROCESS_SPAWN_ALLOWLIST: dict[str, str] = {
         "`git rev-parse <base-ref>` inside the operator-invoked `coding fanout dispatch` command, "
         "to resolve the base commit before the fanout bridge above runs."
     ),
+    "src/commands/main.py": (
+        "bare `omh` with a tty -- the operator's own launch of `hermes --tui`, the "
+        "OH-MY-HERMES terminal; never reached from any prepared-handoff path."
+    ),
     "src/commands/setup.py": (
         "`omh setup` / `omh update` -- pip self-update, CLI re-entry after update, and the "
         "opt-in GitHub star (see GH_INVOCATION_EXCEPTIONS in INVARIANT 3)."
