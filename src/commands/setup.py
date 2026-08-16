@@ -826,6 +826,8 @@ def _resolved_skill_profile(args: argparse.Namespace, paths) -> str:
     An update carries the install forward. Only `--full` and an explicit
     reconcile change the profile, and reconcile stays the one path that deletes.
     """
+    if bool(getattr(args, "core", False)):
+        return "core"
     if bool(getattr(args, "full", False)):
         return "full"
     installed = str((read_manifest(paths.manifest_path) or {}).get("skill_profile") or "")
@@ -3510,10 +3512,20 @@ def _add_common_install_options(p: argparse.ArgumentParser) -> None:
         "--full",
         action="store_true",
         help=(
-            "Install every packaged skill instead of the smaller core default "
-            "(chat/plan/status/handoff essentials plus the doctor health floor); "
-            "the result records a context-cost warning because every extra skill "
-            "adds per-turn context weight."
+            "Install every packaged skill. This is already the default for a "
+            "fresh install; the flag remains to upgrade an existing core "
+            "install and for script compatibility."
+        ),
+    )
+    p.add_argument(
+        "--core",
+        action="store_true",
+        help=(
+            "Install only the lightweight core profile (chat/plan/status/"
+            "handoff essentials plus the doctor health floor) instead of the "
+            "full default. Every installed skill adds per-turn context weight; "
+            "core keeps that footprint minimal at the cost of the ULW engines "
+            "and most workflow skills."
         ),
     )
 

@@ -213,7 +213,9 @@ class InstallerSkillProfileTests(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
-            result = install_skill_pack(paths, dry_run=True)
+            # profile passed explicitly: the API default is now "full", and this
+            # test exercises the core profile mechanics, not the default.
+            result = install_skill_pack(paths, dry_run=True, profile="core")
 
         self.assertEqual(result["skill_profile"], "core")
         installed_names = set(result["skills"])
@@ -245,7 +247,7 @@ class InstallerSkillProfileTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
 
-            core_manifest = install_skill_pack(paths)
+            core_manifest = install_skill_pack(paths, profile="core")
             self.assertEqual(core_manifest["skill_profile"], "core")
             on_disk = json.loads(paths.manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(on_disk["skill_profile"], "core")
@@ -465,7 +467,7 @@ class SkillProfileReconcileTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
 
-            manifest = install_skill_pack(paths)
+            manifest = install_skill_pack(paths, profile="core")
 
             state = manifest["skill_profile_state"]
             self.assertEqual(state["schema_version"], "omh_skill_profile_state/v1")
