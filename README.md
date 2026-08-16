@@ -211,6 +211,24 @@ Maintenance paths such as reconciling a `--full` install back to core live in
 
 <br>
 
+## The OH-MY-HERMES terminal
+
+Bare `omh` opens Hermes' modern TUI wearing the OMH identity:
+
+```sh
+omh
+```
+
+Setup installs a managed `omh` skin — sky turquoise anchored on the badge
+colour above, with the banner, welcome line, and response label rebranded to
+OH-MY-HERMES — and selects it only when no skin is chosen. `hermes skin use
+<name>` (including `default`) overrides it permanently; OMH never rewrites an
+explicit choice. Inside the TUI, the OMH HUD renders as a themed panel:
+subagent activity rows with cost, turn, and cache metrics while work runs, and
+the plan todo checklist above the prompt.
+
+<br>
+
 ## Recommended models
 
 OMH ships with these editable, ordered recommendation chains. Guided model
