@@ -38,14 +38,24 @@ class MenubarAppTests(unittest.TestCase):
 
             with (
                 patch.object(menubar_app_module.Path, "home", return_value=root),
-                patch("omh.menubar_app.shutil.which", return_value="/usr/bin/swiftc"),
+                patch(
+                    "omh.menubar_app.shutil.which",
+                    side_effect=lambda name: {
+                        "swiftc": "/usr/bin/swiftc",
+                        "node": "/Users/example/.nvm/versions/node/v24/bin/node",
+                    }.get(name),
+                ),
+                patch(
+                    "sys.executable",
+                    "/Users/example/.pyenv/versions/3.12/bin/python3",
+                ),
                 patch("omh.menubar_app._compile_swift_helper"),
             ):
                 payload = setup_menubar_app(
                     paths,
                     platform_name="Darwin",
                     start=False,
-                    command_path="/usr/local/bin/omh",
+                    command_path="/Users/example/.npm-global/bin/omh",
                 )
 
             icon_path = paths.omh_home / "menubar" / "omh-character-mask.png"
@@ -53,9 +63,48 @@ class MenubarAppTests(unittest.TestCase):
             self.assertEqual(icon_path.read_bytes(), expected_icon)
             self.assertGreater(len(icon_path.read_bytes()), 0)
             launch_agent = root / "Library" / "LaunchAgents" / "com.rlaope.omh.menubar.plist"
-            arguments = plistlib.loads(launch_agent.read_bytes())["ProgramArguments"]
+            launch_agent_payload = plistlib.loads(launch_agent.read_bytes())
+            arguments = launch_agent_payload["ProgramArguments"]
             icon_argument = arguments.index("--icon")
             self.assertEqual(arguments[icon_argument + 1], str(icon_path))
+            launch_path = launch_agent_payload["EnvironmentVariables"]["PATH"].split(":")
+            self.assertEqual(
+                launch_path[:3],
+                [
+                    "/Users/example/.nvm/versions/node/v24/bin",
+                    "/Users/example/.pyenv/versions/3.12/bin",
+                    "/Users/example/.npm-global/bin",
+                ],
+            )
+            self.assertIn("/usr/local/bin", launch_path)
+            self.assertIn("/opt/homebrew/bin", launch_path)
+            self.assertIn("/usr/bin", launch_path)
+            self.assertIn("/bin", launch_path)
+            self.assertIn("/usr/sbin", launch_path)
+            self.assertIn("/sbin", launch_path)
+
+    @unittest.skipUnless(platform.system() == "Darwin", "symlink resolution targets launchd")
+    def test_launch_agent_path_resolves_node_shim_and_deduplicates_real_bin(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real_bin = root / "runtime" / "bin"
+            shim_bin = root / "shims"
+            real_bin.mkdir(parents=True)
+            shim_bin.mkdir()
+            real_node = real_bin / "node"
+            real_node.write_text("", encoding="utf-8")
+            shim_node = shim_bin / "node"
+            shim_node.symlink_to(real_node)
+
+            with (
+                patch("omh.menubar_app.shutil.which", return_value=str(shim_node)),
+                patch("sys.executable", str(real_bin / "python3")),
+            ):
+                launch_path = menubar_app_module._launch_agent_path(str(real_bin / "omh"))
+
+        path_entries = launch_path.split(":")
+        self.assertEqual(path_entries.count(str(real_bin.resolve())), 1)
+        self.assertNotIn(str(shim_bin), path_entries)
 
     def test_setup_menubar_app_skips_unsupported_platform(self) -> None:
         with TemporaryDirectory() as tmp:
