@@ -33,12 +33,9 @@ export default function register(sdk) {
   // they carry the frame: a themed rule closes the top dock and opens the
   // bottom one, and the input reads like classic Hermes again.
   // Host cols include the dock's side margins, so a full-cols rule wraps by
-  // two cells; the frame also breathes: one blank row separates each rule
-  // from the composer, which is the vertical padding the classic frame had.
+  // two cells. Padding was sized live with the owner: two rows read too
+  // tall, none too tight -- one blank row above the input, none below.
   const Rule = ({ columns, t }) => h(Text, { color: t.color.border }, '─'.repeat(Math.max(1, columns - 2)))
-  // Two blank rows per side: the owner sized the frame about thirty percent
-  // taller than the single-row padding it started with.
-  const Gap = () => h(Box, { flexDirection: 'column' }, h(Text, null, ' '), h(Text, null, ' '))
 
   const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
 
@@ -214,7 +211,6 @@ export default function register(sdk) {
     return h(
       Box,
       { flexDirection: 'column', width: '100%' },
-      h(Gap),
       h(Rule, { columns, t }),
       h(
         Text,
@@ -260,7 +256,7 @@ export default function register(sdk) {
     // The closing rule renders even with no plan: the frame around the
     // composer is constant chrome, the todo lines are the variable content.
     if (todo.status !== 'established' && todo.status !== 'all_done') {
-      return h(Box, { flexDirection: 'column', width: '100%' }, h(Rule, { columns, t }), h(Gap))
+      return h(Box, { flexDirection: 'column', width: '100%' }, h(Rule, { columns, t }), h(Text, null, ' '))
     }
     const counts = todo.counts || {}
     const title = safeText(todo.title)
@@ -279,7 +275,7 @@ export default function register(sdk) {
           h(Text, { color: t.color.ok }, `✓ ${counts.done ?? 0}/${counts.total ?? 0}`),
         ),
         h(Rule, { columns, t }),
-        h(Gap),
+        h(Text, null, ' '),
       )
     }
     const shown = Array.isArray(todo.display_items) ? todo.display_items : []
@@ -317,7 +313,7 @@ export default function register(sdk) {
         )
       }),
       h(Rule, { columns, t }),
-      h(Gap),
+      h(Text, null, ' '),
     )
   }
 

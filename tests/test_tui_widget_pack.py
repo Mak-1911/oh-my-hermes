@@ -264,11 +264,11 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertNotIn("|| !payload.active", widget)
         self.assertIn("const active = !!payload.active", widget)
         self.assertIn("width: '100%'", widget)
-        # The Gap/Rule frame replaced the marginTop spacer: the docks now
-        # carry the classic composer frame (rule above and below the input,
-        # two blank rows of breathing room each side).
+        # The Rule frame replaced the marginTop spacer: the docks carry the
+        # classic composer frame, rules sitting tight against the input --
+        # padding was tried at one and two rows and the owner picked none.
         self.assertIn("const Rule = ", widget)
-        self.assertIn("h(Gap)", widget)
+        self.assertNotIn("Gap", widget)
         self.assertEqual(widget.count("h(Rule, { columns, t })"), 4)
         # Text, not chrome — changed on purpose a second time, by owner
         # direction after living with the bordered card: the OMH surface reads
