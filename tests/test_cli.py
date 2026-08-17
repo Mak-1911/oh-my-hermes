@@ -3812,6 +3812,40 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 dry_run=False,
                 force=False,
             )
+            for failure in (RuntimeError("swiftc failed"), OSError("write failed")):
+                with self.subTest(error=type(failure).__name__):
+                    with (
+                        patch.object(
+                            setup_commands,
+                            "is_managed_menubar_install",
+                            return_value=True,
+                        ),
+                        patch.object(
+                            setup_commands,
+                            "setup_menubar_app",
+                            side_effect=failure,
+                        ),
+                        patch("sys.stderr", new_callable=io.StringIO) as stderr,
+                    ):
+                        result = setup_commands._refresh_installed_menubar_app(args)
+
+                    self.assertEqual(result, {"status": "failed", "reason": str(failure)})
+                    self.assertIn("menu bar helper was not refreshed", stderr.getvalue())
+
+    def test_update_reports_an_installed_menubar_restart_failure(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = Namespace(
+                omh_home=str(root / ".omh"),
+                hermes_home=str(root / ".hermes"),
+                scope=None,
+                dry_run=False,
+                force=False,
+            )
+            failed_result = {
+                "status": "installed_start_failed",
+                "start_message": "launchctl bootstrap failed",
+            }
             with (
                 patch.object(
                     setup_commands,
@@ -3821,14 +3855,14 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 patch.object(
                     setup_commands,
                     "setup_menubar_app",
-                    side_effect=RuntimeError("swiftc failed"),
+                    return_value=failed_result,
                 ),
                 patch("sys.stderr", new_callable=io.StringIO) as stderr,
             ):
                 result = setup_commands._refresh_installed_menubar_app(args)
 
-        self.assertEqual(result, {"status": "failed", "reason": "swiftc failed"})
-        self.assertIn("menu bar helper was not refreshed", stderr.getvalue())
+        self.assertEqual(result, failed_result)
+        self.assertIn("launchctl bootstrap failed", stderr.getvalue())
 
     def test_update_self_update_recognizes_venv_python_symlink_path(self) -> None:
         with TemporaryDirectory() as tmp:

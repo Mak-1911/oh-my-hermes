@@ -385,15 +385,19 @@ def _refresh_installed_menubar_app(args: argparse.Namespace) -> dict[str, object
     if not is_managed_menubar_install(paths):
         return None
     try:
-        return setup_menubar_app(
+        result = setup_menubar_app(
             paths,
             dry_run=bool(args.dry_run),
             start=True,
             force=bool(args.force),
         )
-    except RuntimeError as exc:
+    except (OSError, RuntimeError) as exc:
         print(f"note: OMH menu bar helper was not refreshed: {exc}", file=sys.stderr)
         return {"status": "failed", "reason": str(exc)}
+    if result.get("status") == "installed_start_failed":
+        reason = str(result.get("start_message", "launchctl start failed"))
+        print(f"note: OMH menu bar helper was not refreshed: {reason}", file=sys.stderr)
+    return result
 
 
 def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, object]:
