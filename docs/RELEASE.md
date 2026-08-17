@@ -12,6 +12,18 @@ public claims are all checked.
 | `preview` | Latest `main` for early testing | Hermes skill tap plus `main` branch archive |
 | `local` | Maintainer smoke tests from local fixtures | Explicit local source or package URL |
 
+### Beta releases
+
+A beta ships under the same immutable `vX.Y.Z` tag contract; beta-ness rides
+in the repo at the tag, not in the tag name. Commit `.release-channel`
+containing `beta` before tagging and the workflow publishes the GitHub
+release as a **prerelease** (so `/releases/latest` — and with it the stable
+installer default — keeps resolving the previous stable), publishes npm under
+the **`beta` dist-tag** (so `latest` does not move), and **skips the Homebrew
+tap** entirely (brew has no beta lane). Set the file back to `stable` in the
+commit that cuts the next stable release. Beta users opt in explicitly:
+`npm install -g oh-my-hermes@beta`, or `OMH_VERSION=<version> sh install.sh`.
+
 ## Package-manager distribution
 
 The tag-driven npm/Bun, GitHub wheel, and Homebrew tap release is defined by

@@ -89,6 +89,24 @@ jobs:
             tests.test_homebrew_distribution \
             tests.test_distribution_surfaces
 
+      - name: Resolve release channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The tag stays vX.Y.Z (the immutability contract below depends on
+          # it); beta-ness rides in the repo at the tag instead. `beta` makes
+          # the GitHub release a prerelease -- /releases/latest skips
+          # prereleases, so stable installers keep resolving the previous
+          # version -- publishes npm under the `beta` dist-tag so `latest`
+          # does not move, and skips the Homebrew tap entirely.
+          channel="stable"
+          if [ -f .release-channel ]; then
+            channel="$(tr -d '[:space:]' < .release-channel)"
+          fi
+          case "$channel" in stable|beta) ;; *) echo "unknown .release-channel: $channel"; exit 1;; esac
+          echo "RELEASE_CHANNEL=$channel" >> "$GITHUB_ENV"
+          echo "release channel: $channel"
+
       - name: Build one immutable wheel and npm tarball
         shell: bash
         run: |
@@ -162,11 +180,16 @@ jobs:
               test "$asset_count" = 1
             fi
           else
+            extra=()
+            if [ "$RELEASE_CHANNEL" = "beta" ]; then
+              extra+=(--prerelease)
+            fi
             gh release create "$RELEASE_TAG" \
               "$OMH_WHEEL#Python wheel" \
               --verify-tag \
               --generate-notes \
-              --title "$RELEASE_TAG"
+              --title "$RELEASE_TAG" \
+              "${extra[@]}"
           fi
 
       - name: Verify immutable release wheel
@@ -197,10 +220,15 @@ jobs:
             published_integrity="${published_integrity//\"/}"
             test "$published_integrity" = "$local_integrity"
           else
-            npm publish "$OMH_TARBALL" --access public --provenance
+            tag_args=()
+            if [ "$RELEASE_CHANNEL" = "beta" ]; then
+              tag_args+=(--tag beta)
+            fi
+            npm publish "$OMH_TARBALL" --access public --provenance "${tag_args[@]}"
           fi
 
       - name: Render verified Homebrew formula
+        if: env.RELEASE_CHANNEL == 'stable'
         shell: bash
         run: |
           set -euo pipefail
@@ -213,6 +241,7 @@ jobs:
           ruby -c "$RUNNER_TEMP/omh.rb"
 
       - name: Publish or verify Homebrew tap formula
+        if: env.RELEASE_CHANNEL == 'stable'
         shell: bash
         run: |
           set -euo pipefail
