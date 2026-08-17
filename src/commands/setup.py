@@ -381,10 +381,13 @@ def _refresh_installed_tui_widget(args: argparse.Namespace) -> dict[str, object]
 
 def _refresh_installed_menubar_app(args: argparse.Namespace) -> dict[str, object] | None:
     """Bring an already-installed native menu bar helper up to date."""
-    if any(
-        _configured_path_contains_symlink(getattr(args, name, None))
-        for name in ("omh_home", "hermes_home")
-    ):
+    configured_omh_home = getattr(args, "omh_home", None)
+    configured_hermes_home = getattr(args, "hermes_home", None)
+    raw_homes = (
+        configured_omh_home if configured_omh_home is not None else os.environ.get("OMH_HOME"),
+        configured_hermes_home if configured_hermes_home is not None else os.environ.get("HERMES_HOME"),
+    )
+    if any(_configured_path_contains_symlink(value) for value in raw_homes):
         return None
     paths = _paths(args)
     if not is_managed_menubar_install(paths):
@@ -408,7 +411,7 @@ def _refresh_installed_menubar_app(args: argparse.Namespace) -> dict[str, object
 def _configured_path_contains_symlink(value: object) -> bool:
     if value is None or value == "":
         return False
-    path = Path(str(value)).expanduser()
+    path = Path(os.path.expandvars(str(value))).expanduser()
     if not path.is_absolute():
         path = Path.cwd() / path
     current = path

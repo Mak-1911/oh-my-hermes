@@ -3872,25 +3872,43 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             real_home.mkdir()
             aliased_home = root / "aliased-home"
             aliased_home.symlink_to(real_home, target_is_directory=True)
-            args = Namespace(
-                omh_home=str(aliased_home / ".omh"),
-                hermes_home=str(root / ".hermes"),
-                scope=None,
-                dry_run=False,
-                force=False,
+            canonical_omh = str((root / "canonical-omh").resolve())
+            canonical_hermes = str((root / "canonical-hermes").resolve())
+            cases = (
+                ("direct_omh", str(aliased_home / ".omh"), canonical_hermes, {}),
+                ("expanded_omh", "$OMH_ALIAS_ROOT/.omh", canonical_hermes, {}),
+                ("default_omh", None, canonical_hermes, {"OMH_HOME": str(aliased_home / ".omh")}),
+                ("direct_hermes", canonical_omh, str(aliased_home / ".hermes"), {}),
+                ("default_hermes", canonical_omh, None, {"HERMES_HOME": str(aliased_home / ".hermes")}),
             )
-            with (
-                patch.object(
-                    setup_commands,
-                    "is_managed_menubar_install",
-                    return_value=True,
-                ),
-                patch.object(setup_commands, "setup_menubar_app") as setup_menubar,
-            ):
-                result = setup_commands._refresh_installed_menubar_app(args)
+            for name, configured_omh, configured_hermes, environment in cases:
+                with self.subTest(case=name):
+                    args = Namespace(
+                        omh_home=configured_omh,
+                        hermes_home=configured_hermes,
+                        scope=None,
+                        dry_run=False,
+                        force=False,
+                    )
+                    test_environment = {
+                        "OMH_ALIAS_ROOT": str(aliased_home),
+                        "OMH_HOME": canonical_omh,
+                        "HERMES_HOME": canonical_hermes,
+                        **environment,
+                    }
+                    with (
+                        patch.dict(os.environ, test_environment),
+                        patch.object(
+                            setup_commands,
+                            "is_managed_menubar_install",
+                            return_value=True,
+                        ),
+                        patch.object(setup_commands, "setup_menubar_app") as setup_menubar,
+                    ):
+                        result = setup_commands._refresh_installed_menubar_app(args)
 
-        self.assertIsNone(result)
-        setup_menubar.assert_not_called()
+                    self.assertIsNone(result)
+                    setup_menubar.assert_not_called()
 
     def test_update_self_update_recognizes_venv_python_symlink_path(self) -> None:
         with TemporaryDirectory() as tmp:
