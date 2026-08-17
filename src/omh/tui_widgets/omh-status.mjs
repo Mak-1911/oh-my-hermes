@@ -28,8 +28,38 @@ export default function register(sdk) {
   // text in the TUI's idiom, not a boxed widget that announces itself.
   // Colours still resolve only through the active theme, never literals.
   const SEPARATOR = ' │ '
+  // The classic REPL frames the composer with horizontal rules; the modern
+  // TUI draws none. These docks sit exactly above and below the composer, so
+  // they carry the frame: a themed rule closes the top dock and opens the
+  // bottom one, and the input reads like classic Hermes again.
+  // Host cols include the dock's side margins, so a full-cols rule wraps by
+  // two cells. The rules sit tight against the composer, exactly like the
+  // classic REPL's frame -- padding was tried at one and two rows against
+  // live renders and the owner removed it entirely.
+  const Rule = ({ columns, t }) => h(Text, { color: t.color.border }, '─'.repeat(Math.max(1, columns - 2)))
 
   const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
+
+  // Session metrics OMH can honestly source: cost sums observed per-agent
+  // cost_usd across live bindings, ctx is the MAIN row's observed context
+  // percentage. The host's own token gauge (36.4k/272k) is hermes session
+  // state the reader cannot reach -- the host statusline above the composer
+  // already shows it, so absent data renders as "--", never a fabricated
+  // zero-of-total.
+  function sessionMetrics(payload) {
+    const rows = []
+      .concat(Array.isArray(payload.maestro?.rows) ? payload.maestro.rows : [])
+      .concat(Array.isArray(payload.subagents?.rows) ? payload.subagents.rows : [])
+    const cost = rows.reduce((sum, row) => sum + (Number.isFinite(row.cost_usd) ? row.cost_usd : 0), 0)
+    const main = Array.isArray(payload.maestro?.rows) ? payload.maestro.rows[0] : null
+    const ctx = main && Number.isFinite(main.context_percentage)
+      ? main.context_percentage
+      : rows.map(row => row.context_percentage).filter(Number.isFinite)[0]
+    return {
+      cost: `$${cost.toFixed(3)}`,
+      ctx: Number.isFinite(ctx) ? `ctx ${ctx}%` : 'ctx --',
+    }
+  }
 
   function hudStateLabel(active, agents) {
     // Idle says "ready" and nothing more. Claiming work that is not running is
@@ -194,6 +224,7 @@ export default function register(sdk) {
     const active = !!payload.active
     const agents = payload.subagents || {}
     const version = safeText(payload.version)
+    const metrics = sessionMetrics(payload)
     const maestro = payload.maestro || {}
     const mainRows = active && Array.isArray(maestro.rows) ? maestro.rows.slice(0, 1) : []
     const activityLimit = Math.max(1, Math.min(3, viewportRows - 3))
@@ -202,18 +233,19 @@ export default function register(sdk) {
       : []
     return h(
       Box,
-      { flexDirection: 'column', marginTop: 1, width: '100%' },
+      { flexDirection: 'column', width: '100%' },
+      h(Rule, { columns, t }),
       h(
         Text,
         { wrap: 'truncate-end' },
-        // One role per colour: the bracket tag carries the brand, the version
-        // recedes into muted, and only the state segment changes hue. Idle
-        // says "ready"; active derives its counts from the same payload the
-        // activity rows below render.
-        h(Text, { bold: true, color: t.color.primary }, '[OMH]'),
+        // Always visible: the owner kept the branded status row and asked for
+        // live session metrics on it. Cost and ctx come from sessionMetrics
+        // above -- observed values or "--", never fabricated totals.
+        h(Text, { bold: true, color: t.color.primary }, '⚚ [OMH]'),
         version ? h(Text, { color: t.color.muted }, ` v${version}`) : null,
         h(Text, { color: t.color.border }, SEPARATOR),
         h(Text, { color: active ? t.color.warn : t.color.ok }, hudStateLabel(active, agents)),
+        h(Text, { color: t.color.muted }, ` • ${metrics.cost} • ${metrics.ctx}`),
       ),
       ...mainRows.map((row, index) =>
         h(ActivityRow, {
@@ -244,7 +276,11 @@ export default function register(sdk) {
     // subagent activity, and the reader's 24h staleness rule bounds it. The
     // READER always projects the focused preset, which display_items encode.
     const todo = payload.todo || {}
-    if (todo.status !== 'established' && todo.status !== 'all_done') return null
+    // The closing rule renders even with no plan: the frame around the
+    // composer is constant chrome, the todo lines are the variable content.
+    if (todo.status !== 'established' && todo.status !== 'all_done') {
+      return h(Rule, { columns, t })
+    }
     const counts = todo.counts || {}
     const title = safeText(todo.title)
     if (todo.status === 'all_done') {
@@ -261,6 +297,7 @@ export default function register(sdk) {
           h(Text, { color: t.color.border }, SEPARATOR),
           h(Text, { color: t.color.ok }, `✓ ${counts.done ?? 0}/${counts.total ?? 0}`),
         ),
+        h(Rule, { columns, t }),
       )
     }
     const shown = Array.isArray(todo.display_items) ? todo.display_items : []
@@ -297,6 +334,7 @@ export default function register(sdk) {
           withMore ? h(Text, { color: t.color.muted }, `   +${more} more`) : null,
         )
       }),
+      h(Rule, { columns, t }),
     )
   }
 
