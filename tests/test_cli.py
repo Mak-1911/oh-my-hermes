@@ -3713,8 +3713,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             launch_agent.parent.mkdir(parents=True)
             launch_agent.touch()
             args = Namespace(
-                omh_home=str(root / ".omh"),
-                hermes_home=str(root / ".hermes"),
+                omh_home=str((root / ".omh").resolve()),
+                hermes_home=str((root / ".hermes").resolve()),
                 scope=None,
                 dry_run=False,
                 force=False,
@@ -3806,8 +3806,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             launch_agent.parent.mkdir(parents=True)
             launch_agent.touch()
             args = Namespace(
-                omh_home=str(root / ".omh"),
-                hermes_home=str(root / ".hermes"),
+                omh_home=str((root / ".omh").resolve()),
+                hermes_home=str((root / ".hermes").resolve()),
                 scope=None,
                 dry_run=False,
                 force=False,
@@ -3836,8 +3836,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             args = Namespace(
-                omh_home=str(root / ".omh"),
-                hermes_home=str(root / ".hermes"),
+                omh_home=str((root / ".omh").resolve()),
+                hermes_home=str((root / ".hermes").resolve()),
                 scope=None,
                 dry_run=False,
                 force=False,
@@ -3863,6 +3863,34 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
 
         self.assertEqual(result, failed_result)
         self.assertIn("launchctl bootstrap failed", stderr.getvalue())
+
+    @unittest.skipIf(sys.platform == "win32", "symlink privileges vary on Windows")
+    def test_update_rejects_a_symlinked_raw_omh_home(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            real_home = root / "real-home"
+            real_home.mkdir()
+            aliased_home = root / "aliased-home"
+            aliased_home.symlink_to(real_home, target_is_directory=True)
+            args = Namespace(
+                omh_home=str(aliased_home / ".omh"),
+                hermes_home=str(root / ".hermes"),
+                scope=None,
+                dry_run=False,
+                force=False,
+            )
+            with (
+                patch.object(
+                    setup_commands,
+                    "is_managed_menubar_install",
+                    return_value=True,
+                ),
+                patch.object(setup_commands, "setup_menubar_app") as setup_menubar,
+            ):
+                result = setup_commands._refresh_installed_menubar_app(args)
+
+        self.assertIsNone(result)
+        setup_menubar.assert_not_called()
 
     def test_update_self_update_recognizes_venv_python_symlink_path(self) -> None:
         with TemporaryDirectory() as tmp:

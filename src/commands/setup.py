@@ -381,6 +381,11 @@ def _refresh_installed_tui_widget(args: argparse.Namespace) -> dict[str, object]
 
 def _refresh_installed_menubar_app(args: argparse.Namespace) -> dict[str, object] | None:
     """Bring an already-installed native menu bar helper up to date."""
+    if any(
+        _configured_path_contains_symlink(getattr(args, name, None))
+        for name in ("omh_home", "hermes_home")
+    ):
+        return None
     paths = _paths(args)
     if not is_managed_menubar_install(paths):
         return None
@@ -398,6 +403,21 @@ def _refresh_installed_menubar_app(args: argparse.Namespace) -> dict[str, object
         reason = str(result.get("start_message", "launchctl start failed"))
         print(f"note: OMH menu bar helper was not refreshed: {reason}", file=sys.stderr)
     return result
+
+
+def _configured_path_contains_symlink(value: object) -> bool:
+    if value is None or value == "":
+        return False
+    path = Path(str(value)).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    current = path
+    while True:
+        if current.is_symlink():
+            return True
+        if current.parent == current:
+            return False
+        current = current.parent
 
 
 def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, object]:
