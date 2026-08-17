@@ -3878,8 +3878,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 ("direct_omh", str(aliased_home / ".omh"), canonical_hermes, {}),
                 ("expanded_omh", "$OMH_ALIAS_ROOT/.omh", canonical_hermes, {}),
                 ("default_omh", None, canonical_hermes, {"OMH_HOME": str(aliased_home / ".omh")}),
+                ("empty_omh", "", canonical_hermes, {"OMH_HOME": str(aliased_home / ".omh")}),
                 ("direct_hermes", canonical_omh, str(aliased_home / ".hermes"), {}),
                 ("default_hermes", canonical_omh, None, {"HERMES_HOME": str(aliased_home / ".hermes")}),
+                ("empty_hermes", canonical_omh, "", {"HERMES_HOME": str(aliased_home / ".hermes")}),
             )
             for name, configured_omh, configured_hermes, environment in cases:
                 with self.subTest(case=name):

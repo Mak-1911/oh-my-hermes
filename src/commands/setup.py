@@ -384,8 +384,8 @@ def _refresh_installed_menubar_app(args: argparse.Namespace) -> dict[str, object
     configured_omh_home = getattr(args, "omh_home", None)
     configured_hermes_home = getattr(args, "hermes_home", None)
     raw_homes = (
-        configured_omh_home if configured_omh_home is not None else os.environ.get("OMH_HOME"),
-        configured_hermes_home if configured_hermes_home is not None else os.environ.get("HERMES_HOME"),
+        configured_omh_home if configured_omh_home not in (None, "") else os.environ.get("OMH_HOME"),
+        configured_hermes_home if configured_hermes_home not in (None, "") else os.environ.get("HERMES_HOME"),
     )
     if any(_configured_path_contains_symlink(value) for value in raw_homes):
         return None
