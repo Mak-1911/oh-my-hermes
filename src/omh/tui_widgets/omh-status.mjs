@@ -33,8 +33,9 @@ export default function register(sdk) {
   // they carry the frame: a themed rule closes the top dock and opens the
   // bottom one, and the input reads like classic Hermes again.
   // Host cols include the dock's side margins, so a full-cols rule wraps by
-  // two cells. Padding was sized live with the owner: two rows read too
-  // tall, none too tight -- one blank row above the input, none below.
+  // two cells. The rules sit tight against the composer, exactly like the
+  // classic REPL's frame -- padding was tried at one and two rows against
+  // live renders and the owner removed it entirely.
   const Rule = ({ columns, t }) => h(Text, { color: t.color.border }, '─'.repeat(Math.max(1, columns - 2)))
 
   const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
@@ -256,7 +257,7 @@ export default function register(sdk) {
     // The closing rule renders even with no plan: the frame around the
     // composer is constant chrome, the todo lines are the variable content.
     if (todo.status !== 'established' && todo.status !== 'all_done') {
-      return h(Box, { flexDirection: 'column', width: '100%' }, h(Rule, { columns, t }), h(Text, null, ' '))
+      return h(Rule, { columns, t })
     }
     const counts = todo.counts || {}
     const title = safeText(todo.title)
@@ -275,7 +276,6 @@ export default function register(sdk) {
           h(Text, { color: t.color.ok }, `✓ ${counts.done ?? 0}/${counts.total ?? 0}`),
         ),
         h(Rule, { columns, t }),
-        h(Text, null, ' '),
       )
     }
     const shown = Array.isArray(todo.display_items) ? todo.display_items : []
@@ -313,7 +313,6 @@ export default function register(sdk) {
         )
       }),
       h(Rule, { columns, t }),
-      h(Text, null, ' '),
     )
   }
 
