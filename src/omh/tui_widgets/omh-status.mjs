@@ -28,6 +28,17 @@ export default function register(sdk) {
   // text in the TUI's idiom, not a boxed widget that announces itself.
   // Colours still resolve only through the active theme, never literals.
   const SEPARATOR = ' │ '
+  // The classic REPL frames the composer with horizontal rules; the modern
+  // TUI draws none. These docks sit exactly above and below the composer, so
+  // they carry the frame: a themed rule closes the top dock and opens the
+  // bottom one, and the input reads like classic Hermes again.
+  // Host cols include the dock's side margins, so a full-cols rule wraps by
+  // two cells; the frame also breathes: one blank row separates each rule
+  // from the composer, which is the vertical padding the classic frame had.
+  const Rule = ({ columns, t }) => h(Text, { color: t.color.border }, '─'.repeat(Math.max(1, columns - 2)))
+  // Two blank rows per side: the owner sized the frame about thirty percent
+  // taller than the single-row padding it started with.
+  const Gap = () => h(Box, { flexDirection: 'column' }, h(Text, null, ' '), h(Text, null, ' '))
 
   const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`
 
@@ -202,7 +213,9 @@ export default function register(sdk) {
       : []
     return h(
       Box,
-      { flexDirection: 'column', marginTop: 1, width: '100%' },
+      { flexDirection: 'column', width: '100%' },
+      h(Gap),
+      h(Rule, { columns, t }),
       h(
         Text,
         { wrap: 'truncate-end' },
@@ -244,7 +257,11 @@ export default function register(sdk) {
     // subagent activity, and the reader's 24h staleness rule bounds it. The
     // READER always projects the focused preset, which display_items encode.
     const todo = payload.todo || {}
-    if (todo.status !== 'established' && todo.status !== 'all_done') return null
+    // The closing rule renders even with no plan: the frame around the
+    // composer is constant chrome, the todo lines are the variable content.
+    if (todo.status !== 'established' && todo.status !== 'all_done') {
+      return h(Box, { flexDirection: 'column', width: '100%' }, h(Rule, { columns, t }), h(Gap))
+    }
     const counts = todo.counts || {}
     const title = safeText(todo.title)
     if (todo.status === 'all_done') {
@@ -261,6 +278,8 @@ export default function register(sdk) {
           h(Text, { color: t.color.border }, SEPARATOR),
           h(Text, { color: t.color.ok }, `✓ ${counts.done ?? 0}/${counts.total ?? 0}`),
         ),
+        h(Rule, { columns, t }),
+        h(Gap),
       )
     }
     const shown = Array.isArray(todo.display_items) ? todo.display_items : []
@@ -297,6 +316,8 @@ export default function register(sdk) {
           withMore ? h(Text, { color: t.color.muted }, `   +${more} more`) : null,
         )
       }),
+      h(Rule, { columns, t }),
+      h(Gap),
     )
   }
 
