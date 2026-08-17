@@ -281,7 +281,7 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertNotIn("panelProps", widget)
         self.assertNotIn("color: '#", widget)
         # The bracket tags are the shared grammar between the two docks.
-        self.assertIn("'[OMH]'", widget)
+        self.assertIn("'⚚ [OMH]'", widget)
         self.assertEqual(widget.count("'[Plan]'"), 2)
         self.assertIn("const SEPARATOR = ' │ '", widget)
         self.assertNotIn("metricRow", widget)
