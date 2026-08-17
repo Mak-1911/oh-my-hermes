@@ -60,7 +60,7 @@ from ..installer import (
 from ..local_store import atomic_write_text
 from ..install.installer import DEFAULT_SKILL_PROFILE, SKILL_PROFILES
 from ..manifest import read_manifest
-from ..menubar_app import setup_menubar_app, uninstall_menubar_app
+from ..menubar_app import is_managed_menubar_install, setup_menubar_app, uninstall_menubar_app
 from ..mcp.host_config import install_mcp_host_config
 from ..mcp_bridge import MCP_HOST_CONFIG_RECIPE_HOSTS
 from ..paths import OmhPaths, managed_command_venv_dir
@@ -279,6 +279,7 @@ def cmd_update(args: argparse.Namespace) -> int:
             _refresh_installed_plugin_bundle(args)
             _refresh_hermes_registration(args)
         _refresh_installed_tui_widget(args)
+        _refresh_installed_menubar_app(args)
     return code
 
 
@@ -376,6 +377,50 @@ def _refresh_installed_tui_widget(args: argparse.Namespace) -> dict[str, object]
     # behaves like a failure; say so at update time (same note as setup).
     _hermes_tui_preflight_step(paths, quiet=_wants_json(args), dry_run=bool(args.dry_run))
     return result
+
+
+def _refresh_installed_menubar_app(args: argparse.Namespace) -> dict[str, object] | None:
+    """Bring an already-installed native menu bar helper up to date."""
+    configured_omh_home = getattr(args, "omh_home", None)
+    configured_hermes_home = getattr(args, "hermes_home", None)
+    raw_homes = (
+        configured_omh_home if configured_omh_home not in (None, "") else os.environ.get("OMH_HOME"),
+        configured_hermes_home if configured_hermes_home not in (None, "") else os.environ.get("HERMES_HOME"),
+    )
+    if any(_configured_path_contains_symlink(value) for value in raw_homes):
+        return None
+    paths = _paths(args)
+    if not is_managed_menubar_install(paths):
+        return None
+    try:
+        result = setup_menubar_app(
+            paths,
+            dry_run=bool(args.dry_run),
+            start=True,
+            force=bool(args.force),
+        )
+    except (OSError, RuntimeError) as exc:
+        print(f"note: OMH menu bar helper was not refreshed: {exc}", file=sys.stderr)
+        return {"status": "failed", "reason": str(exc)}
+    if result.get("status") == "installed_start_failed":
+        reason = str(result.get("start_message", "launchctl start failed"))
+        print(f"note: OMH menu bar helper was not refreshed: {reason}", file=sys.stderr)
+    return result
+
+
+def _configured_path_contains_symlink(value: object) -> bool:
+    if value is None or value == "":
+        return False
+    path = Path(os.path.expandvars(str(value))).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    current = path
+    while True:
+        if current.is_symlink():
+            return True
+        if current.parent == current:
+            return False
+        current = current.parent
 
 
 def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, object]:

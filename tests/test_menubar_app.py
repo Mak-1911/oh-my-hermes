@@ -7,6 +7,7 @@ import plistlib
 import shutil
 import struct
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -57,6 +58,7 @@ class MenubarAppTests(unittest.TestCase):
                     start=False,
                     command_path="/Users/example/.npm-global/bin/omh",
                 )
+                managed = menubar_app_module.is_managed_menubar_install(paths)
 
             icon_path = paths.omh_home / "menubar" / "omh-character-mask.png"
             self.assertEqual(payload["icon"], str(icon_path))
@@ -67,6 +69,7 @@ class MenubarAppTests(unittest.TestCase):
             arguments = launch_agent_payload["ProgramArguments"]
             icon_argument = arguments.index("--icon")
             self.assertEqual(arguments[icon_argument + 1], str(icon_path))
+            self.assertTrue(managed)
             launch_path = launch_agent_payload["EnvironmentVariables"]["PATH"].split(":")
             self.assertEqual(
                 launch_path[:3],
@@ -82,6 +85,124 @@ class MenubarAppTests(unittest.TestCase):
             self.assertIn("/bin", launch_path)
             self.assertIn("/usr/sbin", launch_path)
             self.assertIn("/sbin", launch_path)
+
+    def test_valid_launch_agent_repairs_a_missing_managed_copy(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            with patch.object(menubar_app_module.Path, "home", return_value=root):
+                app_paths = menubar_app_module.menubar_app_paths(paths)
+                app_paths["launch_agent"].parent.mkdir(parents=True)
+                app_paths["launch_agent"].write_bytes(
+                    plistlib.dumps(
+                        {
+                            "Label": menubar_app_module.MENUBAR_LABEL,
+                            "ProgramArguments": [
+                                str(app_paths["executable"]),
+                                "--omh-command",
+                                "/usr/local/bin/omh",
+                                "--omh-home",
+                                str(paths.omh_home),
+                                "--hermes-home",
+                                str(paths.hermes_home),
+                            ],
+                        }
+                    )
+                )
+
+                managed = menubar_app_module.is_managed_menubar_install(paths)
+
+        self.assertTrue(managed)
+
+    def test_operator_owned_directory_without_launch_agent_is_not_managed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            with patch.object(menubar_app_module.Path, "home", return_value=root):
+                app_paths = menubar_app_module.menubar_app_paths(paths)
+                app_paths["app_dir"].mkdir(parents=True)
+                (app_paths["app_dir"] / "README.txt").write_text("operator owned", encoding="utf-8")
+
+                managed = menubar_app_module.is_managed_menubar_install(paths)
+
+        self.assertFalse(managed)
+
+    @unittest.skipIf(sys.platform == "win32", "symlink privileges vary on Windows")
+    def test_symlinked_managed_paths_are_not_trusted(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            with patch.object(menubar_app_module.Path, "home", return_value=root):
+                app_paths = menubar_app_module.menubar_app_paths(paths)
+                paths.omh_home.mkdir(parents=True)
+                target_dir = root / "attacker-owned"
+                target_dir.mkdir()
+                app_paths["app_dir"].symlink_to(target_dir, target_is_directory=True)
+                app_paths["launch_agent"].parent.mkdir(parents=True)
+                app_paths["launch_agent"].write_bytes(
+                    plistlib.dumps(
+                        {
+                            "Label": menubar_app_module.MENUBAR_LABEL,
+                            "ProgramArguments": [
+                                str(app_paths["executable"]),
+                                "--omh-command",
+                                "/usr/local/bin/omh",
+                                "--omh-home",
+                                str(paths.omh_home),
+                                "--hermes-home",
+                                str(paths.hermes_home),
+                            ],
+                        }
+                    )
+                )
+
+                managed = menubar_app_module.is_managed_menubar_install(paths)
+
+        self.assertFalse(managed)
+
+    @unittest.skipIf(sys.platform == "win32", "symlink privileges vary on Windows")
+    def test_broken_launch_agent_symlink_is_not_managed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            with patch.object(menubar_app_module.Path, "home", return_value=root):
+                app_paths = menubar_app_module.menubar_app_paths(paths)
+                app_paths["launch_agent"].parent.mkdir(parents=True)
+                app_paths["launch_agent"].symlink_to(root / "missing.plist")
+
+                managed = menubar_app_module.is_managed_menubar_install(paths)
+
+        self.assertFalse(managed)
+
+    def test_global_launch_agent_must_match_target_homes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            with patch.object(menubar_app_module.Path, "home", return_value=root):
+                app_paths = menubar_app_module.menubar_app_paths(paths)
+                app_paths["app_dir"].mkdir(parents=True)
+                app_paths["executable"].touch()
+                app_paths["launch_agent"].parent.mkdir(parents=True)
+                app_paths["launch_agent"].write_bytes(
+                    plistlib.dumps(
+                        {
+                            "Label": menubar_app_module.MENUBAR_LABEL,
+                            "ProgramArguments": [
+                                str(app_paths["executable"]),
+                                "--omh-command",
+                                "/usr/local/bin/omh",
+                                "--omh-home",
+                                str(paths.omh_home),
+                                "--hermes-home",
+                                str(root / "another-hermes-home"),
+                            ],
+                        }
+                    )
+                )
+
+                managed = menubar_app_module.is_managed_menubar_install(paths)
+
+        self.assertFalse(managed)
 
     @unittest.skipUnless(platform.system() == "Darwin", "symlink resolution targets launchd")
     def test_launch_agent_path_resolves_node_shim_and_deduplicates_real_bin(self) -> None:

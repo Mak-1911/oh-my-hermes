@@ -192,6 +192,57 @@ def menubar_app_paths(paths: OmhPaths) -> dict[str, Path]:
     }
 
 
+def is_managed_menubar_install(paths: OmhPaths) -> bool:
+    app_paths = menubar_app_paths(paths)
+    launch_agent = app_paths["launch_agent"]
+    if _path_contains_symlink(launch_agent, Path.home()):
+        return False
+    for name in ("app_dir", "source", "executable", "icon"):
+        if _path_contains_symlink(app_paths[name], paths.omh_home):
+            return False
+    if not launch_agent.is_file():
+        return False
+    try:
+        payload = plistlib.loads(launch_agent.read_bytes())
+    except (OSError, plistlib.InvalidFileException):
+        return False
+    if not isinstance(payload, dict) or payload.get("Label") != MENUBAR_LABEL:
+        return False
+    raw_arguments = payload.get("ProgramArguments")
+    if not isinstance(raw_arguments, list) or any(not isinstance(value, str) for value in raw_arguments):
+        return False
+    arguments = [str(value) for value in raw_arguments]
+    if not arguments or arguments[0] != str(app_paths["executable"]):
+        return False
+    return (
+        _launch_agent_argument(arguments, "--omh-home") == str(paths.omh_home)
+        and _launch_agent_argument(arguments, "--hermes-home") == str(paths.hermes_home)
+    )
+
+
+def _path_contains_symlink(path: Path, boundary: Path) -> bool:
+    try:
+        path.relative_to(boundary)
+    except ValueError:
+        return True
+    current = path
+    while True:
+        if current.is_symlink():
+            return True
+        if current == boundary:
+            return False
+        current = current.parent
+
+
+def _launch_agent_argument(arguments: list[str], name: str) -> str:
+    try:
+        index = arguments.index(name)
+    except ValueError:
+        return ""
+    value_index = index + 1
+    return arguments[value_index] if value_index < len(arguments) else ""
+
+
 def _resolved_omh_command() -> str:
     command = inspect_omh_command_path()
     if command.get("found") and command.get("path"):
