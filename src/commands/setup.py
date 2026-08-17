@@ -60,7 +60,7 @@ from ..installer import (
 from ..local_store import atomic_write_text
 from ..install.installer import DEFAULT_SKILL_PROFILE, SKILL_PROFILES
 from ..manifest import read_manifest
-from ..menubar_app import setup_menubar_app, uninstall_menubar_app
+from ..menubar_app import is_managed_menubar_install, setup_menubar_app, uninstall_menubar_app
 from ..mcp.host_config import install_mcp_host_config
 from ..mcp_bridge import MCP_HOST_CONFIG_RECIPE_HOSTS
 from ..paths import OmhPaths, managed_command_venv_dir
@@ -279,6 +279,7 @@ def cmd_update(args: argparse.Namespace) -> int:
             _refresh_installed_plugin_bundle(args)
             _refresh_hermes_registration(args)
         _refresh_installed_tui_widget(args)
+        _refresh_installed_menubar_app(args)
     return code
 
 
@@ -376,6 +377,23 @@ def _refresh_installed_tui_widget(args: argparse.Namespace) -> dict[str, object]
     # behaves like a failure; say so at update time (same note as setup).
     _hermes_tui_preflight_step(paths, quiet=_wants_json(args), dry_run=bool(args.dry_run))
     return result
+
+
+def _refresh_installed_menubar_app(args: argparse.Namespace) -> dict[str, object] | None:
+    """Bring an already-installed native menu bar helper up to date."""
+    paths = _paths(args)
+    if not is_managed_menubar_install(paths):
+        return None
+    try:
+        return setup_menubar_app(
+            paths,
+            dry_run=bool(args.dry_run),
+            start=True,
+            force=bool(args.force),
+        )
+    except RuntimeError as exc:
+        print(f"note: OMH menu bar helper was not refreshed: {exc}", file=sys.stderr)
+        return {"status": "failed", "reason": str(exc)}
 
 
 def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, object]:

@@ -3689,6 +3689,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 setup_commands,
                 "_refresh_installed_tui_widget",
             ) as widget_refresh,
+            patch.object(
+                setup_commands,
+                "_refresh_installed_menubar_app",
+            ) as menubar_refresh,
         ):
             status = setup_commands.cmd_update(args)
 
@@ -3696,6 +3700,135 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         plugin_refresh.assert_not_called()
         registration_refresh.assert_not_called()
         widget_refresh.assert_called_once_with(args)
+        menubar_refresh.assert_called_once_with(args)
+
+    def test_update_refreshes_an_existing_native_menubar_install(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app_dir = root / ".omh" / "menubar"
+            app_dir.mkdir(parents=True)
+            executable = app_dir / "omh-menubar"
+            executable.touch()
+            launch_agent = root / "Library" / "LaunchAgents" / "com.rlaope.omh.menubar.plist"
+            launch_agent.parent.mkdir(parents=True)
+            launch_agent.touch()
+            args = Namespace(
+                omh_home=str(root / ".omh"),
+                hermes_home=str(root / ".hermes"),
+                scope=None,
+                dry_run=False,
+                force=False,
+            )
+            with (
+                patch.object(
+                    setup_commands,
+                    "is_managed_menubar_install",
+                    return_value=True,
+                ),
+                patch.object(
+                    setup_commands,
+                    "setup_menubar_app",
+                    return_value={"status": "running"},
+                ) as setup_menubar,
+            ):
+                result = setup_commands._refresh_installed_menubar_app(args)
+
+        self.assertEqual(result, {"status": "running"})
+        setup_menubar.assert_called_once()
+        called_paths = setup_menubar.call_args.args[0]
+        self.assertEqual(called_paths.omh_home, (root / ".omh").resolve())
+        self.assertEqual(
+            setup_menubar.call_args.kwargs,
+            {"dry_run": False, "start": True, "force": False},
+        )
+
+    def test_update_does_not_install_the_native_menubar_for_the_first_time(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = Namespace(
+                omh_home=str(root / ".omh"),
+                hermes_home=str(root / ".hermes"),
+                scope=None,
+                dry_run=False,
+                force=False,
+            )
+            with (
+                patch.object(
+                    setup_commands,
+                    "is_managed_menubar_install",
+                    return_value=False,
+                ),
+                patch.object(setup_commands, "setup_menubar_app") as setup_menubar,
+            ):
+                result = setup_commands._refresh_installed_menubar_app(args)
+
+        self.assertIsNone(result)
+        setup_menubar.assert_not_called()
+
+    def test_update_does_not_take_over_another_menubar_install(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app_dir = root / ".omh" / "menubar"
+            app_dir.mkdir(parents=True)
+            executable = app_dir / "omh-menubar"
+            executable.touch()
+            launch_agent = root / "Library" / "LaunchAgents" / "com.rlaope.omh.menubar.plist"
+            launch_agent.parent.mkdir(parents=True)
+            launch_agent.touch()
+            args = Namespace(
+                omh_home=str(root / ".omh"),
+                hermes_home=str(root / ".hermes"),
+                scope=None,
+                dry_run=False,
+                force=False,
+            )
+            with (
+                patch.object(
+                    setup_commands,
+                    "is_managed_menubar_install",
+                    return_value=False,
+                ),
+                patch.object(setup_commands, "setup_menubar_app") as setup_menubar,
+            ):
+                result = setup_commands._refresh_installed_menubar_app(args)
+
+        self.assertIsNone(result)
+        setup_menubar.assert_not_called()
+
+    def test_update_survives_an_optional_menubar_rebuild_failure(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app_dir = root / ".omh" / "menubar"
+            app_dir.mkdir(parents=True)
+            executable = app_dir / "omh-menubar"
+            executable.touch()
+            launch_agent = root / "Library" / "LaunchAgents" / "com.rlaope.omh.menubar.plist"
+            launch_agent.parent.mkdir(parents=True)
+            launch_agent.touch()
+            args = Namespace(
+                omh_home=str(root / ".omh"),
+                hermes_home=str(root / ".hermes"),
+                scope=None,
+                dry_run=False,
+                force=False,
+            )
+            with (
+                patch.object(
+                    setup_commands,
+                    "is_managed_menubar_install",
+                    return_value=True,
+                ),
+                patch.object(
+                    setup_commands,
+                    "setup_menubar_app",
+                    side_effect=RuntimeError("swiftc failed"),
+                ),
+                patch("sys.stderr", new_callable=io.StringIO) as stderr,
+            ):
+                result = setup_commands._refresh_installed_menubar_app(args)
+
+        self.assertEqual(result, {"status": "failed", "reason": "swiftc failed"})
+        self.assertIn("menu bar helper was not refreshed", stderr.getvalue())
 
     def test_update_self_update_recognizes_venv_python_symlink_path(self) -> None:
         with TemporaryDirectory() as tmp:
