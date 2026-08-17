@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import unittest
+
+from omh.version import __version__ as omh_version
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -689,7 +691,7 @@ class HudCliTests(unittest.TestCase):
 
             self.assertEqual(stderr, "")
             self.assertEqual(status, 0)
-            self.assertIn("[omh] v1.0.6", stdout)
+            self.assertIn(f"[omh] v{omh_version}", stdout)
             self.assertIn("plugin:not-installed", stdout)
             # No run and no recorded coding-agent preference: the segment is
             # executor-neutral, not an idle agent named "ask". See
@@ -780,7 +782,7 @@ class HudCliTests(unittest.TestCase):
             self.assertEqual(status, 0)
             payload = json.loads(stdout)
             self.assertEqual(payload["schema_version"], "omh_hud/v1")
-            self.assertEqual(payload["version"], "1.0.6")
+            self.assertEqual(payload["version"], omh_version)
             self.assertEqual(payload["plugin"]["status"], "ready")
             self.assertNotIn("skills", payload)
             self.assertEqual(payload["target_topology"]["mode"], "single_agent_target")
