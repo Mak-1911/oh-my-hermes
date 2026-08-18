@@ -133,7 +133,10 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # Re-measured for the phase-todo discipline (todo init before engine work,
 # bounded HUD-visible checklist instead of an open-ended reasoning loop) added
 # to the same quality bar. Deliberate; the ceiling stays the measured value.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 700058
+# 700058 -> 700304: ralplan gained a state-root guard safety rule (+246
+# chars) pinning plan artifacts to <repo>/.omh/plans/ and forbidding .omc/**
+# after observed cross-product drift; warranted growth, not padding.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 700304
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 
