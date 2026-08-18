@@ -143,6 +143,47 @@ class DelegateRouteToolTest(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertIn("ultrabrain", result["error"])
 
+    def test_fallback_advances_to_the_next_chain_candidate(self):
+        self._call(action="set", category="quick")
+        result = self._call(action="fallback")
+        self.assertEqual(result["status"], "fell_back")
+        self.assertEqual(result["category"], "quick")
+        self.assertEqual(result["from"], "glm-5.2-ultrafast")
+        self.assertEqual(result["fallback_candidates"], [])
+        self.assertEqual(
+            read_delegation_route(self.home),
+            {"model": "kimi-k3", "reasoning_effort": "low"},
+        )
+
+    def test_an_exhausted_chain_clears_the_route_to_parent_inheritance(self):
+        # The whole chain was rejected (e.g. a single-provider billing account
+        # serves none of it); the only known-working model is the parent's, so
+        # fallback past the end restores inheritance instead of routing one
+        # more rejection.
+        self._call(action="set", category="quick")
+        self._call(action="fallback")
+        result = self._call(action="fallback")
+        self.assertEqual(result["status"], "exhausted_to_inherit")
+        self.assertEqual(result["category"], "quick")
+        self.assertEqual(result["from"], "kimi-k3")
+        self.assertEqual(read_delegation_route(self.home), {})
+
+    def test_fallback_without_a_route_is_an_error(self):
+        result = self._call(action="fallback")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("no active route", result["error"])
+
+    def test_an_explicit_category_disambiguates_a_shared_model(self):
+        # kimi-k3:medium sits in more than one chain; the caller who routed
+        # writing passes the category so fallback advances inside writing.
+        self._call(action="set", category="writing")
+        result = self._call(action="fallback", category="writing")
+        self.assertEqual(result["status"], "fell_back")
+        self.assertEqual(
+            read_delegation_route(self.home),
+            {"model": "qwen3-coder", "reasoning_effort": "medium"},
+        )
+
     def test_clear_then_status_shows_an_inherited_route(self):
         self._call(action="set", category="deep")
         cleared = self._call(action="clear")

@@ -301,6 +301,33 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["state"], "done")
         self.assertEqual(payload["completed"], 1)
 
+    def test_a_completed_delegation_with_no_usage_projects_failed(self):
+        # Observed live: the billing account rejected the routed model with
+        # HTTP 400 ("not supported when using Codex with a ChatGPT account"),
+        # the child died in half a second with zero successful API calls, yet
+        # Hermes recorded the delegation "completed" and the HUD drew ✓.
+        # No recorded model usage on a terminal child means no work happened.
+        _build_state_db(
+            self.home,
+            [
+                {
+                    "id": "20260818_100100_eeee55",
+                    "model": "glm-5.2-ultrafast",
+                    "started_at": NOW - 60,
+                }
+            ],
+            delegation_states={"deleg_nousage": "completed"},
+        )
+        _write_manifest(
+            self.home, "deleg_nousage", ["rejected lane"], started=NOW - 65, log_mtime=NOW - 59
+        )
+        payload = read_hermes_native_subagents(self.home, now=NOW)
+        row = payload["rows"][0]
+        self.assertEqual(row["state"], "failed")
+        self.assertEqual(row["failure_hint"], "no model usage observed")
+        self.assertEqual(payload["blocked"], 1)
+        self.assertEqual(payload["completed"], 0)
+
     def test_a_failed_delegation_projects_a_failed_row_counted_as_blocked(self):
         _build_state_db(
             self.home,
