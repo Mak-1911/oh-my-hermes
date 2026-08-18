@@ -251,6 +251,27 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
         self.assertEqual(expired["rows"], [])
         self.assertEqual(expired["status"], "idle")
 
+    def test_a_finished_row_is_byte_stable_across_polls(self):
+        # The widget skips repaints when a snapshot serializes identically,
+        # which is what keeps the dock drag-copyable while a done row lingers
+        # — so a finished child's row must not vary with the reader's clock.
+        quiet_age = RECENT_ACTIVITY_SECONDS + 60
+        _build_state_db(
+            self.home,
+            [
+                {
+                    "id": "20260818_100100_ffff66",
+                    "model": "gpt-5.6-sol",
+                    "started_at": NOW - quiet_age,
+                    "usage": {"last_seen": NOW - quiet_age, "output_tokens": 5},
+                }
+            ],
+        )
+        first = read_hermes_native_subagents(self.home, now=NOW)
+        second = read_hermes_native_subagents(self.home, now=NOW + 30)
+        self.assertEqual(first["rows"][0]["state"], "done")
+        self.assertEqual(first["rows"], second["rows"])
+
     def test_a_completed_delegation_marks_its_child_done_even_while_recent(self):
         _build_state_db(
             self.home,

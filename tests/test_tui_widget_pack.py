@@ -308,6 +308,12 @@ class TuiWidgetPackTests(unittest.TestCase):
         # above its checklist and the phase count next to done/total.
         self.assertIn("safeText(todo.display_phase)", widget)
         self.assertIn("` · ${phaseCount} phases`", widget)
+        # Drag-copy contract: an unchanged snapshot must not repaint the docks
+        # (repaints clear an in-progress terminal selection), and the shimmer
+        # subscription mounts only while a running row needs the spinner.
+        self.assertIn("if (serialized === lastSnapshot) return", widget)
+        self.assertIn("AnimatedActivity", widget)
+        self.assertIn("h(ActivityRows, { columns, frame: 0", widget)
         # (bracket-tag grammar asserted above replaces the BRAND_MARK pair)
         # The old header's literal pieces ("-", "Oh My Hermes", "Ultra Work",
         # "Ready") are gone on purpose; asserting them back would re-pin the
