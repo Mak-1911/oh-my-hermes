@@ -326,6 +326,11 @@ export default function register(sdk) {
     const more = Number.isFinite(todo.more_count) ? todo.more_count : 0
     const markers = { active: '[•]', done: '[✓]', pending: '[ ]' }
     const budget = Math.max(16, columns - 10)
+    // A phase-structured plan (todo init with phases) shows the current
+    // phase's name above its checklist — the reader already narrowed
+    // display_items to that phase, so the panel walks one phase at a time.
+    const phase = safeText(todo.display_phase)
+    const phaseCount = Number.isFinite(counts.phases) ? counts.phases : 0
     return h(
       Box,
       { flexDirection: 'column', width: '100%' },
@@ -336,7 +341,15 @@ export default function register(sdk) {
         title ? h(Text, { color: t.color.muted }, ` ${title}`) : null,
         h(Text, { color: t.color.border }, SEPARATOR),
         h(Text, { color: t.color.warn }, `${counts.done ?? 0}/${counts.total ?? 0}`),
+        phaseCount > 1 ? h(Text, { color: t.color.muted }, ` · ${phaseCount} phases`) : null,
       ),
+      phase
+        ? h(
+            Text,
+            { wrap: 'truncate-end' },
+            h(Text, { bold: true, color: t.color.label }, truncateCells(phase, budget)),
+          )
+        : null,
       ...shown.map((item, index) => {
         const withMore = more > 0 && index === shown.length - 1
         // Reserve the "+N more" suffix width so truncation never eats it.

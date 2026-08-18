@@ -992,7 +992,10 @@ class TodoHudTests(unittest.TestCase):
 
             todo = payload["todo"]
             self.assertEqual(todo["status"], "established")
-            self.assertEqual(todo["counts"], {"total": 4, "done": 1, "active": 1, "pending": 2})
+            self.assertEqual(
+                todo["counts"],
+                {"total": 4, "done": 1, "active": 1, "pending": 2, "phases": 0},
+            )
             self.assertEqual(
                 [item["text"] for item in todo["display_items"]],
                 ["Restore RED baseline", "Inspect routing fixtures", "Update count assertions"],
