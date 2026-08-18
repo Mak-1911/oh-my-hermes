@@ -20,6 +20,7 @@ from .metadata import (
     TOOLS_REQUIRING_ROLE_CATALOG,
 )
 from .todo_store import (
+    MAX_TODO_DEPTH,
     MAX_TODO_ITEMS,
     MAX_TODO_PHASE_CHARS,
     MAX_TODO_SOURCE_CHARS,
@@ -1157,7 +1158,7 @@ def _todo_summary(home: Path) -> dict[str, Any]:
     record = _read_hud_json(todo_path(home), root=home)
     if record.get("schema_version") != TODO_SCHEMA_VERSION:
         return empty
-    items: list[dict[str, str]] = []
+    items: list[dict[str, Any]] = []
     raw_items = record.get("items")
     for raw in raw_items if isinstance(raw_items, list) else []:
         if not isinstance(raw, dict):
@@ -1165,10 +1166,18 @@ def _todo_summary(home: Path) -> dict[str, Any]:
         text = strip_control_characters(raw.get("text", ""))[:MAX_TODO_TEXT_CHARS]
         state = str(raw.get("state", ""))
         phase = strip_control_characters(raw.get("phase", ""))[:MAX_TODO_PHASE_CHARS]
+        raw_depth = raw.get("depth", 0)
+        depth = (
+            min(raw_depth, MAX_TODO_DEPTH)
+            if isinstance(raw_depth, int) and not isinstance(raw_depth, bool) and raw_depth > 0
+            else 0
+        )
         if text and state in TODO_ITEM_STATES:
-            entry = {"text": text, "state": state}
+            entry: dict[str, Any] = {"text": text, "state": state}
             if phase:
                 entry["phase"] = phase
+            if depth:
+                entry["depth"] = depth
             items.append(entry)
         if len(items) >= MAX_TODO_ITEMS:
             break
@@ -1259,19 +1268,22 @@ def _hud_todo_lines(todo: dict[str, Any], *, preset: str = "focused") -> list[st
     marker = {"done": "[✓]", "active": "[•]", "pending": "[ ]"}
     lines = [header]
     if full:
-        # Full preset walks every phase in declaration order with headers.
+        # Full preset walks every phase in declaration order with headers;
+        # subtasks (depth 1..3) indent beneath their parent.
         last_phase = None
         for item in shown:
             phase = item.get("phase", "")
             if phase and phase != last_phase:
                 lines.append(phase)
                 last_phase = phase
-            lines.append(f"{marker[item['state']]} {item['text']}")
+            lines.append(f"{'  ' * int(item.get('depth', 0) or 0)}{marker[item['state']]} {item['text']}")
     else:
         display_phase = str(todo.get("display_phase", ""))
         if display_phase:
             lines.append(display_phase)
-        lines.extend(f"{marker[item['state']]} {item['text']}" for item in shown)
+        lines.extend(
+            f"{'  ' * int(item.get('depth', 0) or 0)}{marker[item['state']]} {item['text']}" for item in shown
+        )
     more = 0 if full else int(todo.get("more_count", 0) or 0)
     if more > 0:
         lines[-1] = f"{lines[-1]}   +{more} more"

@@ -308,13 +308,20 @@ class TuiWidgetPackTests(unittest.TestCase):
         # above its checklist and the phase count next to done/total.
         self.assertIn("safeText(todo.display_phase)", widget)
         self.assertIn("` · ${phaseCount} phases`", widget)
-        # The todo panel renders the WHOLE plan (todo.items) as one row per
-        # phase — the phase name leads and its items follow inline; the
-        # focused "+N more" collapse is gone on purpose, it hid declared work
-        # behind a count, and per-phase header lines doubled the height.
+        # The todo panel renders the plan from todo.items: a single-task phase
+        # stays merged on one line, a dense phase renders a header with one
+        # item per row, subtasks (depth 1..3) indent beneath their parent, and
+        # past seven visible items the window anchors at current work with
+        # muted "... (N earlier/later tasks)" fold lines.
         self.assertIn("Array.isArray(todo.items)", widget)
         self.assertIn("last.phase === phase", widget)
         self.assertIn("${truncateCells(group.phase, budget)} `", widget)
+        self.assertIn("const TODO_DISPLAY_ROWS = 7", widget)
+        self.assertIn("depthOf", widget)
+        self.assertIn("'  '.repeat(depthOf(item))", widget)
+        self.assertIn("task${count === 1 ? '' : 's'}", widget)
+        self.assertIn("'todo-earlier'", widget)
+        self.assertIn("'todo-later'", widget)
         self.assertNotIn("todo.display_items", widget)
         self.assertNotIn("more_count", widget)
         self.assertNotIn("more}", widget)
