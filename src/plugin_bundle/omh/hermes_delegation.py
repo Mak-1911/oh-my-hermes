@@ -361,6 +361,10 @@ def read_hermes_native_subagents(
 
         parent_model = state.get("parent_models", {}).get(child["parent_id"], "")
         session_tail = child["session_id"].rsplit("_", 1)[-1][:8]
+        # A finished child's elapsed is frozen at its last activity: a done
+        # task should not keep aging, and a byte-stable lingering row is what
+        # lets the widget skip repaints so the dock stays drag-copyable.
+        elapsed_until = last_activity if row_state != "running" else current
         row: dict[str, Any] = {
             "state": row_state,
             "task_id": session_tail,
@@ -369,7 +373,7 @@ def read_hermes_native_subagents(
             "model": child["model"],
             "effort": child["effort"],
             "tokens": tokens_total if tokens_total else None,
-            "elapsed_seconds": max(0.0, current - child["started_at"]),
+            "elapsed_seconds": max(0.0, elapsed_until - child["started_at"]),
             "observed_at": _iso_utc(last_activity),
             "category": mixture_category_for(
                 child["model"], child["effort"], parent_model=parent_model

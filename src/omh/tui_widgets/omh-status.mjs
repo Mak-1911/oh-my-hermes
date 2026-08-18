@@ -219,14 +219,7 @@ export default function register(sdk) {
     )
   }
 
-  function LiveActivity({ columns, mainRows, rows, t, tick }) {
-    // Mounted only while live rows exist. The SDK shimmer clock is bounded —
-    // it stops advancing animateMs after MOUNT — so the old top-level
-    // useShimmerPhase(30_000) froze thirty seconds into a session and the
-    // spinner then jumped once per poll. A fresh mount per activity burst
-    // restarts the window, and thirty minutes bounds the render cost of one
-    // very long wave; the poll tick still nudges frames past that.
-    const frame = useShimmerPhase(1_800_000) + tick
+  function ActivityRows({ columns, frame, mainRows, rows, t }) {
     return h(
       Box,
       { flexDirection: 'column', width: '100%' },
@@ -250,6 +243,19 @@ export default function register(sdk) {
         })
       ),
     )
+  }
+
+  function AnimatedActivity({ columns, mainRows, rows, t, tick }) {
+    // Mounted only while a RUNNING row needs the spinner. The SDK shimmer
+    // clock is bounded — it stops advancing animateMs after MOUNT — so the
+    // old top-level useShimmerPhase(30_000) froze thirty seconds into a
+    // session and the spinner then jumped once per poll. A fresh mount per
+    // activity burst restarts the window, and thirty minutes bounds the
+    // render cost of one very long wave. Done/blocked-only states render the
+    // static ActivityRows instead: no shimmer subscription, no repaints, so
+    // a lingering finished wave stays drag-copyable.
+    const frame = useShimmerPhase(1_800_000) + tick
+    return h(ActivityRows, { columns, frame, mainRows, rows, t })
   }
 
   function Hud({ columns, state, t, viewportRows }) {
@@ -286,7 +292,9 @@ export default function register(sdk) {
         h(Text, { color: t.color.muted }, ` • ${metrics.cost} • ${metrics.ctx}`),
       ),
       mainRows.length || rows.length
-        ? h(LiveActivity, { columns, mainRows, rows, t, tick: state.tick })
+        ? ([...mainRows, ...rows].some(row => !row.state || row.state === 'running')
+            ? h(AnimatedActivity, { columns, mainRows, rows, t, tick: state.tick })
+            : h(ActivityRows, { columns, frame: 0, mainRows, rows, t }))
         : null,
     )
   }
@@ -406,11 +414,19 @@ export default function register(sdk) {
 
   openWidget(app, app.init(''))
   openWidget(todoApp, todoApp.init(''))
+  // Render quiescence is what makes the docks drag-copyable: every repaint of
+  // these lines clears an in-progress terminal selection over them, so an
+  // unchanged snapshot must produce NO updateWidget call at all. The reader
+  // freezes per-row elapsed for finished subagents precisely so a lingering
+  // done state serializes identically poll after poll.
+  let lastSnapshot = ''
   const applySnapshot = payload => {
+    if (!payload) return
+    const serialized = JSON.stringify(payload)
+    if (serialized === lastSnapshot) return
+    lastSnapshot = serialized
     for (const target of [app, todoApp]) {
-      updateWidget(target, state =>
-        payload ? { ...state, payload, tick: state.tick + 1 } : state
-      )
+      updateWidget(target, state => ({ ...state, payload, tick: state.tick + 1 }))
     }
   }
   const timerKey = Symbol.for('omh.hermes-tui-widget.refresh')
