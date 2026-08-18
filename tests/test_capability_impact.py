@@ -194,7 +194,12 @@ class PreVerifyHookTests(unittest.TestCase):
         context = StrictHermesContext()
         register(context)
 
-        self.assertEqual(set(context.hooks), {"on_session_end", "pre_llm_call", "pre_tool_call"})
+        # Only the rejected optional hook is absent; the other optional hook
+        # (transform_tool_result) still registers on this host.
+        self.assertEqual(
+            set(context.hooks),
+            {"on_session_end", "pre_llm_call", "pre_tool_call", "transform_tool_result"},
+        )
         self.assertIn("omh_capabilities", context.tools)
 
     def test_pre_verify_persists_bounded_host_observation_without_paths_or_response(self) -> None:
