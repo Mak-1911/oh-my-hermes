@@ -301,6 +301,52 @@ export default function register(sdk) {
     )
   }
 
+  // The one sanctioned animation: the plan panel must read as ALIVE while a
+  // task is active — the owner asked for motion twice over the quiescence
+  // default ('ui적으로 멈추어있는 기분이 들어서'). Two cues, both mounted
+  // only while an active item exists: a colour wave that travels through the
+  // ACTIVE item's characters (the text itself never moves — each character
+  // dims as the wave passes and brightens back), and a walking ellipsis on
+  // the [Plan] header. An idle or all-done plan stays byte-stable and
+  // drag-copyable; while active, the TOP dock deliberately trades selection
+  // stability for the motion cue. The bottom [OMH] dock stays static. The
+  // SDK shimmer clock is mount-bounded, so thirty minutes caps one
+  // continuous wave; guarded access keeps hosts without the hook rendering
+  // a static line instead of crashing the widget.
+  const shimmerFrame = () =>
+    typeof sdk.useShimmerPhase === 'function' ? sdk.useShimmerPhase(1_800_000) : 0
+
+  function PlanPulse({ t }) {
+    const frame = shimmerFrame()
+    return h(Text, { color: t.color.muted }, ` ${'.'.repeat(1 + (Math.floor(frame / 3) % 3))}`)
+  }
+
+  function ShimmerText({ color, t, text }) {
+    const frame = shimmerFrame()
+    const chars = Array.from(text)
+    if (!chars.length) return null
+    const cycle = Math.max(8, chars.length + 4)
+    const head = frame % cycle
+    const segments = []
+    for (const [index, char] of chars.entries()) {
+      const dim = ((index - head) % cycle + cycle) % cycle < 3
+      const last = segments[segments.length - 1]
+      if (last && last.dim === dim) last.text += char
+      else segments.push({ dim, text: char })
+    }
+    return h(
+      Text,
+      {},
+      ...segments.map((segment, index) =>
+        h(
+          Text,
+          { bold: true, color: segment.dim ? t.color.muted : color, key: `shimmer-${index}` },
+          segment.text,
+        )
+      ),
+    )
+  }
+
   function TodoPanel({ columns, state, t }) {
     const payload = state.payload
     if (!payload || payload.error || payload.privacy !== 'metadata_only') return null
@@ -341,6 +387,7 @@ export default function register(sdk) {
     // remaining item so current work is always on screen, and hidden
     // neighbours fold into muted `... (N earlier/later tasks)` lines.
     const shown = Array.isArray(todo.items) ? todo.items : []
+    const hasActive = shown.some(item => item.state === 'active')
     const markers = { active: '[•]', done: '[✓]', pending: '[ ]' }
     const budget = Math.max(16, columns - 10)
     const currentPhase = safeText(todo.display_phase)
@@ -388,6 +435,17 @@ export default function register(sdk) {
       0,
       ...groups.filter(isMerged).map(group => cellWidth(truncateCells(group.phase, budget))),
     )
+    // The active item's text carries the colour wave; its marker, indent and
+    // every other item stay static.
+    const itemNode = (item, indent) =>
+      item.state === 'active'
+        ? h(
+            Text,
+            {},
+            h(Text, itemProps(item), `${indent}${markers.active} `),
+            h(ShimmerText, { color: t.color.ok, t, text: truncateCells(item.text, budget) }),
+          )
+        : h(Text, itemProps(item), `${indent}${itemLabel(item)}`)
     const rows = []
     if (start > 0) rows.push(foldLine('todo-earlier', start, 'earlier'))
     groups.forEach((group, groupIndex) => {
@@ -399,7 +457,7 @@ export default function register(sdk) {
             Text,
             { key: `todo-${groupIndex}`, wrap: 'truncate-end' },
             h(Text, phaseProps(group.phase), `${label}${' '.repeat(phaseColumn - cellWidth(label) + 1)}`),
-            h(Text, itemProps(item), itemLabel(item)),
+            itemNode(item, ''),
           ),
         )
         return
@@ -418,7 +476,7 @@ export default function register(sdk) {
           h(
             Text,
             { key: `todo-${groupIndex}-${index}`, wrap: 'truncate-end' },
-            h(Text, itemProps(item), `${'  '.repeat(depthOf(item))}${itemLabel(item)}`),
+            itemNode(item, '  '.repeat(depthOf(item))),
           ),
         )
       }
@@ -435,6 +493,7 @@ export default function register(sdk) {
         h(Text, { color: t.color.border }, SEPARATOR),
         h(Text, { color: t.color.warn }, `${counts.done ?? 0}/${counts.total ?? 0}`),
         phaseCount > 1 ? h(Text, { color: t.color.muted }, ` · ${phaseCount} phases`) : null,
+        hasActive ? h(PlanPulse, { t }) : null,
       ),
       ...rows,
       h(Rule, { columns, t }),
