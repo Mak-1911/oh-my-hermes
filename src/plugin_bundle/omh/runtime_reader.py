@@ -10,6 +10,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Callable
 
+from .hermes_delegation import read_hermes_native_subagents
 from .metadata import (
     OPTIONAL_HOOKS,
     PROVIDED_HOOKS,
@@ -649,9 +650,23 @@ def read_omh_hud(
         "status": "observed" if payload["subagents"]["maestro_rows"] else "idle",
         "rows": payload["subagents"].pop("maestro_rows"),
     }
+    # Hermes-native delegate_task children are work the HUD must show even
+    # though they never touch the OMH runtime store; see hermes_delegation.
+    native = read_hermes_native_subagents(hermes)
+    if native["rows"]:
+        merged = payload["subagents"]
+        merged["rows"] = (list(merged["rows"]) + list(native["rows"]))[:5]
+        merged["active"] = int(merged.get("active", 0)) + int(native["active"])
+        merged["running"] = int(merged.get("running", 0)) + int(native["running"])
+        merged["blocked"] = int(merged.get("blocked", 0)) + int(native["blocked"])
+        merged["completed"] = int(merged.get("completed", 0)) + int(native["completed"])
+        if merged.get("status") == "idle":
+            merged["status"] = "observed"
     payload["active"] = bool(
         payload["runtime"]["workflow"] != "idle"
         or payload["subagents"]["active"]
+        # Lingering just-finished native rows keep the activity block visible.
+        or payload["subagents"]["rows"]
         or payload["maestro"]["rows"]
     )
     payload["display"] = {

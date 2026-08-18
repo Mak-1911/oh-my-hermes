@@ -68,9 +68,14 @@ export default function register(sdk) {
     if (!active) return 'ready'
     const running = Number(agents.running) || 0
     const blocked = Number(agents.blocked) || 0
+    const done = Number(agents.completed) || 0
+    // Lingering just-finished subagents keep the block alive without live
+    // work; "2 done" is the honest label there, not "0 agents".
+    if (!running && !blocked && done) return `${done} done`
     const parts = [plural(Number(agents.active) || 0, 'agent')]
     if (running) parts.push(`${running} running`)
     if (blocked) parts.push(`${blocked} blocked`)
+    if (done) parts.push(`${done} done`)
     return parts.join(' · ')
   }
   const readHud = () => new Promise(resolve => {
@@ -187,12 +192,13 @@ export default function register(sdk) {
   function ActivityRow({ columns, frame, main, row, t }) {
     const layout = activityLayout(row, columns, main)
     const blocked = row.state === 'blocked' || row.state === 'failed'
-    const marker = blocked ? '▲' : SPINNER_FRAMES[frame % SPINNER_FRAMES.length]
+    const done = row.state === 'done'
+    const marker = blocked ? '▲' : done ? '✓' : SPINNER_FRAMES[frame % SPINNER_FRAMES.length]
     const statusColor = blocked ? t.color.error : t.color.ok
     return h(
       Text,
       { wrap: 'truncate-end' },
-      h(Text, { color: blocked ? t.color.error : t.color.warn }, `${marker} `),
+      h(Text, { color: blocked ? t.color.error : done ? t.color.ok : t.color.warn }, `${marker} `),
       h(Text, { color: t.color.muted }, `${layout.taskId} `),
       h(Text, { color: t.color.text }, layout.action),
       layout.metadata ? h(Text, { color: t.color.muted }, '  ·  ') : null,
@@ -213,8 +219,40 @@ export default function register(sdk) {
     )
   }
 
+  function LiveActivity({ columns, mainRows, rows, t, tick }) {
+    // Mounted only while live rows exist. The SDK shimmer clock is bounded —
+    // it stops advancing animateMs after MOUNT — so the old top-level
+    // useShimmerPhase(30_000) froze thirty seconds into a session and the
+    // spinner then jumped once per poll. A fresh mount per activity burst
+    // restarts the window, and thirty minutes bounds the render cost of one
+    // very long wave; the poll tick still nudges frames past that.
+    const frame = useShimmerPhase(1_800_000) + tick
+    return h(
+      Box,
+      { flexDirection: 'column', width: '100%' },
+      ...mainRows.map((row, index) =>
+        h(ActivityRow, {
+          columns,
+          frame,
+          key: `main-${index}`,
+          main: true,
+          row,
+          t,
+        })
+      ),
+      ...rows.map((row, index) =>
+        h(ActivityRow, {
+          columns,
+          frame,
+          key: `${safeText(row.task_id)}-${index}`,
+          row,
+          t,
+        })
+      ),
+    )
+  }
+
   function Hud({ columns, state, t, viewportRows }) {
-    const spinnerPhase = useShimmerPhase(30_000) + state.tick
     const payload = state.payload
     if (!payload || payload.error || payload.privacy !== 'metadata_only') return null
 
@@ -247,25 +285,9 @@ export default function register(sdk) {
         h(Text, { color: active ? t.color.warn : t.color.ok }, hudStateLabel(active, agents)),
         h(Text, { color: t.color.muted }, ` • ${metrics.cost} • ${metrics.ctx}`),
       ),
-      ...mainRows.map((row, index) =>
-        h(ActivityRow, {
-          columns,
-          frame: spinnerPhase,
-          key: `main-${index}`,
-          main: true,
-          row,
-          t,
-        })
-      ),
-      ...rows.map((row, index) =>
-        h(ActivityRow, {
-          columns,
-          frame: spinnerPhase,
-          key: `${safeText(row.task_id)}-${index}`,
-          row,
-          t,
-        })
-      ),
+      mainRows.length || rows.length
+        ? h(LiveActivity, { columns, mainRows, rows, t, tick: state.tick })
+        : null,
     )
   }
 
