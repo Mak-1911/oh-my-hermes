@@ -320,28 +320,57 @@ export default function register(sdk) {
         h(Rule, { columns, t }),
       )
     }
-    // The whole plan, always. The earlier focused projection (current phase
-    // only, "+N more" for the rest) hid the shape of the work the owner had
-    // just declared — a six-phase plan rendered as one line and a count. The
-    // panel now walks every item in declaration order, emitting a phase
-    // header whenever it changes; the CURRENT phase's header carries the
-    // label colour, finished/upcoming phases stay muted. The todo store caps
-    // plans at 20 items, which bounds the panel's height.
+    // The whole plan, always — the focused "+N more" collapse hid declared
+    // work behind a count. One row PER PHASE, not per line-break-heavy
+    // header: the phase name leads the row and its items follow inline
+    // (`Research [•] task  [ ] task`), which the owner asked for after the
+    // header-above-checklist layout doubled the panel's height. The CURRENT
+    // phase's name carries the label colour, other phases stay muted; done
+    // items keep the strikethrough. Unphased plans keep one item per row.
+    // The todo store caps plans at 20 items, which bounds the height.
     const shown = Array.isArray(todo.items) ? todo.items : []
     const markers = { active: '[•]', done: '[✓]', pending: '[ ]' }
     const budget = Math.max(16, columns - 10)
     const currentPhase = safeText(todo.display_phase)
     const phaseCount = Number.isFinite(counts.phases) ? counts.phases : 0
-    const lines = []
-    let lastPhase = null
+    const groups = []
     for (const item of shown) {
       const phase = safeText(item.phase)
-      if (phase && phase !== lastPhase) {
-        lines.push({ kind: 'phase', text: phase })
-        lastPhase = phase
-      }
-      lines.push({ kind: 'item', item })
+      const last = groups[groups.length - 1]
+      if (last && last.phase === phase) last.items.push(item)
+      else groups.push({ phase, items: [item] })
     }
+    const itemText = (item, index, limit) =>
+      `${index ? '  ' : ''}${Object.hasOwn(markers, item.state) ? markers[item.state] : '[ ]'} ${truncateCells(item.text, limit)}`
+    const itemProps = item => ({
+      bold: item.state === 'active',
+      color: item.state === 'active' ? t.color.ok : item.state === 'done' ? t.color.muted : t.color.text,
+      strikethrough: item.state === 'done',
+    })
+    const rows = groups.flatMap((group, groupIndex) =>
+      group.phase
+        ? [
+            h(
+              Text,
+              { key: `todo-${groupIndex}`, wrap: 'truncate-end' },
+              h(
+                Text,
+                { bold: true, color: group.phase === currentPhase ? t.color.label : t.color.muted },
+                `${truncateCells(group.phase, budget)} `,
+              ),
+              ...group.items.map((item, index) =>
+                h(Text, { key: `todo-${groupIndex}-${index}`, ...itemProps(item) }, itemText(item, index, budget)),
+              ),
+            ),
+          ]
+        : group.items.map((item, index) =>
+            h(
+              Text,
+              { key: `todo-${groupIndex}-${index}`, wrap: 'truncate-end' },
+              h(Text, itemProps(item), itemText(item, 0, budget)),
+            ),
+          )
+    )
     return h(
       Box,
       { flexDirection: 'column', width: '100%' },
@@ -354,31 +383,7 @@ export default function register(sdk) {
         h(Text, { color: t.color.warn }, `${counts.done ?? 0}/${counts.total ?? 0}`),
         phaseCount > 1 ? h(Text, { color: t.color.muted }, ` · ${phaseCount} phases`) : null,
       ),
-      ...lines.map((line, index) =>
-        line.kind === 'phase'
-          ? h(
-              Text,
-              { key: `todo-${index}`, wrap: 'truncate-end' },
-              h(
-                Text,
-                { bold: true, color: line.text === currentPhase ? t.color.label : t.color.muted },
-                truncateCells(line.text, budget),
-              ),
-            )
-          : h(
-              Text,
-              { key: `todo-${index}`, wrap: 'truncate-end' },
-              h(
-                Text,
-                {
-                  bold: line.item.state === 'active',
-                  color: line.item.state === 'active' ? t.color.ok : line.item.state === 'done' ? t.color.muted : t.color.text,
-                  strikethrough: line.item.state === 'done',
-                },
-                `${Object.hasOwn(markers, line.item.state) ? markers[line.item.state] : '[ ]'} ${truncateCells(line.item.text, budget)}`,
-              ),
-            )
-      ),
+      ...rows,
       h(Rule, { columns, t }),
     )
   }
