@@ -22,10 +22,14 @@ dist/
 *.egg-info/
 *.whl
 
-# Local agent/runtime artifacts
+# Local agent/runtime artifacts. `.omh/` entries that were deliberately
+# committed (git mv'd proposals) stay tracked — gitignore only hides
+# untracked files — while everything new under these roots needs an explicit
+# `git add -f` decision.
 .hermes/
 .omh/
 .omc/
+.omo/
 .loop/
 
 # Local resolver artifacts
