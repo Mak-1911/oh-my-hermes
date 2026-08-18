@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 
 export default function register(sdk) {
-  const { Box, Text, defineWidgetApp, h, openWidget, updateWidget, useShimmerPhase } = sdk
+  const { Box, Text, defineWidgetApp, h, openWidget, updateWidget } = sdk
   const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
   const HOME = process.env.OMH_HOME || `${process.env.HOME}/.omh`
   const HERMES_HOME = process.env.HERMES_HOME || `${process.env.HOME}/.hermes`
@@ -245,19 +245,6 @@ export default function register(sdk) {
     )
   }
 
-  function AnimatedActivity({ columns, mainRows, rows, t, tick }) {
-    // Mounted only while a RUNNING row needs the spinner. The SDK shimmer
-    // clock is bounded — it stops advancing animateMs after MOUNT — so the
-    // old top-level useShimmerPhase(30_000) froze thirty seconds into a
-    // session and the spinner then jumped once per poll. A fresh mount per
-    // activity burst restarts the window, and thirty minutes bounds the
-    // render cost of one very long wave. Done/blocked-only states render the
-    // static ActivityRows instead: no shimmer subscription, no repaints, so
-    // a lingering finished wave stays drag-copyable.
-    const frame = useShimmerPhase(1_800_000) + tick
-    return h(ActivityRows, { columns, frame, mainRows, rows, t })
-  }
-
   function Hud({ columns, state, t, viewportRows }) {
     const payload = state.payload
     if (!payload || payload.error || payload.privacy !== 'metadata_only') return null
@@ -291,10 +278,13 @@ export default function register(sdk) {
         h(Text, { color: active ? t.color.warn : t.color.ok }, hudStateLabel(active, agents)),
         h(Text, { color: t.color.muted }, ` • ${metrics.cost} • ${metrics.ctx}`),
       ),
+      // No animation subscription, ever: the dock must read like plain text
+      // so a terminal drag-selection over it survives. The spinner advances
+      // one frame per applied snapshot (state.tick) instead of on a shimmer
+      // clock — a running wave used to repaint several times a second, which
+      // cleared any in-progress selection before the drag could finish.
       mainRows.length || rows.length
-        ? ([...mainRows, ...rows].some(row => !row.state || row.state === 'running')
-            ? h(AnimatedActivity, { columns, mainRows, rows, t, tick: state.tick })
-            : h(ActivityRows, { columns, frame: 0, mainRows, rows, t }))
+        ? h(ActivityRows, { columns, frame: state.tick, mainRows, rows, t })
         : null,
     )
   }
@@ -419,12 +409,40 @@ export default function register(sdk) {
   // unchanged snapshot must produce NO updateWidget call at all. The reader
   // freezes per-row elapsed for finished subagents precisely so a lingering
   // done state serializes identically poll after poll.
+  //
+  // A RUNNING delegation defeats a plain byte-compare, though: elapsed,
+  // tok/s, cache% and cost drift on nearly every 2s poll, so the dock would
+  // still repaint every poll for the whole wave. The compare is therefore
+  // two-tier. Structural changes — a row appearing, a state transition, the
+  // action text, the todo checklist — repaint immediately. Metric-only drift
+  // repaints at most once per METRICS_REPAINT_MS, leaving long byte-stable
+  // windows in which the dock behaves like plain text under a drag.
+  const METRICS_REPAINT_MS = 30_000
+  const VOLATILE_KEYS = new Set([
+    'cache_hit_percentage',
+    'context_percentage',
+    'cost_usd',
+    'elapsed_seconds',
+    'observed_at',
+    'tokens',
+    'tokens_per_second',
+    'tool_count',
+    'turn_count',
+  ])
+  const structuralKey = payload =>
+    JSON.stringify(payload, (key, value) => (VOLATILE_KEYS.has(key) ? undefined : value))
   let lastSnapshot = ''
+  let lastStructural = ''
+  let lastPaintAt = 0
   const applySnapshot = payload => {
     if (!payload) return
     const serialized = JSON.stringify(payload)
     if (serialized === lastSnapshot) return
+    const structural = structuralKey(payload)
+    if (structural === lastStructural && Date.now() - lastPaintAt < METRICS_REPAINT_MS) return
     lastSnapshot = serialized
+    lastStructural = structural
+    lastPaintAt = Date.now()
     for (const target of [app, todoApp]) {
       updateWidget(target, state => ({ ...state, payload, tick: state.tick + 1 }))
     }

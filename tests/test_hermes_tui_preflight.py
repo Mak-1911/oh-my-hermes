@@ -147,6 +147,10 @@ class HermesTuiPreflightTests(unittest.TestCase):
             self.assertIn("hermes update", blockers[0])
 
     def test_stripped_sdk_surface_reports_each_missing_key(self) -> None:
+        # useShimmerPhase is stripped too, but its absence is NOT a finding:
+        # the widget no longer subscribes to the shimmer clock (animation
+        # repaints cleared drag-selections over the dock), so only the keys
+        # the widget actually destructures may block.
         stripped = _MODERN_SDK_SOURCE.replace("  useShimmerPhase\n", "").replace(
             "  updateWidget,\n", ""
         )
@@ -159,11 +163,10 @@ class HermesTuiPreflightTests(unittest.TestCase):
             preflight = hermes_tui_preflight(paths)
             blockers = widget_render_blockers(preflight)
 
-            self.assertEqual(
-                preflight["sdk_surface"]["missing"], ["updateWidget", "useShimmerPhase"]
-            )
+            self.assertEqual(preflight["sdk_surface"]["missing"], ["updateWidget"])
             self.assertEqual(len(blockers), 1)
-            self.assertIn("updateWidget, useShimmerPhase", blockers[0])
+            self.assertIn("updateWidget", blockers[0])
+            self.assertNotIn("useShimmerPhase", blockers[0])
 
     def test_unset_display_interface_is_a_blocker_and_explicit_cli_is_user_owned(self) -> None:
         with TemporaryDirectory() as tmp:

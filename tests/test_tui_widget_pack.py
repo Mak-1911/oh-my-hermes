@@ -309,11 +309,30 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("safeText(todo.display_phase)", widget)
         self.assertIn("` · ${phaseCount} phases`", widget)
         # Drag-copy contract: an unchanged snapshot must not repaint the docks
-        # (repaints clear an in-progress terminal selection), and the shimmer
-        # subscription mounts only while a running row needs the spinner.
+        # (repaints clear an in-progress terminal selection), there is NO
+        # animation subscription at all (the spinner advances one frame per
+        # applied snapshot), and metric-only drift on a running wave repaints
+        # at most once per throttle window instead of on every 2s poll.
         self.assertIn("if (serialized === lastSnapshot) return", widget)
-        self.assertIn("AnimatedActivity", widget)
-        self.assertIn("h(ActivityRows, { columns, frame: 0", widget)
+        self.assertNotIn("AnimatedActivity", widget)
+        self.assertIn("h(ActivityRows, { columns, frame: state.tick", widget)
+        self.assertIn("const METRICS_REPAINT_MS = 30_000", widget)
+        self.assertIn(
+            "if (structural === lastStructural && Date.now() - lastPaintAt < METRICS_REPAINT_MS) return",
+            widget,
+        )
+        for volatile in (
+            "'cache_hit_percentage'",
+            "'context_percentage'",
+            "'cost_usd'",
+            "'elapsed_seconds'",
+            "'observed_at'",
+            "'tokens'",
+            "'tokens_per_second'",
+            "'tool_count'",
+            "'turn_count'",
+        ):
+            self.assertIn(volatile, widget)
         # (bracket-tag grammar asserted above replaces the BRAND_MARK pair)
         # The old header's literal pieces ("-", "Oh My Hermes", "Ultra Work",
         # "Ready") are gone on purpose; asserting them back would re-pin the
@@ -321,9 +340,8 @@ class TuiWidgetPackTests(unittest.TestCase):
         # between both panels instead of hand-written per segment.
         self.assertNotIn("'Ultra Work'", widget)
         self.assertIn("SPINNER_FRAMES", widget)
-        self.assertIn("useShimmerPhase", widget)
+        self.assertNotIn("useShimmerPhase", widget)
         self.assertNotIn("Number.MAX_SAFE_INTEGER", widget)
-        self.assertIn("useShimmerPhase(30_000)", widget)
         self.assertIn("Math.min(3,", widget)
         self.assertNotIn("spinnerTimerKey", widget)
         self.assertIn("ActivityRow", widget)

@@ -24,6 +24,10 @@ HERMES_TUI_PREFLIGHT_SCHEMA_VERSION = "omh_hermes_tui_preflight/v1"
 # The exact SDK names the installed widget destructures from ``register(sdk)``.
 # If Hermes drops or renames one, its loader skips the widget with only a log
 # line — this preflight is what turns that silent skip into a named finding.
+# ``useShimmerPhase`` left this list when the widget dropped its animation
+# subscription (shimmer repaints cleared terminal drag-selections over the
+# dock); requiring an SDK key the widget never touches would block installs
+# on hosts that render it fine.
 REQUIRED_WIDGET_SDK_KEYS = (
     "Box",
     "Text",
@@ -31,7 +35,6 @@ REQUIRED_WIDGET_SDK_KEYS = (
     "h",
     "openWidget",
     "updateWidget",
-    "useShimmerPhase",
 )
 
 # Reading caps: userWidgets.ts is ~8KB and config.yaml tens of KB today.
