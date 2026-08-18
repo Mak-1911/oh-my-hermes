@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .hermes_delegation import read_hermes_native_subagents
+from .tool_bursts import latest_parallel_shot
 from .metadata import (
     OPTIONAL_HOOKS,
     PROVIDED_HOOKS,
@@ -641,6 +642,9 @@ def read_omh_hud(
         "achievements": _achievements_summary(hermes),
         "tokens": _token_summary(token_metadata or {}),
         "todo": _todo_summary(home),
+        # Concurrent tool-call batches observed by the pre_tool_call hook;
+        # the [OMH] status line brands a fresh batch as a parallel shot.
+        "parallel_shot": latest_parallel_shot(str(home)),
         "evidence_boundary": (
             "HUD is metadata-only. Prepared handoffs are not execution, review, CI, merge, or token-usage evidence. "
             "Todo items are plan declarations, not execution evidence."
