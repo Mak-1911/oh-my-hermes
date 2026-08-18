@@ -392,7 +392,10 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("tok/s", widget)
         self.assertIn("cache_hit_percentage", widget)
         self.assertIn("context_percentage", widget)
-        self.assertIn("uncollected", widget)
+        # Only observed cache/ctx values render on rows: "uncollected" was a
+        # permanent label for hermes-native children (the host never records
+        # a child's context percentage) and read as a fixable problem.
+        self.assertNotIn("uncollected", widget)
         self.assertIn("'MAIN'", widget)
         self.assertIn("maestro.rows", widget)
         self.assertIn("fallback:", widget)
