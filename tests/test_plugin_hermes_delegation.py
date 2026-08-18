@@ -141,17 +141,26 @@ class MixtureCategoryProjectionTest(unittest.TestCase):
         )
 
     def test_head_match_beats_membership_match(self):
-        # glm-5.2-ultrafast heads `quick` and is also second in
+        # glm-5.2-ultrafast:low heads `quick` and is also second in
         # unspecified-low; the head attribution wins.
         self.assertEqual(
-            mixture_category_for("glm-5.2-ultrafast", "", parent_model="kimi-k3"),
+            mixture_category_for("glm-5.2-ultrafast", "low", parent_model="kimi-k3"),
             "quick",
         )
 
     def test_a_membership_only_model_falls_back_to_its_first_chain(self):
         self.assertEqual(
-            mixture_category_for("claude-opus-5", "", parent_model="kimi-k3"),
+            mixture_category_for("claude-opus-5", "medium", parent_model="kimi-k3"),
             "unspecified-high",
+        )
+
+    def test_an_effort_that_matches_no_chain_entry_is_not_attributed(self):
+        # Every category now declares its effort (owner decision), so a child
+        # whose effort matches no entry — e.g. an inherited medium on the
+        # quick chain's model — shows the bare model, not a routed category.
+        self.assertEqual(
+            mixture_category_for("glm-5.2-ultrafast", "medium", parent_model="kimi-k3"),
+            "",
         )
 
     def test_the_embedded_chains_mirror_the_shipped_recommendation_catalog(self):

@@ -144,17 +144,34 @@ _QWEN = _candidate(
 # chains rather than gaining invented defaults. `main` is separate because it
 # is a Hermes setup slot, and `x_platform_data` is separate because it is a
 # domain affinity.
+def _with_effort(candidate: Mapping[str, object], effort: str) -> dict[str, object]:
+    return dict(deepcopy(dict(candidate)), reasoning_effort=effort)
+
+
+# Every category carries an explicit default reasoning effort (owner decision,
+# 2026-08-18): before this, only ultrabrain/deep declared one and every other
+# routed lane silently inherited the parent session's level — a wave looked
+# like "everything runs medium" no matter which category chose the model. The
+# category IS the model+effort pair; a per-lane override still wins.
 SHIPPED_MODEL_RECOMMENDATIONS: Final[dict[str, object]] = {
     "schema_version": MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION,
     "categories": {
         "ultrabrain": [deepcopy(_SOL_XHIGH)],
         "deep": [deepcopy(_TERRA)],
-        "unspecified-high": [deepcopy(_KIMI_K3), deepcopy(_OPUS_5)],
-        "unspecified-low": [deepcopy(_GLM), deepcopy(_GLM_FAST)],
-        "quick": [deepcopy(_GLM_FAST), deepcopy(_KIMI_K3)],
-        "writing": [deepcopy(_KIMI_K3), deepcopy(_QWEN), deepcopy(_GEMINI)],
-        "visual-engineering": [deepcopy(_FABLE_5), deepcopy(_KIMI_K3)],
-        "artistry": [deepcopy(_GEMINI), deepcopy(_FABLE_5), deepcopy(_KIMI_K3)],
+        "unspecified-high": [_with_effort(_KIMI_K3, "medium"), _with_effort(_OPUS_5, "medium")],
+        "unspecified-low": [_with_effort(_GLM, "low"), _with_effort(_GLM_FAST, "low")],
+        "quick": [_with_effort(_GLM_FAST, "low"), _with_effort(_KIMI_K3, "low")],
+        "writing": [
+            _with_effort(_KIMI_K3, "medium"),
+            _with_effort(_QWEN, "medium"),
+            _with_effort(_GEMINI, "medium"),
+        ],
+        "visual-engineering": [_with_effort(_FABLE_5, "high"), _with_effort(_KIMI_K3, "high")],
+        "artistry": [
+            _with_effort(_GEMINI, "high"),
+            _with_effort(_FABLE_5, "high"),
+            _with_effort(_KIMI_K3, "high"),
+        ],
     },
     "role_suggestions": {
         "main": [

@@ -38,12 +38,20 @@ from typing import Any
 HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
     "ultrabrain": (("gpt-5.6-sol", "xhigh"),),
     "deep": (("gpt-5.6-terra", "high"),),
-    "unspecified-high": (("kimi-k3", ""), ("claude-opus-5", "")),
-    "unspecified-low": (("glm-5.2", ""), ("glm-5.2-ultrafast", "")),
-    "quick": (("glm-5.2-ultrafast", ""), ("kimi-k3", "")),
-    "writing": (("kimi-k3", ""), ("qwen3-coder", ""), ("gemini-3.1-pro", "")),
-    "visual-engineering": (("claude-fable-5", ""), ("kimi-k3", "")),
-    "artistry": (("gemini-3.1-pro", ""), ("claude-fable-5", ""), ("kimi-k3", "")),
+    "unspecified-high": (("kimi-k3", "medium"), ("claude-opus-5", "medium")),
+    "unspecified-low": (("glm-5.2", "low"), ("glm-5.2-ultrafast", "low")),
+    "quick": (("glm-5.2-ultrafast", "low"), ("kimi-k3", "low")),
+    "writing": (
+        ("kimi-k3", "medium"),
+        ("qwen3-coder", "medium"),
+        ("gemini-3.1-pro", "medium"),
+    ),
+    "visual-engineering": (("claude-fable-5", "high"), ("kimi-k3", "high")),
+    "artistry": (
+        ("gemini-3.1-pro", "high"),
+        ("claude-fable-5", "high"),
+        ("kimi-k3", "high"),
+    ),
 }
 
 # A child is "running" while its newest observable signal (live transcript
