@@ -149,8 +149,13 @@ export default function register(sdk) {
   }
 
   const metricSegment = (kind, text) => ({ kind, text })
+  // Only observed values render. The old permanent not-collected labels on
+  // cache/ctx were honest but unresolvable for Hermes-native children — the
+  // host never records a child's context percentage — and read as a fixable
+  // problem ('서브에이전트 트리거는 다시 해야하나?'). Absence of a claim is
+  // just as honest, and the header's `ctx --` still marks the session gap.
   const observedPercent = (label, value) =>
-    Number.isFinite(value) ? `${label} ${value}%` : `${label} uncollected`
+    Number.isFinite(value) ? `${label} ${value}%` : ''
 
   const activityLayout = (row, columns, main) => {
     const state = safeText(row.state) || 'running'
