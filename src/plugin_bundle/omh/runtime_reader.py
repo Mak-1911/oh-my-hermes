@@ -21,6 +21,7 @@ from .metadata import (
 )
 from .todo_store import (
     MAX_TODO_ITEMS,
+    MAX_TODO_PHASE_CHARS,
     MAX_TODO_SOURCE_CHARS,
     MAX_TODO_TEXT_CHARS,
     MAX_TODO_TITLE_CHARS,
@@ -1147,9 +1148,10 @@ def _todo_summary(home: Path) -> dict[str, Any]:
         "title": "",
         "source": "",
         "updated_at": "",
-        "counts": {"total": 0, "done": 0, "active": 0, "pending": 0},
+        "counts": {"total": 0, "done": 0, "active": 0, "pending": 0, "phases": 0},
         "items": [],
         "display_items": [],
+        "display_phase": "",
         "more_count": 0,
     }
     record = _read_hud_json(todo_path(home), root=home)
@@ -1162,8 +1164,12 @@ def _todo_summary(home: Path) -> dict[str, Any]:
             continue
         text = strip_control_characters(raw.get("text", ""))[:MAX_TODO_TEXT_CHARS]
         state = str(raw.get("state", ""))
+        phase = strip_control_characters(raw.get("phase", ""))[:MAX_TODO_PHASE_CHARS]
         if text and state in TODO_ITEM_STATES:
-            items.append({"text": text, "state": state})
+            entry = {"text": text, "state": state}
+            if phase:
+                entry["phase"] = phase
+            items.append(entry)
         if len(items) >= MAX_TODO_ITEMS:
             break
     if not items:
@@ -1175,11 +1181,17 @@ def _todo_summary(home: Path) -> dict[str, Any]:
     summary["source"] = strip_control_characters(record.get("source", ""))[:MAX_TODO_SOURCE_CHARS]
     summary["updated_at"] = strip_control_characters(record.get("updated_at", ""))[:40]
     summary["items"] = items
+    phases: list[str] = []
+    for item in items:
+        name = item.get("phase", "")
+        if name and name not in phases:
+            phases.append(name)
     counts = {
         "total": len(items),
         "done": sum(1 for item in items if item["state"] == "done"),
         "active": sum(1 for item in items if item["state"] == "active"),
         "pending": sum(1 for item in items if item["state"] == "pending"),
+        "phases": len(phases),
     }
     summary["counts"] = counts
     age = _seconds_since(summary["updated_at"])
@@ -1198,9 +1210,24 @@ def _todo_summary(home: Path) -> dict[str, Any]:
         summary["status"] = "all_done"
         return summary
     summary["status"] = "established"
-    summary["display_items"] = _collapse_todo_items(items)
-    # "+N more" counts hidden remaining work only; hidden done items are
-    # already summarized by the header's done/total counter.
+    # A phase-structured plan shows the CURRENT phase only: its name as a
+    # header and its items as the checklist. The current phase is where work
+    # is — the first phase holding an active item, else the first with
+    # remaining work. Unphased plans keep the flat collapse.
+    display_pool = items
+    if phases:
+        current_phase = next(
+            (item.get("phase", "") for item in items if item["state"] == "active" and item.get("phase")),
+            "",
+        ) or next(
+            (item.get("phase", "") for item in items if item["state"] == "pending" and item.get("phase")),
+            phases[-1],
+        )
+        summary["display_phase"] = current_phase
+        display_pool = [item for item in items if item.get("phase", "") == current_phase]
+    summary["display_items"] = _collapse_todo_items(display_pool)
+    # "+N more" counts hidden remaining work only (later phases included);
+    # hidden done items are already summarized by the header's done/total.
     shown_remaining = sum(1 for item in summary["display_items"] if item["state"] != "done")
     summary["more_count"] = counts["active"] + counts["pending"] - shown_remaining
     return summary
@@ -1230,7 +1257,21 @@ def _hud_todo_lines(todo: dict[str, Any], *, preset: str = "focused") -> list[st
     full = preset == "full"
     shown = todo.get("items", []) if full else todo.get("display_items", [])
     marker = {"done": "[✓]", "active": "[•]", "pending": "[ ]"}
-    lines = [header] + [f"{marker[item['state']]} {item['text']}" for item in shown]
+    lines = [header]
+    if full:
+        # Full preset walks every phase in declaration order with headers.
+        last_phase = None
+        for item in shown:
+            phase = item.get("phase", "")
+            if phase and phase != last_phase:
+                lines.append(phase)
+                last_phase = phase
+            lines.append(f"{marker[item['state']]} {item['text']}")
+    else:
+        display_phase = str(todo.get("display_phase", ""))
+        if display_phase:
+            lines.append(display_phase)
+        lines.extend(f"{marker[item['state']]} {item['text']}" for item in shown)
     more = 0 if full else int(todo.get("more_count", 0) or 0)
     if more > 0:
         lines[-1] = f"{lines[-1]}   +{more} more"

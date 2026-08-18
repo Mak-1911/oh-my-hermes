@@ -18,7 +18,10 @@ OMH_TODO_SCHEMA = {
     "name": "omh_todo",
     "description": (
         "Declare, clear, or read the metadata-only plan todo list that OMH HUD surfaces render "
-        "above the Hermes prompt input. Todo items are plan declarations, never execution evidence."
+        "above the Hermes prompt input. Initialize it BEFORE starting engine work (todo init): "
+        "declare phases with their tasks so the run walks a bounded checklist instead of an "
+        "open-ended reasoning loop, keep exactly one item active, and update states as work "
+        "completes. Todo items are plan declarations, never execution evidence."
     ),
     "parameters": {
         "type": "object",
@@ -43,6 +46,14 @@ OMH_TODO_SCHEMA = {
                             "type": "string",
                             "enum": ["pending", "active", "done"],
                             "description": "Item state. Defaults to pending.",
+                        },
+                        "phase": {
+                            "type": "string",
+                            "description": (
+                                "Optional phase label (e.g. 'Internal Context', 'Delivery'). "
+                                "Items sharing a phase render as one section; the HUD shows the "
+                                "current phase's checklist."
+                            ),
                         },
                     },
                     "required": ["text"],

@@ -304,6 +304,10 @@ class TuiWidgetPackTests(unittest.TestCase):
         # block says "N done" rather than the dishonest "0 agents".
         self.assertIn("done ? '✓'", widget)
         self.assertIn("if (!running && !blocked && done) return `${done} done`", widget)
+        # A phase-structured plan (todo init) shows the current phase's name
+        # above its checklist and the phase count next to done/total.
+        self.assertIn("safeText(todo.display_phase)", widget)
+        self.assertIn("` · ${phaseCount} phases`", widget)
         # (bracket-tag grammar asserted above replaces the BRAND_MARK pair)
         # The old header's literal pieces ("-", "Oh My Hermes", "Ultra Work",
         # "Ready") are gone on purpose; asserting them back would re-pin the

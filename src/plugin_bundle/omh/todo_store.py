@@ -21,6 +21,10 @@ MAX_TODO_ITEMS = 20
 MAX_TODO_TEXT_CHARS = 200
 MAX_TODO_TITLE_CHARS = 80
 MAX_TODO_SOURCE_CHARS = 80
+# Optional phase label per item ("Internal Context", "Delivery", ...). A
+# phase-structured plan declared BEFORE engine work bounds the run: progress
+# is a checklist walked phase by phase, not an open-ended reasoning loop.
+MAX_TODO_PHASE_CHARS = 60
 TODO_CLAIM_BOUNDARY = (
     "Todo items are plan declarations. They are not execution, verification, "
     "review, CI, merge-readiness, or merge evidence."
@@ -62,7 +66,13 @@ def validate_todo_items(items: object) -> list[dict[str, str]]:
         state = str(item.get("state", "pending"))
         if state not in TODO_ITEM_STATES:
             raise TodoValidationError(f"todo item state must be one of {', '.join(TODO_ITEM_STATES)}")
-        validated.append({"text": text, "state": state})
+        phase = strip_control_characters(item.get("phase", ""))
+        if len(phase) > MAX_TODO_PHASE_CHARS:
+            raise TodoValidationError(f"todo item phase is capped at {MAX_TODO_PHASE_CHARS} characters")
+        entry = {"text": text, "state": state}
+        if phase:
+            entry["phase"] = phase
+        validated.append(entry)
     return validated
 
 
