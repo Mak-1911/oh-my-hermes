@@ -34,6 +34,12 @@ class SkinPayloadTests(unittest.TestCase):
         self.assertIn("banner_logo:", text)
         # The palette anchors on the README badge turquoise.
         self.assertIn('"#00CED1"', text)
+        # Diff underlays are dark-palette overrides: the engine's light-pastel
+        # defaults render as harsh full-brightness bands on a dark terminal.
+        self.assertIn('diff_removed: "#3A2027"', text)
+        self.assertIn('diff_added: "#12362D"', text)
+        self.assertIn("diff_removed_word:", text)
+        self.assertIn("diff_added_word:", text)
 
     def test_the_logo_rows_are_equally_wide(self) -> None:
         # A block logo with ragged rows renders as visible corruption in the
