@@ -48,6 +48,17 @@ colors:
   syntax_number: "#E4FAFF"
   syntax_keyword: "#7FDBFF"
   syntax_comment: "#3E7C8A"
+  # Diff line underlays. The engine defaults are light pastels tuned for
+  # light terminals; on this dark identity palette they render as harsh
+  # full-brightness bands behind the text (owner report, 2026-08-18). These
+  # stay in the dark palette's register: deep low-chroma red/green
+  # backgrounds with soft matching foregrounds, so add/delete reads as a
+  # subtle tinted band instead of a highlighter stripe. Full-row (not
+  # text-width) fill is renderer-owned; asked upstream in hermes-agent.
+  diff_removed: "#3A2027"
+  diff_removed_word: "#FF8A96"
+  diff_added: "#12362D"
+  diff_added_word: "#6FE0B8"
 
 spinner:
   waiting_faces:
