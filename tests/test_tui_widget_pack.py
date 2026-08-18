@@ -308,6 +308,16 @@ class TuiWidgetPackTests(unittest.TestCase):
         # above its checklist and the phase count next to done/total.
         self.assertIn("safeText(todo.display_phase)", widget)
         self.assertIn("` · ${phaseCount} phases`", widget)
+        # The todo panel renders the WHOLE plan (todo.items) as one row per
+        # phase — the phase name leads and its items follow inline; the
+        # focused "+N more" collapse is gone on purpose, it hid declared work
+        # behind a count, and per-phase header lines doubled the height.
+        self.assertIn("Array.isArray(todo.items)", widget)
+        self.assertIn("last.phase === phase", widget)
+        self.assertIn("${truncateCells(group.phase, budget)} `", widget)
+        self.assertNotIn("todo.display_items", widget)
+        self.assertNotIn("more_count", widget)
+        self.assertNotIn("more}", widget)
         # Drag-copy contract: an unchanged snapshot must not repaint the docks
         # (repaints clear an in-progress terminal selection), there is NO
         # animation subscription at all (the spinner advances one frame per

@@ -320,15 +320,57 @@ export default function register(sdk) {
         h(Rule, { columns, t }),
       )
     }
-    const shown = Array.isArray(todo.display_items) ? todo.display_items : []
-    const more = Number.isFinite(todo.more_count) ? todo.more_count : 0
+    // The whole plan, always — the focused "+N more" collapse hid declared
+    // work behind a count. One row PER PHASE, not per line-break-heavy
+    // header: the phase name leads the row and its items follow inline
+    // (`Research [•] task  [ ] task`), which the owner asked for after the
+    // header-above-checklist layout doubled the panel's height. The CURRENT
+    // phase's name carries the label colour, other phases stay muted; done
+    // items keep the strikethrough. Unphased plans keep one item per row.
+    // The todo store caps plans at 20 items, which bounds the height.
+    const shown = Array.isArray(todo.items) ? todo.items : []
     const markers = { active: '[•]', done: '[✓]', pending: '[ ]' }
     const budget = Math.max(16, columns - 10)
-    // A phase-structured plan (todo init with phases) shows the current
-    // phase's name above its checklist — the reader already narrowed
-    // display_items to that phase, so the panel walks one phase at a time.
-    const phase = safeText(todo.display_phase)
+    const currentPhase = safeText(todo.display_phase)
     const phaseCount = Number.isFinite(counts.phases) ? counts.phases : 0
+    const groups = []
+    for (const item of shown) {
+      const phase = safeText(item.phase)
+      const last = groups[groups.length - 1]
+      if (last && last.phase === phase) last.items.push(item)
+      else groups.push({ phase, items: [item] })
+    }
+    const itemText = (item, index, limit) =>
+      `${index ? '  ' : ''}${Object.hasOwn(markers, item.state) ? markers[item.state] : '[ ]'} ${truncateCells(item.text, limit)}`
+    const itemProps = item => ({
+      bold: item.state === 'active',
+      color: item.state === 'active' ? t.color.ok : item.state === 'done' ? t.color.muted : t.color.text,
+      strikethrough: item.state === 'done',
+    })
+    const rows = groups.flatMap((group, groupIndex) =>
+      group.phase
+        ? [
+            h(
+              Text,
+              { key: `todo-${groupIndex}`, wrap: 'truncate-end' },
+              h(
+                Text,
+                { bold: true, color: group.phase === currentPhase ? t.color.label : t.color.muted },
+                `${truncateCells(group.phase, budget)} `,
+              ),
+              ...group.items.map((item, index) =>
+                h(Text, { key: `todo-${groupIndex}-${index}`, ...itemProps(item) }, itemText(item, index, budget)),
+              ),
+            ),
+          ]
+        : group.items.map((item, index) =>
+            h(
+              Text,
+              { key: `todo-${groupIndex}-${index}`, wrap: 'truncate-end' },
+              h(Text, itemProps(item), itemText(item, 0, budget)),
+            ),
+          )
+    )
     return h(
       Box,
       { flexDirection: 'column', width: '100%' },
@@ -341,32 +383,7 @@ export default function register(sdk) {
         h(Text, { color: t.color.warn }, `${counts.done ?? 0}/${counts.total ?? 0}`),
         phaseCount > 1 ? h(Text, { color: t.color.muted }, ` · ${phaseCount} phases`) : null,
       ),
-      phase
-        ? h(
-            Text,
-            { wrap: 'truncate-end' },
-            h(Text, { bold: true, color: t.color.label }, truncateCells(phase, budget)),
-          )
-        : null,
-      ...shown.map((item, index) => {
-        const withMore = more > 0 && index === shown.length - 1
-        // Reserve the "+N more" suffix width so truncation never eats it.
-        const rowBudget = withMore ? Math.max(12, budget - 11) : budget
-        return h(
-          Text,
-          { key: `todo-${index}`, wrap: 'truncate-end' },
-          h(
-            Text,
-            {
-              bold: item.state === 'active',
-              color: item.state === 'active' ? t.color.ok : item.state === 'done' ? t.color.muted : t.color.text,
-              strikethrough: item.state === 'done',
-            },
-            `${Object.hasOwn(markers, item.state) ? markers[item.state] : '[ ]'} ${truncateCells(item.text, rowBudget)}`,
-          ),
-          withMore ? h(Text, { color: t.color.muted }, `   +${more} more`) : null,
-        )
-      }),
+      ...rows,
       h(Rule, { columns, t }),
     )
   }
