@@ -257,7 +257,7 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertEqual(widget.count("zone: 'dock-top'"), 1)
         self.assertIn("id: 'omh-todo'", widget)
         self.assertIn("TodoPanel", widget)
-        self.assertIn("truncateCells(item.text", widget)
+        self.assertIn("truncateCells(line.item.text", widget)
         self.assertIn("safeText(todo.title)", widget)
         # An installed OMH stays discoverable from an idle session: only the
         # activity rows are gated on live work, never the header.
@@ -308,6 +308,13 @@ class TuiWidgetPackTests(unittest.TestCase):
         # above its checklist and the phase count next to done/total.
         self.assertIn("safeText(todo.display_phase)", widget)
         self.assertIn("` · ${phaseCount} phases`", widget)
+        # The todo panel renders the WHOLE plan (todo.items), emitting a phase
+        # header whenever the phase changes; the focused "+N more" collapse is
+        # gone on purpose — it hid declared work behind a count.
+        self.assertIn("Array.isArray(todo.items)", widget)
+        self.assertNotIn("todo.display_items", widget)
+        self.assertNotIn("more_count", widget)
+        self.assertNotIn("more}", widget)
         # Drag-copy contract: an unchanged snapshot must not repaint the docks
         # (repaints clear an in-progress terminal selection), there is NO
         # animation subscription at all (the spinner advances one frame per

@@ -320,15 +320,28 @@ export default function register(sdk) {
         h(Rule, { columns, t }),
       )
     }
-    const shown = Array.isArray(todo.display_items) ? todo.display_items : []
-    const more = Number.isFinite(todo.more_count) ? todo.more_count : 0
+    // The whole plan, always. The earlier focused projection (current phase
+    // only, "+N more" for the rest) hid the shape of the work the owner had
+    // just declared — a six-phase plan rendered as one line and a count. The
+    // panel now walks every item in declaration order, emitting a phase
+    // header whenever it changes; the CURRENT phase's header carries the
+    // label colour, finished/upcoming phases stay muted. The todo store caps
+    // plans at 20 items, which bounds the panel's height.
+    const shown = Array.isArray(todo.items) ? todo.items : []
     const markers = { active: '[•]', done: '[✓]', pending: '[ ]' }
     const budget = Math.max(16, columns - 10)
-    // A phase-structured plan (todo init with phases) shows the current
-    // phase's name above its checklist — the reader already narrowed
-    // display_items to that phase, so the panel walks one phase at a time.
-    const phase = safeText(todo.display_phase)
+    const currentPhase = safeText(todo.display_phase)
     const phaseCount = Number.isFinite(counts.phases) ? counts.phases : 0
+    const lines = []
+    let lastPhase = null
+    for (const item of shown) {
+      const phase = safeText(item.phase)
+      if (phase && phase !== lastPhase) {
+        lines.push({ kind: 'phase', text: phase })
+        lastPhase = phase
+      }
+      lines.push({ kind: 'item', item })
+    }
     return h(
       Box,
       { flexDirection: 'column', width: '100%' },
@@ -341,32 +354,31 @@ export default function register(sdk) {
         h(Text, { color: t.color.warn }, `${counts.done ?? 0}/${counts.total ?? 0}`),
         phaseCount > 1 ? h(Text, { color: t.color.muted }, ` · ${phaseCount} phases`) : null,
       ),
-      phase
-        ? h(
-            Text,
-            { wrap: 'truncate-end' },
-            h(Text, { bold: true, color: t.color.label }, truncateCells(phase, budget)),
-          )
-        : null,
-      ...shown.map((item, index) => {
-        const withMore = more > 0 && index === shown.length - 1
-        // Reserve the "+N more" suffix width so truncation never eats it.
-        const rowBudget = withMore ? Math.max(12, budget - 11) : budget
-        return h(
-          Text,
-          { key: `todo-${index}`, wrap: 'truncate-end' },
-          h(
-            Text,
-            {
-              bold: item.state === 'active',
-              color: item.state === 'active' ? t.color.ok : item.state === 'done' ? t.color.muted : t.color.text,
-              strikethrough: item.state === 'done',
-            },
-            `${Object.hasOwn(markers, item.state) ? markers[item.state] : '[ ]'} ${truncateCells(item.text, rowBudget)}`,
-          ),
-          withMore ? h(Text, { color: t.color.muted }, `   +${more} more`) : null,
-        )
-      }),
+      ...lines.map((line, index) =>
+        line.kind === 'phase'
+          ? h(
+              Text,
+              { key: `todo-${index}`, wrap: 'truncate-end' },
+              h(
+                Text,
+                { bold: true, color: line.text === currentPhase ? t.color.label : t.color.muted },
+                truncateCells(line.text, budget),
+              ),
+            )
+          : h(
+              Text,
+              { key: `todo-${index}`, wrap: 'truncate-end' },
+              h(
+                Text,
+                {
+                  bold: line.item.state === 'active',
+                  color: line.item.state === 'active' ? t.color.ok : line.item.state === 'done' ? t.color.muted : t.color.text,
+                  strikethrough: line.item.state === 'done',
+                },
+                `${Object.hasOwn(markers, line.item.state) ? markers[line.item.state] : '[ ]'} ${truncateCells(line.item.text, budget)}`,
+              ),
+            )
+      ),
       h(Rule, { columns, t }),
     )
   }
