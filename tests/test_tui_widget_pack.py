@@ -325,7 +325,7 @@ class TuiWidgetPackTests(unittest.TestCase):
         # at most once per throttle window instead of on every 2s poll.
         self.assertIn("if (serialized === lastSnapshot) return", widget)
         self.assertNotIn("AnimatedActivity", widget)
-        self.assertIn("h(ActivityRows, { columns, frame: state.tick", widget)
+        self.assertIn("h(ActivityRows, { columns, mainRows", widget)
         self.assertIn("const METRICS_REPAINT_MS = 30_000", widget)
         self.assertIn(
             "if (structural === lastStructural && Date.now() - lastPaintAt < METRICS_REPAINT_MS) return",
@@ -349,7 +349,14 @@ class TuiWidgetPackTests(unittest.TestCase):
         # wording this change exists to replace. The separator is now shared
         # between both panels instead of hand-written per segment.
         self.assertNotIn("'Ultra Work'", widget)
-        self.assertIn("SPINNER_FRAMES", widget)
+        # Static running cues: no spinner and no seconds counter on running
+        # rows — under throttled repaints anything "animated" freezes and
+        # lurches, which read as jank. The running marker is a fixed glyph
+        # and running elapsed is minute-coarse.
+        self.assertNotIn("SPINNER_FRAMES", widget)
+        self.assertIn("done ? '✓' : '▸'", widget)
+        self.assertIn("elapsedCoarse", widget)
+        self.assertIn("'<1m'", widget)
         self.assertNotIn("useShimmerPhase", widget)
         self.assertNotIn("Number.MAX_SAFE_INTEGER", widget)
         self.assertIn("Math.min(3,", widget)

@@ -2,7 +2,6 @@ import { execFile } from 'node:child_process'
 
 export default function register(sdk) {
   const { Box, Text, defineWidgetApp, h, openWidget, updateWidget } = sdk
-  const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
   const HOME = process.env.OMH_HOME || `${process.env.HOME}/.omh`
   const HERMES_HOME = process.env.HERMES_HOME || `${process.env.HOME}/.hermes`
   const READER_ENV = {
@@ -136,6 +135,19 @@ export default function register(sdk) {
     return `${Math.floor(seconds / 3600)}h ${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}m`
   }
 
+  // A RUNNING row's elapsed is deliberately coarse (minutes, not seconds).
+  // Repaints are throttled to the metrics window, so a seconds counter would
+  // freeze and then lurch — the owner read that as jank. A minute counter
+  // moves exactly when it should. Finished rows keep the precise frozen
+  // value: it never changes again, so it cannot stutter.
+  const elapsedCoarse = value => {
+    if (!Number.isFinite(value)) return ''
+    const seconds = Math.max(0, Math.floor(value))
+    if (seconds < 60) return '<1m'
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+    return `${Math.floor(seconds / 3600)}h ${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}m`
+  }
+
   const metricSegment = (kind, text) => ({ kind, text })
   const observedPercent = (label, value) =>
     Number.isFinite(value) ? `${label} ${value}%` : `${label} uncollected`
@@ -159,11 +171,12 @@ export default function register(sdk) {
       metricSegment('cache', observedPercent('cache', row.cache_hit_percentage)),
       metricSegment('context', observedPercent('ctx', row.context_percentage)),
     ].filter(segment => segment.text)
+    const running = !row.state || row.state === 'running'
     const required = [
       metricSegment('cache', observedPercent('cache', row.cache_hit_percentage)),
       metricSegment('context', observedPercent('ctx', row.context_percentage)),
       metricSegment('state', stateText),
-      metricSegment('elapsed', elapsedText(row.elapsed_seconds)),
+      metricSegment('elapsed', (running ? elapsedCoarse : elapsedText)(row.elapsed_seconds)),
     ].filter(segment => segment.text)
     optional.splice(-2)
     const prefix = `${taskId} `
@@ -189,11 +202,13 @@ export default function register(sdk) {
     }
   }
 
-  function ActivityRow({ columns, frame, main, row, t }) {
+  function ActivityRow({ columns, main, row, t }) {
     const layout = activityLayout(row, columns, main)
     const blocked = row.state === 'blocked' || row.state === 'failed'
     const done = row.state === 'done'
-    const marker = blocked ? '▲' : done ? '✓' : SPINNER_FRAMES[frame % SPINNER_FRAMES.length]
+    // Static running marker. A spinner promises smooth animation, and under
+    // throttled repaints it froze and lurched instead — worse than no motion.
+    const marker = blocked ? '▲' : done ? '✓' : '▸'
     const statusColor = blocked ? t.color.error : t.color.ok
     return h(
       Text,
@@ -219,14 +234,13 @@ export default function register(sdk) {
     )
   }
 
-  function ActivityRows({ columns, frame, mainRows, rows, t }) {
+  function ActivityRows({ columns, mainRows, rows, t }) {
     return h(
       Box,
       { flexDirection: 'column', width: '100%' },
       ...mainRows.map((row, index) =>
         h(ActivityRow, {
           columns,
-          frame,
           key: `main-${index}`,
           main: true,
           row,
@@ -236,7 +250,6 @@ export default function register(sdk) {
       ...rows.map((row, index) =>
         h(ActivityRow, {
           columns,
-          frame,
           key: `${safeText(row.task_id)}-${index}`,
           row,
           t,
@@ -278,13 +291,12 @@ export default function register(sdk) {
         h(Text, { color: active ? t.color.warn : t.color.ok }, hudStateLabel(active, agents)),
         h(Text, { color: t.color.muted }, ` • ${metrics.cost} • ${metrics.ctx}`),
       ),
-      // No animation subscription, ever: the dock must read like plain text
-      // so a terminal drag-selection over it survives. The spinner advances
-      // one frame per applied snapshot (state.tick) instead of on a shimmer
-      // clock — a running wave used to repaint several times a second, which
-      // cleared any in-progress selection before the drag could finish.
+      // No animation, ever: the dock must read like plain text so a terminal
+      // drag-selection over it survives, and under throttled repaints any
+      // "animated" element (a spinner, a seconds counter) freezes and lurches
+      // instead of moving — every running-state cue here is static.
       mainRows.length || rows.length
-        ? h(ActivityRows, { columns, frame: state.tick, mainRows, rows, t })
+        ? h(ActivityRows, { columns, mainRows, rows, t })
         : null,
     )
   }
