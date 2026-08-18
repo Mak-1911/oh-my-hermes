@@ -55,6 +55,17 @@ OMH_TODO_SCHEMA = {
                                 "current phase's checklist."
                             ),
                         },
+                        "depth": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 3,
+                            "description": (
+                                "Optional subtask nesting level (0 = top-level task, 1-3 = "
+                                "subtasks rendered indented beneath the preceding shallower "
+                                "item). Subtasks may omit phase; they continue their parent's "
+                                "section."
+                            ),
+                        },
                     },
                     "required": ["text"],
                 },

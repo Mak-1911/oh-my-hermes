@@ -25,6 +25,11 @@ MAX_TODO_SOURCE_CHARS = 80
 # phase-structured plan declared BEFORE engine work bounds the run: progress
 # is a checklist walked phase by phase, not an open-ended reasoning loop.
 MAX_TODO_PHASE_CHARS = 60
+# Optional nesting depth per item: 0 is a top-level task, 1..3 are subtask
+# levels rendered indented beneath it (e.g. "검증작업하기" with usability /
+# UI / load-verification children). Three levels is the owner's declared
+# ceiling; deeper nesting stops reading as a checklist.
+MAX_TODO_DEPTH = 3
 TODO_CLAIM_BOUNDARY = (
     "Todo items are plan declarations. They are not execution, verification, "
     "review, CI, merge-readiness, or merge evidence."
@@ -49,7 +54,7 @@ def strip_control_characters(value: object) -> str:
     return str(value or "").translate(_CONTROL_CHARACTERS).strip()
 
 
-def validate_todo_items(items: object) -> list[dict[str, str]]:
+def validate_todo_items(items: object) -> list[dict[str, Any]]:
     if not isinstance(items, list) or not items:
         raise TodoValidationError("todo items must be a non-empty list")
     if len(items) > MAX_TODO_ITEMS:
@@ -69,9 +74,14 @@ def validate_todo_items(items: object) -> list[dict[str, str]]:
         phase = strip_control_characters(item.get("phase", ""))
         if len(phase) > MAX_TODO_PHASE_CHARS:
             raise TodoValidationError(f"todo item phase is capped at {MAX_TODO_PHASE_CHARS} characters")
-        entry = {"text": text, "state": state}
+        depth = item.get("depth", 0)
+        if isinstance(depth, bool) or not isinstance(depth, int) or not 0 <= depth <= MAX_TODO_DEPTH:
+            raise TodoValidationError(f"todo item depth must be an integer from 0 to {MAX_TODO_DEPTH}")
+        entry: dict[str, Any] = {"text": text, "state": state}
         if phase:
             entry["phase"] = phase
+        if depth:
+            entry["depth"] = depth
         validated.append(entry)
     return validated
 

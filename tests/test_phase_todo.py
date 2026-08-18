@@ -51,6 +51,37 @@ class PhaseFieldStoreTest(unittest.TestCase):
             validate_todo_items([{"text": "task", "phase": "x" * (MAX_TODO_PHASE_CHARS + 1)}])
 
 
+class DepthFieldStoreTest(unittest.TestCase):
+    def test_depth_is_optional_and_absent_at_zero(self):
+        validated = validate_todo_items([{"text": "task", "depth": 0}])
+        self.assertEqual(validated, [{"text": "task", "state": "pending"}])
+
+    def test_a_subtask_depth_up_to_three_is_kept(self):
+        validated = validate_todo_items(
+            [
+                {"text": "검증작업하기", "phase": "Verification"},
+                {"text": "사용성 검증", "depth": 1},
+                {"text": "UI 검증", "depth": 2},
+                {"text": "부하 검증", "depth": 3},
+            ]
+        )
+        self.assertEqual([item.get("depth", 0) for item in validated], [0, 1, 2, 3])
+
+    def test_a_depth_beyond_three_or_non_integer_is_refused(self):
+        for depth in (4, -1, True, "1"):
+            with self.assertRaises(TodoValidationError):
+                validate_todo_items([{"text": "task", "depth": depth}])
+
+    def test_the_hud_projection_carries_depth_through(self):
+        todo = _projected_todo(
+            [
+                {"text": "Verify", "state": "active", "phase": "Verification"},
+                {"text": "usability", "state": "pending", "depth": 1},
+            ]
+        )
+        self.assertEqual([item.get("depth", 0) for item in todo["items"]], [0, 1])
+
+
 class PhaseProjectionTest(unittest.TestCase):
     def test_the_current_phase_is_the_one_holding_the_active_item(self):
         todo = _projected_todo(PHASED_ITEMS)
