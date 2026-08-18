@@ -315,7 +315,10 @@ class TuiWidgetPackTests(unittest.TestCase):
         # muted "... (N earlier/later tasks)" fold lines.
         self.assertIn("Array.isArray(todo.items)", widget)
         self.assertIn("last.phase === phase", widget)
-        self.assertIn("${truncateCells(group.phase, budget)} `", widget)
+        # Merged rows pad every phase label to one shared marker column so
+        # `[ ]` lines up regardless of phase-name width.
+        self.assertIn("const phaseColumn = Math.max(", widget)
+        self.assertIn("' '.repeat(phaseColumn - cellWidth(label) + 1)", widget)
         self.assertIn("const TODO_DISPLAY_ROWS = 7", widget)
         self.assertIn("depthOf", widget)
         self.assertIn("'  '.repeat(depthOf(item))", widget)

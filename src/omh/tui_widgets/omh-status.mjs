@@ -380,17 +380,25 @@ export default function register(sdk) {
         { key, wrap: 'truncate-end' },
         h(Text, { color: t.color.muted }, `... (${count} ${side} task${count === 1 ? '' : 's'})`),
       )
+    const isMerged = group => group.phase && group.items.length === 1 && depthOf(group.items[0]) === 0
+    // Merged rows share one marker column: phase names differ in width
+    // (Discovery vs Implementation), so each phase pads to the widest merged
+    // label and every `[ ]` starts at the same cell.
+    const phaseColumn = Math.max(
+      0,
+      ...groups.filter(isMerged).map(group => cellWidth(truncateCells(group.phase, budget))),
+    )
     const rows = []
     if (start > 0) rows.push(foldLine('todo-earlier', start, 'earlier'))
     groups.forEach((group, groupIndex) => {
-      const merged = group.phase && group.items.length === 1 && depthOf(group.items[0]) === 0
-      if (merged) {
+      if (isMerged(group)) {
         const item = group.items[0]
+        const label = truncateCells(group.phase, budget)
         rows.push(
           h(
             Text,
             { key: `todo-${groupIndex}`, wrap: 'truncate-end' },
-            h(Text, phaseProps(group.phase), `${truncateCells(group.phase, budget)} `),
+            h(Text, phaseProps(group.phase), `${label}${' '.repeat(phaseColumn - cellWidth(label) + 1)}`),
             h(Text, itemProps(item), itemLabel(item)),
           ),
         )
