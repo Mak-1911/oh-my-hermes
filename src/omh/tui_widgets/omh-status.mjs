@@ -219,8 +219,40 @@ export default function register(sdk) {
     )
   }
 
+  function LiveActivity({ columns, mainRows, rows, t, tick }) {
+    // Mounted only while live rows exist. The SDK shimmer clock is bounded —
+    // it stops advancing animateMs after MOUNT — so the old top-level
+    // useShimmerPhase(30_000) froze thirty seconds into a session and the
+    // spinner then jumped once per poll. A fresh mount per activity burst
+    // restarts the window, and thirty minutes bounds the render cost of one
+    // very long wave; the poll tick still nudges frames past that.
+    const frame = useShimmerPhase(1_800_000) + tick
+    return h(
+      Box,
+      { flexDirection: 'column', width: '100%' },
+      ...mainRows.map((row, index) =>
+        h(ActivityRow, {
+          columns,
+          frame,
+          key: `main-${index}`,
+          main: true,
+          row,
+          t,
+        })
+      ),
+      ...rows.map((row, index) =>
+        h(ActivityRow, {
+          columns,
+          frame,
+          key: `${safeText(row.task_id)}-${index}`,
+          row,
+          t,
+        })
+      ),
+    )
+  }
+
   function Hud({ columns, state, t, viewportRows }) {
-    const spinnerPhase = useShimmerPhase(30_000) + state.tick
     const payload = state.payload
     if (!payload || payload.error || payload.privacy !== 'metadata_only') return null
 
@@ -253,25 +285,9 @@ export default function register(sdk) {
         h(Text, { color: active ? t.color.warn : t.color.ok }, hudStateLabel(active, agents)),
         h(Text, { color: t.color.muted }, ` • ${metrics.cost} • ${metrics.ctx}`),
       ),
-      ...mainRows.map((row, index) =>
-        h(ActivityRow, {
-          columns,
-          frame: spinnerPhase,
-          key: `main-${index}`,
-          main: true,
-          row,
-          t,
-        })
-      ),
-      ...rows.map((row, index) =>
-        h(ActivityRow, {
-          columns,
-          frame: spinnerPhase,
-          key: `${safeText(row.task_id)}-${index}`,
-          row,
-          t,
-        })
-      ),
+      mainRows.length || rows.length
+        ? h(LiveActivity, { columns, mainRows, rows, t, tick: state.tick })
+        : null,
     )
   }
 
