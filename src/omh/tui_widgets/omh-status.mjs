@@ -68,9 +68,14 @@ export default function register(sdk) {
     if (!active) return 'ready'
     const running = Number(agents.running) || 0
     const blocked = Number(agents.blocked) || 0
+    const done = Number(agents.completed) || 0
+    // Lingering just-finished subagents keep the block alive without live
+    // work; "2 done" is the honest label there, not "0 agents".
+    if (!running && !blocked && done) return `${done} done`
     const parts = [plural(Number(agents.active) || 0, 'agent')]
     if (running) parts.push(`${running} running`)
     if (blocked) parts.push(`${blocked} blocked`)
+    if (done) parts.push(`${done} done`)
     return parts.join(' · ')
   }
   const readHud = () => new Promise(resolve => {
@@ -187,12 +192,13 @@ export default function register(sdk) {
   function ActivityRow({ columns, frame, main, row, t }) {
     const layout = activityLayout(row, columns, main)
     const blocked = row.state === 'blocked' || row.state === 'failed'
-    const marker = blocked ? '▲' : SPINNER_FRAMES[frame % SPINNER_FRAMES.length]
+    const done = row.state === 'done'
+    const marker = blocked ? '▲' : done ? '✓' : SPINNER_FRAMES[frame % SPINNER_FRAMES.length]
     const statusColor = blocked ? t.color.error : t.color.ok
     return h(
       Text,
       { wrap: 'truncate-end' },
-      h(Text, { color: blocked ? t.color.error : t.color.warn }, `${marker} `),
+      h(Text, { color: blocked ? t.color.error : done ? t.color.ok : t.color.warn }, `${marker} `),
       h(Text, { color: t.color.muted }, `${layout.taskId} `),
       h(Text, { color: t.color.text }, layout.action),
       layout.metadata ? h(Text, { color: t.color.muted }, '  ·  ') : null,

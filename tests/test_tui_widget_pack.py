@@ -299,6 +299,11 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("` v${version}`", widget)
         self.assertIn("hudStateLabel(active, agents)", widget)
         self.assertIn("if (!active) return 'ready'", widget)
+        # Hermes-native delegation rows linger after finishing: a done row
+        # carries a check mark instead of spinning forever, and a linger-only
+        # block says "N done" rather than the dishonest "0 agents".
+        self.assertIn("done ? '✓'", widget)
+        self.assertIn("if (!running && !blocked && done) return `${done} done`", widget)
         # (bracket-tag grammar asserted above replaces the BRAND_MARK pair)
         # The old header's literal pieces ("-", "Oh My Hermes", "Ultra Work",
         # "Ready") are gone on purpose; asserting them back would re-pin the
