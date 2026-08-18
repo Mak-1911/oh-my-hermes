@@ -159,6 +159,15 @@ HOOK_REVIEWS: dict[str, dict[str, Any]] = {
         "reviewed_timeout_ms": 1000,
         "capability": "the OMH served-surface verification nudge before a Hermes coding verification",
     },
+    "transform_tool_result": {
+        "source_path": "hooks/diff_presentation.py",
+        "event_scope": ("transform_tool_result",),
+        "reviewed_timeout_ms": 1000,
+        "capability": (
+            "full-width diff band padding of tool-result diffs (trailing "
+            "whitespace only; non-diff results pass through untouched)"
+        ),
+    },
 }
 
 # An operator-written reason can be any length; the doctor line that quotes it
