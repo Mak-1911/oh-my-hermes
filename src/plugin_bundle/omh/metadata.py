@@ -16,7 +16,7 @@ PROVIDED_TOOLS = (
     "omh_todo",
 )
 REQUIRED_HOOKS = ("on_session_end", "pre_llm_call", "pre_tool_call")
-OPTIONAL_HOOKS = ("pre_verify",)
+OPTIONAL_HOOKS = ("pre_verify", "transform_tool_result")
 PROVIDED_HOOKS = REQUIRED_HOOKS + OPTIONAL_HOOKS
 
 TOOL_FILE_STEMS = {

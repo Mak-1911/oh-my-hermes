@@ -76,6 +76,7 @@ def register(ctx):
 
     _register_optional_surface(ctx, "register_memory_provider", OmhMemoryProvider())
 
+    from .hooks.diff_presentation import transform_tool_result
     from .hooks.llm_hooks import pre_llm_call
     from .hooks.session_hooks import on_session_end
     from .hooks.tool_hooks import pre_tool_call
@@ -189,3 +190,4 @@ def register(ctx):
     ctx.register_hook("pre_llm_call", pre_llm_call)
     ctx.register_hook("pre_tool_call", pre_tool_call)
     _register_optional_hook(ctx, "pre_verify", pre_verify)
+    _register_optional_hook(ctx, "transform_tool_result", transform_tool_result)

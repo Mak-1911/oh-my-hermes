@@ -637,7 +637,13 @@ print(json.dumps(observed, ensure_ascii=False))
             )
             self.assertEqual(
                 plugin["registered_hooks"],
-                ["on_session_end", "pre_llm_call", "pre_tool_call", "pre_verify"],
+                [
+                    "on_session_end",
+                    "pre_llm_call",
+                    "pre_tool_call",
+                    "pre_verify",
+                    "transform_tool_result",
+                ],
             )
 
             inspection = inspect_plugin_bundle(resolve_paths(omh_home, hermes_home))
