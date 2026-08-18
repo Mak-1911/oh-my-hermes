@@ -367,7 +367,18 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("done ? '✓' : '▸'", widget)
         self.assertIn("elapsedCoarse", widget)
         self.assertIn("'<1m'", widget)
-        self.assertNotIn("useShimmerPhase", widget)
+        # The plan panel's liveness cues are the ONE sanctioned animation:
+        # a colour wave through the active item's characters plus a walking
+        # ellipsis on the [Plan] header, both mounted only while an active
+        # item exists. The shimmer hook is accessed guarded (never
+        # destructured), so hosts without it render a static line instead of
+        # crashing the widget — and it stays out of the doctor's required
+        # SDK surface for the same reason.
+        self.assertIn("typeof sdk.useShimmerPhase === 'function'", widget)
+        self.assertNotIn(", useShimmerPhase }", widget)
+        self.assertIn("ShimmerText", widget)
+        self.assertIn("PlanPulse", widget)
+        self.assertIn("hasActive ? h(PlanPulse, { t }) : null", widget)
         self.assertNotIn("Number.MAX_SAFE_INTEGER", widget)
         self.assertIn("Math.min(3,", widget)
         self.assertNotIn("spinnerTimerKey", widget)
