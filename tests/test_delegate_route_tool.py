@@ -117,17 +117,25 @@ class DelegateRouteToolTest(unittest.TestCase):
             {"model": "gpt-5.6-sol", "reasoning_effort": "xhigh"},
         )
 
-    def test_a_chain_entry_without_declared_effort_leaves_effort_inherited(self):
+    def test_every_category_now_routes_an_explicit_effort(self):
+        # Owner decision: the category IS the model+effort pair. Before this,
+        # quick and friends declared no effort and every routed lane silently
+        # inherited the parent's level ("everything runs medium").
         result = self._call(action="set", category="quick")
-        self.assertEqual(result["applied"], {"model": "glm-5.2-ultrafast"})
-        self.assertEqual(read_delegation_route(self.home), {"model": "glm-5.2-ultrafast"})
+        self.assertEqual(
+            result["applied"], {"model": "glm-5.2-ultrafast", "reasoning_effort": "low"}
+        )
+        self.assertEqual(
+            read_delegation_route(self.home),
+            {"model": "glm-5.2-ultrafast", "reasoning_effort": "low"},
+        )
 
     def test_an_explicit_model_override_wins_over_the_chain_head(self):
         result = self._call(action="set", category="unspecified-high", model="claude-opus-5")
         self.assertEqual(result["applied"], {"model": "claude-opus-5"})
         self.assertEqual(
             result["fallback_candidates"],
-            [{"model": "claude-opus-5", "reasoning_effort": ""}],
+            [{"model": "claude-opus-5", "reasoning_effort": "medium"}],
         )
 
     def test_an_unknown_category_fails_with_the_valid_vocabulary(self):
