@@ -3787,6 +3787,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Make acceptance criteria testable.
   - Record unresolved tradeoffs explicitly.
   - Keep rejected options and handoff readiness separate from accepted execution evidence.
+  - Write plan artifacts only through the named `omh hermes plan` commands under `<repo>/.omh/plans/`; never write plans or planning state into `.omc/**` or any other wrapper's state root — `.omc/` belongs to oh-my-claudecode, a different product.
 
 ### code-review
 
