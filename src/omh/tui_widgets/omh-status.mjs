@@ -290,6 +290,16 @@ export default function register(sdk) {
         h(Text, { color: t.color.border }, SEPARATOR),
         h(Text, { color: active ? t.color.warn : t.color.ok }, hudStateLabel(active, agents)),
         h(Text, { color: t.color.muted }, ` • ${metrics.cost} • ${metrics.ctx}`),
+        // A fresh concurrent tool-call batch (observed by the pre_tool_call
+        // hook) gets branded on the status line: the transcript's collapsed
+        // "Tool calls (N)" group never says whether the batch ran parallel.
+        payload.parallel_shot && payload.parallel_shot.status === 'observed'
+          ? h(
+              Text,
+              { color: t.color.label },
+              ` • parallel shot ×${Number(payload.parallel_shot.size) || 0}`,
+            )
+          : null,
       ),
       // No animation, ever: the dock must read like plain text so a terminal
       // drag-selection over it survives, and under throttled repaints any

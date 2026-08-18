@@ -380,6 +380,9 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("PlanPulse", widget)
         self.assertIn("hasActive ? h(PlanPulse, { t }) : null", widget)
         self.assertNotIn("Number.MAX_SAFE_INTEGER", widget)
+        # A fresh concurrent tool-call batch is branded on the status line.
+        self.assertIn("parallel shot ×", widget)
+        self.assertIn("payload.parallel_shot", widget)
         self.assertIn("Math.min(3,", widget)
         self.assertNotIn("spinnerTimerKey", widget)
         self.assertIn("ActivityRow", widget)
