@@ -352,6 +352,16 @@ def read_hermes_native_subagents(
             row_state = "running"
         else:
             row_state = "done"
+        # A terminal child with NO recorded model usage never completed a
+        # single API call, yet Hermes still marks the delegation "completed"
+        # and delivers the provider error text as a normal result (observed
+        # live: HTTP 400 "model is not supported when using Codex with a
+        # ChatGPT account" rendering as a ✓ done row). No usage means no
+        # work happened: project the row as failed, never done.
+        failure_hint = ""
+        if row_state == "done" and not usage:
+            row_state = "failed"
+            failure_hint = "no model usage observed"
 
         input_tokens = usage.get("input_tokens") or 0.0
         output_tokens = usage.get("output_tokens") or 0.0
@@ -388,6 +398,8 @@ def read_hermes_native_subagents(
             ),
             "delegation_id": delegation_id,
         }
+        if failure_hint:
+            row["failure_hint"] = failure_hint
         api_calls = usage.get("api_calls")
         if api_calls is not None:
             row["turn_count"] = int(api_calls)
