@@ -197,11 +197,13 @@ OMH には次の編集可能な順序付き recommendation chain が含まれて
 | `ultrabrain` | GPT-5.6 Sol |
 | `deep` | GPT-5.6 Terra |
 | `unspecified-high` | Kimi K3、次に Claude Opus 5 |
-| `unspecified-low` | GLM 5.2、次に GLM 5.2 Ultrafast |
-| `quick` | GLM 5.2 Ultrafast、次に Kimi K3 |
+| `unspecified-low` | GLM 5.2、次に GLM 5.2 Ultrafast、次に Claude Sonnet 5 (low) |
+| `quick` | GLM 5.2 Ultrafast、次に Kimi K3、次に Claude Fable 5 (low) |
 | `writing` | Kimi K3、次に Qwen3-Coder、次に Gemini 3.1 Pro |
 | `visual-engineering` | Claude Fable 5、次に Kimi K3 |
 | `artistry` | Gemini 3.1 Pro、次に Claude Fable 5、次に Kimi K3 |
+
+中国のオープンウェイトモデルで始まる chain は、同等ティアの GPT/Claude 候補で終わるため、一つの provider エコシステムが拒否されても chain 全体は尽きません。GLM 5.2 Ultrafast は [OpenGateway](https://opengateway.ai/) 経由で提供されます。
 
 Hermes に **モデルをセットアップして** と頼むと、確認や変更ができます。これは編集可能な優先設定であり、benchmark 結果ではありません。詳しい設定、fallback、provider、所有権のルールは [Guided Model Setup](docs/INSTALLATION.md#guided-model-setup) を参照してください。
 

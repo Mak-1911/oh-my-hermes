@@ -245,9 +245,9 @@ The shipped catalog is editorial policy, not benchmark output:
 | `ultrabrain` | GPT-5.6 Sol (`xhigh`) |
 | `deep` | GPT-5.6 Terra (`high`) |
 | `unspecified-high` | Kimi K3, Claude Opus 5 |
-| `unspecified-low` | GLM 5.2, GLM 5.2 Ultrafast |
+| `unspecified-low` | GLM 5.2, GLM 5.2 Ultrafast, Claude Sonnet 5 (low) |
 | `visual-engineering` | Claude Fable 5, Kimi K3 |
-| `quick` | GLM 5.2 Ultrafast, Kimi K3 |
+| `quick` | GLM 5.2 Ultrafast, Kimi K3, Claude Fable 5 (low) |
 | `writing` | Kimi K3, Qwen3-Coder, Gemini 3.1 Pro |
 | `artistry` | Gemini 3.1 Pro, Claude Fable 5, Kimi K3 |
 | `x_platform_data` affinity | Grok, Kimi K3, Gemini |
