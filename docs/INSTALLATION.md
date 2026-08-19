@@ -92,6 +92,15 @@ same flow through their isolated managed virtual environment. After the command
 package succeeds, the re-entered command refreshes managed skills, an already
 installed plugin bundle, and existing Hermes registration.
 
+On a machine that never completed `omh setup`, `omh update` bootstraps the
+full OMH TUI surface instead of skipping it: it installs the plugin bundle,
+registers and enables OMH in the Hermes config (activating the skin), installs
+the TUI widget, and seeds `~/.omh/routing/model-chains.json` — update and
+setup converge on the same machine state. One deliberate opt-out is honored:
+after `omh uninstall --registration-only` the plugin directory stays in place,
+so update never re-registers a machine whose owner removed the registration
+on purpose.
+
 An explicit `--source` or `--from-skills-dir` remains a workflow-content-only
 operation, and `--dry-run` never changes the command package. A source checkout
 or other unmanaged Python environment is not rewritten implicitly; the result
