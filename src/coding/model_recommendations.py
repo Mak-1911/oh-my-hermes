@@ -164,6 +164,15 @@ SHIPPED_MODEL_RECOMMENDATIONS: Final[dict[str, object]] = {
     "categories": {
         "ultrabrain": [deepcopy(_SOL_XHIGH)],
         "deep": [deepcopy(_TERRA)],
+        # Architecture and system-design lanes (owner request, 2026-08-19):
+        # deepest declared effort across three provider ecosystems so a
+        # rejected ecosystem cannot exhaust the chain. Efforts stay xhigh
+        # end-to-end — the category IS "design at full depth".
+        "architect": [
+            _with_effort(_FABLE_5, "xhigh"),
+            _with_effort(_SOL, "xhigh"),
+            _with_effort(_KIMI_K3, "xhigh"),
+        ],
         "unspecified-high": [_with_effort(_KIMI_K3, "medium"), _with_effort(_OPUS_5, "medium")],
         # Owner rule (2026-08-19): a chain that would otherwise sit in one
         # provider ecosystem ends with a comparable-tier candidate from

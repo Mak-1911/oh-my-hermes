@@ -244,6 +244,7 @@ The shipped catalog is editorial policy, not benchmark output:
 | Hermes `main` suggestion | Kimi K3, Claude Opus 5, Claude Fable 5, GPT-5.6 Sol, GPT-5.6 Terra |
 | `ultrabrain` | GPT-5.6 Sol (`xhigh`) |
 | `deep` | GPT-5.6 Terra (`high`) |
+| `architect` | Claude Fable 5, GPT-5.6 Sol, Kimi K3 (`xhigh`) |
 | `unspecified-high` | Kimi K3, Claude Opus 5 |
 | `unspecified-low` | GLM 5.2, GLM 5.2 Ultrafast, Claude Opus 5 (low) |
 | `visual-engineering` | Claude Fable 5, Kimi K3 |

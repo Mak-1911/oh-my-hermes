@@ -136,7 +136,7 @@ class RecommendationCatalogTests(unittest.TestCase):
         self.assertEqual(catalog["schema_version"], MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION)
         self.assertEqual(set(catalog["categories"]), set(MODEL_CATEGORIES))
         self.assertEqual(MODEL_CATEGORIES, (
-            "ultrabrain", "deep", "unspecified-high", "unspecified-low",
+            "ultrabrain", "deep", "architect", "unspecified-high", "unspecified-low",
             "quick", "writing", "visual-engineering", "artistry",
         ))
         self.assertEqual(MODEL_ROLES, (
@@ -166,6 +166,10 @@ class RecommendationCatalogTests(unittest.TestCase):
         self.assertEqual(aliases("categories", "unspecified-high"), ["kimi-k3", "claude-opus-5"])
         self.assertEqual(aliases("categories", "ultrabrain"), ["gpt-5.6-sol"])
         self.assertEqual(aliases("categories", "deep"), ["gpt-5.6-terra"])
+        self.assertEqual(
+            aliases("categories", "architect"),
+            ["claude-fable-5", "gpt-5.6-sol", "kimi-k3"],
+        )
         self.assertEqual(
             aliases("categories", "quick"),
             ["glm-5.2-ultrafast", "kimi-k3", "gpt-5.6-luna", "claude-fable-5"],

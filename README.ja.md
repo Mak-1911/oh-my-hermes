@@ -187,6 +187,7 @@ OMH には次の編集可能な順序付き recommendation chain が含まれて
 | --- | --- |
 | `ultrabrain` | GPT-5.6 Sol |
 | `deep` | GPT-5.6 Terra |
+| `architect` | Claude Fable 5、次に GPT-5.6 Sol、次に Kimi K3 (xhigh) |
 | `unspecified-high` | Kimi K3、次に Claude Opus 5 |
 | `unspecified-low` | GLM 5.2、次に GLM 5.2 Ultrafast、次に Claude Opus 5 (low) |
 | `quick` | GLM 5.2 Ultrafast、次に Kimi K3、次に GPT-5.6 Luna、次に Claude Fable 5 (low) |

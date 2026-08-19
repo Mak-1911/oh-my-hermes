@@ -38,6 +38,16 @@ from typing import Any
 HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
     "ultrabrain": (("gpt-5.6-sol", "xhigh"),),
     "deep": (("gpt-5.6-terra", "high"),),
+    # Architecture/system-design lanes: full-depth effort across three
+    # provider ecosystems. Fable and Kimi appear in other chains only at
+    # low/high, so at xhigh `mixture_category_for` labels them architect;
+    # Sol at xhigh stays labeled ultrabrain (its canonical head), which is
+    # the honest projection when the chain falls through to it.
+    "architect": (
+        ("claude-fable-5", "xhigh"),
+        ("gpt-5.6-sol", "xhigh"),
+        ("kimi-k3", "xhigh"),
+    ),
     "unspecified-high": (("kimi-k3", "medium"), ("claude-opus-5", "medium")),
     # A chain that would otherwise sit in one provider ecosystem ends with a
     # comparable-tier candidate from another (owner rule, 2026-08-19), so one
@@ -144,18 +154,28 @@ def mixture_category_for(model: str, effort: str, *, parent_model: str = "") -> 
     if parent_model and observed_model == _text(parent_model).casefold():
         return "inherit"
 
-    def _entry_matches(entry: tuple[str, str]) -> bool:
+    # An owner machine may serve a chain model through its Ultrafast variant
+    # (e.g. kimi-k3 -> kimi-k3-ultrafast on OpenGateway). A variant the chains
+    # do not name explicitly still projects onto its base model's category
+    # instead of leaving the HUD row unlabeled; explicitly-named variants
+    # (glm-5.2-ultrafast) match themselves first and are unaffected.
+    candidates = [observed_model]
+    if observed_model.endswith("-ultrafast"):
+        candidates.append(observed_model[: -len("-ultrafast")])
+
+    def _entry_matches(entry: tuple[str, str], model: str) -> bool:
         alias, chain_effort = entry
-        if alias.casefold() != observed_model:
+        if alias.casefold() != model:
             return False
         return not chain_effort or chain_effort.casefold() == observed_effort
 
-    for category, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items():
-        if chain and _entry_matches(chain[0]):
-            return category
-    for category, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items():
-        if any(_entry_matches(entry) for entry in chain):
-            return category
+    for model in candidates:
+        for category, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items():
+            if chain and _entry_matches(chain[0], model):
+                return category
+        for category, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items():
+            if any(_entry_matches(entry, model) for entry in chain):
+                return category
     return ""
 
 
