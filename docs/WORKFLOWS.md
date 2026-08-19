@@ -322,6 +322,7 @@ These surfaces are generated command references, not installed Hermes workflow s
 - Quality bar:
   - Treat direct `loop`, `./loop`, `$loop`, and OMH loop invocations as a start/continue signal rather than a picker or passive clarification path.
   - Classify the goal as task, project, ambition, external-wait, or unclear inside the loop, then keep progressing until a real permission, evidence, verification, context, budget, or external-wait gate appears.
+  - A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, continue the run — re-read the phase todo when one is active and dispatch or advance the next pending step, or state exactly what the run is waiting on (for example, lanes still in flight that resume when their results return). Only the user's explicit stop or cancel, or the engine's own completion gate, ends the run; when the interjection changes scope, say so and update the declared plan or todo instead of silently abandoning it.
   - Expose core OMH roles: interviewer, planner, researcher, builder, reviewer, and loop controller.
   - Route tiny direct tasks to one-cycle delivery surfaces instead of forcing loop overhead.
   - Reframe a north-star ambition into a bounded arena, observable problem, next loop goal, and next verification without shrinking its ambition.
@@ -500,6 +501,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Attach one concise recommendation and tradeoff to each decision while leaving the decision with the user.
   - Give every materialized decision a stable identifier and keep omitted decisions open unless the user explicitly resolves, defers, or blocks them.
   - Keep terminology sparse: canonical identity, short definition, expression guidance, distinct-from boundary, and optional localized display label.
+  - A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, continue the run — re-read the phase todo when one is active and dispatch or advance the next pending step, or state exactly what the run is waiting on (for example, lanes still in flight that resume when their results return). Only the user's explicit stop or cancel, or the engine's own completion gate, ends the run; when the interjection changes scope, say so and update the declared plan or todo instead of silently abandoning it.
   - Stop on a terminal frontier, explicit user request, or the shared round ceiling; then confirm the summary separately from planning or coding.
 - Completion checklist:
   - Source status and reviewed-profile status are named without treating either as model-use evidence.
@@ -783,6 +785,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - [capability:delivery_boundary] For implementation, default to Hermes-native delegation with a per-lane `omh_delegate_route` mixture route and acceptance criteria and verification commands attached; hand off to the `durable_checkpoint` capability for work that must survive sessions, and prepare a selected external executor/runtime path only on the user's explicit owner acceptance.
   - Route each Hermes-native lane before dispatch: an inherit-labeled delegation wave is an unrouted wave, not mixture routing — re-route it or state why parent inheritance is intended.
   - Initialize the phase todo before engine work: declare phases and their tasks with `omh_todo` (todo init), keep exactly one item active while working, and update states as lanes complete — the run walks a bounded, HUD-visible checklist instead of an open-ended reasoning loop.
+  - A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, continue the run — re-read the phase todo when one is active and dispatch or advance the next pending step, or state exactly what the run is waiting on (for example, lanes still in flight that resume when their results return). Only the user's explicit stop or cancel, or the engine's own completion gate, ends the run; when the interjection changes scope, say so and update the declared plan or todo instead of silently abandoning it.
   - Close a completed run with the localized run summary: call `omh_run_summary` with the conversation's language and print its summary_text verbatim as the final lines (elapsed seconds, token usage, and models used from observed host accounting — never numbers the model estimated).
   - [capability:single_owner_persistence] Do not enter a finish-until-done loop until scope, acceptance criteria, and verification commands are concrete.
   - [capability:single_owner_persistence] For single-owner coding edits, prepare and track the selected runtime path instead of implying unobserved work happened or hiding execution inside chat narration.
@@ -885,6 +888,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Mark every figure as measured, assumed, or derived, and carry retrieval dates for time-sensitive facts.
   - Distill the dossier into a plan-feed block - decision drivers, viable options with evidence, rejected candidates with reasons, risks, and open questions - so planning consumes conclusions, not raw notes.
   - Reserve the end of the run for synthesis; an interrupted run must still leave a partial dossier rather than lost context.
+  - A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, continue the run — re-read the phase todo when one is active and dispatch or advance the next pending step, or state exactly what the run is waiting on (for example, lanes still in flight that resume when their results return). Only the user's explicit stop or cancel, or the engine's own completion gate, ends the run; when the interjection changes scope, say so and update the declared plan or todo instead of silently abandoning it.
   - Summarize the evidence or dossier before any planning or coding handoff; research is not implementation evidence.
 - Completion checklist:
   - The research question, source boundaries, recency assumptions, and confidence level are named.
@@ -3629,6 +3633,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Why: The request lacks the required inputs or would overclaim work that Hermes did not observe.
 - Quality bar:
   - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
+  - A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, continue the run — re-read the phase todo when one is active and dispatch or advance the next pending step, or state exactly what the run is waiting on (for example, lanes still in flight that resume when their results return). Only the user's explicit stop or cancel, or the engine's own completion gate, ends the run; when the interjection changes scope, say so and update the declared plan or todo instead of silently abandoning it.
   - Generate hostile scenarios from changed behavior and known risk areas.
   - Report pass/fail evidence separately from proposed fixes.
   - Delegate code mutations discovered by QA to the selected coding executor.
@@ -4118,6 +4123,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Re-measure after each change and report deltas only from observed evidence.
   - Never present a restart, cache flush, or resource bump as a leak fix; prove causation by revert-verify.
   - Set the regression budget as baseline x (1 + tolerance) and name the CI gate that enforces it.
+  - A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, continue the run — re-read the phase todo when one is active and dispatch or advance the next pending step, or state exactly what the run is waiting on (for example, lanes still in flight that resume when their results return). Only the user's explicit stop or cancel, or the engine's own completion gate, ends the run; when the interjection changes scope, say so and update the declared plan or todo instead of silently abandoning it.
 - Completion checklist:
   - Baseline, workload, environment, and evaluator command are recorded before any edit is proposed.
   - Each accepted fix names the measured hot path, the reversible change, and its owner.
