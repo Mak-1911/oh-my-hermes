@@ -276,11 +276,50 @@ def cmd_update(args: argparse.Namespace) -> int:
     code = cmd_install(args)
     if code == 0:
         if not (args.from_skills_dir or args.source):
-            _refresh_installed_plugin_bundle(args)
-            _refresh_hermes_registration(args)
+            if _paths(args).hermes_plugin_dir.is_dir():
+                _refresh_installed_plugin_bundle(args)
+                _refresh_hermes_registration(args)
+            else:
+                _bootstrap_tui_surface(args)
         _refresh_installed_tui_widget(args)
         _refresh_installed_menubar_app(args)
     return code
+
+
+def _bootstrap_tui_surface(args: argparse.Namespace) -> dict[str, object] | None:
+    """Give `omh update` on a never-set-up machine the full OMH TUI.
+
+    Update and setup must converge on the same machine state (owner decision,
+    2026-08-20): a user who only ever runs `omh update` still ends with the
+    plugin bundle installed, OMH registered and enabled in the Hermes config
+    (which also activates the skin), and the chain-override document seeded —
+    instead of a plain Hermes that silently lacks the OMH identity. The
+    deliberate opt-out stays respected: `omh uninstall --registration-only`
+    keeps the plugin directory in place, so an unregistered-but-installed
+    machine never reaches this path and stays unregistered.
+    """
+    paths = _paths(args)
+    try:
+        result = install_plugin_bundle(paths, force=args.force, dry_run=args.dry_run)
+    except PluginPackError as exc:
+        print(
+            f"note: could not install the OMH plugin bundle: {exc}; run `omh setup --force`",
+            file=sys.stderr,
+        )
+        return None
+    if not args.dry_run:
+        update_state(paths, {"last_plugin_distribution": result})
+    _seed_model_chains_result(paths, dry_run=bool(args.dry_run))
+    try:
+        _apply_result(args)
+    except OmhError as exc:
+        # The bundle landed; an unwritable config must not fail the update.
+        # Say what is missing instead of leaving a half-silent install.
+        print(
+            f"note: could not register OMH in the Hermes config: {exc}; run `omh setup`",
+            file=sys.stderr,
+        )
+    return result
 
 
 def _refresh_hermes_registration(args: argparse.Namespace) -> dict[str, object] | None:
@@ -317,9 +356,9 @@ def _refresh_installed_plugin_bundle(args: argparse.Namespace) -> dict[str, obje
     ran setup. The three commands AGENTS.md tells ordinary users to know are
     setup, update, and doctor -- and update was the one that did not update.
 
-    Only refreshes what is already there. Installing the bundle for the first
-    time is setup's job, because that is also where Hermes registration and
-    enablement happen, and half of that pair is worse than neither.
+    Only refreshes what is already there; a machine with no bundle at all goes
+    through `_bootstrap_tui_surface` instead, which installs the bundle AND
+    performs the Hermes registration/enablement half of the pair.
     """
     paths = _paths(args)
     if not paths.hermes_plugin_dir.is_dir():

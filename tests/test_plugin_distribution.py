@@ -1269,15 +1269,21 @@ class UpdateRefreshesTheBundleTests(unittest.TestCase):
             self.assertFalse(stray.exists())
             self.assertTrue((self._bundle_dir(root / ".hermes") / "memory_provider.py").is_file())
 
-    def test_update_does_not_install_a_bundle_setup_never_installed(self) -> None:
-        # Installing it here would write plugin files without the Hermes
-        # enablement setup also does, and half that pair is worse than neither.
+    def test_update_bootstraps_a_bundle_setup_never_installed(self) -> None:
+        # Update and setup converge on the same machine state (owner decision,
+        # 2026-08-20): a machine that only ever ran `omh update` still gets the
+        # plugin bundle, the widget, the registration, and the seeded chain
+        # overrides — the full pair, not the half that is worse than neither.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
             status, _, stderr = run_cli(base + ["update"])
             self.assertEqual(status, 0, stderr)
-            self.assertFalse(self._bundle_dir(root / ".hermes").exists())
+            self.assertTrue((self._bundle_dir(root / ".hermes") / "memory_provider.py").is_file())
+            self.assertTrue((root / ".hermes" / "tui-widgets" / "omh-status.mjs").is_file())
+            self.assertTrue((root / ".omh" / "routing" / "model-chains.json").is_file())
+            config_text = (root / ".hermes" / "config.yaml").read_text(encoding="utf-8")
+            self.assertIn("provider: omh", config_text)
 
     def test_a_dry_run_update_leaves_the_installed_bundle_alone(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -1338,14 +1344,30 @@ class UpdateCarriesRegistrationTests(unittest.TestCase):
             self.assertEqual(status, 0, stderr)
             self.assertIn("provider: omh", self._config(root).read_text(encoding="utf-8"))
 
-    def test_update_does_not_register_an_install_setup_never_registered(self) -> None:
-        # Someone who unregistered OMH deliberately must not have update put it
-        # back, and a first registration stays setup's to make.
+    def test_update_registers_a_machine_setup_never_touched(self) -> None:
+        # Update bootstraps the full TUI surface on a never-set-up machine
+        # (owner decision, 2026-08-20): registration included, because plugin
+        # files without Hermes enablement render nothing.
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             status, _, stderr = run_cli(self._base(root) + ["update"])
             self.assertEqual(status, 0, stderr)
-            self.assertFalse(self._config(root).exists())
+            self.assertIn("provider: omh", self._config(root).read_text(encoding="utf-8"))
+
+    def test_update_respects_a_deliberate_unregistration(self) -> None:
+        # `omh uninstall --registration-only` keeps the plugin directory, so
+        # update never reaches the bootstrap path and must not re-register a
+        # machine whose owner removed the registration on purpose.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_cli(self._base(root) + ["setup"])
+            status, _, stderr = run_cli(self._base(root) + ["uninstall", "--registration-only"])
+            self.assertEqual(status, 0, stderr)
+            unregistered = self._config(root).read_text(encoding="utf-8")
+
+            status, _, stderr = run_cli(self._base(root) + ["update"])
+            self.assertEqual(status, 0, stderr)
+            self.assertEqual(self._config(root).read_text(encoding="utf-8"), unregistered)
 
     def test_update_never_takes_a_slot_another_product_holds(self) -> None:
         with TemporaryDirectory() as tmp:
