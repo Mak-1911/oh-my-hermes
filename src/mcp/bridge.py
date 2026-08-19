@@ -12,6 +12,7 @@ from ..paths import OmhPaths
 from ..probe import probe_capabilities
 from ..routing.recommend import recommend_skills
 from ..runtime.artifacts import update_state
+from ..core.failure_mender import decide_failure
 
 MCP_PROTOCOL_VERSION = "2025-06-18"
 MCP_BRIDGE_SCHEMA_VERSION = "omh_mcp_bridge/v1"
@@ -511,12 +512,14 @@ def _tool_result(result_schema_version: str, tool: str, payload: dict[str, Any])
 
 
 def _error_tool_result(tool: str, message: str) -> dict[str, Any]:
+    failure_decision = decide_failure(message, source=f"mcp:{tool or 'unknown'}")
     return {
         "schema_version": MCP_TOOL_RESULT_SCHEMA_VERSION,
         "result_schema_version": "omh_tool_error/v1",
         "tool": tool or "unknown",
         "status": "tool_error",
         "error": message,
+        "failure_decision": failure_decision,
         "payload": {},
         "claim_boundary": MCP_BRIDGE_CLAIM_BOUNDARY,
     }

@@ -184,6 +184,9 @@ class McpBridgeTests(unittest.TestCase):
             structured = payload["result"]["structuredContent"]
             self.assertEqual(structured["status"], "tool_error")
             self.assertIn("Unknown tool", structured["error"])
+            self.assertEqual(structured["failure_decision"]["action"], "escalate")
+            self.assertEqual(structured["failure_decision"]["source"], "mcp:shell")
+            self.assertNotIn("whoami", json.dumps(structured["failure_decision"]))
 
     def test_mcp_host_observation_records_host_session_evidence(self) -> None:
         with TemporaryDirectory() as tmp:
