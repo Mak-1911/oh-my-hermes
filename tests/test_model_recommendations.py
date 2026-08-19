@@ -156,19 +156,19 @@ class RecommendationCatalogTests(unittest.TestCase):
         self.assertEqual(aliases("role_suggestions", "main"), [
             "kimi-k3", "claude-opus-5", "claude-fable-5", "gpt-5.6-sol", "gpt-5.6-terra",
         ])
-        # Open-weight-only chains carry a comparable-tier GPT/Claude tail
-        # (owner rule, 2026-08-19) so one rejected ecosystem cannot exhaust
-        # the chain.
+        # A chain that would otherwise sit in one provider ecosystem ends on
+        # a comparable-tier candidate from another (owner rule, 2026-08-19)
+        # so one rejected ecosystem cannot exhaust the chain.
         self.assertEqual(
             aliases("categories", "unspecified-low"),
-            ["glm-5.2", "glm-5.2-ultrafast", "claude-sonnet-5"],
+            ["glm-5.2", "glm-5.2-ultrafast", "claude-opus-5"],
         )
         self.assertEqual(aliases("categories", "unspecified-high"), ["kimi-k3", "claude-opus-5"])
         self.assertEqual(aliases("categories", "ultrabrain"), ["gpt-5.6-sol"])
         self.assertEqual(aliases("categories", "deep"), ["gpt-5.6-terra"])
         self.assertEqual(
             aliases("categories", "quick"),
-            ["glm-5.2-ultrafast", "kimi-k3", "claude-fable-5"],
+            ["glm-5.2-ultrafast", "kimi-k3", "gpt-5.6-luna", "claude-fable-5"],
         )
         self.assertEqual(
             aliases("categories", "writing"),
@@ -185,7 +185,7 @@ class RecommendationCatalogTests(unittest.TestCase):
         self.assertEqual(aliases("categories", "visual-engineering"), ["claude-fable-5", "kimi-k3"])
         self.assertEqual(
             aliases("categories", "quick"),
-            ["glm-5.2-ultrafast", "kimi-k3", "claude-fable-5"],
+            ["glm-5.2-ultrafast", "kimi-k3", "gpt-5.6-luna", "claude-fable-5"],
         )
         self.assertEqual(aliases("categories", "writing"), ["kimi-k3", "qwen3-coder", "gemini-3.1-pro"])
         self.assertEqual(aliases("categories", "artistry"), ["gemini-3.1-pro", "claude-fable-5", "kimi-k3"])
@@ -502,7 +502,7 @@ class LastResortFallbackTests(unittest.TestCase):
         self.assertEqual(route["available_chain"], ["claude-opus-5"])
         self.assertEqual(
             route["inactive_candidates"],
-            ["glm-5.2-ultrafast", "kimi-k3", "claude-fable-5", "gpt-5.6-sol"],
+            ["glm-5.2-ultrafast", "kimi-k3", "gpt-5.6-luna", "claude-fable-5", "gpt-5.6-sol"],
         )
         self.assertEqual(route["projection"]["kind"], "hermes_native_binding")
         self.assertEqual(route["projection"]["apply_state"], "approval_required")
@@ -545,7 +545,14 @@ class LastResortFallbackTests(unittest.TestCase):
         self.assertEqual(route["status"], "owner_default")
         self.assertEqual(
             route["inactive_candidates"],
-            ["glm-5.2-ultrafast", "kimi-k3", "claude-fable-5", "claude-opus-5", "gpt-5.6-sol"],
+            [
+                "glm-5.2-ultrafast",
+                "kimi-k3",
+                "gpt-5.6-luna",
+                "claude-fable-5",
+                "claude-opus-5",
+                "gpt-5.6-sol",
+            ],
         )
 
     def test_maestro_projection_carries_the_whole_last_resort_order(self) -> None:

@@ -39,17 +39,18 @@ HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
     "ultrabrain": (("gpt-5.6-sol", "xhigh"),),
     "deep": (("gpt-5.6-terra", "high"),),
     "unspecified-high": (("kimi-k3", "medium"), ("claude-opus-5", "medium")),
-    # Chains made only of Chinese open-weight models end with a
-    # comparable-tier GPT/Claude candidate (owner rule, 2026-08-19), so one
+    # A chain that would otherwise sit in one provider ecosystem ends with a
+    # comparable-tier candidate from another (owner rule, 2026-08-19), so one
     # rejected ecosystem cannot exhaust the whole chain.
     "unspecified-low": (
         ("glm-5.2", "low"),
         ("glm-5.2-ultrafast", "low"),
-        ("claude-sonnet-5", "low"),
+        ("claude-opus-5", "low"),
     ),
     "quick": (
         ("glm-5.2-ultrafast", "low"),
         ("kimi-k3", "low"),
+        ("gpt-5.6-luna", "low"),
         ("claude-fable-5", "low"),
     ),
     "writing": (
