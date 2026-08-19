@@ -33,6 +33,7 @@ from omh.wrapper_contract import (
     messenger_rendering_contract,
     render_profile_for_source,
 )
+from omh.wrapper.continuity import build_continuity_briefing
 from omh.wrapper.localized_copy import detect_copy_locale
 from omh.wrapper.native_commands import build_native_command_surface, render_native_command_response
 from omh.wrapper.route_hints import build_chat_route_hint_payload
@@ -4292,6 +4293,159 @@ class WrapperContractTests(unittest.TestCase):
 
         self.assertEqual(card["harness_progress"]["schema_version"], "harness_progress/v1")
         self.assertEqual(card["harness_progress"]["next_step"], "executor_dispatch_observed")
+
+
+class ContinuityBriefingProjectionTests(unittest.TestCase):
+    def test_observed_worktree_creation_alone_reports_isolated_workspace(self) -> None:
+        briefing = build_continuity_briefing(
+            {
+                "isolation_plan": {"strategy": "worktree_required"},
+                "runtime_observation": {"observed_events": ["worktree_creation"]},
+                "session_status": "handoff_prepared",
+            }
+        )
+
+        self.assertEqual(
+            briefing["workspace"],
+            {"reuse": "allowed", "required": "none", "current": "isolated_worktree"},
+        )
+
+    def test_failed_or_blocked_worktree_creation_overrides_observed_isolation(self) -> None:
+        cases = (
+            (
+                "blocked_events",
+                "worktree_required",
+                {"reuse": "blocked", "required": "worktree_required", "current": "unobserved"},
+            ),
+            (
+                "failed_events",
+                "worktree_required",
+                {"reuse": "blocked", "required": "worktree_required", "current": "unobserved"},
+            ),
+            (
+                "blocked_events",
+                "worktree_recommended",
+                {
+                    "reuse": "operator_choice",
+                    "required": "worktree_recommended",
+                    "current": "unobserved",
+                },
+            ),
+            (
+                "failed_events",
+                "worktree_recommended",
+                {
+                    "reuse": "operator_choice",
+                    "required": "worktree_recommended",
+                    "current": "unobserved",
+                },
+            ),
+        )
+
+        for negative_key, strategy, expected_workspace in cases:
+            with self.subTest(negative_key=negative_key, strategy=strategy):
+                briefing = build_continuity_briefing(
+                    {
+                        "isolation_plan": {"strategy": strategy},
+                        "runtime_observation": {
+                            "observed_events": ["worktree_creation"],
+                            negative_key: ["worktree_creation"],
+                        },
+                        "session_status": "handoff_prepared",
+                    }
+                )
+
+                self.assertEqual(briefing["workspace"], expected_workspace)
+
+    def test_negative_worktree_evidence_overrides_observed_isolation_status(self) -> None:
+        briefing = build_continuity_briefing(
+            {
+                "isolation_plan": {"strategy": "worktree_required"},
+                "workspace_isolation": {
+                    "status": "observed",
+                    "strategy": "worktree_required",
+                    "current": "isolated_worktree",
+                },
+                "runtime_observation": {
+                    "observed_events": ["worktree_creation"],
+                    "failed_events": ["worktree_creation"],
+                },
+                "session_status": "handoff_prepared",
+            }
+        )
+
+        self.assertEqual(
+            briefing["workspace"],
+            {"reuse": "blocked", "required": "worktree_required", "current": "unobserved"},
+        )
+
+    def test_resume_evidence_dominates_workspace_next_action(self) -> None:
+        workspace_evidence: dict[str, object] = {
+            "isolation_plan": {"strategy": "same_workspace_ok"},
+            "workspace_isolation": {"status": "not_required", "strategy": "same_workspace_ok"},
+            "session_status": "handoff_prepared",
+        }
+        cases = (
+            ({"result": "blocked"}, "blocked", "review_runtime_evidence"),
+            ({"dispatch": "observed", "result": "not_observed"}, "reattach", "reattach_runtime_evidence"),
+            ({"result": "completed"}, "conversation_safe", "continue_prepared_handoff"),
+            ({}, "not_started", "continue_prepared_handoff"),
+        )
+
+        for executor_status, expected_resume, expected_action in cases:
+            with self.subTest(resume=expected_resume):
+                briefing = build_continuity_briefing(
+                    {**workspace_evidence, "executor_status": executor_status}
+                )
+
+                self.assertEqual(briefing["resume"]["status"], expected_resume)
+                self.assertEqual(briefing["next_action"], expected_action)
+                self.assertEqual(
+                    briefing["workspace"],
+                    {"reuse": "allowed", "required": "none", "current": "same_workspace"},
+                )
+
+    def test_workspace_next_actions_are_preserved_without_resume_evidence(self) -> None:
+        cases = (
+            ("worktree_recommended", "operator_choice", "choose_workspace_isolation"),
+            ("worktree_required", "blocked", "prepare_isolated_workspace"),
+            ("unrecognized_strategy", "unknown", "review_workspace_evidence"),
+        )
+
+        for strategy, expected_reuse, expected_action in cases:
+            with self.subTest(strategy=strategy):
+                briefing = build_continuity_briefing(
+                    {
+                        "isolation_plan": {"strategy": strategy},
+                        "session_status": "handoff_prepared",
+                    }
+                )
+
+                self.assertEqual(briefing["resume"]["status"], "not_started")
+                self.assertEqual(briefing["workspace"]["reuse"], expected_reuse)
+                self.assertEqual(briefing["next_action"], expected_action)
+
+    def test_cancelled_or_terminal_events_fail_closed_to_blocked_resume(self) -> None:
+        for negative_key in ("cancelled_events", "terminal_events"):
+            with self.subTest(negative_key=negative_key):
+                briefing = build_continuity_briefing(
+                    {
+                        "isolation_plan": {"strategy": "same_workspace_ok"},
+                        "workspace_isolation": {
+                            "status": "not_required",
+                            "strategy": "same_workspace_ok",
+                        },
+                        "runtime_observation": {
+                            "observed_events": ["worker_result"],
+                            negative_key: ["worker_result"],
+                        },
+                        "executor_status": {"result": "completed"},
+                        "session_status": "handoff_prepared",
+                    }
+                )
+
+                self.assertEqual(briefing["resume"]["status"], "blocked")
+                self.assertEqual(briefing["next_action"], "review_runtime_evidence")
 
 
 if __name__ == "__main__":

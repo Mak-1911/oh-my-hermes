@@ -18,12 +18,9 @@ MemoryLookupStatus: TypeAlias = Literal["present", "absent", "malformed"]
 SCHEMA_VERSION: Final = "continuity_briefing/v1"
 _MEMORY_SCHEMA_VERSION: Final = "project_memory_recall_pack/v1"
 _HANDOFF_KEYS: Final = ("executor_handoff", "runtime_handoff", "prompt_handoff")
-_ABSENT_MEMORY_BOUNDARY: Final = (
-    "No reviewed project memory was included in this prepared handoff."
-)
-_UNKNOWN_MEMORY_BOUNDARY: Final = (
-    "Memory continuity is unknown because the available summary was malformed."
-)
+_ABSENT_MEMORY_BOUNDARY: Final = "No reviewed project memory was included in this prepared handoff."
+_UNKNOWN_MEMORY_BOUNDARY: Final = "Memory continuity is unknown because the available summary was malformed."
+_RESUME_NEXT_ACTIONS: Final[Mapping[str, str]] = {"blocked": "review_runtime_evidence", "reattach": "reattach_runtime_evidence"}
 _CLAIM_BOUNDARY: Final = (
     "This compact projection reports prepared or observed continuity evidence only; "
     "it does not create a workspace, resume an executor, or prove recalled context was used."
@@ -108,7 +105,7 @@ def build_continuity_briefing(evidence: Mapping[str, JsonValue]) -> ContinuityBr
             {"domain": "resume", "text": resume_lines[resume_status]},
             {"domain": "memory", "text": memory_lines[memory["availability"]]},
         ],
-        "next_action": next_actions[workspace["reuse"]],
+        "next_action": _RESUME_NEXT_ACTIONS.get(resume_status, next_actions[workspace["reuse"]]),
         "claim_boundary": _CLAIM_BOUNDARY,
     }
 
@@ -121,13 +118,17 @@ def _workspace_continuity(evidence: Mapping[str, JsonValue]) -> WorkspaceContinu
         "runtime_observation" in evidence and runtime_observation is None
     ):
         return {"reuse": "unknown", "required": "unknown", "current": "unknown"}
+    worktree_denied = any(
+        "worktree_creation" in _strings(runtime_observation.get(key) if runtime_observation else None)
+        for key in ("failed_events", "blocked_events")
+    )
     observed_events = _strings(runtime_observation.get("observed_events") if runtime_observation else None)
     observed_current = str(observation.get("current", "")) if observation else ""
     observed_status = str(observation.get("status", "")) if observation else ""
     observed_strategy = str(observation.get("strategy", "")) if observation else ""
     plan_strategy = str(isolation_plan.get("strategy", "")) if isolation_plan else ""
 
-    isolated = (
+    isolated = not worktree_denied and (
         observed_current == "isolated_worktree"
         or "worktree_creation" in observed_events
         or (
