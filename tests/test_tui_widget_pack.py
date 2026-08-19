@@ -328,14 +328,19 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertNotIn("todo.display_items", widget)
         self.assertNotIn("more_count", widget)
         self.assertNotIn("more}", widget)
-        # Drag-copy contract: an unchanged snapshot must not repaint the docks
-        # (repaints clear an in-progress terminal selection), there is NO
-        # animation subscription at all (the spinner advances one frame per
-        # applied snapshot), and metric-only drift on a running wave repaints
-        # at most once per throttle window instead of on every 2s poll.
+        # Drag-copy contract for the QUIET dock: an unchanged snapshot must
+        # not repaint (repaints clear an in-progress terminal selection), and
+        # metric-only drift repaints at most once per throttle window. While
+        # a row is RUNNING the dock trades selection stability for liveness —
+        # LiveActivityRows mounts on the shimmer clock so the spinner turns
+        # and elapsed ticks (snapshot value + seconds since it arrived);
+        # idle and linger-only docks render the static branch.
         self.assertIn("if (serialized === lastSnapshot) return", widget)
-        self.assertNotIn("AnimatedActivity", widget)
-        self.assertIn("h(ActivityRows, { columns, mainRows", widget)
+        self.assertIn("LiveActivityRows", widget)
+        self.assertIn("row.state === 'running'", widget)
+        self.assertIn("(Date.now() - receivedAt) / 1000", widget)
+        self.assertIn("receivedAt: Date.now()", widget)
+        self.assertIn("h(ActivityRows, { columns, extraSeconds: 0, frame: 0, mainRows", widget)
         self.assertIn("const METRICS_REPAINT_MS = 30_000", widget)
         self.assertIn(
             "if (structural === lastStructural && Date.now() - lastPaintAt < METRICS_REPAINT_MS) return",
@@ -359,14 +364,19 @@ class TuiWidgetPackTests(unittest.TestCase):
         # wording this change exists to replace. The separator is now shared
         # between both panels instead of hand-written per segment.
         self.assertNotIn("'Ultra Work'", widget)
-        # Static running cues: no spinner and no seconds counter on running
-        # rows — under throttled repaints anything "animated" freezes and
-        # lurches, which read as jank. The running marker is a fixed glyph
-        # and running elapsed is minute-coarse.
-        self.assertNotIn("SPINNER_FRAMES", widget)
-        self.assertIn("done ? '✓' : '▸'", widget)
-        self.assertIn("elapsedCoarse", widget)
-        self.assertIn("'<1m'", widget)
+        # Running rows are alive again by owner direction (the static orange
+        # marker with a frozen counter read as broken): spinner on the
+        # shimmer clock, real-time elapsed, and cost segments render only
+        # when a nonzero cost was actually observed — a subscription-billed
+        # host records none, and a permanent $0.0000 read as a bug.
+        self.assertIn("SPINNER_FRAMES", widget)
+        self.assertIn("SPINNER_FRAMES[frame % SPINNER_FRAMES.length]", widget)
+        self.assertNotIn("elapsedCoarse", widget)
+        self.assertIn("row.cost_usd > 0", widget)
+        # Token-derived approximations (subscription-billed hosts record no
+        # per-call cost) render with a `~`; true zeros render nothing.
+        self.assertIn("row.cost_approximate ? '~' : ''", widget)
+        self.assertIn("cost > 0 ? `${approximate ? '~' : ''}$${cost.toFixed(3)}` : ''", widget)
         # The plan panel's liveness cues are the ONE sanctioned animation:
         # a colour wave through the active item's characters plus a walking
         # ellipsis on the [Plan] header, both mounted only while an active
@@ -406,8 +416,11 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("clearTimeout(", widget)
         self.assertNotIn("payload ? { payload } : state", widget)
         # One immutable snapshot-apply helper feeds both widget apps, and both
-        # the initial read and the refresh timer go through it.
-        self.assertEqual(widget.count("{ ...state, payload, tick: state.tick + 1 }"), 1)
+        # the initial read and the refresh timer go through it; each applied
+        # snapshot stamps receivedAt so running rows can tick elapsed live.
+        self.assertEqual(
+            widget.count("{ ...state, payload, receivedAt: Date.now(), tick: state.tick + 1 }"), 1
+        )
         self.assertEqual(widget.count("applySnapshot(payload)"), 2)
         self.assertNotIn("friendlyWorkflow", widget)
         self.assertNotIn("'fanout-unit': 'Parallel work'", widget)

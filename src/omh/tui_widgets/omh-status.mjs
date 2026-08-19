@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 
 export default function register(sdk) {
   const { Box, Text, defineWidgetApp, h, openWidget, updateWidget } = sdk
+  const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
   const HOME = process.env.OMH_HOME || `${process.env.HOME}/.omh`
   const HERMES_HOME = process.env.HERMES_HOME || `${process.env.HOME}/.hermes`
   const READER_ENV = {
@@ -50,12 +51,16 @@ export default function register(sdk) {
       .concat(Array.isArray(payload.maestro?.rows) ? payload.maestro.rows : [])
       .concat(Array.isArray(payload.subagents?.rows) ? payload.subagents.rows : [])
     const cost = rows.reduce((sum, row) => sum + (Number.isFinite(row.cost_usd) ? row.cost_usd : 0), 0)
+    const approximate = rows.some(row => row.cost_approximate)
     const main = Array.isArray(payload.maestro?.rows) ? payload.maestro.rows[0] : null
     const ctx = main && Number.isFinite(main.context_percentage)
       ? main.context_percentage
       : rows.map(row => row.context_percentage).filter(Number.isFinite)[0]
     return {
-      cost: `$${cost.toFixed(3)}`,
+      // Subscription-billed hosts record no per-call cost; the reader's
+      // token-derived approximation carries a `~`, and a true zero with no
+      // approximation renders nothing (a constant $0.000 read as broken).
+      cost: cost > 0 ? `${approximate ? '~' : ''}$${cost.toFixed(3)}` : '',
       ctx: Number.isFinite(ctx) ? `ctx ${ctx}%` : 'ctx --',
     }
   }
@@ -135,19 +140,6 @@ export default function register(sdk) {
     return `${Math.floor(seconds / 3600)}h ${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}m`
   }
 
-  // A RUNNING row's elapsed is deliberately coarse (minutes, not seconds).
-  // Repaints are throttled to the metrics window, so a seconds counter would
-  // freeze and then lurch — the owner read that as jank. A minute counter
-  // moves exactly when it should. Finished rows keep the precise frozen
-  // value: it never changes again, so it cannot stutter.
-  const elapsedCoarse = value => {
-    if (!Number.isFinite(value)) return ''
-    const seconds = Math.max(0, Math.floor(value))
-    if (seconds < 60) return '<1m'
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
-    return `${Math.floor(seconds / 3600)}h ${String(Math.floor(seconds / 60) % 60).padStart(2, '0')}m`
-  }
-
   const metricSegment = (kind, text) => ({ kind, text })
   // Only observed values render. The old permanent not-collected labels on
   // cache/ctx were honest but unresolvable for Hermes-native children — the
@@ -157,7 +149,7 @@ export default function register(sdk) {
   const observedPercent = (label, value) =>
     Number.isFinite(value) ? `${label} ${value}%` : ''
 
-  const activityLayout = (row, columns, main) => {
+  const activityLayout = (row, columns, main, extraSeconds) => {
     const state = safeText(row.state) || 'running'
     const stateText = columns < 100 ? ({ running: 'run', blocked: 'block', failed: 'fail' })[state] || state : state
     const taskId = truncateCells(safeText(row.task_id) || safeText(row.role) || 'agent', 8).padEnd(8)
@@ -171,17 +163,31 @@ export default function register(sdk) {
       metricSegment('route', route),
       metricSegment('fallback', Number.isFinite(row.fallback_count) && row.fallback_count > 0 ? `fallback:${row.fallback_count}` : ''),
       metricSegment('turn', turnTools),
-      metricSegment('cost', Number.isFinite(row.cost_usd) ? `$${row.cost_usd.toFixed(4)}` : ''),
+      // A subscription-billed host records no per-call cost, so the reader
+      // supplies a token-derived approximation flagged cost_approximate —
+      // rendered with a `~` so it never reads as billing truth. A true zero
+      // with no approximation renders nothing (the old permanent $0.0000
+      // read as broken).
+      metricSegment(
+        'cost',
+        Number.isFinite(row.cost_usd) && row.cost_usd > 0
+          ? `${row.cost_approximate ? '~' : ''}$${row.cost_usd.toFixed(4)}`
+          : '',
+      ),
       metricSegment('rate', Number.isFinite(row.tokens_per_second) ? `${Math.round(row.tokens_per_second)} tok/s` : ''),
       metricSegment('cache', observedPercent('cache', row.cache_hit_percentage)),
       metricSegment('context', observedPercent('ctx', row.context_percentage)),
     ].filter(segment => segment.text)
     const running = !row.state || row.state === 'running'
+    // A running row's elapsed ticks in real time: the snapshot's value plus
+    // the seconds since it arrived, re-rendered by the animation clock.
+    // Finished rows keep the frozen precise value.
+    const elapsed = running ? (row.elapsed_seconds || 0) + extraSeconds : row.elapsed_seconds
     const required = [
       metricSegment('cache', observedPercent('cache', row.cache_hit_percentage)),
       metricSegment('context', observedPercent('ctx', row.context_percentage)),
       metricSegment('state', stateText),
-      metricSegment('elapsed', (running ? elapsedCoarse : elapsedText)(row.elapsed_seconds)),
+      metricSegment('elapsed', elapsedText(elapsed)),
     ].filter(segment => segment.text)
     optional.splice(-2)
     const prefix = `${taskId} `
@@ -207,13 +213,11 @@ export default function register(sdk) {
     }
   }
 
-  function ActivityRow({ columns, main, row, t }) {
-    const layout = activityLayout(row, columns, main)
+  function ActivityRow({ columns, extraSeconds, frame, main, row, t }) {
+    const layout = activityLayout(row, columns, main, extraSeconds)
     const blocked = row.state === 'blocked' || row.state === 'failed'
     const done = row.state === 'done'
-    // Static running marker. A spinner promises smooth animation, and under
-    // throttled repaints it froze and lurched instead — worse than no motion.
-    const marker = blocked ? '▲' : done ? '✓' : '▸'
+    const marker = blocked ? '▲' : done ? '✓' : SPINNER_FRAMES[frame % SPINNER_FRAMES.length]
     const statusColor = blocked ? t.color.error : t.color.ok
     return h(
       Text,
@@ -239,13 +243,15 @@ export default function register(sdk) {
     )
   }
 
-  function ActivityRows({ columns, mainRows, rows, t }) {
+  function ActivityRows({ columns, extraSeconds, frame, mainRows, rows, t }) {
     return h(
       Box,
       { flexDirection: 'column', width: '100%' },
       ...mainRows.map((row, index) =>
         h(ActivityRow, {
           columns,
+          extraSeconds,
+          frame,
           key: `main-${index}`,
           main: true,
           row,
@@ -255,12 +261,26 @@ export default function register(sdk) {
       ...rows.map((row, index) =>
         h(ActivityRow, {
           columns,
+          extraSeconds,
+          frame,
           key: `${safeText(row.task_id)}-${index}`,
           row,
           t,
         })
       ),
     )
+  }
+
+  // Mounted only while a RUNNING row exists: the spinner turns and the
+  // elapsed counter ticks on the shimmer clock (smooth, unlike the earlier
+  // one-frame-per-snapshot attempt, which lurched under repaint throttling
+  // and shipped as a frozen orange marker the owner rejected). While work
+  // runs, liveness beats drag-copy in the bottom dock — the owner's explicit
+  // priority; an idle or linger-only dock stays static and selectable.
+  function LiveActivityRows({ columns, mainRows, receivedAt, rows, t }) {
+    const frame = shimmerFrame()
+    const extraSeconds = receivedAt ? Math.max(0, (Date.now() - receivedAt) / 1000) : 0
+    return h(ActivityRows, { columns, extraSeconds, frame, mainRows, rows, t })
   }
 
   function Hud({ columns, state, t, viewportRows }) {
@@ -294,7 +314,7 @@ export default function register(sdk) {
         version ? h(Text, { color: t.color.muted }, ` v${version}`) : null,
         h(Text, { color: t.color.border }, SEPARATOR),
         h(Text, { color: active ? t.color.warn : t.color.ok }, hudStateLabel(active, agents)),
-        h(Text, { color: t.color.muted }, ` • ${metrics.cost} • ${metrics.ctx}`),
+        h(Text, { color: t.color.muted }, `${metrics.cost ? ` • ${metrics.cost}` : ''} • ${metrics.ctx}`),
         // A fresh concurrent tool-call batch (observed by the pre_tool_call
         // hook) gets branded on the status line: the transcript's collapsed
         // "Tool calls (N)" group never says whether the batch ran parallel.
@@ -306,12 +326,10 @@ export default function register(sdk) {
             )
           : null,
       ),
-      // No animation, ever: the dock must read like plain text so a terminal
-      // drag-selection over it survives, and under throttled repaints any
-      // "animated" element (a spinner, a seconds counter) freezes and lurches
-      // instead of moving — every running-state cue here is static.
       mainRows.length || rows.length
-        ? h(ActivityRows, { columns, mainRows, rows, t })
+        ? ([...mainRows, ...rows].some(row => !row.state || row.state === 'running')
+            ? h(LiveActivityRows, { columns, mainRows, receivedAt: state.receivedAt, rows, t })
+            : h(ActivityRows, { columns, extraSeconds: 0, frame: 0, mainRows, rows, t }))
         : null,
     )
   }
@@ -520,10 +538,10 @@ export default function register(sdk) {
     help: 'OMH workflow and subagent status',
     mode: 'ambient',
     zone: 'dock-bottom',
-    init: () => ({ payload: null, tick: 0 }),
+    init: () => ({ payload: null, receivedAt: 0, tick: 0 }),
     reduce: (state, input) =>
       input.kind === 'snapshot'
-        ? { ...state, payload: input.payload, tick: state.tick + 1 }
+        ? { ...state, payload: input.payload, receivedAt: Date.now(), tick: state.tick + 1 }
         : state,
     render: ({ cols, rows, state, t }) => h(Hud, {
       columns: Math.max(20, cols),
@@ -538,10 +556,10 @@ export default function register(sdk) {
     help: 'OMH plan todo checklist above the prompt input',
     mode: 'ambient',
     zone: 'dock-top',
-    init: () => ({ payload: null, tick: 0 }),
+    init: () => ({ payload: null, receivedAt: 0, tick: 0 }),
     reduce: (state, input) =>
       input.kind === 'snapshot'
-        ? { ...state, payload: input.payload, tick: state.tick + 1 }
+        ? { ...state, payload: input.payload, receivedAt: Date.now(), tick: state.tick + 1 }
         : state,
     render: ({ cols, state, t }) => h(TodoPanel, { columns: Math.max(20, cols), state, t }),
   })
@@ -588,7 +606,7 @@ export default function register(sdk) {
     lastStructural = structural
     lastPaintAt = Date.now()
     for (const target of [app, todoApp]) {
-      updateWidget(target, state => ({ ...state, payload, tick: state.tick + 1 }))
+      updateWidget(target, state => ({ ...state, payload, receivedAt: Date.now(), tick: state.tick + 1 }))
     }
   }
   const timerKey = Symbol.for('omh.hermes-tui-widget.refresh')

@@ -235,6 +235,39 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
         self.assertEqual(row["delegation_id"], "deleg_test1")
         self.assertAlmostEqual(row["cache_hit_percentage"], 75.0)
         self.assertAlmostEqual(row["tokens_per_second"], 4000 / 280)
+        # The host recorded no cost (subscription billing), so the row carries
+        # the token-derived approximation, flagged so the widget renders `~$`:
+        # 10k input @ $1.25/M + 30k cache reads @ a tenth of input + 4k output
+        # @ $10/M.
+        self.assertTrue(row["cost_approximate"])
+        self.assertAlmostEqual(
+            row["cost_usd"],
+            (10_000 * 1.25 + 30_000 * 0.125 + 4_000 * 10.0) / 1_000_000,
+        )
+
+    def test_an_observed_host_cost_is_never_replaced_by_the_approximation(self):
+        _build_state_db(
+            self.home,
+            [
+                {
+                    "id": "20260818_100100_bbbb77",
+                    "model": "gpt-5.6-sol",
+                    "started_at": NOW - 60,
+                    "usage": {
+                        "input_tokens": 10_000,
+                        "output_tokens": 4_000,
+                        "actual_cost_usd": 0.5,
+                        "last_seen": NOW - 5,
+                    },
+                }
+            ],
+        )
+        _write_manifest(
+            self.home, "deleg_paid", ["paid lane"], started=NOW - 65, log_mtime=NOW - 5
+        )
+        row = read_hermes_native_subagents(self.home, now=NOW)["rows"][0]
+        self.assertEqual(row["cost_usd"], 0.5)
+        self.assertNotIn("cost_approximate", row)
 
     def test_a_quiet_child_reads_done_and_expires_after_the_linger_window(self):
         quiet_age = RECENT_ACTIVITY_SECONDS + 60
