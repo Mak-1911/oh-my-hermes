@@ -382,7 +382,7 @@ class ModelSetupFlowTests(unittest.TestCase):
         self.assertEqual((status, stderr), (0, ""))
         recommendations = json.loads(stdout)["steps"]["model_activation"]["recommendations"]
         expected = {
-            "ultrabrain", "deep", "unspecified-high", "unspecified-low",
+            "ultrabrain", "deep", "architect", "unspecified-high", "unspecified-low",
             "quick", "writing", "visual-engineering", "artistry",
         }
         self.assertEqual(set(recommendations["hermes_native"]["categories"]), expected)

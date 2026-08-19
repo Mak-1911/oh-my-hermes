@@ -184,6 +184,7 @@ EXECUTOR_MODEL_OPTIONS: Final[dict[str, tuple[dict[str, object], ...]]] = {
 MODEL_CATEGORIES: Final[tuple[str, ...]] = (
     "ultrabrain",
     "deep",
+    "architect",
     "unspecified-high",
     "unspecified-low",
     "quick",
@@ -202,6 +203,7 @@ _CATEGORY_ALIASES: Final[dict[str, str]] = {
     "writer": "writing",
     "visual": "visual-engineering",
     "creative": "artistry",
+    "arch": "architect",
 }
 _ULW_CATEGORY_RE: Final[re.Pattern[str]] = re.compile(
     r"(?<![A-Za-z0-9_-])/?ulw-([A-Za-z0-9_-]+)(?![A-Za-z0-9_-])",
@@ -278,6 +280,7 @@ BUILTIN_CATEGORY_MODELS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]]
     "codex": {
         "ultrabrain": ({"model_id": "gpt-5-codex", "reasoning_effort": "xhigh"},),
         "deep": ({"model_id": "gpt-5-codex", "reasoning_effort": "high"},),
+        "architect": ({"model_id": "gpt-5-codex", "reasoning_effort": "xhigh"},),
         "unspecified-high": ({"model_id": "gpt-5-codex", "reasoning_effort": ""},),
         "unspecified-low": ({"model_id": "gpt-5", "reasoning_effort": ""},),
         "quick": ({"model_id": "gpt-5", "reasoning_effort": "low"},),
@@ -291,6 +294,7 @@ BUILTIN_CATEGORY_MODELS: Final[dict[str, dict[str, tuple[dict[str, str], ...]]]]
     "claude-code": {
         "ultrabrain": ({"model_id": "opus", "reasoning_effort": "xhigh"},),
         "deep": ({"model_id": "opus", "reasoning_effort": "high"},),
+        "architect": ({"model_id": "opus", "reasoning_effort": "xhigh"},),
         "unspecified-high": ({"model_id": "opus", "reasoning_effort": ""},),
         "unspecified-low": ({"model_id": "sonnet", "reasoning_effort": ""},),
         "quick": ({"model_id": "haiku", "reasoning_effort": ""},),

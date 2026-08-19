@@ -186,6 +186,7 @@ OMH 随附以下可编辑的有序 recommendation chain。guided model setup 只
 | --- | --- |
 | `ultrabrain` | GPT-5.6 Sol |
 | `deep` | GPT-5.6 Terra |
+| `architect` | Claude Fable 5，其次 GPT-5.6 Sol，其次 Kimi K3 (xhigh) |
 | `unspecified-high` | Kimi K3，其次 Claude Opus 5 |
 | `unspecified-low` | GLM 5.2，其次 GLM 5.2 Ultrafast，其次 Claude Opus 5 (low) |
 | `quick` | GLM 5.2 Ultrafast，其次 Kimi K3，其次 GPT-5.6 Luna，其次 Claude Fable 5 (low) |

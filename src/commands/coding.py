@@ -1947,7 +1947,7 @@ def _add_coding_commands(sub) -> None:
         default=None,
         help=(
             "OMO/ULW model category, orthogonal to role: visual-engineering, ultrabrain, deep, "
-            "artistry, quick, unspecified-low, unspecified-high, or writing; ulw-* aliases accepted."
+            "architect, artistry, quick, unspecified-low, unspecified-high, or writing; ulw-* aliases accepted."
         ),
     )
     model_route.add_argument(

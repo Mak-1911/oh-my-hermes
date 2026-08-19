@@ -263,6 +263,7 @@ credential, dispatch, or execution evidence:
 | --- | --- |
 | `ultrabrain` | GPT-5.6 Sol |
 | `deep` | GPT-5.6 Terra |
+| `architect` | Claude Fable 5, then GPT-5.6 Sol, then Kimi K3 (xhigh) |
 | `unspecified-high` | Kimi K3, then Claude Opus 5 |
 | `unspecified-low` | GLM 5.2, then GLM 5.2 Ultrafast, then Claude Opus 5 (low) |
 | `quick` | GLM 5.2 Ultrafast, then Kimi K3, then GPT-5.6 Luna, then Claude Fable 5 (low) |

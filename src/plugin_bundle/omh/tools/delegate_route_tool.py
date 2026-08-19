@@ -17,8 +17,8 @@ OMH_DELEGATE_ROUTE_SCHEMA = {
     "name": "omh_delegate_route",
     "description": (
         "Route the NEXT Hermes-native delegate_task dispatch onto a mixture model "
-        "category (ultrabrain, deep, unspecified-high, unspecified-low, quick, writing, "
-        "visual-engineering, artistry) by writing the delegation.model / "
+        "category (ultrabrain, deep, architect, unspecified-high, unspecified-low, quick, "
+        "writing, visual-engineering, artistry) by writing the delegation.model / "
         "delegation.reasoning_effort keys Hermes reads per dispatch. Sequence per lane: "
         "set the route, call delegate_task for that lane, then set the next lane's route "
         "or clear to restore parent inheritance. Children already running keep their model. "
@@ -56,7 +56,10 @@ OMH_DELEGATE_ROUTE_SCHEMA = {
                 "type": "string",
                 "description": (
                     "Explicit model id override; wins over the category's chain head. "
-                    "Use for a fallback candidate when the head is unavailable."
+                    "Use for a fallback candidate when the head is unavailable, or to pin "
+                    "a model the user named for the run (e.g. 'use fable'): keep the "
+                    "fitting category for the lane label and pass the user's model (plus "
+                    "reasoning_effort) here on every lane of that run."
                 ),
             },
             "reasoning_effort": {

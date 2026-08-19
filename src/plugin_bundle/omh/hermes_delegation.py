@@ -38,6 +38,16 @@ from typing import Any
 HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
     "ultrabrain": (("gpt-5.6-sol", "xhigh"),),
     "deep": (("gpt-5.6-terra", "high"),),
+    # Architecture/system-design lanes: full-depth effort across three
+    # provider ecosystems. Fable and Kimi appear in other chains only at
+    # low/high, so at xhigh `mixture_category_for` labels them architect;
+    # Sol at xhigh stays labeled ultrabrain (its canonical head), which is
+    # the honest projection when the chain falls through to it.
+    "architect": (
+        ("claude-fable-5", "xhigh"),
+        ("gpt-5.6-sol", "xhigh"),
+        ("kimi-k3", "xhigh"),
+    ),
     "unspecified-high": (("kimi-k3", "medium"), ("claude-opus-5", "medium")),
     # A chain that would otherwise sit in one provider ecosystem ends with a
     # comparable-tier candidate from another (owner rule, 2026-08-19), so one

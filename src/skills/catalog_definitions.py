@@ -842,9 +842,13 @@ _DEFINITIONS = [
             "harness itself: run coding lanes as Hermes-native delegate_task subagents with OMH skills loaded, "
             "each lane given disjoint scope, verification, and review expectations, and each lane routed through "
             "the mixture categories — set the route with the `omh_delegate_route` tool before dispatch "
-            "(research/scan lanes quick or unspecified-low; ideation, architecture, and hard debugging ultrabrain "
-            "or deep; visual work visual-engineering or artistry; docs writing) and name the routed category and "
-            "reasoning effort in the lane's status. [capability:delivery_boundary] Convert implementation into an "
+            "(research/scan lanes quick or unspecified-low; ideation and hard debugging ultrabrain or deep; "
+            "architecture and system-design lanes architect; visual work visual-engineering or artistry; docs "
+            "writing) and name the routed category and reasoning effort in the lane's status. When the user names "
+            "a model for the run (for example 'use fable' or 'fable로 해줘'), pin it: keep the fitting category "
+            "for each lane's label but pass the user's model and reasoning effort as explicit overrides in "
+            "`omh_delegate_route` on every lane, so each dispatch runs the named model and the lane status shows "
+            "it. [capability:delivery_boundary] Convert implementation into an "
             "external executor/runtime handoff such as Codex, Claude Code, OMX/OMO/OMC, or another coding agent "
             "only when the user accepts that owner; no external CLI is the default owner, and external handoff is "
             "a separate opt-in path, never the default recommendation."
@@ -5297,7 +5301,7 @@ _DEFINITIONS = [
         quality_bar=_MODEL_SETUP_FIVE_STEP_BAR
         + (
             "Treat each Hermes role slot (main, realtime-search, design), semantic category, and external owner as an independent prerequisite/diagnose/recommend/apply unit instead of one combined change.",
-            "Explain the shipped recommendations as editable editorial defaults, not benchmarks or allowlists: ultrabrain uses GPT-5.6 Sol; deep uses GPT-5.6 Terra; unspecified-high prefers Kimi K3 then Claude Opus 5; unspecified-low prefers GLM-5.2, GLM-5.2 Ultrafast, then Claude Opus 5 at low; quick prefers GLM-5.2 Ultrafast, Kimi K3, GPT-5.6 Luna, then Claude Fable 5 at low; writing prefers Kimi K3, Qwen3-Coder, then Gemini 3.1 Pro; visual-engineering prefers Claude Fable 5 then Kimi K3; and artistry prefers Gemini 3.1 Pro, Claude Fable 5, then Kimi K3.",
+            "Explain the shipped recommendations as editable editorial defaults, not benchmarks or allowlists: ultrabrain uses GPT-5.6 Sol; deep uses GPT-5.6 Terra; architect prefers Claude Fable 5, GPT-5.6 Sol, then Kimi K3 at xhigh; unspecified-high prefers Kimi K3 then Claude Opus 5; unspecified-low prefers GLM-5.2, GLM-5.2 Ultrafast, then Claude Opus 5 at low; quick prefers GLM-5.2 Ultrafast, Kimi K3, GPT-5.6 Luna, then Claude Fable 5 at low; writing prefers Kimi K3, Qwen3-Coder, then Gemini 3.1 Pro; visual-engineering prefers Claude Fable 5 then Kimi K3; and artistry prefers Gemini 3.1 Pro, Claude Fable 5, then Kimi K3.",
             "For X/Twitter scraping or trend analysis, keep x_platform_data as a domain affinity rather than a role alias: prefer confirmed-active Grok, then Kimi K3, then Gemini, without removing the rest of the route or overriding an explicit model.",
             "When a recommendation head is missing, choose the first confirmed-active owner-compatible candidate in that chain. Only after every selected category, role-slot, and domain chain is exhausted, consult the shared final order Claude Opus 5 then GPT-5.6 Sol. If no candidate is confirmed active anywhere, keep the selector on its owner's native default model and let the rest of OMH setup finish without a model-config write.",
             "Give provider-specific native next actions without claiming provider readiness: use installed Hermes flows for OpenAI OAuth/OpenAI Codex, Anthropic or an existing Claude provider, Qwen OAuth or Alibaba, Gemini/Google/Vertex, Grok/xAI, Kimi, GLM/Z.AI, or an already-working custom provider; preserve working alternatives.",
