@@ -149,11 +149,14 @@ class DelegateRouteToolTest(unittest.TestCase):
         self.assertEqual(result["status"], "fell_back")
         self.assertEqual(result["category"], "quick")
         self.assertEqual(result["from"], "glm-5.2-ultrafast")
-        # quick now carries the owner-ordered Western tail (Fable 5 at low)
-        # so a rejected open-weight ecosystem cannot exhaust the chain.
+        # quick runs the owner-ordered Ultrafast -> Kimi -> Luna -> Fable
+        # sequence, so a rejected ecosystem cannot exhaust the chain.
         self.assertEqual(
             result["fallback_candidates"],
-            [{"model": "claude-fable-5", "reasoning_effort": "low"}],
+            [
+                {"model": "gpt-5.6-luna", "reasoning_effort": "low"},
+                {"model": "claude-fable-5", "reasoning_effort": "low"},
+            ],
         )
         self.assertEqual(
             read_delegation_route(self.home),
@@ -166,6 +169,7 @@ class DelegateRouteToolTest(unittest.TestCase):
         # fallback past the end restores inheritance instead of routing one
         # more rejection.
         self._call(action="set", category="quick")
+        self._call(action="fallback")
         self._call(action="fallback")
         self._call(action="fallback")
         result = self._call(action="fallback")

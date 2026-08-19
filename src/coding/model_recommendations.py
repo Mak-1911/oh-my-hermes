@@ -138,11 +138,11 @@ _QWEN = _candidate(
     ("qwen-oauth", "openrouter", "opencode"),
     reasoning="Editorial coding and structured-writing alternative; not a benchmark claim.",
 )
-_SONNET_5 = _candidate(
-    "claude-sonnet-5",
-    "claude",
-    ("ccapi", "anthropic", "openrouter"),
-    reasoning="Editorial comparable-tier tail for open-weight chains; not a benchmark claim.",
+_LUNA = _candidate(
+    "gpt-5.6-luna",
+    "gpt",
+    ("openai-codex", "openai"),
+    reasoning="Editorial fast GPT-tier quick candidate; not a benchmark claim.",
 )
 
 # The category keys are exactly the existing closed vocabulary. Categories for
@@ -165,21 +165,22 @@ SHIPPED_MODEL_RECOMMENDATIONS: Final[dict[str, object]] = {
         "ultrabrain": [deepcopy(_SOL_XHIGH)],
         "deep": [deepcopy(_TERRA)],
         "unspecified-high": [_with_effort(_KIMI_K3, "medium"), _with_effort(_OPUS_5, "medium")],
-        # Owner rule (2026-08-19): a chain made only of Chinese open-weight
-        # models ends with a comparable-tier GPT/Claude candidate, so one
-        # rejected ecosystem cannot exhaust the whole chain (observed live:
-        # a Codex-billed account 400'd every GLM child and quick fell
-        # straight to inherit). Sonnet 5 at low is the general comparable
-        # tier for unspecified-low; quick's order and Fable tail are the
-        # owner's explicit pick.
+        # Owner rule (2026-08-19): a chain that would otherwise sit in one
+        # provider ecosystem ends with a comparable-tier candidate from
+        # another, so one rejected ecosystem cannot exhaust the whole chain
+        # (observed live: a Codex-billed account 400'd every GLM child and
+        # quick fell straight to inherit). Tails are the owner's explicit
+        # picks: Opus 5 at low closes unspecified-low, and quick runs the
+        # owner-ordered Ultrafast -> Kimi -> Luna -> Fable sequence.
         "unspecified-low": [
             _with_effort(_GLM, "low"),
             _with_effort(_GLM_FAST, "low"),
-            _with_effort(_SONNET_5, "low"),
+            _with_effort(_OPUS_5, "low"),
         ],
         "quick": [
             _with_effort(_GLM_FAST, "low"),
             _with_effort(_KIMI_K3, "low"),
+            _with_effort(_LUNA, "low"),
             _with_effort(_FABLE_5, "low"),
         ],
         "writing": [
