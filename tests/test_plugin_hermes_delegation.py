@@ -163,6 +163,36 @@ class MixtureCategoryProjectionTest(unittest.TestCase):
             "",
         )
 
+    def test_an_ultrafast_variant_projects_onto_its_base_models_category(self):
+        # An owner machine may serve a chain model through its Ultrafast
+        # variant (e.g. kimi-k3 via kimi-k3-ultrafast on OpenGateway); the
+        # variant projects onto the base model's category instead of leaving
+        # the HUD row unlabeled.
+        self.assertEqual(
+            mixture_category_for("kimi-k3-ultrafast", "xhigh", parent_model="gpt-5.6-sol"),
+            "architect",
+        )
+        self.assertEqual(
+            mixture_category_for("kimi-k3-ultrafast", "low", parent_model="gpt-5.6-sol"),
+            "quick",
+        )
+        # An explicitly-named variant still matches itself first.
+        self.assertEqual(
+            mixture_category_for("glm-5.2-ultrafast", "low", parent_model="kimi-k3"),
+            "quick",
+        )
+        # The effort contract still applies to the base-model retry.
+        self.assertEqual(
+            mixture_category_for("kimi-k3-ultrafast", "max", parent_model="gpt-5.6-sol"),
+            "",
+        )
+
+    def test_a_routed_architect_child_is_labeled_architect(self):
+        self.assertEqual(
+            mixture_category_for("claude-fable-5", "xhigh", parent_model="kimi-k3"),
+            "architect",
+        )
+
     def test_the_embedded_chains_mirror_the_shipped_recommendation_catalog(self):
         from omh.coding.model_recommendations import SHIPPED_MODEL_RECOMMENDATIONS
         from omh.coding.model_routing import MODEL_CATEGORIES
