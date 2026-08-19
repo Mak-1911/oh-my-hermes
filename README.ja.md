@@ -147,6 +147,19 @@ Hermes が開きます:
 omh
 ```
 
+<table align="center">
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-boot-hud.png" alt="OH-MY-HERMES terminal boot: rebranded banner, available tools and skills, phase todo checklist above the prompt, and the OMH HUD with live delegation rows"><br>
+      <sub><b>OH-MY-HERMES の起動画面。</b><br>リブランドされたバナー、ツールとスキルの一覧、プロンプト上の phase todo チェックリスト、OMH HUD のライブ delegation 行。</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work session in the OH-MY-HERMES terminal: mixture-routed research lanes dispatching Hermes-native subagents"><br>
+      <sub><b><code>ulw-work</code> 実行中。</b><br>mixture ルーティングされた lane が Hermes ネイティブのサブエージェントを dispatch し、各行に category・model:effort・turn・cost・cache が表示されます。</sub>
+    </td>
+  </tr>
+</table>
+
 setup は管理された `omh` スキンをインストールします — 上のバッジ色を基準とした
 スカイターコイズのパレットで、バナー・ウェルカム行・レスポンスラベルが
 OH-MY-HERMES にリブランドされます。スキンが未選択の場合にのみデフォルトとして
@@ -155,6 +168,23 @@ OMH が明示的な選択を書き換えることはありません。TUI 内で
 パネルとして描画されます: 作業中はコスト・ターン・キャッシュ指標付きの
 サブエージェント活動行、プロンプトの上にはプラン todo チェックリストが
 表示されます。
+
+OMH ワークフローの実行中にターミナルが表示するもの:
+
+- **Mixture-of-Models Routing** — 委譲される lane ごとにカテゴリ
+  (ultrabrain、deep、quick、writing、visual-engineering、…)のモデルと推論
+  強度が dispatch 単位で適用され、各活動行に `category:name(model:effort)` が
+  表示されるためルーティングが見えます。拒否されたルートはカテゴリチェーンに
+  沿って fallback します。
+- **Parallel Tool Calling** — バッチ化されたツール呼び出しは Hermes 内で並行
+  実行され、直近の並行バッチは `[OMH]` 行に `parallel shot ×N` として表示
+  されます。
+- **Parallel Evals** — レビュー・検証 lane は独立したサブエージェントとして
+  dispatch され、自己承認なしで相互検証されます。各 lane は turn・cost・cache
+  指標付きの HUD 行として見えます。
+- **Phase-structured TODO** — 作業は開始前に phase と task として宣言され
+  (`todo init`)、プロンプト上のチェックリストとして描画されます: アクティブ
+  項目は常に一つ、サブタスクのネスト、7 行を超えると折りたたみ。
 
 <br>
 
@@ -210,30 +240,25 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
 
 ## OMH が追加するもの
 
-OMH は、モデル選択とコーディングの所有者を別の判断として扱います。編集可能な
-category fallback chain は安全なローカル metadata とユーザーが active と
-確認した candidate から準備され、provider availability の証拠ではありません。
-Maestro は明示的な coding owner と設定済み runtime profile への handoff を
-準備し、fanout は互いに独立した並列 unit を扱います。準備済み handoff を
-実行済みとは報告しません。
-
-人が理解しやすい capability family は引き続き入口です。精密な制御、runtime
-境界、証拠ルールは wrapper や operator が必要なときに確認できます。
-
-完全な catalog、trigger、harness、証拠ルールは
+OMH は、モデル選択とコーディングの所有者を別の判断として扱い、準備を実行として
+報告しません。人が理解しやすい capability family は引き続き入口であり、精密な
+制御・runtime 境界・証拠ルールは wrapper や operator が必要なときに確認
+できます。完全な catalog、trigger、harness、証拠ルールは
 [Workflow Reference](docs/WORKFLOWS.md) にあります。
 
 **ハイライト**
 
 | インテリジェンス | OMH が追加するもの |
 | --- | --- |
-| 🧭 **モデル認識ルーティング** | 安全なローカル metadata とユーザーが active と確認した candidate から編集可能な recommendation を準備し、モデル選択とコーディング所有者を分離します。 |
+| 🧭 **Mixture-of-models ルーティング** | 委譲される lane ごとにカテゴリ(モデル + 推論強度)を dispatch 単位で適用し、provider がモデルを拒否したら編集可能な fallback chain に沿って前進します — 仕事をしなかった子は正直に `failed` と表示されます。 |
+| 🖥️ **ネイティブ TUI サーフェス** | OMH HUD(カテゴリ・ターン・コスト・キャッシュ付きのライブ delegation 行)、プロンプト上の phase todo チェックリスト、`parallel shot ×N` 表示、full-row diff バンド、管理されたスキン — すべて Hermes の隣にインストールされ、Hermes 本体にはパッチしません。 |
+| 📋 **Phase 構造のプラン** | `todo init` がエンジン作業の前に phase と task を宣言し、実行を開かれた推論ループではなく有界のチェックリストにします。 |
 | ⚡ **観測可能な並列作業** | 独立した作業を所有権の分かれた fanout unit に分割し、進行状況と verification gate を観測します。 |
 | 🎼 **Maestro handoff** | 隠れた executor にならず、準備を実行として扱わずに、明示的な coding owner と runtime profile への handoff を準備します。 |
-| 🛠️ **host-aware なツールガイダンス** | 条件付きの host 別 batch または eval ガイダンスを準備します。これは capability が available だったことやツールが実行されたことの証拠ではありません。 |
 | 🧠 **コンテキストインテリジェンス** | 隠れた記憶を捏造したり選択済み route を密かに変えたりせず、レビュー済み repository context をコンパクトに投影します。 |
 | 📚 **JIT learning** | 現在の blocker に最も価値のある学習対象を選び、学習済みと主張せずに、情報源に基づく即時適用可能なガイダンスを準備します。 |
 | 🔍 **証拠に基づく delivery** | coding・review・CI・merge 全体で、準備された意図、観測された runtime 活動、検証済み結果を分離します。 |
+| 📦 **決定的なスキルカタログ** | 100 個超のインストール可能な workflow スキル、バイト単位で検証される生成カタログ、否定ケースを含む routing precision コーパス、一文字のドリフトでも CI を失敗させる drift gate。 |
 
 ## 主張より証拠
 

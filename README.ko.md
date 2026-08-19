@@ -147,6 +147,19 @@ omh doctor
 omh
 ```
 
+<table align="center">
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-boot-hud.png" alt="OH-MY-HERMES terminal boot: rebranded banner, available tools and skills, phase todo checklist above the prompt, and the OMH HUD with live delegation rows"><br>
+      <sub><b>OH-MY-HERMES 부팅.</b><br>리브랜딩된 배너, 도구·스킬 목록, 프롬프트 위 phase todo 체크리스트, OMH HUD의 실시간 delegation 행.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work session in the OH-MY-HERMES terminal: mixture-routed research lanes dispatching Hermes-native subagents"><br>
+      <sub><b><code>ulw-work</code> 실행.</b><br>mixture 라우팅된 lane이 Hermes-native 서브에이전트를 dispatch하고, 각 행에 category·model:effort·turn·cost·cache가 표시됩니다.</sub>
+    </td>
+  </tr>
+</table>
+
 setup은 관리형 `omh` 스킨을 설치합니다 — 위 배지 색을 기준으로 한 하늘색
 터쿼이즈 팔레트에, 배너·환영 문구·응답 라벨이 OH-MY-HERMES로 리브랜딩됩니다.
 스킨은 아무것도 선택되지 않았을 때만 기본으로 활성화됩니다. `hermes skin use
@@ -154,6 +167,21 @@ setup은 관리형 `omh` 스킨을 설치합니다 — 위 배지 색을 기준�
 않습니다. TUI 안에서 OMH HUD는 테마 패널로 렌더됩니다: 작업 중에는 비용·턴·캐시
 지표가 붙은 서브에이전트 활동 행이, 프롬프트 위에는 플랜 todo 체크리스트가
 표시됩니다.
+
+OMH 워크플로가 도는 동안 터미널이 보여주는 것:
+
+- **Mixture-of-Models Routing** — 위임되는 lane마다 카테고리(ultrabrain,
+  deep, quick, writing, visual-engineering, …)의 모델·추론 강도가 dispatch
+  단위로 적용되고, 각 활동 행에 `category:name(model:effort)`가 표시되어
+  라우팅이 눈에 보입니다. 거부된 라우트는 카테고리 체인을 따라 fallback합니다.
+- **Parallel Tool Calling** — 배치된 툴 호출은 Hermes에서 동시 실행되며,
+  방금 발생한 동시 배치는 `[OMH]` 줄에 `parallel shot ×N`으로 표시됩니다.
+- **Parallel Evals** — 리뷰·검증 lane은 독립 서브에이전트로 dispatch되어
+  자기승인 없이 교차 검증되고, 각 lane이 turn·cost·cache 지표가 붙은 HUD
+  행으로 보입니다.
+- **Phase-structured TODO** — 작업은 시작 전에 phase와 task로 선언되고
+  (`todo init`), 프롬프트 위 체크리스트로 렌더됩니다: 활성 항목 하나,
+  서브태스크 중첩, 7행 초과 시 접기.
 
 <br>
 
@@ -209,30 +237,25 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
 
 ## OMH가 더하는 것
 
-OMH는 모델 선택과 코딩 소유권을 서로 다른 결정으로 다룹니다. 편집 가능한
-category fallback chain은 안전한 로컬 metadata와 사용자가 active라고 확인한
-candidate를 바탕으로 준비되며 provider availability 증거가 아닙니다. Maestro는
-명시적인 코딩 owner와 구성된 runtime profile을 위한 handoff를 준비하고,
-fanout은 서로 독립적인 병렬 unit을 다룹니다. 준비된 handoff를 실행으로
-보고하지 않습니다.
-
-사람이 이해하기 쉬운 기능군은 계속 첫 진입점으로 남습니다. 정밀한 제어,
-runtime 경계, 증거 규칙은 wrapper나 operator가 필요할 때 확인할 수 있습니다.
-
-전체 목록과 trigger, harness, 증거 규칙은
+OMH는 모델 선택과 코딩 소유권을 서로 다른 결정으로 다루며, 준비를 실행으로
+보고하지 않습니다. 사람이 이해하기 쉬운 기능군은 계속 첫 진입점으로 남고,
+정밀한 제어·runtime 경계·증거 규칙은 wrapper나 operator가 필요할 때 확인할 수
+있습니다. 전체 목록과 trigger, harness, 증거 규칙은
 [Workflow Reference](docs/WORKFLOWS.md)에 있습니다.
 
 **하이라이트**
 
 | 인텔리전스 | OMH가 더하는 것 |
 | --- | --- |
-| 🧭 **모델 인지 라우팅** | 안전한 로컬 metadata와 사용자가 active라고 확인한 candidate에서 편집 가능한 권장을 준비하고, 모델 선택과 코딩 소유권을 분리합니다. |
+| 🧭 **Mixture-of-models 라우팅** | 위임되는 lane마다 카테고리(모델 + 추론 강도)를 dispatch 단위로 적용하고, provider가 모델을 거부하면 편집 가능한 fallback chain을 따라 전진합니다 — 일을 하지 않은 자식은 정직하게 `failed`로 표시됩니다. |
+| 🖥️ **네이티브 TUI 표면** | OMH HUD(카테고리·턴·비용·캐시가 붙은 실시간 delegation 행), 프롬프트 위 phase todo 체크리스트, `parallel shot ×N` 표시, full-row diff 밴드, 관리형 스킨 — 모두 Hermes 옆에 설치되며 Hermes를 패치하지 않습니다. |
+| 📋 **Phase 구조 플랜** | `todo init`이 엔진 작업 전에 phase와 task를 선언해, 실행이 열린 추론 루프가 아니라 유한한 체크리스트를 걷게 합니다. |
 | ⚡ **관측 가능한 병렬 작업** | 독립적인 작업을 소유권이 분리된 fanout unit으로 나누고, 진행 상황과 verification gate를 관측합니다. |
 | 🎼 **Maestro handoff** | 숨은 executor가 되거나 준비를 실행으로 취급하지 않으면서 명시적인 코딩 owner와 runtime profile을 위한 handoff를 준비합니다. |
-| 🛠️ **host-aware 도구 지침** | 조건부 host별 batch 또는 eval 지침을 준비합니다. 이 지침은 capability가 available했거나 도구가 실행됐다는 증거가 아닙니다. |
 | 🧠 **컨텍스트 인텔리전스** | 숨은 기억을 지어내거나 선택된 route를 몰래 바꾸지 않고, 검토된 저장소 컨텍스트를 간결하게 투영합니다. |
 | 📚 **JIT 학습** | 현재 blocker에 가장 가치 있는 학습 목표를 고르고, 이미 학습했다고 주장하지 않으면서 출처 기반의 즉시 적용 가능한 지침을 준비합니다. |
 | 🔍 **증거 기반 전달** | 코딩·review·CI·merge 전반에서 준비된 의도, 관측된 runtime 활동, 검증된 결과를 분리합니다. |
+| 📦 **결정적 스킬 카탈로그** | 100개 이상의 설치형 workflow 스킬, byte 단위로 검증되는 생성 카탈로그, 부정 케이스를 포함한 routing precision 코퍼스, 한 글자 드리프트에도 CI가 실패하는 drift gate. |
 
 ## 주장보다 증거
 

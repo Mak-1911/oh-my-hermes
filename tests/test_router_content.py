@@ -3288,16 +3288,22 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal", readme)
         self.assertIn("replacing Hermes or hiding a coding executor", readme)
         self.assertIn("| Intelligence | What OMH adds |", readme)
-        self.assertIn("**Model-aware routing**", readme)
+        # Renamed from "Model-aware routing" when the highlights table was
+        # refreshed to name the shipped capability: per-dispatch mixture
+        # routing with chain fallback.
+        self.assertIn("**Mixture-of-models routing**", readme)
         self.assertNotIn("## Built For Real Work", readme)
         for localized_readme in localized_readmes.values():
             # A localized README stays a trimmed landing page, never a full
             # translation of every English section. The budget grew from 240
             # when the four-surface demo table (22 lines) was added above the
-            # h1 in every language, and from 260 when the Ultra-Skills section
-            # (h2 + badge + 12-row table, ~27 lines) landed in every language;
-            # it still sits below README.md's length.
-            self.assertLess(len(localized_readme.splitlines()), 290)
+            # h1 in every language, from 260 when the Ultra-Skills section
+            # (h2 + badge + 12-row table, ~27 lines) landed in every language,
+            # and from 290 when the terminal screenshots table and the
+            # English-named feature callouts (owner-directed localized
+            # parity) landed in every language; it still sits below
+            # README.md's length.
+            self.assertLess(len(localized_readme.splitlines()), 320)
             # The trust surface is the evidence table, not the wire token that
             # used to stand in for it. Pinning the token meant a README could
             # satisfy this by naming a value no reader could decode; pinning
