@@ -254,6 +254,15 @@ The shipped catalog is editorial policy, not benchmark output:
 | `x_platform_data` affinity | Grok, Kimi K3, Gemini |
 | Shared final order (`last_resort.any`) | Claude Opus 5, GPT-5.6 Sol |
 
+Chain customization is a config edit, not a source edit: `omh setup` seeds
+`~/.omh/routing/model-chains.json` (`mixture_chain_overrides/v1`) with an
+empty `categories` object, meaning the shipped defaults above stay live and
+keep updating with `omh update`. A category written into that file replaces
+its whole chain — for delegation routing, `omh_delegate_route` fallback
+walks, and HUD category labels alike — until the user removes it. An invalid
+document is ignored whole (defaults apply) and reported by
+`omh_delegate_route` `action=status` as `chain_overrides: invalid: ...`.
+
 The X/Grok row is a static, editable affinity for work explicitly declaring X
 platform data. It is not a measured capability, performance, or availability
 claim, never removes another candidate, and never overrides an explicit user

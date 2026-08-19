@@ -25,6 +25,7 @@ mixture routing is visible as such instead of masquerading as a routed one.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -35,6 +36,9 @@ from typing import Any
 # reasoning_effort) pairs in chain order. The plugin bundle ships standalone
 # into $HERMES_HOME/plugins and cannot import src/coding, so the chains are
 # embedded; tests/test_plugin_hermes_delegation.py holds the dict-parity gate.
+# These are shipped editorial DEFAULTS: a user customizes chains without
+# touching code by writing the mixture_chain_overrides/v1 document at
+# ~/.omh/routing/model-chains.json (see effective_mixture_category_chains).
 HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
     "ultrabrain": (("gpt-5.6-sol", "xhigh"),),
     "deep": (("gpt-5.6-terra", "high"),),
@@ -75,6 +79,83 @@ HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
         ("kimi-k3", "high"),
     ),
 }
+
+# User-editable chain overrides. The document replaces only the chains of the
+# categories it names; the category vocabulary itself stays closed (an unknown
+# category makes the document invalid). Validation is strict and atomic — an
+# invalid document is ignored entirely rather than half-applied — and every
+# value must be a plain identifier token so a crafted "model name" can never
+# smuggle structure into config.yaml via a later omh_delegate_route write.
+MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION = "mixture_chain_overrides/v1"
+_CHAIN_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
+
+
+def mixture_chain_overrides_path(omh_home: str | Path | None = None) -> Path:
+    root = Path(omh_home).expanduser() if omh_home else Path.home() / ".omh"
+    return root / "routing" / "model-chains.json"
+
+
+def load_mixture_chain_overrides(
+    omh_home: str | Path | None = None,
+) -> tuple[dict[str, tuple[tuple[str, str], ...]], str]:
+    """Read the user's chain override document.
+
+    Returns ``(overrides, status)`` where status is ``absent``, ``applied``,
+    or ``invalid: <reason>``. Overrides map category name to a full
+    replacement chain; only categories the document names appear.
+    """
+    path = mixture_chain_overrides_path(omh_home)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}, "absent"
+    except (OSError, UnicodeDecodeError, ValueError):
+        return {}, "invalid: unreadable JSON"
+    if not isinstance(raw, dict):
+        return {}, "invalid: document must be a JSON object"
+    if raw.get("schema_version") != MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION:
+        return {}, f"invalid: schema_version must be {MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION}"
+    categories = raw.get("categories")
+    if not isinstance(categories, dict):
+        return {}, "invalid: categories must be an object"
+    unknown = sorted(set(raw) - {"schema_version", "categories"})
+    if unknown:
+        return {}, f"invalid: unsupported fields {unknown}"
+    overrides: dict[str, tuple[tuple[str, str], ...]] = {}
+    for name, entries in categories.items():
+        if name not in HERMES_MIXTURE_CATEGORY_CHAINS:
+            return {}, f"invalid: unknown category {name!r}"
+        if not isinstance(entries, list) or not entries:
+            return {}, f"invalid: category {name!r} must list at least one entry"
+        chain: list[tuple[str, str]] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                return {}, f"invalid: category {name!r} entries must be objects"
+            unknown_keys = sorted(set(entry) - {"model", "reasoning_effort"})
+            if unknown_keys:
+                return {}, f"invalid: category {name!r} entry fields {unknown_keys}"
+            model = str(entry.get("model", ""))
+            effort = str(entry.get("reasoning_effort", ""))
+            if not _CHAIN_TOKEN_RE.match(model):
+                return {}, f"invalid: category {name!r} names a non-token model"
+            if effort and not _CHAIN_TOKEN_RE.match(effort):
+                return {}, f"invalid: category {name!r} names a non-token effort"
+            chain.append((model, effort))
+        overrides[name] = tuple(chain)
+    return overrides, "applied"
+
+
+def effective_mixture_category_chains(
+    omh_home: str | Path | None = None,
+) -> dict[str, tuple[tuple[str, str], ...]]:
+    """Shipped chains with the user's per-category replacements applied."""
+    overrides, _ = load_mixture_chain_overrides(omh_home)
+    if not overrides:
+        return dict(HERMES_MIXTURE_CATEGORY_CHAINS)
+    return {
+        name: overrides.get(name, chain)
+        for name, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items()
+    }
 
 # Rough USD-per-million-token list prices used ONLY when the host recorded no
 # cost (subscription billing bills nothing per call; the owner asked for an
@@ -138,7 +219,13 @@ def _finite(value: Any) -> float | None:
     return None
 
 
-def mixture_category_for(model: str, effort: str, *, parent_model: str = "") -> str:
+def mixture_category_for(
+    model: str,
+    effort: str,
+    *,
+    parent_model: str = "",
+    chains: dict[str, tuple[tuple[str, str], ...]] | None = None,
+) -> str:
     """Project an observed child model+effort onto a mixture category label.
 
     ``inherit`` wins over any chain match: a child on the parent session's own
@@ -154,14 +241,15 @@ def mixture_category_for(model: str, effort: str, *, parent_model: str = "") -> 
     if parent_model and observed_model == _text(parent_model).casefold():
         return "inherit"
 
-    # An owner machine may serve a chain model through its Ultrafast variant
-    # (e.g. kimi-k3 -> kimi-k3-ultrafast on OpenGateway). A variant the chains
-    # do not name explicitly still projects onto its base model's category
-    # instead of leaving the HUD row unlabeled; explicitly-named variants
-    # (glm-5.2-ultrafast) match themselves first and are unaffected.
+    # Providers serve some chain models through speed variants (e.g. the
+    # OpenGateway Ultrafast tier: kimi-k3 -> kimi-k3-ultrafast). A variant
+    # the chains do not name explicitly still projects onto its base model's
+    # category instead of leaving the HUD row unlabeled; explicitly-named
+    # variants (glm-5.2-ultrafast) match themselves first and are unaffected.
     candidates = [observed_model]
     if observed_model.endswith("-ultrafast"):
         candidates.append(observed_model[: -len("-ultrafast")])
+    active_chains = HERMES_MIXTURE_CATEGORY_CHAINS if chains is None else chains
 
     def _entry_matches(entry: tuple[str, str], model: str) -> bool:
         alias, chain_effort = entry
@@ -170,10 +258,10 @@ def mixture_category_for(model: str, effort: str, *, parent_model: str = "") -> 
         return not chain_effort or chain_effort.casefold() == observed_effort
 
     for model in candidates:
-        for category, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items():
+        for category, chain in active_chains.items():
             if chain and _entry_matches(chain[0], model):
                 return category
-        for category, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items():
+        for category, chain in active_chains.items():
             if any(_entry_matches(entry, model) for entry in chain):
                 return category
     return ""
@@ -357,10 +445,14 @@ def read_hermes_native_subagents(
     *,
     now: float | None = None,
     limit: int = _ROW_LIMIT,
+    omh_home: str | Path | None = None,
 ) -> dict[str, Any]:
     """Project live Hermes-native delegation children into HUD activity rows."""
     current = float(now) if now is not None else time.time()
     home = Path(hermes_home).expanduser() if hermes_home else Path.home() / ".hermes"
+    # Category labels honor the user's ~/.omh/routing/model-chains.json
+    # overrides so a customized chain labels its children like a shipped one.
+    active_chains = effective_mixture_category_chains(omh_home)
     payload: dict[str, Any] = {
         "status": "idle",
         "rows": [],
@@ -470,7 +562,10 @@ def read_hermes_native_subagents(
             "elapsed_seconds": max(0.0, elapsed_until - child["started_at"]),
             "observed_at": _iso_utc(last_activity),
             "category": mixture_category_for(
-                child["model"], child["effort"], parent_model=parent_model
+                child["model"],
+                child["effort"],
+                parent_model=parent_model,
+                chains=active_chains,
             ),
             "delegation_id": delegation_id,
         }

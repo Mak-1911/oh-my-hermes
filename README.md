@@ -275,6 +275,10 @@ Want to try the Ultrafast tier — Kimi K3 Ultrafast (300 TPS) and
 GLM 5.2 Ultrafast (600 TPS)? They are served on
 [OpenGateway](https://opengateway.ai/).
 
+Every chain above is user-editable without touching code: `omh setup` seeds
+`~/.omh/routing/model-chains.json`, and a category you write there replaces
+that chain for routing, fallback, and HUD labels alike.
+
 Ask Hermes to **set up my models** to review or change them. These are editable
 preferences, not benchmark results. See
 [Guided Model Setup](docs/INSTALLATION.md#guided-model-setup) for the detailed

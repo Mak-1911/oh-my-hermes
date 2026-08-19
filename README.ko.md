@@ -195,6 +195,8 @@ OMH에는 다음과 같이 편집 가능한 순서형 recommendation chain이 �
 
 Ultrafast 티어가 궁금하다면 — Kimi K3 Ultrafast(300 TPS), GLM 5.2 Ultrafast(600 TPS) — [OpenGateway](https://opengateway.ai/)에서 만나볼 수 있습니다.
 
+위 모든 chain은 코드를 건드리지 않고 편집할 수 있습니다: `omh setup`이 `~/.omh/routing/model-chains.json`을 시드하며, 이 파일에 적은 카테고리는 라우팅·fallback·HUD 라벨 모두에서 해당 chain을 대체합니다.
+
 Hermes에게 **모델을 설정해 줘**라고 요청해 검토하거나 변경할 수 있습니다. 이는 편집 가능한 선호이며 benchmark 결과가 아닙니다. 자세한 설정, fallback, provider, 소유권 규칙은 [Guided Model Setup](docs/INSTALLATION.md#guided-model-setup)을 참조하세요.
 
 <details>

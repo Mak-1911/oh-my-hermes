@@ -4,7 +4,12 @@ import json
 from typing import Any
 
 from ..delegation_routing import read_delegation_route, write_delegation_route
-from ..hermes_delegation import HERMES_MIXTURE_CATEGORY_CHAINS
+from ..hermes_delegation import (
+    HERMES_MIXTURE_CATEGORY_CHAINS,
+    effective_mixture_category_chains,
+    load_mixture_chain_overrides,
+    mixture_chain_overrides_path,
+)
 from ..host_observation import OBSERVATION_SCHEMA, attach_public_observation, observe_plugin_tool_call
 
 _EVIDENCE_BOUNDARY = (
@@ -82,6 +87,13 @@ OMH_DELEGATE_ROUTE_SCHEMA = {
                 "type": "string",
                 "description": "Optional HERMES_HOME override. Defaults to ~/.hermes.",
             },
+            "omh_home": {
+                "type": "string",
+                "description": (
+                    "Optional OMH home override for the chain-override document "
+                    "(routing/model-chains.json). Defaults to ~/.omh."
+                ),
+            },
             "observation": OBSERVATION_SCHEMA,
         },
     },
@@ -92,6 +104,11 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
     observation = observe_plugin_tool_call("omh_delegate_route", args, kwargs)
     action = str(args.get("action", "") or "set").strip().lower()
     hermes_home = str(args.get("hermes_home", "") or "") or None
+    omh_home = str(args.get("omh_home", "") or "") or None
+    # Every chain read below honors the user's routing/model-chains.json
+    # overrides; the category vocabulary itself stays the shipped closed set.
+    chains = effective_mixture_category_chains(omh_home)
+    _, override_status = load_mixture_chain_overrides(omh_home)
 
     if action == "status":
         payload: dict[str, Any] = {
@@ -102,8 +119,10 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                     {"model": alias, "reasoning_effort": effort}
                     for alias, effort in chain
                 ]
-                for category, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items()
+                for category, chain in chains.items()
             },
+            "chain_overrides": override_status,
+            "chain_overrides_path": str(mixture_chain_overrides_path(omh_home)),
             "evidence_boundary": _EVIDENCE_BOUNDARY,
         }
         return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
@@ -124,12 +143,12 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
             }
             return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
         category = str(args.get("category", "") or "").strip()
-        if category and category not in HERMES_MIXTURE_CATEGORY_CHAINS:
+        if category and category not in chains:
             payload = {
                 "status": "error",
                 "error": (
                     f"unknown category {category!r}; choose one of "
-                    + ", ".join(sorted(HERMES_MIXTURE_CATEGORY_CHAINS))
+                    + ", ".join(sorted(chains))
                 ),
             }
             return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
@@ -145,12 +164,12 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
 
             exact = [
                 name
-                for name, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items()
+                for name, chain in chains.items()
                 if any(alias == current_model and chain_effort == current_effort for alias, chain_effort in chain)
             ]
             loose = [
                 name
-                for name, chain in HERMES_MIXTURE_CATEGORY_CHAINS.items()
+                for name, chain in chains.items()
                 if any(alias == current_model for alias, _ in chain)
             ]
             for pool in (exact, loose):
@@ -159,8 +178,8 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                 advancing = [
                     name
                     for name in pool
-                    if 0 <= _chain_index(HERMES_MIXTURE_CATEGORY_CHAINS[name])
-                    < len(HERMES_MIXTURE_CATEGORY_CHAINS[name]) - 1
+                    if 0 <= _chain_index(chains[name])
+                    < len(chains[name]) - 1
                 ]
                 # Head-most wins: a route set from a category starts at that
                 # chain's head, so when a (model, effort) pair sits in several
@@ -169,7 +188,7 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                 # in unspecified-low). Explicit `category` overrides.
                 category = min(
                     advancing or pool,
-                    key=lambda name: _chain_index(HERMES_MIXTURE_CATEGORY_CHAINS[name]),
+                    key=lambda name: _chain_index(chains[name]),
                 )
                 break
         if not category:
@@ -181,7 +200,7 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                 ),
             }
             return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
-        chain = HERMES_MIXTURE_CATEGORY_CHAINS[category]
+        chain = chains[category]
         index = next((i for i, (alias, _) in enumerate(chain) if alias == current_model), -1)
         if index < 0 or index + 1 >= len(chain):
             # Chain exhausted: restore inheritance so the next dispatch runs on
@@ -217,12 +236,12 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
     model = str(args.get("model", "") or "").strip()
     effort = str(args.get("reasoning_effort", "") or "").strip()
     provider = str(args.get("provider", "") or "").strip()
-    if category and category not in HERMES_MIXTURE_CATEGORY_CHAINS:
+    if category and category not in chains:
         payload = {
             "status": "error",
             "error": (
                 f"unknown category {category!r}; choose one of "
-                + ", ".join(sorted(HERMES_MIXTURE_CATEGORY_CHAINS))
+                + ", ".join(sorted(chains))
             ),
         }
         return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
@@ -230,7 +249,7 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
         if not category:
             payload = {"status": "error", "error": "set needs a category or an explicit model"}
             return json.dumps(attach_public_observation(payload, observation), sort_keys=True)
-        head_model, head_effort = HERMES_MIXTURE_CATEGORY_CHAINS[category][0]
+        head_model, head_effort = chains[category][0]
         model = head_model
         if not effort:
             effort = head_effort
@@ -239,7 +258,7 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
     )
     if result.get("status") == "routed":
         result["category"] = category
-        chain = HERMES_MIXTURE_CATEGORY_CHAINS.get(category, ())
+        chain = chains.get(category, ())
         result["fallback_candidates"] = [
             {"model": alias, "reasoning_effort": chain_effort}
             for alias, chain_effort in chain[1:]
