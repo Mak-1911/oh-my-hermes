@@ -143,7 +143,10 @@ class DelegateRouteToolTest(unittest.TestCase):
     def test_status_reports_the_override_state_and_path(self):
         result = self._call(action="status")
         self.assertEqual(result["chain_overrides"], "absent")
-        self.assertTrue(result["chain_overrides_path"].endswith("routing/model-chains.json"))
+        self.assertEqual(
+            Path(result["chain_overrides_path"]),
+            self.omh_home / "routing" / "model-chains.json",
+        )
         self._write_overrides({"deep": [{"model": "gpt-5.6-terra", "reasoning_effort": "xhigh"}]})
         applied = self._call(action="status")
         self.assertEqual(applied["chain_overrides"], "applied")
