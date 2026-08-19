@@ -138,6 +138,12 @@ _QWEN = _candidate(
     ("qwen-oauth", "openrouter", "opencode"),
     reasoning="Editorial coding and structured-writing alternative; not a benchmark claim.",
 )
+_SONNET_5 = _candidate(
+    "claude-sonnet-5",
+    "claude",
+    ("ccapi", "anthropic", "openrouter"),
+    reasoning="Editorial comparable-tier tail for open-weight chains; not a benchmark claim.",
+)
 
 # The category keys are exactly the existing closed vocabulary. Categories for
 # which the approved profile defines no recommendation remain explicit empty
@@ -159,8 +165,23 @@ SHIPPED_MODEL_RECOMMENDATIONS: Final[dict[str, object]] = {
         "ultrabrain": [deepcopy(_SOL_XHIGH)],
         "deep": [deepcopy(_TERRA)],
         "unspecified-high": [_with_effort(_KIMI_K3, "medium"), _with_effort(_OPUS_5, "medium")],
-        "unspecified-low": [_with_effort(_GLM, "low"), _with_effort(_GLM_FAST, "low")],
-        "quick": [_with_effort(_GLM_FAST, "low"), _with_effort(_KIMI_K3, "low")],
+        # Owner rule (2026-08-19): a chain made only of Chinese open-weight
+        # models ends with a comparable-tier GPT/Claude candidate, so one
+        # rejected ecosystem cannot exhaust the whole chain (observed live:
+        # a Codex-billed account 400'd every GLM child and quick fell
+        # straight to inherit). Sonnet 5 at low is the general comparable
+        # tier for unspecified-low; quick's order and Fable tail are the
+        # owner's explicit pick.
+        "unspecified-low": [
+            _with_effort(_GLM, "low"),
+            _with_effort(_GLM_FAST, "low"),
+            _with_effort(_SONNET_5, "low"),
+        ],
+        "quick": [
+            _with_effort(_GLM_FAST, "low"),
+            _with_effort(_KIMI_K3, "low"),
+            _with_effort(_FABLE_5, "low"),
+        ],
         "writing": [
             _with_effort(_KIMI_K3, "medium"),
             _with_effort(_QWEN, "medium"),

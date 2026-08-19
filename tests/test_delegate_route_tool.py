@@ -149,7 +149,12 @@ class DelegateRouteToolTest(unittest.TestCase):
         self.assertEqual(result["status"], "fell_back")
         self.assertEqual(result["category"], "quick")
         self.assertEqual(result["from"], "glm-5.2-ultrafast")
-        self.assertEqual(result["fallback_candidates"], [])
+        # quick now carries the owner-ordered Western tail (Fable 5 at low)
+        # so a rejected open-weight ecosystem cannot exhaust the chain.
+        self.assertEqual(
+            result["fallback_candidates"],
+            [{"model": "claude-fable-5", "reasoning_effort": "low"}],
+        )
         self.assertEqual(
             read_delegation_route(self.home),
             {"model": "kimi-k3", "reasoning_effort": "low"},
@@ -162,10 +167,11 @@ class DelegateRouteToolTest(unittest.TestCase):
         # more rejection.
         self._call(action="set", category="quick")
         self._call(action="fallback")
+        self._call(action="fallback")
         result = self._call(action="fallback")
         self.assertEqual(result["status"], "exhausted_to_inherit")
         self.assertEqual(result["category"], "quick")
-        self.assertEqual(result["from"], "kimi-k3")
+        self.assertEqual(result["from"], "claude-fable-5")
         self.assertEqual(read_delegation_route(self.home), {})
 
     def test_fallback_without_a_route_is_an_error(self):

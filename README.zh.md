@@ -187,11 +187,13 @@ OMH 随附以下可编辑的有序 recommendation chain。guided model setup 只
 | `ultrabrain` | GPT-5.6 Sol |
 | `deep` | GPT-5.6 Terra |
 | `unspecified-high` | Kimi K3，其次 Claude Opus 5 |
-| `unspecified-low` | GLM 5.2，其次 GLM 5.2 Ultrafast |
-| `quick` | GLM 5.2 Ultrafast，其次 Kimi K3 |
+| `unspecified-low` | GLM 5.2，其次 GLM 5.2 Ultrafast，其次 Claude Sonnet 5 (low) |
+| `quick` | GLM 5.2 Ultrafast，其次 Kimi K3，其次 Claude Fable 5 (low) |
 | `writing` | Kimi K3，其次 Qwen3-Coder，其次 Gemini 3.1 Pro |
 | `visual-engineering` | Claude Fable 5，其次 Kimi K3 |
 | `artistry` | Gemini 3.1 Pro，其次 Claude Fable 5，其次 Kimi K3 |
+
+以中国开放权重模型开头的 chain 会以同级别的 GPT/Claude 候选收尾,因此单个 provider 生态被拒绝时不会耗尽整条 chain。GLM 5.2 Ultrafast 通过 [OpenGateway](https://opengateway.ai/) 提供。
 
 请让 Hermes **设置我的模型**，以查看或更改这些推荐。它们是可编辑的偏好，不是 benchmark 结果。详细的设置、fallback、provider 与所有权规则见 [Guided Model Setup](docs/INSTALLATION.md#guided-model-setup)。
 

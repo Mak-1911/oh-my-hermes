@@ -159,7 +159,15 @@ def omh_delegate_route_handler(args: dict[str, Any], **kwargs) -> str:
                     if 0 <= _chain_index(HERMES_MIXTURE_CATEGORY_CHAINS[name])
                     < len(HERMES_MIXTURE_CATEGORY_CHAINS[name]) - 1
                 ]
-                category = (advancing or pool)[0]
+                # Head-most wins: a route set from a category starts at that
+                # chain's head, so when a (model, effort) pair sits in several
+                # advancing chains, the one holding it earliest is the likely
+                # origin (glm-5.2-ultrafast:low heads quick but is mid-chain
+                # in unspecified-low). Explicit `category` overrides.
+                category = min(
+                    advancing or pool,
+                    key=lambda name: _chain_index(HERMES_MIXTURE_CATEGORY_CHAINS[name]),
+                )
                 break
         if not category:
             payload = {
