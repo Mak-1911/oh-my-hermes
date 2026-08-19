@@ -279,6 +279,10 @@ def cmd_update(args: argparse.Namespace) -> int:
             if _paths(args).hermes_plugin_dir.is_dir():
                 _refresh_installed_plugin_bundle(args)
                 _refresh_hermes_registration(args)
+                # Same carry-forward rule as registration: a surface only
+                # setup seeds never lands on machines that update forever.
+                # Seeding is create-only, so user edits are never touched.
+                _seed_model_chains_result(_paths(args), dry_run=bool(args.dry_run))
             else:
                 _bootstrap_tui_surface(args)
         _refresh_installed_tui_widget(args)

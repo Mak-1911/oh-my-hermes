@@ -1354,6 +1354,26 @@ class UpdateCarriesRegistrationTests(unittest.TestCase):
             self.assertEqual(status, 0, stderr)
             self.assertIn("provider: omh", self._config(root).read_text(encoding="utf-8"))
 
+    def test_update_seeds_the_chain_overrides_on_a_registered_install(self) -> None:
+        # Same carry-forward rule as registration: a document only setup seeds
+        # never lands on machines that update forever. Create-only — a user's
+        # edited document survives the next update untouched.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_cli(self._base(root) + ["setup"])
+            chains = root / ".omh" / "routing" / "model-chains.json"
+            chains.unlink()
+
+            status, _, stderr = run_cli(self._base(root) + ["update"])
+            self.assertEqual(status, 0, stderr)
+            self.assertTrue(chains.is_file())
+
+            custom = '{"schema_version": "mixture_chain_overrides/v1", "categories": {"deep": [{"model": "gpt-5.6-terra", "reasoning_effort": "xhigh"}]}}'
+            chains.write_text(custom, encoding="utf-8")
+            status, _, stderr = run_cli(self._base(root) + ["update"])
+            self.assertEqual(status, 0, stderr)
+            self.assertEqual(chains.read_text(encoding="utf-8"), custom)
+
     def test_update_respects_a_deliberate_unregistration(self) -> None:
         # `omh uninstall --registration-only` keeps the plugin directory, so
         # update never reaches the bootstrap path and must not re-register a
