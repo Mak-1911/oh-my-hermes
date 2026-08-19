@@ -1060,6 +1060,36 @@ class RouterContentTests(unittest.TestCase):
                 f"{planning_name} is a planning lane, not an executing engine",
             )
 
+    def test_ulw_executing_engines_carry_interjection_resume_rule(self) -> None:
+        """A mid-run user message must not end an engine run (#1033): the host already
+        re-enters async subagent results as fresh turns, so the only dropped thread is
+        the model ending its reply after answering. Every live executing ULW engine's
+        quality bar carries the interjection-resume rule; planning lanes stay
+        conversational by design and must not carry it.
+        """
+        from omh.skills.catalog import ENGINE_INTERJECTION_RESUME_RULE
+
+        engines = ("ultrawork", "ultraqa", "loop", "research", "context", "ultraperf")
+        definitions = {definition.name: definition for definition in installable_skill_definitions()}
+        for name in engines:
+            with self.subTest(engine=name):
+                self.assertIn(
+                    ENGINE_INTERJECTION_RESUME_RULE,
+                    definitions[name].quality_bar,
+                    f"{name} must carry the interjection-resume rule in its quality bar",
+                )
+        templates = {template.name: template for template in builtin_skill_templates()}
+        for name in engines:
+            self.assertIn("interjection, not a stop", templates[name].content, name)
+        # Planning lanes answer the user as their primary loop; an interjection
+        # rule there would tell them to resume a run that does not exist.
+        for planning_name in ("ralplan", "plan", "deep-interview"):
+            self.assertNotIn(
+                ENGINE_INTERJECTION_RESUME_RULE,
+                definitions[planning_name].quality_bar,
+                f"{planning_name} is a planning lane, not an executing engine",
+            )
+
     def test_planning_skills_recommend_engine_fit_and_require_go_ahead(self) -> None:
         """Plan acceptance approves plan content, not execution: ralplan and plan must
         recommend the follow-on engine that fits the work's shape and wait for the user's
