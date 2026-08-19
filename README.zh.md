@@ -152,21 +152,15 @@ omh
 <table align="center">
   <tr>
     <td width="50%" align="center">
-      <img src="assets/omh-terminal-boot-hud.png" alt="OH-MY-HERMES terminal boot: rebranded banner, available tools and skills, phase todo checklist above the prompt, and the OMH HUD with live delegation rows"><br>
-      <sub><b>OH-MY-HERMES 启动画面。</b><br>重塑品牌的横幅、工具与技能一览、提示符上方的 phase todo 清单,以及 OMH HUD 中的实时 delegation 行。</sub>
+      <img src="assets/omh-terminal-boot-hud.png" alt="The OH-MY-HERMES boot"><br>
+      <sub><b>OH-MY-HERMES 启动画面。</b></sub>
     </td>
     <td width="50%" align="center">
-      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work session in the OH-MY-HERMES terminal: mixture-routed research lanes dispatching Hermes-native subagents"><br>
-      <sub><b><code>ulw-work</code> 运行中。</b><br>mixture 路由的 lane 调度 Hermes 原生子代理,每行显示 category、model:effort、turn、cost 和 cache。</sub>
+      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work run"><br>
+      <sub><b><code>ulw-work</code> 运行中。</b></sub>
     </td>
   </tr>
 </table>
-
-setup 会安装受管理的 `omh` 皮肤 — 以上方徽章颜色为基准的天空绿松石配色,
-横幅、欢迎语和响应标签均重塑为 OH-MY-HERMES。仅当未选择任何皮肤时才会默认
-激活。`hermes skin use <name>`(包括 `default`)将永久优先,OMH 绝不改写
-显式选择。在 TUI 中,OMH HUD 以主题面板呈现:工作进行时显示带成本、轮次和
-缓存指标的子代理活动行,提示符上方显示计划 todo 清单。
 
 OMH 工作流运行时,终端会展示:
 

@@ -150,24 +150,15 @@ omh
 <table align="center">
   <tr>
     <td width="50%" align="center">
-      <img src="assets/omh-terminal-boot-hud.png" alt="OH-MY-HERMES terminal boot: rebranded banner, available tools and skills, phase todo checklist above the prompt, and the OMH HUD with live delegation rows"><br>
-      <sub><b>OH-MY-HERMES の起動画面。</b><br>リブランドされたバナー、ツールとスキルの一覧、プロンプト上の phase todo チェックリスト、OMH HUD のライブ delegation 行。</sub>
+      <img src="assets/omh-terminal-boot-hud.png" alt="The OH-MY-HERMES boot"><br>
+      <sub><b>OH-MY-HERMES の起動画面。</b></sub>
     </td>
     <td width="50%" align="center">
-      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work session in the OH-MY-HERMES terminal: mixture-routed research lanes dispatching Hermes-native subagents"><br>
-      <sub><b><code>ulw-work</code> 実行中。</b><br>mixture ルーティングされた lane が Hermes ネイティブのサブエージェントを dispatch し、各行に category・model:effort・turn・cost・cache が表示されます。</sub>
+      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work run"><br>
+      <sub><b><code>ulw-work</code> 実行中。</b></sub>
     </td>
   </tr>
 </table>
-
-setup は管理された `omh` スキンをインストールします — 上のバッジ色を基準とした
-スカイターコイズのパレットで、バナー・ウェルカム行・レスポンスラベルが
-OH-MY-HERMES にリブランドされます。スキンが未選択の場合にのみデフォルトとして
-有効化されます。`hermes skin use <name>`(`default` を含む)は恒久的に優先され、
-OMH が明示的な選択を書き換えることはありません。TUI 内では OMH HUD がテーマ
-パネルとして描画されます: 作業中はコスト・ターン・キャッシュ指標付きの
-サブエージェント活動行、プロンプトの上にはプラン todo チェックリストが
-表示されます。
 
 OMH ワークフローの実行中にターミナルが表示するもの:
 

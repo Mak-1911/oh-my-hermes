@@ -150,23 +150,15 @@ omh
 <table align="center">
   <tr>
     <td width="50%" align="center">
-      <img src="assets/omh-terminal-boot-hud.png" alt="OH-MY-HERMES terminal boot: rebranded banner, available tools and skills, phase todo checklist above the prompt, and the OMH HUD with live delegation rows"><br>
-      <sub><b>OH-MY-HERMES 부팅.</b><br>리브랜딩된 배너, 도구·스킬 목록, 프롬프트 위 phase todo 체크리스트, OMH HUD의 실시간 delegation 행.</sub>
+      <img src="assets/omh-terminal-boot-hud.png" alt="The OH-MY-HERMES boot"><br>
+      <sub><b>OH-MY-HERMES 부팅.</b></sub>
     </td>
     <td width="50%" align="center">
-      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work session in the OH-MY-HERMES terminal: mixture-routed research lanes dispatching Hermes-native subagents"><br>
-      <sub><b><code>ulw-work</code> 실행.</b><br>mixture 라우팅된 lane이 Hermes-native 서브에이전트를 dispatch하고, 각 행에 category·model:effort·turn·cost·cache가 표시됩니다.</sub>
+      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work run"><br>
+      <sub><b><code>ulw-work</code> 실행.</b></sub>
     </td>
   </tr>
 </table>
-
-setup은 관리형 `omh` 스킨을 설치합니다 — 위 배지 색을 기준으로 한 하늘색
-터쿼이즈 팔레트에, 배너·환영 문구·응답 라벨이 OH-MY-HERMES로 리브랜딩됩니다.
-스킨은 아무것도 선택되지 않았을 때만 기본으로 활성화됩니다. `hermes skin use
-<name>`(`default` 포함)은 영구히 우선하며, OMH는 명시적 선택을 절대 다시 쓰지
-않습니다. TUI 안에서 OMH HUD는 테마 패널로 렌더됩니다: 작업 중에는 비용·턴·캐시
-지표가 붙은 서브에이전트 활동 행이, 프롬프트 위에는 플랜 todo 체크리스트가
-표시됩니다.
 
 OMH 워크플로가 도는 동안 터미널이 보여주는 것:
 
