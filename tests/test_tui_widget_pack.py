@@ -373,7 +373,10 @@ class TuiWidgetPackTests(unittest.TestCase):
         self.assertIn("SPINNER_FRAMES[frame % SPINNER_FRAMES.length]", widget)
         self.assertNotIn("elapsedCoarse", widget)
         self.assertIn("row.cost_usd > 0", widget)
-        self.assertIn("cost > 0 ? `$${cost.toFixed(3)}` : ''", widget)
+        # Token-derived approximations (subscription-billed hosts record no
+        # per-call cost) render with a `~`; true zeros render nothing.
+        self.assertIn("row.cost_approximate ? '~' : ''", widget)
+        self.assertIn("cost > 0 ? `${approximate ? '~' : ''}$${cost.toFixed(3)}` : ''", widget)
         # The plan panel's liveness cues are the ONE sanctioned animation:
         # a colour wave through the active item's characters plus a walking
         # ellipsis on the [Plan] header, both mounted only while an active

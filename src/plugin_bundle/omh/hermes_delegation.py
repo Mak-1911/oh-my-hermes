@@ -66,6 +66,41 @@ HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
 }
 
+# Rough USD-per-million-token list prices used ONLY when the host recorded no
+# cost (subscription billing bills nothing per call; the owner asked for an
+# approximation there instead of a blank). These are editable ballpark figures,
+# not billing evidence — every cost derived from them is flagged approximate
+# and rendered with a `~`. Cache reads are charged at a tenth of input.
+APPROX_PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
+    "gpt-5.6-sol": (1.25, 10.0),
+    "gpt-5.6-terra": (1.25, 10.0),
+    "gpt-5.6-luna": (0.25, 2.0),
+    "claude-opus-5": (15.0, 75.0),
+    "claude-fable-5": (25.0, 100.0),
+    "claude-sonnet-5": (3.0, 15.0),
+    "claude-haiku-4-5": (1.0, 5.0),
+    "kimi-k3": (0.6, 2.5),
+    "glm-5.2": (0.6, 2.2),
+    "glm-5.2-ultrafast": (0.3, 1.2),
+    "gemini-3.1-pro": (1.25, 10.0),
+    "qwen3-coder": (0.4, 1.6),
+}
+
+
+def _approximate_cost_usd(
+    model: str, input_tokens: float, output_tokens: float, cache_read_tokens: float
+) -> float | None:
+    prices = APPROX_PRICE_PER_MTOK.get(_text(model).casefold())
+    if not prices or (input_tokens + output_tokens) <= 0:
+        return None
+    input_price, output_price = prices
+    return (
+        input_tokens * input_price
+        + cache_read_tokens * input_price * 0.1
+        + output_tokens * output_price
+    ) / 1_000_000
+
+
 # A child is "running" while its newest observable signal (live transcript
 # mtime, usage last_seen, session start) is at most this old. The live log
 # streams one line per child event, so an actively working child refreshes
@@ -388,6 +423,15 @@ def read_hermes_native_subagents(
         if cache_read and (cache_read + input_tokens) > 0:
             cache_hit = round(100.0 * cache_read / (cache_read + input_tokens), 1)
         cost = usage.get("actual_cost_usd") or usage.get("estimated_cost_usd")
+        # Subscription-billed hosts record no per-call cost; the owner asked
+        # for an approximation there rather than a blank. Token-derived, and
+        # flagged approximate so the widget can render it as `~$…`.
+        cost_approximate = False
+        if not cost:
+            approx = _approximate_cost_usd(child["model"], input_tokens, output_tokens, cache_read)
+            if approx is not None:
+                cost = approx
+                cost_approximate = True
 
         parent_model = state.get("parent_models", {}).get(child["parent_id"], "")
         session_tail = child["session_id"].rsplit("_", 1)[-1][:8]
@@ -417,6 +461,8 @@ def read_hermes_native_subagents(
             row["turn_count"] = int(api_calls)
         if cost is not None:
             row["cost_usd"] = cost
+            if cost_approximate:
+                row["cost_approximate"] = True
         if tokens_per_second is not None:
             row["tokens_per_second"] = tokens_per_second
         if cache_hit is not None:

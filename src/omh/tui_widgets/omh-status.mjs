@@ -51,14 +51,16 @@ export default function register(sdk) {
       .concat(Array.isArray(payload.maestro?.rows) ? payload.maestro.rows : [])
       .concat(Array.isArray(payload.subagents?.rows) ? payload.subagents.rows : [])
     const cost = rows.reduce((sum, row) => sum + (Number.isFinite(row.cost_usd) ? row.cost_usd : 0), 0)
+    const approximate = rows.some(row => row.cost_approximate)
     const main = Array.isArray(payload.maestro?.rows) ? payload.maestro.rows[0] : null
     const ctx = main && Number.isFinite(main.context_percentage)
       ? main.context_percentage
       : rows.map(row => row.context_percentage).filter(Number.isFinite)[0]
     return {
-      // A host on subscription billing records no per-call cost; a constant
-      // $0.000 read as broken, so the segment only renders observed spend.
-      cost: cost > 0 ? `$${cost.toFixed(3)}` : '',
+      // Subscription-billed hosts record no per-call cost; the reader's
+      // token-derived approximation carries a `~`, and a true zero with no
+      // approximation renders nothing (a constant $0.000 read as broken).
+      cost: cost > 0 ? `${approximate ? '~' : ''}$${cost.toFixed(3)}` : '',
       ctx: Number.isFinite(ctx) ? `ctx ${ctx}%` : 'ctx --',
     }
   }
@@ -161,10 +163,17 @@ export default function register(sdk) {
       metricSegment('route', route),
       metricSegment('fallback', Number.isFinite(row.fallback_count) && row.fallback_count > 0 ? `fallback:${row.fallback_count}` : ''),
       metricSegment('turn', turnTools),
-      // A zero cost is a host that records no per-call cost (subscription
-      // billing), not free work: a permanent $0.0000 read as broken, so the
-      // segment renders only when a nonzero cost was actually observed.
-      metricSegment('cost', Number.isFinite(row.cost_usd) && row.cost_usd > 0 ? `$${row.cost_usd.toFixed(4)}` : ''),
+      // A subscription-billed host records no per-call cost, so the reader
+      // supplies a token-derived approximation flagged cost_approximate —
+      // rendered with a `~` so it never reads as billing truth. A true zero
+      // with no approximation renders nothing (the old permanent $0.0000
+      // read as broken).
+      metricSegment(
+        'cost',
+        Number.isFinite(row.cost_usd) && row.cost_usd > 0
+          ? `${row.cost_approximate ? '~' : ''}$${row.cost_usd.toFixed(4)}`
+          : '',
+      ),
       metricSegment('rate', Number.isFinite(row.tokens_per_second) ? `${Math.round(row.tokens_per_second)} tok/s` : ''),
       metricSegment('cache', observedPercent('cache', row.cache_hit_percentage)),
       metricSegment('context', observedPercent('ctx', row.context_percentage)),
