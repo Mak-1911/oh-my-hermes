@@ -149,11 +149,38 @@ omh doctor
 omh
 ```
 
+<table align="center">
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-boot-hud.png" alt="OH-MY-HERMES terminal boot: rebranded banner, available tools and skills, phase todo checklist above the prompt, and the OMH HUD with live delegation rows"><br>
+      <sub><b>OH-MY-HERMES 启动画面。</b><br>重塑品牌的横幅、工具与技能一览、提示符上方的 phase todo 清单,以及 OMH HUD 中的实时 delegation 行。</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work session in the OH-MY-HERMES terminal: mixture-routed research lanes dispatching Hermes-native subagents"><br>
+      <sub><b><code>ulw-work</code> 运行中。</b><br>mixture 路由的 lane 调度 Hermes 原生子代理,每行显示 category、model:effort、turn、cost 和 cache。</sub>
+    </td>
+  </tr>
+</table>
+
 setup 会安装受管理的 `omh` 皮肤 — 以上方徽章颜色为基准的天空绿松石配色,
 横幅、欢迎语和响应标签均重塑为 OH-MY-HERMES。仅当未选择任何皮肤时才会默认
 激活。`hermes skin use <name>`(包括 `default`)将永久优先,OMH 绝不改写
 显式选择。在 TUI 中,OMH HUD 以主题面板呈现:工作进行时显示带成本、轮次和
 缓存指标的子代理活动行,提示符上方显示计划 todo 清单。
+
+OMH 工作流运行时,终端会展示:
+
+- **Mixture-of-Models Routing** — 每条委派 lane 按类别(ultrabrain、deep、
+  quick、writing、visual-engineering 等)在每次 dispatch 时应用模型与推理
+  强度;每个活动行都带有 `category:name(model:effort)`,路由清晰可见。被
+  拒绝的路由沿类别链 fallback。
+- **Parallel Tool Calling** — 批量工具调用在 Hermes 中并发执行,刚发生的
+  并发批次会在 `[OMH]` 行标注为 `parallel shot ×N`。
+- **Parallel Evals** — 评审与验证 lane 作为独立子代理调度,交叉核验而非
+  自我批准,每条 lane 都是一个带 turn、cost、cache 指标的 HUD 行。
+- **Phase-structured TODO** — 工作在开始前以 phase 和 task 声明
+  (`todo init`),渲染为提示符上方的清单:单一活动项、子任务嵌套、超过
+  七行后折叠。
 
 <br>
 
@@ -209,29 +236,24 @@ Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appr
 
 ## OMH 提供什么
 
-OMH 把模型选择和编码所有权作为两个独立决策。可编辑的 category fallback
-chain 根据安全的本地 metadata 和用户确认 active 的 candidate 准备，并不是
-provider availability 证据。Maestro 为明确的 coding owner 和已配置的
-runtime profile 准备 handoff，而 fanout 负责彼此独立的并行 unit。已准备好的
-handoff 不会被报告为已经执行。
-
-容易理解的能力族仍然是入口。精确控制、runtime 边界和证据规则会在 wrapper
-或 operator 需要时保持可查。
-
-完整 catalog、trigger、harness 和证据规则位于
+OMH 把模型选择和编码所有权作为两个独立决策，并且绝不把准备报告为执行。
+容易理解的能力族仍然是入口；精确控制、runtime 边界和证据规则会在 wrapper
+或 operator 需要时保持可查。完整 catalog、trigger、harness 和证据规则位于
 [Workflow Reference](docs/WORKFLOWS.md)。
 
 **亮点**
 
 | 智能层 | OMH 提供什么 |
 | --- | --- |
-| 🧭 **模型感知路由** | 根据安全的本地 metadata 和用户确认 active 的 candidate 准备可编辑推荐，并把模型选择与编码所有权分开。 |
-| ⚡ **可观测的并行工作** | 把独立工作拆成所有权隔离的 fanout unit，并观测进度和 verification gate。 |
-| 🎼 **Maestro handoff** | 在不成为隐藏 executor、也不把准备当作执行的前提下，为明确的 coding owner 和 runtime profile 准备 handoff。 |
-| 🛠️ **host-aware 工具指导** | 准备有条件的 host-specific batch 或 eval 指导；该指导不能证明 capability 可用或工具已经运行。 |
-| 🧠 **上下文智能** | 在不虚构隐藏记忆、也不暗中改变已选 route 的前提下，投影紧凑且经过审查的仓库上下文。 |
-| 📚 **JIT learning** | 为当前 blocker 选择最有价值的学习目标，并在不声称已经学会的前提下准备有来源、可立即应用的指导。 |
+| 🧭 **Mixture-of-models 路由** | 每条委派 lane 按类别(模型 + 推理强度)在每次 dispatch 时应用,provider 拒绝某个模型时沿可编辑的 fallback chain 前进 — 没有做任何工作的子代理会诚实地标记为 `failed`。 |
+| 🖥️ **原生 TUI 表面** | OMH HUD(带类别、轮次、成本、缓存的实时 delegation 行)、提示符上方的 phase todo 清单、`parallel shot ×N` 标注、整行 diff 色带、受管理的皮肤 — 全部安装在 Hermes 旁边,绝不修改 Hermes 本体。 |
+| 📋 **Phase 结构化计划** | `todo init` 在引擎工作开始前声明 phase 和 task,让运行沿有界清单推进,而不是陷入开放式推理循环。 |
+| ⚡ **可观测的并行工作** | 把独立工作拆成所有权隔离的 fanout unit,并观测进度和 verification gate。 |
+| 🎼 **Maestro handoff** | 在不成为隐藏 executor、也不把准备当作执行的前提下,为明确的 coding owner 和 runtime profile 准备 handoff。 |
+| 🧠 **上下文智能** | 在不虚构隐藏记忆、也不暗中改变已选 route 的前提下,投影紧凑且经过审查的仓库上下文。 |
+| 📚 **JIT learning** | 为当前 blocker 选择最有价值的学习目标,并在不声称已经学会的前提下准备有来源、可立即应用的指导。 |
 | 🔍 **证据约束的交付** | 在 coding、review、CI 和 merge 全程分开已准备意图、已观测 runtime 活动与已验证结果。 |
+| 📦 **确定性技能目录** | 100+ 可安装的 workflow 技能、逐字节校验的生成目录、包含负向用例的 routing precision 语料,以及一字符漂移即令 CI 失败的 drift gate。 |
 
 ## 证据先于声明
 
