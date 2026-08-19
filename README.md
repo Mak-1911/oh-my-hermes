@@ -223,23 +223,15 @@ omh
 <table align="center">
   <tr>
     <td width="50%" align="center">
-      <img src="assets/omh-terminal-boot-hud.png" alt="OH-MY-HERMES terminal boot: rebranded banner, available tools and skills, phase todo checklist above the prompt, and the OMH HUD with live delegation rows carrying category, turn, cost, and cache metrics"><br>
-      <sub><b>The OH-MY-HERMES boot.</b><br>Rebranded banner, tools and skills at a glance, the phase todo checklist above the prompt, and live delegation rows in the OMH HUD.</sub>
+      <img src="assets/omh-terminal-boot-hud.png" alt="The OH-MY-HERMES boot"><br>
+      <sub><b>The OH-MY-HERMES boot.</b></sub>
     </td>
     <td width="50%" align="center">
-      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work session in the OH-MY-HERMES terminal: mixture-routed research lanes dispatching Hermes-native subagents, with the plan checklist and per-agent activity rows tracking the run"><br>
-      <sub><b>An <code>ulw-work</code> run.</b><br>Mixture-routed lanes dispatch Hermes-native subagents; each row shows its category, model:effort, turn, cost, and cache.</sub>
+      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work run"><br>
+      <sub><b>An <code>ulw-work</code> run.</b></sub>
     </td>
   </tr>
 </table>
-
-Setup installs a managed `omh` skin — sky turquoise anchored on the badge
-colour above, with the banner, welcome line, and response label rebranded to
-OH-MY-HERMES — and selects it only when no skin is chosen. `hermes skin use
-<name>` (including `default`) overrides it permanently; OMH never rewrites an
-explicit choice. Inside the TUI, the OMH HUD renders as a themed panel:
-subagent activity rows with cost, turn, and cache metrics while work runs, and
-the plan todo checklist above the prompt.
 
 What the terminal shows while OMH workflows run:
 
