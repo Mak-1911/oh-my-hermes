@@ -51,6 +51,7 @@ from .domain_context_attachment import (
     build_session_project_binding_factory,
 )
 from .briefing import build_coding_briefing, chat_response_briefing
+from .continuity import build_continuity_briefing
 from .hermes_runtime import (
     hermes_coding_team_body,
     hermes_coding_team_claim_boundary,
@@ -993,6 +994,26 @@ def build_wrapper_session_status(paths: OmhPaths, session_id: str) -> dict[str, 
             executor_status=executor_status,
         )
         chat_response["coding_briefing"] = chat_response_briefing(coding_briefing)
+        chat_response["continuity_briefing"] = build_continuity_briefing(
+            {
+                "work_summary": coding_briefing.get("work_summary", {}),
+                "workspace_isolation": executor_status.get("workspace_isolation", {}),
+                "isolation_plan": (
+                    executor_status.get("workspace_isolation", {}).get("plan", {})
+                    if isinstance(executor_status.get("workspace_isolation"), dict)
+                    else {}
+                ),
+                "runtime_status": runtime_status,
+                "runtime_observation": {},
+                "executor_status": executor_status,
+                "session_status": session["status"],
+                "evidence_errors": [
+                    str(executor_status[key])
+                    for key in ("executor_session_error", "linked_lifecycle_error")
+                    if executor_status.get(key)
+                ],
+            }
+        )
         return {
             "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,
             "session_id": session_id,
@@ -1032,6 +1053,29 @@ def build_wrapper_session_status(paths: OmhPaths, session_id: str) -> dict[str, 
         runtime_observation=runtime_observation,
     )
     chat_response["coding_briefing"] = chat_response_briefing(coding_briefing)
+    chat_response["continuity_briefing"] = build_continuity_briefing(
+        {
+            "work_summary": coding_briefing.get("work_summary", {}),
+            "workspace_isolation": executor_status.get("workspace_isolation", {}),
+            "isolation_plan": (
+                executor_status.get("workspace_isolation", {}).get("plan", {})
+                if isinstance(executor_status.get("workspace_isolation"), dict)
+                else {}
+            ),
+            "runtime_status": {},
+            "runtime_observation": runtime_observation,
+            "executor_status": executor_status,
+            "session_status": session["status"],
+            "evidence_errors": [
+                *observation_errors,
+                *(
+                    str(executor_status[key])
+                    for key in ("executor_session_error", "linked_lifecycle_error")
+                    if executor_status.get(key)
+                ),
+            ],
+        }
+    )
     prompt_handoff, runtime_handoff = project_valid_session_handoffs(session)
     return {
         "schema_version": WRAPPER_SESSION_RESULT_SCHEMA_VERSION,

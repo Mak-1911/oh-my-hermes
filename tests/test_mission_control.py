@@ -10,6 +10,7 @@ from _local_package import load_local_package
 load_local_package()
 from omh.coding_lifecycle import record_codex_dispatch, record_codex_result, record_codex_verification
 from omh.mission_control import build_mission_control
+from omh.wrapper.mission_control import _journey_state
 from omh.adapter_quality import link_adapter_quality_session
 from omh.paths import resolve_paths
 from omh.runtime_artifacts import write_ci_record, write_merge_record, write_review_record, write_runtime_observation
@@ -22,6 +23,57 @@ from omh.wrapper_sessions import (
 
 
 class MissionControlTests(unittest.TestCase):
+    def test_journey_state_characterization_for_continuity(self) -> None:
+        cases = (
+            ("handoff prepared", {}, {}, {"session_status": "handoff_prepared"}, "handoff_prepared"),
+            (
+                "executor dispatched",
+                {"wrapper": {"prompt_dispatched": True}},
+                {},
+                {"session_status": "handoff_prepared"},
+                "executor_dispatched",
+            ),
+            (
+                "runtime running",
+                {},
+                {"observed_events": ["runtime_start", "worker_dispatch"]},
+                {"session_status": "runtime_handoff_prepared"},
+                "runtime_running_observed",
+            ),
+            ("terminal execution", {"execution": {"observed": True, "status": "completed"}}, {}, {"session_status": "handoff_prepared"}, "execution_observed"),
+            ("terminal worker result", {}, {"observed_events": ["worker_result"]}, {"session_status": "runtime_handoff_prepared"}, "runtime_execution_observed"),
+            ("blocked execution", {"execution": {"observed": True, "status": "blocked"}}, {}, {"session_status": "handoff_prepared"}, "executor_blocked"),
+            ("failed execution", {"execution": {"observed": True, "status": "failed"}}, {}, {"session_status": "handoff_prepared"}, "executor_failed"),
+            (
+                "blocked runtime",
+                {},
+                {"blocked_events": ["worker_dispatch"]},
+                {"session_status": "runtime_handoff_prepared"},
+                "runtime_recovery_blocked",
+            ),
+            (
+                "invalid observed result",
+                {"execution": {"observed": True, "status": "fabricated"}},
+                {},
+                {"session_status": "handoff_prepared"},
+                "invalid_runtime_evidence",
+            ),
+            (
+                "invalid unobserved result",
+                {"execution": {"observed": False, "status": "fabricated"}},
+                {},
+                {"session_status": "handoff_prepared"},
+                "invalid_runtime_evidence",
+            ),
+        )
+
+        for label, runtime_status, runtime_observation, session_status, expected in cases:
+            with self.subTest(label=label):
+                self.assertEqual(
+                    _journey_state(runtime_status, runtime_observation, session_status),
+                    expected,
+                )
+
     def test_quality_controls_are_additive_and_do_not_promote_coding_claims(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")

@@ -11,6 +11,7 @@ from ..coding.routing_observation import (
     validate_routing_observation,
 )
 from ..paths import OmhPaths
+from .continuity_state import journey_state as _journey_state
 from .sessions import build_wrapper_session_status, read_wrapper_session
 
 
@@ -158,40 +159,6 @@ def _owner(session_status: dict[str, object]) -> dict[str, str]:
         ),
         "mode": str(session_status.get("work_owner_mode") or "external_executor"),
     }
-
-
-def _journey_state(
-    runtime_status: dict[str, Any], runtime_observation: dict[str, Any], session_status: dict[str, object]
-) -> str:
-    execution = _mapping(runtime_status.get("execution"))
-    result = str(execution.get("status", ""))
-    if execution.get("observed") is True:
-        match result:
-            case "blocked":
-                return "executor_blocked"
-            case "failed":
-                return "executor_failed"
-            case "completed":
-                return "execution_observed"
-            case _:
-                return "invalid_runtime_evidence"
-    if result not in {"", "not_observed", "unknown"}:
-        return "invalid_runtime_evidence"
-    observed_events = _string_items(runtime_observation.get("observed_events"))
-    failed_events = _string_items(runtime_observation.get("failed_events"))
-    blocked_events = _string_items(runtime_observation.get("blocked_events"))
-    if failed_events or blocked_events:
-        return "runtime_recovery_blocked"
-    if "worker_result" in observed_events:
-        return "runtime_execution_observed"
-    if "worker_dispatch" in observed_events or "runtime_start" in observed_events:
-        return "runtime_running_observed"
-    wrapper = _mapping(runtime_status.get("wrapper"))
-    if wrapper.get("prompt_dispatched") is True:
-        return "executor_dispatched"
-    if str(session_status.get("session_status", "")) in {"prompt_handoff_prepared", "runtime_handoff_prepared", "handoff_prepared"}:
-        return "handoff_prepared"
-    return "handoff_prepared"
 
 
 def _execution(runtime_status: dict[str, Any], runtime_observation: dict[str, Any]) -> dict[str, object]:

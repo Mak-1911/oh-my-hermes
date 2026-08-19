@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Final, Literal, TypeAlias, TypedDict, assert_never
 
+from .continuity_state import json_strings as _strings, resume_status_from_evidence
+
 JsonValue: TypeAlias = None | bool | int | float | str | Sequence["JsonValue"] | Mapping[str, "JsonValue"]
 WorkspaceReuse: TypeAlias = Literal["allowed", "operator_choice", "blocked", "unknown"]
 WorkspaceRequired: TypeAlias = Literal["none", "worktree_recommended", "worktree_required", "unknown"]
@@ -64,14 +66,11 @@ class ContinuityBriefing(TypedDict):
     claim_boundary: str
 
 
-def build_continuity_briefing(
-    evidence: Mapping[str, JsonValue],
-    *,
-    resume_status: ResumeStatus = "not_started",
-) -> ContinuityBriefing:
+def build_continuity_briefing(evidence: Mapping[str, JsonValue]) -> ContinuityBriefing:
     """Project existing handoff evidence into a bounded continuity summary."""
     workspace = _workspace_continuity(evidence)
     memory = _memory_continuity(evidence)
+    resume_status = resume_status_from_evidence(evidence)
     workspace_lines: dict[WorkspaceReuse, str] = {
         "allowed": "The workspace policy allows this prepared handoff to continue.",
         "operator_choice": "Choose whether to prepare an isolated workspace before continuing.",
@@ -118,9 +117,11 @@ def _workspace_continuity(evidence: Mapping[str, JsonValue]) -> WorkspaceContinu
     isolation_plan = _isolation_plan(evidence)
     observation = _mapping(evidence.get("workspace_isolation"))
     runtime_observation = _mapping(evidence.get("runtime_observation"))
-    observed_events = _strings(
-        runtime_observation.get("observed_events") if runtime_observation else None
-    )
+    if ("workspace_isolation" in evidence and observation is None) or (
+        "runtime_observation" in evidence and runtime_observation is None
+    ):
+        return {"reuse": "unknown", "required": "unknown", "current": "unknown"}
+    observed_events = _strings(runtime_observation.get("observed_events") if runtime_observation else None)
     observed_current = str(observation.get("current", "")) if observation else ""
     observed_status = str(observation.get("status", "")) if observation else ""
     observed_strategy = str(observation.get("strategy", "")) if observation else ""
@@ -278,10 +279,6 @@ def _mapping(value: JsonValue | None) -> Mapping[str, JsonValue] | None:
 
 def _is_json_list(value: JsonValue | None) -> bool:
     return isinstance(value, list)
-
-
-def _strings(value: JsonValue | None) -> tuple[str, ...]:
-    return tuple(item for item in value if isinstance(item, str)) if isinstance(value, list) else ()
 
 
 def _nonnegative_int(value: JsonValue | None) -> int | None:
