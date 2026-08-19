@@ -1443,6 +1443,31 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(replay["status"], "skipped")
             self.assertEqual(replay["skipped"], 1)
 
+    def test_setup_seeds_the_editable_model_chain_overrides_once(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+            status, _, stderr = run_cli(base + ["setup", "--json"], output_json=False)
+            self.assertEqual((status, stderr), (0, ""))
+            chains_path = root / ".omh" / "routing" / "model-chains.json"
+            document = json.loads(chains_path.read_text(encoding="utf-8"))
+            # Seeded empty on purpose: an empty categories object keeps the
+            # shipped defaults live (and updatable); only a category the user
+            # writes into the file replaces its chain.
+            self.assertEqual(
+                document,
+                {"schema_version": "mixture_chain_overrides/v1", "categories": {}},
+            )
+            # A user's customization survives a re-run untouched.
+            custom = {
+                "schema_version": "mixture_chain_overrides/v1",
+                "categories": {"quick": [{"model": "kimi-k3-ultrafast", "reasoning_effort": "low"}]},
+            }
+            chains_path.write_text(json.dumps(custom), encoding="utf-8")
+            status, _, stderr = run_cli(base + ["setup", "--json"], output_json=False)
+            self.assertEqual((status, stderr), (0, ""))
+            self.assertEqual(json.loads(chains_path.read_text(encoding="utf-8")), custom)
+
     def test_setup_and_doctor_default_to_human_summary_with_json_escape_hatch(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

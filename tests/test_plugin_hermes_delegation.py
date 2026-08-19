@@ -18,8 +18,12 @@ from pathlib import Path
 from omh.plugin_bundle.omh.hermes_delegation import (
     COMPLETED_LINGER_SECONDS,
     HERMES_MIXTURE_CATEGORY_CHAINS,
+    MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION,
     RECENT_ACTIVITY_SECONDS,
+    effective_mixture_category_chains,
+    load_mixture_chain_overrides,
     mixture_category_for,
+    mixture_chain_overrides_path,
     read_hermes_native_subagents,
 )
 
@@ -164,8 +168,8 @@ class MixtureCategoryProjectionTest(unittest.TestCase):
         )
 
     def test_an_ultrafast_variant_projects_onto_its_base_models_category(self):
-        # An owner machine may serve a chain model through its Ultrafast
-        # variant (e.g. kimi-k3 via kimi-k3-ultrafast on OpenGateway); the
+        # Providers serve some chain models through speed variants (e.g. the
+        # OpenGateway Ultrafast tier: kimi-k3 via kimi-k3-ultrafast); the
         # variant projects onto the base model's category instead of leaving
         # the HUD row unlabeled.
         self.assertEqual(
@@ -193,6 +197,92 @@ class MixtureCategoryProjectionTest(unittest.TestCase):
             "architect",
         )
 
+
+def _write_overrides(omh_home: Path, document: object) -> Path:
+    path = mixture_chain_overrides_path(omh_home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return path
+
+
+class MixtureChainOverridesTest(unittest.TestCase):
+    """~/.omh/routing/model-chains.json is the user's chain customization
+    surface: it replaces only the categories it names, keeps the category
+    vocabulary closed, and an invalid document is ignored whole rather than
+    half-applied."""
+
+    def test_an_absent_document_yields_shipped_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            overrides, status = load_mixture_chain_overrides(tmp)
+            self.assertEqual((overrides, status), ({}, "absent"))
+            self.assertEqual(
+                effective_mixture_category_chains(tmp), HERMES_MIXTURE_CATEGORY_CHAINS
+            )
+
+    def test_a_seeded_empty_document_applies_and_keeps_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _write_overrides(Path(tmp), {
+                "schema_version": MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION,
+                "categories": {},
+            })
+            overrides, status = load_mixture_chain_overrides(tmp)
+            self.assertEqual((overrides, status), ({}, "applied"))
+            self.assertEqual(
+                effective_mixture_category_chains(tmp), HERMES_MIXTURE_CATEGORY_CHAINS
+            )
+
+    def test_a_named_category_is_replaced_and_the_rest_stay_shipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _write_overrides(Path(tmp), {
+                "schema_version": MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION,
+                "categories": {
+                    "quick": [
+                        {"model": "kimi-k3-ultrafast", "reasoning_effort": "low"},
+                        {"model": "glm-5.2-ultrafast", "reasoning_effort": "low"},
+                    ]
+                },
+            })
+            chains = effective_mixture_category_chains(tmp)
+            self.assertEqual(
+                chains["quick"],
+                (("kimi-k3-ultrafast", "low"), ("glm-5.2-ultrafast", "low")),
+            )
+            self.assertEqual(chains["deep"], HERMES_MIXTURE_CATEGORY_CHAINS["deep"])
+            # The custom head labels its children like a shipped one.
+            self.assertEqual(
+                mixture_category_for(
+                    "kimi-k3-ultrafast", "low", parent_model="claude-opus-5", chains=chains
+                ),
+                "quick",
+            )
+
+    def test_an_invalid_document_is_ignored_whole(self):
+        cases = {
+            "wrong schema": {"schema_version": "nope/v9", "categories": {}},
+            "unknown category": {
+                "schema_version": MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION,
+                "categories": {"warp-drive": [{"model": "kimi-k3"}]},
+            },
+            "non-token model": {
+                "schema_version": MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION,
+                "categories": {"quick": [{"model": "bad model\nname"}]},
+            },
+            "empty chain": {
+                "schema_version": MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION,
+                "categories": {"quick": []},
+            },
+        }
+        for label, document in cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as tmp:
+                _write_overrides(Path(tmp), document)
+                overrides, status = load_mixture_chain_overrides(tmp)
+                self.assertEqual(overrides, {})
+                self.assertTrue(status.startswith("invalid:"), status)
+                self.assertEqual(
+                    effective_mixture_category_chains(tmp),
+                    HERMES_MIXTURE_CATEGORY_CHAINS,
+                )
+
     def test_the_embedded_chains_mirror_the_shipped_recommendation_catalog(self):
         from omh.coding.model_recommendations import SHIPPED_MODEL_RECOMMENDATIONS
         from omh.coding.model_routing import MODEL_CATEGORIES
@@ -217,7 +307,7 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
         self.home = Path(self._tmp.name)
 
     def test_a_missing_hermes_home_reads_as_idle(self):
-        payload = read_hermes_native_subagents(self.home / "absent", now=NOW)
+        payload = read_hermes_native_subagents(self.home / "absent", now=NOW, omh_home=self.home / ".omh")
         self.assertEqual(payload["status"], "idle")
         self.assertEqual(payload["rows"], [])
         self.assertEqual(payload["active"], 0)
@@ -249,7 +339,7 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
             started=NOW - 305,
             log_mtime=NOW - 5,
         )
-        payload = read_hermes_native_subagents(self.home, now=NOW)
+        payload = read_hermes_native_subagents(self.home, now=NOW, omh_home=self.home / ".omh")
         self.assertEqual(payload["status"], "observed")
         self.assertEqual(payload["running"], 1)
         row = payload["rows"][0]
@@ -295,7 +385,7 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
         _write_manifest(
             self.home, "deleg_paid", ["paid lane"], started=NOW - 65, log_mtime=NOW - 5
         )
-        row = read_hermes_native_subagents(self.home, now=NOW)["rows"][0]
+        row = read_hermes_native_subagents(self.home, now=NOW, omh_home=self.home / ".omh")["rows"][0]
         self.assertEqual(row["cost_usd"], 0.5)
         self.assertNotIn("cost_approximate", row)
 
@@ -312,13 +402,13 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
                 }
             ],
         )
-        payload = read_hermes_native_subagents(self.home, now=NOW)
+        payload = read_hermes_native_subagents(self.home, now=NOW, omh_home=self.home / ".omh")
         self.assertEqual(payload["rows"][0]["state"], "done")
         self.assertEqual(payload["completed"], 1)
         self.assertEqual(payload["active"], 0)
 
         expired = read_hermes_native_subagents(
-            self.home, now=NOW + COMPLETED_LINGER_SECONDS + 1
+            self.home, now=NOW + COMPLETED_LINGER_SECONDS + 1, omh_home=self.home / ".omh"
         )
         self.assertEqual(expired["rows"], [])
         self.assertEqual(expired["status"], "idle")
@@ -339,8 +429,8 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
                 }
             ],
         )
-        first = read_hermes_native_subagents(self.home, now=NOW)
-        second = read_hermes_native_subagents(self.home, now=NOW + 30)
+        first = read_hermes_native_subagents(self.home, now=NOW, omh_home=self.home / ".omh")
+        second = read_hermes_native_subagents(self.home, now=NOW + 30, omh_home=self.home / ".omh")
         self.assertEqual(first["rows"][0]["state"], "done")
         self.assertEqual(first["rows"], second["rows"])
 
@@ -360,7 +450,7 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
         _write_manifest(
             self.home, "deleg_done1", ["끝난 lane"], started=NOW - 65, log_mtime=NOW - 5
         )
-        payload = read_hermes_native_subagents(self.home, now=NOW)
+        payload = read_hermes_native_subagents(self.home, now=NOW, omh_home=self.home / ".omh")
         self.assertEqual(payload["rows"][0]["state"], "done")
         self.assertEqual(payload["completed"], 1)
 
@@ -384,7 +474,7 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
         _write_manifest(
             self.home, "deleg_nousage", ["rejected lane"], started=NOW - 65, log_mtime=NOW - 59
         )
-        payload = read_hermes_native_subagents(self.home, now=NOW)
+        payload = read_hermes_native_subagents(self.home, now=NOW, omh_home=self.home / ".omh")
         row = payload["rows"][0]
         self.assertEqual(row["state"], "failed")
         self.assertEqual(row["failure_hint"], "no model usage observed")
@@ -407,7 +497,7 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
         _write_manifest(
             self.home, "deleg_fail1", ["실패 lane"], started=NOW - 65, log_mtime=NOW - 5
         )
-        payload = read_hermes_native_subagents(self.home, now=NOW)
+        payload = read_hermes_native_subagents(self.home, now=NOW, omh_home=self.home / ".omh")
         self.assertEqual(payload["rows"][0]["state"], "failed")
         self.assertEqual(payload["blocked"], 1)
         self.assertEqual(payload["active"], 1)

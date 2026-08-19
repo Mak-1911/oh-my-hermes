@@ -147,7 +147,9 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # 704819 -> 705236: the architect mixture category (ultrawork routing prose
 # plus the user-named model pin instruction, and model-setup's chain line);
 # warranted growth.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 705236
+# 705236 -> 705462: model-setup names ~/.omh/routing/model-chains.json as the
+# no-code chain customization surface; warranted growth.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 705462
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

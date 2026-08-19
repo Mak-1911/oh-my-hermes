@@ -197,6 +197,8 @@ OMH には次の編集可能な順序付き recommendation chain が含まれて
 
 Ultrafast ティアを試したいなら — Kimi K3 Ultrafast(300 TPS)、GLM 5.2 Ultrafast(600 TPS)は [OpenGateway](https://opengateway.ai/) で利用できます。
 
+上記のすべての chain はコードを触らずに編集できます: `omh setup` が `~/.omh/routing/model-chains.json` をシードし、このファイルに書いたカテゴリはルーティング・fallback・HUD ラベルのすべてでその chain を置き換えます。
+
 Hermes に **モデルをセットアップして** と頼むと、確認や変更ができます。これは編集可能な優先設定であり、benchmark 結果ではありません。詳しい設定、fallback、provider、所有権のルールは [Guided Model Setup](docs/INSTALLATION.md#guided-model-setup) を参照してください。
 
 <details>

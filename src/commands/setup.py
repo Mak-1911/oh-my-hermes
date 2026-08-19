@@ -1709,6 +1709,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
     # discipline, same refresh cadence. Activation happens in the config
     # apply step (`ensure_omh_skin`), never here.
     steps["skin"] = install_skin(paths.hermes_home, dry_run=bool(args.dry_run))
+    # Every install gets the editable mixture-chain override document so
+    # customizing routing is a config edit, not a source edit.
+    steps["model_chains"] = _seed_model_chains_result(paths, dry_run=bool(args.dry_run))
     steps["hermes_tui_preflight"] = _hermes_tui_preflight_step(
         paths, quiet=_wants_json(args), dry_run=bool(args.dry_run)
     )
@@ -3315,6 +3318,42 @@ def _plugin_setup_result(args: argparse.Namespace, paths) -> dict[str, object]:
     if not args.dry_run:
         update_state(paths, {"last_plugin_distribution": result})
     return result
+
+
+def _seed_model_chains_result(paths, *, dry_run: bool) -> dict[str, object]:
+    """Materialize the editable mixture-chain override document once.
+
+    Seeded empty on purpose: an empty ``categories`` object means the shipped
+    default chains apply and keep updating with `omh update`; a category the
+    user writes into the file replaces that chain until they remove it.
+    Seeding the full defaults instead would silently pin every user to the
+    chains of their install day.
+    """
+    from ..plugin_bundle.omh.hermes_delegation import (
+        MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION,
+        mixture_chain_overrides_path,
+    )
+
+    path = mixture_chain_overrides_path(paths.omh_home)
+    payload: dict[str, object] = {
+        "schema_version": "model_chain_seed/v1",
+        "path": str(path),
+        "dry_run": bool(dry_run),
+    }
+    if path.exists():
+        payload["status"] = "already_present"
+        return payload
+    if dry_run:
+        payload["status"] = "dry_run"
+        return payload
+    path.parent.mkdir(parents=True, exist_ok=True)
+    document = {
+        "schema_version": MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION,
+        "categories": {},
+    }
+    atomic_write_text(path, json.dumps(document, indent=2, sort_keys=True) + "\n")
+    payload["status"] = "seeded"
+    return payload
 
 
 def _menubar_setup_result(args: argparse.Namespace, paths) -> dict[str, object]:

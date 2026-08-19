@@ -102,9 +102,58 @@ class DelegateRouteToolTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.home = Path(self._tmp.name)
+        # Hermetic OMH home: without it the handler would read the developer
+        # machine's real ~/.omh/routing/model-chains.json overrides.
+        self.omh_home = self.home / ".omh"
 
     def _call(self, **args) -> dict:
-        return json.loads(omh_delegate_route_handler({"hermes_home": str(self.home), **args}))
+        return json.loads(
+            omh_delegate_route_handler(
+                {"hermes_home": str(self.home), "omh_home": str(self.omh_home), **args}
+            )
+        )
+
+    def _write_overrides(self, categories: dict) -> None:
+        path = self.omh_home / "routing" / "model-chains.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {"schema_version": "mixture_chain_overrides/v1", "categories": categories}
+            ),
+            encoding="utf-8",
+        )
+
+    def test_an_overridden_chain_routes_and_falls_back_on_the_users_order(self):
+        self._write_overrides({
+            "quick": [
+                {"model": "kimi-k3-ultrafast", "reasoning_effort": "low"},
+                {"model": "glm-5.2-ultrafast", "reasoning_effort": "low"},
+            ]
+        })
+        result = self._call(action="set", category="quick")
+        self.assertEqual(
+            result["applied"], {"model": "kimi-k3-ultrafast", "reasoning_effort": "low"}
+        )
+        fallback = self._call(action="fallback")
+        self.assertEqual(fallback["status"], "fell_back")
+        self.assertEqual(
+            fallback["applied"], {"model": "glm-5.2-ultrafast", "reasoning_effort": "low"}
+        )
+
+    def test_status_reports_the_override_state_and_path(self):
+        result = self._call(action="status")
+        self.assertEqual(result["chain_overrides"], "absent")
+        self.assertEqual(
+            Path(result["chain_overrides_path"]),
+            self.omh_home / "routing" / "model-chains.json",
+        )
+        self._write_overrides({"deep": [{"model": "gpt-5.6-terra", "reasoning_effort": "xhigh"}]})
+        applied = self._call(action="status")
+        self.assertEqual(applied["chain_overrides"], "applied")
+        self.assertEqual(
+            applied["categories"]["deep"],
+            [{"model": "gpt-5.6-terra", "reasoning_effort": "xhigh"}],
+        )
 
     def test_setting_a_category_routes_to_the_chain_head(self):
         result = self._call(action="set", category="ultrabrain")

@@ -234,6 +234,24 @@ The all-in-one request explicitly opts into this step. Model configuration is
 still not required for OMH installation, and a missing shipped recommendation
 must not turn install or doctor into a failure.
 
+Setup seeds the user's chain-customization document at
+`~/.omh/routing/model-chains.json` (`mixture_chain_overrides/v1`, empty
+`categories` = shipped defaults apply). Tell the user this file is where they
+reorder or replace a category's model chain later without touching code; a
+category written there governs routing, fallback, and HUD labels. Example:
+
+```json
+{
+  "schema_version": "mixture_chain_overrides/v1",
+  "categories": {
+    "quick": [
+      {"model": "kimi-k3-ultrafast", "reasoning_effort": "low"},
+      {"model": "glm-5.2-ultrafast", "reasoning_effort": "low"}
+    ]
+  }
+}
+```
+
 Use this exact agent-facing prompt:
 
 ```text
