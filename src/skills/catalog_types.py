@@ -336,6 +336,22 @@ ENGINE_ENTRY_CONFIRMATION_RULE = (
     "selected executor) and wait for the user's explicit go-ahead first."
 )
 
+# Mid-run continuation gate (#1033): a user message arriving during an engine
+# run must not end the run. The host already makes resumption possible —
+# delegate_task children are async and each result re-enters as a fresh turn —
+# so the only thing that can drop the orchestration thread is the model ending
+# its reply after answering. Composed into every executing ULW engine's quality
+# bar; planning lanes (ralplan, plan, deep-interview) are conversational by
+# design and deliberately do not carry it.
+ENGINE_INTERJECTION_RESUME_RULE = (
+    "A mid-run user message is an interjection, not a stop: answer it briefly and, in the same reply, "
+    "continue the run — re-read the phase todo when one is active and dispatch or advance the next "
+    "pending step, or state exactly what the run is waiting on (for example, lanes still in flight that "
+    "resume when their results return). Only the user's explicit stop or cancel, or the engine's own "
+    "completion gate, ends the run; when the interjection changes scope, say so and update the declared "
+    "plan or todo instead of silently abandoning it."
+)
+
 # Shared five-step contract for the Hermes setup-guide skills (model-setup,
 # parallel-tools, websearch-setup, morning-brief). Ordering is guaranteed by
 # tuple index: prerequisite check -> read-only diagnose -> guide -> diff-

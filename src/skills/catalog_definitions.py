@@ -33,6 +33,7 @@ from .catalog_types import (
     DEEP_INTERVIEW_MAX_ROUNDS,
     ENGINE_ENTRY_CONFIRMATION_RULE,
     ENGINE_FIT_RECOMMENDATION_RULE,
+    ENGINE_INTERJECTION_RESUME_RULE,
     ExpertQuestion,
     SkillDefinition,
     SkillExample,
@@ -341,6 +342,7 @@ _DEFINITIONS = [
         quality_bar=(
             "Treat direct `loop`, `./loop`, `$loop`, and OMH loop invocations as a start/continue signal rather than a picker or passive clarification path.",
             "Classify the goal as task, project, ambition, external-wait, or unclear inside the loop, then keep progressing until a real permission, evidence, verification, context, budget, or external-wait gate appears.",
+            ENGINE_INTERJECTION_RESUME_RULE,
             "Expose core OMH roles: interviewer, planner, researcher, builder, reviewer, and loop controller.",
             "Route tiny direct tasks to one-cycle delivery surfaces instead of forcing loop overhead.",
             "Reframe a north-star ambition into a bounded arena, observable problem, next loop goal, and next verification without shrinking its ambition.",
@@ -555,6 +557,7 @@ _DEFINITIONS = [
             "Attach one concise recommendation and tradeoff to each decision while leaving the decision with the user.",
             "Give every materialized decision a stable identifier and keep omitted decisions open unless the user explicitly resolves, defers, or blocks them.",
             "Keep terminology sparse: canonical identity, short definition, expression guidance, distinct-from boundary, and optional localized display label.",
+            ENGINE_INTERJECTION_RESUME_RULE,
             "Stop on a terminal frontier, explicit user request, or the shared round ceiling; then confirm the summary separately from planning or coding.",
         ),
         why_this_exists=(
@@ -883,6 +886,7 @@ _DEFINITIONS = [
             "[capability:delivery_boundary] For implementation, default to Hermes-native delegation with a per-lane `omh_delegate_route` mixture route and acceptance criteria and verification commands attached; hand off to the `durable_checkpoint` capability for work that must survive sessions, and prepare a selected external executor/runtime path only on the user's explicit owner acceptance.",
             "Route each Hermes-native lane before dispatch: an inherit-labeled delegation wave is an unrouted wave, not mixture routing — re-route it or state why parent inheritance is intended.",
             "Initialize the phase todo before engine work: declare phases and their tasks with `omh_todo` (todo init), keep exactly one item active while working, and update states as lanes complete — the run walks a bounded, HUD-visible checklist instead of an open-ended reasoning loop.",
+            ENGINE_INTERJECTION_RESUME_RULE,
             "Close a completed run with the localized run summary: call `omh_run_summary` with the conversation's language and print its summary_text verbatim as the final lines (elapsed seconds, token usage, and models used from observed host accounting — never numbers the model estimated).",
             "[capability:single_owner_persistence] Do not enter a finish-until-done loop until scope, acceptance criteria, and verification commands are concrete.",
             "[capability:single_owner_persistence] For single-owner coding edits, prepare and track the selected runtime path instead of implying unobserved work happened or hiding execution inside chat narration.",
@@ -1079,6 +1083,7 @@ _DEFINITIONS = [
             "Mark every figure as measured, assumed, or derived, and carry retrieval dates for time-sensitive facts.",
             "Distill the dossier into a plan-feed block - decision drivers, viable options with evidence, rejected candidates with reasons, risks, and open questions - so planning consumes conclusions, not raw notes.",
             "Reserve the end of the run for synthesis; an interrupted run must still leave a partial dossier rather than lost context.",
+            ENGINE_INTERJECTION_RESUME_RULE,
             "Summarize the evidence or dossier before any planning or coding handoff; research is not implementation evidence.",
         ),
         why_this_exists="`research` exists to make Hermes a careful research engine: it routes research demands to source-backed evidence gathering - from live web citations to studied reference implementations - verifies contested claims, and distills decision-grounding output so planning starts from evidence instead of guesses.",
@@ -4449,6 +4454,7 @@ _DEFINITIONS = [
         quality_tier="scenario-gated",
         quality_bar=(
             ENGINE_ENTRY_CONFIRMATION_RULE,
+            ENGINE_INTERJECTION_RESUME_RULE,
             "Generate hostile scenarios from changed behavior and known risk areas.",
             "Report pass/fail evidence separately from proposed fixes.",
             "Delegate code mutations discovered by QA to the selected coding executor.",
@@ -4847,6 +4853,7 @@ _DEFINITIONS = [
             "Re-measure after each change and report deltas only from observed evidence.",
             "Never present a restart, cache flush, or resource bump as a leak fix; prove causation by revert-verify.",
             "Set the regression budget as baseline x (1 + tolerance) and name the CI gate that enforces it.",
+            ENGINE_INTERJECTION_RESUME_RULE,
         ),
         why_this_exists=(
             "`ultraperf` exists because most performance work starts unlocalized: something is slow, leaking, or "
