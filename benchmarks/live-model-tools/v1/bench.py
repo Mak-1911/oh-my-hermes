@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     corpus_parser.add_argument("--verify", action="store_true")
     for name in ("smoke", "run"):
         command = sub.add_parser(name)
-        command.add_argument("--harness", choices=("fake", "omh"), default="fake")
+        command.add_argument("--harness", choices=("fake", "omh", "hermes_current_session"), default="fake")
         command.add_argument("--manifest", type=Path, default=BASE / "manifest.json")
         command.add_argument("--model", action="append")
         command.add_argument("--condition", choices=("baseline", "optimized"), default="baseline")
@@ -38,6 +38,10 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--output", type=Path)
         command.add_argument("--omh-executable", default="omh")
         command.add_argument("--hermes-executable", default="hermes")
+        command.add_argument(
+            "--current-session-provider",
+            help="Registered provider ID to use only with --harness hermes_current_session.",
+        )
         command.add_argument("--allow-paid-live", action="store_true")
         command.add_argument("--max-paid-calls", type=int, default=0)
     args = parser.parse_args(argv)
@@ -46,10 +50,12 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "corpus":
         result = generate_public(BASE, args.output, verify=args.verify)
     else:
-        if args.harness == "omh" and not args.allow_paid_live:
-            parser.error("OMH live harness requires --allow-paid-live")
-        if args.harness == "omh" and args.max_paid_calls < 1:
-            parser.error("OMH live harness requires --max-paid-calls")
+        if args.current_session_provider and args.harness != "hermes_current_session":
+            parser.error("--current-session-provider requires --harness hermes_current_session")
+        if args.harness in {"omh", "hermes_current_session"} and not args.allow_paid_live:
+            parser.error("live Hermes harness requires --allow-paid-live")
+        if args.harness in {"omh", "hermes_current_session"} and args.max_paid_calls < 1:
+            parser.error("live Hermes harness requires --max-paid-calls")
         manifest = load_object(args.manifest)
         live_models = [item for item in manifest["models"] if item.get("live")]
         if args.model:
@@ -59,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         output = args.output or BASE / "artifacts" / args.condition / f"{args.split}-runs.jsonl"
         if args.command == "smoke":
             template_id, task_class, seed = ("D-RENAME", "edit", 7919)
-            model = live_models[0] if args.harness == "omh" else None
+            model = live_models[0] if args.harness in {"omh", "hermes_current_session"} else None
             result = execute_one(
                 BASE,
                 manifest,
@@ -73,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
                 model=model,
                 omh_executable=args.omh_executable,
                 hermes_executable=args.hermes_executable,
+                current_session_provider=args.current_session_provider,
             )
         else:
             result = run_matrix(
@@ -82,9 +89,10 @@ def main(argv: list[str] | None = None) -> int:
                 args.condition,
                 output,
                 args.harness,
-                models=live_models if args.harness == "omh" else None,
+                models=live_models if args.harness in {"omh", "hermes_current_session"} else None,
                 omh_executable=args.omh_executable,
                 hermes_executable=args.hermes_executable,
+                current_session_provider=args.current_session_provider,
                 max_paid_calls=args.max_paid_calls,
             )
     emit(result)

@@ -6,6 +6,7 @@ from pathlib import Path
 import stat
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from _local_package import load_local_package
 
@@ -104,6 +105,63 @@ class OmhLiveAdapterTests(unittest.TestCase):
         self.assertIn("--confirm-dispatch", argv)
         self.assertNotIn("omo", argv)
 
+    def test_current_session_argv_uses_current_config_without_isolated_child_flags(self) -> None:
+        module = _load_omh_live()
+        argv = module.current_session_argv(
+            "/tmp/fake-hermes",
+            route={
+                "selected_model": "glm-5",
+                "selected_reasoning_effort": "high",
+                "model_family": "glm",
+            },
+            provider="zai",
+            usage_file=Path("/tmp/usage.json"),
+            prompt="do the task",
+            workspace=Path("/tmp/workspace"),
+        )
+        self.assertEqual(
+            argv,
+            [
+                "/tmp/fake-hermes",
+                "--oneshot",
+                "do the task",
+                "--in",
+                # The harness hands the CLI OS-native paths (str(Path(...)));
+                # on Windows these render with backslashes, so the expectation
+                # must too.
+                str(Path("/tmp/workspace")),
+                "--provider",
+                "zai",
+                "--model",
+                "glm-5",
+                "--reasoning",
+                "high",
+                "--toolsets",
+                "file,terminal",
+                "--usage-file",
+                str(Path("/tmp/usage.json")),
+            ],
+        )
+        self.assertNotIn("--ignore-user-config", argv)
+        self.assertNotIn("--safe-mode", argv)
+
+    def test_current_session_argv_accepts_an_explicit_profile_provider_override(self) -> None:
+        module = _load_omh_live()
+        argv = module.current_session_argv(
+            "/tmp/fake-hermes",
+            route={
+                "selected_model": "moonshotai/kimi-k3-ultrafast",
+                "selected_reasoning_effort": "medium",
+                "model_family": "kimi",
+            },
+            provider="kimi_k3",
+            usage_file=Path("/tmp/usage.json"),
+            prompt="do the task",
+            workspace=Path("/tmp/workspace"),
+        )
+        self.assertEqual(argv[argv.index("--provider") + 1], "kimi_k3")
+        self.assertNotIn("hermes-child", argv)
+
     def test_prompt_pair_changes_only_omh_calibration(self) -> None:
         module = _load_omh_live()
         task = "Read TARGET.txt and return its exact contents."
@@ -115,7 +173,9 @@ class OmhLiveAdapterTests(unittest.TestCase):
         baseline, optimized = module.prompt_pair(task, route)
         self.assertIn(task, baseline)
         self.assertIn(task, optimized)
-        self.assertNotIn(HIGH_EFFORT_CALIBRATIONS["deepseek"], baseline)
+        self.assertIn("MANDATORY BENCHMARK COMPLETION CONTRACT", baseline)
+        self.assertIn("write `.omh-benchmark-answer.json` at the workspace root", baseline)
+        self.assertIn("Verify the file exists and parses as JSON", baseline)
         self.assertIn(HIGH_EFFORT_CALIBRATIONS["deepseek"], optimized)
         self.assertEqual(module.task_digest(baseline), module.task_digest(optimized))
 
@@ -158,6 +218,134 @@ class OmhLiveAdapterTests(unittest.TestCase):
         self.assertEqual(manifest["live_harness"]["kind"], "omh_hermes_child")
         serialized = json.dumps(manifest).lower()
         self.assertNotIn('"omo"', serialized)
+
+    def test_current_session_trial_uses_fake_authenticated_cli_and_labels_execution(self) -> None:
+        module = _load_omh_live()
+        with TemporaryDirectory() as root_text:
+            root = Path(root_text)
+            omh = root / "omh.py"
+            hermes = root / "hermes.py"
+            workspace = root / "workspace"
+            workspace.mkdir()
+            omh.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                f"sys.path.insert(0, {str(Path(__file__).resolve().parents[1] / 'src')!r})\n"
+                "from omh.cli import main\n"
+                "raise SystemExit(main())\n",
+                encoding="utf-8",
+            )
+            hermes.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, sys\n"
+                "from pathlib import Path\n"
+                "args=sys.argv[1:]\n"
+                "import os\n"
+                "prompt=args[args.index('--oneshot')+1]\n"
+                "assert os.environ.get('TERMINAL_CWD') == args[args.index('--in')+1]\n"
+                "assert prompt\n"
+                "assert 'MANDATORY BENCHMARK COMPLETION CONTRACT' in prompt\n"
+                "assert 'write `.omh-benchmark-answer.json` at the workspace root' in prompt\n"
+                "assert args[args.index('--toolsets')+1] == 'file,terminal'\n"
+                "assert '--ignore-user-config' not in args\n"
+                "usage=Path(args[args.index('--usage-file')+1])\n"
+                "usage.write_text(json.dumps({'provider':'fake','model':'glm-5','tool_calls':3,'total_tokens':41,'estimated_cost_usd':0.25}),encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            executable = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+            omh.chmod(omh.stat().st_mode | executable)
+            hermes.chmod(hermes.stat().st_mode | executable)
+            trial = module.run_current_session_trial(
+                omh_executable=str(omh),
+                hermes_executable=str(hermes),
+                workspace=workspace,
+                task="Read TARGET.txt and return its exact contents.",
+                model="glm-5",
+                provider="zai",
+                effort="high",
+                condition="optimized",
+                parent_run_id="parent-current",
+                run_id="current-run",
+                timeout=30,
+                confirmed=True,
+            )
+        self.assertEqual(trial["execution_path"], "hermes_current_session")
+        self.assertEqual(trial["observation"], {"status": "completed", "tools": 3, "tokens": 41, "cost_usd": 0.25})
+
+    def test_current_session_trial_retains_a_redacted_failure_receipt(self) -> None:
+        module = _load_omh_live()
+        with TemporaryDirectory() as root_text:
+            root = Path(root_text)
+            omh = root / "omh.py"
+            hermes = root / "hermes.py"
+            workspace = root / "workspace"
+            workspace.mkdir()
+            omh.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                f"sys.path.insert(0, {str(Path(__file__).resolve().parents[1] / 'src')!r})\n"
+                "from omh.cli import main\n"
+                "raise SystemExit(main())\n",
+                encoding="utf-8",
+            )
+            hermes.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "sys.stderr.write('authentication failed: sk-secret-value-123456789\\n')\n"
+                "raise SystemExit(23)\n",
+                encoding="utf-8",
+            )
+            executable = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+            omh.chmod(omh.stat().st_mode | executable)
+            hermes.chmod(hermes.stat().st_mode | executable)
+            trial = module.run_current_session_trial(
+                omh_executable=str(omh),
+                hermes_executable=str(hermes),
+                workspace=workspace,
+                task="Read TARGET.txt and return its exact contents.",
+                model="glm-5",
+                provider="zai",
+                effort="high",
+                condition="baseline",
+                parent_run_id="parent-current",
+                run_id="current-run",
+                timeout=30,
+                confirmed=True,
+            )
+        self.assertEqual(trial["observation"], {"status": "failed", "tools": None, "tokens": None, "cost_usd": None})
+        self.assertEqual(trial["failure_receipt"], {"classification": "authentication_failed", "kind": "process_exit", "exit_code": 23})
+        self.assertNotIn("secret", json.dumps(trial))
+
+    def test_bench_passes_current_session_provider_override_to_current_session(self) -> None:
+        path = BASE / "bench.py"
+        spec = importlib.util.spec_from_file_location("benchmark_cli", path)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        captured: dict[str, object] = {}
+
+        def fake_execute(*args: object, **kwargs: object) -> dict[str, object]:
+            captured.update(kwargs)
+            return {"ok": True}
+
+        with patch.object(module, "execute_one", side_effect=fake_execute):
+            self.assertEqual(module.main([
+                "smoke", "--harness", "hermes_current_session", "--model", "moonshotai/kimi-k3-ultrafast",
+                "--current-session-provider", "kimi_k3", "--allow-paid-live", "--max-paid-calls", "1",
+            ]), 0)
+        self.assertEqual(captured["current_session_provider"], "kimi_k3")
+
+    def test_bench_rejects_current_session_provider_override_for_isolated_omh(self) -> None:
+        path = BASE / "bench.py"
+        spec = importlib.util.spec_from_file_location("benchmark_cli", path)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with self.assertRaisesRegex(SystemExit, "2"):
+            module.main([
+                "smoke", "--harness", "omh", "--current-session-provider", "kimi_k3",
+                "--allow-paid-live", "--max-paid-calls", "1",
+            ])
 
     def test_baseline_and_optimized_run_through_real_omh_observation_surface(self) -> None:
         module = _load_omh_live()
