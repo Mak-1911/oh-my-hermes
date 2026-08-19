@@ -186,6 +186,131 @@ class WrapperSessionTests(unittest.TestCase):
             self.assertNotIn(message, json.dumps(first))
             self.assertEqual(validate_wrapper_session_record(session), [])
 
+    def test_session_status_projects_workspace_and_resume_continuity(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            message = "parallel team refactor with private-token-123"
+            source_metadata = {"source_event_id": "continuity-1", "channel_ref": "qa"}
+
+            started = create_or_resume_wrapper_session(
+                paths,
+                message,
+                source="discord",
+                source_metadata=source_metadata,
+            )
+            session_id = str(started["session"]["session_id"])
+            started_revision = started["session"]["record_revision"]
+            self.assertIn("continuity_briefing", started["status"]["chat_response"])
+            started_continuity = started["status"]["chat_response"]["continuity_briefing"]
+            resumed = create_or_resume_wrapper_session(
+                paths,
+                message,
+                source="discord",
+                source_metadata=source_metadata,
+            )
+
+            self.assertFalse(started["resumed"])
+            self.assertTrue(resumed["resumed"])
+            self.assertEqual(resumed["session"]["session_id"], session_id)
+            self.assertEqual(resumed["session"]["record_revision"], started_revision)
+            self.assertEqual(started_continuity["resume"]["status"], "not_started")
+            self.assertEqual(
+                resumed["status"]["chat_response"]["continuity_briefing"]["resume"]["status"],
+                "not_started",
+            )
+
+            record_plan_decision(paths, session_id, "accept")
+            select_wrapper_session_executor(paths, session_id, "codex")
+            prepared = prepare_wrapper_session_handoff(paths, session_id, message)
+            prepared_continuity = prepared["status"]["chat_response"]["continuity_briefing"]
+            run_id = str(prepared["session"]["current_run_id"])
+
+            self.assertEqual(
+                prepared_continuity["workspace"],
+                {"reuse": "blocked", "required": "worktree_required", "current": "unobserved"},
+            )
+            self.assertEqual(prepared_continuity["resume"]["status"], "not_started")
+
+            record_codex_dispatch(paths, run_id)
+            running = build_wrapper_session_status(paths, session_id)
+            self.assertEqual(
+                running["chat_response"]["continuity_briefing"]["resume"]["status"],
+                "reattach",
+            )
+
+            record_codex_result(paths, run_id, result="completed", evidence_refs=["local:result"])
+            completed = build_wrapper_session_status(paths, session_id)
+            completed_continuity = completed["chat_response"]["continuity_briefing"]
+            self.assertEqual(completed_continuity["resume"]["status"], "conversation_safe")
+            self.assertNotIn(message, json.dumps(completed_continuity))
+            self.assertNotIn(session_id, json.dumps(completed_continuity))
+            self.assertNotIn("safe", completed_continuity["resume"])
+
+            blocked_message = "risky refactor of src/parser.py with focused regression tests"
+            blocked_started = create_or_resume_wrapper_session(
+                paths,
+                blocked_message,
+                source="discord",
+                source_metadata={"source_event_id": "continuity-blocked", "channel_ref": "qa"},
+            )
+            blocked_id = str(blocked_started["session"]["session_id"])
+            record_plan_decision(paths, blocked_id, "accept")
+            select_wrapper_session_executor(paths, blocked_id, "codex")
+            blocked_prepared = prepare_wrapper_session_handoff(paths, blocked_id, blocked_message)
+            blocked_run_id = str(blocked_prepared["session"]["current_run_id"])
+            record_codex_dispatch(paths, blocked_run_id)
+            record_codex_result(paths, blocked_run_id, result="blocked", evidence_refs=["local:blocked"])
+            blocked = build_wrapper_session_status(paths, blocked_id)
+            self.assertEqual(
+                blocked["chat_response"]["continuity_briefing"]["resume"]["status"],
+                "blocked",
+            )
+
+    def test_session_status_treats_empty_memory_pack_as_not_included(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            started = create_or_resume_wrapper_session(paths, "risky refactor", source="discord")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            select_wrapper_session_executor(paths, session_id, "codex")
+            prepared = prepare_wrapper_session_handoff(paths, session_id, "risky refactor")
+            run_id = str(prepared["session"]["current_run_id"])
+            coding_path = paths.runtime_runs_dir / run_id / "coding_delegation.json"
+            coding = json.loads(coding_path.read_text(encoding="utf-8"))
+            coding["executor_handoff"]["memory_recall_pack"] = {}
+            coding_path.write_text(json.dumps(coding, sort_keys=True), encoding="utf-8")
+
+            status = build_wrapper_session_status(paths, session_id)
+            memory = status["chat_response"]["continuity_briefing"]["memory"]
+
+            self.assertEqual(memory["availability"], "not_included")
+            self.assertEqual(memory["included_count"], 0)
+            self.assertEqual(memory["excluded_count"], 0)
+            self.assertIsNone(memory["truncated"])
+            self.assertEqual(memory["freshness"], "not_available")
+            self.assertEqual(memory["freshness_warning_count"], 0)
+            self.assertNotIn("private-token-123", memory["claim_boundary"])
+            self.assertEqual(
+                [line["domain"] for line in status["chat_response"]["continuity_briefing"]["lines"]],
+                ["workspace", "resume", "memory"],
+            )
+
+            coding["executor_handoff"]["memory_recall_pack"] = {
+                "schema_version": "bad",
+                "claim_boundary": "private-token-123",
+            }
+            coding_path.write_text(json.dumps(coding, sort_keys=True), encoding="utf-8")
+            malformed_status = build_wrapper_session_status(paths, session_id)
+            malformed = malformed_status["chat_response"]["continuity_briefing"]["memory"]
+
+            self.assertEqual(malformed["availability"], "unknown")
+            self.assertIsNone(malformed["included_count"])
+            self.assertIsNone(malformed["excluded_count"])
+            self.assertIsNone(malformed["truncated"])
+            self.assertEqual(malformed["freshness"], "unknown")
+            self.assertIsNone(malformed["freshness_warning_count"])
+            self.assertNotIn("private-token-123", json.dumps(malformed))
+
     def test_session_start_is_scoped_by_hermes_target_metadata(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1684,11 +1809,16 @@ class WrapperSessionTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            status = build_wrapper_session_status(paths, session_id)["executor_session_status"]
+            wrapper_status = build_wrapper_session_status(paths, session_id)
+            status = wrapper_status["executor_session_status"]
             actions = {action["id"]: action for action in status["actions"]}
 
             self.assertEqual(status["result"], "not_observed")
             self.assertIn("executor_session_error", status)
+            self.assertEqual(
+                wrapper_status["chat_response"]["continuity_briefing"]["resume"]["status"],
+                "blocked",
+            )
             self.assertFalse(actions["ask_hermes_verify"]["enabled"])
             self.assertIn("Action is blocked", status["display_status_lines"][-1])
 
@@ -1877,7 +2007,15 @@ class WrapperSessionTests(unittest.TestCase):
             briefing = status["coding_briefing"]
             states = {step["id"]: step["state"] for step in briefing["progress"]}
 
+            continuity = status["chat_response"]["continuity_briefing"]
             self.assertEqual(status["runtime_observation"]["next_action"], "report_runtime_observed")
+            self.assertEqual(
+                continuity["workspace"],
+                {"reuse": "allowed", "required": "none", "current": "isolated_worktree"},
+            )
+            self.assertEqual(continuity["resume"]["status"], "conversation_safe")
+            self.assertNotIn("worktree-1", json.dumps(continuity))
+            self.assertNotIn("created", json.dumps(continuity).lower())
             self.assertEqual(states["dispatch"], "complete")
             self.assertEqual(states["executor_result"], "complete")
             self.assertEqual(states["verification"], "complete")
@@ -1888,6 +2026,31 @@ class WrapperSessionTests(unittest.TestCase):
             self.assertEqual(briefing["current_state"]["coding_agent"], "completed(omx-runtime)")
             self.assertEqual(briefing["headline"], "OMX runtime work is recorded as merged.")
             self.assertEqual(briefing["pending_gaps"], [])
+
+    def test_malformed_runtime_observation_blocks_continuity_without_mutating_session(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            message = "risky refactor with private-token-123"
+            started = create_or_resume_wrapper_session(paths, message, source="discord")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            select_wrapper_session_executor(paths, session_id, "omx-runtime")
+            prepare_wrapper_session_handoff(paths, session_id, message)
+            session_dir = paths.runtime_wrapper_sessions_dir / session_id
+            session_path = session_dir / "session.json"
+            session_before = session_path.read_bytes()
+            (session_dir / "runtime_observations.jsonl").write_text(
+                '{"private":"private-token-123"\n',
+                encoding="utf-8",
+            )
+
+            status = build_wrapper_session_status(paths, session_id)
+            continuity = status["chat_response"]["continuity_briefing"]
+
+            self.assertTrue(status["runtime_observation_errors"])
+            self.assertEqual(continuity["resume"]["status"], "blocked")
+            self.assertEqual(session_path.read_bytes(), session_before)
+            self.assertNotIn("private-token-123", json.dumps(continuity))
 
     def test_non_runtime_session_reports_runtime_observation_not_applicable(self) -> None:
         with TemporaryDirectory() as tmp:

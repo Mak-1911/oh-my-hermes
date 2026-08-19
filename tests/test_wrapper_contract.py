@@ -33,6 +33,7 @@ from omh.wrapper_contract import (
     messenger_rendering_contract,
     render_profile_for_source,
 )
+from omh.wrapper.continuity import build_continuity_briefing
 from omh.wrapper.localized_copy import detect_copy_locale
 from omh.wrapper.native_commands import build_native_command_surface, render_native_command_response
 from omh.wrapper.route_hints import build_chat_route_hint_payload
@@ -958,6 +959,166 @@ class WrapperContractTests(unittest.TestCase):
         self.assertIn("multiple Hermes agent targets", rendering["body_preview"])
         self.assertIn("Target topology is setup evidence only", rendering["claim_boundary"])
 
+    def test_delegate_mode_adds_continuity_briefing_to_chat_response(self) -> None:
+        payload = build_chat_interaction_payload(
+            "implement a focused parser fix in src/omh/parser.py and update tests",
+            source="discord",
+            mode="delegate",
+        )
+
+        briefing = payload["chat_response"]["continuity_briefing"]
+        self.assertEqual(
+            set(briefing),
+            {
+                "schema_version",
+                "workspace",
+                "resume",
+                "memory",
+                "headline",
+                "lines",
+                "next_action",
+                "claim_boundary",
+            },
+        )
+        self.assertEqual(briefing["schema_version"], "continuity_briefing/v1")
+        self.assertEqual(
+            set(briefing["workspace"]),
+            {"reuse", "required", "current"},
+        )
+        self.assertIn(
+            briefing["workspace"]["reuse"],
+            {"allowed", "operator_choice", "blocked", "unknown"},
+        )
+        self.assertIn(
+            briefing["workspace"]["required"],
+            {"none", "worktree_recommended", "worktree_required", "unknown"},
+        )
+        self.assertIn(
+            briefing["workspace"]["current"],
+            {"same_workspace", "isolated_worktree", "unobserved", "unknown"},
+        )
+        self.assertEqual(briefing["resume"], {"status": "not_started"})
+        self.assertEqual(
+            set(briefing["memory"]),
+            {
+                "availability",
+                "included_count",
+                "excluded_count",
+                "truncated",
+                "freshness",
+                "freshness_warning_count",
+                "claim_boundary",
+            },
+        )
+        self.assertEqual(briefing["memory"]["availability"], "not_included")
+        self.assertLessEqual(len(briefing["lines"]), 3)
+        self.assertEqual(
+            {line["domain"] for line in briefing["lines"]},
+            {"workspace", "resume", "memory"},
+        )
+        self.assertNotIn("continuity_briefing", payload)
+
+    def test_retained_business_clarify_route_omits_continuity_briefing(self) -> None:
+        payload = build_chat_interaction_payload(
+            "prepare a meeting agenda and record template for leadership sync",
+            source="discord",
+            mode="delegate",
+        )
+
+        self.assertEqual(payload["delegation"]["delegation"]["action"], "clarify")
+        self.assertNotIn("executor_handoff", payload["delegation"])
+        self.assertNotIn("continuity_briefing", payload["chat_response"])
+        self.assertNotIn("continuity_briefing", payload)
+
+    def test_continuity_memory_summary_is_bounded_and_private(self) -> None:
+        hostile_token = "raw-message-private-token-9f431"
+        baseline = build_chat_interaction_payload(
+            "implement a focused parser fix in src/omh/parser.py and update tests",
+            source="discord",
+            mode="delegate",
+            executor_target="hermes",
+        )
+        delegation = baseline["delegation"]
+        handoff_key = next(
+            key
+            for key in ("executor_handoff", "runtime_handoff", "prompt_handoff")
+            if key in delegation
+        )
+        source_boundary = "Reviewed project-memory summaries are prepared context, not executor-use evidence."
+        delegation[handoff_key]["memory_recall_pack"] = {
+            "schema_version": "project_memory_recall_pack/v1",
+            "record_count": 2,
+            "excluded_count": 1,
+            "freshness_warnings": [
+                {"record_id": f"record-{hostile_token}", "summary": hostile_token}
+            ],
+            "claim_boundary": source_boundary,
+            "record_id": f"record-{hostile_token}",
+            "summary": hostile_token,
+            "query": hostile_token,
+            "path": f"/private/{hostile_token}",
+            "branch": hostile_token,
+            "session_id": hostile_token,
+            "timestamp": hostile_token,
+        }
+
+        with mock.patch(
+            "omh.wrapper.contract.build_coding_delegation_payload",
+            return_value=delegation,
+        ):
+            payload = build_chat_interaction_payload(
+                hostile_token,
+                source="discord",
+                mode="delegate",
+                source_metadata={},
+            )
+
+        briefing = payload["chat_response"]["continuity_briefing"]
+        memory = briefing["memory"]
+        self.assertEqual(memory["availability"], "available")
+        self.assertEqual(memory["included_count"], 2)
+        self.assertEqual(memory["excluded_count"], 1)
+        self.assertIsNone(memory["truncated"])
+        self.assertEqual(memory["freshness"], "warnings_present")
+        self.assertEqual(memory["freshness_warning_count"], 1)
+        self.assertEqual(memory["claim_boundary"], source_boundary)
+        serialized = json.dumps(briefing)
+        self.assertNotIn(hostile_token, serialized)
+        for forbidden_key in (
+            "prompt",
+            "query",
+            "transcript",
+            "body",
+            "record_id",
+            "summary",
+            "path",
+            "branch",
+            "session_id",
+            "timestamp",
+        ):
+            self.assertNotIn(f'"{forbidden_key}"', serialized)
+
+        malformed = json.loads(json.dumps(delegation))
+        malformed[handoff_key]["memory_recall_pack"] = {"record_count": "two"}
+        with mock.patch(
+            "omh.wrapper.contract.build_coding_delegation_payload",
+            return_value=malformed,
+        ):
+            malformed_payload = build_chat_interaction_payload(
+                "implement a focused parser fix in src/omh/parser.py and update tests",
+                source="discord",
+                mode="delegate",
+                source_metadata={},
+            )
+
+        malformed_memory = malformed_payload["chat_response"]["continuity_briefing"]["memory"]
+        self.assertEqual(malformed_memory["availability"], "unknown")
+        self.assertIsNone(malformed_memory["included_count"])
+        self.assertIsNone(malformed_memory["excluded_count"])
+        self.assertIsNone(malformed_memory["truncated"])
+        self.assertEqual(malformed_memory["freshness"], "unknown")
+        self.assertIsNone(malformed_memory["freshness_warning_count"])
+
     def test_delegate_mode_uses_setup_default_codex_executor_when_available(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
@@ -1121,6 +1282,11 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(payload["chat_response"]["state"]["handoff_status"], "prepared_not_observed")
         self.assertIn("prepared only", payload["chat_response"]["claim_boundary"])
         self.assertIn("has not started", payload["chat_response"]["claim_boundary"])
+        self.assertEqual(
+            payload["chat_response"]["continuity_briefing"]["schema_version"],
+            "continuity_briefing/v1",
+        )
+        self.assertNotIn("continuity_briefing", payload)
 
     def test_route_coding_workflow_resolves_production_hermes_model_binding(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -4127,6 +4293,159 @@ class WrapperContractTests(unittest.TestCase):
 
         self.assertEqual(card["harness_progress"]["schema_version"], "harness_progress/v1")
         self.assertEqual(card["harness_progress"]["next_step"], "executor_dispatch_observed")
+
+
+class ContinuityBriefingProjectionTests(unittest.TestCase):
+    def test_observed_worktree_creation_alone_reports_isolated_workspace(self) -> None:
+        briefing = build_continuity_briefing(
+            {
+                "isolation_plan": {"strategy": "worktree_required"},
+                "runtime_observation": {"observed_events": ["worktree_creation"]},
+                "session_status": "handoff_prepared",
+            }
+        )
+
+        self.assertEqual(
+            briefing["workspace"],
+            {"reuse": "allowed", "required": "none", "current": "isolated_worktree"},
+        )
+
+    def test_failed_or_blocked_worktree_creation_overrides_observed_isolation(self) -> None:
+        cases = (
+            (
+                "blocked_events",
+                "worktree_required",
+                {"reuse": "blocked", "required": "worktree_required", "current": "unobserved"},
+            ),
+            (
+                "failed_events",
+                "worktree_required",
+                {"reuse": "blocked", "required": "worktree_required", "current": "unobserved"},
+            ),
+            (
+                "blocked_events",
+                "worktree_recommended",
+                {
+                    "reuse": "operator_choice",
+                    "required": "worktree_recommended",
+                    "current": "unobserved",
+                },
+            ),
+            (
+                "failed_events",
+                "worktree_recommended",
+                {
+                    "reuse": "operator_choice",
+                    "required": "worktree_recommended",
+                    "current": "unobserved",
+                },
+            ),
+        )
+
+        for negative_key, strategy, expected_workspace in cases:
+            with self.subTest(negative_key=negative_key, strategy=strategy):
+                briefing = build_continuity_briefing(
+                    {
+                        "isolation_plan": {"strategy": strategy},
+                        "runtime_observation": {
+                            "observed_events": ["worktree_creation"],
+                            negative_key: ["worktree_creation"],
+                        },
+                        "session_status": "handoff_prepared",
+                    }
+                )
+
+                self.assertEqual(briefing["workspace"], expected_workspace)
+
+    def test_negative_worktree_evidence_overrides_observed_isolation_status(self) -> None:
+        briefing = build_continuity_briefing(
+            {
+                "isolation_plan": {"strategy": "worktree_required"},
+                "workspace_isolation": {
+                    "status": "observed",
+                    "strategy": "worktree_required",
+                    "current": "isolated_worktree",
+                },
+                "runtime_observation": {
+                    "observed_events": ["worktree_creation"],
+                    "failed_events": ["worktree_creation"],
+                },
+                "session_status": "handoff_prepared",
+            }
+        )
+
+        self.assertEqual(
+            briefing["workspace"],
+            {"reuse": "blocked", "required": "worktree_required", "current": "unobserved"},
+        )
+
+    def test_resume_evidence_dominates_workspace_next_action(self) -> None:
+        workspace_evidence: dict[str, object] = {
+            "isolation_plan": {"strategy": "same_workspace_ok"},
+            "workspace_isolation": {"status": "not_required", "strategy": "same_workspace_ok"},
+            "session_status": "handoff_prepared",
+        }
+        cases = (
+            ({"result": "blocked"}, "blocked", "review_runtime_evidence"),
+            ({"dispatch": "observed", "result": "not_observed"}, "reattach", "reattach_runtime_evidence"),
+            ({"result": "completed"}, "conversation_safe", "continue_prepared_handoff"),
+            ({}, "not_started", "continue_prepared_handoff"),
+        )
+
+        for executor_status, expected_resume, expected_action in cases:
+            with self.subTest(resume=expected_resume):
+                briefing = build_continuity_briefing(
+                    {**workspace_evidence, "executor_status": executor_status}
+                )
+
+                self.assertEqual(briefing["resume"]["status"], expected_resume)
+                self.assertEqual(briefing["next_action"], expected_action)
+                self.assertEqual(
+                    briefing["workspace"],
+                    {"reuse": "allowed", "required": "none", "current": "same_workspace"},
+                )
+
+    def test_workspace_next_actions_are_preserved_without_resume_evidence(self) -> None:
+        cases = (
+            ("worktree_recommended", "operator_choice", "choose_workspace_isolation"),
+            ("worktree_required", "blocked", "prepare_isolated_workspace"),
+            ("unrecognized_strategy", "unknown", "review_workspace_evidence"),
+        )
+
+        for strategy, expected_reuse, expected_action in cases:
+            with self.subTest(strategy=strategy):
+                briefing = build_continuity_briefing(
+                    {
+                        "isolation_plan": {"strategy": strategy},
+                        "session_status": "handoff_prepared",
+                    }
+                )
+
+                self.assertEqual(briefing["resume"]["status"], "not_started")
+                self.assertEqual(briefing["workspace"]["reuse"], expected_reuse)
+                self.assertEqual(briefing["next_action"], expected_action)
+
+    def test_cancelled_or_terminal_events_fail_closed_to_blocked_resume(self) -> None:
+        for negative_key in ("cancelled_events", "terminal_events"):
+            with self.subTest(negative_key=negative_key):
+                briefing = build_continuity_briefing(
+                    {
+                        "isolation_plan": {"strategy": "same_workspace_ok"},
+                        "workspace_isolation": {
+                            "status": "not_required",
+                            "strategy": "same_workspace_ok",
+                        },
+                        "runtime_observation": {
+                            "observed_events": ["worker_result"],
+                            negative_key: ["worker_result"],
+                        },
+                        "executor_status": {"result": "completed"},
+                        "session_status": "handoff_prepared",
+                    }
+                )
+
+                self.assertEqual(briefing["resume"]["status"], "blocked")
+                self.assertEqual(briefing["next_action"], "review_runtime_evidence")
 
 
 if __name__ == "__main__":

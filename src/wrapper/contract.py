@@ -22,6 +22,7 @@ from ..coding.routing_observation import (
 from ..coding.status_board import model_label_for
 from ..evidence import status_label
 from .message_gate import build_message_gate, fence_marker_for, message_gate_body
+from .continuity import build_continuity_briefing
 from ..ingress import CHAT_SOURCES, compact_source_metadata, extract_message_text, extract_source_metadata
 from ..system.platform_envelope import build_platform_envelope, platform_thread_key_scope
 from ..routing.catalog_questions import is_skill_catalog_question as _is_skill_catalog_question
@@ -3632,6 +3633,10 @@ def _copy_chat_response_payload(response: dict[str, object]) -> dict[str, object
     status_card = response.get("status_card")
     if isinstance(status_card, dict):
         copied["status_card"] = _clone_static_dict(status_card)
+
+    continuity_briefing = response.get("continuity_briefing")
+    if isinstance(continuity_briefing, dict):
+        copied["continuity_briefing"] = _clone_static_dict(continuity_briefing)
     return copied
 
 
@@ -4185,6 +4190,8 @@ def _build_chat_interaction_payload_uncached(
             base["agentic_playbook"] = agentic_playbook
         base["next_action"] = _delegation_next_action(delegation)
         base["chat_response"] = build_chat_response_from_delegation(delegation, thread_key=str(base["thread_key"]))
+        if _nested(delegation, "delegation").get("action") == "delegate":
+            base["chat_response"]["continuity_briefing"] = build_continuity_briefing(delegation)
         return _finish_interaction(base, target_notice)
 
     if resolved_mode == "clarify" or route_payload["action"] != "dispatch":
@@ -4390,6 +4397,8 @@ def _attach_coding_owner_handoff(
     base["coding_route_decision"] = coding_route_decision
     base["next_action"] = _delegation_next_action(delegation)
     base["chat_response"] = build_chat_response_from_delegation(delegation, thread_key=str(base["thread_key"]))
+    if _nested(delegation, "delegation").get("action") == "delegate":
+        base["chat_response"]["continuity_briefing"] = build_continuity_briefing(delegation)
     return base
 
 
