@@ -3180,6 +3180,17 @@ _BROWSER_OPERATOR_ACTION_TOKENS = _normalized_token_set(
         "로그인",
     }
 )
+# "로그인/login" is a browser action token, but a login mentioned next to a
+# model PROVIDER (quota exhausted, switch account) is Hermes auth work, not
+# web automation — that request belongs to model-setup.
+_BROWSER_OPERATOR_PROVIDER_AUTH_BLOCKERS = (
+    "프로바이더",
+    "provider",
+    "한도 초과",
+    "한도초과",
+    "quota",
+    "rate limit",
+)
 _BROWSER_OPERATOR_VISUAL_QA_BLOCKERS = (
     "visual qa",
     "browser qa",
@@ -7881,6 +7892,8 @@ def _voice_operator_guard_applies(normalized_query: str, query_tokens: set[str])
 
 def _browser_operator_guard_applies(normalized_query: str, query_tokens: set[str]) -> bool:
     if _contains_phrase(normalized_query, _BROWSER_OPERATOR_VISUAL_QA_BLOCKERS):
+        return False
+    if _contains_phrase(normalized_query, _BROWSER_OPERATOR_PROVIDER_AUTH_BLOCKERS):
         return False
     if _contains_phrase(normalized_query, _BROWSER_OPERATOR_PHRASES):
         return True
