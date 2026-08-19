@@ -239,7 +239,9 @@ def _memory_pack(
         if "memory_recall_pack" not in container:
             continue
         pack = _mapping(container.get("memory_recall_pack"))
-        return ("present", pack) if pack is not None else ("malformed", None)
+        if pack is None:
+            return "malformed", None
+        return ("present", pack) if pack else ("absent", None)
     return "absent", None
 
 

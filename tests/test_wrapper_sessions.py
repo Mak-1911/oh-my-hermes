@@ -266,6 +266,51 @@ class WrapperSessionTests(unittest.TestCase):
                 "blocked",
             )
 
+    def test_session_status_treats_empty_memory_pack_as_not_included(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            started = create_or_resume_wrapper_session(paths, "risky refactor", source="discord")
+            session_id = str(started["session"]["session_id"])
+            record_plan_decision(paths, session_id, "accept")
+            select_wrapper_session_executor(paths, session_id, "codex")
+            prepared = prepare_wrapper_session_handoff(paths, session_id, "risky refactor")
+            run_id = str(prepared["session"]["current_run_id"])
+            coding_path = paths.runtime_runs_dir / run_id / "coding_delegation.json"
+            coding = json.loads(coding_path.read_text(encoding="utf-8"))
+            coding["executor_handoff"]["memory_recall_pack"] = {}
+            coding_path.write_text(json.dumps(coding, sort_keys=True), encoding="utf-8")
+
+            status = build_wrapper_session_status(paths, session_id)
+            memory = status["chat_response"]["continuity_briefing"]["memory"]
+
+            self.assertEqual(memory["availability"], "not_included")
+            self.assertEqual(memory["included_count"], 0)
+            self.assertEqual(memory["excluded_count"], 0)
+            self.assertIsNone(memory["truncated"])
+            self.assertEqual(memory["freshness"], "not_available")
+            self.assertEqual(memory["freshness_warning_count"], 0)
+            self.assertNotIn("private-token-123", memory["claim_boundary"])
+            self.assertEqual(
+                [line["domain"] for line in status["chat_response"]["continuity_briefing"]["lines"]],
+                ["workspace", "resume", "memory"],
+            )
+
+            coding["executor_handoff"]["memory_recall_pack"] = {
+                "schema_version": "bad",
+                "claim_boundary": "private-token-123",
+            }
+            coding_path.write_text(json.dumps(coding, sort_keys=True), encoding="utf-8")
+            malformed_status = build_wrapper_session_status(paths, session_id)
+            malformed = malformed_status["chat_response"]["continuity_briefing"]["memory"]
+
+            self.assertEqual(malformed["availability"], "unknown")
+            self.assertIsNone(malformed["included_count"])
+            self.assertIsNone(malformed["excluded_count"])
+            self.assertIsNone(malformed["truncated"])
+            self.assertEqual(malformed["freshness"], "unknown")
+            self.assertIsNone(malformed["freshness_warning_count"])
+            self.assertNotIn("private-token-123", json.dumps(malformed))
+
     def test_session_start_is_scoped_by_hermes_target_metadata(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
