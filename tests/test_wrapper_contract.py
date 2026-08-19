@@ -958,6 +958,154 @@ class WrapperContractTests(unittest.TestCase):
         self.assertIn("multiple Hermes agent targets", rendering["body_preview"])
         self.assertIn("Target topology is setup evidence only", rendering["claim_boundary"])
 
+    def test_delegate_mode_adds_continuity_briefing_to_chat_response(self) -> None:
+        payload = build_chat_interaction_payload(
+            "implement a focused parser fix in src/omh/parser.py and update tests",
+            source="discord",
+            mode="delegate",
+        )
+
+        briefing = payload["chat_response"]["continuity_briefing"]
+        self.assertEqual(
+            set(briefing),
+            {
+                "schema_version",
+                "workspace",
+                "resume",
+                "memory",
+                "headline",
+                "lines",
+                "next_action",
+                "claim_boundary",
+            },
+        )
+        self.assertEqual(briefing["schema_version"], "continuity_briefing/v1")
+        self.assertEqual(
+            set(briefing["workspace"]),
+            {"reuse", "required", "current"},
+        )
+        self.assertIn(
+            briefing["workspace"]["reuse"],
+            {"allowed", "operator_choice", "blocked", "unknown"},
+        )
+        self.assertIn(
+            briefing["workspace"]["required"],
+            {"none", "worktree_recommended", "worktree_required", "unknown"},
+        )
+        self.assertIn(
+            briefing["workspace"]["current"],
+            {"same_workspace", "isolated_worktree", "unobserved", "unknown"},
+        )
+        self.assertEqual(briefing["resume"], {"status": "not_started"})
+        self.assertEqual(
+            set(briefing["memory"]),
+            {
+                "availability",
+                "included_count",
+                "excluded_count",
+                "truncated",
+                "freshness",
+                "freshness_warning_count",
+                "claim_boundary",
+            },
+        )
+        self.assertEqual(briefing["memory"]["availability"], "not_included")
+        self.assertLessEqual(len(briefing["lines"]), 3)
+        self.assertEqual(
+            {line["domain"] for line in briefing["lines"]},
+            {"workspace", "resume", "memory"},
+        )
+        self.assertNotIn("continuity_briefing", payload)
+
+    def test_continuity_memory_summary_is_bounded_and_private(self) -> None:
+        hostile_token = "raw-message-private-token-9f431"
+        baseline = build_chat_interaction_payload(
+            "implement a focused parser fix in src/omh/parser.py and update tests",
+            source="discord",
+            mode="delegate",
+            executor_target="hermes",
+        )
+        delegation = baseline["delegation"]
+        handoff_key = next(
+            key
+            for key in ("executor_handoff", "runtime_handoff", "prompt_handoff")
+            if key in delegation
+        )
+        source_boundary = "Reviewed project-memory summaries are prepared context, not executor-use evidence."
+        delegation[handoff_key]["memory_recall_pack"] = {
+            "schema_version": "project_memory_recall_pack/v1",
+            "record_count": 2,
+            "excluded_count": 1,
+            "freshness_warnings": [
+                {"record_id": f"record-{hostile_token}", "summary": hostile_token}
+            ],
+            "claim_boundary": source_boundary,
+            "record_id": f"record-{hostile_token}",
+            "summary": hostile_token,
+            "query": hostile_token,
+            "path": f"/private/{hostile_token}",
+            "branch": hostile_token,
+            "session_id": hostile_token,
+            "timestamp": hostile_token,
+        }
+
+        with mock.patch(
+            "omh.wrapper.contract.build_coding_delegation_payload",
+            return_value=delegation,
+        ):
+            payload = build_chat_interaction_payload(
+                hostile_token,
+                source="discord",
+                mode="delegate",
+                source_metadata={},
+            )
+
+        briefing = payload["chat_response"]["continuity_briefing"]
+        memory = briefing["memory"]
+        self.assertEqual(memory["availability"], "available")
+        self.assertEqual(memory["included_count"], 2)
+        self.assertEqual(memory["excluded_count"], 1)
+        self.assertIsNone(memory["truncated"])
+        self.assertEqual(memory["freshness"], "warnings_present")
+        self.assertEqual(memory["freshness_warning_count"], 1)
+        self.assertEqual(memory["claim_boundary"], source_boundary)
+        serialized = json.dumps(briefing)
+        self.assertNotIn(hostile_token, serialized)
+        for forbidden_key in (
+            "prompt",
+            "query",
+            "transcript",
+            "body",
+            "record_id",
+            "summary",
+            "path",
+            "branch",
+            "session_id",
+            "timestamp",
+        ):
+            self.assertNotIn(f'"{forbidden_key}"', serialized)
+
+        malformed = json.loads(json.dumps(delegation))
+        malformed[handoff_key]["memory_recall_pack"] = {"record_count": "two"}
+        with mock.patch(
+            "omh.wrapper.contract.build_coding_delegation_payload",
+            return_value=malformed,
+        ):
+            malformed_payload = build_chat_interaction_payload(
+                "implement a focused parser fix in src/omh/parser.py and update tests",
+                source="discord",
+                mode="delegate",
+                source_metadata={},
+            )
+
+        malformed_memory = malformed_payload["chat_response"]["continuity_briefing"]["memory"]
+        self.assertEqual(malformed_memory["availability"], "unknown")
+        self.assertIsNone(malformed_memory["included_count"])
+        self.assertIsNone(malformed_memory["excluded_count"])
+        self.assertIsNone(malformed_memory["truncated"])
+        self.assertEqual(malformed_memory["freshness"], "unknown")
+        self.assertIsNone(malformed_memory["freshness_warning_count"])
+
     def test_delegate_mode_uses_setup_default_codex_executor_when_available(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
@@ -1121,6 +1269,11 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(payload["chat_response"]["state"]["handoff_status"], "prepared_not_observed")
         self.assertIn("prepared only", payload["chat_response"]["claim_boundary"])
         self.assertIn("has not started", payload["chat_response"]["claim_boundary"])
+        self.assertEqual(
+            payload["chat_response"]["continuity_briefing"]["schema_version"],
+            "continuity_briefing/v1",
+        )
+        self.assertNotIn("continuity_briefing", payload)
 
     def test_route_coding_workflow_resolves_production_hermes_model_binding(self) -> None:
         with TemporaryDirectory() as tmp:
