@@ -20,7 +20,11 @@ class RoutingQualityGateTests(unittest.TestCase):
     DISPATCH_CASES = (
         ("find official docs for the current OpenAI API version", "best-practice-research"),
         ("plan a safe implementation for this feature", "plan"),
-        ("fix the failing test in this repository", "ultraprocess"),
+        # `ultraprocess` is a retired engine alias (see ulw_equivalence); the
+        # canonical delivery engine this lane dispatches to is `ultrawork`.
+        # The original fork-authored baseline pinned the retired name and
+        # broke main the moment it merged next to the current catalog.
+        ("fix the failing test in this repository", "ultrawork"),
         ("remember this decision for later", "memory-new"),
         ("explain this paper at expert level", "paper-learning"),
         ("create an image summary card", "img-summary"),

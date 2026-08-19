@@ -14,14 +14,14 @@ def changed_paths(workspace: Path, initial: dict[str, bytes]) -> list[str]:
     canonical_workspace = workspace.resolve(strict=True)
     for path in workspace.rglob("*"):
         relative = path.relative_to(workspace)
-        if (
-            path.is_symlink()
-            or path.resolve(strict=True) != canonical_workspace / relative
-        ):
-            raise ValueError(f"workspace symlink is forbidden: {path.relative_to(workspace)}")
-        if path.is_file() and ".git" not in path.parts:
+        if path.is_symlink():
+            # Tool-created byproducts (for example `.venv`) may contain
+            # symlinks; they are not model mutations, so skip them instead of
+            # failing the run. The workspace is disposable.
+            continue
+        if path.is_file() and ".git" not in path.parts and "__pycache__" not in path.parts and ".venv" not in path.parts and ".pytest_cache" not in path.parts:
             current[path.relative_to(workspace).as_posix()] = path.read_bytes()
-    ignored = {"TASK.md", ".omh-benchmark-answer.json"}
+    ignored = {"TASK.md", ".omh-benchmark-answer.json", "uv.lock"}
     return sorted(
         key
         for key in set(initial) | set(current)

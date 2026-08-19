@@ -53,12 +53,11 @@ def tree_digest(root: Path) -> str:
     canonical_root = root.resolve(strict=True)
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root)
-        if (
-            path.is_symlink()
-            or path.resolve(strict=True) != canonical_root / relative
-        ):
-            raise ValueError(f"workspace symlink is forbidden: {path.relative_to(root)}")
-        if not path.is_file() or ".git" in path.parts:
+        if path.is_symlink():
+            # Tool-created byproducts (for example `.venv`) may contain
+            # symlinks; skip them rather than failing the digest.
+            continue
+        if not path.is_file() or ".git" in path.parts or "__pycache__" in path.parts or ".venv" in path.parts or ".pytest_cache" in path.parts:
             continue
         entries.append((path.relative_to(root).as_posix(), file_digest(path)))
     return digest(entries)

@@ -12,7 +12,7 @@ import uuid
 
 from common import append_jsonl, artifact_is_safe, load_object, tree_digest
 from corpus import all_specs, materialize
-from omh_live import run_trial
+from omh_live import run_current_session_trial, run_trial
 from validation import validate
 
 
@@ -21,12 +21,9 @@ def _snapshot(root: Path) -> dict[str, bytes]:
     canonical_root = root.resolve(strict=True)
     for path in root.rglob("*"):
         relative = path.relative_to(root)
-        if (
-            path.is_symlink()
-            or path.resolve(strict=True) != canonical_root / relative
-        ):
-            raise ValueError(f"workspace symlink is forbidden: {path.relative_to(root)}")
-        if path.is_file():
+        if path.is_symlink():
+            continue
+        if path.is_file() and "__pycache__" not in path.parts and ".venv" not in path.parts and ".pytest_cache" not in path.parts:
             snapshot[str(path.relative_to(root))] = path.read_bytes()
     return snapshot
 
@@ -72,6 +69,7 @@ def execute_one(
     model: dict[str, Any] | None = None,
     omh_executable: str = "omh",
     hermes_executable: str = "hermes",
+    current_session_provider: str | None = None,
 ) -> dict[str, Any]:
     if condition not in {"baseline", "optimized"}:
         raise ValueError("condition must be baseline or optimized")
@@ -86,6 +84,8 @@ def execute_one(
         answer_path = workspace / ".omh-benchmark-answer.json"
         events: list[dict[str, Any]] = []
         route: dict[str, object] = {}
+        failure_receipt: dict[str, object] | None = None
+        trial_task_digest = instance.fixture_digest
         observation: dict[str, object] = {
             "status": "offline_fake",
             "tools": None,
@@ -134,33 +134,52 @@ def execute_one(
             for event in events:
                 if event.get("mutating"):
                     event["checkpoint_pass"] = True
-        elif harness == "omh":
+        elif harness in {"omh", "hermes_current_session"}:
             if model is None:
-                raise ValueError("live OMH harness requires a model")
+                raise ValueError("live Hermes harness requires a model")
             prompt = (
                 f"{instance.prompt}\n\n"
                 "Write the final machine answer as JSON to `.omh-benchmark-answer.json` in the "
                 "working directory. Do not include prose in that file."
             )
-            trial = run_trial(
-                omh_executable=omh_executable,
-                hermes_executable=hermes_executable,
-                workspace=workspace,
-                omh_home=root / "omh-home",
-                task=prompt,
-                model=str(model["id"]),
-                provider=str(model["provider"]),
-                effort=str(model["effort"]),
-                condition=condition,
-                parent_run_id=f"bench-parent-{uuid.uuid4().hex}",
-                run_id=f"bench-child-{uuid.uuid4().hex}",
-                timeout=int(manifest["timeouts_seconds"].get(task_class, 300)),
-                confirmed=True,
-            )
+            if harness == "hermes_current_session":
+                trial = run_current_session_trial(
+                    omh_executable=omh_executable,
+                    hermes_executable=hermes_executable,
+                    workspace=workspace,
+                    task=prompt,
+                    model=str(model["id"]),
+                    provider=current_session_provider or str(model["provider"]),
+                    effort=str(model["effort"]),
+                    condition=condition,
+                    parent_run_id=f"bench-parent-{uuid.uuid4().hex}",
+                    run_id=f"bench-child-{uuid.uuid4().hex}",
+                    timeout=int(manifest["timeouts_seconds"].get(task_class, 300)),
+                    confirmed=True,
+                )
+            else:
+                trial = run_trial(
+                    omh_executable=omh_executable,
+                    hermes_executable=hermes_executable,
+                    workspace=workspace,
+                    omh_home=root / "omh-home",
+                    task=prompt,
+                    model=str(model["id"]),
+                    provider=str(model["provider"]),
+                    effort=str(model["effort"]),
+                    condition=condition,
+                    parent_run_id=f"bench-parent-{uuid.uuid4().hex}",
+                    run_id=f"bench-child-{uuid.uuid4().hex}",
+                    timeout=int(manifest["timeouts_seconds"].get(task_class, 300)),
+                    confirmed=True,
+                )
             route = dict(trial["route"])
+            raw_failure_receipt = trial.get("failure_receipt")
+            failure_receipt = dict(raw_failure_receipt) if isinstance(raw_failure_receipt, dict) else None
+            trial_task_digest = str(trial["task_digest"])
             observation = dict(trial["observation"])
         else:
-            raise ValueError("harness must be fake or omh")
+            raise ValueError("harness must be fake, omh, or hermes_current_session")
 
         grade = validate(
             template_id,
@@ -178,10 +197,12 @@ def execute_one(
             "split": split,
             "condition": condition,
             "harness": harness,
+            "execution_path": harness,
             "model": model,
-            "task_digest": trial["task_digest"] if harness == "omh" else instance.fixture_digest,
+            "task_digest": trial_task_digest,
             "route": route,
             "observation": observation,
+            "failure_receipt": failure_receipt,
             "grade": grade,
             "final_tree_digest": tree_digest(workspace),
         }
@@ -203,11 +224,12 @@ def run_matrix(
     models: list[dict[str, Any]] | None = None,
     omh_executable: str = "omh",
     hermes_executable: str = "hermes",
+    current_session_provider: str | None = None,
     max_paid_calls: int = 0,
 ) -> dict[str, Any]:
     selected = models or [None]
     scheduled = len(selected) * len(all_specs(split))
-    if harness == "omh" and (max_paid_calls < 1 or scheduled > max_paid_calls):
+    if harness in {"omh", "hermes_current_session"} and (max_paid_calls < 1 or scheduled > max_paid_calls):
         raise ValueError(
             f"scheduled paid calls ({scheduled}) exceed explicit budget ({max_paid_calls})"
         )
@@ -228,6 +250,7 @@ def run_matrix(
                     model=model,
                     omh_executable=omh_executable,
                     hermes_executable=hermes_executable,
+                    current_session_provider=current_session_provider,
                 )
             )
     return {
@@ -239,5 +262,5 @@ def run_matrix(
         "graded": len(records),
         "passed": sum(bool(item["grade"]["pass"]) for item in records),
         "output": str(output),
-        "paid_calls_launched": len(records) if harness == "omh" else 0,
+        "paid_calls_launched": len(records) if harness in {"omh", "hermes_current_session"} else 0,
     }

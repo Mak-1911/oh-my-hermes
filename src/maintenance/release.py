@@ -138,7 +138,10 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # after observed cross-product drift; warranted growth, not padding.
 # 700304 -> 700586: ultrawork gained the localized run-summary closing rule
 # (+282 chars, omh_run_summary elapsed/tokens/models block); warranted growth.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 700586
+# 700586 -> 701609: model-setup gained the OAuth-login/quota-recovery
+# guidance (+1023 chars: TUI /setup vs hermes model paths, pooled
+# credentials, refreshed chain prose); warranted growth.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 701609
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 
