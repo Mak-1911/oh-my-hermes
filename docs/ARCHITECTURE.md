@@ -48,7 +48,7 @@ flowchart LR
 
   user --> hermes
   skills --> hermes
-  plugin -->|"omh_interact, omh_recommend, omh_probe, omh_hud, omh_memory, omh_role, omh_status, evidence, hooks"| hermes
+  plugin -->|"omh_interact, omh_recommend, omh_probe, omh_hud, omh_memory, omh_role, omh_status, omh_todo, evidence, hooks"| hermes
   user --> wrapper
   wrapper -->|"chat_interaction/v1"| omh
   omh -->|"answer, clarify, plan, or status"| wrapper
@@ -149,6 +149,9 @@ src/
   surfaces/
     context.py
     demo.py
+    hermes_model_settings.py
+    hermes_processes.py
+    hermes_sessions.py
     hud.py
     menubar_app.py
     menubar_status.py
@@ -202,7 +205,8 @@ OMH directly when Hermes taps are available.
 `~/.hermes/plugins/omh`. The v1 plugin registers deterministic
 `omh_interact` chat/session interaction, `omh_recommend` route hints,
 metadata-only `omh_probe` capability status/roadmap, compact metadata-only
-`omh_hud`, detailed metadata-only `omh_status`, `omh_role` role context, a
+`omh_hud`, detailed metadata-only `omh_status`, `omh_todo` plan-todo
+declaration for the HUD checklist panel, `omh_role` role context, a
 bounded `omh_gather_evidence` local verification probe, and passive lifecycle
 hooks for bounded status context, role marker validation, and metadata-only
 session-end checkpointing. The
@@ -231,22 +235,22 @@ context is prompt guidance only; it is not proof
 that a separate role, worker, or executor ran.
 
 `menubar_status.py` owns the platform-neutral macOS menu bar view model exposed
-by `omh menubar status --json`. Its `menubar_status/v1` payload is a UI
-projection over the same local HUD, target registry, and runtime evidence. It is
-intentionally not the source of truth. The payload separates `hermes_agents` from
-`external_coding_executors` so Codex, Claude Code, OMX, OMO, OMC, or generic
-coding tools cannot be rendered as Hermes agents by accident. Compact surfaces
-receive source and model `icon_id` values plus tooltip text rather than Markdown
-tables or prose-only labels. `display.menu_cards` is the human-facing card model
-for the native menu bar helper, grouping the same contract into Agent Status,
-Coding Agent, and Evidence sections so compact UI surfaces do not need to render
-raw JSON-like text. The Agent Status section uses an explicit `Agent | PID |
-Status` row shape.
+by `omh menubar status --json`. Its `menubar_status/v2` payload is a UI
+projection over local HUD, target-registry, runtime, and read-only Hermes
+observations; it is intentionally not the source of truth. The payload retains
+separate `hermes_agents` and `external_coding_executors` metadata so Codex,
+Claude Code, OMX, OMO, OMC, or generic coding tools cannot be rendered as
+Hermes agents by accident. `display.menu_cards` is the human-facing model for
+the native helper: a Sessions table, a Models table, and one compact coding
+metadata footer. Sessions uses the exact columns `Hermes session` / `Count` and
+only the `live` and `total` rows. Session source or TUI breakdown is
+intentionally not exposed. In Models, `current` is the model observed on the
+live Hermes session; `main` and auxiliary aliases are configuration values.
 
 Plain `omh menubar status` renders a short terminal summary from the same
-payload so operators see Summary, Agent Status, Coding Agent, Evidence, and
-Observation sections without reading raw JSON. Machine consumers should request
-`--json` or set `OMH_OUTPUT=json`.
+payload so operators see Summary, Sessions, Models, the compact coding metadata
+footer, and Observation without reading raw JSON. Machine consumers should
+request `--json` or set `OMH_OUTPUT=json`.
 
 `current_external_coding_executor` names the selected row explicitly, preferring
 `runtime/state.json` `last_run_id` when it matches the recent executor list, so
@@ -260,15 +264,27 @@ JSON files. Setup records `project_memory_policy/v1` with `off`,
 prepared context only; they are not execution, review, CI, merge, or Hermes
 internal-memory evidence.
 
+The three observer modules keep these inputs separate.
+`hermes_processes.py` performs the bounded local process-tree scan and reports
+Hermes agent roots and total matching processes. `hermes_sessions.py` opens
+Hermes `state.db` read-only for visible live/total session counts and the newest
+live session's model. `hermes_model_settings.py` reads `config.yaml` for the
+configured `main` and auxiliary model aliases. The status path does not invoke
+Hermes, make network requests, or write any Hermes-owned file.
+
+Session counts are a read-only observation of Hermes' own session store; they are not execution, review, CI, merge, or token-usage evidence.
+
+Model settings are read from Hermes configuration; a configured alias is not evidence that a request used that model.
+
 The menu bar status contract reports configured Hermes targets and prepared
 handoffs without inventing process state. PID, `running`, and `restarting`
 values are applied only from a caller-provided `menubar_process_overlay/v1`
 payload or an explicit `omh menubar status --observe-local-processes --json`
-request from the native macOS helper. That observation is app-local, expires
+request. The native macOS helper makes that explicit request; plain `omh menubar
+status` performs no process scan. Process observation is app-local, expires
 after a short TTL, and applies restarting state only inside its restart window.
-OMH does not turn prepared handoffs into observed execution, review, CI, or merge
-evidence. Plain `omh menubar status` remains metadata-only, even though its
-default terminal output is human-readable.
+OMH does not turn prepared handoffs into observed execution, review, CI, or
+merge evidence.
 
 `cli.py` is a compatibility adapter. `commands/main.py` owns parser assembly,
 top-level error handling, and the public command handler re-export surface.
@@ -532,7 +548,7 @@ The profile mapping is deliberately narrow:
 profiles omit the binding entirely. OMH has no `pi` profile: a pi or generic
 alias is treated as an unmapped generic boundary, not as a new executor.
 Canonical Hermes display names come from the catalog (for example,
-`ultragoal` displays as `/ulw-goal` and `ultrawork` as `/ulw-work`); the
+`ultrawork` displays as `/ulw-work` and `ultraqa` as `/ulw-qa`); the
 canonical `skill_id` remains unchanged in the metadata.
 
 Availability is an evidence state machine, not an installation probe. The
@@ -629,6 +645,29 @@ steps remain missing until explicit `runtime_observation/v1` evidence exists.
 
 Future routing work should deepen the catalog first, then render richer skill
 metadata from it.
+
+`executor_capability_snapshot/v1` is also the single capability evidence
+source for handoff display and fanout dispatch receipts. Its vocabulary includes
+the owner-fit capabilities above plus descriptive edit-surface facts
+(`edit_format_hashline`, `edit_format_str_replace`, `edit_format_patch`,
+`persistent_eval`, `tool_reentry`, and `code_mode_batching`). Recorded
+`host_observed` rows retain bounded scope, evidence reference, and observation
+time. Missing rows are projected as explicit `unknown`; the prepared fallback
+marks only `worktree_isolation` as `prepared`.
+
+The snapshot is frozen into coding handoffs and briefing renders that frozen
+payload verbatim. Fanout dispatch records resolve the matching snapshot from the
+same OMH-local snapshot directory when a legacy fanout handoff does not carry
+one. Neither surface independently scores or selects an owner. Only
+`coding_owner_fit/v1` interprets capabilities required by the accepted plan,
+and unrelated descriptive evidence cannot satisfy or hide a required
+capability.
+
+During the `executor_capability/v1` compatibility window, briefing and dispatch
+receipts also emit a deprecated projection under `executor_capability`. That
+projection is derived from the unified snapshot rather than maintained as a
+second table, so legacy readers keep working without creating another evidence
+source.
 
 The delegation-first completion model is tracked in
 `docs/DELEGATION_FIRST_COMPLETENESS.md`. It is the product boundary for making
@@ -779,12 +818,17 @@ no network request.
 `coding/model_recommendations.py` owns secret-free editorial candidate order.
 The categories reuse the closed `MODEL_CATEGORIES` vocabulary; `main` is a
 separate Hermes role suggestion and `x_platform_data` is a separate domain
-affinity. User override documents can replace only those named chains and
-cannot extend the vocabularies or contain secret/provider configuration.
-Resolution filters order against caller-confirmed active models. A missing head
-falls through to the next eligible candidate; no eligible candidate returns
-`unconfigured` without blocking setup. An unavailable explicit model instead
-returns `choice_required` and freezes fallthrough.
+affinity. `last_resort.any` is one shared final chain outside those selectors;
+it is considered only after every selected category, role-slot, and domain
+chain is exhausted. Version 2 user override documents can replace only those
+named chains and the shared `any` slot; legacy v1 documents remain accepted but
+cannot define the new slot. Overrides cannot extend the vocabularies or contain
+secret/provider configuration. Resolution filters order against
+caller-confirmed active models. A missing head falls through to the next
+eligible candidate, then the shared final order tries Claude Opus 5 followed by
+GPT-5.6 Sol. No eligible candidate anywhere returns `owner_default` without
+blocking setup or preparing a model-config write. An unavailable explicit model
+instead returns `choice_required` and freezes fallthrough.
 
 The shipped Kimi, Claude, GPT, GLM, Grok, and Gemini order is editorial, not
 benchmarked. Qwen is a valid confirmed user alternative through an override or
@@ -2499,11 +2543,11 @@ fanout lane, `coding/fanout.py::build_fanout_contract` freezes
 `safety_profile_revision` into the contract beside the goal digest, and
 `coding/fanout_dispatch.py::verify_safety_profile_matches_contract` re-checks it
 next to `verify_goal_matches_contract` before discovery, readiness probing, any
-unit spawn, and any state write. The field is additive under
-`fanout_contract/v1`: an absent frozen revision means "not gated", so contracts
-frozen before the field keep dispatching, while a contract that froze a revision
-in an environment that can no longer produce one is refused — an unprovable
-profile is drift, not a pass.
+unit spawn, and any state write. Current prepared contracts use
+`fanout_contract/v2`; an absent frozen revision remains "not gated" only after
+an older v1 artifact is explicitly upgraded through the operator migration
+path. A contract that froze a revision in an environment that can no longer
+produce one is refused — an unprovable profile is drift, not a pass.
 
 The ordering is the guarantee, not an implementation detail. Both re-checks run
 before any confirmation is requested, so a user is never asked to approve work

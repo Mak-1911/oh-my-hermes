@@ -24,7 +24,7 @@ from omh.paths import resolve_paths
 from omh.plugin_bundle.omh.memory_governance import canonical_payload_digest
 from omh.record_revision import MAX_MUTATION_ID_CHARS
 from omh.routing.intent import classify_omh_quality_intent
-from omh.skill_pack import CORE_PROFILE_SKILLS, builtin_skill_reference_templates, builtin_skill_templates
+from omh.skill_pack import builtin_skill_reference_templates, builtin_skill_templates
 from omh.skills.catalog import builtin_harnesses, installable_skill_names
 from omh.wrapper.localized_copy import detect_copy_locale
 from omh.wrapper_sessions import (
@@ -396,10 +396,10 @@ class CliTests(unittest.TestCase):
     def test_coding_delegate_local_workflow_profile_matrix(self) -> None:
         cases = (
             ("codex", "$ai-slop-cleaner clean delegation code", "executor_handoff", "ai-slop-cleaner", "command_template", "$ai-slop-cleaner {message}", True),
-            ("omx-runtime", "$ultragoal complete the goal", "runtime_handoff", "ultragoal", "display_only", "$ultragoal {message}", False),
-            ("omo-runtime", "$ultragoal complete the goal", "runtime_handoff", "ultragoal", "skill_reference", "", False),
-            ("omc-runtime", "$ultragoal complete the goal", "runtime_handoff", "ultragoal", "descriptor_only", "", False),
-            ("hermes", "$ultragoal complete the goal", "runtime_handoff", "ultragoal", "display_only", "/ulw-goal {message}", False),
+            ("omx-runtime", "$ultrawork complete the goal", "runtime_handoff", "ultrawork", "display_only", "$ultrawork {message}", False),
+            ("omo-runtime", "$ultrawork complete the goal", "runtime_handoff", "ultrawork", "skill_reference", "", False),
+            ("omc-runtime", "$ultrawork complete the goal", "runtime_handoff", "ultrawork", "descriptor_only", "", False),
+            ("hermes", "$ultrawork complete the goal", "runtime_handoff", "ultrawork", "display_only", "/ulw-work {message}", False),
         )
 
         for profile, message, lane, workflow, mode, template, handoff_dispatchable in cases:
@@ -434,7 +434,7 @@ class CliTests(unittest.TestCase):
         observations = (
             ("matching", "host_observed", "codex", "ai-slop-cleaner", "observed_available", True),
             ("profile-mismatch", "host_observed", "omx-runtime", "ai-slop-cleaner", "unknown", False),
-            ("skill-mismatch", "host_observed", "codex", "ultragoal", "unknown", False),
+            ("skill-mismatch", "host_observed", "codex", "ultraqa", "unknown", False),
             ("unavailable", "unavailable", "codex", "ai-slop-cleaner", "observed_unavailable", False),
         )
 
@@ -717,10 +717,10 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(stderr, "")
                 payload = json.loads(stdout)
                 route_hint = payload["route_hint"]
-                self.assertEqual(route_hint["primary_workflow"], "ultraprocess")
+                self.assertEqual(route_hint["primary_workflow"], "ultrawork")
                 self.assertEqual(route_hint["primary_next_action"], "prepare_one_cycle_delivery")
                 self.assertNotEqual(route_hint["hints"][0]["workflow"], "feedback-triage")
-                self.assertIn("selected=ultraprocess", payload["prompt_context"])
+                self.assertIn("selected=ultrawork", payload["prompt_context"])
                 self.assertIn("not workflow execution", route_hint["claim_boundary"])
                 self.assertFalse(payload["message"]["raw_prompt_echoed"])
                 self.assertFalse(payload["message"]["raw_prompt_stored"])
@@ -2879,7 +2879,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(status, 0, stderr)
             self.assertEqual(stderr, "")
             self.assertIn("刷新 OMH 工作流包", stdout)
-            self.assertIn(f"已准备 {len(CORE_PROFILE_SKILLS)} 个工作流", stdout)
+            self.assertIn(f"已准备 {len(builtin_skill_templates())} 个工作流", stdout)
             self.assertIn("OMH install 已完成。", stdout)
 
     def test_setup_reports_status_helper_conflict_in_plain_language(self) -> None:
@@ -2929,7 +2929,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(stderr, "")
             self.assertIn("Installing OMH workflows", stdout)
             self.assertIn("OMH install complete.", stdout)
-            self.assertIn(f"OMH workflows: {len(CORE_PROFILE_SKILLS)} ready", stdout)
+            self.assertIn(f"OMH workflows: {len(builtin_skill_templates())} ready", stdout)
             self.assertIn("Run `omh setup`", stdout)
             with self.assertRaises(json.JSONDecodeError):
                 json.loads(stdout)
@@ -2983,7 +2983,589 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(state["last_update"]["operation"], "update")
             self.assertEqual(state["last_update"]["command_package"]["status"], "not_updated")
             self.assertEqual(state["last_update"]["release_update"]["status"], "refreshed")
-            self.assertEqual(state["last_update"]["managed_skills"]["count"], len(CORE_PROFILE_SKILLS))
+            self.assertEqual(state["last_update"]["managed_skills"]["count"], len(builtin_skill_templates()))
+
+    def test_package_manager_update_uses_native_command_guidance(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = ["--omh-home", str(root / ".omh")]
+            with patch.dict(
+                os.environ,
+                {
+                    "OMH_COMMAND_PACKAGE_MANAGER": "npm",
+                    setup_commands.SELF_UPDATE_SKIP_ENV: "1",
+                },
+            ):
+                status, stdout, stderr = run_cli(
+                    base + ["update"],
+                    output_json=False,
+                )
+                json_status, json_stdout, json_stderr = run_cli(
+                    base + ["update", "--json"],
+                    output_json=False,
+                )
+                updated_status, updated_stdout, updated_stderr = run_cli(
+                    base
+                    + [
+                        "update",
+                        "--command-package-updated",
+                        "--json",
+                    ],
+                    output_json=False,
+                )
+
+        self.assertEqual(status, 0, stderr)
+        self.assertEqual(json_status, 0, json_stderr)
+        self.assertEqual(updated_status, 0, updated_stderr)
+        self.assertIn("npm update -g oh-my-hermes", stdout)
+        self.assertNotIn("install.sh", stdout)
+        payload = json.loads(json_stdout)
+        self.assertEqual(
+            payload["command_package"]["package_manager"],
+            "npm",
+        )
+        self.assertEqual(
+            payload["command_package"]["update_instruction"],
+            "npm update -g oh-my-hermes",
+        )
+        updated = json.loads(updated_stdout)
+        self.assertEqual(updated["command_package"]["status"], "updated")
+        self.assertTrue(updated["command_package"]["updated"])
+        self.assertEqual(updated["command_package"]["source"], "npm")
+
+    def test_package_manager_update_plans_native_self_update(self) -> None:
+        args = Namespace(
+            command_package_updated=False,
+            dry_run=False,
+            from_skills_dir=None,
+            source=None,
+            channel="preview",
+            version="",
+            package_url="",
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package_root = root / "oh-my-hermes"
+            entrypoint = package_root / "bin" / "omh.js"
+            entrypoint.parent.mkdir(parents=True)
+            entrypoint.write_text("export {};\n", encoding="utf-8")
+            (package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "oh-my-hermes",
+                        "version": setup_commands.__version__,
+                        "bin": {"omh": "bin/omh.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime = root / "node"
+            runtime.touch()
+
+            cases = (
+                (
+                    "npm",
+                    root / "npm",
+                    [
+                        str(root / "npm"),
+                        "update",
+                        "-g",
+                        "oh-my-hermes",
+                    ],
+                ),
+                (
+                    "bun",
+                    root / "bun",
+                    [
+                        str(root / "bun"),
+                        "update",
+                        "-g",
+                        "--latest",
+                        "oh-my-hermes",
+                    ],
+                ),
+            )
+            for manager, executable, expected_command in cases:
+                executable.touch()
+                with self.subTest(manager=manager):
+                    launcher_env = {
+                        setup_commands.COMMAND_PACKAGE_MANAGER_ENV: manager,
+                        setup_commands.COMMAND_PACKAGE_ROOT_ENV: str(
+                            package_root
+                        ),
+                        setup_commands.COMMAND_PACKAGE_RUNTIME_ENV: str(
+                            runtime
+                        ),
+                        setup_commands.COMMAND_PACKAGE_ENTRYPOINT_ENV: str(
+                            entrypoint
+                        ),
+                        setup_commands.SELF_UPDATE_SKIP_ENV: "",
+                    }
+                    with (
+                        patch.dict(os.environ, launcher_env),
+                        patch.object(
+                            setup_commands.shutil,
+                            "which",
+                            return_value=str(executable),
+                        ),
+                    ):
+                        plan = (
+                            setup_commands._command_package_self_update_plan(
+                                args
+                            )
+                        )
+
+                    self.assertTrue(plan["should_update"])
+                    self.assertEqual(plan["method"], "package_manager")
+                    self.assertEqual(plan["package_manager"], manager)
+                    self.assertEqual(
+                        plan["update_command"],
+                        expected_command,
+                    )
+                    self.assertEqual(
+                        plan["reentry_command"],
+                        [
+                            str(runtime.resolve()),
+                            str(entrypoint.resolve()),
+                        ],
+                    )
+
+    def test_package_manager_env_without_launcher_contract_is_guidance_only(
+        self,
+    ) -> None:
+        args = Namespace(
+            command_package_updated=False,
+            dry_run=False,
+            from_skills_dir=None,
+            source=None,
+            channel="preview",
+            version="",
+            package_url="",
+        )
+        env = {
+            setup_commands.COMMAND_PACKAGE_MANAGER_ENV: "npm",
+            setup_commands.COMMAND_PACKAGE_ROOT_ENV: "",
+            setup_commands.COMMAND_PACKAGE_RUNTIME_ENV: "",
+            setup_commands.COMMAND_PACKAGE_ENTRYPOINT_ENV: "",
+            setup_commands.SELF_UPDATE_SKIP_ENV: "",
+        }
+        with (
+            patch.dict(os.environ, env),
+            patch.object(
+                setup_commands,
+                "_managed_command_runtime",
+                return_value={
+                    "managed": False,
+                    "reason": "not installer-managed",
+                },
+            ),
+            patch.object(
+                setup_commands.shutil,
+                "which",
+                return_value="/usr/local/bin/npm",
+            ),
+        ):
+            plan = setup_commands._command_package_self_update_plan(args)
+
+        self.assertFalse(plan["should_update"])
+        self.assertEqual(plan["reason"], "not installer-managed")
+
+    def test_package_manager_missing_executable_keeps_workflow_update(
+        self,
+    ) -> None:
+        args = Namespace(
+            command_package_updated=False,
+            dry_run=False,
+            from_skills_dir=None,
+            source=None,
+            channel="preview",
+            version="",
+            package_url="",
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package_root = root / "oh-my-hermes"
+            entrypoint = package_root / "bin" / "omh.js"
+            entrypoint.parent.mkdir(parents=True)
+            entrypoint.write_text("export {};\n", encoding="utf-8")
+            (package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "oh-my-hermes",
+                        "version": setup_commands.__version__,
+                        "bin": {"omh": "bin/omh.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime = root / "node"
+            runtime.touch()
+            env = {
+                setup_commands.COMMAND_PACKAGE_MANAGER_ENV: "npm",
+                setup_commands.COMMAND_PACKAGE_ROOT_ENV: str(package_root),
+                setup_commands.COMMAND_PACKAGE_RUNTIME_ENV: str(runtime),
+                setup_commands.COMMAND_PACKAGE_ENTRYPOINT_ENV: str(
+                    entrypoint
+                ),
+                setup_commands.SELF_UPDATE_SKIP_ENV: "",
+            }
+            with (
+                patch.dict(os.environ, env),
+                patch.object(
+                    setup_commands.shutil,
+                    "which",
+                    return_value=None,
+                ),
+            ):
+                plan = setup_commands._command_package_self_update_plan(
+                    args
+                )
+
+        self.assertFalse(plan["should_update"])
+        self.assertIn("npm", str(plan["reason"]))
+        self.assertIn("not available", str(plan["reason"]))
+
+    def test_unsafe_package_manager_shim_keeps_workflow_update(self) -> None:
+        args = Namespace(
+            command_package_updated=False,
+            dry_run=False,
+            from_skills_dir=None,
+            source=None,
+            channel="preview",
+            version="",
+            package_url="",
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package_root = root / "oh-my-hermes"
+            entrypoint = package_root / "bin" / "omh.js"
+            entrypoint.parent.mkdir(parents=True)
+            entrypoint.write_text("export {};\n", encoding="utf-8")
+            (package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "oh-my-hermes",
+                        "version": setup_commands.__version__,
+                        "bin": {"omh": "bin/omh.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime = root / "node"
+            runtime.touch()
+            manager = root / "npm.cmd"
+            manager.touch()
+            env = {
+                setup_commands.COMMAND_PACKAGE_MANAGER_ENV: "npm",
+                setup_commands.COMMAND_PACKAGE_ROOT_ENV: str(package_root),
+                setup_commands.COMMAND_PACKAGE_RUNTIME_ENV: str(runtime),
+                setup_commands.COMMAND_PACKAGE_ENTRYPOINT_ENV: str(
+                    entrypoint
+                ),
+                setup_commands.SELF_UPDATE_SKIP_ENV: "",
+            }
+            with (
+                patch.dict(os.environ, env),
+                patch.object(
+                    setup_commands.shutil,
+                    "which",
+                    return_value=str(manager),
+                ),
+                patch.object(
+                    setup_commands,
+                    "_package_manager_update_command",
+                    side_effect=OmhError("unsafe manager shim"),
+                ),
+            ):
+                plan = setup_commands._command_package_self_update_plan(
+                    args
+                )
+
+        self.assertFalse(plan["should_update"])
+        self.assertEqual(plan["reason"], "unsafe manager shim")
+
+    def test_package_manager_rejects_explicit_release_metadata(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package_root = root / "oh-my-hermes"
+            entrypoint = package_root / "bin" / "omh.js"
+            entrypoint.parent.mkdir(parents=True)
+            entrypoint.write_text("export {};\n", encoding="utf-8")
+            (package_root / "package.json").write_text(
+                json.dumps(
+                    {
+                        "name": "oh-my-hermes",
+                        "version": setup_commands.__version__,
+                        "bin": {"omh": "bin/omh.js"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime = root / "node"
+            runtime.touch()
+            manager = root / "npm"
+            manager.touch()
+            env = {
+                setup_commands.COMMAND_PACKAGE_MANAGER_ENV: "npm",
+                setup_commands.COMMAND_PACKAGE_ROOT_ENV: str(package_root),
+                setup_commands.COMMAND_PACKAGE_RUNTIME_ENV: str(runtime),
+                setup_commands.COMMAND_PACKAGE_ENTRYPOINT_ENV: str(
+                    entrypoint
+                ),
+                setup_commands.SELF_UPDATE_SKIP_ENV: "",
+            }
+            args = Namespace(
+                command_package_updated=False,
+                dry_run=False,
+                from_skills_dir=None,
+                source=None,
+                channel="stable",
+                version="1.0.5",
+                package_url="",
+                source_ref="",
+            )
+            with (
+                patch.dict(os.environ, env),
+                patch.object(
+                    setup_commands.shutil,
+                    "which",
+                    return_value=str(manager),
+                ),
+                self.assertRaisesRegex(
+                    OmhError,
+                    "default published update only",
+                ),
+            ):
+                setup_commands._command_package_self_update_plan(args)
+
+    def test_package_manager_self_update_runs_native_command_and_reenters_omh(
+        self,
+    ) -> None:
+        args = Namespace(json=True)
+        plan = {
+            "method": "package_manager",
+            "package_manager": "npm",
+            "update_instruction": "npm update -g oh-my-hermes",
+            "update_command": [
+                "/usr/local/bin/npm",
+                "update",
+                "-g",
+                "oh-my-hermes",
+            ],
+            "reentry_command": ["/usr/local/bin/omh"],
+        }
+        updated = subprocess.CompletedProcess(
+            args=["npm"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+        reentered = subprocess.CompletedProcess(
+            args=["omh"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+        with patch.object(
+            setup_commands.subprocess,
+            "run",
+            side_effect=[updated, reentered],
+        ) as run:
+            with patch.object(
+                setup_commands.sys,
+                "argv",
+                [
+                    "omh",
+                    "--omh-home",
+                    r"C:\safe&sound\omh",
+                    "update",
+                    "--json",
+                ],
+            ):
+                status = setup_commands._run_command_package_self_update(
+                    args,
+                    plan,
+                )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            run.call_args_list[0].args[0],
+            plan["update_command"],
+        )
+        reentry_args = run.call_args_list[1].args[0]
+        self.assertEqual(reentry_args[:1], ["/usr/local/bin/omh"])
+        self.assertIn("update", reentry_args)
+        self.assertIn("--json", reentry_args)
+        self.assertIn("--command-package-updated", reentry_args)
+        self.assertIn(r"C:\safe&sound\omh", reentry_args)
+        self.assertEqual(
+            run.call_args_list[1].kwargs["env"][
+                setup_commands.SELF_UPDATE_REENTRY_ENV
+            ],
+            "1",
+        )
+
+    def test_package_manager_update_failure_stops_before_reentry(self) -> None:
+        args = Namespace(json=True)
+        plan = {
+            "method": "package_manager",
+            "package_manager": "bun",
+            "update_instruction": "bun update -g --latest oh-my-hermes",
+            "update_command": [
+                "/usr/local/bin/bun",
+                "update",
+                "-g",
+                "--latest",
+                "oh-my-hermes",
+            ],
+            "reentry_command": ["/usr/local/bin/omh"],
+        }
+        failed = subprocess.CompletedProcess(
+            args=["bun"],
+            returncode=1,
+            stdout="",
+            stderr="\x1b[31mregistry unavailable\x1b[0m" + ("x" * 3_000),
+        )
+
+        with patch.object(
+            setup_commands.subprocess,
+            "run",
+            return_value=failed,
+        ) as run:
+            with self.assertRaisesRegex(
+                OmhError,
+                "registry unavailable",
+            ) as raised:
+                setup_commands._run_command_package_self_update(args, plan)
+
+        run.assert_called_once()
+        self.assertNotIn("\x1b", str(raised.exception))
+        self.assertLess(len(str(raised.exception)), 2_100)
+
+    @requires_posix
+    def test_homebrew_runtime_uses_native_update_guidance(self) -> None:
+        args = Namespace(
+            command_package_updated=False,
+            dry_run=False,
+            from_skills_dir=None,
+            source=None,
+            channel="preview",
+            version="",
+            package_url="",
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prefix = root / "Cellar" / "omh" / "1.0.5" / "libexec"
+            prefix.mkdir(parents=True)
+            brew = root / "bin" / "brew"
+            omh = root / "bin" / "omh"
+            brew.parent.mkdir()
+            brew.touch()
+            installed_omh = prefix / "bin" / "omh"
+            installed_omh.parent.mkdir()
+            installed_omh.touch()
+            omh.symlink_to(installed_omh)
+            with (
+                patch.dict(os.environ, {}, clear=False),
+                patch.object(
+                    setup_commands.sys,
+                    "prefix",
+                    str(prefix),
+                ),
+            ):
+                os.environ.pop("OMH_COMMAND_PACKAGE_MANAGER", None)
+                package_manager, instruction = (
+                    setup_commands._command_package_update_guidance()
+                )
+                plan = setup_commands._command_package_self_update_plan(
+                    args
+                )
+
+        self.assertEqual(package_manager, "homebrew")
+        self.assertEqual(instruction, "brew upgrade rlaope/tap/omh")
+        self.assertTrue(plan["should_update"])
+        self.assertEqual(plan["package_manager"], "homebrew")
+        self.assertEqual(
+            plan["update_command"],
+            [
+                str(brew),
+                "upgrade",
+                "rlaope/tap/omh",
+            ],
+        )
+        self.assertEqual(plan["reentry_command"], [str(omh)])
+
+    @requires_posix
+    def test_homebrew_like_prefix_without_linked_formula_is_guidance_only(
+        self,
+    ) -> None:
+        args = Namespace(
+            command_package_updated=False,
+            dry_run=False,
+            from_skills_dir=None,
+            source=None,
+            channel="preview",
+            version="",
+            package_url="",
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prefix = root / "Cellar" / "omh" / "1.0.5" / "libexec"
+            prefix.mkdir(parents=True)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "brew").touch()
+            (bin_dir / "omh").touch()
+            with (
+                patch.dict(os.environ, {}, clear=False),
+                patch.object(setup_commands.sys, "prefix", str(prefix)),
+                patch.object(
+                    setup_commands,
+                    "_managed_command_runtime",
+                    return_value={
+                        "managed": False,
+                        "reason": "not installer-managed",
+                    },
+                ),
+            ):
+                os.environ.pop("OMH_COMMAND_PACKAGE_MANAGER", None)
+                plan = setup_commands._command_package_self_update_plan(
+                    args
+                )
+
+        self.assertFalse(plan["should_update"])
+        self.assertEqual(plan["reason"], "not installer-managed")
+
+    def test_windows_npm_cmd_uses_node_cli_without_command_shell(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / "node.exe"
+            runtime.touch()
+            npm_cmd = root / "npm.cmd"
+            npm_cmd.touch()
+            npm_cli = root / "node_modules" / "npm" / "bin" / "npm-cli.js"
+            npm_cli.parent.mkdir(parents=True)
+            npm_cli.touch()
+
+            command = setup_commands._package_manager_update_command(
+                "npm",
+                str(npm_cmd),
+                runtime=str(runtime),
+                platform="nt",
+            )
+
+        self.assertEqual(
+            command,
+            [
+                str(runtime),
+                str(npm_cli),
+                "update",
+                "-g",
+                "oh-my-hermes",
+            ],
+        )
+        self.assertNotIn("cmd.exe", command)
 
     def test_update_self_update_reenters_with_command_package_marker(self) -> None:
         args = Namespace(json=True)
@@ -3011,6 +3593,51 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn("--command-package-updated", reentry_args)
         self.assertEqual(run.call_args_list[1].kwargs["env"][setup_commands.SELF_UPDATE_REENTRY_ENV], "1")
 
+    def test_stable_self_update_downloads_the_release_wheel(self) -> None:
+        # The tag archive is ~44 MB of assets, tests, and site; the wheel is
+        # ~2.7 MB. This is the URL `omh update --channel stable` hands pip.
+        args = Namespace(json=True)
+        release = setup_commands.package_url_for("stable", "1.0.6")
+        plan = {"release": release, "python": sys.executable}
+        first = subprocess.CompletedProcess(args=["pip"], returncode=0, stdout="", stderr="")
+        second = subprocess.CompletedProcess(args=["omh"], returncode=0, stdout="", stderr="")
+
+        with patch.object(setup_commands.subprocess, "run", side_effect=[first, second]):
+            with patch.object(setup_commands.sys, "argv", ["omh", "update", "--json"]):
+                status = setup_commands._run_command_package_self_update(args, plan)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            release.package_url,
+            "https://github.com/rlaope/oh-my-hermes/releases/download/v1.0.6/"
+            "oh_my_hermes-1.0.6-py3-none-any.whl",
+        )
+
+    def test_a_failed_wheel_update_names_the_archive_fallback(self) -> None:
+        # v1.0.3 through v1.0.5 published no wheel asset, so pip answers with a
+        # bare 404 against a URL the user never typed. The failure has to name
+        # the archive that does exist for the same tag.
+        args = Namespace(json=True)
+        plan = {
+            "release": setup_commands.package_url_for("stable", "1.0.4"),
+            "python": sys.executable,
+        }
+        failed = subprocess.CompletedProcess(
+            args=["pip"], returncode=1, stdout="", stderr="ERROR: HTTP error 404"
+        )
+
+        with patch.object(setup_commands.subprocess, "run", side_effect=[failed]):
+            with self.assertRaises(OmhError) as raised:
+                setup_commands._run_command_package_self_update(args, plan)
+
+        message = str(raised.exception)
+        self.assertIn("404", message)
+        self.assertIn("--package-url", message)
+        self.assertIn(
+            "https://github.com/rlaope/oh-my-hermes/archive/refs/tags/v1.0.4.zip",
+            message,
+        )
+
     def test_update_self_update_skips_local_channel_without_package_source(self) -> None:
         args = Namespace(
             command_package_updated=False,
@@ -3031,6 +3658,259 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
 
         self.assertFalse(plan["should_update"])
         self.assertIn("local updates require", plan["reason"])
+
+    def test_update_explicit_skill_source_skips_other_managed_layers(
+        self,
+    ) -> None:
+        args = Namespace(
+            from_skills_dir="/tmp/local-skills",
+            source=None,
+        )
+        with (
+            patch.object(
+                setup_commands,
+                "_command_package_self_update_plan",
+                return_value={"should_update": False},
+            ),
+            patch.object(
+                setup_commands,
+                "cmd_install",
+                return_value=0,
+            ),
+            patch.object(
+                setup_commands,
+                "_refresh_installed_plugin_bundle",
+            ) as plugin_refresh,
+            patch.object(
+                setup_commands,
+                "_refresh_hermes_registration",
+            ) as registration_refresh,
+            patch.object(
+                setup_commands,
+                "_refresh_installed_tui_widget",
+            ) as widget_refresh,
+            patch.object(
+                setup_commands,
+                "_refresh_installed_menubar_app",
+            ) as menubar_refresh,
+        ):
+            status = setup_commands.cmd_update(args)
+
+        self.assertEqual(status, 0)
+        plugin_refresh.assert_not_called()
+        registration_refresh.assert_not_called()
+        widget_refresh.assert_called_once_with(args)
+        menubar_refresh.assert_called_once_with(args)
+
+    def test_update_refreshes_an_existing_native_menubar_install(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app_dir = root / ".omh" / "menubar"
+            app_dir.mkdir(parents=True)
+            executable = app_dir / "omh-menubar"
+            executable.touch()
+            launch_agent = root / "Library" / "LaunchAgents" / "com.rlaope.omh.menubar.plist"
+            launch_agent.parent.mkdir(parents=True)
+            launch_agent.touch()
+            args = Namespace(
+                omh_home=str((root / ".omh").resolve()),
+                hermes_home=str((root / ".hermes").resolve()),
+                scope=None,
+                dry_run=False,
+                force=False,
+            )
+            with (
+                patch.object(
+                    setup_commands,
+                    "is_managed_menubar_install",
+                    return_value=True,
+                ),
+                patch.object(
+                    setup_commands,
+                    "setup_menubar_app",
+                    return_value={"status": "running"},
+                ) as setup_menubar,
+            ):
+                result = setup_commands._refresh_installed_menubar_app(args)
+
+        self.assertEqual(result, {"status": "running"})
+        setup_menubar.assert_called_once()
+        called_paths = setup_menubar.call_args.args[0]
+        self.assertEqual(called_paths.omh_home, (root / ".omh").resolve())
+        self.assertEqual(
+            setup_menubar.call_args.kwargs,
+            {"dry_run": False, "start": True, "force": False},
+        )
+
+    def test_update_does_not_install_the_native_menubar_for_the_first_time(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = Namespace(
+                omh_home=str(root / ".omh"),
+                hermes_home=str(root / ".hermes"),
+                scope=None,
+                dry_run=False,
+                force=False,
+            )
+            with (
+                patch.object(
+                    setup_commands,
+                    "is_managed_menubar_install",
+                    return_value=False,
+                ),
+                patch.object(setup_commands, "setup_menubar_app") as setup_menubar,
+            ):
+                result = setup_commands._refresh_installed_menubar_app(args)
+
+        self.assertIsNone(result)
+        setup_menubar.assert_not_called()
+
+    def test_update_does_not_take_over_another_menubar_install(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app_dir = root / ".omh" / "menubar"
+            app_dir.mkdir(parents=True)
+            executable = app_dir / "omh-menubar"
+            executable.touch()
+            launch_agent = root / "Library" / "LaunchAgents" / "com.rlaope.omh.menubar.plist"
+            launch_agent.parent.mkdir(parents=True)
+            launch_agent.touch()
+            args = Namespace(
+                omh_home=str(root / ".omh"),
+                hermes_home=str(root / ".hermes"),
+                scope=None,
+                dry_run=False,
+                force=False,
+            )
+            with (
+                patch.object(
+                    setup_commands,
+                    "is_managed_menubar_install",
+                    return_value=False,
+                ),
+                patch.object(setup_commands, "setup_menubar_app") as setup_menubar,
+            ):
+                result = setup_commands._refresh_installed_menubar_app(args)
+
+        self.assertIsNone(result)
+        setup_menubar.assert_not_called()
+
+    def test_update_survives_an_optional_menubar_rebuild_failure(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app_dir = root / ".omh" / "menubar"
+            app_dir.mkdir(parents=True)
+            executable = app_dir / "omh-menubar"
+            executable.touch()
+            launch_agent = root / "Library" / "LaunchAgents" / "com.rlaope.omh.menubar.plist"
+            launch_agent.parent.mkdir(parents=True)
+            launch_agent.touch()
+            args = Namespace(
+                omh_home=str((root / ".omh").resolve()),
+                hermes_home=str((root / ".hermes").resolve()),
+                scope=None,
+                dry_run=False,
+                force=False,
+            )
+            for failure in (RuntimeError("swiftc failed"), OSError("write failed")):
+                with self.subTest(error=type(failure).__name__):
+                    with (
+                        patch.object(
+                            setup_commands,
+                            "is_managed_menubar_install",
+                            return_value=True,
+                        ),
+                        patch.object(
+                            setup_commands,
+                            "setup_menubar_app",
+                            side_effect=failure,
+                        ),
+                        patch("sys.stderr", new_callable=io.StringIO) as stderr,
+                    ):
+                        result = setup_commands._refresh_installed_menubar_app(args)
+
+                    self.assertEqual(result, {"status": "failed", "reason": str(failure)})
+                    self.assertIn("menu bar helper was not refreshed", stderr.getvalue())
+
+    def test_update_reports_an_installed_menubar_restart_failure(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = Namespace(
+                omh_home=str((root / ".omh").resolve()),
+                hermes_home=str((root / ".hermes").resolve()),
+                scope=None,
+                dry_run=False,
+                force=False,
+            )
+            failed_result = {
+                "status": "installed_start_failed",
+                "start_message": "launchctl bootstrap failed",
+            }
+            with (
+                patch.object(
+                    setup_commands,
+                    "is_managed_menubar_install",
+                    return_value=True,
+                ),
+                patch.object(
+                    setup_commands,
+                    "setup_menubar_app",
+                    return_value=failed_result,
+                ),
+                patch("sys.stderr", new_callable=io.StringIO) as stderr,
+            ):
+                result = setup_commands._refresh_installed_menubar_app(args)
+
+        self.assertEqual(result, failed_result)
+        self.assertIn("launchctl bootstrap failed", stderr.getvalue())
+
+    @unittest.skipIf(sys.platform == "win32", "symlink privileges vary on Windows")
+    def test_update_rejects_a_symlinked_raw_omh_home(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            real_home = root / "real-home"
+            real_home.mkdir()
+            aliased_home = root / "aliased-home"
+            aliased_home.symlink_to(real_home, target_is_directory=True)
+            canonical_omh = str((root / "canonical-omh").resolve())
+            canonical_hermes = str((root / "canonical-hermes").resolve())
+            cases = (
+                ("direct_omh", str(aliased_home / ".omh"), canonical_hermes, {}),
+                ("expanded_omh", "$OMH_ALIAS_ROOT/.omh", canonical_hermes, {}),
+                ("default_omh", None, canonical_hermes, {"OMH_HOME": str(aliased_home / ".omh")}),
+                ("empty_omh", "", canonical_hermes, {"OMH_HOME": str(aliased_home / ".omh")}),
+                ("direct_hermes", canonical_omh, str(aliased_home / ".hermes"), {}),
+                ("default_hermes", canonical_omh, None, {"HERMES_HOME": str(aliased_home / ".hermes")}),
+                ("empty_hermes", canonical_omh, "", {"HERMES_HOME": str(aliased_home / ".hermes")}),
+            )
+            for name, configured_omh, configured_hermes, environment in cases:
+                with self.subTest(case=name):
+                    args = Namespace(
+                        omh_home=configured_omh,
+                        hermes_home=configured_hermes,
+                        scope=None,
+                        dry_run=False,
+                        force=False,
+                    )
+                    test_environment = {
+                        "OMH_ALIAS_ROOT": str(aliased_home),
+                        "OMH_HOME": canonical_omh,
+                        "HERMES_HOME": canonical_hermes,
+                        **environment,
+                    }
+                    with (
+                        patch.dict(os.environ, test_environment),
+                        patch.object(
+                            setup_commands,
+                            "is_managed_menubar_install",
+                            return_value=True,
+                        ),
+                        patch.object(setup_commands, "setup_menubar_app") as setup_menubar,
+                    ):
+                        result = setup_commands._refresh_installed_menubar_app(args)
+
+                    self.assertIsNone(result)
+                    setup_menubar.assert_not_called()
 
     def test_update_self_update_recognizes_venv_python_symlink_path(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -3437,8 +4317,8 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(gates["context_brief_coverage"]["status"], "passed")
             self.assertIn("10/10 context brief cases passing", gates["context_brief_coverage"]["summary"])
             self.assertEqual(gates["routing_precision"]["status"], "passed")
-            self.assertIn("63/63 negative-control cases", gates["routing_precision"]["summary"])
-            self.assertIn("173/173 interventions", gates["routing_precision"]["summary"])
+            self.assertIn("65/65 negative-control cases", gates["routing_precision"]["summary"])
+            self.assertIn("175/175 interventions", gates["routing_precision"]["summary"])
             self.assertIn("overroutes 0", gates["routing_precision"]["summary"])
             self.assertIn("missed interventions 0", gates["routing_precision"]["summary"])
             self.assertEqual(gates["localized_chat_copy"]["status"], "passed")
@@ -3492,7 +4372,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("Chat card coverage: 76/76 (generic ack 0)", stdout)
             self.assertIn("Context brief coverage: 10/10 (route hints 9, catalog hints 1)", stdout)
             self.assertIn(
-                "Routing precision: 63/63 negative controls, 173/173 interventions "
+                "Routing precision: 65/65 negative controls, 175/175 interventions "
                 "(overroutes 0, catalog pickers 0, generic ack 0, missed interventions 0)",
                 stdout,
             )
@@ -3526,11 +4406,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(payload["summary"]["route_hint_mismatch_count"], 0)
             self.assertEqual(payload["summary"]["context_brief_coverage_passing"], 10)
             self.assertEqual(payload["summary"]["context_brief_coverage_total"], 10)
-            self.assertEqual(payload["summary"]["routing_precision_passing"], 63)
-            self.assertEqual(payload["summary"]["routing_precision_total"], 63)
+            self.assertEqual(payload["summary"]["routing_precision_passing"], 65)
+            self.assertEqual(payload["summary"]["routing_precision_total"], 65)
             self.assertEqual(payload["summary"]["routing_precision_overroute_count"], 0)
-            self.assertEqual(payload["summary"]["routing_precision_intervention_passing"], 173)
-            self.assertEqual(payload["summary"]["routing_precision_intervention_total"], 173)
+            self.assertEqual(payload["summary"]["routing_precision_intervention_passing"], 175)
+            self.assertEqual(payload["summary"]["routing_precision_intervention_total"], 175)
             self.assertEqual(payload["summary"]["routing_precision_missed_intervention_count"], 0)
             self.assertEqual(payload["summary"]["localized_chat_copy_passing"], 8)
             self.assertEqual(payload["summary"]["localized_chat_copy_total"], 8)
@@ -4913,10 +5793,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 self.assertEqual(stderr, "")
                 self.assertEqual(status, 0)
                 recommendations = json.loads(stdout)["recommendations"]
-                self.assertEqual(recommendations[0]["skill"], "ultraprocess")
-                self.assertEqual(recommendations[0]["next_action"], "start_ultraprocess")
+                self.assertEqual(recommendations[0]["skill"], "ultrawork")
+                self.assertEqual(recommendations[0]["next_action"], "prepare_coding_runtime_handoff")
                 self.assertIn("guard:direct_coding_task", recommendations[0]["matched"])
-                self.assertIn("process orchestration", recommendations[0]["evidence_boundary"])
+                self.assertIn("prepared coding runtime handoff", recommendations[0]["evidence_boundary"])
 
         status, stdout, stderr = run_cli(["recommend", "결제 실패 이슈가 자주 나와", "--limit", "3"])
         self.assertEqual(stderr, "")
@@ -4938,7 +5818,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             [
                 ("research", "research"),
                 ("plan", "ralplan"),
-                ("deliver", "ultraprocess"),
+                ("deliver", "ultrawork"),
                 ("review", "code-review"),
             ],
         )
@@ -5013,11 +5893,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 self.assertEqual(stderr, "")
                 self.assertEqual(status, 0)
                 recommendations = json.loads(stdout)["recommendations"]
-                self.assertEqual(recommendations[0]["skill"], "ultraprocess")
-                self.assertEqual(recommendations[0]["next_action"], "start_ultraprocess")
+                self.assertEqual(recommendations[0]["skill"], "ultrawork")
+                self.assertEqual(recommendations[0]["next_action"], "prepare_coding_runtime_handoff")
                 self.assertIn("guard:omh_quality_improvement_loop", recommendations[0]["matched"])
                 self.assertNotEqual(recommendations[0]["skill"], "feedback-triage")
-                self.assertIn("process orchestration", recommendations[0]["evidence_boundary"])
+                self.assertIn("prepared coding runtime handoff", recommendations[0]["evidence_boundary"])
 
     def test_recommend_customer_bug_feedback_stays_feedback_triage(self) -> None:
         cases = (
@@ -5637,10 +6517,9 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                 self.assertEqual(stderr, "")
                 self.assertEqual(status, 0)
                 top = json.loads(stdout)["recommendations"][0]
-                self.assertEqual(top["skill"], "ultraprocess")
-                self.assertEqual(top["next_action"], "start_ultraprocess")
-                self.assertIn("process orchestration", top["evidence_boundary"])
-                self.assertIn("prepared_not_observed", top["wrapper_guidance"])
+                self.assertEqual(top["skill"], "ultrawork")
+                self.assertEqual(top["next_action"], "prepare_coding_runtime_handoff")
+                self.assertIn("prepared coding runtime handoff", top["evidence_boundary"])
 
     def test_recommend_build_failure_triage_beats_verification_gate(self) -> None:
         message = "CI failed on Python 3.12 test with pytest failure and PR checks failed; triage the build failure"
@@ -6759,7 +7638,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ("deploy and monitor this release with rollback and health checks", "deploy-and-monitor", "deploy_monitor_plan", "prepare_deploy_monitor_plan"),
             ("./loop make this project a 10k star OSS", "loop", "loop", "start_loop_cycle"),
             ("현재 repo 설치 후 10분 안에 가치 못 느끼는 이유를 줄여가며 개선해줘", "loop", "loop", "choose_permission_profile"),
-            ("research the repo, plan, implement, code-review, sync docs, and prepare a PR", "ultraprocess", "handoff", "choose_executor"),
+            ("research the repo, plan, implement, code-review, sync docs, and prepare a PR", "ultrawork", "handoff", "choose_executor"),
             ("Hermes가 기억하는 맥락을 점검하고 정리해줘", "memory-sync", "memory_curation", "prepare_memory_sync"),
             ("Hermes가 기억하는 내용 한번 점검하자", "memory-sync", "memory_curation", "prepare_memory_sync"),
             ("내가 말한 memory가 잘못 저장된 것 같아 정리해줘", "memory-sync", "memory_curation", "prepare_memory_sync"),
@@ -6771,11 +7650,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ("PPT 만들어줘", "materials-package", "materials_package", "prepare_material_package"),
             ("이 회의록을 발표자료로 만들어줘", "materials-package", "materials_package", "prepare_material_package"),
             ("첨부한 엑셀을 월간 보고서 PDF랑 PPT로 만들 수 있게 정리해줘", "materials-package", "materials_package", "prepare_material_package"),
-            ("Codex 작업이 어디까지 진행됐는지 알려줘", "ultraprocess", "handoff", "show_coding_handoff_status"),
-            ("코덱스가 지금 뭐하고있는지 알려줘", "ultraprocess", "handoff", "show_coding_handoff_status"),
-            ("지금 PR 머지 준비 됐는지 알려줘", "ultraprocess", "handoff", "show_coding_handoff_status"),
-            ("이 PR 리뷰어 코멘트 반영됐는지 보고 머지 준비해줘", "ultraprocess", "handoff", "show_coding_handoff_status"),
-            ("merge할때도 프리렌 author로 머지해", "ultraprocess", "handoff", "show_coding_handoff_status"),
+            ("Codex 작업이 어디까지 진행됐는지 알려줘", "ultrawork", "handoff", "show_coding_handoff_status"),
+            ("코덱스가 지금 뭐하고있는지 알려줘", "executor-runtime-readiness", "executor_runtime_readiness", "prepare_executor_runtime_readiness"),
+            ("지금 PR 머지 준비 됐는지 알려줘", "ultrawork", "handoff", "show_coding_handoff_status"),
+            ("이 PR 리뷰어 코멘트 반영됐는지 보고 머지 준비해줘", "ultrawork", "handoff", "show_coding_handoff_status"),
+            ("merge할때도 프리렌 author로 머지해", "ultrawork", "handoff", "show_coding_handoff_status"),
             ("今何してる？", "agent-ops-review", "agent_ops_review", "refresh_agent_ops_status"),
             ("现在在做什么？", "agent-ops-review", "agent_ops_review", "refresh_agent_ops_status"),
             ("qué está pasando?", "agent-ops-review", "agent_ops_review", "refresh_agent_ops_status"),
@@ -6790,7 +7669,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             ("claude code 연결돼 있어?", "executor-runtime-readiness", "executor_runtime_readiness", "prepare_executor_runtime_readiness"),
             ("I want to use codex as my coding agent", "executor-runtime-readiness", "executor_runtime_readiness", "prepare_executor_runtime_readiness"),
             ("코딩 에이전트 codex로 바꾸고 싶어", "executor-runtime-readiness", "executor_runtime_readiness", "prepare_executor_runtime_readiness"),
-            ("how do I see the current Codex session?", "ultraprocess", "handoff", "show_coding_handoff_status"),
+            ("how do I see the current Codex session?", "ultrawork", "handoff", "show_coding_handoff_status"),
             ("릴리즈 준비 상태 점검해줘", "code-review", "review_check", "prepare_review_or_followup_handoff"),
             ("실제 사용자처럼 QA 시나리오 돌려줘", "ultraqa", "qa_review", "dispatch_to_workflow"),
             ("루프 비용이랑 지연시간 상태 보여줘", "ops-observability-card", "ops_observability", "prepare_ops_observability_card"),
@@ -6848,7 +7727,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
                     5,
                 )
                 option_ids = {option["id"] for option in picker["options"]}
-                self.assertTrue({"oh-my-hermes", "deep-interview", "ralplan", "loop", "ultraprocess"} <= option_ids)
+                self.assertTrue({"oh-my-hermes", "deep-interview", "ralplan", "loop", "ultrawork"} <= option_ids)
                 self.assertEqual(picker["featured_options"][0]["id"], "oh-my-hermes")
                 families = {family["id"]: family for family in picker["capability_families"]}
                 self.assertIn("paper-learning", families["learn_and_gather"]["primary_workflows"])
@@ -7882,10 +8761,10 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             "research-to-strategy-brief",
         )
         self.assertEqual(direct["korean-github-issue-label-pr"]["observed"]["playbook"]["id"], "github-event-ops")
-        self.assertEqual(direct["coding-agent-progress-status"]["observed"]["playbook"]["id"], "ultraprocess")
-        self.assertEqual(direct["korean-pr-merge-readiness-status"]["observed"]["playbook"]["id"], "ultraprocess")
-        self.assertEqual(direct["korean-codex-progress-status"]["observed"]["playbook"]["id"], "ultraprocess")
-        self.assertEqual(direct["korean-codex-current-activity-status"]["observed"]["playbook"]["id"], "ultraprocess")
+        self.assertEqual(direct["coding-agent-progress-status"]["observed"]["playbook"]["id"], "ultrawork")
+        self.assertEqual(direct["korean-pr-merge-readiness-status"]["observed"]["playbook"]["id"], "ultrawork")
+        self.assertEqual(direct["korean-codex-progress-status"]["observed"]["playbook"]["id"], "ultrawork")
+        self.assertEqual(direct["korean-codex-current-activity-status"]["observed"]["playbook"]["id"], "ultrawork")
         self.assertEqual(
             direct["korean-claude-code-open-session"]["observed"]["playbook"]["id"],
             "executor-runtime-readiness",
@@ -11040,7 +11919,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
 
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full"])[0], 0)
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full"])[0], 0)
-            skill_file = omh_home / "skills" / "ulw-ralph" / "SKILL.md"
+            skill_file = omh_home / "skills" / "ultrawork" / "ulw-work" / "SKILL.md"
             skill_file.write_text(skill_file.read_text(encoding="utf-8") + "\nlocal edit\n", encoding="utf-8")
 
             status, _, stderr = run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full"])
@@ -11053,7 +11932,7 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertFalse(checks["local_modifications"]["ok"])
             self.assertEqual(checks["local_modifications"]["severity"], "blocking")
             self.assertIn("omh install --force", checks["local_modifications"]["next_action"])
-            self.assertIn("ralph/SKILL.md", checks["local_modifications"]["message"])
+            self.assertIn("ultrawork/ulw-work/SKILL.md", checks["local_modifications"]["message"])
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "install", "--full", "--force"])[0], 0)
 
     def test_doctor_reports_wrong_runtime_home(self) -> None:
@@ -11080,26 +11959,26 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
     def test_convert_from_local_skill_fixture(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            source = root / "local-skills" / "ralph"
+            source = root / "local-skills" / "loop"
             source.mkdir(parents=True)
             source.joinpath("SKILL.md").write_text(
-                "---\nname: ralph\ndescription: Upstream Ralph\n---\n# Ralph\nUse durable goal tools.\n",
+                "---\nname: loop\ndescription: Upstream Loop\n---\n# Loop\nUse durable goal tools.\n",
                 encoding="utf-8",
             )
             omh_home = root / ".omh"
 
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "convert", "--from-skills-dir", str(root / "local-skills")])[0], 0)
-            converted = (omh_home / "skills" / "ulw-ralph" / "SKILL.md").read_text(encoding="utf-8")
-            self.assertIn("description: [omh] Ralph - one owner drives", converted)
+            converted = (omh_home / "skills" / "ultrawork" / "ulw-loop" / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("description: [omh] Hermes Loop workflow", converted)
             self.assertIn("Hermes Compatibility Contract", converted)
 
     def test_mocked_source_install_update(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
-            source = root / "release-archive" / "team"
+            source = root / "release-archive" / "loop"
             source.mkdir(parents=True)
             source.joinpath("SKILL.md").write_text(
-                "---\nname: team\ndescription: Upstream Team\n---\n# Team\n",
+                "---\nname: loop\ndescription: Upstream Loop\n---\n# Loop\n",
                 encoding="utf-8",
             )
             omh_home = root / ".omh"
@@ -11109,11 +11988,11 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(first_manifest["source"], str((root / "release-archive").resolve()))
 
             source.joinpath("SKILL.md").write_text(
-                "---\nname: team\ndescription: Upstream Team\n---\n# Team\nUpdated.\n",
+                "---\nname: loop\ndescription: Upstream Loop\n---\n# Loop\nUpdated.\n",
                 encoding="utf-8",
             )
             self.assertEqual(run_cli(["--omh-home", str(omh_home), "update", "--source", str(root / "release-archive")])[0], 0)
-            updated = (omh_home / "skills" / "ulw-team" / "SKILL.md").read_text(encoding="utf-8")
+            updated = (omh_home / "skills" / "ultrawork" / "ulw-loop" / "SKILL.md").read_text(encoding="utf-8")
             self.assertIn("Updated.", updated)
 
     def test_release_channel_metadata_and_validation(self) -> None:
@@ -11127,7 +12006,15 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             dry_run = json.loads(stdout)
             self.assertEqual(dry_run["release_channel"], "stable")
             self.assertEqual(dry_run["release_source_ref"], "v1.0.0")
-            self.assertIn("/tags/v1.0.0.zip", dry_run["release_package_url"])
+            # Stable resolves the published wheel asset, not the tag archive:
+            # the archive is ~44 MB of assets/tests/site against ~2.7 MB for
+            # the wheel, and downloading it is what made `omh update` slow.
+            self.assertEqual(
+                dry_run["release_package_url"],
+                "https://github.com/rlaope/oh-my-hermes/releases/download/v1.0.0/"
+                "oh_my_hermes-1.0.0-py3-none-any.whl",
+            )
+            self.assertEqual(dry_run["release_artifact_kind"], "release-wheel")
 
             status, _, stderr = run_cli(["--omh-home", str(omh_home), "install", "--dry-run", "--channel", "stable"])
             self.assertEqual(status, 2)
@@ -11990,6 +12877,55 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertEqual(status, 2)
         self.assertIn("cannot be combined", stderr)
 
+    def test_docs_ulw_inventory_and_site_commands_generate_and_check(self) -> None:
+        status, stdout, stderr = run_cli(["docs", "ulw-inventory", "--json"])
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+        payload = json.loads(stdout)
+        self.assertEqual(payload["schema_version"], "omh_ulw_inventory/v1")
+        self.assertEqual(payload["counts"]["canonical"], len(payload["canonical_engines"]))
+        self.assertEqual(payload["counts"]["alias"], len(payload["alias_engines"]))
+        self.assertEqual(payload["counts"]["alias"], 0)
+
+        status, stdout, stderr = run_cli(["docs", "ulw-inventory", "--check"])
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+        self.assertTrue(json.loads(stdout)["ok"])
+
+        status, stdout, stderr = run_cli(["docs", "ulw-site", "--check"])
+        self.assertEqual(stderr, "")
+        self.assertEqual(status, 0)
+        self.assertTrue(json.loads(stdout)["ok"])
+
+        with TemporaryDirectory() as tmp:
+            stale_copy = Path(tmp) / "README.md"
+            stale_copy.write_text(
+                Path("README.md")
+                .read_text(encoding="utf-8")
+                .replace("| ⚡ `ulw-perf`", "| ⚡ `ulw-perf-hand-edited`"),
+                encoding="utf-8",
+            )
+            status, _, stderr = run_cli(["docs", "ulw-inventory", "--check", "--path", str(stale_copy)])
+            self.assertEqual(status, 2)
+            self.assertIn("stale", stderr)
+
+            status, stdout, stderr = run_cli(["docs", "ulw-inventory", "--path", str(stale_copy)])
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            self.assertIn("written", stdout)
+            status, _, stderr = run_cli(["docs", "ulw-inventory", "--check", "--path", str(stale_copy)])
+            self.assertEqual(status, 0)
+
+            no_markers = Path(tmp) / "NO_MARKERS.md"
+            no_markers.write_text("no generated region here\n", encoding="utf-8")
+            status, _, stderr = run_cli(["docs", "ulw-inventory", "--check", "--path", str(no_markers)])
+            self.assertEqual(status, 2)
+            self.assertIn("markers", stderr)
+
+        status, _, stderr = run_cli(["docs", "ulw-inventory", "--json", "--check"])
+        self.assertEqual(status, 2)
+        self.assertIn("cannot be combined", stderr)
+
     def test_harness_cli_lists_inspects_and_validates_contracts(self) -> None:
         status, stdout, stderr = run_cli(["harness", "list"])
         self.assertEqual(stderr, "")
@@ -12587,6 +13523,84 @@ class RuntimeReceiptsViewCliTests(unittest.TestCase):
                 with self.subTest(attempt=attempt), self.assertRaises(SystemExit):
                     run_cli(base + attempt, output_json=False)
             self.assertEqual(read_external_effect_receipts(paths), [])
+
+
+class RuntimeTodoCliTests(unittest.TestCase):
+    def test_runtime_todo_set_show_clear_round_trip(self) -> None:
+        with TemporaryDirectory() as tmp:
+            omh_home = str(Path(tmp) / ".omh")
+            base = ["--omh-home", omh_home, "runtime", "todo"]
+
+            status, stdout, stderr = run_cli(
+                base
+                + [
+                    "set",
+                    "--title",
+                    "Foundation",
+                    "--items-json",
+                    json.dumps(
+                        [
+                            {"text": "Restore RED baseline", "state": "done"},
+                            {"text": "Inspect routing fixtures", "state": "active"},
+                            {"text": "Run byte gates"},
+                        ]
+                    ),
+                ]
+            )
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            written = json.loads(stdout)
+            self.assertEqual(written["status"], "written")
+            self.assertEqual(written["todo"]["status"], "established")
+            self.assertEqual(
+                written["todo"]["counts"],
+                {"total": 3, "done": 1, "active": 1, "pending": 1, "phases": 0},
+            )
+
+            status, stdout, _ = run_cli(base + ["show"])
+            self.assertEqual(status, 0)
+            shown = json.loads(stdout)
+            self.assertEqual(shown["todo_lines"][0], "Todo · Foundation   1/3")
+            self.assertIn("not execution", shown["claim_boundary"])
+
+            status, stdout, _ = run_cli(base + ["clear"])
+            self.assertEqual(status, 0)
+            self.assertEqual(json.loads(stdout)["status"], "cleared")
+
+            status, stdout, _ = run_cli(base + ["show"])
+            self.assertEqual(status, 0)
+            self.assertEqual(json.loads(stdout)["todo"]["status"], "absent")
+
+    def test_runtime_todo_set_supports_repeated_pending_items(self) -> None:
+        with TemporaryDirectory() as tmp:
+            omh_home = str(Path(tmp) / ".omh")
+            status, stdout, _ = run_cli(
+                ["--omh-home", omh_home, "runtime", "todo", "set", "--item", "first", "--item", "second"]
+            )
+
+            self.assertEqual(status, 0)
+            written = json.loads(stdout)
+            self.assertEqual(
+                written["todo"]["items"],
+                [{"text": "first", "state": "pending"}, {"text": "second", "state": "pending"}],
+            )
+
+    def test_runtime_todo_set_rejects_invalid_items_with_error_payload(self) -> None:
+        with TemporaryDirectory() as tmp:
+            omh_home = str(Path(tmp) / ".omh")
+            cases = [
+                ["--items-json", "not json"],
+                ["--items-json", json.dumps([{"text": "x", "state": "later"}])],
+                ["--items-json", json.dumps([])],
+            ]
+            for items_args in cases:
+                status, stdout, _ = run_cli(["--omh-home", omh_home, "runtime", "todo", "set"] + items_args)
+
+                self.assertEqual(status, 1)
+                payload = json.loads(stdout)
+                self.assertEqual(payload["status"], "invalid_todo")
+                self.assertTrue(payload["error"])
+            self.assertFalse((Path(omh_home) / "runtime" / "todo.json").exists())
 
 
 if __name__ == "__main__":

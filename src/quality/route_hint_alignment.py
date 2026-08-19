@@ -32,7 +32,7 @@ _OPERATOR_ROUTE_HINT_ALIGNMENT_CASES = (
         "claude-code-session-status",
         "Claude Code session status",
         "Claude Code session status 알려줘",
-        "ultraprocess",
+        "ultrawork",
         "show_coding_handoff_status",
     ),
     RouteHintAlignmentCase(
@@ -80,7 +80,7 @@ _OPERATOR_ROUTE_HINT_ALIGNMENT_CASES = (
         "codex-session-running-korean",
         "Korean Codex session running status",
         "codex 세션 지금 실행 중이야?",
-        "ultraprocess",
+        "ultrawork",
         "show_coding_handoff_status",
     ),
     RouteHintAlignmentCase(
@@ -88,7 +88,7 @@ _OPERATOR_ROUTE_HINT_ALIGNMENT_CASES = (
         "codex-attach-status-korean",
         "Korean Codex attached-session status",
         "코덱스 세션 붙여서 상태 보여줘",
-        "ultraprocess",
+        "ultrawork",
         "show_coding_handoff_status",
     ),
     RouteHintAlignmentCase(
@@ -96,7 +96,7 @@ _OPERATOR_ROUTE_HINT_ALIGNMENT_CASES = (
         "coding-agent-dispatched-status",
         "Coding agent dispatched status follow-up",
         "the coding agent was dispatched, what happened next?",
-        "ultraprocess",
+        "ultrawork",
         "show_coding_handoff_status",
     ),
     RouteHintAlignmentCase(
@@ -104,16 +104,16 @@ _OPERATOR_ROUTE_HINT_ALIGNMENT_CASES = (
         "codex-issue-pr-tracking-korean",
         "Korean Codex issue-to-PR tracking handoff",
         "이 이슈를 Codex로 구현하게 맡기고 진행상태 추적해줘",
-        "ultraprocess",
+        "ultrawork",
         "show_coding_handoff_status",
     ),
     RouteHintAlignmentCase(
         "operator_regression",
         "codex-issue-pr-start-korean",
-        "Korean Codex issue-to-PR start handoff",
+        "Korean Codex issue-to-PR start resolves the owner-selection surface",
         "코덱스로 이 이슈 PR 만들 수 있게 작업 시작해줘",
-        "ultraprocess",
-        "show_coding_handoff_status",
+        "executor-runtime-readiness",
+        "prepare_executor_runtime_readiness",
     ),
     RouteHintAlignmentCase(
         "operator_regression",
@@ -360,7 +360,7 @@ _OPERATOR_ROUTE_HINT_ALIGNMENT_CASES = (
         "test-until-pass-coding-korean",
         "Korean test-as-stop-signal coding request",
         "테스트 통과할때까지 고쳐줘",
-        "ultraprocess",
+        "ultrawork",
         "choose_executor",
     ),
     RouteHintAlignmentCase(
@@ -368,8 +368,8 @@ _OPERATOR_ROUTE_HINT_ALIGNMENT_CASES = (
         "setup-output-improvement-korean",
         "Korean setup output improvement request",
         "setup 로그가 너무 어렵다 개선해줘",
-        "ultraprocess",
-        "answer_clarification",
+        "ultrawork",
+        "choose_executor",
     ),
     RouteHintAlignmentCase(
         "operator_regression",
@@ -512,7 +512,7 @@ _OPERATOR_ROUTE_HINT_ALIGNMENT_CASES = (
         "korean-hermes-coding-team-only",
         "Korean Hermes-only coding team path",
         "Hermes만으로 코딩팀처럼 작업하고 싶어",
-        "team",
+        "ultrawork",
         "show_runtime_handoff",
     ),
     RouteHintAlignmentCase(

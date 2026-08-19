@@ -24,10 +24,10 @@ window.OMH_I18N = {
 
     /* --------------------------------------------------------------- hero */
     "hero.badge": {
-      en: "For Hermes Agent · v1.0.5",
-      ko: "Hermes Agent 전용 · v1.0.5",
-      ja: "Hermes Agent のための · v1.0.5",
-      zh: "为 Hermes Agent 打造 · v1.0.5"
+      en: "For Hermes Agent · v1.0.6",
+      ko: "Hermes Agent 전용 · v1.0.6",
+      ja: "Hermes Agent のための · v1.0.6",
+      zh: "为 Hermes Agent 打造 · v1.0.6"
     },
     "hero.tagline": {
       en: 'Power intelligence and <em>agentic memory</em> for Hermes Agent.',
@@ -153,13 +153,21 @@ window.OMH_I18N = {
     "ulw.kicker": { en: "Flagship workflows", ko: "대표 워크플로", ja: "フラッグシップ", zh: "旗舰工作流" },
     "ulw.title": { en: "The ulw-* family.", ko: "ulw-* 패밀리.", ja: "ulw-* ファミリー。", zh: "ulw-* 家族。" },
     "ulw.lead": {
-      en: "Eleven long-horizon lanes. Say the trigger in normal language — Hermes routes the rest.",
-      ko: "11개의 장기 레인. 평범한 말로 트리거만 말하면 나머지는 Hermes가 라우팅합니다.",
-      ja: "11 の長期レーン。普通の言葉でトリガーを言えば、あとは Hermes がルーティング。",
-      zh: "十一条长周期车道。用日常语言说出触发词，其余交给 Hermes 路由。"
+      en: "Eight long-horizon lanes. Say the trigger in normal language — Hermes routes the rest.",
+      ko: "8개의 장기 레인. 평범한 말로 트리거만 말하면 나머지는 Hermes가 라우팅합니다.",
+      ja: "8 の長期レーン。普通の言葉でトリガーを言えば、あとは Hermes がルーティング。",
+      zh: "八条长周期车道。用日常语言说出触发词，其余交给 Hermes 路由。"
     },
     "ulw.trigger": { en: "Say", ko: "이렇게 말하세요", ja: "こう言う", zh: "这样说" },
 
+    "ulw.context.title": { en: "Context", ko: "Context", ja: "Context", zh: "Context" },
+    "ulw.context.tag": { en: "Terminology alignment", ko: "용어 정렬", ja: "用語アラインメント", zh: "术语对齐" },
+    "ulw.context.body": {
+      en: "Aligns the words a repository uses before plans and handoffs.",
+      ko: "계획과 핸드오프 전에 저장소가 쓰는 용어부터 맞춥니다.",
+      ja: "計画とハンドオフの前に、リポジトリが使う言葉を揃えます。",
+      zh: "在计划与交接之前，先对齐仓库使用的词汇。"
+    },
     "ulw.work.title": { en: "Ultrawork", ko: "Ultrawork", ja: "Ultrawork", zh: "Ultrawork" },
     "ulw.work.tag": { en: "Parallel delivery", ko: "병렬 전달", ja: "並列デリバリー", zh: "并行交付" },
     "ulw.work.body": {
@@ -184,14 +192,6 @@ window.OMH_I18N = {
       ja: "ブリーフが明確になるまで一度に一問。最大 6 ラウンド、毎回明確度をスコア。",
       zh: "一次一问，直到简报清晰。最多六轮，每轮标注清晰度。"
     },
-    "ulw.goal.title": { en: "Ultragoal", ko: "Ultragoal", ja: "Ultragoal", zh: "Ultragoal" },
-    "ulw.goal.tag": { en: "Durable goals", ko: "지속 목표", ja: "永続ゴール", zh: "持久目标" },
-    "ulw.goal.body": {
-      en: "A checkpointed ledger survives context loss and resumes exactly where it stopped.",
-      ko: "체크포인트 원장이 컨텍스트 손실을 견디고 멈춘 지점에서 정확히 재개합니다.",
-      ja: "チェックポイント台帳がコンテキスト喪失を生き延び、止まった地点から正確に再開。",
-      zh: "带检查点的账本挺过上下文丢失，从中断处精确续跑。"
-    },
     "ulw.loop.title": { en: "Loop", ko: "Loop", ja: "Loop", zh: "Loop" },
     "ulw.loop.tag": { en: "Goal loop", ko: "목표 루프", ja: "ゴールループ", zh: "目标循环" },
     "ulw.loop.body": {
@@ -199,30 +199,6 @@ window.OMH_I18N = {
       ko: "인터뷰 → 계획 → 리서치 → 빌드 → 리뷰. 진짜 게이트를 통과할 때까지 순환.",
       ja: "インタビュー → 計画 → リサーチ → ビルド → レビュー。本物のゲートを通るまで循環。",
       zh: "访谈 → 规划 → 研究 → 构建 → 评审，循环直到真正的关卡通过。"
-    },
-    "ulw.ralph.title": { en: "Ralph", ko: "Ralph", ja: "Ralph", zh: "Ralph" },
-    "ulw.ralph.tag": { en: "Drive to done", ko: "끝까지", ja: "完了まで駆動", zh: "推到完成" },
-    "ulw.ralph.body": {
-      en: "One owner drives a task to done: implement, verify, review, repeat until the gate passes.",
-      ko: "한 명의 소유자가 작업을 끝까지: 구현, 검증, 리뷰, 게이트 통과까지 반복.",
-      ja: "一人のオーナーがタスクを完了まで：実装、検証、レビュー、ゲート通過まで反復。",
-      zh: "单一归属方把任务推到完成：实现、验证、评审，直到关卡通过。"
-    },
-    "ulw.team.title": { en: "Team", ko: "Team", ja: "Team", zh: "Team" },
-    "ulw.team.tag": { en: "Coordination", ko: "협업 조율", ja: "コーディネーション", zh: "协同" },
-    "ulw.team.body": {
-      en: "N coordinated workers on one shared task list, lanes owned explicitly, verification merged.",
-      ko: "하나의 공유 작업 목록 위 N명의 작업자. 레인 소유 명시, 검증은 병합.",
-      ja: "一つの共有タスクリスト上の N 人のワーカー。レーン所有は明示、検証はマージ。",
-      zh: "N 个工作者共用一份任务清单，车道归属明确，验证合并。"
-    },
-    "ulw.process.title": { en: "Ultraprocess", ko: "Ultraprocess", ja: "Ultraprocess", zh: "Ultraprocess" },
-    "ulw.process.tag": { en: "Task to PR", ko: "작업에서 PR까지", ja: "タスクから PR", zh: "从任务到 PR" },
-    "ulw.process.body": {
-      en: "One clean plan-to-PR cycle: research, plan, handoff, review, docs, PR — tracked end to end.",
-      ko: "깔끔한 계획→PR 사이클: 리서치, 계획, 핸드오프, 리뷰, 문서, PR — 끝까지 추적.",
-      ja: "きれいなプラン→PR サイクル：調査、計画、ハンドオフ、レビュー、ドキュメント、PR — 端まで追跡。",
-      zh: "一个干净的计划到 PR 周期：调研、规划、交接、评审、文档、PR —— 全程追踪。"
     },
     "ulw.qa.title": { en: "UltraQA", ko: "UltraQA", ja: "UltraQA", zh: "UltraQA" },
     "ulw.qa.tag": { en: "Adversarial QA", ko: "적대적 QA", ja: "敵対的 QA", zh: "对抗式 QA" },
@@ -450,23 +426,34 @@ window.OMH_I18N = {
     /* ------------------------------------------------------------ install */
     "install.kicker": { en: "Install", ko: "설치", ja: "インストール", zh: "安装" },
     "install.title": {
-      en: "Three commands for people.",
-      ko: "사람이 쓰는 명령은 셋.",
-      ja: "人が使うコマンドは三つ。",
-      zh: "留给人的命令只有三条。"
+      en: "Install your way. Set up once.",
+      ko: "원하는 방식으로 설치하고, 설정은 한 번.",
+      ja: "好きな方法でインストール。セットアップは一度だけ。",
+      zh: "按你的方式安装，只需设置一次。"
     },
     "install.lead": {
-      en: "omh setup, omh update, omh doctor. Everything else belongs to the agent layer.",
-      ko: "omh setup, omh update, omh doctor. 나머지는 전부 에이전트 레이어의 몫.",
-      ja: "omh setup、omh update、omh doctor。残りはすべてエージェント層のもの。",
-      zh: "omh setup、omh update、omh doctor。其余全部属于智能体层。"
+      en: "Choose a package manager or platform installer. Doctor stays a separate check.",
+      ko: "패키지 관리자나 플랫폼 설치 프로그램을 고르세요. Doctor는 별도 확인 단계입니다.",
+      ja: "パッケージマネージャーか OS 用インストーラーを選択。Doctor は別の確認手順です。",
+      zh: "选择包管理器或平台安装程序。Doctor 是单独的验证步骤。"
+    },
+    "install.availability.note": {
+      en: "Homebrew, Bun, and npm package-manager installs are public as of v1.0.6.",
+      ko: "Homebrew, Bun, npm 패키지 관리자 설치가 v1.0.6부터 공개되었습니다.",
+      ja: "Homebrew、Bun、npm のパッケージマネージャー経由のインストールは v1.0.6 から公開されています。",
+      zh: "Homebrew、Bun 与 npm 包管理器安装方式已随 v1.0.6 正式公开。"
     },
     "install.step1": { en: "Install the command", ko: "명령어 설치", ja: "コマンドをインストール", zh: "安装命令行" },
+    "install.method.brew": { en: "Homebrew", ko: "Homebrew", ja: "Homebrew", zh: "Homebrew" },
+    "install.method.bun": { en: "Bun · recommended", ko: "Bun · 권장", ja: "Bun · 推奨", zh: "Bun · 推荐" },
+    "install.method.npm": { en: "npm", ko: "npm", ja: "npm", zh: "npm" },
+    "install.method.unix": { en: "macOS · Linux", ko: "macOS · Linux", ja: "macOS · Linux", zh: "macOS · Linux" },
+    "install.method.windows": { en: "Windows", ko: "Windows", ja: "Windows", zh: "Windows" },
     "install.step1.note": {
-      en: "One line. Pick your OS.",
-      ko: "한 줄. OS만 고르세요.",
-      ja: "一行だけ。OS を選ぶ。",
-      zh: "一行。选你的系统。"
+      en: "Pick one installation method.",
+      ko: "설치 방법 하나를 고르세요.",
+      ja: "インストール方法を一つ選択。",
+      zh: "选择一种安装方式。"
     },
     "install.step2": { en: "Set it up", ko: "설정하기", ja: "セットアップ", zh: "完成设置" },
     "install.step2.note": {
@@ -474,6 +461,24 @@ window.OMH_I18N = {
       ko: "설정은 이게 전부. 실제 설치된 코딩 에이전트와 모델을 기록합니다.",
       ja: "セットアップはこれで全部。実際に入っているエージェントとモデルを記録。",
       zh: "设置到此为止。它会记录真实装好的编码智能体与模型。"
+    },
+    "install.doctor.title": {
+      en: "Verify separately",
+      ko: "별도로 확인",
+      ja: "別の手順で確認",
+      zh: "单独验证"
+    },
+    "install.doctor.note": {
+      en: "Run doctor after setup to verify or troubleshoot.",
+      ko: "설정 후 doctor로 설치를 확인하거나 문제를 해결하세요.",
+      ja: "セットアップ後に doctor で確認またはトラブルシューティング。",
+      zh: "设置后运行 doctor 进行验证或故障排查。"
+    },
+    "install.update.note": {
+      en: "Refresh later with",
+      ko: "나중에 다음 명령으로 갱신:",
+      ja: "後で次のコマンドで更新:",
+      zh: "之后使用此命令更新："
     },
     "install.step3": { en: "Or ask your agent", ko: "아니면 에이전트에게", ja: "またはエージェントに頼む", zh: "或者交给你的智能体" },
     "install.step3.note": {
@@ -538,11 +543,11 @@ window.OMH_I18N = {
       ja: "明示指定したモデルが利用できません。勝手な代替は行いません。",
       zh: "你明确指定的模型不可用，不会自动替换。"
     },
-    "route.state.unconfigured": {
-      en: "No eligible candidate. Setup continues.",
-      ko: "적합한 후보가 없습니다. 설치는 계속됩니다.",
-      ja: "該当する候補がありません。セットアップは続行します。",
-      zh: "没有符合条件的候选。安装继续。"
+    "route.state.owner_default": {
+      en: "No eligible candidate. The selected owner keeps its default model.",
+      ko: "적합한 후보가 없습니다. 선택한 owner의 기본 모델을 유지합니다.",
+      ja: "該当する候補がありません。選択した owner のデフォルトモデルを維持します。",
+      zh: "没有符合条件的候选。保留所选 owner 的默认模型。"
     },
     "route.owner.tag": { en: "Owners", ko: "소유 주체", ja: "担当", zh: "归属" },
     "route.owner.title": {

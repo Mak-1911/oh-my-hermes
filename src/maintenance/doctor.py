@@ -1,5 +1,5 @@
 from __future__ import annotations
-from ..skills.catalog import omh_skill_display_name
+from ..skills.catalog import omh_skill_install_path
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -19,6 +19,7 @@ from ..local_store import can_write_dir
 from ..install.guidance_projection import build_guidance_projection_status
 from ..install.hook_integrity import HOOK_HOST_TARGET, VALID_HOOK_EVENTS, build_hook_integrity_status
 from ..install.identity_conflicts import build_identity_conflict_report
+from ..install.installer import installed_skill_directories
 from ..install.plugin_loader_observation import observe_real_loader_registration
 from ..manifest import local_modifications, read_manifest
 from ..paths import OmhPaths
@@ -130,7 +131,7 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
             )
         )
     for skill in CORE_SKILLS:
-        path = paths.skills_dir / omh_skill_display_name(skill) / "SKILL.md"
+        path = paths.skills_dir / omh_skill_install_path(skill) / "SKILL.md"
         checks.append(Check(f"skill:{skill}", path.exists(), str(path)))
     config_text = read_config(paths.hermes_config_path)
     dirs = external_dirs(config_text)
@@ -316,6 +317,11 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
             ]
         )
     checks.append(_hook_integrity_check(paths))
+    checks.append(_retired_skill_install_check(paths))
+    checks.append(_flat_skill_layout_check(paths))
+    checks.append(_plugin_ulw_lifecycle_check(paths))
+    checks.extend(_hermes_tui_checks(paths))
+    checks.append(_hermes_model_routing_check(paths))
     profile_installs = state.get("last_team_profile_install") if isinstance(state, dict) else None
     if not profile_installs:
         checks.append(Check("team_profile_packs", True, f"optional OMH team profile packs are not installed at {paths.hermes_agents_dir}"))
@@ -338,6 +344,343 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
             )
         )
     return checks
+
+
+def _hermes_tui_checks(paths: OmhPaths) -> list[Check]:
+    """Hermes-side TUI preflight findings.
+
+    The OMH HUD/todo surface renders only inside Hermes' modern TUI, and none
+    of the conditions for that are visible from OMH's own install state. An
+    old Hermes, a stripped widget SDK, an unset ``display.interface``, or a
+    stale embedded interpreter each degrade to a silent no-render — doctor
+    names the condition and the repair instead of leaving the user to diff
+    screenshots.
+    """
+    from .hermes_tui import hermes_tui_preflight
+
+    preflight = hermes_tui_preflight(paths)
+    install = preflight["install"]
+    if not install["found"]:
+        return [
+            Check(
+                "hermes_tui_support",
+                True,
+                f"Hermes install not found at {install['path']}; TUI checks skipped",
+                observed=False,
+            )
+        ]
+    # Every check keeps ok=True: the HUD is an optional surface, and the
+    # sibling degraded-optional checks (command_path, plugin_runtime_observed,
+    # memory_records) deliberately never flip the doctor exit code or the
+    # persisted last_doctor.ok over one. Degraded states carry
+    # severity="warning" plus a next action instead.
+    checks: list[Check] = []
+    loader = preflight["widget_loader"]
+    version = str(install.get("version") or "unknown")
+    checks.append(
+        Check(
+            "hermes_tui_support",
+            True,
+            (
+                f"Hermes {version} ships the TUI widget loader ({loader['marker']})"
+                if loader["present"]
+                else (
+                    f"no TUI widget loader found in Hermes {version} — an old Hermes predates the modern TUI; "
+                    "a changed Hermes layout can also hide it from this check"
+                )
+            ),
+            severity="ok" if loader["present"] else "warning",
+            next_action=(
+                ""
+                if loader["present"]
+                else "run `hermes update`; if `hermes --tui` already renders the HUD, report this check instead"
+            ),
+        )
+    )
+    sdk = preflight["sdk_surface"]
+    if sdk["checked"]:
+        if not sdk["parsed"]:
+            sdk_message = "Hermes widget SDK export changed shape; the OMH surface cannot be verified from here"
+            sdk_severity = "warning"
+            sdk_action = "if the HUD stops rendering, report the incompatibility"
+        elif sdk["missing"]:
+            sdk_message = (
+                f"Hermes widget SDK no longer exposes: {', '.join(sdk['missing'])} — the loader will skip the OMH widget"
+            )
+            sdk_severity = "warning"
+            sdk_action = "run `omh update` for a compatible widget, or report the incompatibility"
+        else:
+            sdk_message = "Hermes widget SDK exposes every API the OMH widget uses"
+            sdk_severity = "ok"
+            sdk_action = ""
+        checks.append(
+            Check(
+                "hermes_tui_sdk_surface",
+                True,
+                sdk_message,
+                severity=sdk_severity,
+                next_action=sdk_action,
+            )
+        )
+    # `display.interface` is Hermes-owned and OMH never writes it. Which
+    # terminal the user runs is a real trade-off and theirs to make: the modern
+    # TUI is the only surface that loads `tui-widgets/`, so it is where the OMH
+    # HUD renders, while the classic REPL draws the banner, status line, and
+    # the rules framing the prompt that the modern TUI does not. Naming the
+    # trade-off is the whole job here; picking a side for the user was the bug.
+    interface = preflight["display_interface"]
+    hud_hint = "`hermes --tui` opens the modern TUI for one session without changing any setting"
+    if interface["explicit"] and interface["value"] not in ("", "tui"):
+        message = (
+            f"display.interface is {interface['value']!r} (Hermes-owned) — bare `hermes` opens the classic REPL, "
+            "which keeps its banner and prompt rules but loads no OMH HUD widget"
+        )
+        interface_severity = "ok"
+        interface_action = hud_hint
+    elif interface["explicit"]:
+        message = "display.interface is 'tui' (Hermes-owned) — bare `hermes` opens the modern TUI, where the OMH HUD renders"
+        interface_severity = "ok"
+        interface_action = ""
+    else:
+        message = (
+            "display.interface is unset, so bare `hermes` opens Hermes' default classic REPL — it keeps its banner "
+            "and prompt rules, and loads no OMH HUD widget"
+        )
+        interface_severity = "ok"
+        interface_action = hud_hint
+    checks.append(
+        Check(
+            "hermes_tui_interface_default",
+            True,
+            message,
+            severity=interface_severity,
+            next_action=interface_action,
+        )
+    )
+    widget = preflight["widget"]
+    widget_degraded = not widget["installed"] or (bool(widget["interpreter"]) and not widget["interpreter_ok"])
+    if not widget["installed"]:
+        widget_message = "OMH status widget is not installed under tui-widgets/"
+    elif widget["interpreter"] and not widget["interpreter_ok"]:
+        widget_message = (
+            f"OMH status widget points at a missing Python interpreter ({widget['interpreter']})"
+        )
+    else:
+        widget_message = "OMH status widget installed and its embedded interpreter resolves"
+    checks.append(
+        Check(
+            "hermes_tui_widget_state",
+            True,
+            widget_message,
+            severity="warning" if widget_degraded else "ok",
+            next_action="run `omh setup` to (re)install the managed TUI widget" if widget_degraded else "",
+        )
+    )
+    if widget["installed"]:
+        # A widget from an older OMH loads and runs, so every check above
+        # stays green while the HUD renders yesterday's surface beside the
+        # prompt — the exact "it still looks like the old version" report this
+        # check exists to name. Current design: dense text in the host's
+        # status-line idiom, themed from the active skin; a bordered card
+        # marks the retired interim design.
+        skin = preflight["display_skin"]
+        checks.append(
+            Check(
+                "hermes_tui_widget_chrome",
+                True,
+                (
+                    f"OMH status widget renders the current text HUD themed from the active Hermes skin ({skin['value']})"
+                    if widget["themed_panel"]
+                    else (
+                        "installed OMH status widget predates the current text HUD; it renders an older "
+                        f"surface instead of the status-line-style HUD themed from the active skin ({skin['value']})"
+                    )
+                ),
+                severity="ok" if widget["themed_panel"] else "warning",
+                next_action=(
+                    ""
+                    if widget["themed_panel"]
+                    else "run `omh setup` to refresh the managed TUI widget"
+                ),
+            )
+        )
+    return checks
+
+
+def _hermes_model_routing_check(paths: OmhPaths) -> Check:
+    """Does Hermes' config name the provider that serves `model.default`?
+
+    Users read a mismatch here as OMH hardcoding a model: they authenticate as
+    one provider, the picker keeps showing the family pinned in
+    `model.default`, and nothing says why. OMH writes only `model.aliases.*`,
+    so this is a Hermes user-config fault — doctor names the observed
+    disagreement and leaves the repair to the user.
+
+    ok stays True like the sibling `hermes_tui_*` checks: an inconsistent
+    Hermes model config is not an OMH install failure and must not flip the
+    doctor exit code. `severity="warning"` plus a next action carries it.
+    """
+    from .hermes_model_routing import (
+        hermes_model_routing_preflight,
+        model_routing_consistent_summary,
+        model_routing_disagreements,
+        model_routing_next_action,
+    )
+
+    preflight = hermes_model_routing_preflight(paths)
+    config = preflight["config"]
+    if not config["readable"]:
+        return Check(
+            "hermes_model_routing",
+            True,
+            (
+                f"Hermes config not found at {config['path']}; model routing consistency not checked"
+                if not config["found"]
+                else f"the `model:` block in {config['path']} is user-owned in a shape this check cannot read"
+            ),
+            observed=False,
+        )
+    disagreements = model_routing_disagreements(preflight)
+    if not disagreements:
+        return Check("hermes_model_routing", True, model_routing_consistent_summary(preflight))
+    return Check(
+        "hermes_model_routing",
+        True,
+        "; ".join(disagreements),
+        severity="warning",
+        next_action=model_routing_next_action(preflight),
+    )
+
+
+def _retired_skill_install_check(paths: OmhPaths) -> Check:
+    """A retired ULW engine still installed under skills_dir is a finding.
+
+    Retirement (#954 stage 5) removed `ulw-team`/`ulw-ralph`/`ulw-goal`/
+    `ulw-process` from the installable catalog; `omh update` prunes them. A
+    leftover install keeps serving guidance for an intent that now runs as a
+    `ulw-work` capability, so doctor names the migration instead of staying
+    silent.
+    """
+    from ..skills.catalog import retired_display_names, retired_skill_migration_error
+
+    if not paths.skills_dir.is_dir():
+        return Check("retired_skills", True, "no skills directory yet", observed=False)
+    labels = retired_display_names()
+    installed = sorted(
+        {
+            directory.name
+            for directory in installed_skill_directories(paths.skills_dir)
+            if directory.name in labels
+        }
+    )
+    if not installed:
+        return Check("retired_skills", True, "no retired ULW engine skill is installed")
+    messages = "; ".join(
+        str(retired_skill_migration_error(name).get("message", name)) for name in installed
+    )
+    return Check(
+        "retired_skills",
+        False,
+        f"retired ULW engine skill install(s) found: {messages}",
+        severity="warning",
+        remediation="the intents now run as `ulw-work` capabilities; retired installs are pruned on update",
+        next_action="run `omh update` to prune the retired skill directories",
+    )
+
+
+def _flat_skill_layout_check(paths: OmhPaths) -> Check:
+    """A managed skill still sitting flat under skills_dir is a finding.
+
+    Skills install under `<skills_dir>/<category>/<label>/SKILL.md` so Hermes can
+    read a dashboard category off the path. A copy left at the old flat depth is
+    a second SKILL.md with the same `name:` frontmatter, and Hermes resolves the
+    category of that copy to nothing -- so the banner keeps a "general" group and
+    the skill is registered twice. `omh update` prunes them; doctor names the
+    ones an interrupted or half-forced update left behind.
+    """
+    if not paths.skills_dir.is_dir():
+        return Check("skill_layout", True, "no skills directory yet", observed=False)
+    labels = {omh_skill_install_path(template.name).split("/")[-1] for template in builtin_skill_templates()}
+    flat = sorted(
+        directory.name
+        for directory in installed_skill_directories(paths.skills_dir)
+        if directory.parent == paths.skills_dir and directory.name in labels
+    )
+    if not flat:
+        return Check("skill_layout", True, "every managed skill sits under a category directory")
+    listed = ", ".join(flat[:5]) + (", ..." if len(flat) > 5 else "")
+    return Check(
+        "skill_layout",
+        False,
+        f"{len(flat)} managed skill(s) still installed at the pre-category flat depth: {listed}",
+        severity="warning",
+        remediation=(
+            "a flat copy registers the same skill a second time and keeps a \"general\" group in the "
+            "Hermes banner"
+        ),
+        next_action="run `omh update` to move them under their category directory",
+    )
+
+
+def _plugin_ulw_lifecycle_check(paths: OmhPaths) -> Check:
+    """A stale or incompatible plugin bundle's duplicated ULW tables are a finding.
+
+    The bundle duplicates the ULW lifecycle table on purpose (a copied bundle
+    has no catalog import). A copy that still lists a retired engine as
+    canonical routes legacy cues to a workflow the catalog no longer ships;
+    a copy without the table predates the lifecycle contract entirely.
+    """
+    from ..skills.catalog import ulw_inventory_payload
+
+    awareness_path = paths.hermes_plugin_dir / "awareness.py"
+    if not awareness_path.is_file():
+        return Check(
+            "plugin_ulw_lifecycle",
+            True,
+            f"managed OMH plugin bridge is not installed yet at {paths.hermes_plugin_dir}",
+            observed=False,
+        )
+    try:
+        text = awareness_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return Check(
+            "plugin_ulw_lifecycle",
+            False,
+            f"{awareness_path} unreadable: {exc}",
+            severity="warning",
+            next_action="run `omh setup` to refresh the plugin bundle",
+        )
+    if "_ULW_ENGINE_LIFECYCLE_STAGES" not in text:
+        return Check(
+            "plugin_ulw_lifecycle",
+            False,
+            (
+                f"{awareness_path} carries no ULW lifecycle table; the installed bundle version "
+                "is incompatible with this OMH package"
+            ),
+            severity="warning",
+            remediation="the bundle predates the ULW lifecycle contract",
+            next_action="run `omh setup` to refresh the plugin bundle",
+        )
+    stale = sorted(
+        str(engine["canonical"])
+        for engine in ulw_inventory_payload()["retired_engines"]
+        if f'"{engine["canonical"]}": "retired"' not in text
+    )
+    if stale:
+        return Check(
+            "plugin_ulw_lifecycle",
+            False,
+            f"installed plugin bundle still lists retired engine(s) as canonical: {', '.join(stale)}",
+            severity="warning",
+            remediation="the bundle's duplicated ULW tables are stale relative to the catalog",
+            next_action="run `omh setup` to refresh the plugin bundle",
+        )
+    return Check(
+        "plugin_ulw_lifecycle",
+        True,
+        "plugin bundle ULW lifecycle table matches the catalog",
+    )
 
 
 def _plugin_loader_observation_check(observation: dict[str, object] | None) -> Check:
@@ -723,7 +1066,7 @@ def _skill_freshness_check(paths: OmhPaths, manifest: dict) -> Check:
     }
     stale: list[str] = []
     for template in builtin_skill_templates():
-        rel = f"{omh_skill_display_name(template.name)}/SKILL.md"
+        rel = f"{omh_skill_install_path(template.name)}/SKILL.md"
         if rel not in manifest_sha_by_rel:
             continue
         path = paths.skills_dir / rel

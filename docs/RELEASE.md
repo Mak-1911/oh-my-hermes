@@ -12,6 +12,30 @@ public claims are all checked.
 | `preview` | Latest `main` for early testing | Hermes skill tap plus `main` branch archive |
 | `local` | Maintainer smoke tests from local fixtures | Explicit local source or package URL |
 
+### Beta releases
+
+A beta ships under the same immutable `vX.Y.Z` tag contract; beta-ness rides
+in the repo at the tag, not in the tag name. Commit `.release-channel`
+containing `beta` before tagging and the workflow publishes the GitHub
+release as a **prerelease** (so `/releases/latest` — and with it the stable
+installer default — keeps resolving the previous stable), publishes npm under
+the **`beta` dist-tag** (so `latest` does not move), and **skips the Homebrew
+tap** entirely (brew has no beta lane). Set the file back to `stable` in the
+commit that cuts the next stable release. Beta users opt in explicitly:
+`npm install -g oh-my-hermes@beta`, or `OMH_VERSION=<version> sh install.sh`.
+
+## Package-manager distribution
+
+The tag-driven npm/Bun, GitHub wheel, and Homebrew tap release is defined by
+`.github/workflows/release.yml`. Its release order, one-time external setup,
+resume rules, rollback matrix, immutable artifact checks, and pending-first-
+release status are the single contract in [Distribution](DISTRIBUTION.md).
+
+Those package-manager artifacts extend the stable channel; they do not replace
+the installer, Hermes skill tap, generated-document, or evidence checks below.
+Until the external npm namespace and Homebrew tap are created, keep every public
+package-manager command marked pending and do not dispatch the workflow.
+
 Hermes-native skill install:
 
 ```sh
@@ -19,25 +43,45 @@ hermes skills tap add rlaope/oh-my-hermes
 hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes
 ```
 
-Pinned stable install:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_CHANNEL=stable OMH_VERSION=<version> sh
-```
-
-Preview install:
+Default install, which resolves the newest release through the
+`releases/latest` redirect *in the installer script* and fetches its published
+`oh_my_hermes-<version>-py3-none-any.whl` asset. The lookup lives in
+`install.sh`/`install.ps1` rather than in `omh` because core `omh` makes no
+network calls:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
 ```
 
+Pinned stable install:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_VERSION=<version> sh
+```
+
+Because the stable channel names that asset by convention, **a release that
+publishes no wheel breaks the default install path for everyone**, not just
+for people who pinned that version. The "Required Checks" wheel steps below are
+what keep the asset present; do not tag a release that skips them. The same
+applies to the `latest` pointer: whatever GitHub marks as the latest release
+must carry a wheel.
+
+Preview install, now explicit opt-in, which downloads the full `main`
+repository archive (measured 46,012,605 bytes on 2026-08-15) because GitHub
+publishes release assets per tag only:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_CHANNEL=preview sh
+```
+
 Preview update with an auditable source ref:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_SOURCE_REF=main@<sha> sh
+curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_CHANNEL=preview OMH_SOURCE_REF=main@<sha> sh
 ```
 
-Custom archive:
+Custom archive, and the documented fallback for a tag with no published wheel
+asset:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_PACKAGE_URL=https://github.com/rlaope/oh-my-hermes/archive/refs/tags/v<version>.zip sh
@@ -60,8 +104,8 @@ python3 -m omh.cli docs workflows --check
 python3 -m omh.cli harness validate
 python3 -m omh.cli release checklist --json
 python3 -m omh.cli release skill-content-smoke --json
-python3 -m omh.cli release product-readiness --version 1.0.5 --json
-python3 -m omh.cli release evidence-bundle --version 1.0.5 --write --json
+python3 -m omh.cli release product-readiness --version 1.0.6 --json
+python3 -m omh.cli release evidence-bundle --version 1.0.6 --write --json
 python3 -m omh.cli cases demo --all --json
 python3 -m omh.cli cases artifact --all --json
 python3 -m omh.cli cases replay --json

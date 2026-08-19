@@ -351,7 +351,7 @@ class CodingRouteHintTests(unittest.TestCase):
                 hint = awareness_route_hint(message)
                 decision = hint["primary_coding_route_decision"]
 
-                self.assertEqual(hint["primary_workflow"], "ultraprocess")
+                self.assertEqual(hint["primary_workflow"], "ultrawork")
                 self.assertEqual(hint["primary_next_action"], CODING_ROUTE_LANE_NEXT_ACTION)
                 self.assertEqual(hint["hints"][0]["coding_route_decision"], decision)
                 self.assertEqual(decision["schema_version"], "coding_route_decision/v1")

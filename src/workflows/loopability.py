@@ -30,7 +30,7 @@ def assess_loopability(goal_summary: str, *, expose_goal: bool = True) -> dict[s
         return _assessment(
             goal_kind="task",
             loopability="direct_task",
-            recommended_surface="direct_task_or_ultraprocess",
+            recommended_surface="direct_task_or_delivery_cycle",
             recommended_next_action="route_direct_task",
             reason="The request is bounded enough that a single delivery workflow is cheaper than a persistent loop.",
             north_star="",

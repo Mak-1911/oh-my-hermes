@@ -117,6 +117,75 @@ class HermesRecommendationRoutingTests(unittest.TestCase):
         recommendation = route["recommendation"]
         self.assertEqual(recommendation["inactive_candidates"][0], "kimi-k3")
 
+    def test_no_confirmed_candidate_uses_the_hermes_executor_default(self) -> None:
+        route = resolve_model_route(
+            "hermes",
+            role="implementation",
+            active_models=[],
+        )
+
+        self.assertEqual(route["status"], "model_unrouted")
+        self.assertEqual(route["provenance"], "executor_default")
+        self.assertEqual(route["selected_model"], "")
+        self.assertEqual(route["chain"], [])
+        self.assertEqual(route["recommendation"]["status"], "owner_default")
+        outcomes = {
+            entry["stage"]: entry["outcome"]
+            for entry in route["attempted"]
+        }
+        self.assertEqual(outcomes["recommendation_chain"], "owner_default")
+        self.assertEqual(outcomes["executor_default"], "selected")
+
+    def test_dead_category_chain_routes_hermes_through_the_shared_last_resort(self) -> None:
+        route = resolve_model_route(
+            "hermes",
+            role="implementation",
+            requested_category="quick",
+            active_models=[_OPUS],
+        )
+
+        self.assertEqual(route["status"], "routed")
+        self.assertEqual(route["provenance"], "recommendation_chain_head")
+        self.assertEqual(route["selected_model"], "ccapi/claude-opus-5")
+        self.assertEqual(route["recommendation"]["source"], "last_resort_chain")
+        outcomes = {entry["stage"]: entry["outcome"] for entry in route["attempted"]}
+        self.assertEqual(outcomes["recommendation_chain"], "last_resort")
+
+    def test_domain_candidate_replaces_category_last_resort_and_projection(self) -> None:
+        route = resolve_model_route(
+            "hermes",
+            role="implementation",
+            requested_category="quick",
+            requested_domain="x_platform_data",
+            active_models=[_OPUS, _GROK],
+        )
+
+        self.assertEqual(route["selected_model"], "xai/grok-code-fast")
+        self.assertEqual(route["recommendation"]["source"], "recommendation_chain")
+        self.assertEqual(route["recommendation"]["projection"]["binding"], "xai/grok-code-fast")
+        outcomes = {entry["stage"]: entry["outcome"] for entry in route["attempted"]}
+        self.assertEqual(outcomes["domain_affinity"], "reordered")
+        self.assertEqual(outcomes["recommendation_chain"], "selected")
+
+    def test_domain_last_resort_never_outranks_an_active_category_candidate(self) -> None:
+        route = resolve_model_route(
+            "hermes",
+            role="implementation",
+            requested_category="quick",
+            requested_domain="x_platform_data",
+            active_models=[_GLM_FAST, _OPUS],
+        )
+
+        self.assertEqual(route["selected_model"], "zai/glm-5.2-ultrafast")
+        self.assertEqual(
+            route["recommendation"]["projection"]["binding"],
+            "zai/glm-5.2-ultrafast",
+        )
+        affinity = next(
+            entry for entry in route["attempted"] if entry["stage"] == "domain_affinity"
+        )
+        self.assertEqual(affinity["outcome"], "last_resort_deferred")
+
     def test_x_platform_domain_stably_promotes_grok_kimi_gemini_without_removal(self) -> None:
         route = resolve_model_route(
             "hermes",

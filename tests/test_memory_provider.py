@@ -365,7 +365,23 @@ class ProviderRegistrationTests(unittest.TestCase):
             pass
 
     class _PluginCtx:
-        """Mirrors the real Hermes plugin context, which has no provider method."""
+        """Mirrors Hermes' general context, including its inert provider stub."""
+
+        def __init__(self) -> None:
+            self.tools: list[str] = []
+            self.hooks: list[str] = []
+
+        def register_memory_provider(self, provider) -> None:
+            pass
+
+        def register_tool(self, name, *args, **kwargs) -> None:
+            self.tools.append(name)
+
+        def register_hook(self, name, callback) -> None:
+            self.hooks.append(name)
+
+    class _NoMemorySurfaceCtx:
+        """Mirrors compatible hosts that expose only tool and hook methods."""
 
         def __init__(self) -> None:
             self.tools: list[str] = []
@@ -377,13 +393,39 @@ class ProviderRegistrationTests(unittest.TestCase):
         def register_hook(self, name, callback) -> None:
             self.hooks.append(name)
 
-    def test_the_memory_loader_gets_a_provider_and_no_tools(self) -> None:
+    def test_the_memory_loader_gets_a_provider_and_every_tool(self) -> None:
+        # Inverted deliberately. This used to assert the memory path registered
+        # NO tools, which was true only while `register()` returned early on
+        # `hasattr(ctx, "register_memory_provider")`. Hermes broke both halves
+        # of that: `PluginContext` gained the attribute, so the PLUGIN path
+        # took the memory branch and registered nothing at all, and the memory
+        # collector began delegating every other `register_*` to a real
+        # `PluginContext` so "a memory provider has the same registration
+        # surface as any other plugin". Skipping tools here is no longer a
+        # saving -- it is the shape that silently unregistered the whole
+        # bridge. Observed against the real Hermes loader: 0 tools and 0 hooks
+        # before, 12 and 4 after.
         collector = self._Collector()
         register(collector)
         self.assertIsInstance(collector.provider, OmhMemoryProvider)
-        # Registering every tool into a collector that discards them is work the
-        # provider load should never do.
-        self.assertEqual(collector.tools, [])
+        self.assertEqual(sorted(collector.tools), sorted(PROVIDED_TOOLS))
+
+    def test_general_context_memory_stub_does_not_short_circuit_tools(self) -> None:
+        # Current Hermes exposes an inert `register_memory_provider` stub on
+        # the general plugin context. Its presence must not select a
+        # memory-only path or return before tool/hook registration.
+        ctx = self._PluginCtx()
+        self.assertTrue(hasattr(ctx, "register_memory_provider"))
+        register(ctx)
+        self.assertEqual(sorted(ctx.tools), sorted(PROVIDED_TOOLS))
+        self.assertIn("on_session_end", ctx.hooks)
+
+    def test_registration_survives_a_host_without_a_memory_surface(self) -> None:
+        ctx = self._NoMemorySurfaceCtx()
+        self.assertFalse(hasattr(ctx, "register_memory_provider"))
+        register(ctx)
+        self.assertEqual(sorted(ctx.tools), sorted(PROVIDED_TOOLS))
+        self.assertIn("on_session_end", ctx.hooks)
 
     def test_the_plugin_loader_still_gets_every_tool_and_hook(self) -> None:
         ctx = self._PluginCtx()

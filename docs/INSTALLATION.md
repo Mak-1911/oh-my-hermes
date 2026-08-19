@@ -27,27 +27,98 @@ for using OMH.
 
 ## Quick Start
 
-Use this when you just want Hermes to see OMH skills and have the local
-maintenance command available:
+> **Publication status:** Homebrew, Bun, and npm package-manager installs are
+> public as of v1.0.6. Clean installation and `omh update` were observed for
+> each package-manager path in isolated release QA.
+
+Choose one installation path. The package-manager paths install the same `omh`
+command as the platform installers.
+
+### Homebrew
+
+```sh
+brew install rlaope/tap/omh
+```
+
+### Bun (recommended)
+
+```sh
+bun install -g oh-my-hermes
+```
+
+### npm
+
+```sh
+npm install -g oh-my-hermes
+```
+
+### Universal installer (macOS/Linux)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
+```
+
+### Windows (PowerShell 5.1+)
+
+```powershell
+irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
+```
+
+Windows npm/Bun launcher support is covered by the Windows CI suite, including
+packed-tarball installation and CLI smoke checks. The PowerShell installer
+remains the native Windows alternative.
+
+### Set up OMH
+
+After any installation path, install the managed skills and register them with
+Hermes:
+
+```sh
 omh setup
+```
+
+### Keep every installed layer current
+
+The same command updates every supported installation path:
+
+```sh
+omh update
+```
+
+For Homebrew, Bun, and npm installs, the launcher records the owning package
+manager. `omh update` runs that manager's native upgrade first, then re-enters
+the newly installed `omh` command. The curl and PowerShell installers use the
+same flow through their isolated managed virtual environment. After the command
+package succeeds, the re-entered command refreshes managed skills, an already
+installed plugin bundle, and existing Hermes registration.
+
+An explicit `--source` or `--from-skills-dir` remains a workflow-content-only
+operation, and `--dry-run` never changes the command package. A source checkout
+or other unmanaged Python environment is not rewritten implicitly; the result
+reports the supported installer command instead.
+
+### Verify or troubleshoot the installation
+
+Run doctor separately after setup:
+
+```sh
 omh doctor
 ```
 
 First-run expectation:
 
-1. `omh setup` installs the managed skills and records safe defaults.
-2. `omh doctor` checks local registration and points to the next repair action.
-3. You restart or reload Hermes Agent.
-4. You ask Hermes normally, for example: `I want to safely add a feature to this repo.`
+1. Your chosen package manager or installer exposes the `omh` command.
+2. `omh setup` installs the managed skills and records safe defaults.
+3. `omh doctor` checks local registration and points to the next repair action.
+4. You restart or reload Hermes Agent.
+5. You ask Hermes normally, for example: `I want to safely add a feature to this repo.`
 
-By default, `omh setup` installs the **core** skill profile: the doctor health
-floor plus the chat/plan/status/handoff essentials a messenger-first user needs
-for a first session, not every packaged skill. Pass `--full` to install every
-skill in the catalog; see [Skill Profiles: Core vs Full](#skill-profiles-core-vs-full)
-for why the smaller default exists and how to opt in.
+By default, `omh setup` installs the **full** skill profile: every packaged
+skill, the ULW engines included — installing OMH means getting OMH. Pass
+`--core` for the lightweight footprint (the doctor health floor plus the
+chat/plan/status/handoff essentials); see
+[Skill Profiles: Core vs Full](#skill-profiles-core-vs-full) for the
+context-weight trade-off each choice makes.
 
 You do not need to know or name a workflow. The quickstart card offers
 representative natural-language starters from the locally tested request corpus
@@ -114,7 +185,10 @@ The guided flow is deliberately staged:
 1. **Inspect.** `omh setup --model-setup` scans bounded, allowlisted metadata
    roots for Codex, Claude Code, Hermes, OpenCode, OMO, `pi`, and `senpi`.
    `pi` and `senpi` are host CLIs in the OMO runtime family. Discovery does not
-   read auth files, provider responses, prompts, transcripts, or tool results.
+   open auth files or call providers. It parses bounded local session/config
+   records, which may contain prompt or tool-result fields, but emits only the
+   allowlisted provider, model, variant, timestamp, and source identifiers; it
+   never returns or persists transcript prose or credential values.
 2. **Confirm active.** Prior session/config metadata is only `observed_before`.
    A model becomes `confirmed_active` for this flow only through an explicit
    `--confirm-model PROVIDER/MODEL` choice. This is still user-declared local
@@ -151,7 +225,15 @@ An explicit unavailable model returns `choice_required` and never silently
 falls through. A missing recommended model is different: setup remains usable
 and ordered recommendation chains skip missing entries in favor of a confirmed
 compatible alternative. Qwen and Gemini therefore remain valid user-selected
-alternatives even when they are not shipped category heads.
+alternatives even when they are not shipped category heads. If no candidate is
+confirmed for the selected category, role-slot, and domain chains, the resolver
+consults one shared final order: Claude Opus 5, then GPT-5.6 Sol. These names
+remain editorial candidates filtered through caller-confirmed metadata; they
+do not prove subscription, entitlement, authentication, or runtime readiness.
+If no candidate is confirmed anywhere, the resolver records `owner_default`;
+Hermes or the selected external owner keeps its native default model, setup
+completes with `status: defaulted`, and no model-config write is prepared or
+applied.
 
 ### Editable recommendation categories
 
@@ -163,10 +245,13 @@ The shipped catalog is editorial policy, not benchmark output:
 | `ultrabrain` | GPT-5.6 Sol (`xhigh`) |
 | `deep` | GPT-5.6 Terra (`high`) |
 | `unspecified-high` | Kimi K3, Claude Opus 5 |
-| `unspecified-low` | GLM 5.2, GLM 5.2 Ultrafast |
+| `unspecified-low` | GLM 5.2, GLM 5.2 Ultrafast, Claude Opus 5 (low) |
 | `visual-engineering` | Claude Fable 5, Kimi K3 |
-| `quick`, `writing`, `artistry` | No shipped default; choose a confirmed compatible model |
+| `quick` | GLM 5.2 Ultrafast, Kimi K3, GPT-5.6 Luna, Claude Fable 5 (low) |
+| `writing` | Kimi K3, Qwen3-Coder, Gemini 3.1 Pro |
+| `artistry` | Gemini 3.1 Pro, Claude Fable 5, Kimi K3 |
 | `x_platform_data` affinity | Grok, Kimi K3, Gemini |
+| Shared final order (`last_resort.any`) | Claude Opus 5, GPT-5.6 Sol |
 
 The X/Grok row is a static, editable affinity for work explicitly declaring X
 platform data. It is not a measured capability, performance, or availability
@@ -177,13 +262,14 @@ only when the user declares the corresponding local route active. OMH never
 copies their tokens or keys.
 
 Agents and maintainers can replace named chains with a secret-free
-`model_recommendation_overrides/v1` JSON file. Only the existing category,
-`main` role, and `x_platform_data` domain keys are accepted; named chains
-replace rather than merge with shipped order. For example:
+`model_recommendation_overrides/v2` JSON file. Only the existing category,
+`main` role, `x_platform_data` domain, and shared `last_resort.any` keys are
+accepted; named chains replace rather than merge with shipped order. Legacy v1
+documents remain accepted but cannot define `last_resort`. For example:
 
 ```json
 {
-  "schema_version": "model_recommendation_overrides/v1",
+  "schema_version": "model_recommendation_overrides/v2",
   "categories": {
     "deep": [
       {
@@ -192,6 +278,16 @@ replace rather than merge with shipped order. For example:
         "preferred_provider_families": ["openrouter"],
         "reasoning_effort": "high",
         "reasoning": "Local editorial choice for this installation."
+      }
+    ]
+  },
+  "last_resort": {
+    "any": [
+      {
+        "model_alias": "claude-opus-5",
+        "model_family": "claude",
+        "preferred_provider_families": ["anthropic"],
+        "reasoning": "Local final metadata selection."
       }
     ]
   }
@@ -256,9 +352,12 @@ equivalent — this is what the installer automates:
 ```powershell
 py -m venv $env:LOCALAPPDATA\omh\venv
 & $env:LOCALAPPDATA\omh\venv\Scripts\python.exe -m pip install --upgrade `
-    https://github.com/rlaope/oh-my-hermes/archive/refs/heads/main.zip
+    https://github.com/rlaope/oh-my-hermes/releases/download/v<version>/oh_my_hermes-<version>-py3-none-any.whl
 & $env:LOCALAPPDATA\omh\venv\Scripts\omh.exe setup
 ```
+
+The installer resolves `<version>` for you from the `releases/latest` redirect.
+Doing it by hand means naming the release you want.
 
 Where it differs from `install.sh`, it differs because the platform does:
 
@@ -336,6 +435,14 @@ OMH's setup footprint is intentionally bounded:
 - It installs managed Hermes-visible skills and records local status contracts.
 - It can repair or reapply managed `skills.external_dirs` when a Hermes
   profile drifts.
+- It enables the managed `omh` plugin and selects the OMH memory provider only
+  when the corresponding provider slot is free. Existing foreign ownership is
+  preserved.
+- It defaults `display.interface: tui` whenever the user has not chosen an
+  interface — on fresh configs and on existing configs alike, so upgraders
+  reach the installed HUD without knowing about `hermes --tui`. Explicit or
+  noncanonical display choices are always preserved, and uninstall does not
+  remove this default.
 - It adds `auxiliary.compression.fallback_chain` when the config pins
   compression to a single provider and already lists other fallback providers.
   Without a compression fallback, one unreachable endpoint leaves a session
@@ -347,6 +454,11 @@ OMH's setup footprint is intentionally bounded:
   backends.
 - It does not patch Hermes core, run hidden coding work, or turn a prepared
   handoff into observed execution.
+
+The top-level `changed` value in `omh setup --json` is an aggregate: it is true
+when any managed setup field changes, including skill registration, compression
+fallbacks, plugin enablement, the fresh-config TUI default, or memory-provider
+selection. Model-alias writes remain a separate preview-and-approval step.
 
 The curl installer intentionally stops before setup. It installs the isolated
 command package and `omh` executable only. `omh setup` is the explicit,
@@ -412,39 +524,50 @@ evidence state. Skill counts, setup inventory, token metadata, and deep
 diagnostics are left to `omh doctor`, `omh_status`, and machine-readable HUD
 JSON.
 
+The HUD payload also carries a metadata-only plan todo list. When a todo is
+declared — by Hermes through the `omh_todo` plugin tool, or by an agent or
+operator through `omh runtime todo set` — the modern Hermes TUI
+(`hermes --tui`) renders it as a compact checklist directly above the prompt
+input, while the status widget stays below the input. The classic Python TUI
+does not load TUI widget files, so this panel is a modern-TUI-only surface.
+`omh runtime todo show` prints the todo projection the HUD payload carries
+(`todo` plus `display.todo_lines`), and `omh runtime todo clear` removes it. Todo items are plan declarations, never execution, review, CI, or
+merge evidence; an all-done list collapses to a single header line and a list
+untouched for 24 hours is hidden as stale.
+
 #### Status model: no-run, prepared-handoff, observed-run
 
 `omh setup` deliberately records a safety-first `choose` preference and asks
 no upfront coding-owner question, so Hermes asks which coding agent to use at
 the first coding request instead of at install time. The HUD line and the
-`menubar_status/v1` payload follow the same three-state model so that an
-unselected coding agent never reads as an idle external agent named
-`choose`/`ask`:
+coding metadata retained by the `menubar_status/v2` payload follow the same
+three-state model so that an unselected coding agent never reads as an idle
+external agent named `choose`/`ask`:
 
 1. **No-run.** No coding request has been routed yet.
    - No preference recorded (the normal safety-first default): the HUD
      `coding-agent` segment is executor-neutral,
-     `coding-agent:not-selected`, and the menu bar's `settings.coding_handoff`
-     reads `Coding agent: Not selected` with `source: "none"`. The Coding
-     Agent card shows `Status: ready` with the detail "Hermes routes the next
-     request to a coding agent" instead of an idle-agent row.
+     `coding-agent:not-selected`, and the menu bar payload's
+     `settings.coding_handoff` reads `Coding agent: Not selected` with
+     `source: "none"`. The menu ends with a compact `coding` metadata footer
+     rather than presenting this as an observed run.
    - A real preference was recorded (for example `omh setup
      --default-executor codex`): the executor name is shown because it is a
      genuine user choice, not a placeholder — `coding-agent:idle(codex)` on
      the HUD line, and `Coding agent: Codex` with `source: "user_preference"`
-     and `Status: preferred` (detail "no request routed yet") in the menu bar.
+     in the menu bar payload.
 2. **Prepared handoff.** `omh coding delegate --record` prepared a handoff for
    a run but execution has not been observed: `coding-agent:prepared(codex)`
-   on the HUD line, and the menu bar shows `source: "prepared_handoff"` with
-   the executor's prepared status.
+   on the HUD line, and the menu bar payload records
+   `source: "prepared_handoff"`.
 3. **Observed run.** A run recorded observed evidence (dispatch, execution,
    verification, review, CI, or merge): the HUD line shows the run's actual
-   phase, for example `coding-agent:runtime(codex)`, and the menu bar shows
-   `source: "observed_runtime"`. The `evidence` HUD segment and the menu bar's
-   Evidence card carry the same prepared-versus-observed boundary as before.
+   phase, for example `coding-agent:runtime(codex)`, and the menu bar payload
+   records `source: "observed_runtime"`. The `evidence` HUD segment keeps the
+   same prepared-versus-observed boundary as before.
 
 A quiet no-run line looks like
-`[omh] v1.0.5 | plugin:ready | target:single | coding-agent:not-selected`.
+`[omh] v1.0.6 | plugin:ready | target:single | coding-agent:not-selected`.
 The plugin also exposes `omh_context` for a compact OMH mental model plus
 generic-tool checkpoint, `omh_memory` for a metadata-only comparison of Hermes
 memory against OMH's approved records, `omh_interact` for shell-free chat responses and
@@ -469,36 +592,38 @@ human-readable summary:
 omh menubar status
 ```
 
-It prints Summary, Agent Status, Coding Agent, Evidence, and Observation
-sections instead of a raw JSON blob. For native menu bar, status-widget, wrapper,
-or automation integrations, use the platform-neutral view model:
+It prints Summary, Sessions, Models, the compact coding metadata footer, and
+Observation sections instead of a raw JSON blob. For native menu bar,
+status-widget, wrapper, or automation integrations, use the platform-neutral
+view model:
 
 ```sh
 omh menubar status --json
 ```
 
-The `menubar_status/v1` JSON has separate `hermes_agents` and
-`external_coding_executors` sections, friendly labels such as `OMH connection:
-Ready`, `Hermes targets: 2`, `Coding agent: Codex` (or `Coding agent: Not
-selected` in the no-run/no-preference state), and `Open mode: Ask before
-opening Codex`, plus source/model icon IDs with tooltip text. The
-`settings.coding_handoff.source` field distinguishes why an executor name is
-or is not shown — `"none"`, `"user_preference"`, `"prepared_handoff"`, or
-`"observed_runtime"` — per the status model above. It also includes
-`display.menu_cards`, a compact Agent Status/Coding Agent/Evidence card model
-for native menu bar surfaces. The Agent Status card is a small `Agent | PID |
-Status` list. Codex and other coding tools are external executors, not Hermes
-agents. Without an explicit process overlay or local process observation, the
-payload reports configured/prepared state only and shows PID as not observed.
+The `menubar_status/v2` JSON retains the separate `hermes_agents` and
+`external_coding_executors` metadata and adds read-only Hermes process, session,
+and model observations. Its `display.menu_cards` contains Sessions and Models
+tables followed by one compact `coding` metadata footer. The Sessions columns
+are exactly `Hermes session` / `Count`, and its rows are only `live` and
+`total`; source or TUI breakdown is intentionally not shown. Session counts
+come from a read-only read of Hermes' own session store. In Models, `current`
+is the model observed on the live Hermes session, while `main` and any auxiliary
+alias rows are settings read from Hermes configuration. A configured model is
+not evidence that a request used it. The `settings.coding_handoff.source` field
+continues to distinguish `"none"`, `"user_preference"`,
+`"prepared_handoff"`, and `"observed_runtime"` per the status model above.
 
 On macOS, a normal user-scope `omh setup` also attempts to build and start the
 small OMH menu bar helper when `swiftc` is available. The helper lives under
 `~/.omh/menubar`, is started with a user LaunchAgent, and refreshes the same
 `omh menubar status --observe-local-processes --json` payload. The visible menu is
-intentionally grouped as Agent Status, Coding Agent, and Evidence sections
-instead of a raw text list, and it shows process/PID detail only when a fresh
-overlay or explicit local observation saw that process. Use explicit commands
-when you want to manage it yourself:
+grouped as Sessions and Models tables with a compact coding metadata footer
+instead of a raw text list. The helper explicitly requests the bounded local
+process scan so its header can show observed Hermes agent/process counts; plain
+`omh menubar status` does not scan processes unless
+`--observe-local-processes` is supplied. Use explicit commands when you want to
+manage it yourself:
 
 ```sh
 omh menubar install
@@ -524,7 +649,8 @@ omh menubar status --observe-local-processes
 
 The overlay and local observation are app-local and expire by TTL. OMH does not
 infer that a prepared coding-agent action was executed, reviewed, passed CI, or
-merged.
+merged. The session-store and configuration observers are local and read-only:
+the status path makes no network request and does not write Hermes-owned files.
 
 MCP bridge setup is also optional and intentionally conservative:
 
@@ -716,16 +842,65 @@ Run the installer:
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
 ```
 
-By default this installs the preview channel from the `main` branch archive.
-For pinned stable installs, pass a release version after the matching
-`v<version>` tag exists:
+By default this installs the `stable` channel: the newest published release,
+as a wheel. To pin a specific release instead, pass its version — the channel
+is already the default, so naming it is optional but harmless:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_CHANNEL=stable OMH_VERSION=<version> sh
 ```
 
+To track the unreleased `main` branch instead, ask for `preview` explicitly:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_CHANNEL=preview sh
+```
+
+The two channels download different artifacts, and the difference is large
+enough to plan around:
+
+| Channel | Artifact | Measured size | Measured time |
+| --- | --- | --- | --- |
+| `stable` (default) | `oh_my_hermes-<version>-py3-none-any.whl` release asset | 2,714,885 bytes at v1.0.6 | 0.55s |
+| `preview` | `main` branch repository archive | 46,012,605 bytes on 2026-08-15 | 5.71s |
+
+Sizes and times measured 2026-08-15 with `curl`. Two things make the gap
+bigger than the byte ratio suggests. The preview archive is the whole
+repository, including `assets/`, `tests/`, and `site/`, none of which is
+needed to run `omh`. And GitHub *generates* `archive/refs/heads/<branch>.zip`
+on demand for every request rather than serving a cached object, so preview
+pays generation latency each time — on an ordinary connection that download
+has been observed to take over five minutes. Release assets are static objects
+served from a CDN.
+
+Preview stays an archive because GitHub publishes release assets per tag and
+there is no per-branch wheel to point at. Use it only when you specifically
+need unreleased `main`.
+
+A version-less `stable` install asks GitHub which release is newest by reading
+a single redirect (`releases/latest`), which costs about 0.25s. If that lookup
+fails, the installer says so and tells you to pass `OMH_VERSION` or switch to
+`OMH_CHANNEL=preview`; it never guesses a URL. The installer does this lookup
+itself and passes the resolved version to `omh setup`, because `omh` makes no
+network calls of its own.
+
+> **`omh update` still defaults to `preview`.** Only the installer default
+> moved. Until the release-version lookup has a home inside `omh` that does not
+> break its no-network boundary, a plain `omh update` keeps fetching the branch
+> archive. To get the slim path from `omh update` today, name the release:
+> `omh update --channel stable --version <version>`.
+
+Releases published before the wheel-publishing workflow existed carry no
+asset. If a stable install reports a 404 for the wheel, install that tag from
+the repository archive instead:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | OMH_PACKAGE_URL=https://github.com/rlaope/oh-my-hermes/archive/refs/tags/v<version>.zip sh
+```
+
 For custom release archives or local package sources accepted by `pip`, pass
-`OMH_PACKAGE_URL`.
+`OMH_PACKAGE_URL`. To install from a fork or mirror, override
+`OMH_REPO_ASSET_ROOT` and `OMH_REPO_ARCHIVE_ROOT`.
 
 The installer creates an isolated OMH virtual environment and links the `omh`
 command into `~/.local/bin` when possible. It does not run `omh setup`, register
@@ -1348,30 +1523,53 @@ omh update
 omh doctor
 ```
 
-Most users should run only `omh update`. When `omh` is running from the default
-install.sh-managed venv, the command first updates the command package from the
-recorded preview/stable package source, re-enters the updated CLI, refreshes the
-managed skills, and records a concise update log. If `omh` is running from a
-pip, pipx, distro, or custom Python install that OMH cannot safely mutate, the
-update still refreshes workflows but prints
+Most users should run only `omh update`. Homebrew, Bun, and npm launchers record
+their package-manager provenance; the update runs that manager's native
+upgrade, re-enters the updated CLI, refreshes the managed skills, and records a
+concise update log. The curl and PowerShell installers follow the same sequence
+through their managed virtual environment and recorded preview/stable source.
+If `omh` is running from a pip, pipx, distro, source checkout, or custom Python
+install that OMH cannot safely mutate, the update still refreshes workflows but
+prints
 `OMH command: not updated (workflows only)` plus the installer command needed to
 update the CLI itself. Successful command package updates print a compact line
 such as `OMH command: 1.0.1 -> 1.0.4 (updated)` or
 `OMH command: main@old -> main@new (updated)` before the workflow summary.
 
-Advanced operators can still pin or test a different source with
-`omh update --channel stable --version <version>` or
-`omh update --channel local --from-skills-dir ./skills`, but those flags are for
-release validation, fixtures, or intentional rollback testing. Local
-modifications block updates unless `--force` is supplied.
+### Package-manager command updates
 
-Run `omh doctor` after an update. Use `omh setup` only when doctor reports that
-Hermes registration needs repair, then restart Hermes Agent. Rerun the installer
-manually only when `omh update` says the command package was not updated, or
-when you intentionally want a one-shot reinstall from a specific source ref. The
-installer passes command-package update evidence into OMH so the state log can
-show version/ref movement such as `1.0.1 -> 1.0.4` or `main@old -> main@new`
-when `OMH_SOURCE_REF` is provided:
+When Homebrew, Bun, or npm installed the command, `omh update` uses the matching
+native command automatically:
+
+| Installed with | Upgrade command |
+| --- | --- |
+| Homebrew | `brew upgrade rlaope/tap/omh` |
+| Bun | `bun update -g --latest oh-my-hermes` |
+| npm | `npm update -g oh-my-hermes` |
+
+If the manager update fails, OMH stops before refreshing content and reports the
+manager error. Do not run the curl installer over a package-manager
+installation; that creates a second independently managed `omh` command.
+
+Advanced operators using installer-managed commands can still pin or test a
+different command package with
+`omh update --channel stable --version <version>`. Package-manager installs
+reject `--version`, `--package-url`, and `--source-ref` rather than silently
+installing a different release; use that manager directly for an intentional
+CLI rollback. `omh update --channel local --from-skills-dir ./skills` refreshes
+workflow content only and does not replace the command package, plugin bundle,
+or Hermes registration. These flags are for release validation, fixtures, or
+intentional rollback testing. Local modifications block updates unless
+`--force` is supplied.
+
+Run `omh doctor` after an update, then restart Hermes Agent. `omh update`
+refreshes existing Hermes registration along with the plugin bundle; use
+`omh setup` only when doctor reports that first-time setup or a repair is still
+needed. Rerun the installer manually only when `omh update` says the command
+package was not updated, or when you intentionally want a one-shot reinstall
+from a specific source ref. The installer passes command-package update
+evidence into OMH so the state log can show version/ref movement such as
+`1.0.1 -> 1.0.4` or `main@old -> main@new` when `OMH_SOURCE_REF` is provided:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
@@ -1402,7 +1600,7 @@ Then restart Hermes Agent.
 `omh setup`, `omh install`, and `omh update` install one of two skill
 profiles:
 
-- **`core` (default).** Installs the doctor health floor (the router plus the
+- **`core`** (opt-in via `--core`). Installs the doctor health floor (the router plus the
   `doctor`, `skill`, `cancel`, and `agent-ops-review` operator skills OMH needs
   to describe, diagnose, manage, and stop itself) plus the workflow skills a
   messenger-first user needs for a first chat/plan/status/handoff session
@@ -1410,13 +1608,14 @@ profiles:
   delivery/status-update policy, `executor-runtime-readiness` for handoff
   readiness, and `ops-observability-card` for status questions). Everything
   else in the catalog stays opt-in.
-- **`full`.** Installs every packaged skill (~89 skills, growing over time).
-  Pass `--full` to opt in:
+- **`full` (default).** Installs every packaged skill, ULW engines included.
+  This is what a plain `omh setup` does; `--full` remains for upgrading an
+  install that previously chose core and for script compatibility:
 
 ```sh
-omh setup --full
-omh install --full
-omh update --full
+omh setup            # full catalog
+omh setup --core     # lightweight footprint instead
+omh update --full    # widen an existing core install
 ```
 
 Every skill OMH installs is skill guidance that Hermes carries into its
@@ -1673,6 +1872,34 @@ that OMH cannot safely identify as install.sh-managed.
 If `omh` still runs after uninstall, that means the command package is still on
 `PATH`; remove it with the installer-managed venv, pip, or pipx environment
 that installed it.
+
+### Package-manager command removal
+
+Removing the command package preserves OMH state, including `~/.omh`, reviewed
+memory, installed skills, and Hermes registration. Use the matching native
+command when only the CLI package should be removed:
+
+| Installed with | Remove command |
+| --- | --- |
+| Homebrew | `brew uninstall omh` |
+| Bun | `bun remove -g oh-my-hermes` |
+| npm | `npm uninstall -g oh-my-hermes` |
+
+For a complete removal, run `omh uninstall --all` first to remove OMH-managed
+state and Hermes integration, then run the package-manager remove command.
+
+The npm/Bun launcher keeps the current exact wheel plus the two most recently used caches
+and removes abandoned staging directories after 24 hours. `OMH_CACHE_DIR`
+overrides these defaults:
+
+- macOS: `~/Library/Caches/oh-my-hermes/npm`
+- Linux: `$XDG_CACHE_HOME/oh-my-hermes/npm`, falling back to
+  `~/.cache/oh-my-hermes/npm`
+- Windows: `%LOCALAPPDATA%\oh-my-hermes\Cache\npm`
+
+The package manager and `omh uninstall --all` preserve this external launcher
+cache. After all `omh` processes stop, remove the platform directory manually
+when complete removal must include cached wheels.
 
 Preview the cleanup first:
 

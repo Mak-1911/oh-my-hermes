@@ -123,7 +123,18 @@ class WindowsInstallerContractParityTests(unittest.TestCase):
         self.assertEqual(sorted(powershell_flags - shell_flags), [], "install.ps1 forwards setup flags install.sh does not")
 
     def test_package_source_resolution_matches(self) -> None:
-        for fragment in ("/heads/main.zip", "/tags/", "custom-url", "preview", "stable", "local"):
+        for fragment in (
+            "/heads/main.zip",
+            "/tags/",
+            # Stable resolves the slim release wheel; the tag archive stays
+            # only as the fallback for a tag that published no asset.
+            "releases/download",
+            "-py3-none-any.whl",
+            "custom-url",
+            "preview",
+            "stable",
+            "local",
+        ):
             self.assertIn(fragment, self.powershell, f"channel resolution lost {fragment!r}")
 
     def test_windows_installer_uses_the_windows_virtualenv_layout(self) -> None:
@@ -154,8 +165,14 @@ class WindowsInstallerDocumentationTests(unittest.TestCase):
 
     def test_windows_one_liner_is_documented_where_a_windows_user_will_look(self) -> None:
         one_liner = "irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex"
-        for name, text in (("docs/INSTALLATION.md", self.installation), ("README.md", self.readme), ("INSTALL_FOR_AGENTS.md", self.agents)):
+        for name, text in (("docs/INSTALLATION.md", self.installation), ("README.md", self.readme)):
             self.assertIn(one_liner, text, f"{name} does not show the native Windows install command")
+        self.assertIn('$env:OMH_SOURCE_REF = $Ref', self.agents)
+        self.assertIn(
+            'irm "https://raw.githubusercontent.com/rlaope/oh-my-hermes/$Ref/install.ps1" | iex',
+            self.agents,
+        )
+        self.assertNotIn(one_liner, self.agents)
 
     def test_hermes_home_resolution_on_windows_is_stated_not_implied(self) -> None:
         # The question issue #848 actually asked. `~` differs between native

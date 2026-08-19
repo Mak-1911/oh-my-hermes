@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import errno
 import json
+import math
 import os
 import re
+import stat
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable
 
+from .hermes_delegation import read_hermes_native_subagents
+from .tool_bursts import latest_parallel_shot
 from .metadata import (
     OPTIONAL_HOOKS,
     PROVIDED_HOOKS,
@@ -15,10 +21,26 @@ from .metadata import (
     TOOL_FILE_STEMS,
     TOOLS_REQUIRING_ROLE_CATALOG,
 )
+from .todo_store import (
+    MAX_TODO_DEPTH,
+    MAX_TODO_ITEMS,
+    MAX_TODO_PHASE_CHARS,
+    MAX_TODO_SOURCE_CHARS,
+    MAX_TODO_TEXT_CHARS,
+    MAX_TODO_TITLE_CHARS,
+    TODO_ITEM_STATES,
+    TODO_SCHEMA_VERSION,
+    strip_control_characters,
+    todo_path,
+)
 
 STATUS_SCHEMA_VERSION = "omh_status/v1"
 HUD_SCHEMA_VERSION = "omh_hud/v1"
 HUD_PRESETS = {"minimal", "focused", "full"}
+TODO_STALE_SECONDS = 86400
+# How long a fully-done plan keeps rendering after its last update.
+ALL_DONE_TODO_LINGER_SECONDS = 15 * 60
+TODO_DISPLAY_ITEM_LIMIT = 3
 HUD_REQUIRED_TOOLS = PROVIDED_TOOLS
 HUD_REQUIRED_HOOKS = REQUIRED_HOOKS
 HUD_OPTIONAL_HOOKS = OPTIONAL_HOOKS
@@ -110,7 +132,12 @@ MAX_HUD_TEXT_CHARS = 120
 
 
 def _expand_path(value: str | Path) -> Path:
-    return Path(os.path.expandvars(str(value))).expanduser().resolve()
+    try:
+        return Path(os.path.expandvars(str(value))).expanduser().resolve()
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise RuntimeError("cannot resolve path through a symlink loop") from exc
+        raise
 
 
 def _hud_text(value: Any, *, limit: int = MAX_HUD_TEXT_CHARS) -> str:
@@ -133,22 +160,82 @@ def _read_json(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _read_hud_json(path: Path) -> dict[str, Any]:
+def _open_hud_descriptor(path: Path, *, root: Path | None) -> int:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    if root is None or os.open not in os.supports_dir_fd or not hasattr(os, "O_DIRECTORY"):
+        if root is not None and _contains_symlink(path, root=root):
+            raise OSError("unsafe HUD metadata path")
+        return os.open(path, flags)
+
+    absolute_root = Path(os.path.abspath(root))
+    absolute_path = Path(os.path.abspath(path))
+    relative = absolute_path.relative_to(absolute_root)
+    if not relative.parts:
+        raise OSError("HUD metadata path must name a file below its root")
+    directory_flags = flags | os.O_DIRECTORY
+    directory_descriptor = os.open(absolute_root, directory_flags)
     try:
-        if path.is_symlink() or path.stat().st_size > MAX_HUD_METADATA_BYTES:
-            return {}
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        for part in relative.parts[:-1]:
+            child_descriptor = os.open(
+                part,
+                directory_flags,
+                dir_fd=directory_descriptor,
+            )
+            os.close(directory_descriptor)
+            directory_descriptor = child_descriptor
+        return os.open(relative.parts[-1], flags, dir_fd=directory_descriptor)
+    finally:
+        os.close(directory_descriptor)
+
+
+def _read_hud_text(path: Path, *, root: Path | None = None) -> str | None:
+    try:
+        descriptor = _open_hud_descriptor(path, root=root)
+    except (OSError, ValueError):
+        return None
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_size > MAX_HUD_METADATA_BYTES
+        ):
+            return None
+        chunks: list[bytes] = []
+        remaining = MAX_HUD_METADATA_BYTES + 1
+        while remaining > 0:
+            chunk = os.read(descriptor, min(65_536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        if len(raw) > MAX_HUD_METADATA_BYTES:
+            return None
+        return raw.decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    finally:
+        os.close(descriptor)
+
+
+def _read_hud_json(path: Path, *, root: Path | None = None) -> dict[str, Any]:
+    try:
+        text = _read_hud_text(path, root=root)
+        data = json.loads(text) if text is not None else {}
+    except json.JSONDecodeError:
         return {}
     return data if isinstance(data, dict) and not _has_raw_or_hidden_content(data) else {}
 
 
-def _read_hud_coding_projection(path: Path) -> dict[str, Any]:
+def _read_hud_coding_projection(path: Path, *, root: Path | None = None) -> dict[str, Any]:
     try:
-        if path.is_symlink() or path.stat().st_size > MAX_HUD_METADATA_BYTES:
-            return {}
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        text = _read_hud_text(path, root=root)
+        data = json.loads(text) if text is not None else {}
+    except json.JSONDecodeError:
         return {}
     if not isinstance(data, dict):
         return {}
@@ -192,13 +279,21 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def _read_hud_jsonl(path: Path) -> list[dict[str, Any]]:
-    try:
-        if path.is_symlink() or path.stat().st_size > MAX_HUD_METADATA_BYTES:
-            return []
-    except OSError:
+def _read_hud_jsonl(path: Path, *, root: Path | None = None) -> list[dict[str, Any]]:
+    text = _read_hud_text(path, root=root)
+    if text is None:
         return []
-    return _read_jsonl(path)
+    records: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            records.append(data)
+    return records
 
 
 def _contains_symlink(path: Path, *, root: Path) -> bool:
@@ -534,9 +629,9 @@ def read_omh_hud(
     hermes = _expand_path(hermes_home) if hermes_home else _default_hermes_home()
     safe_limit = _safe_limit(limit, default=3)
     status_payload = status if status is not None else _read_omh_hud_status(home, limit=safe_limit)
-    state = _read_hud_json(home / "runtime" / "state.json")
-    profile = _read_hud_json(home / "setup-profile.json")
-    target_registry = _read_hud_json(home / "targets.json")
+    state = _read_hud_json(home / "runtime" / "state.json", root=home)
+    profile = _read_hud_json(home / "setup-profile.json", root=home)
+    target_registry = _read_hud_json(home / "targets.json", root=home)
     runs = status_payload.get("runs", [])
     latest_run = runs[0] if runs else {}
     payload: dict[str, Any] = {
@@ -552,8 +647,13 @@ def read_omh_hud(
         "runtime": _hud_runtime_summary(status_payload, latest_run),
         "achievements": _achievements_summary(hermes),
         "tokens": _token_summary(token_metadata or {}),
+        "todo": _todo_summary(home),
+        # Concurrent tool-call batches observed by the pre_tool_call hook;
+        # the [OMH] status line brands a fresh batch as a parallel shot.
+        "parallel_shot": latest_parallel_shot(str(home)),
         "evidence_boundary": (
-            "HUD is metadata-only. Prepared handoffs are not execution, review, CI, merge, or token-usage evidence."
+            "HUD is metadata-only. Prepared handoffs are not execution, review, CI, merge, or token-usage evidence. "
+            "Todo items are plan declarations, not execution evidence."
         ),
         "privacy": "metadata_only",
     }
@@ -562,15 +662,30 @@ def read_omh_hud(
         "status": "observed" if payload["subagents"]["maestro_rows"] else "idle",
         "rows": payload["subagents"].pop("maestro_rows"),
     }
+    # Hermes-native delegate_task children are work the HUD must show even
+    # though they never touch the OMH runtime store; see hermes_delegation.
+    native = read_hermes_native_subagents(hermes)
+    if native["rows"]:
+        merged = payload["subagents"]
+        merged["rows"] = (list(merged["rows"]) + list(native["rows"]))[:5]
+        merged["active"] = int(merged.get("active", 0)) + int(native["active"])
+        merged["running"] = int(merged.get("running", 0)) + int(native["running"])
+        merged["blocked"] = int(merged.get("blocked", 0)) + int(native["blocked"])
+        merged["completed"] = int(merged.get("completed", 0)) + int(native["completed"])
+        if merged.get("status") == "idle":
+            merged["status"] = "observed"
     payload["active"] = bool(
         payload["runtime"]["workflow"] != "idle"
         or payload["subagents"]["active"]
+        # Lingering just-finished native rows keep the activity block visible.
+        or payload["subagents"]["rows"]
         or payload["maestro"]["rows"]
     )
     payload["display"] = {
         "line": format_omh_hud_line(payload, preset=safe_preset),
         "segments": _hud_segments(payload, preset=safe_preset),
         "widget_lines": _hud_widget_lines(payload),
+        "todo_lines": _hud_todo_lines(payload["todo"], preset=safe_preset),
     }
     return payload
 
@@ -593,10 +708,15 @@ def _package_version(state: dict[str, Any], fallback: str) -> str:
 
 def _plugin_summary(hermes_home: Path, state: dict[str, Any]) -> dict[str, Any]:
     plugin_dir = hermes_home / "plugins" / "omh"
-    installed = plugin_dir.is_dir()
+    installed = plugin_dir.is_dir() and not _contains_symlink(plugin_dir, root=hermes_home)
+    readable_plugin_dir = plugin_dir if installed else hermes_home / ".missing-omh-plugin"
     last_distribution = state.get("last_plugin_distribution", {})
     observed = bool(last_distribution.get("observed", False)) if isinstance(last_distribution, dict) else False
-    capabilities = _plugin_capabilities(plugin_dir, last_distribution if isinstance(last_distribution, dict) else {})
+    capabilities = _plugin_capabilities(
+        readable_plugin_dir,
+        last_distribution if isinstance(last_distribution, dict) else {},
+        root=hermes_home,
+    )
     complete_files = bool(capabilities["files"]["plugin_yaml"] and capabilities["files"]["init_py"])
     required_tools_ready = all(capabilities["tools"].values())
     required_hooks_ready = all(capabilities["hooks"].get(hook, False) for hook in HUD_REQUIRED_HOOKS)
@@ -610,7 +730,7 @@ def _plugin_summary(hermes_home: Path, state: dict[str, Any]) -> dict[str, Any]:
         status = "missing"
     return {
         "status": status,
-        "version": _plugin_version(plugin_dir),
+        "version": _plugin_version(readable_plugin_dir, root=hermes_home),
         "plugin_dir": str(plugin_dir),
         "distribution_observed": observed,
         "runtime_observed": False,
@@ -622,32 +742,34 @@ def _plugin_summary(hermes_home: Path, state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _plugin_version(plugin_dir: Path) -> str:
+def _plugin_version(plugin_dir: Path, *, root: Path) -> str:
     plugin_yaml = plugin_dir / "plugin.yaml"
-    try:
-        if plugin_yaml.is_symlink() or plugin_yaml.stat().st_size > 16_384:
-            return ""
-        text = plugin_yaml.read_text(encoding="utf-8")
-    except OSError:
+    text = _read_hud_text(plugin_yaml, root=root)
+    if text is None:
         return ""
     match = re.search(r'(?m)^version:\s*["\']?([A-Za-z0-9._+-]+)', text)
     return match.group(1) if match else ""
 
 
-def _plugin_capabilities(plugin_dir: Path, last_distribution: dict[str, Any]) -> dict[str, Any]:
+def _plugin_capabilities(
+    plugin_dir: Path,
+    last_distribution: dict[str, Any],
+    *,
+    root: Path,
+) -> dict[str, Any]:
     files = {
-        "plugin_yaml": (plugin_dir / "plugin.yaml").is_file(),
-        "init_py": (plugin_dir / "__init__.py").is_file(),
-        "role_catalog": any((plugin_dir / "references").glob("role-*.md")) if (plugin_dir / "references").is_dir() else False,
-        "managed_manifest": (plugin_dir / ".omh-plugin-manifest.json").is_file(),
+        "plugin_yaml": _hud_regular_file(plugin_dir / "plugin.yaml", root=root),
+        "init_py": _hud_regular_file(plugin_dir / "__init__.py", root=root),
+        "role_catalog": _hud_has_role_catalog(plugin_dir / "references", root=root),
+        "managed_manifest": _hud_regular_file(plugin_dir / ".omh-plugin-manifest.json", root=root),
     }
     files.update(
         {
-            stem: (plugin_dir / "tools" / f"{stem}.py").is_file()
+            stem: _hud_regular_file(plugin_dir / "tools" / f"{stem}.py", root=root)
             for stem in sorted(set(TOOL_FILE_STEMS.values()))
         }
     )
-    yaml_text = _read_text(plugin_dir / "plugin.yaml")
+    yaml_text = _read_hud_text(plugin_dir / "plugin.yaml", root=root) or ""
     advertised_tools = set(_yaml_list_values(yaml_text, "provides_tools"))
     advertised_hooks = set(_yaml_list_values(yaml_text, "provides_hooks"))
     registered_tools = set(_string_list(last_distribution.get("registered_tools", [])))
@@ -661,6 +783,60 @@ def _plugin_capabilities(plugin_dir: Path, last_distribution: dict[str, Any]) ->
         "advertised_tools": sorted(advertised_tools),
         "advertised_hooks": sorted(advertised_hooks),
     }
+
+
+def _hud_regular_file(path: Path, *, root: Path) -> bool:
+    try:
+        descriptor = _open_hud_descriptor(path, root=root)
+    except (OSError, ValueError):
+        return False
+    try:
+        return stat.S_ISREG(os.fstat(descriptor).st_mode)
+    except OSError:
+        return False
+    finally:
+        os.close(descriptor)
+
+
+def _hud_has_role_catalog(path: Path, *, root: Path) -> bool:
+    if (
+        os.open not in os.supports_dir_fd
+        or os.scandir not in os.supports_fd
+        or not hasattr(os, "O_DIRECTORY")
+    ):
+        try:
+            if _contains_symlink(path, root=root) or not path.is_dir():
+                return False
+            names = [
+                entry.name
+                for entry in path.iterdir()
+                if entry.name.startswith("role-")
+                and entry.name.endswith(".md")
+                and not entry.is_symlink()
+            ]
+        except OSError:
+            return False
+        return any(_hud_regular_file(path / name, root=root) for name in names)
+    try:
+        descriptor = _open_hud_descriptor(path, root=root)
+    except (OSError, ValueError):
+        return False
+    try:
+        if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            return False
+        with os.scandir(descriptor) as entries:
+            names = [
+                entry.name
+                for entry in entries
+                if entry.name.startswith("role-")
+                and entry.name.endswith(".md")
+                and not entry.is_symlink()
+            ]
+        return any(_hud_regular_file(path / name, root=root) for name in names)
+    except OSError:
+        return False
+    finally:
+        os.close(descriptor)
 
 
 def _plugin_tool_capabilities(files: dict[str, bool], tool_sources: set[str]) -> dict[str, bool]:
@@ -750,8 +926,8 @@ def _achievements_summary(hermes_home: Path) -> dict[str, Any]:
     # The plugin bundle stays standalone, so this mirrors the tolerant reading
     # in workflows/hermes_achievements.py at HUD granularity: counts only.
     plugin_dir = hermes_home / "plugins" / "hermes-achievements"
-    snapshot = _read_json(plugin_dir / "scan_snapshot.json")
-    state = _read_json(plugin_dir / "state.json")
+    snapshot = _read_hud_json(plugin_dir / "scan_snapshot.json", root=hermes_home)
+    state = _read_hud_json(plugin_dir / "state.json", root=hermes_home)
     total = 0
     unlocked_flags = 0
     for key in ("achievements", "badges", "catalog", "items"):
@@ -852,12 +1028,25 @@ def _hud_subagent_summary(status: dict[str, Any]) -> dict[str, Any]:
         )
         projected = {
             "state": state,
+            "task_id": _hud_text(row.get("target_id", ""), limit=80)[:8],
             "role": _hud_executor_role(row),
             "action": _hud_text(event.get("summary", "")),
             "model": _hud_text(row.get("routed_model", "")),
             "effort": _hud_text(row.get("routed_reasoning_effort", ""), limit=40),
             "tokens": row.get("tokens_total") if isinstance(row.get("tokens_total"), int) else None,
+            "elapsed_seconds": _hud_number(row.get("elapsed_seconds")),
+            "observed_at": _hud_text(event.get("observed_at", ""), limit=40),
+            "category": _hud_text(row.get("category", ""), limit=80),
+            "fallback_count": _hud_number(row.get("fallback_count")),
+            "turn_count": _hud_number(row.get("turn_count")),
+            "tool_count": _hud_number(row.get("tool_count")),
+            "cost_usd": _hud_number(row.get("cost_usd")),
+            "tokens_per_second": _hud_number(row.get("tokens_per_second")),
         }
+        for key in ("cache_hit_percentage", "context_percentage"):
+            value = _hud_percentage(row.get(key))
+            if value is not None:
+                projected[key] = value
         if (
             str(row.get("executor_profile", "")).casefold() == "maestro"
             or str(row.get("target_id", "")) in maestro_run_ids
@@ -880,22 +1069,55 @@ def _hud_subagent_summary(status: dict[str, Any]) -> dict[str, Any]:
 
 def _hud_executor_role(row: dict[str, Any]) -> str:
     target_id = str(row.get("target_id", ""))
+    target_type = str(row.get("target_type", ""))
     profile = str(row.get("executor_profile", ""))
-    if target_id.startswith(("run-", "session-")):
+    # A run's target_id is its timestamped artifact id (20260815T...-skill-...)
+    # and a wrapper session's is an opaque ws-<hash> — identifiers, not roles;
+    # the executor profile is what a human reads. Subagent targets keep their
+    # role-named target_id ("explore", "librarian").
+    if target_type in ("run", "wrapper_session") or target_id.startswith(("run-", "session-", "ws-")):
         return profile[:40]
     return (target_id or profile)[:40]
+
+
+def _hud_number(value: Any) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        return None
+    return int(number) if number.is_integer() else number
+
+
+def _hud_percentage(value: Any) -> int | float | None:
+    number = _hud_number(value)
+    if number is None or number > 100:
+        return None
+    return number
 
 
 def _hud_widget_lines(payload: dict[str, Any]) -> list[str]:
     runtime = payload.get("runtime", {})
     subagents = payload.get("subagents", {})
-    workflow = str(runtime.get("workflow", "idle"))
-    phase = str(runtime.get("phase", "idle"))
+    workflow = {
+        "fanout-unit": "Parallel work",
+        "fanout": "Parallel work",
+        "goal": "Goal",
+        "wrapper-session": "Session",
+    }.get(str(runtime.get("workflow", "")).casefold(), str(runtime.get("workflow", "Work")))
+    phase = {
+        "runtime": "active",
+        "executing": "active",
+        "prepared": "ready",
+        "completed": "complete",
+    }.get(str(runtime.get("phase", "")).casefold(), str(runtime.get("phase", "")))
+    if not int(subagents.get("active", 0) or 0):
+        phase = "ready"
     header = (
-        f"[OMH] {workflow} {phase} "
-        f"agents {subagents.get('active', 0)} · "
-        f"run {subagents.get('running', 0)} · "
-        f"block {subagents.get('blocked', 0)} · "
+        f"[OMH] {workflow} {phase}  •  "
+        f"agents {subagents.get('active', 0)}  •  "
+        f"run {subagents.get('running', 0)}  •  "
+        f"block {subagents.get('blocked', 0)}  •  "
         f"done {subagents.get('completed', 0)}"
     )
     latest_action = str(subagents.get("latest_action", "")).strip()
@@ -918,6 +1140,164 @@ def _evidence_state(run: dict[str, Any]) -> str:
     if run.get("prepared_handoff"):
         return "prepared_not_observed"
     return str(run.get("observation_status", "unknown") or "unknown")
+
+
+def read_omh_todo(omh_home: str | Path | None = None) -> dict[str, Any]:
+    """Public todo projection for tools and hosts that only need the panel."""
+    home = _expand_path(omh_home) if omh_home else _default_omh_home()
+    return _todo_summary(home)
+
+
+def default_omh_home() -> Path:
+    """Public alias so tools can target the configured home without private imports."""
+    return _default_omh_home()
+
+
+def _todo_summary(home: Path) -> dict[str, Any]:
+    empty = {
+        "status": "absent",
+        "title": "",
+        "source": "",
+        "updated_at": "",
+        "counts": {"total": 0, "done": 0, "active": 0, "pending": 0, "phases": 0},
+        "items": [],
+        "display_items": [],
+        "display_phase": "",
+        "more_count": 0,
+    }
+    record = _read_hud_json(todo_path(home), root=home)
+    if record.get("schema_version") != TODO_SCHEMA_VERSION:
+        return empty
+    items: list[dict[str, Any]] = []
+    raw_items = record.get("items")
+    for raw in raw_items if isinstance(raw_items, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        text = strip_control_characters(raw.get("text", ""))[:MAX_TODO_TEXT_CHARS]
+        state = str(raw.get("state", ""))
+        phase = strip_control_characters(raw.get("phase", ""))[:MAX_TODO_PHASE_CHARS]
+        raw_depth = raw.get("depth", 0)
+        depth = (
+            min(raw_depth, MAX_TODO_DEPTH)
+            if isinstance(raw_depth, int) and not isinstance(raw_depth, bool) and raw_depth > 0
+            else 0
+        )
+        if text and state in TODO_ITEM_STATES:
+            entry: dict[str, Any] = {"text": text, "state": state}
+            if phase:
+                entry["phase"] = phase
+            if depth:
+                entry["depth"] = depth
+            items.append(entry)
+        if len(items) >= MAX_TODO_ITEMS:
+            break
+    if not items:
+        return empty
+    summary = dict(empty)
+    summary["display_items"] = []
+    summary["more_count"] = 0
+    summary["title"] = strip_control_characters(record.get("title", ""))[:MAX_TODO_TITLE_CHARS]
+    summary["source"] = strip_control_characters(record.get("source", ""))[:MAX_TODO_SOURCE_CHARS]
+    summary["updated_at"] = strip_control_characters(record.get("updated_at", ""))[:40]
+    summary["items"] = items
+    phases: list[str] = []
+    for item in items:
+        name = item.get("phase", "")
+        if name and name not in phases:
+            phases.append(name)
+    counts = {
+        "total": len(items),
+        "done": sum(1 for item in items if item["state"] == "done"),
+        "active": sum(1 for item in items if item["state"] == "active"),
+        "pending": sum(1 for item in items if item["state"] == "pending"),
+        "phases": len(phases),
+    }
+    summary["counts"] = counts
+    age = _seconds_since(summary["updated_at"])
+    if age is None or age > TODO_STALE_SECONDS:
+        summary["status"] = "stale"
+        return summary
+    if counts["done"] == counts["total"]:
+        # A finished plan is a receipt, not ambient chrome. It lingers briefly
+        # so the session that finished it sees the ✓, then leaves -- without
+        # this, a plan completed in one session greeted every NEW session as a
+        # "Plan ... 3/3" box for a full day, reading as state the new session
+        # never created (observed on a fresh boot the morning after a QA run).
+        if age > ALL_DONE_TODO_LINGER_SECONDS:
+            summary["status"] = "absent"
+            return summary
+        summary["status"] = "all_done"
+        return summary
+    summary["status"] = "established"
+    # A phase-structured plan shows the CURRENT phase only: its name as a
+    # header and its items as the checklist. The current phase is where work
+    # is — the first phase holding an active item, else the first with
+    # remaining work. Unphased plans keep the flat collapse.
+    display_pool = items
+    if phases:
+        current_phase = next(
+            (item.get("phase", "") for item in items if item["state"] == "active" and item.get("phase")),
+            "",
+        ) or next(
+            (item.get("phase", "") for item in items if item["state"] == "pending" and item.get("phase")),
+            phases[-1],
+        )
+        summary["display_phase"] = current_phase
+        display_pool = [item for item in items if item.get("phase", "") == current_phase]
+    summary["display_items"] = _collapse_todo_items(display_pool)
+    # "+N more" counts hidden remaining work only (later phases included);
+    # hidden done items are already summarized by the header's done/total.
+    shown_remaining = sum(1 for item in summary["display_items"] if item["state"] != "done")
+    summary["more_count"] = counts["active"] + counts["pending"] - shown_remaining
+    return summary
+
+
+def _collapse_todo_items(items: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Latest done, then active, then upcoming pending — capped for the HUD."""
+    done_items = [item for item in items if item["state"] == "done"]
+    shown = done_items[-1:]
+    shown += [item for item in items if item["state"] == "active"]
+    shown += [item for item in items if item["state"] == "pending"]
+    return shown[:TODO_DISPLAY_ITEM_LIMIT]
+
+
+def _hud_todo_lines(todo: dict[str, Any], *, preset: str = "focused") -> list[str]:
+    status = str(todo.get("status", "absent"))
+    if status not in {"established", "all_done"}:
+        return []
+    counts = todo.get("counts", {})
+    title = str(todo.get("title", ""))
+    label = f"Todo · {title}" if title else "Todo"
+    if status == "all_done":
+        return [f"{label} ✓ {counts.get('done', 0)}/{counts.get('total', 0)}"]
+    header = f"{label}   {counts.get('done', 0)}/{counts.get('total', 0)}"
+    if preset == "minimal":
+        return [header]
+    full = preset == "full"
+    shown = todo.get("items", []) if full else todo.get("display_items", [])
+    marker = {"done": "[✓]", "active": "[•]", "pending": "[ ]"}
+    lines = [header]
+    if full:
+        # Full preset walks every phase in declaration order with headers;
+        # subtasks (depth 1..3) indent beneath their parent.
+        last_phase = None
+        for item in shown:
+            phase = item.get("phase", "")
+            if phase and phase != last_phase:
+                lines.append(phase)
+                last_phase = phase
+            lines.append(f"{'  ' * int(item.get('depth', 0) or 0)}{marker[item['state']]} {item['text']}")
+    else:
+        display_phase = str(todo.get("display_phase", ""))
+        if display_phase:
+            lines.append(display_phase)
+        lines.extend(
+            f"{'  ' * int(item.get('depth', 0) or 0)}{marker[item['state']]} {item['text']}" for item in shown
+        )
+    more = 0 if full else int(todo.get("more_count", 0) or 0)
+    if more > 0:
+        lines[-1] = f"{lines[-1]}   +{more} more"
+    return lines
 
 
 def _token_summary(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -1175,12 +1555,22 @@ def read_omh_status(omh_home: str | Path | None = None, limit: int = 5) -> dict[
 
 def _read_omh_hud_status(home: Path, *, limit: int) -> dict[str, Any]:
     runtime_dir = home / "runtime"
+    if _contains_symlink(runtime_dir, root=home):
+        return {
+            "runtime_state_present": False,
+            "runs": [],
+            "active_executors": [],
+            "stale_executors": [],
+            "latest_progress_events": [],
+        }
+    json_reader = partial(_read_hud_json, root=runtime_dir)
+    coding_reader = partial(_read_hud_coding_projection, root=runtime_dir)
     runs: list[dict[str, Any]] = []
     for run_json in sorted(
         _hud_child_files(runtime_dir / "runs", "run.json"),
         reverse=True,
     )[:limit]:
-        run = _read_hud_json(run_json)
+        run = json_reader(run_json)
         if run:
             runs.append(
                 _summarize_run(
@@ -1188,8 +1578,8 @@ def _read_omh_hud_status(home: Path, *, limit: int) -> dict[str, Any]:
                     run=run,
                     journal_events=[],
                     external_effect_receipts=[],
-                    json_reader=_read_hud_json,
-                    coding_reader=_read_hud_coding_projection,
+                    json_reader=json_reader,
+                    coding_reader=coding_reader,
                 )
             )
     progress = _executor_progress_projection(
@@ -1198,7 +1588,7 @@ def _read_omh_hud_status(home: Path, *, limit: int) -> dict[str, Any]:
         hud_safe=True,
     )
     return {
-        "runtime_state_present": bool(_read_hud_json(runtime_dir / "state.json")),
+        "runtime_state_present": bool(json_reader(runtime_dir / "state.json")),
         "runs": runs,
         **progress,
     }
@@ -1276,8 +1666,16 @@ def _progress_bindings(
     )
     for root, target_type in roots:
         child_files = _hud_child_files if hud_safe else _child_files
-        json_reader = _read_hud_json if hud_safe else _read_json
-        jsonl_reader = _read_hud_jsonl if hud_safe else _read_jsonl
+        json_reader = (
+            partial(_read_hud_json, root=runtime_dir)
+            if hud_safe
+            else _read_json
+        )
+        jsonl_reader = (
+            partial(_read_hud_jsonl, root=runtime_dir)
+            if hud_safe
+            else _read_jsonl
+        )
         for binding_path in sorted(child_files(root, "executor_progress", "binding.json"), reverse=True):
             binding = json_reader(binding_path)
             if not _valid_progress_binding(binding, target_type):
@@ -1320,6 +1718,14 @@ def _projected_binding_state(runtime_dir: Path, binding: dict[str, Any]) -> str:
 
 
 def _target_has_terminal_result(runtime_dir: Path, target_type: str, target_id: str) -> bool:
+    if (
+        not target_id
+        or target_id in {".", ".."}
+        or "/" in target_id
+        or "\\" in target_id
+        or "\x00" in target_id
+    ):
+        return False
     if target_type == "run":
         delegation = _read_json(runtime_dir / "runs" / target_id / "delegation.json")
         return bool(delegation.get("observed")) and str(delegation.get("result", "")) in {"completed", "blocked", "failed"}
@@ -1386,7 +1792,20 @@ def _progress_row(primary: dict[str, Any], group: list[dict[str, Any]], event: d
     }
     signal = event.get("signal", {}) if event else {}
     if isinstance(signal, dict):
-        for key in ("routed_model", "routed_reasoning_effort", "tokens_total"):
+        for key in (
+            "routed_model",
+            "routed_reasoning_effort",
+            "tokens_total",
+            "elapsed_seconds",
+            "category",
+            "fallback_count",
+            "turn_count",
+            "tool_count",
+            "cost_usd",
+            "tokens_per_second",
+            "cache_hit_percentage",
+            "context_percentage",
+        ):
             value = signal.get(key)
             if value not in (None, ""):
                 row[key] = value
@@ -1430,7 +1849,13 @@ def _valid_progress_binding(binding: dict[str, Any], expected_target_type: str) 
     profile = str(binding.get("executor_profile") or binding.get("executor") or "")
     if target_type != expected_target_type or target_type not in {"run", "wrapper_session"}:
         return False
-    if not target_id:
+    if (
+        not target_id
+        or target_id in {".", ".."}
+        or "/" in target_id
+        or "\\" in target_id
+        or "\x00" in target_id
+    ):
         return False
     if profile not in EXECUTOR_PROGRESS_PROFILES:
         return False

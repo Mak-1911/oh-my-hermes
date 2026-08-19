@@ -622,6 +622,7 @@ print(json.dumps(observed, ensure_ascii=False))
                 [
                     "omh_capabilities",
                     "omh_context",
+                    "omh_delegate_route",
                     "omh_gather_evidence",
                     "omh_hud",
                     "omh_interact",
@@ -629,13 +630,21 @@ print(json.dumps(observed, ensure_ascii=False))
                     "omh_probe",
                     "omh_recommend",
                     "omh_role",
+                    "omh_run_summary",
                     "omh_source_trust",
                     "omh_status",
+                    "omh_todo",
                 ],
             )
             self.assertEqual(
                 plugin["registered_hooks"],
-                ["on_session_end", "pre_llm_call", "pre_tool_call", "pre_verify"],
+                [
+                    "on_session_end",
+                    "pre_llm_call",
+                    "pre_tool_call",
+                    "pre_verify",
+                    "transform_tool_result",
+                ],
             )
 
             inspection = inspect_plugin_bundle(resolve_paths(omh_home, hermes_home))

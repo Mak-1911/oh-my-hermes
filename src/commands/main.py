@@ -369,6 +369,34 @@ Run `omh --help` for the full command list."""
     )
 
 
+def _launch_hermes_tui() -> int | None:
+    """Open the OH-MY-HERMES terminal: bare `omh` is the same door as `hermes`.
+
+    The oh-my-zsh contract, applied here: the wrapper's bare name IS the
+    styled experience. This execs the user's own `hermes` binary with no
+    flags -- a user-invoked local launch, not background dispatch. It used to
+    force `--tui`, which made the two doors open DIFFERENT terminals whenever
+    `display.interface` selected the classic REPL: `omh` showed the HUD, bare
+    `hermes` showed no OMH surface at all, and the split read as a bug from
+    the first boot. Which terminal opens belongs to Hermes' own
+    `display.interface`; OMH's door just walks through it. No terminal or no
+    Hermes install means there is nothing to launch, and the caller falls
+    back to the welcome text.
+    """
+    import shutil
+    import subprocess
+
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return None
+    hermes = shutil.which("hermes")
+    if not hermes:
+        return None
+    try:
+        return int(subprocess.run([hermes]).returncode)
+    except (OSError, KeyboardInterrupt):
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
     if raw_argv in (["--version"], ["-V"]):
@@ -378,6 +406,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(raw_argv)
     set_json_output_pretty(bool(getattr(args, "pretty", False)))
     if not getattr(args, "command", None):
+        launched = _launch_hermes_tui()
+        if launched is not None:
+            return launched
         _print_welcome()
         return 0
     try:

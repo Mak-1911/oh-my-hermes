@@ -31,8 +31,10 @@ from ..routing.localization import normalized_phrase
 from ..routing.owner_preference import (
     read_owner_preference,
     record_accepted_explicit_choice,
+    record_in_message_explicit_naming,
     write_owner_preference,
 )
+from ..coding.executors import EXTERNAL_CLI_PROFILES
 from ..routing.missed_route import is_missed_route_feedback
 from ..routing.omh_help import (
     is_omh_intro_question as _is_omh_intro_question,
@@ -56,8 +58,10 @@ from ..probe import probe_capabilities
 from ..quickstart import build_quickstart_card
 from ..skills.catalog import (
     DEEP_INTERVIEW_MAX_ROUNDS,
+    decision_frontier_policy,
     installable_skill_definitions,
     omh_skill_display_name,
+    omh_skill_install_path,
     primary_harness_for_skill,
     retained_delegation_skill_names,
 )
@@ -159,7 +163,7 @@ VISIBLE_ACTIONS = (
     "convert_to_loop_goal",
     "route_direct_task",
     "state_goal_success_criteria",
-    "start_ultraprocess",
+    "start_delivery_cycle",
     "start_loop",
     "run_loop_tick",
     "show_loop_status",
@@ -508,7 +512,7 @@ _SKILL_PICKER_ENTRIES = (
     ("deep-interview", "Deep Interview", "Clarify fuzzy goals before planning.", "./deep-interview <request>"),
     ("ralplan", "Ralplan", "Research and plan before execution.", "./ralplan <request>"),
     ("loop", "Loop", "Iterate on a loopable long-horizon goal.", "./loop <goal>"),
-    ("ultraprocess", "Ultra Process", "Run one research-plan-implement-review-sync cycle.", "./ultraprocess <request>"),
+    ("ultrawork", "Ultra Work", "Run an accepted plan or one bounded delivery cycle in explicit lanes.", "./ultrawork <request>"),
     ("feedback-triage", "Feedback Triage", "Turn customer or product signals into investigation.", "./feedback-triage <signal>"),
     ("research", "Research", "Gather source-backed evidence, from live citations to studied reference implementations.", "./research <question>"),
     ("source-finder", "Source Finder", "Prepare typed source candidates before downstream work.", "./source-finder <target>"),
@@ -526,7 +530,7 @@ _CONTEXT_PRIMER_GROUPS = (
     {
         "id": "intent_to_plan",
         "label": "Intent to plan",
-        "workflows": ("deep-interview", "ralplan", "ultragoal", "loop", "ultraprocess"),
+        "workflows": ("deep-interview", "ralplan", "loop", "ultrawork"),
         "use_when": "The user has a fuzzy goal, a large goal, or one delivery cycle that needs research, planning, execution, review, and sync.",
     },
     {
@@ -583,17 +587,13 @@ _CODING_OWNER_NEXT_ACTIONS = frozenset(
     {
         "prepare_coding_handoff",
         "prepare_coding_runtime_handoff",
-        "start_ultraprocess",
+        "start_delivery_cycle",
     }
 )
 _CODING_OWNER_WORKFLOWS = frozenset(
     {
-        "ultraprocess",
         "ultrawork",
-        "ultragoal",
-        "ralph",
         "ai-slop-cleaner",
-        "team",
     }
 )
 _CODING_OWNER_WHEN_CODE_SHAPED = frozenset({"code-review"})
@@ -888,7 +888,7 @@ _ACK_PRIMARY_ACTIONS_BY_NEXT_ACTION = {
     "assess_loopability": ("assess_loopability", "Assess loopability"),
     "prepare_visual_prompt_card": ("prepare_visual_prompt_card", "Prepare image card"),
     "prepare_agent_ops_review": ("prepare_agent_ops_review", "Open ops review"),
-    "start_ultraprocess": ("start_ultraprocess", "Start ultraprocess"),
+    "start_delivery_cycle": ("start_delivery_cycle", "Start delivery cycle"),
     "audit_learning_readiness": ("audit_learning_readiness", "Audit learning"),
     "run_omh_update": ("run_omh_update", "Run omh update"),
     "run_omh_setup": ("run_omh_setup", "Run omh setup"),
@@ -1006,14 +1006,14 @@ _OPERATING_BRIEF_CHAT_CARDS: dict[str, dict[str, object]] = {
         "artifact_schema": "project_terms_context_card/v1",
         "actions": [
             {"id": "prepare_project_terms_context", "label": "Align project terms", "style": "primary"},
-            {"id": "answer:clarify", "label": "Ask one question", "style": "secondary"},
+            {"id": "answer:clarify", "label": "Review frontier", "style": "secondary"},
             {"id": "show_status", "label": "Show source status", "style": "secondary"},
         ],
         "recommended_flow": [
             "inspect_repository_and_reviewed_terms",
             "answer_safe_lookup_directly",
             "confirm_candidate_staging_or_frontier_entry",
-            "exhaust_dependency_ready_frontier",
+            "run_bounded_dependency_ready_frontier",
             "confirm_shared_understanding_before_plan_or_handoff",
         ],
         "evidence_not_observed": [
@@ -3429,6 +3429,7 @@ def build_chat_interaction_payload(
     )
     if paths is not None:
         _record_accepted_owner_choice(payload, paths)
+        _record_in_message_named_owner(payload, paths)
     # Attached at the one point every chat surface passes through -- the plugin
     # tool's session and no-session paths both land here -- so Slack, Telegram,
     # Discord, CLI, and desktop all carry the notice from a single seam. The
@@ -3463,6 +3464,54 @@ def _record_accepted_owner_choice(payload: Mapping[str, object], paths: OmhPaths
         read_owner_preference(paths),
         route_family=route_family,
         selected_owner=selected_owner,
+        occurred_at=datetime.now(timezone.utc).isoformat(),
+    )
+    write_owner_preference(paths, updated)
+
+
+def _record_in_message_named_owner(payload: Mapping[str, object], paths: OmhPaths) -> None:
+    """Persist an in-message CLI naming as explicit-choice provenance.
+
+    Naming is choosing: when routing resolved an external coding CLI because
+    the user named that CLI in their own message, the naming is recorded by
+    the in-message explicit-choice writer at the resolution site, so no card
+    or prepared handoff ever carries an external owner without recorded
+    explicit-choice provenance. Only the routing cue (for example
+    ``named_executor:codex``) is stored — never the message prose.
+    """
+    resolution = payload.get("executor_resolution")
+    decision = payload.get("coding_route_decision")
+    delegation = payload.get("delegation")
+    if (
+        not isinstance(resolution, Mapping)
+        or resolution.get("source") != "message_mention"
+        or not isinstance(decision, Mapping)
+        or decision.get("source") != "request_named_executor"
+        or decision.get("owner_preference_reason_code") != "owner_named_in_request"
+        or not isinstance(delegation, Mapping)
+    ):
+        return
+    selected_owner = str(delegation.get("selected_executor_profile", "") or "")
+    route_family = str(decision.get("owner_preference_route_family", "") or "")
+    if (
+        selected_owner not in EXTERNAL_CLI_PROFILES
+        or selected_owner != resolution.get("resolved_executor_target")
+        or not route_family
+    ):
+        return
+    matched_cues = decision.get("matched_cues")
+    cues = matched_cues if isinstance(matched_cues, (list, tuple)) else ()
+    naming_cue = next(
+        (str(cue) for cue in cues if str(cue) == f"named_executor:{selected_owner}"),
+        "",
+    )
+    if not naming_cue:
+        return
+    updated = record_in_message_explicit_naming(
+        read_owner_preference(paths),
+        route_family=route_family,
+        selected_owner=selected_owner,
+        naming_cue=naming_cue,
         occurred_at=datetime.now(timezone.utc).isoformat(),
     )
     write_owner_preference(paths, updated)
@@ -4124,6 +4173,7 @@ def _build_chat_interaction_payload_uncached(
         if paths:
             record_attached_recall_usage(paths, delegation)
         delegation["executor_resolution"] = executor_resolution
+        delegation["route_decision"] = route_payload.get("route_decision", {})
         coding_route_decision = _coding_route_decision_for_delegation(message, executor_resolution, paths)
         delegation["coding_route_decision"] = coding_route_decision
         _attach_executor_choice_context(delegation, paths)
@@ -4321,6 +4371,7 @@ def _attach_coding_owner_handoff(
     if paths:
         record_attached_recall_usage(paths, delegation)
     delegation["executor_resolution"] = executor_resolution
+    delegation["route_decision"] = route_payload.get("route_decision", {})
     delegation["route_context"] = {
         "schema_version": "coding_route_context/v1",
         "selected_skill": route_payload.get("selected_skill", ""),
@@ -4483,6 +4534,34 @@ def _route_requires_coding_owner(route_payload: dict[str, object], route_respons
     return False
 
 
+def _route_is_delivery_capability_request(route_payload: dict[str, object]) -> bool:
+    """A route that lands on ultrawork's delivery-boundary capability.
+
+    Two producers mark it: a retired-engine alias resolution selecting
+    `delivery_boundary`, or the delivery-shaped routing guards that used to
+    prefer `ultraprocess` (#954 stage 5).
+    """
+    alias_resolution = route_payload.get("alias_resolution")
+    if isinstance(alias_resolution, dict) and (
+        alias_resolution.get("selected_capability") == "delivery_boundary"
+    ):
+        return True
+    recommendations = route_payload.get("recommendations", [])
+    if not isinstance(recommendations, list):
+        return False
+    for recommendation in recommendations:
+        if not isinstance(recommendation, dict):
+            continue
+        matched = {str(item) for item in recommendation.get("matched", []) if str(item)}
+        if {
+            "guard:direct_coding_task",
+            "guard:delivery_cycle_before_research_only",
+            "guard:named_coding_agent_delivery",
+        } & matched:
+            return True
+    return False
+
+
 def _route_is_coding_status_request(route_payload: dict[str, object]) -> bool:
     reason = str(route_payload.get("reason", "")).lower()
     if "coding progress questions" in reason or "progress/status" in reason:
@@ -4498,10 +4577,10 @@ def _route_is_coding_status_request(route_payload: dict[str, object]) -> bool:
 
 def _route_is_explicit_hermes_coding_team_request(route_payload: dict[str, object], message: str) -> bool:
     selected = str(route_payload.get("selected_skill", ""))
-    if selected != "team":
+    if selected != "ultrawork":
         return False
     for recommendation in route_payload.get("recommendations", []):
-        if not isinstance(recommendation, dict) or str(recommendation.get("skill", "")) != "team":
+        if not isinstance(recommendation, dict) or str(recommendation.get("skill", "")) != "ultrawork":
             continue
         matched = {str(item) for item in recommendation.get("matched", []) if str(item)}
         if "guard:hermes_coding_team" in matched:
@@ -4601,6 +4680,8 @@ def _operating_brief_chat_response(
         "recommended_flow": list(config.get("recommended_flow", [])),
         "evidence_not_observed": list(config.get("evidence_not_observed", [])),
     }
+    if workflow == "context":
+        extra_state["frontier_policy"] = decision_frontier_policy()
     if workflow == "visual-qa":
         extra_state.update(build_prepared_web_visual_qa_chat_state())
     return _chat_response(
@@ -4837,6 +4918,12 @@ def build_chat_response_from_route(
             )
         policy = _selected_recommendation_policy(decision, selected)
         policy_next_action = str(policy.get("next_action", ""))
+        alias_resolution = decision.get("alias_resolution")
+        alias_selected_capability = (
+            str(alias_resolution.get("selected_capability", ""))
+            if isinstance(alias_resolution, dict)
+            else ""
+        )
         workflow_explanation_reason = _workflow_explanation_reason_for_route(decision, policy, selected)
         task_card = _route_task_card(decision)
         if task_card and str(task_card.get("task_type", "")) != "router_design_feedback":
@@ -5063,7 +5150,7 @@ def build_chat_response_from_route(
                     "runtime_tick_contract": "After start, wrappers may call the loop tick backend with deterministic queue shape to prepare the next queued worktree/subagent/connector step without claiming observation.",
                 },
             )
-        if selected == "ultraprocess" and _route_is_coding_status_request(decision):
+        if selected == "ultrawork" and _route_is_coding_status_request(decision):
             evidence_boundary = str(policy.get("evidence_boundary", "")) or "Coding-agent status is observed only after runtime evidence is recorded."
             body = (
                 "I can show the coding-agent status card and explain which handoff, dispatch, result, verification, review, CI, "
@@ -5103,7 +5190,9 @@ def build_chat_response_from_route(
                     ],
                 },
             )
-        if selected == "ultraprocess" or policy_next_action == "start_ultraprocess":
+        if policy_next_action == "start_delivery_cycle" or (
+            selected == "ultrawork" and alias_selected_capability == "delivery_boundary"
+        ):
             evidence_boundary = str(policy.get("evidence_boundary", "")) or "A delivery process route is not execution evidence."
             body = str(policy.get("wrapper_guidance", "")) or (
                 "I will shape this into one planning, implementation handoff, review, docs sync, and PR-ready cycle."
@@ -5113,10 +5202,10 @@ def build_chat_response_from_route(
                 headline="I can run one delivery process cycle for this.",
                 body=body,
                 phase="process_setup",
-                next_action="start_ultraprocess",
+                next_action="start_delivery_cycle",
                 thread_key=thread_key,
                 actions=[
-                    _action("start_ultraprocess", "Start process", "primary"),
+                    _action("start_delivery_cycle", "Start process", "primary"),
                     _action("prepare_handoff", "Prepare handoff", "secondary", enabled=False),
                     _action("show_status", "Show status", "secondary"),
                     _action("cancel", "Cancel", "secondary"),
@@ -6688,7 +6777,7 @@ def _omh_status_probe_projection(probe: dict[str, object]) -> dict[str, object]:
 def _omh_status_probe_fingerprint(paths: OmhPaths) -> tuple[tuple[str, int, int, int], ...]:
     watched = (
         paths.hermes_config_path,
-        paths.skills_dir / omh_skill_display_name("oh-my-hermes") / "SKILL.md",
+        paths.skills_dir / omh_skill_install_path("oh-my-hermes") / "SKILL.md",
         paths.runtime_state_path,
         paths.runtime_runs_dir,
         paths.runtime_wrapper_sessions_dir,
@@ -6747,12 +6836,18 @@ def _glob_fingerprints(
     child_dir_fingerprints: tuple[tuple[str, int, int, int], ...] | None = None,
     limit: int = 256,
 ) -> tuple[tuple[str, int, int, int], ...]:
+    effective_child_dir_fingerprints = (
+        child_dir_fingerprints
+        if child_dir_fingerprints is not None
+        else _child_dir_fingerprints(root, limit=limit)
+    )
     paths = _glob_fingerprint_paths_cached(
         str(root),
         pattern,
         limit,
         _path_fingerprint(root),
-        child_dir_fingerprints if child_dir_fingerprints is not None else _child_dir_fingerprints(root, limit=limit),
+        effective_child_dir_fingerprints,
+        _glob_child_target_fingerprints(root, pattern, effective_child_dir_fingerprints),
     )
     return tuple(_path_fingerprint(Path(path)) for path in paths)
 
@@ -6764,12 +6859,36 @@ def _glob_fingerprint_paths_cached(
     limit: int,
     _root_fingerprint: tuple[str, int, int, int],
     _child_dir_fingerprints: tuple[tuple[str, int, int, int], ...],
+    _child_target_fingerprints: tuple[tuple[str, int, int, int], ...],
 ) -> tuple[str, ...]:
     try:
         paths = sorted(Path(root).glob(pattern))
     except OSError:
         return ()
     return tuple(str(path) for path in paths[:limit])
+
+
+def _glob_child_target_fingerprints(
+    root: Path,
+    pattern: str,
+    child_dir_fingerprints: tuple[tuple[str, int, int, int], ...] | None,
+) -> tuple[tuple[str, int, int, int], ...]:
+    """Include nested targets in the cache key, including currently-missing ones.
+
+    A child directory's mtime is not reliable on every filesystem after a
+    file is created.  The status probe mostly uses ``*/<fixed filename>``;
+    fingerprinting those target paths makes a newly-created observation
+    invalidate the cached empty glob without removing the cache entirely.
+    """
+    if not pattern.startswith("*/") or child_dir_fingerprints is None:
+        return ()
+    relative = pattern[2:]
+    if not relative or "/" in relative or "*" in relative or "?" in relative:
+        return ()
+    return tuple(
+        _path_fingerprint(Path(directory) / relative)
+        for directory, *_ in child_dir_fingerprints
+    )
 
 
 def _child_dir_fingerprints(root: Path, *, limit: int = 256) -> tuple[tuple[str, int, int, int], ...]:
@@ -7353,6 +7472,14 @@ def _finish_interaction(payload: dict[str, object], target_notice: dict[str, obj
     response = payload.get("chat_response")
     if isinstance(response, dict):
         response = _chat_response_with_route_explanation(response, _nested(payload, "route"))
+        # A retired-engine alias route (#954 stage 5) shows exactly one line on
+        # the status card -- the capability reason -- while the full
+        # machine-readable selection stays on `route.alias_resolution` (Q5).
+        alias_resolution = _nested(payload, "route").get("alias_resolution")
+        if isinstance(alias_resolution, dict) and alias_resolution.get("capability_reason"):
+            state = response.get("state")
+            if isinstance(state, dict):
+                state["capability_reason"] = str(alias_resolution["capability_reason"])
         if target_notice:
             response = _chat_response_with_target_notice(
                 response, target_notice, source=str(payload.get("source", "generic"))
@@ -7624,6 +7751,16 @@ def _resolve_mode(mode: str, route: dict[str, object], *, message: str = "") -> 
     if selected in _CLARIFICATION_SKILLS:
         return "clarify"
     if _route_is_explicit_hermes_coding_team_request(route, message):
+        return "route"
+    # Coding-status questions that land on the folded delivery engine render
+    # the status card, not a plan: the delivery-boundary capability absorbed
+    # `ultraprocess`'s session-status surface (#954 stage 5).
+    if selected == "ultrawork" and _route_is_coding_status_request(route):
+        return "route"
+    # Delivery-shaped requests on the folded engine keep the coding-owner
+    # flow `ultraprocess`'s retained-delegation route used to provide, while
+    # ordinary ultrawork lane planning keeps its plan card.
+    if selected == "ultrawork" and _route_is_delivery_capability_request(route):
         return "route"
     if selected in _DIRECT_WORKFLOW_SKILLS:
         return "route"

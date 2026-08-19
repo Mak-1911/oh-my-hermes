@@ -552,7 +552,7 @@ class WrapperSessionTests(unittest.TestCase):
     def test_wrapper_status_excludes_forged_local_workflow_metadata(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
-            message = "$ultragoal complete the goal"
+            message = "$ultrawork complete the goal"
             started = create_or_resume_wrapper_session(paths, message, source="slack")
             session_id = str(started["session"]["session_id"])
             record_plan_decision(paths, session_id, "accept")

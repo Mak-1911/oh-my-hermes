@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import sqlite3
 import subprocess
 import unittest
 from pathlib import Path
@@ -11,12 +13,191 @@ from _cli_harness import run_cli
 from _local_package import load_local_package
 
 load_local_package()
+from omh.cli import build_parser
 from omh.menubar_status import build_menubar_status_payload, model_icon_descriptor, source_icon_descriptor
 from omh.paths import resolve_paths
+from omh.surfaces.menubar_status import _display, _models_card
 from omh.targets import record_target_observation
 
 
 class MenubarStatusTests(unittest.TestCase):
+    def test_menu_bar_title_is_count_only_when_processes_and_sessions_are_observed(self) -> None:
+        display = _display(
+            {"omh_connection": {"value": "ready"}},
+            {"observed": True, "agent_count": 2, "process_count": 3},
+            {"observed": True, "live": 1, "total": 4},
+            {},
+            {},
+        )
+
+        self.assertEqual(display["menu_bar_title"], "2·1")
+        self.assertNotIn("omh ✓", display["menu_bar_title"])
+
+    def test_menu_bar_title_uses_only_attention_mark_when_connection_is_not_ready(self) -> None:
+        display = _display(
+            {"omh_connection": {"value": "stale"}},
+            {"observed": True, "agent_count": 2, "process_count": 3},
+            {"observed": True, "live": 1, "total": 4},
+            {},
+            {},
+        )
+
+        self.assertEqual(display["menu_bar_title"], "!")
+        self.assertNotIn("omh ✓", display["menu_bar_title"])
+
+    def test_ready_menu_bar_title_is_empty_until_both_observations_exist(self) -> None:
+        for processes_observed, sessions_observed in ((False, False), (True, False), (False, True)):
+            with self.subTest(
+                processes_observed=processes_observed,
+                sessions_observed=sessions_observed,
+            ):
+                display = _display(
+                    {"omh_connection": {"value": "ready"}},
+                    {"observed": processes_observed, "agent_count": 2, "process_count": 3},
+                    {"observed": sessions_observed, "live": 1, "total": 4},
+                    {},
+                    {},
+                )
+
+                self.assertEqual(display["menu_bar_title"], "")
+                self.assertNotIn("omh ✓", display["menu_bar_title"])
+
+    def test_menubar_status_help_advertises_current_payload_schema(self) -> None:
+        stdout = io.StringIO()
+
+        with patch("sys.stdout", stdout), self.assertRaises(SystemExit) as exit_context:
+            build_parser().parse_args(["menubar", "status", "--help"])
+
+        self.assertEqual(exit_context.exception.code, 0)
+        self.assertIn("Print the full menubar_status/v2 payload.", " ".join(stdout.getvalue().split()))
+        self.assertNotIn("menubar_status/v1", stdout.getvalue())
+
+    def test_long_model_is_bounded_in_human_output_but_preserved_in_payload(self) -> None:
+        long_model = "provider/" + "model-segment-" * 6
+        expected_display = long_model[:45] + "..."
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            omh_home = root / ".omh"
+            hermes_home = root / ".hermes"
+            self.assertEqual(run_cli(["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "setup"])[0], 0)
+            self._seed_hermes_observers(hermes_home)
+            connection = sqlite3.connect(hermes_home / "state.db")
+            connection.execute(
+                "update sessions set model = ?, model_config = '{}' where ended_at is null",
+                (long_model,),
+            )
+            connection.commit()
+            connection.close()
+
+            status, stdout, stderr = run_cli(
+                ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "menubar", "status"],
+                output_json=False,
+            )
+
+            self.assertEqual((status, stderr), (0, ""))
+            current_line = next(line for line in stdout.splitlines() if line.startswith("  current"))
+            self.assertEqual(current_line, f"  {'current'.ljust(20)} {expected_display}")
+            self.assertEqual(len(current_line.rsplit(" ", 1)[-1]), 48)
+            self.assertNotIn(long_model, stdout)
+            self.assertTrue(
+                stdout.endswith(
+                    "Observation\n"
+                    "  Process overlay: not supplied\n"
+                    "  Boundary: configured targets are not PID evidence unless observed by the helper.\n\n"
+                    "For machine-readable output, rerun with `--json`.\n"
+                )
+            )
+
+            status, stdout, stderr = run_cli(
+                ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "menubar", "status", "--json"],
+                output_json=False,
+            )
+
+            self.assertEqual((status, stderr), (0, ""))
+            payload = json.loads(stdout)
+            current_row = next(row for row in payload["display"]["menu_cards"][1]["rows"] if row["left"] == "current")
+            self.assertEqual(current_row["right"], long_model)
+
+    def test_models_card_reserves_final_row_for_inherited_auxiliary_summary(self) -> None:
+        card = _models_card(
+            {"current_model": {"observed": True, "label": "current-model"}},
+            {
+                "aliases": [
+                    {"alias": "main", "configured": True, "label": "main-model"},
+                    {"alias": "vision", "configured": True, "label": "vision-model"},
+                    {"alias": "web_extract", "configured": True, "label": "extract-model"},
+                    {"alias": "compression", "configured": True, "label": "compression-model"},
+                    *[
+                        {"alias": alias, "configured": False, "label": "inherit"}
+                        for alias in (
+                            "skills_hub",
+                            "approval",
+                            "mcp",
+                            "title_generation",
+                            "memory_query_rewrite",
+                            "tts_audio_tags",
+                            "triage_specifier",
+                            "kanban_decomposer",
+                            "profile_describer",
+                            "goal_judge",
+                            "curator",
+                        )
+                    ],
+                ],
+                "inherit_count": 11,
+            },
+        )
+
+        self.assertEqual(
+            [(row["left"], row["right"]) for row in card["rows"]],
+            [
+                ("current", "current-model"),
+                ("main", "main-model"),
+                ("vision", "vision-model"),
+                ("web_extract", "extract-model"),
+                ("+11 aliases", "inherit default"),
+            ],
+        )
+
+    def test_models_card_excludes_separately_rendered_main_from_inherited_auxiliary_count(self) -> None:
+        card = _models_card(
+            {"current_model": {"observed": True, "label": "current-model"}},
+            {
+                "aliases": [
+                    {"alias": "main", "configured": False, "label": "inherit"},
+                    *[
+                        {"alias": alias, "configured": False, "label": "inherit"}
+                        for alias in (
+                            "vision",
+                            "web_extract",
+                            "compression",
+                            "skills_hub",
+                            "approval",
+                            "mcp",
+                            "title_generation",
+                            "memory_query_rewrite",
+                            "tts_audio_tags",
+                            "triage_specifier",
+                            "kanban_decomposer",
+                            "profile_describer",
+                            "goal_judge",
+                            "curator",
+                        )
+                    ],
+                ],
+                "inherit_count": 15,
+            },
+        )
+
+        self.assertEqual(
+            [(row["left"], row["right"]) for row in card["rows"]],
+            [
+                ("current", "current-model"),
+                ("main", "inherit"),
+                ("+14 aliases", "inherit default"),
+            ],
+        )
+
     def test_menubar_status_keeps_hermes_agents_and_external_executors_separate(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -44,6 +225,8 @@ class MenubarStatusTests(unittest.TestCase):
             self.assertEqual(stderr, "")
             self.assertEqual(status, 0)
 
+            self._seed_hermes_observers(hermes_home)
+
             status, stdout, stderr = run_cli(
                 ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "menubar", "status"]
             )
@@ -51,9 +234,11 @@ class MenubarStatusTests(unittest.TestCase):
             self.assertEqual(stderr, "")
             self.assertEqual(status, 0)
             payload = json.loads(stdout)
-            self.assertEqual(payload["schema_version"], "menubar_status/v1")
+            self.assertEqual(payload["schema_version"], "menubar_status/v2")
             self.assertEqual(payload["display"]["menu_title"], "omh")
-            self.assertEqual(payload["versions"]["omh"]["value"], "1.0.5")
+            from omh.version import __version__ as omh_version
+
+            self.assertEqual(payload["versions"]["omh"]["value"], omh_version)
             self.assertEqual(payload["versions"]["hermes"]["value"], "unknown")
             self.assertFalse(payload["versions"]["hermes"]["observed"])
             self.assertEqual(payload["settings"]["omh_connection"]["label"], "OMH connection: Ready")
@@ -63,20 +248,42 @@ class MenubarStatusTests(unittest.TestCase):
             menu_cards = payload["display"]["menu_cards"]
             self.assertEqual(
                 [card["title"] for card in menu_cards],
-                ["Agent Status", "Coding Agent", "Evidence"],
+                ["Sessions", "Models", ""],
             )
-            self.assertEqual(menu_cards[0]["columns"], ["Agent", "PID", "Status"])
-            self.assertIn("PID appears after overlay or explicit local observation.", menu_cards[0]["footer"])
-            self.assertEqual(menu_cards[0]["rows"][0]["kind"], "agent_status")
-            self.assertEqual(menu_cards[0]["rows"][0]["agent"], ".hermes")
-            self.assertEqual(menu_cards[0]["rows"][0]["pid"], "not observed")
-            self.assertEqual(menu_cards[0]["rows"][0]["status"], "Configured")
-            self.assertNotIn("4312", json.dumps(menu_cards))
-            self.assertEqual(menu_cards[1]["rows"][0]["label"], "Agent")
-            self.assertEqual(menu_cards[1]["rows"][0]["value"], "Codex")
-            self.assertEqual(menu_cards[1]["rows"][3]["label"], "Next")
-            self.assertEqual(menu_cards[1]["rows"][3]["value"], "dispatching to the selected coding agent")
-            self.assertNotIn("dispatch_to_executor", json.dumps(menu_cards))
+            self.assertEqual(menu_cards[0]["columns"], ["Hermes session", "Count"])
+            self.assertEqual(
+                menu_cards[0]["rows"],
+                [
+                    {"kind": "table_row", "left": "live", "right": "1", "tone": "ok"},
+                    {"kind": "table_row", "left": "total", "right": "2", "tone": "ok"},
+                ],
+            )
+            self.assertNotIn("tui", [row["left"] for row in menu_cards[0]["rows"]])
+            self.assertEqual(menu_cards[1]["columns"], ["Alias", "Model"])
+            self.assertEqual(
+                [(row["left"], row["right"]) for row in menu_cards[1]["rows"]],
+                [
+                    ("current", "gpt-5.6-sol:medium"),
+                    ("main", "anthropic/claude-opus-4.6:medium"),
+                    ("vision", "google/gemini-2.5-pro"),
+                    ("web_extract", "google/gemini-2.5-flash"),
+                    ("+12 aliases", "inherit default"),
+                ],
+            )
+            self.assertEqual(
+                menu_cards[2]["rows"],
+                [{"label": "coding", "value": "Codex", "detail": "metadata only"}],
+            )
+            self.assertFalse(any(row.get("kind") == "agent_status" for card in menu_cards for row in card["rows"]))
+            self.assertEqual(payload["hermes_processes"]["reason"], "not_requested")
+            self.assertTrue(payload["hermes_sessions"]["observed"])
+            self.assertTrue(payload["model_settings"]["observed"])
+            self.assertTrue(
+                {
+                    "hermes_agents", "external_coding_executors", "current_external_coding_executor",
+                    "settings", "versions", "process_overlay", "icon_contract", "privacy",
+                }.issubset(payload)
+            )
 
             hermes_agents = payload["hermes_agents"]
             self.assertEqual(len(hermes_agents), 1)
@@ -139,12 +346,9 @@ class MenubarStatusTests(unittest.TestCase):
             self.assertEqual(payload["settings"]["coding_handoff"]["label"], "Coding agent: Not selected")
             self.assertEqual(payload["settings"]["coding_handoff"]["source"], "none")
             self.assertFalse(payload["current_external_coding_executor"]["selected"])
-            self.assertEqual(payload["display"]["summary_line"], "1 Hermes target(s) · ready for the next request")
-            coding_card = next(card for card in payload["display"]["menu_cards"] if card["title"] == "Coding Agent")
-            rows = {row["label"]: row for row in coding_card["rows"]}
-            self.assertEqual(rows["Agent"]["value"], "Not selected")
-            self.assertEqual(rows["Status"]["value"], "ready")
-            self.assertIn("Hermes routes the next request", rows["Status"]["detail"])
+            self.assertEqual(payload["display"]["summary_line"], "sessions not observed")
+            footer = payload["display"]["menu_cards"][2]
+            self.assertEqual(footer["rows"], [{"label": "coding", "value": "Not selected", "detail": "metadata only"}])
 
     def test_menubar_status_shows_recorded_preference_without_a_run(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -176,11 +380,8 @@ class MenubarStatusTests(unittest.TestCase):
             self.assertEqual(payload["settings"]["coding_handoff"]["label"], "Coding agent: Codex")
             self.assertEqual(payload["settings"]["coding_handoff"]["source"], "user_preference")
             self.assertFalse(payload["current_external_coding_executor"]["selected"])
-            coding_card = next(card for card in payload["display"]["menu_cards"] if card["title"] == "Coding Agent")
-            rows = {row["label"]: row for row in coding_card["rows"]}
-            self.assertEqual(rows["Agent"]["value"], "Codex")
-            self.assertEqual(rows["Status"]["value"], "preferred")
-            self.assertIn("no request routed yet", rows["Status"]["detail"])
+            footer = payload["display"]["menu_cards"][2]
+            self.assertEqual(footer["rows"], [{"label": "coding", "value": "Codex", "detail": "metadata only"}])
 
     def test_menubar_status_defaults_to_human_readable_output(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -205,6 +406,7 @@ class MenubarStatusTests(unittest.TestCase):
                 )[0],
                 0,
             )
+            self._seed_hermes_observers(hermes_home)
 
             status, stdout, stderr = run_cli(
                 ["--omh-home", str(omh_home), "--hermes-home", str(hermes_home), "menubar", "status"],
@@ -215,9 +417,17 @@ class MenubarStatusTests(unittest.TestCase):
             self.assertEqual(status, 0)
             self.assertTrue(stdout.startswith("OMH menu bar status\n"))
             self.assertIn("Summary\n", stdout)
-            self.assertIn("Agent Status\n", stdout)
-            self.assertIn("Coding Agent\n", stdout)
-            self.assertIn("Evidence\n", stdout)
+            self.assertIn("  Sessions: live 1 / total 2\n", stdout)
+            self.assertIn("  Processes: not observed\n", stdout)
+            self.assertIn("Sessions\n  Hermes session       Count\n  live                 1\n  total                2\n", stdout)
+            self.assertIn(
+                "Models\n"
+                "  Alias                Model\n"
+                "  current              gpt-5.6-sol:medium\n"
+                "  main                 anthropic/claude-opus-4.6:medium\n",
+                stdout,
+            )
+            self.assertNotIn("Agent Status", stdout)
             self.assertIn("Coding agent: Codex", stdout)
             self.assertIn("For machine-readable output, rerun with `--json`.", stdout)
             with self.assertRaises(json.JSONDecodeError):
@@ -231,7 +441,7 @@ class MenubarStatusTests(unittest.TestCase):
             self.assertEqual(stderr, "")
             self.assertEqual(status, 0)
             payload = json.loads(stdout)
-            self.assertEqual(payload["schema_version"], "menubar_status/v1")
+            self.assertEqual(payload["schema_version"], "menubar_status/v2")
             self.assertEqual(payload["settings"]["coding_handoff"]["label"], "Coding agent: Codex")
 
     def test_process_overlay_applies_pid_status_and_model_only_when_fresh(self) -> None:
@@ -330,11 +540,7 @@ class MenubarStatusTests(unittest.TestCase):
             self.assertTrue(payload["external_coding_executors"][0]["pid_observed"])
             self.assertTrue(payload["external_coding_executors"][0]["status_observed"])
             self.assertEqual(payload["external_coding_executors"][0]["model"]["tooltip"], "gpt-5.5")
-            menu_cards = payload["display"]["menu_cards"]
-            self.assertEqual(menu_cards[0]["rows"][0]["pid"], "4312")
-            self.assertEqual(menu_cards[0]["rows"][0]["status"], "Running")
-            self.assertEqual(menu_cards[1]["rows"][2]["label"], "PID")
-            self.assertEqual(menu_cards[1]["rows"][2]["value"], "9821")
+            self.assertEqual([card["title"] for card in payload["display"]["menu_cards"]], ["Sessions", "Models", ""])
 
             status, stdout, stderr = run_cli(
                 [
@@ -520,20 +726,21 @@ class MenubarStatusTests(unittest.TestCase):
 
             ps_output = "\n".join(
                 [
-                    " 101 S /Applications/Codex.app/Contents/MacOS/Codex /Users/rlaope/Desktop/khope/hermes-agent",
-                    " 22064 S /Users/rlaope/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main gateway run --replace",
+                    " 101 1 /Applications/Codex.app/Contents/MacOS/Codex /Users/rlaope/Desktop/khope/hermes-agent",
+                    " 22064 1 /Users/rlaope/.hermes/hermes-agent/venv/bin/python /Users/rlaope/.hermes/hermes-agent/hermes",
+                    " 22065 22064 /opt/homebrew/bin/node --expose-gc /Users/rlaope/.hermes/hermes-agent/ui-tui/dist/entry.js",
                 ]
             )
 
             with patch(
-                "omh.menubar_status.subprocess.run",
+                "omh.surfaces.hermes_processes.subprocess.run",
                 return_value=subprocess.CompletedProcess(
                     args=["ps"],
                     returncode=0,
                     stdout=ps_output,
                     stderr="",
                 ),
-            ):
+            ) as run:
                 payload = build_menubar_status_payload(
                     paths,
                     observe_local_processes=True,
@@ -545,9 +752,25 @@ class MenubarStatusTests(unittest.TestCase):
             self.assertEqual(payload["hermes_agents"][0]["pid"], 22064)
             self.assertEqual(payload["hermes_agents"][0]["status"], "running")
             self.assertTrue(payload["hermes_agents"][0]["pid_observed"])
-            menu_cards = payload["display"]["menu_cards"]
-            self.assertEqual(menu_cards[0]["rows"][0]["pid"], "22064")
-            self.assertEqual(menu_cards[0]["rows"][0]["status"], "Running")
+            self.assertEqual(payload["hermes_processes"]["agent_count"], 1)
+            self.assertEqual(payload["hermes_processes"]["process_count"], 2)
+            run.assert_called_once()
+
+    def test_empty_hermes_home_degrades_and_plain_status_never_scans_processes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = resolve_paths(root / ".omh", root / ".hermes")
+            paths.hermes_home.mkdir()
+            with patch("omh.surfaces.hermes_processes.subprocess.run") as run:
+                payload = build_menubar_status_payload(paths)
+            run.assert_not_called()
+            self.assertEqual(payload["hermes_processes"]["reason"], "not_requested")
+            self.assertFalse(payload["hermes_sessions"]["observed"])
+            sessions_card = payload["display"]["menu_cards"][0]
+            self.assertEqual(sessions_card["columns"], ["Hermes session", "Count"])
+            self.assertEqual(sessions_card["rows"], [{"kind": "table_row", "left": "sessions", "right": "not observed"}])
+            self.assertEqual(sessions_card["footer"], "state_db_missing")
+            self.assertFalse(any(row.get("kind") == "agent_status" for card in payload["display"]["menu_cards"] for row in card["rows"]))
 
     def test_menubar_status_reports_multi_target_source_icons_without_process_claims(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -587,6 +810,42 @@ class MenubarStatusTests(unittest.TestCase):
         self.assertEqual(model_icon_descriptor("claude-sonnet")["icon_id"], "model.anthropic")
         self.assertEqual(model_icon_descriptor("gemini-3")["icon_id"], "model.google")
         self.assertEqual(model_icon_descriptor("ollama/llama")["icon_id"], "model.local")
+
+    @staticmethod
+    def _seed_hermes_observers(hermes_home: Path) -> None:
+        hermes_home.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(hermes_home / "state.db")
+        connection.execute(
+            """create table sessions (
+                source text, model text, model_config text, ended_at text,
+                archived integer not null, hidden integer not null,
+                started_at text, last_activity_at text
+            )"""
+        )
+        current_config = json.dumps({"provider": "openai-codex", "reasoning_config": {"effort": "medium"}})
+        connection.executemany(
+            "insert into sessions values (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("tui", "gpt-5.6-sol", current_config, None, 0, 0, "2026-08-15", "2026-08-16"),
+                ("api", "older", "{}", "2026-08-15", 0, 0, "2026-08-14", "2026-08-15"),
+            ],
+        )
+        connection.commit()
+        connection.close()
+        (hermes_home / "config.yaml").write_text(
+            """model:
+  default: anthropic/claude-opus-4.6
+  provider: auto
+agent:
+  reasoning_effort: medium
+auxiliary:
+  web_extract:
+    model: google/gemini-2.5-flash
+  vision:
+    model: google/gemini-2.5-pro
+""",
+            encoding="utf-8",
+        )
 
 
 if __name__ == "__main__":

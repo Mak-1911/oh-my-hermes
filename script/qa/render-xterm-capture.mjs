@@ -23,7 +23,7 @@ html,body{margin:0;background:#07090d;width:100%;height:100%;overflow:hidden}
 #title{height:34px;padding:8px 14px;color:#dbeafe;background:#10141c;font:14px ui-monospace}
 #terminal{height:calc(100% - 34px);padding:8px}
 </style><div id="title"></div><div id="terminal"></div><script>${xtermJs}</script>`)
-await page.evaluate(({ title, raw, columns, rows }) => {
+await page.evaluate(async ({ title, raw, columns, rows }) => {
   document.querySelector('#title').textContent = title
   const term = new Terminal({
     cols: columns,
@@ -35,9 +35,8 @@ await page.evaluate(({ title, raw, columns, rows }) => {
   })
   term.open(document.querySelector('#terminal'))
   window.__term = term
-  term.write(raw)
+  await new Promise(resolve => term.write(raw, resolve))
 }, { title, raw, columns, rows })
-await new Promise(resolve => setTimeout(resolve, 500))
 await page.screenshot({ path: path.join(evidenceDir, 'terminal.png') })
 const text = await page.evaluate(() => Array.from(
   { length: window.__term.rows },

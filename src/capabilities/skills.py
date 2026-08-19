@@ -80,7 +80,7 @@ def _orchestration_eligibility(definition: SkillDefinition) -> list[str]:
         patterns.add("plan_execute_verify")
     if definition.name in {"code-review", "ultraqa"} or definition.category == "review":
         patterns.add("adversarial_review")
-    if definition.name in {"ultrawork", "team", "ultraprocess"}:
+    if definition.name == "ultrawork":
         patterns.add("team_staged_pipeline")
         patterns.add("worktree_isolated_workers")
     if definition.name in {"loop"}:

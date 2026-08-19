@@ -3,7 +3,9 @@
 Practical Claude Code guidance for this repo. Product direction, delivery
 grain, PR report style, evidence boundaries, and commit trailers are defined in
 `AGENTS.md` and `docs/DIRECTION.md` — read those first; this file does not
-repeat them.
+repeat them. `CONTEXT.md` is the glossary for the OMH ↔ Hermes Agent boundary
+(which product owns which surface, state root, and TUI); use its terms before
+reasoning about anything that touches Hermes Agent.
 
 ## What This Repo Is
 
@@ -57,6 +59,8 @@ Source of truth → generated file → regen command → drift gate:
 | Same catalog data | `docs/ROLES.md` | `uv run python -m omh.cli docs roles --output docs/ROLES.md` | `uv run python -m omh.cli docs roles --check` |
 | Demo case engine | `examples/use-cases/g1-g10-demo-cards.json` | `uv run python -m omh.cli cases demo --all --json` output | parse-equality in `tests/test_application_cases.py` |
 | `capability_family_projection()` in `src/capabilities/families.py` | `src/plugin_bundle/omh/tools/capability_families.json` | `uv run python -m omh.cli docs capability-families` | `uv run python -m omh.cli docs capability-families --check`; dict-parity in `tests/test_plugin_capabilities.py` |
+| `ulw_inventory_payload()` in `src/skills/catalog.py` via `src/catalogs/ulw_surfaces.py` | marked ULW region of `README.md` | `uv run python -m omh.cli docs ulw-inventory` | `uv run python -m omh.cli docs ulw-inventory --check`; `tests/test_ulw_inventory.py` |
+| Same producer | marked ULW region of `site/index.html` | `uv run python -m omh.cli docs ulw-site` | `uv run python -m omh.cli docs ulw-site --check`; i18n parity in `tests/test_ulw_inventory.py` |
 
 Rules:
 
@@ -96,6 +100,9 @@ Rules:
 
 ## Workflow Rules
 
+- A report that something is broken is not yet repo work. Measure which fault
+  domain owns it first — see Fault domains in `CONTEXT.md` for the four domains
+  and the command that proves each. Only one of them produces a PR.
 - One user goal → one PR. Do not frame partial slices; see Delivery Grain in
   `AGENTS.md` for the only valid split reasons.
 - Branch before the first edit: `claude/<topic>` (or `agent/`, `hermes/`).
@@ -107,6 +114,10 @@ Rules:
 - Report only observed evidence. `prepared_not_observed` is never execution,
   review, CI, or merge evidence.
 - Never revert or clean up unrelated dirty files; report them instead.
+- Reflecting merged changes onto a live machine goes through `omh update`
+  (plus a TUI restart), never by hand-copying files into `~/.hermes/plugins/`
+  or `~/.hermes/tui-widgets/`. Hand-copied artifacts drift from the install
+  manifests and make later updates refuse or require `--force`.
 
 ## Common Pitfalls
 

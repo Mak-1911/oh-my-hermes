@@ -488,6 +488,28 @@ ROUTING_PRECISION_CASES: tuple[RoutingPrecisionCase, ...] = (
         "answer_file_lookup",
         "file_or_text",
     ),
+    # Negative control for the naming-is-choosing carve-out: the same Korean
+    # issue-to-PR request as `korean-codex-issue-pr-start` with the CLI name
+    # removed. Without a named CLI the message must resolve no external owner
+    # and no owner-choice provenance; a failure here means genuine inference
+    # from message content was reintroduced.
+    RoutingPrecisionCase(
+        "korean-issue-pr-start-no-named-cli",
+        "Unnamed-CLI issue-to-PR paraphrase resolves no external owner",
+        "이 이슈 PR 만들 수 있게 작업 시작해줘",
+        "answer_clarification",
+        "",
+    ),
+    # ULW fold negative control (issue #954, PR D §8.3): a one-owner
+    # one-line fix must not open the folded coordination/persistence
+    # capabilities of `ultrawork` -- it stays a clarification, not a route.
+    RoutingPrecisionCase(
+        "one-owner-one-line-fix",
+        "A one-owner one-line fix stays out of coordination and persistence engines",
+        "have one person finish this one-line fix",
+        "answer_clarification",
+        "",
+    ),
 )
 
 
@@ -778,7 +800,7 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "Korean Hermes-only coding team requests prepare runtime handoff",
         "Hermes만으로 코딩팀처럼 작업하고 싶어",
         "dispatch",
-        "team",
+        "ultrawork",
         "show_runtime_handoff",
         "handoff",
     ),
@@ -1072,10 +1094,10 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
     ),
     RoutingInterventionCase(
         "one-cycle-delivery",
-        "One-cycle delivery requests open ultraprocess",
+        "One-cycle delivery requests open ultrawork's delivery capability",
         "turn this vague request into one cycle: research, plan, implement, review, and docs sync",
         "dispatch",
-        "ultraprocess",
+        "ultrawork",
         "choose_executor",
         "handoff",
     ),
@@ -1084,18 +1106,18 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "ULW coding delivery opens the owner-choice handoff",
         "research, plan, implement, verify, and review this coding change in one cycle",
         "dispatch",
-        "ultraprocess",
+        "ultrawork",
         "choose_executor",
         "handoff",
     ),
     RoutingInterventionCase(
         "korean-codex-issue-pr-start",
-        "Korean Codex issue-to-PR start requests open ultraprocess",
+        "Korean Codex issue-to-PR start resolves the owner-selection surface",
         "코덱스로 이 이슈 PR 만들 수 있게 작업 시작해줘",
         "dispatch",
-        "ultraprocess",
-        "show_coding_handoff_status",
-        "handoff",
+        "executor-runtime-readiness",
+        "prepare_executor_runtime_readiness",
+        "executor_runtime_readiness",
     ),
     RoutingInterventionCase(
         "korean-codex-start-current-task",
@@ -1373,28 +1395,28 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
     ),
     RoutingInterventionCase(
         "korean-codex-session-liveness",
-        "Korean Codex session-liveness question opens coding status",
+        "Korean Codex session-liveness question resolves the owner-selection surface",
         "codex 세션이 살아있는지 확인해줘",
         "dispatch",
-        "ultraprocess",
-        "show_coding_handoff_status",
-        "handoff",
+        "executor-runtime-readiness",
+        "prepare_executor_runtime_readiness",
+        "executor_runtime_readiness",
     ),
     RoutingInterventionCase(
         "korean-codex-current-activity-status",
-        "Korean Codex current-activity questions open coding status",
+        "Korean Codex current-activity questions resolve the owner-selection surface",
         "코덱스가 지금 뭐하고있는지 알려줘",
         "dispatch",
-        "ultraprocess",
-        "show_coding_handoff_status",
-        "handoff",
+        "executor-runtime-readiness",
+        "prepare_executor_runtime_readiness",
+        "executor_runtime_readiness",
     ),
     RoutingInterventionCase(
         "korean-pr-review-comment-merge-readiness",
         "Korean PR review-comment merge readiness opens coding status",
         "이 PR 리뷰어 코멘트 반영됐는지 보고 머지 준비해줘",
         "dispatch",
-        "ultraprocess",
+        "ultrawork",
         "show_coding_handoff_status",
         "handoff",
     ),
@@ -1427,21 +1449,21 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
     ),
     RoutingInterventionCase(
         "korean-test-until-pass-coding",
-        "Korean test-as-stop-signal coding opens ultraprocess",
+        "Korean test-as-stop-signal coding opens ultrawork's delivery capability",
         "테스트 통과할때까지 고쳐줘",
         "dispatch",
-        "ultraprocess",
+        "ultrawork",
         "choose_executor",
         "handoff",
     ),
     RoutingInterventionCase(
         "korean-setup-output-improvement",
-        "Korean setup output improvement stays in ultraprocess",
+        "Korean setup output improvement stays in the delivery lane",
         "setup 로그가 너무 어렵다 개선해줘",
         "dispatch",
-        "ultraprocess",
-        "answer_clarification",
-        "clarification",
+        "ultrawork",
+        "choose_executor",
+        "handoff",
     ),
     RoutingInterventionCase(
         "korean-hud-menubar-restart",
@@ -1634,10 +1656,10 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
     ),
     RoutingInterventionCase(
         "meta-router-bare-omh-regression-pin",
-        "Bare omh one-cycle delivery stays in ultraprocess, not meta-router",
+        "Bare omh one-cycle delivery stays in the delivery lane, not meta-router",
         "omh add a dark mode toggle and ship it in one cycle",
         "dispatch",
-        "ultraprocess",
+        "ultrawork",
         "choose_executor",
         "handoff",
     ),
@@ -1745,7 +1767,7 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "Naming a concrete existing surface keeps the delivery cycle instead of opening an interview",
         "build a login component",
         "dispatch",
-        "ultraprocess",
+        "ultrawork",
         "choose_executor",
         "handoff",
     ),
@@ -2088,6 +2110,28 @@ ROUTING_INTERVENTION_CASES: tuple[RoutingInterventionCase, ...] = (
         "prepare_reliability_review",
         "reliability_review",
     ),
+    # ULW fold controls (issue #954). After stage 5 the coordination cue
+    # resolves the `coordinated_scope` alias to `ultrawork`, and a
+    # disjoint-lanes phrasing still reaches `ultrawork`'s existing lane path
+    # rather than any new capability route.
+    RoutingInterventionCase(
+        "coordinated-workers-shared-task-list",
+        "The coordination cue reaches ultrawork's coordinated_scope capability",
+        "run three coordinated workers on one shared task list",
+        "dispatch",
+        "ultrawork",
+        "forward_plan_to_selected_workflow",
+        "plan",
+    ),
+    RoutingInterventionCase(
+        "disjoint-lanes-reaches-existing-path",
+        "Disjoint parallel lanes still reach ultrawork's existing lane path",
+        "split this into parallel work lanes with disjoint ownership",
+        "dispatch",
+        "ultrawork",
+        "forward_plan_to_selected_workflow",
+        "plan",
+    ),
 )
 
 
@@ -2295,13 +2339,25 @@ def _evaluate_precision_case(case: RoutingPrecisionCase, *, source: str) -> dict
         issues.append(f"unexpected schema {observed['schema_version']}")
     if observed["source"] != source:
         issues.append(f"unexpected source {observed['source']}")
-    if observed["route_action"] != "fallback":
-        issues.append(f"expected fallback route, observed {observed['route_action']}")
+    # `fallback` is the ordinary negative-control shape; `clarify` is equally
+    # non-hijacking — the router asks one question instead of opening a
+    # workflow, picker, or handoff — but it is accepted only for cases that
+    # expect the clarification path, so a pre-existing fallback control that
+    # drifts to `clarify` still fails on route_action alone.
+    allowed_route_actions = (
+        ("fallback", "clarify")
+        if case.expected_next_action == "answer_clarification"
+        else ("fallback",)
+    )
+    if observed["route_action"] not in allowed_route_actions:
+        issues.append(
+            f"expected {' or '.join(allowed_route_actions)} route, observed {observed['route_action']}"
+        )
     if observed["route_workflow"] != "oh-my-hermes":
         issues.append(f"expected router workflow, observed {observed['route_workflow']}")
     if observed["next_action"] != case.expected_next_action:
         issues.append(f"expected next action {case.expected_next_action}, observed {observed['next_action']}")
-    if observed["lookup_kind"] != case.expected_lookup_kind:
+    if str(observed["lookup_kind"] or "") != case.expected_lookup_kind:
         issues.append(f"expected lookup kind {case.expected_lookup_kind}, observed {observed['lookup_kind']}")
     if observed["response_kind"] != "clarification":
         issues.append(f"expected clarification response, observed {observed['response_kind']}")
@@ -2317,7 +2373,11 @@ def _evaluate_precision_case(case: RoutingPrecisionCase, *, source: str) -> dict
         issues.append("exposed coding handoff or executor action")
     if observed["raw_message_echoed"]:
         issues.append("raw message echoed in machine payload")
-    if not str(observed["claim_boundary"] or "").startswith("No OMH workflow"):
+    boundary = str(observed["claim_boundary"] or "")
+    if observed["route_action"] == "clarify":
+        if boundary != "No execution has started.":
+            issues.append("missing no-execution claim boundary")
+    elif not boundary.startswith("No OMH workflow"):
         issues.append("missing no-workflow claim boundary")
 
     return {

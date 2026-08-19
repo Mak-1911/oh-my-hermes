@@ -15,9 +15,17 @@ from ..system.local_store import atomic_write_json, ensure_dir, locked_json_upda
 from ..system.metadata_safety import redact_metadata_text
 from ..system.paths import OmhPaths
 from .action_gate import recheck_safety_profile_revision
-from .executor_capabilities import capability_for_profile_or_none
+from .executor_capability_snapshots import (
+    complete_executor_capability_snapshot,
+    validate_executor_capability_snapshot,
+)
+from .executor_capabilities import legacy_executor_capability_projection
 from .executor_readiness import probe_executor_readiness
-from .fanout_contracts import FANOUT_CLAIM_BOUNDARY
+from .fanout_contracts import (
+    FANOUT_CLAIM_BOUNDARY,
+    FANOUT_CONTRACT_SCHEMA_VERSION,
+    LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION,
+)
 from .inflight import InflightMarkerError, clear_inflight_marker, write_inflight_marker
 from .unit_prompt_protocol import unit_protocol_lines
 from .fanout_unit_results import validate_unit_result
@@ -408,6 +416,129 @@ def _dispatch_status_ladder(
     }
 
 
+def _dispatch_capability_snapshot(
+    paths: OmhPaths,
+    handoff: Mapping[str, Any],
+    owner: str,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    frozen_snapshot = handoff.get("executor_capability_snapshot")
+    policy = handoff.get("executor_capability_snapshot_policy")
+    if policy is not None and policy != "frozen_required":
+        return None, ["executor_capability_snapshot_policy is unsupported"]
+    if frozen_snapshot is None:
+        return None, ["executor_capability_snapshot is required by this handoff"]
+    if not isinstance(frozen_snapshot, Mapping):
+        return None, ["executor_capability_snapshot must be a mapping"]
+    if frozen_snapshot.get("executor") != owner:
+        return None, ["executor_capability_snapshot executor does not match the handoff owner"]
+    errors = validate_executor_capability_snapshot(frozen_snapshot)
+    if errors:
+        return None, errors
+    return complete_executor_capability_snapshot(frozen_snapshot), []
+
+
+def _unit_capability_precheck(
+    paths: OmhPaths,
+    unit: Mapping[str, Any],
+    *,
+    contract_schema_version: str,
+) -> tuple[str, dict[str, Any] | None, list[str]]:
+    declared_owner = str(unit.get("owner") or "choose")
+    handoff = unit.get("handoff", {}) if isinstance(unit.get("handoff"), Mapping) else {}
+    handoff_owner = str(handoff.get("executor_target", "choose"))
+    if handoff_owner != declared_owner:
+        return declared_owner, None, ["unit owner does not match the handoff owner"]
+    if declared_owner == "choose":
+        return declared_owner, {}, []
+    if (
+        contract_schema_version == FANOUT_CONTRACT_SCHEMA_VERSION
+        and declared_owner != "choose"
+    ):
+        if handoff.get("executor_capability_snapshot_policy") != "frozen_required":
+            return declared_owner, None, [
+                "executor_capability_snapshot_policy must be frozen_required"
+            ]
+        if "executor_capability_snapshot" not in handoff:
+            return declared_owner, None, [
+                "executor_capability_snapshot is required by this contract"
+            ]
+    snapshot, errors = _dispatch_capability_snapshot(paths, handoff, declared_owner)
+    return declared_owner, snapshot, errors
+
+
+def fanout_dispatch_preflight(
+    paths: OmhPaths,
+    contract: Mapping[str, Any],
+    *,
+    only_units: Sequence[str] | None = None,
+    goal_text: str | None = None,
+    live_safety_profile_revision: str | None = None,
+) -> dict[str, Any]:
+    """Validate persisted dispatch identity before any local tool activity."""
+    if goal_text is not None:
+        verify_goal_matches_contract(contract, goal_text)
+        verify_safety_profile_matches_contract(
+            contract,
+            live_safety_profile_revision,
+        )
+    schema_version = str(contract.get("schema_version", ""))
+    if schema_version == LEGACY_FANOUT_CONTRACT_SCHEMA_VERSION:
+        raise ValueError(
+            "fanout_contract/v1 must be migrated with "
+            "'omh coding fanout migrate-legacy' before dispatch"
+        )
+    if schema_version != FANOUT_CONTRACT_SCHEMA_VERSION:
+        raise ValueError(
+            f"unsupported fanout contract schema_version: {schema_version or 'missing'}"
+        )
+    raw_units = contract.get("units")
+    if not isinstance(raw_units, list) or not all(
+        isinstance(unit, Mapping) for unit in raw_units
+    ):
+        raise ValueError("fanout contract units must be a list of objects")
+    unit_ids = [str(unit.get("unit_id", "")) for unit in raw_units]
+    if any(not unit_id for unit_id in unit_ids) or len(set(unit_ids)) != len(unit_ids):
+        raise ValueError("fanout contract unit ids must be nonempty and unique")
+    units = {unit_id: unit for unit_id, unit in zip(unit_ids, raw_units, strict=True)}
+    merge_plan = contract.get("merge_plan")
+    raw_order = merge_plan.get("merge_order") if isinstance(merge_plan, Mapping) else None
+    if not isinstance(raw_order, list) or not all(
+        isinstance(unit_id, str) for unit_id in raw_order
+    ):
+        raise ValueError("fanout contract merge_order must be a list of unit ids")
+    order = list(raw_order)
+    if len(set(order)) != len(order) or set(order) != set(units):
+        raise ValueError("fanout contract merge_order must name every unit exactly once")
+    selected = set(only_units) if only_units else set(order)
+    unknown_selected = sorted(selected - set(units))
+    if unknown_selected:
+        raise ValueError(
+            "selected fanout units are not in the contract: "
+            + ", ".join(unknown_selected)
+        )
+    capability_prechecks = {
+        unit_id: _unit_capability_precheck(
+            paths,
+            unit,
+            contract_schema_version=schema_version,
+        )
+        for unit_id, unit in units.items()
+    }
+    invalid_selected = [
+        unit_id
+        for unit_id in order
+        if unit_id in selected and capability_prechecks[unit_id][2]
+    ]
+    return {
+        "schema_version": schema_version,
+        "units": units,
+        "order": order,
+        "selected": selected,
+        "capability_prechecks": capability_prechecks,
+        "invalid_selected": invalid_selected,
+    }
+
+
 def _apply_integration_readiness(units: Sequence[dict[str, Any]]) -> None:
     """Fold integration eligibility in declared merge order."""
     merge_order_position_satisfied = True
@@ -457,21 +588,90 @@ def dispatch_fanout(
     # contract whose goal or safety profile no longer matches the live state.
     verify_goal_matches_contract(contract, goal_text)
     verify_safety_profile_matches_contract(contract, live_safety_profile_revision)
-    units = {str(unit["unit_id"]): unit for unit in contract.get("units", []) if isinstance(unit, Mapping)}
-    order = [str(unit_id) for unit_id in contract.get("merge_plan", {}).get("merge_order", [])]
-    current_catalog_digest = _current_catalog_digest(units.values())
+    preflight = fanout_dispatch_preflight(
+        paths,
+        contract,
+        only_units=only_units,
+        goal_text=goal_text,
+        live_safety_profile_revision=live_safety_profile_revision,
+    )
+    units = preflight["units"]
+    order = preflight["order"]
+    selected = preflight["selected"]
+    capability_prechecks = preflight["capability_prechecks"]
+    invalid_units = preflight["invalid_selected"]
+    selected_capability_invalid = bool(invalid_units)
+    capability_valid_units = [
+        unit
+        for unit_id, unit in units.items()
+        if capability_prechecks[unit_id][1] is not None
+        and not capability_prechecks[unit_id][2]
+    ]
+    current_catalog_digest = (
+        ""
+        if selected_capability_invalid
+        else _current_catalog_digest(capability_valid_units)
+    )
     # Resolved up here rather than beside the summary write below: the dispatch
     # loop needs it to write per-unit in-flight markers while units are running.
     fanout_id = str(contract.get("fanout_id", "") or "")
-    selected = set(only_units) if only_units else set(order)
     # Observed once per distinct owner, here at the dispatch boundary rather
     # than inside the prompt builder: `build_unit_prompt` stays a pure function
     # of its arguments, so a prompt built without discovery is byte-identical
     # across machines.
-    discoveries = _owner_skill_discoveries(units.values(), project_root=repo_root)
+    discoveries = (
+        {}
+        if selected_capability_invalid
+        else _owner_skill_discoveries(capability_valid_units, project_root=repo_root)
+    )
     results: dict[str, dict[str, Any]] = {}
 
-    for unit_id in order:
+    if selected_capability_invalid:
+        invalid_reason = (
+            "selected batch refused because capability evidence is invalid for "
+            + ", ".join(invalid_units)
+        )
+        for unit_id in order:
+            unit = units[unit_id]
+            if _already_completed(paths, unit):
+                results[unit_id] = _skipped(
+                    unit,
+                    "already_completed",
+                    process_succeeded=True,
+                    unit_verification_observed=_unit_verification_is_observed(
+                        paths, str(unit.get("run_ref", unit_id))
+                    ),
+                )
+                continue
+            if unit_id not in selected:
+                results[unit_id] = _skipped(unit, "not_selected")
+                continue
+            owner, _snapshot, errors = capability_prechecks[unit_id]
+            if errors:
+                results[unit_id] = {
+                    "unit_id": unit_id,
+                    "run_ref": str(unit.get("run_ref", unit_id)),
+                    "owner": owner,
+                    "status": "capability_snapshot_invalid",
+                    **_dispatch_status_ladder(),
+                    "reason": "; ".join(errors),
+                }
+            elif any(
+                _dependency_failed(results.get(str(dependency)))
+                for dependency in unit.get("depends_on", []) or []
+            ):
+                results[unit_id] = _blocked(unit, results)
+            else:
+                results[unit_id] = {
+                    "unit_id": unit_id,
+                    "run_ref": str(unit.get("run_ref", unit_id)),
+                    "owner": owner,
+                    "status": "capability_snapshot_invalid",
+                    **_dispatch_status_ladder(),
+                    "reason": invalid_reason,
+                }
+
+    for unit_id in order if not selected_capability_invalid else ():
         unit = units[unit_id]
         if _already_completed(paths, unit):
             # Completed units satisfy dependencies whether or not they are in
@@ -528,6 +728,7 @@ def dispatch_fanout(
                     current_catalog_digest=current_catalog_digest,
                     fanout_id=fanout_id,
                     discoveries=discoveries,
+                    capability_precheck=capability_prechecks[unit_id],
                 )
                 for unit_id in ready
             }
@@ -734,13 +935,23 @@ def _dispatch_unit(
     current_catalog_digest: str = "",
     fanout_id: str = "",
     discoveries: Mapping[str, Mapping[str, Any]] | None = None,
+    capability_precheck: tuple[str, dict[str, Any] | None, list[str]],
 ) -> dict[str, Any]:
     from .model_inventory import catalog_fingerprint_note
 
     unit_id = str(unit["unit_id"])
     run_ref = str(unit.get("run_ref", unit_id))
     handoff = unit.get("handoff", {}) if isinstance(unit.get("handoff"), Mapping) else {}
-    owner = str(handoff.get("executor_target", "choose"))
+    owner, capability_snapshot, capability_errors = capability_precheck
+    if capability_errors or capability_snapshot is None:
+        return {
+            "unit_id": unit_id,
+            "run_ref": run_ref,
+            "owner": owner,
+            "status": "capability_snapshot_invalid",
+            **_dispatch_status_ladder(),
+            "reason": "; ".join(capability_errors),
+        }
     model_route = handoff.get("model_route") if isinstance(handoff.get("model_route"), Mapping) else None
     routed_model = str(model_route.get("selected_model", "") or "") if model_route else ""
     routed_effort = str(model_route.get("selected_reasoning_effort", "") or "") if model_route else ""
@@ -907,11 +1118,6 @@ def _dispatch_unit(
             "runtime_profile": owner,
         },
     )
-    # Read at the spawn observation, so the dispatch record says what the
-    # table declared about this profile at the moment the unit ran. Purely
-    # descriptive: it selects nothing, gates nothing, and a profile without a
-    # row simply carries no capability metadata.
-    profile_capability = capability_for_profile_or_none(owner)
     started_at = utc_now()
     started_clock = time.monotonic()
     stderr_tail = ""
@@ -1011,8 +1217,8 @@ def _dispatch_unit(
     }
     if owner_host:
         result["owner_host"] = owner_host
-    if profile_capability is not None:
-        result["executor_capability"] = profile_capability
+    result["executor_capability_snapshot"] = capability_snapshot
+    result["executor_capability"] = legacy_executor_capability_projection(capability_snapshot)
     # `tokens_total` and `session_ref` were READ by `omh coding fanout brief`
     # and had no write site anywhere, so both columns always printed "unknown".
     # Only keys the executor actually reported are copied: an absent count stays
@@ -1519,6 +1725,7 @@ def _dependency_failed(result: dict[str, Any] | None) -> bool:
     if result is None:
         return False
     return result.get("status") in {
+        "capability_snapshot_invalid",
         "failed",
         "blocked_by_dependency",
         "executor_not_ready",
@@ -1548,7 +1755,7 @@ def _skipped(
     return {
         "unit_id": str(unit["unit_id"]),
         "run_ref": str(unit.get("run_ref", "")),
-        "owner": str(unit.get("handoff", {}).get("executor_target", "choose")),
+        "owner": str(unit.get("owner") or "choose"),
         "status": status,
         **_dispatch_status_ladder(
             process_succeeded=process_succeeded,

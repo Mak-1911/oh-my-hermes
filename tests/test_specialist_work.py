@@ -29,7 +29,7 @@ class SpecialistWorkTests(unittest.TestCase):
 
     def test_prepared_contract_never_counts_as_observed_goal_achievement(self) -> None:
         contract = build_specialist_work_quality_contract(
-            "ultragoal",
+            "ultrawork",
             phase="implementation",
             acceptance_criteria=("The requested capability is implemented.", "Verification evidence is recorded."),
         )
@@ -68,7 +68,7 @@ class SpecialistWorkTests(unittest.TestCase):
 
     def test_foreign_stale_or_self_attested_evidence_cannot_raise_observed_progress(self) -> None:
         contract = build_specialist_work_quality_contract(
-            "ultragoal",
+            "ultrawork",
             phase="implementation",
             acceptance_criteria=("The requested capability is implemented.",),
         )
@@ -81,7 +81,7 @@ class SpecialistWorkTests(unittest.TestCase):
                 "status": "observed",
                 "source_kind": "self_report",
                 "goal_binding_digest": goal["binding_digest"],
-                "selected_skill": "ultragoal",
+                "selected_skill": "ultrawork",
                 "specialist_id": binding["specialist_id"],
                 "plan_digest": binding["plan_digest"],
                 "observed_at": stale,
@@ -91,7 +91,7 @@ class SpecialistWorkTests(unittest.TestCase):
                 "status": "observed",
                 "source_kind": "command",
                 "goal_binding_digest": "foreign",
-                "selected_skill": "ultragoal",
+                "selected_skill": "ultrawork",
                 "specialist_id": binding["specialist_id"],
                 "plan_digest": binding["plan_digest"],
                 "observed_at": datetime.now(timezone.utc).isoformat(),
@@ -101,7 +101,7 @@ class SpecialistWorkTests(unittest.TestCase):
                 "status": "observed",
                 "source_kind": "command",
                 "goal_binding_digest": goal["binding_digest"],
-                "selected_skill": "ultragoal",
+                "selected_skill": "ultrawork",
                 "specialist_id": "foreign-specialist",
                 "plan_digest": binding["plan_digest"],
                 "observed_at": datetime.now(timezone.utc).isoformat(),
@@ -118,7 +118,7 @@ class SpecialistWorkTests(unittest.TestCase):
 
     def test_future_dated_evidence_cannot_bypass_freshness(self) -> None:
         contract = build_specialist_work_quality_contract(
-            "ultragoal",
+            "ultrawork",
             phase="implementation",
             acceptance_criteria=("The requested capability is implemented.",),
         )
@@ -130,7 +130,7 @@ class SpecialistWorkTests(unittest.TestCase):
                 "status": "observed",
                 "source_kind": "command",
                 "goal_binding_digest": goal["binding_digest"],
-                "selected_skill": "ultragoal",
+                "selected_skill": "ultrawork",
                 "specialist_id": binding["specialist_id"],
                 "plan_digest": binding["plan_digest"],
                 "observed_at": (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat(),
@@ -144,7 +144,7 @@ class SpecialistWorkTests(unittest.TestCase):
 
     def test_matching_fresh_observed_evidence_is_the_only_path_to_goal_progress(self) -> None:
         contract = build_specialist_work_quality_contract(
-            "ultragoal",
+            "ultrawork",
             phase="implementation",
             acceptance_criteria=("The requested capability is implemented.",),
         )
@@ -156,7 +156,7 @@ class SpecialistWorkTests(unittest.TestCase):
                 "status": "observed",
                 "source_kind": "command",
                 "goal_binding_digest": goal["binding_digest"],
-                "selected_skill": "ultragoal",
+                "selected_skill": "ultrawork",
                 "specialist_id": binding["specialist_id"],
                 "plan_digest": binding["plan_digest"],
                 "observed_at": datetime.now(timezone.utc).isoformat(),
@@ -173,15 +173,15 @@ class SpecialistWorkTests(unittest.TestCase):
             "implement a verified feature",
             [
                 {"skill": "plan", "score": 7, "confidence": "high", "matched": ["plan"]},
-                {"skill": "ultragoal", "score": 9, "confidence": "high", "matched": ["implement"]},
+                {"skill": "ultrawork", "score": 9, "confidence": "high", "matched": ["implement"]},
             ],
-            selected_skill="ultragoal",
+            selected_skill="ultrawork",
             action="dispatch",
         )
         handoff = build_coding_delegation_payload(
             "Implement a small Python capability with tests.",
             executor_target="codex",
-            preferred_workflow="ultragoal",
+            preferred_workflow="ultrawork",
             preferred_workflow_score=9,
             force_coding_handoff=True,
         )

@@ -1511,11 +1511,27 @@
   line-height: 1.6;
 }
 
+.install-availability {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(92, 224, 150, 0.38);
+  border-radius: 12px;
+  background: rgba(64, 211, 132, 0.09);
+  color: #9bf2bd;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .install-followup a {
   color: var(--accent-strong);
   text-decoration: none;
   border-bottom: 1px solid rgba(138, 217, 255, 0.4);
   transition: border-color var(--transition), color var(--transition);
+}
+
+.section--install[data-package-manager-status="public"] .install-method--package-manager {
+  border-color: rgba(92, 224, 150, 0.34);
+  box-shadow: inset 0 0 0 1px rgba(64, 211, 132, 0.08);
 }
 
 .install-followup a:hover,
@@ -1531,6 +1547,20 @@
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.install-step--methods {
+  grid-column: 1 / -1;
+}
+
+.install-methods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.install-methods .terminal {
+  min-width: 0;
 }
 
 .install-step {
@@ -1782,8 +1812,10 @@
   .route-grid,
   .surface-grid,
   .install-steps,
+  .install-methods,
   .mem-rules__list,
   .mem-wrap__list { grid-template-columns: minmax(0, 1fr); }
+  .install-step--methods,
   .install-step--prompt { grid-column: auto; }
 
   .ulw-row { grid-template-columns: minmax(0, 1fr); gap: 14px; }

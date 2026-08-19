@@ -1,5 +1,5 @@
 from __future__ import annotations
-from ..skills.catalog import omh_skill_display_name
+from ..skills.catalog import omh_skill_install_path
 
 from pathlib import Path
 from typing import Any
@@ -25,7 +25,7 @@ from ..skill_pack import builtin_skill_templates
 
 
 TEAM_WORKER_READINESS_SCHEMA_VERSION = "omh_team_worker_readiness/v1"
-TEAM_WORKER_SKILLS = ("team", "ultrawork", "ultragoal", "code-review")
+TEAM_WORKER_SKILLS = ("ultrawork", "code-review")
 TEAM_WORKER_EVENTS = ("runtime_start", "worktree_creation", "worker_dispatch", "worker_result")
 DEFAULT_RUNTIME_TARGET_SCAN_LIMIT = 50
 
@@ -35,13 +35,13 @@ def build_team_worker_readiness(paths: OmhPaths, *, target_limit: int | None = D
     missing_required_skills = [
         skill["name"]
         for skill in skill_surfaces
-        if skill["name"] in {"team", "ultrawork"} and not skill["available_in_package"]
+        if skill["name"] in {"ultrawork"} and not skill["available_in_package"]
     ]
     runtime_profiles = [runtime_profile_contract(profile) for profile in CODING_RUNTIME_HANDOFF_TARGETS]
     runtime_observation = _runtime_observation_readiness(paths, target_limit=target_limit)
     installed_skill_count = sum(1 for skill in skill_surfaces if skill["installed_for_hermes"])
     hermes_visible = all(
-        skill["installed_for_hermes"] for skill in skill_surfaces if skill["name"] in {"team", "ultrawork"}
+        skill["installed_for_hermes"] for skill in skill_surfaces if skill["name"] in {"ultrawork"}
     )
     contract_status = "available" if not missing_required_skills else "missing"
     if contract_status == "available" and not hermes_visible:
@@ -107,8 +107,8 @@ def _skill_surfaces(paths: OmhPaths) -> list[dict[str, Any]]:
         {
             "name": name,
             "available_in_package": name in template_names,
-            "installed_for_hermes": (paths.skills_dir / omh_skill_display_name(name) / "SKILL.md").is_file(),
-            "managed_skill_path": str(paths.skills_dir / omh_skill_display_name(name) / "SKILL.md"),
+            "installed_for_hermes": (paths.skills_dir / omh_skill_install_path(name) / "SKILL.md").is_file(),
+            "managed_skill_path": str(paths.skills_dir / omh_skill_install_path(name) / "SKILL.md"),
             "purpose": _skill_purpose(name),
         }
         for name in TEAM_WORKER_SKILLS
@@ -117,9 +117,7 @@ def _skill_surfaces(paths: OmhPaths) -> list[dict[str, Any]]:
 
 def _skill_purpose(name: str) -> str:
     purposes = {
-        "team": "Coordinate explicit multi-lane Hermes or runtime work with worker ownership and leader integration.",
         "ultrawork": "Run a prepared high-throughput work batch when lanes can be separated and verified.",
-        "ultragoal": "Keep one durable implementation goal moving through plan, implementation, review, and verification.",
         "code-review": "Review implementation evidence before status, CI, or merge claims are treated as complete.",
     }
     return purposes.get(name, "OMH workflow surface.")

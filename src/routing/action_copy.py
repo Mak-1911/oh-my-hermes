@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..coding.orchestration_vocabulary import CHOOSE_EXECUTOR_REASON
+
 
 NEXT_ACTION_LABELS: dict[str, str] = {
     "answer_clarification": "asking the needed clarification",
@@ -14,7 +16,7 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "audit_learning_readiness": "reviewing workflow learning readiness",
     "cancel": "cancelling the active workflow state",
     "check_install_or_setup_health": "checking install and setup health",
-    "choose_executor": "asking the user to pick the coding agent",
+    "choose_executor": CHOOSE_EXECUTOR_REASON,
     "choose_skill": "opening the workflow picker",
     "clarify_or_route": "checking the best workflow or clarification",
     "classify_signal_and_prepare_investigation": "classifying the signal and preparing investigation steps",
@@ -139,7 +141,7 @@ NEXT_ACTION_LABELS: dict[str, str] = {
     "report_merged": "reporting the merge",
     "start_loop_cycle": "starting the loopability-gated cycle",
     "start_loop": "starting the loop",
-    "start_ultraprocess": "preparing the one-cycle delivery process",
+    "start_delivery_cycle": "preparing the one-cycle delivery process",
     "route_direct_task": "routing the direct task",
     "triage_feedback": "triaging the feedback signal",
     "wait_for_executor_evidence": "waiting for coding-agent evidence",

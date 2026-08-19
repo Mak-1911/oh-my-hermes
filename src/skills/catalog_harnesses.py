@@ -1737,7 +1737,7 @@ _HARNESSES = [
         overclaim_guards=(
             "A source_finder_plan/v1 artifact is not web search, download, clone, extraction, license check, source verification, or downstream processing evidence.",
             "A source candidate is not proof the source exists, is accessible, is licensed, or supports the user's claim until observed evidence exists.",
-            "A downstream workflow recommendation is not proof that paper-learning, research, materials-package, research-department, or ultraprocess ran.",
+            "A downstream workflow recommendation is not proof that paper-learning, research, materials-package, research-department, or an ultrawork delivery cycle ran.",
         ),
     ),
     HarnessDefinition(
@@ -2092,6 +2092,65 @@ _HARNESSES = [
         overclaim_guards=(
             "A clarification question is not a plan approval.",
             "Do not start a handoff while the blocking decision is unanswered.",
+        ),
+    ),
+    HarnessDefinition(
+        "decision-frontier",
+        "Resolve repository terminology through one dependency-ready decision batch per bounded round.",
+        "Use when terminology decisions have explicit prerequisite and branch relationships.",
+        (
+            "repository evidence",
+            "confirmed frontier entry",
+            "unresolved terminology decisions",
+        ),
+        (
+            "stable decision ledger",
+            "confirmed shared understanding",
+            "named open, deferred, or blocked decisions",
+        ),
+        (
+            "every reachable decision is resolved, deferred, or blocked",
+            "the user asked to stop questioning",
+            f"the shared clarification budget of {DEEP_INTERVIEW_MAX_ROUNDS} rounds is exhausted",
+        ),
+        (
+            "verify prerequisite and branch relationships",
+            "apply answers only to addressed decision identifiers",
+            "preserve separate confirmation for every downstream transition",
+        ),
+        "If round or decision identity cannot be recovered, close with a named recovery blocker instead of emitting another decision round.",
+        (
+            "frontier_entry_confirmed",
+            "ready_batch_presented",
+            "answers_applied_by_id",
+            "round_budget_respected",
+            "shared_understanding_confirmed",
+        ),
+        "Record only thread-visible frontier state; no prepared summary proves staging, planning, handoff, dispatch, or execution.",
+        "metadata_only",
+        quality_tier="clarity-gated",
+        quality_bar=(
+            "Present every currently dependency-ready decision in one numbered batch with stable identifiers.",
+            "Keep omitted decisions open and accept recommendations only when the user explicitly chooses them.",
+            "Stop on a terminal frontier, explicit user request, or the shared round ceiling without emitting another round.",
+            "Confirm the shared-understanding summary separately from any next-path selection.",
+        ),
+        evidence_ladder=(
+            "frontier_entry_confirmed",
+            "ready_batch_presented",
+            "answers_applied_by_id",
+            "round_budget_respected",
+            "shared_understanding_confirmed",
+        ),
+        wrapper_actions=(
+            "prepare_project_terms_context",
+            "answer:clarify",
+            "cancel",
+            "show_status",
+        ),
+        overclaim_guards=(
+            "A frontier round is not plan approval.",
+            "A confirmed terminology summary is not staging, handoff, dispatch, execution, review, CI, or merge evidence.",
         ),
     ),
     HarnessDefinition(
@@ -3082,12 +3141,9 @@ _FEATURE_SURFACE_HARNESSES = (
 
 
 _PRIMARY_HARNESSES = {
-    "ralph": "goal-execution",
-    "ultragoal": "goal-execution",
-    "context": "deep-interview",
+    "context": "decision-frontier",
     "deep-interview": "deep-interview",
     "jit-learn": "jit-learn",
-    "team": "goal-execution",
     "ultrawork": "goal-execution",
     "research": "research",
     "research-brief": "business-research",
@@ -3123,7 +3179,6 @@ _PRIMARY_HARNESSES = {
     "cto-loop": "app-delivery-loop",
     "deploy-and-monitor": "app-delivery-loop",
     "loop": "goal-loop",
-    "ultraprocess": "goal-execution",
     "ultraqa": "qa-specialist",
     "plan": "planning",
     "ralplan": "planning",

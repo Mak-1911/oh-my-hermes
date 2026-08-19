@@ -86,6 +86,8 @@ def _cli_backend_surface(name: str) -> str:
         return "omh probe"
     if name == "omh_recommend":
         return "omh recommend"
+    if name == "omh_todo":
+        return "omh runtime todo"
     return ""
 
 

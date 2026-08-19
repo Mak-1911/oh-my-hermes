@@ -97,8 +97,7 @@ class GoalLoopTests(unittest.TestCase):
         self.assertIn("permission_blocked", card["loop_invocation"]["stop_conditions"])
         self.assertIn("deep-interview", card["core_skills"])
         self.assertIn("ralplan", card["core_skills"])
-        self.assertIn("ultragoal", card["core_skills"])
-        self.assertIn("team", card["core_skills"])
+        self.assertIn("ultrawork", card["core_skills"])
         self.assertIn("code-review", card["core_skills"])
         role_ids = [role["id"] for role in card["role_pipeline"]]
         self.assertEqual(role_ids[:4], ["interviewer", "planner", "researcher", "builder"])

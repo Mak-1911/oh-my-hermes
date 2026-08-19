@@ -31,7 +31,7 @@ from typing import Any
 
 from ..hashutil import sha256_file, sha256_text
 from ..skill_pack import builtin_skill_reference_templates, builtin_skill_templates
-from ..skills.catalog import omh_skill_display_name
+from ..skills.catalog import omh_skill_install_path
 
 GUIDANCE_PROJECTION_STATUS_SCHEMA_VERSION = "guidance_projection_status/v1"
 
@@ -93,7 +93,7 @@ def catalog_revision() -> str:
 def projected_skill_paths() -> tuple[str, ...]:
     """The projection-relative path of every generated SKILL.md, in catalog order."""
     return tuple(
-        f"{omh_skill_display_name(template.name)}/SKILL.md" for template in builtin_skill_templates()
+        f"{omh_skill_install_path(template.name)}/SKILL.md" for template in builtin_skill_templates()
     )
 
 
@@ -226,7 +226,7 @@ def _installed_files_match_catalog(skills_dir: Path, manifest: dict[str, Any]) -
     complete without every template on disk.
     """
     rendered = {
-        f"{omh_skill_display_name(template.name)}/SKILL.md": sha256_text(template.content)
+        f"{omh_skill_install_path(template.name)}/SKILL.md": sha256_text(template.content)
         for template in builtin_skill_templates()
     }
     for rel in _manifest_paths(manifest):

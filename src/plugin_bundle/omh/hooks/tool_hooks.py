@@ -4,11 +4,15 @@ import json
 
 from ..host_observation import observe_plugin_hook_call
 from ..omh_roles import extract_role_marker, resolve_role_name, role_aliases, role_names
+from ..tool_bursts import record_tool_call
 
 
 def pre_tool_call(**kwargs) -> dict[str, object] | None:
     """Return only host-supported pre-tool directives or role warnings."""
     observe_plugin_hook_call("pre_tool_call", kwargs)
+    # Tick the parallel-shot ledger: concurrent batch members start within
+    # milliseconds of each other, and this is the only place OMH can see it.
+    record_tool_call(kwargs.get("tool_name"), omh_home=str(kwargs.get("omh_home", "") or ""))
     context_parts: list[str] = []
     payload: dict[str, object] = {}
     role_warning = _delegate_role_warning(kwargs)

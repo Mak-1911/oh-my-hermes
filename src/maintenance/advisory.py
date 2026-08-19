@@ -831,13 +831,15 @@ def _ancestors_below(start: Path, root: Path) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 def _count_skill_dirs(skills_dir: Path) -> int:
-    count = 0
-    for child in skills_dir.iterdir():
-        if child.is_symlink() or not child.is_dir():
-            continue
-        if (child / "SKILL.md").is_file():
-            count += 1
-    return count
+    """Skills a host would register from this directory, in either install layout.
+
+    Skills install under `<skills_dir>/<category>/<label>/`, so counting only the
+    top level reported a full install as holding no skill at all. A flat directory
+    left by an older release still registers, so both depths count.
+    """
+    from ..install.installer import installed_skill_directories
+
+    return len(installed_skill_directories(skills_dir))
 
 
 def _derive_skill_dirs(hermes_home: Path) -> list[Path]:

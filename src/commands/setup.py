@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
+from typing import cast
 import unicodedata
 
 try:
@@ -30,7 +31,11 @@ from ..coding.hermes_model_config import (
 from ..coding.model_discovery import discover_local_models
 from ..coding.model_recommendations import resolve_model_recommendation
 from ..config_adapter import (
+    ConfigChange,
+    display_interface_selection,
+    display_skin_selection,
     ensure_external_dir,
+    ensure_omh_skin,
     ensure_plugin_enabled,
     external_dirs,
     maybe_set_memory_provider,
@@ -55,14 +60,21 @@ from ..installer import (
 from ..local_store import atomic_write_text
 from ..install.installer import DEFAULT_SKILL_PROFILE, SKILL_PROFILES
 from ..manifest import read_manifest
-from ..menubar_app import setup_menubar_app, uninstall_menubar_app
+from ..menubar_app import is_managed_menubar_install, setup_menubar_app, uninstall_menubar_app
 from ..mcp.host_config import install_mcp_host_config
 from ..mcp_bridge import MCP_HOST_CONFIG_RECIPE_HOSTS
-from ..paths import managed_command_venv_dir
+from ..paths import OmhPaths, managed_command_venv_dir
 from ..plugin_bundle.omh.metadata import MEMORY_PROVIDER_NAME
 from ..plugin_pack import PLUGIN_NAME, PluginPackError, install_plugin_bundle
 from ..probe import probe_capabilities
-from ..release import RELEASE_CHANNELS, package_url_for
+from ..release import (
+    RELEASE_CHANNELS,
+    ReleaseSelection,
+    missing_release_asset_hint,
+    package_url_for,
+    release_artifact_note,
+)
+from ..skin_pack import SKIN_NAME, install_skin, uninstall_skin
 from ..tui_widget_pack import install_tui_widget, uninstall_tui_widget
 from ..routing.recommend import recommend_skills
 from ..routing.route_plan import build_workflow_route_plan, compact_workflow_route_plan
@@ -96,6 +108,25 @@ from .model_setup_rendering import (
 
 POSIX_INSTALLER_COMMAND = "curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh"
 WINDOWS_INSTALLER_COMMAND = "irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex"
+COMMAND_PACKAGE_MANAGER_ENV = "OMH_COMMAND_PACKAGE_MANAGER"
+COMMAND_PACKAGE_ROOT_ENV = "OMH_COMMAND_PACKAGE_ROOT"
+COMMAND_PACKAGE_RUNTIME_ENV = "OMH_COMMAND_PACKAGE_RUNTIME"
+COMMAND_PACKAGE_ENTRYPOINT_ENV = "OMH_COMMAND_PACKAGE_ENTRYPOINT"
+COMMAND_PACKAGE_UPDATE_COMMANDS = {
+    "npm": "npm update -g oh-my-hermes",
+    "bun": "bun update -g --latest oh-my-hermes",
+    "homebrew": "brew upgrade rlaope/tap/omh",
+}
+COMMAND_PACKAGE_UPDATE_ARGUMENTS = {
+    "npm": ("update", "-g", "oh-my-hermes"),
+    "bun": ("update", "-g", "--latest", "oh-my-hermes"),
+    "homebrew": ("upgrade", "rlaope/tap/omh"),
+}
+COMMAND_PACKAGE_EXECUTABLES = {
+    "npm": "npm",
+    "bun": "bun",
+    "homebrew": "brew",
+}
 
 
 def installer_command() -> str:
@@ -106,6 +137,24 @@ def installer_command() -> str:
     rather than "wrong line was printed".
     """
     return WINDOWS_INSTALLER_COMMAND if os.name == "nt" else POSIX_INSTALLER_COMMAND
+
+
+def _command_package_update_guidance() -> tuple[str, str]:
+    explicit = os.environ.get(COMMAND_PACKAGE_MANAGER_ENV, "").strip().lower()
+    if explicit in COMMAND_PACKAGE_UPDATE_COMMANDS:
+        return explicit, COMMAND_PACKAGE_UPDATE_COMMANDS[explicit]
+    if _homebrew_prefix_root() is not None:
+        return "homebrew", COMMAND_PACKAGE_UPDATE_COMMANDS["homebrew"]
+    return "installer", installer_command()
+
+
+def _homebrew_prefix_root() -> Path | None:
+    prefix = Path(sys.prefix)
+    folded_parts = tuple(part.casefold() for part in prefix.parts)
+    for index, part in enumerate(folded_parts):
+        if part == "cellar" and folded_parts[index + 1 : index + 2] == ("omh",):
+            return Path(*prefix.parts[:index])
+    return None
 
 
 COMMAND_PACKAGE_STATUS_SCHEMA_VERSION = "command_package_status/v1"
@@ -166,6 +215,8 @@ def _install_result(args: argparse.Namespace) -> dict[str, object]:
             "release_channel": release.channel,
             "release_version": release.version,
             "release_package_url": release.package_url,
+            "release_artifact_kind": release.artifact_kind,
+            "release_artifact_note": release_artifact_note(release),
             "release_source_ref": source_ref,
             "language": language,
         }
@@ -224,8 +275,11 @@ def cmd_update(args: argparse.Namespace) -> int:
         return _run_command_package_self_update(args, self_update)
     code = cmd_install(args)
     if code == 0:
-        _refresh_installed_plugin_bundle(args)
-        _refresh_hermes_registration(args)
+        if not (args.from_skills_dir or args.source):
+            _refresh_installed_plugin_bundle(args)
+            _refresh_hermes_registration(args)
+        _refresh_installed_tui_widget(args)
+        _refresh_installed_menubar_app(args)
     return code
 
 
@@ -272,7 +326,6 @@ def _refresh_installed_plugin_bundle(args: argparse.Namespace) -> dict[str, obje
         return None
     try:
         result = install_plugin_bundle(paths, force=args.force, dry_run=args.dry_run)
-        install_tui_widget(paths.hermes_home, dry_run=bool(args.dry_run))
     except PluginPackError:
         # An update must not fail over a bundle a later `omh setup --force` can
         # repair; `omh doctor` reports the drift with the instruction to run it.
@@ -280,6 +333,94 @@ def _refresh_installed_plugin_bundle(args: argparse.Namespace) -> dict[str, obje
     if not args.dry_run:
         update_state(paths, {"last_plugin_distribution": result})
     return result
+
+
+def _hermes_tui_preflight_step(
+    paths: OmhPaths, *, quiet: bool, dry_run: bool = False
+) -> dict[str, object]:
+    """Report whether the just-installed HUD can actually render, and why not.
+
+    Installing the widget while the Hermes side cannot load it (old Hermes,
+    stripped SDK, classic-REPL default, stale interpreter) is a success that
+    behaves like a failure: every check passes and the user still sees no
+    HUD. Setup and update therefore say so at install time instead of leaving
+    the diagnosis to a screenshot comparison. A dry run skips the inspection —
+    the state it would inspect is exactly the state the real run writes. In
+    JSON mode the note goes to stderr so machine output stays parseable while
+    a human watching the pipe still sees it. An absent Hermes install prints
+    nothing: PATH-installed Hermes layouts are real, and "cannot render" would
+    be a false claim there — doctor reports that state as unobserved instead.
+    """
+    from ..maintenance.hermes_tui import hermes_tui_preflight, widget_render_blockers
+
+    if dry_run:
+        return {"status": "skipped_dry_run"}
+    preflight = hermes_tui_preflight(paths)
+    blockers = widget_render_blockers(preflight)
+    install_found = bool(preflight.get("install", {}).get("found"))
+    if blockers and install_found:
+        stream = sys.stderr if quiet else sys.stdout
+        print("note: the OMH HUD may not render on this Hermes:", file=stream)
+        for blocker in blockers:
+            print(f"  - {blocker}", file=stream)
+    preflight["render_blockers"] = blockers
+    return preflight
+
+
+def _refresh_installed_tui_widget(args: argparse.Namespace) -> dict[str, object] | None:
+    paths = _paths(args)
+    if not paths.hermes_plugin_dir.is_dir():
+        return None
+    result = install_tui_widget(paths.hermes_home, dry_run=bool(args.dry_run))
+    install_skin(paths.hermes_home, dry_run=bool(args.dry_run))
+    # A refreshed widget that the Hermes side cannot load is a success that
+    # behaves like a failure; say so at update time (same note as setup).
+    _hermes_tui_preflight_step(paths, quiet=_wants_json(args), dry_run=bool(args.dry_run))
+    return result
+
+
+def _refresh_installed_menubar_app(args: argparse.Namespace) -> dict[str, object] | None:
+    """Bring an already-installed native menu bar helper up to date."""
+    configured_omh_home = getattr(args, "omh_home", None)
+    configured_hermes_home = getattr(args, "hermes_home", None)
+    raw_homes = (
+        configured_omh_home if configured_omh_home not in (None, "") else os.environ.get("OMH_HOME"),
+        configured_hermes_home if configured_hermes_home not in (None, "") else os.environ.get("HERMES_HOME"),
+    )
+    if any(_configured_path_contains_symlink(value) for value in raw_homes):
+        return None
+    paths = _paths(args)
+    if not is_managed_menubar_install(paths):
+        return None
+    try:
+        result = setup_menubar_app(
+            paths,
+            dry_run=bool(args.dry_run),
+            start=True,
+            force=bool(args.force),
+        )
+    except (OSError, RuntimeError) as exc:
+        print(f"note: OMH menu bar helper was not refreshed: {exc}", file=sys.stderr)
+        return {"status": "failed", "reason": str(exc)}
+    if result.get("status") == "installed_start_failed":
+        reason = str(result.get("start_message", "launchctl start failed"))
+        print(f"note: OMH menu bar helper was not refreshed: {reason}", file=sys.stderr)
+    return result
+
+
+def _configured_path_contains_symlink(value: object) -> bool:
+    if value is None or value == "":
+        return False
+    path = Path(os.path.expandvars(str(value))).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    current = path
+    while True:
+        if current.is_symlink():
+            return True
+        if current.parent == current:
+            return False
+        current = current.parent
 
 
 def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, object]:
@@ -299,11 +440,86 @@ def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, obj
         raise OmhError(str(exc)) from exc
     if release.channel == "local" and release.package_url == "local":
         return {"should_update": False, "reason": "local updates require an explicit package source"}
+    package_manager, update_instruction = _command_package_update_guidance()
+    update_arguments = COMMAND_PACKAGE_UPDATE_ARGUMENTS.get(package_manager)
+    launcher = _validated_command_package_launcher(package_manager)
+    homebrew_commands = (
+        _validated_homebrew_commands()
+        if package_manager == "homebrew"
+        else None
+    )
+    if update_arguments is not None and (
+        launcher is not None or homebrew_commands is not None
+    ):
+        if _explicit_release_metadata_supplied(args):
+            raise OmhError(
+                "package-manager installs accept the default published update only; "
+                "use the owning manager directly for an explicit version or package URL"
+            )
+        if launcher is not None:
+            manager_command = COMMAND_PACKAGE_EXECUTABLES[package_manager]
+            manager_executable = shutil.which(manager_command)
+            runtime = str(launcher["runtime"])
+            reentry_command = [
+                runtime,
+                str(launcher["entrypoint"]),
+            ]
+        else:
+            assert homebrew_commands is not None
+            manager_command = "brew"
+            manager_executable = str(homebrew_commands["brew"])
+            runtime = ""
+            reentry_command = [str(homebrew_commands["omh"])]
+        if manager_executable is None:
+            return {
+                "should_update": False,
+                "reason": (
+                    f"cannot update command package because `{manager_command}` "
+                    "is not available on PATH"
+                ),
+            }
+        if not Path(manager_executable).is_file():
+            return {
+                "should_update": False,
+                "reason": (
+                    "cannot update command package because "
+                    f"`{manager_executable}` is not a file"
+                ),
+            }
+        if not Path(reentry_command[-1]).is_file():
+            return {
+                "should_update": False,
+                "reason": (
+                    "cannot re-enter the updated command package because "
+                    "its launcher is missing"
+                ),
+            }
+        try:
+            update_command = _package_manager_update_command(
+                package_manager,
+                manager_executable,
+                runtime=runtime,
+            )
+        except OmhError as exc:
+            return {
+                "should_update": False,
+                "reason": str(exc),
+            }
+        return {
+            "should_update": True,
+            "method": "package_manager",
+            "package_manager": package_manager,
+            "update_instruction": update_instruction,
+            "update_command": update_command,
+            "reentry_command": reentry_command,
+            "reason": f"running from the {package_manager} command package",
+        }
     managed = _managed_command_runtime()
     if not managed["managed"]:
         return {"should_update": False, "reason": managed["reason"]}
     return {
         "should_update": True,
+        "method": "installer",
         "release": release,
         "python": managed["python"],
         "venv_dir": managed["venv_dir"],
@@ -312,6 +528,8 @@ def _command_package_self_update_plan(args: argparse.Namespace) -> dict[str, obj
 
 
 def _run_command_package_self_update(args: argparse.Namespace, plan: dict[str, object]) -> int:
+    if plan.get("method") == "package_manager":
+        return _run_package_manager_self_update(args, plan)
     release = plan.get("release")
     package_url = str(getattr(release, "package_url", "") or "")
     if not package_url:
@@ -320,35 +538,63 @@ def _run_command_package_self_update(args: argparse.Namespace, plan: dict[str, o
     wants_json = _wants_json(args)
     progress = _HumanProgress(enabled=not wants_json, use_color=_use_color())
     progress.header("OMH update", "Refresh the OMH command package and workflow pack.")
-    progress.step(1, 2, "Updating omh command package", detail=package_url)
+    # The size goes on the line printed before pip starts, not after it
+    # finishes: a stable wheel is a second, and the repository archive is the
+    # multi-minute wait people were left staring at with no explanation.
+    note = release_artifact_note(release) if isinstance(release, ReleaseSelection) else ""
+    progress.step(
+        1,
+        2,
+        "Updating omh command package",
+        detail=f"{package_url} ({note})" if note else package_url,
+    )
+    pip_command = [
+        python,
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        # A branch archive keeps one URL while its contents change, and pip
+        # caches by URL. Without this, `omh update` reinstalls whatever
+        # `main.zip` was downloaded last - it reports success, the version
+        # string does not move, and the user gets an older tree. Observed:
+        # a fresh venv still printed "Using cached main.zip" and installed
+        # a build from before the merge it was run to pick up.
+        # `--force-reinstall` does not help; it forces the reinstall, not
+        # the download.
+        "--no-cache-dir",
+        "--force-reinstall",
+        "--upgrade",
+        package_url,
+    ]
+    # Human mode hands pip the terminal so its own download and build lines
+    # appear as they happen. This step fetches an archive and builds an sdist,
+    # which takes minutes on the preview channel, and a terminal that prints
+    # nothing for that long is indistinguishable from a hang -- the reported
+    # symptom was `omh update` "stuck" on the URL line, from a run that was
+    # working the whole time. The wait is expected and the step line above
+    # already names its size; what was missing was any sign of progress.
+    # JSON mode keeps capturing, because stdout there has to stay parseable.
+    if wants_json:
+        pip_command.insert(pip_command.index("install") + 1, "-q")
+    capture = subprocess.PIPE if wants_json else None
     completed = subprocess.run(
-        [
-            python,
-            "-m",
-            "pip",
-            "install",
-            "--disable-pip-version-check",
-            "-q",
-            # A branch archive keeps one URL while its contents change, and pip
-            # caches by URL. Without this, `omh update` reinstalls whatever
-            # `main.zip` was downloaded last - it reports success, the version
-            # string does not move, and the user gets an older tree. Observed:
-            # a fresh venv still printed "Using cached main.zip" and installed
-            # a build from before the merge it was run to pick up.
-            # `--force-reinstall` does not help; it forces the reinstall, not
-            # the download.
-            "--no-cache-dir",
-            "--force-reinstall",
-            "--upgrade",
-            package_url,
-        ],
+        pip_command,
         text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=capture,
+        stderr=capture,
     )
     if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "pip install failed").strip()
-        raise OmhError(f"command package update failed: {detail}")
+        detail = _bounded_command_error(
+            completed.stderr
+            or completed.stdout
+            # Human mode streamed pip straight to the terminal, so there is
+            # nothing captured to quote back -- the user already saw it.
+            or f"pip install failed with exit code {completed.returncode}"
+        )
+        hint = missing_release_asset_hint(release) if isinstance(release, ReleaseSelection) else ""
+        message = f"command package update failed: {detail}"
+        raise OmhError(f"{message}; {hint}" if hint else message)
     progress.done("command package updated")
     if not wants_json:
         progress.step(2, 2, "Refreshing OMH workflows with the updated command")
@@ -357,6 +603,147 @@ def _run_command_package_self_update(args: argparse.Namespace, plan: dict[str, o
     env[SELF_UPDATE_REENTRY_ENV] = "1"
     rerun = subprocess.run([python, "-m", "omh.cli", *argv], env=env)
     return int(rerun.returncode)
+
+
+def _run_package_manager_self_update(
+    args: argparse.Namespace,
+    plan: dict[str, object],
+) -> int:
+    package_manager = str(plan["package_manager"])
+    update_instruction = str(plan["update_instruction"])
+    update_command = list(cast(list[str], plan["update_command"]))
+    reentry_command = list(cast(list[str], plan["reentry_command"]))
+    wants_json = _wants_json(args)
+    progress = _HumanProgress(enabled=not wants_json, use_color=_use_color())
+    progress.header("OMH update", "Refresh the OMH command package and workflow pack.")
+    progress.step(
+        1,
+        2,
+        "Updating omh command package",
+        detail=update_instruction,
+    )
+    completed = subprocess.run(
+        update_command,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.returncode != 0:
+        detail = _bounded_command_error(
+            completed.stderr
+            or completed.stdout
+            or f"{package_manager} update failed"
+        )
+        raise OmhError(f"command package update failed: {detail}")
+    progress.done("command package updated")
+    if not wants_json:
+        progress.step(2, 2, "Refreshing OMH workflows with the updated command")
+    argv = _reentry_argv_with_command_package_updated()
+    env = dict(os.environ)
+    env[SELF_UPDATE_REENTRY_ENV] = "1"
+    rerun = subprocess.run([*reentry_command, *argv], env=env)
+    return int(rerun.returncode)
+
+
+def _validated_command_package_launcher(
+    package_manager: str,
+) -> dict[str, Path] | None:
+    if package_manager not in {"npm", "bun"}:
+        return None
+    raw_root = os.environ.get(COMMAND_PACKAGE_ROOT_ENV, "")
+    raw_runtime = os.environ.get(COMMAND_PACKAGE_RUNTIME_ENV, "")
+    raw_entrypoint = os.environ.get(COMMAND_PACKAGE_ENTRYPOINT_ENV, "")
+    if not raw_root or not raw_runtime or not raw_entrypoint:
+        return None
+    try:
+        package_root = Path(raw_root).resolve(strict=True)
+        runtime = Path(raw_runtime).resolve(strict=True)
+        entrypoint = Path(raw_entrypoint).resolve(strict=True)
+        expected_entrypoint = (package_root / "bin" / "omh.js").resolve(
+            strict=True
+        )
+        package_manifest = json.loads(
+            (package_root / "package.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return None
+    if (
+        not package_root.is_dir()
+        or not runtime.is_file()
+        or not entrypoint.is_file()
+        or entrypoint != expected_entrypoint
+        or package_manifest.get("name") != "oh-my-hermes"
+        or package_manifest.get("version") != __version__
+        or package_manifest.get("bin", {}).get("omh") != "bin/omh.js"
+    ):
+        return None
+    return {
+        "package_root": package_root,
+        "runtime": runtime,
+        "entrypoint": entrypoint,
+    }
+
+
+def _validated_homebrew_commands() -> dict[str, Path] | None:
+    homebrew_root = _homebrew_prefix_root()
+    if homebrew_root is None:
+        return None
+    brew = homebrew_root / "bin" / "brew"
+    omh = homebrew_root / "bin" / "omh"
+    try:
+        cellar_omh = (homebrew_root / "Cellar" / "omh").resolve(strict=True)
+        installed_omh = omh.resolve(strict=True)
+    except OSError:
+        return None
+    if (
+        not brew.is_file()
+        or not installed_omh.is_file()
+        or not installed_omh.is_relative_to(cellar_omh)
+    ):
+        return None
+    return {"brew": brew, "omh": omh}
+
+
+def _package_manager_update_command(
+    package_manager: str,
+    executable: str,
+    *,
+    runtime: str,
+    platform: str = os.name,
+) -> list[str]:
+    arguments = COMMAND_PACKAGE_UPDATE_ARGUMENTS[package_manager]
+    executable_path = Path(executable)
+    if platform != "nt" or executable_path.suffix.casefold() not in {
+        ".bat",
+        ".cmd",
+    }:
+        return [str(executable_path), *arguments]
+    if package_manager != "npm" or not runtime:
+        raise OmhError(
+            f"cannot safely execute the Windows `{package_manager}` command shim"
+        )
+    npm_cli = (
+        executable_path.parent
+        / "node_modules"
+        / "npm"
+        / "bin"
+        / "npm-cli.js"
+    )
+    if not npm_cli.is_file():
+        raise OmhError("cannot locate npm-cli.js beside the Windows npm shim")
+    return [runtime, str(npm_cli), *arguments]
+
+
+def _bounded_command_error(value: str, *, limit: int = 2_000) -> str:
+    sanitized = ANSI_ESCAPE_RE.sub("", value)
+    sanitized = "".join(
+        character
+        for character in sanitized
+        if character in {"\n", "\t"} or ord(character) >= 32
+    ).strip()
+    if len(sanitized) <= limit:
+        return sanitized
+    return f"{sanitized[:limit]}…"
 
 
 def _reentry_argv_with_command_package_updated() -> list[str]:
@@ -418,13 +805,17 @@ def _command_package_status_for_install(
     dry_run: bool,
     command_package_updated: bool = False,
 ) -> dict[str, object]:
+    package_manager, update_instruction = _command_package_update_guidance()
     status = "unchanged"
     reason = "managed skills were refreshed from the currently installed command package"
     updated = False
     if command_package_updated:
         status = "would_update" if dry_run else "updated"
         updated = not dry_run
-        reason = "the installer reported that it refreshed the OMH command package before running this command"
+        reason = (
+            f"{package_manager} refreshed the OMH command package before "
+            "running this command"
+        )
     elif dry_run:
         status = "would_remain_unchanged"
         reason = "dry run previews managed skill changes without changing the command package"
@@ -440,13 +831,14 @@ def _command_package_status_for_install(
         "updated": updated,
         "source": _command_package_source(command_package_updated=command_package_updated, source=source),
         "reason": reason,
-        "update_instruction": installer_command(),
+        "package_manager": package_manager,
+        "update_instruction": update_instruction,
     }
 
 
 def _command_package_source(*, command_package_updated: bool, source: str) -> str:
     if command_package_updated:
-        return "installer"
+        return _command_package_update_guidance()[0]
     if source == "builtin":
         return "installed_command_package"
     return "explicit_skill_source"
@@ -479,6 +871,8 @@ def _resolved_skill_profile(args: argparse.Namespace, paths) -> str:
     An update carries the install forward. Only `--full` and an explicit
     reconcile change the profile, and reconcile stays the one path that deletes.
     """
+    if bool(getattr(args, "core", False)):
+        return "core"
     if bool(getattr(args, "full", False)):
         return "full"
     installed = str((read_manifest(paths.manifest_path) or {}).get("skill_profile") or "")
@@ -856,17 +1250,41 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
         # Hermes. Doing only the first leaves an install that passes every
         # structural check while no OMH tool is reachable in chat.
         plugin_enable = ensure_plugin_enabled(compression.text, PLUGIN_NAME)
+        # `display.interface` is Hermes' own, and its default is the classic
+        # REPL. OMH used to write `tui` here so its widget would be reachable,
+        # because Hermes loads tui-widgets only in the Ink TUI. That traded the
+        # user's terminal for OMH's convenience: the classic REPL draws the
+        # banner, the status line, and the rules framing the prompt, and the
+        # Ink TUI does not, so installing OMH visibly stripped chrome the user
+        # never asked to lose -- and it wrote a Hermes-owned key to a
+        # non-default value the user had not chosen, which is exactly what
+        # Managed artifact forbids.
+        # OMH now reads the interface and adapts to it instead: the widget
+        # renders when the user runs the Ink TUI, and doctor names the
+        # trade-off for the classic REPL.
+        tui_interface = ConfigChange(False, "display.interface is Hermes-owned; OMH reads it and never writes it", plugin_enable.text)
+        # Identity is different from terminal choice. The managed skin themes
+        # whichever surface the user already runs -- classic CLI, Ink TUI, and
+        # desktop all read the same YAML -- so defaulting `display.skin` to it
+        # costs no chrome and changes no behaviour, and an explicit skin
+        # choice is never rewritten (see `ensure_omh_skin`).
+        skin_active = ensure_omh_skin(tui_interface.text, SKIN_NAME)
         # Same reasoning one layer down. OMH's memory provider ships inside the
         # bundle, and a provider Hermes never selects is a provider that never
         # runs -- so requiring a control-plane command to switch it on meant the
         # people AGENTS.md says should only need setup/update/doctor would never
         # have it. Claims the slot only when it is free; `set_memory_provider`
         # refuses when another product holds it, because Hermes runs exactly one.
-        memory_provider = maybe_set_memory_provider(plugin_enable.text, MEMORY_PROVIDER_NAME, memory_mode)
+        memory_provider = maybe_set_memory_provider(skin_active.text, MEMORY_PROVIDER_NAME, memory_mode)
     except ValueError as exc:
         raise OmhError(str(exc)) from exc
     if not args.dry_run and (
-        change.changed or compression.changed or plugin_enable.changed or memory_provider.changed
+        change.changed
+        or compression.changed
+        or plugin_enable.changed
+        or tui_interface.changed
+        or skin_active.changed
+        or memory_provider.changed
     ):
         write_config(paths.hermes_config_path, memory_provider.text)
     if not args.dry_run:
@@ -879,13 +1297,30 @@ def _apply_result(args: argparse.Namespace) -> dict[str, object]:
             },
         )
     return {
-        "changed": change.changed or compression.changed,
+        "changed": (
+            change.changed
+            or compression.changed
+            or plugin_enable.changed
+            or tui_interface.changed
+            or skin_active.changed
+            or memory_provider.changed
+        ),
         "message": change.message,
         "config": str(paths.hermes_config_path),
         "skills_dir": str(paths.skills_dir),
         "dry_run": args.dry_run,
         "compression_defaults": {"changed": compression.changed, "message": compression.message},
         "plugin_enabled": {"changed": plugin_enable.changed, "message": plugin_enable.message},
+        "tui_interface": {
+            "changed": tui_interface.changed,
+            "message": tui_interface.message,
+            "selected": display_interface_selection(memory_provider.text),
+        },
+        "skin": {
+            "changed": skin_active.changed,
+            "message": skin_active.message,
+            "selected": display_skin_selection(memory_provider.text),
+        },
         "memory_provider": {
             "changed": memory_provider.changed,
             "message": memory_provider.message,
@@ -925,6 +1360,11 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
         if remove_all
         else {"status": "not_requested"}
     )
+    skin_result = (
+        uninstall_skin(paths.hermes_home, dry_run=bool(args.dry_run))
+        if remove_all
+        else {"status": "not_requested"}
+    )
     scope = (
         tr(language, "uninstall_scope_all")
         if remove_all
@@ -942,6 +1382,7 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
             "dry_run": args.dry_run,
             "menubar_app": menubar_result,
             "tui_widget": tui_widget_result,
+            "skin": skin_result,
             "language": language,
         }
     )
@@ -1264,6 +1705,13 @@ def cmd_setup(args: argparse.Namespace) -> int:
     progress.step(step_index, total_steps, tr(language, "step_plugin"), detail=str(paths.hermes_plugin_dir))
     steps["plugin"] = _plugin_setup_result(args, paths)
     steps["tui_widget"] = install_tui_widget(paths.hermes_home, dry_run=bool(args.dry_run))
+    # The OMH identity skin ships next to the widget: same managed-artifact
+    # discipline, same refresh cadence. Activation happens in the config
+    # apply step (`ensure_omh_skin`), never here.
+    steps["skin"] = install_skin(paths.hermes_home, dry_run=bool(args.dry_run))
+    steps["hermes_tui_preflight"] = _hermes_tui_preflight_step(
+        paths, quiet=_wants_json(args), dry_run=bool(args.dry_run)
+    )
     plugin_status = steps["plugin"].get("status", "installed") if isinstance(steps["plugin"], dict) else "installed"
     progress.done(_plugin_status_label(language, str(plugin_status)))
     step_index += 1
@@ -2237,7 +2685,9 @@ def _print_install_summary(payload: dict[str, object], *, command: str, language
     elif label == "update":
         print(f"  {tr(language, 'update_next')}")
         if source == "builtin" and not (isinstance(command_package, dict) and command_package.get("updated")):
-            print(f"  {tr(language, 'update_command_next', command=installer_command())}")
+            instruction = str(command_package.get("update_instruction", "")).strip()
+            if instruction:
+                print(f"  {tr(language, 'update_command_next', command=instruction)}")
     else:
         print(f"  {tr(language, 'install_next')}")
     print(f"  {tr(language, 'machine_readable')}")
@@ -3107,10 +3557,20 @@ def _add_common_install_options(p: argparse.ArgumentParser) -> None:
         "--full",
         action="store_true",
         help=(
-            "Install every packaged skill instead of the smaller core default "
-            "(chat/plan/status/handoff essentials plus the doctor health floor); "
-            "the result records a context-cost warning because every extra skill "
-            "adds per-turn context weight."
+            "Install every packaged skill. This is already the default for a "
+            "fresh install; the flag remains to upgrade an existing core "
+            "install and for script compatibility."
+        ),
+    )
+    p.add_argument(
+        "--core",
+        action="store_true",
+        help=(
+            "Install only the lightweight core profile (chat/plan/status/"
+            "handoff essentials plus the doctor health floor) instead of the "
+            "full default. Every installed skill adds per-turn context weight; "
+            "core keeps that footprint minimal at the cost of the ULW engines "
+            "and most workflow skills."
         ),
     )
 

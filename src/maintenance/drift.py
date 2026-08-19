@@ -45,13 +45,22 @@ class CountMetric:
 
 @dataclass(frozen=True)
 class BudgetMetric:
-    """A rendered size that must stay under a declared ceiling."""
+    """A rendered size that must stay under a declared ceiling.
+
+    `reviewed_exception` is an explicit, named allowance above the limit for
+    growth a PR body has recorded and reviewers have accepted (plan §1.2 for
+    the ULW fold). It is never a silent limit bump: the limit keeps its
+    captured baseline value, the exception names the accepted overage, and
+    both live at `limit_site`.
+    """
 
     name: str
     describe: str
     live: Callable[[], int]
     limit: int
     limit_site: str
+    reviewed_exception: int = 0
+    exception_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -94,6 +103,24 @@ def _common_request_case_count() -> int:
     return int(build_common_request_coverage_demo()["summary"]["case_count"])
 
 
+def _ulw_canonical_engine_count() -> int:
+    from ..skills.catalog import ulw_inventory_payload
+
+    return len(ulw_inventory_payload()["canonical_engines"])
+
+
+def _ulw_alias_engine_count() -> int:
+    from ..skills.catalog import ulw_inventory_payload
+
+    return len(ulw_inventory_payload()["alias_engines"])
+
+
+def _ulw_retired_engine_count() -> int:
+    from ..skills.catalog import ulw_inventory_payload
+
+    return len(ulw_inventory_payload()["retired_engines"])
+
+
 def _awareness_primer_markdown_chars() -> int:
     from ..plugin_bundle.omh.awareness import awareness_primer_markdown
 
@@ -110,6 +137,15 @@ def _standalone_capability_section_chars() -> int:
     from ..plugin_bundle.omh.tools.capability_tool import standalone_skill_capability_items
 
     return len(json.dumps(standalone_skill_capability_items(), sort_keys=True, ensure_ascii=False))
+
+
+def _full_profile_skill_body_chars() -> int:
+    from ..skills.context_cost import skill_context_cost_payload
+
+    for profile in skill_context_cost_payload()["profiles"]:
+        if profile["profile"] == "full":
+            return int(profile["skill_body"]["bytes"])
+    raise KeyError("full profile missing from skill_context_cost_payload()")
 
 
 def count_metrics() -> tuple[CountMetric, ...]:
@@ -140,7 +176,7 @@ def count_metrics() -> tuple[CountMetric, ...]:
             name="routing_precision_case_count",
             describe="Routing precision cases",
             live=_routing_precision_case_count,
-            expected=63,
+            expected=65,
             sites=(
                 "tests/test_cli.py",
                 "tests/test_hermes_ux_quality.py",
@@ -150,16 +186,11 @@ def count_metrics() -> tuple[CountMetric, ...]:
         ),
         CountMetric(
             name="installable_skill_count",
-            describe="Installable workflow skills quoted in the public READMEs",
+            describe="Installable workflow skills quoted in reference surfaces",
             live=_installable_skill_count,
-            expected=106,
+            expected=102,
             sites=(
-                "README.md",
-                "README.ko.md",
-                "README.ja.md",
-                "README.zh.md",
                 "docs/README.md",
-                "tests/test_router_content.py",
             ),
         ),
         CountMetric(
@@ -174,6 +205,35 @@ def count_metrics() -> tuple[CountMetric, ...]:
                 "tests/test_common_request_coverage.py",
             ),
         ),
+        CountMetric(
+            name="ulw_canonical_engine_count",
+            describe="ULW engines in the canonical lifecycle stage",
+            live=_ulw_canonical_engine_count,
+            expected=8,
+            sites=(
+                "README.ko.md",
+                "README.ja.md",
+                "tests/test_ulw_inventory.py",
+            ),
+        ),
+        CountMetric(
+            name="ulw_alias_engine_count",
+            describe="ULW engines in the alias or warning lifecycle stage",
+            live=_ulw_alias_engine_count,
+            expected=0,
+            sites=(
+                "tests/test_ulw_inventory.py",
+            ),
+        ),
+        CountMetric(
+            name="ulw_retired_engine_count",
+            describe="ULW engines in the retired lifecycle stage",
+            live=_ulw_retired_engine_count,
+            expected=4,
+            sites=(
+                "tests/test_ulw_inventory.py",
+            ),
+        ),
     )
 
 
@@ -181,6 +241,8 @@ def budget_metrics() -> tuple[BudgetMetric, ...]:
     from .release import (
         AWARENESS_PRIMER_MARKDOWN_CHAR_LIMIT,
         FULL_CAPABILITY_SKILL_SECTION_CHAR_LIMIT,
+        FULL_PROFILE_SKILL_BODY_CHAR_LIMIT,
+        FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS,
         STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT,
     )
 
@@ -205,6 +267,14 @@ def budget_metrics() -> tuple[BudgetMetric, ...]:
             live=_standalone_capability_section_chars,
             limit=STANDALONE_CAPABILITY_SKILL_SECTION_CHAR_LIMIT,
             limit_site="src/maintenance/release.py",
+        ),
+        BudgetMetric(
+            name="full_profile_skill_body_chars",
+            describe="Full install profile skill_body size (producer chars)",
+            live=_full_profile_skill_body_chars,
+            limit=FULL_PROFILE_SKILL_BODY_CHAR_LIMIT,
+            limit_site="src/maintenance/release.py",
+            reviewed_exception=FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS,
         ),
     )
 
@@ -256,21 +326,26 @@ def _count_drift(metric: CountMetric) -> dict[str, Any] | None:
 
 def _budget_drift(metric: BudgetMetric) -> dict[str, Any] | None:
     live = metric.live()
-    if live <= metric.limit:
+    ceiling = metric.limit + metric.reviewed_exception
+    if live <= ceiling:
         return None
-    return {
+    finding: dict[str, Any] = {
         "name": metric.name,
         "kind": "budget",
         "describe": metric.describe,
         "limit": metric.limit,
         "live": live,
-        "over_by": live - metric.limit,
+        "over_by": live - ceiling,
         "sites": [metric.limit_site],
         "fix": (
-            f"shorten the rendered content by {live - metric.limit} chars, or raise the limit "
+            f"shorten the rendered content by {live - ceiling} chars, or raise the limit "
             f"in {metric.limit_site} if the growth is genuinely warranted"
         ),
     }
+    if metric.reviewed_exception:
+        finding["reviewed_exception"] = metric.reviewed_exception
+        finding["exception_reason"] = metric.exception_reason
+    return finding
 
 
 def _tap_skills_drift(repo_root: Path) -> dict[str, Any] | None:

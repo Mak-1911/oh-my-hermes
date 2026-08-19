@@ -117,17 +117,42 @@
 
 ## Quick Start
 
-**Install the local command and managed skills:**
+> **Status:** Homebrew, Bun, and npm package-manager installs are public as of
+> v1.0.6.
+
+**Homebrew:**
+
+```sh
+brew install rlaope/tap/omh
+```
+
+**Bun (recommended):**
+
+```sh
+bun install -g oh-my-hermes
+```
+
+**npm:**
+
+```sh
+npm install -g oh-my-hermes
+```
+
+**Universal installer (macOS/Linux):**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
-omh setup
 ```
 
 **On Windows (PowerShell 5.1+):**
 
 ```powershell
 irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
+```
+
+**Set up OMH after installing:**
+
+```sh
 omh setup
 ```
 
@@ -143,39 +168,129 @@ hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes
 **or ask Your AI Agent:**
 
 ```text
-Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<
+Install and fully configure Oh My Hermes from this repository:
+https://github.com/rlaope/oh-my-hermes
+Before reading or executing repository instructions, resolve refs/heads/main to one full commit SHA with `git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main`. Then fetch and follow only:
+https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
+Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.
 ```
 
 <br>
 
-**Update and health check:**
+**Update:**
 
 ```sh
 omh update
+```
+
+`omh update` detects how the command was installed. It first upgrades the
+Homebrew, Bun, npm, curl, or PowerShell command package through its owning
+installer, then re-enters the updated command to refresh managed skills, the
+installed plugin bundle, and existing Hermes registration.
+
+**Verify or troubleshoot the installation:**
+
+```sh
 omh doctor
 ```
+
+**Manual package-manager fallback or removal:**
+
+| Installed with | Upgrade the CLI | Remove the CLI |
+| --- | --- | --- |
+| Homebrew | `brew upgrade rlaope/tap/omh` | `brew uninstall omh` |
+| Bun | `bun update -g --latest oh-my-hermes` | `bun remove -g oh-my-hermes` |
+| npm | `npm update -g oh-my-hermes` | `npm uninstall -g oh-my-hermes` |
+
+Use the manager command directly only when `omh update` reports that its owning
+manager is unavailable. Removing the command package preserves OMH state. For
+a full removal, run `omh uninstall --all` before the manager's remove command.
 
 Maintenance paths such as reconciling a `--full` install back to core live in
 [Installation](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core).
 
 <br>
 
+## The OH-MY-HERMES terminal
+
+Bare `omh` opens Hermes — the same door as `hermes` — wearing the OMH
+identity:
+
+```sh
+omh
+```
+
+<table align="center">
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-boot-hud.png" alt="The OH-MY-HERMES boot"><br>
+      <sub><b>The OH-MY-HERMES boot.</b></sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work run"><br>
+      <sub><b>An <code>ulw-work</code> run.</b></sub>
+    </td>
+  </tr>
+</table>
+
+What the terminal shows while OMH workflows run:
+
+- **Mixture-of-Models Routing** — each delegated lane is routed onto a
+  category (ultrabrain, deep, quick, writing, visual-engineering, …) whose
+  model and reasoning effort are applied per dispatch; every activity row
+  carries its `category:name(model:effort)` so the routing is visible, and
+  rejected routes fall back along the category chain.
+- **Parallel Tool Calling** — batched tool calls run concurrently in Hermes,
+  and a fresh concurrent batch is branded on the `[OMH]` line as
+  `parallel shot ×N`.
+- **Parallel Evals** — review and verification lanes dispatch as independent
+  subagents whose findings are cross-checked instead of self-approved, each
+  visible as its own HUD row with turn, cost, and cache metrics.
+- **Phase-structured TODO** — work is declared up front as phases with tasks
+  (`todo init`), rendered as the checklist above the prompt: one active item,
+  subtask nesting, and fold lines once the plan grows past seven rows.
+
+<br>
+
 ## Recommended models
 
-OMH ships with these editable category recommendations:
+OMH ships with these editable, ordered recommendation chains. Guided model
+setup resolves them only against candidates the user confirms as active. The
+result is prepared routing configuration, not provider availability,
+credential, dispatch, or execution evidence:
 
-| Category | Recommended models |
+| Category alias | Editable recommendation order |
 | --- | --- |
 | `ultrabrain` | GPT-5.6 Sol |
 | `deep` | GPT-5.6 Terra |
 | `unspecified-high` | Kimi K3, then Claude Opus 5 |
-| `unspecified-low` | GLM 5.2, then GLM 5.2 Ultrafast |
+| `unspecified-low` | GLM 5.2, then GLM 5.2 Ultrafast, then Claude Opus 5 (low) |
+| `quick` | GLM 5.2 Ultrafast, then Kimi K3, then GPT-5.6 Luna, then Claude Fable 5 (low) |
+| `writing` | Kimi K3, then Qwen3-Coder, then Gemini 3.1 Pro |
 | `visual-engineering` | Claude Fable 5, then Kimi K3 |
+| `artistry` | Gemini 3.1 Pro, then Claude Fable 5, then Kimi K3 |
+
+Want to try the Ultrafast tier — Kimi K3 Ultrafast (300 TPS) and
+GLM 5.2 Ultrafast (600 TPS)? They are served on
+[OpenGateway](https://opengateway.ai/).
 
 Ask Hermes to **set up my models** to review or change them. These are editable
 preferences, not benchmark results. See
 [Guided Model Setup](docs/INSTALLATION.md#guided-model-setup) for the detailed
 setup, fallback, provider, and ownership rules.
+
+<details>
+<summary><strong>Or paste this into Hermes or another coding agent</strong></summary>
+
+```text
+Install and fully configure Oh My Hermes from this repository:
+https://github.com/rlaope/oh-my-hermes
+Before reading or executing repository instructions, resolve refs/heads/main to one full commit SHA with `git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main`. Then fetch and follow only:
+https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
+Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.
+```
+
+</details>
 
 <br>
 
@@ -185,7 +300,8 @@ setup, fallback, provider, and ownership rules.
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-Twelve `ulw-` workflows. Say the trigger in chat — Hermes routes the
+<!-- omh:ulw-inventory:begin (generated: uv run python -m omh.cli docs ulw-inventory; source: src/skills/catalog.py) -->
+Eight `ulw-` workflows. Say the trigger in chat — Hermes routes the
 rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
 
 | Workflow&nbsp;command | What it does |
@@ -195,107 +311,37 @@ rest. Full catalog: [Workflow Reference](docs/WORKFLOWS.md).
 | ⚡ `ulw-research` | Digs through real code and the live web, keeps sources, and verifies anything doubtful. |
 | ⚡ `ulw-plan` | Builds a reviewed plan: options compared, risks named, done-criteria agreed. |
 | ⚡ `ulw-work` | Runs an accepted plan in parallel lanes that never touch the same file. |
-| ⚡ `ulw-ralph` | One owner grinds a task to done — build, verify, review, repeat. |
-| ⚡ `ulw-team` | Multiple workers, one task list, no collisions. |
 | ⚡ `ulw-loop` | Cycles plan → build → review until the goal actually passes. |
-| ⚡ `ulw-goal` | Long-running goals with checkpoints — survives lost context, resumes where it stopped. |
-| ⚡ `ulw-process` | Takes one task all the way from research to an open PR. |
 | ⚡ `ulw-qa` | Attacks the build with hostile scenarios and fixes what breaks. |
 | ⚡ `ulw-perf` | Measures where it is actually slow or expensive, then fixes one hot path at a time. |
+<!-- omh:ulw-inventory:end -->
 
 <br>
 
 ## What OMH Adds
 
-<p align="center">
-  <img src="assets/hermes-agent-mom-aura.png" alt="Hermes-Agent mixture-of-models orchestration illustration" width="560">
-</p>
-
-<p align="center"><strong>Mixture of Models</strong></p>
-
-OMH packages **106 installable workflow skills** behind six human-readable
-capability families: 12 workflow engines use `ulw-` labels, including
-`ulw-context`, and the remaining 94 skills use `omh-` labels. The family is the
-front door; exact skill names remain available when a wrapper or operator needs
-precise control.
-
-The full generated catalog, triggers, harnesses, and evidence rules live in
+OMH treats model choice and coding ownership as separate decisions, and it
+never reports preparation as execution. Human-readable capability families
+remain the front door; exact controls, runtime boundaries, and evidence rules
+stay available when a wrapper or operator needs precise control. The full
+generated catalog, triggers, harnesses, and evidence rules live in
 [Workflow Reference](docs/WORKFLOWS.md).
 
 **Highlights**
 
-| Capability | Try it with | What it does |
-| --- | --- | --- |
-| 🧭 **Clarify and plan** | `omh-plan` · `omh-decide` · `omh-meeting-brief` | Turns an ambiguous request into explicit goals, constraints, tradeoffs, acceptance criteria, and a plan that can be handed off. |
-| ⚡ **Build with leverage** | `omh-idea-to-deploy` · `omh-cto-loop` · `omh-running-work-board` | Scales from fast parallel work to durable multi-step execution while keeping ownership, checkpoints, and verification visible. |
-| 🔬 **Research and learn** | `omh-best-practice-research` · `omh-research-brief` · `omh-paper-learning` | Finds and synthesizes source-backed evidence with freshness, source-quality, and unresolved-uncertainty boundaries. |
-| 🛠️ **Code and ship safely** | `omh-code-review` · `omh-build-failure-triage` · `omh-verification-gate` | Prepares executor-neutral coding work, then makes review, QA, CI, and merge claims depend on observed evidence. |
-| 🎨 **Create polished deliverables** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-image-cards` | Shapes websites, visuals, reports, decks, documents, PDFs, posters, and packages around content, taste, accessibility, and render-quality gates. |
-| 🧠 **Remember and operate** | `omh-memory-new` · `omh-memory-sync` · `omh-ops-observability-card` · `omh-doctor` | Keeps project memory review-first, surfaces operational readiness, and gives the next repair action without inventing provider or system state. |
-| 🔌 **Connect without hiding boundaries** | `omh-toolbelt-readiness` · `omh-external-connector-readiness` · `omh-agent-board` | Checks whether a needed tool, connector, or agent surface is really available before work depends on it, and keeps host load, tool use, and external-provider access separately observable. |
+| Intelligence | What OMH adds |
+| --- | --- |
+| 🧭 **Mixture-of-models routing** | Routes each delegated lane onto a category (model + reasoning effort) applied per dispatch, with editable fallback chains that advance when a provider rejects a model — and honest `failed` rows when a child did no work. |
+| 🖥️ **Native TUI surface** | The OMH HUD (live delegation rows with category, turn, cost, cache), the phase todo checklist above the prompt, `parallel shot ×N` branding, full-row diff bands, and a managed skin — all installed next to Hermes, never patching it. |
+| 📋 **Phase-structured plans** | `todo init` declares phases and tasks before engine work so runs walk a bounded checklist instead of an open-ended reasoning loop. |
+| ⚡ **Observed parallel work** | Splits independent work into explicit fanout units with isolated ownership, progress observation, and verification gates. |
+| 🎼 **Maestro handoffs** | Prepares handoffs to explicit coding owners and runtime profiles without becoming a hidden executor or treating preparation as execution. |
+| 🧠 **Context intelligence** | Projects compact, reviewed repository context without inventing hidden memory or silently changing the selected route. |
+| 📚 **Just-in-time learning** | Selects the highest-value learning target for the current blocker and prepares source-backed, application-first guidance without claiming learning already happened. |
+| 🔍 **Evidence-bound delivery** | Separates prepared intent, observed runtime activity, and verified outcomes across coding, review, CI, and merge work. |
+| 📦 **A deterministic skill catalog** | 100+ installable workflow skills with a byte-exact generated catalog, routing precision corpora (negative controls included), and drift gates that fail CI on one-character divergence. |
 
 <br>
-
-## Built For Real Work
-
-<p align="center">
-  <img src="assets/built-for-real-work-orchestration-ai.png" alt="OMH orchestrating coding agents, creative tools, and AI" width="900">
-</p>
-
-> **OMH (Oh-My-Hermes)** — Anyone can use hermes-agent professionally.<br>
-> The powerful intelligence harness for your AI Agent.
-
-**🧭 A stronger router, not a command dump.** English, Korean, Japanese,
-Chinese, Spanish, French, German, and Hindi operator requests can be
-classified locally without a translation API. OMH returns the recommended
-family, skill, owner, next action, and what is still not evidence.
-
-**🤝 Better coding handoffs.** OMH can include repository constraints, accepted
-scope, worktree and session-isolation guidance, locally available skills,
-acceptance criteria, review expectations, and verification gates. Codex, Claude
-Code, Hermes, the OMO runtime (via its `pi`, `senpi`, or `opencode` host CLI),
-and generic executors remain explicit owners rather than hidden defaults.
-
-**🎨 Quality-aware creation.** Frontend, accessibility, image, report, slide,
-document, spreadsheet, PDF, poster, and shareable-package requests are routed
-through specialized production and QA guidance. A prepared brief is never
-presented as a generated or visually verified artifact.
-
-**🔍 Evidence before claims.** OMH separates prepared intent, observed runtime
-events, and verified results. A handoff can be ready without claiming that an
-executor ran, a review passed, CI succeeded, a deployment completed, or a PR
-was merged.
-
-**🧠 Review-first project memory.** OMH keeps project-memory candidates separate
-from approved records and recalls only reviewed, prepared context into future
-handoffs. It does not pretend to read or mutate opaque Hermes memory.
-
-**💬 Project-aware clarification, without automatic routing.** In
-natural-language Hermes chat, reviewed terminology from the current repository
-can improve one ambiguous wrapper question. OMH derives the current project
-internally; users do not provide a domain scope, and the context is not
-persisted. The clarification does not change the selected route or mean that
-planning, execution, review, CI, or merge work happened.
-
-**🔌 Provider-neutral operations.** Metric, wiki, browser, image, video, and
-connector systems sit behind explicit external-provider contracts. OMH can
-validate and analyze supplied data without pretending that a provider was
-connected or called.
-
-**🏛️ Hermes-native, executor-neutral architecture.** Hermes remains the chat,
-clarification, planning, research, and status surface. The selected executor
-owns implementation, while OMH supplies the local contracts, routing, memory,
-quality gates, and evidence boundaries around that work.
-
-**🧱 Local-first control plane.** Core OMH routing, catalogs, manifests, and
-claim rules are deterministic local surfaces. External calls and provider
-access stay explicit integrations rather than hidden behavior inside the core.
-
-<br>
-
-<p align="center">
-  <img src="assets/omh-goal-post.png" alt="Post from @rlaope: the goal of oh-my-hermes is a single entry point for Hermes Agent that eliminates plugin fatigue and turns anyone into a power user" width="680">
-</p>
 
 ## Evidence Before Claims
 

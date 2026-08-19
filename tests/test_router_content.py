@@ -50,16 +50,14 @@ from omh.skills.catalog import (
     primary_harness_for_skill,
     retained_delegation_skill_names,
 )
-from omh.skills.render import frontmatter_description, workflow_reference_markdown, workflow_reference_payload
+from omh.skills.render import frontmatter_description, workflow_reference_markdown, workflow_reference_payload, workflow_skill
 from omh.snippet import WORKSPACE_SNIPPET
 from omh.use_cases import USE_CASES, list_use_cases
 
 
 FLAGSHIP_SKILLS = {
     "oh-my-hermes",
-    "ultragoal",
     "loop",
-    "ultraprocess",
     "deep-interview",
     "ultrawork",
     "meeting-brief",
@@ -403,8 +401,6 @@ class RouterContentTests(unittest.TestCase):
         installable_names = {definition.name for definition in installable_skill_definitions()}
 
         for expected in {
-            "ralph",
-            "ultragoal",
             "ultrawork",
             "deep-interview",
             "research",
@@ -445,8 +441,6 @@ class RouterContentTests(unittest.TestCase):
             "cto-loop",
             "deploy-and-monitor",
             "loop",
-            "ultraprocess",
-            "team",
             "ultraqa",
             "plan",
             "ralplan",
@@ -554,7 +548,7 @@ class RouterContentTests(unittest.TestCase):
             "leadership": "run_cto_loop",
             "monitoring": "prepare_deploy_monitor_plan",
             "goal-loop": "assess_loopability",
-            "process": "start_ultraprocess",
+            "process": "start_delivery_cycle",
             "materials": "prepare_material_package",
         }
 
@@ -836,8 +830,9 @@ class RouterContentTests(unittest.TestCase):
                 definition = definitions[name]
                 self.assertEqual(definition.aliases, aliases)
                 self.assertTrue(set(aliases).issubset(definition.triggers))
-                frontmatter = templates[name].split("---", 2)[1]
-                self.assertIn(f"Aliases: {', '.join(aliases)}.", frontmatter)
+                if name in templates:  # retired engines render no installed template
+                    frontmatter = templates[name].split("---", 2)[1]
+                    self.assertIn(f"Aliases: {', '.join(aliases)}.", frontmatter)
 
     def test_unsafe_picker_aliases_fail_loudly(self) -> None:
         definition = next(item for item in builtin_definitions() if item.name == "ultrawork")
@@ -1008,7 +1003,7 @@ class RouterContentTests(unittest.TestCase):
         escalate into a durable goal ledger or a coding-executor handoff. The guard lives in
         catalog data so every generated ulw-goal install carries it.
         """
-        definitions = {definition.name: definition for definition in installable_skill_definitions()}
+        definitions = {definition.name: definition for definition in builtin_definitions()}
         ultragoal = definitions["ultragoal"]
 
         guard_lines = [line for line in ultragoal.do_not_use_when if "settings-only" in line]
@@ -1045,7 +1040,7 @@ class RouterContentTests(unittest.TestCase):
         from omh.skills.catalog import ENGINE_ENTRY_CONFIRMATION_RULE
 
         engines = ("ralph", "ultragoal", "ultraprocess", "team", "ultrawork", "ultraqa")
-        definitions = {definition.name: definition for definition in installable_skill_definitions()}
+        definitions = {definition.name: definition for definition in builtin_definitions()}
         for name in engines:
             with self.subTest(engine=name):
                 self.assertEqual(
@@ -1055,7 +1050,8 @@ class RouterContentTests(unittest.TestCase):
                 )
         templates = {template.name: template for template in builtin_skill_templates()}
         for name in engines:
-            self.assertIn("not permission", templates[name].content, name)
+            if name in templates:  # retired engines render no installed template
+                self.assertIn("not permission", templates[name].content, name)
         # Planning skills recommend an engine; they never gate their own entry on one.
         for planning_name in ("ralplan", "plan", "deep-interview"):
             self.assertNotIn(
@@ -1110,7 +1106,7 @@ class RouterContentTests(unittest.TestCase):
             if definition.hermes_role in {"handoff-guide", "runtime-handoff-guidance"}
             or definition.quality_tier == "handoff-gated"
         }
-        self.assertLessEqual({"ralph", "ultragoal", "ultraprocess", "team", "ultrawork"}, handoff_shaped)
+        self.assertLessEqual({"ultrawork", "ai-slop-cleaner"}, handoff_shaped)
         for name in sorted(handoff_shaped):
             with self.subTest(skill=name):
                 content = templates[name].content
@@ -1364,6 +1360,7 @@ class RouterContentTests(unittest.TestCase):
                 "app-delivery-loop",
                 "goal-loop",
                 "deep-interview",
+                "decision-frontier",
                 "jit-learn",
                 "architect",
                 "critic",
@@ -2753,7 +2750,7 @@ class RouterContentTests(unittest.TestCase):
 
         templates = {template.name: template for template in builtin_skill_templates()}
         self.assertIn("Reasoning demand: `light`", templates["oh-my-hermes"].content)
-        self.assertIn("Reasoning demand: `heavy`", templates["ralph"].content)
+        self.assertIn("Reasoning demand: `heavy`", workflow_skill("ralph").content)
         payload = workflow_reference_payload()
         skills = {skill["name"]: skill for skill in payload["skills"]}
         self.assertEqual(skills["ralph"]["reasoning_demand"], "heavy")
@@ -2820,7 +2817,13 @@ class RouterContentTests(unittest.TestCase):
         self.assertEqual(definitions["ai-slop-cleaner"].hermes_role, "handoff-guide")
         self.assertIn("ulw", definitions["ultrawork"].triggers)
         self.assertIn("$ulw", definitions["ultrawork"].triggers)
-        self.assertIn("selected runtime", definitions["ultrawork"].handoff_policy)
+        # Changed on purpose: the owner made the Hermes coding harness with
+        # per-lane mixture routing the default implementation owner, so the
+        # policy now asserts the Hermes-native default plus the explicit
+        # opt-in-only external handoff instead of a generic "selected runtime".
+        self.assertIn("Hermes-native delegate_task subagents", definitions["ultrawork"].handoff_policy)
+        self.assertIn("omh_delegate_route", definitions["ultrawork"].handoff_policy)
+        self.assertIn("only when the user accepts that owner", definitions["ultrawork"].handoff_policy)
         self.assertIn("selected executor/runtime handoff", definitions["ultraprocess"].handoff_policy)
         self.assertTrue(any("source or web evidence" in item for item in definitions["ralplan"].required_inputs))
         self.assertIn("verification commands", definitions["ralplan"].expected_outputs)
@@ -2844,7 +2847,6 @@ class RouterContentTests(unittest.TestCase):
         self.assertEqual(primary_harness_for_skill("cto-loop"), "app-delivery-loop")
         self.assertEqual(primary_harness_for_skill("deploy-and-monitor"), "app-delivery-loop")
         self.assertEqual(primary_harness_for_skill("loop"), "goal-loop")
-        self.assertEqual(primary_harness_for_skill("ultraprocess"), "goal-execution")
         self.assertEqual(primary_harness_for_skill("best-practice-research"), "research")
         self.assertEqual(primary_harness_for_skill("autoresearch-goal"), "research")
         self.assertIn("deep-interview", retained)
@@ -2904,6 +2906,10 @@ class RouterContentTests(unittest.TestCase):
 
     def test_workflow_skills_refer_to_harness_discipline(self) -> None:
         skills = {skill.name: skill for skill in builtin_skill_templates()}
+        # The retired reference contract still renders the shared discipline
+        # even though it no longer installs (#954 stage 5).
+        skills["ultragoal"] = workflow_skill("ultragoal")
+        skills["ultraprocess"] = workflow_skill("ultraprocess")
         common_rail = next(
             template.content
             for template in builtin_skill_reference_templates()
@@ -2923,7 +2929,10 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("Workflow Lane", skills["ultragoal"].content)
         self.assertIn("Completion Checklist", skills["ultragoal"].content)
         self.assertIn("Recovery Notes", skills["ultragoal"].content)
-        self.assertIn("Current lane: **Intent -> plan**", skills["ultragoal"].content)
+        # #954 stage 5: the retired reference contract no longer belongs to a
+        # primer lane roster; its rendered reference falls back to the router
+        # guidance line.
+        self.assertIn("Use `omh_recommend` or the `oh-my-hermes` router", skills["ultragoal"].content)
         self.assertIn("hand back to `oh-my-hermes`", skills["ultragoal"].content)
         self.assertIn("Prepared OMH routing", skills["ultragoal"].content)
         self.assertIn("OMH Context Rail", common_rail)
@@ -2937,7 +2946,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("hermes_coding_harness/v1", skills["ultragoal"].content)
         self.assertIn("builder, verifier, reviewer, docs, and PR lanes", skills["ultragoal"].content)
         self.assertIn("PR head SHA", skills["ultragoal"].content)
-        self.assertIn("omh runtime record --skill ultragoal --harness goal-execution --status started", skills["ultragoal"].content)
+        self.assertIn("omh runtime record --skill ultragoal --harness coding-handling --status started", skills["ultragoal"].content)
         self.assertIn("goal_completion_gate/v1", skills["ultragoal"].content)
         self.assertIn("inspect .omh/goals", skills["ultragoal"].content)
         self.assertIn("Current lane: **Materials and visual summaries**", skills["img-summary"].content)
@@ -2997,7 +3006,7 @@ class RouterContentTests(unittest.TestCase):
                 self.assertTrue(all(item.strip() for item in definition.recovery_notes))
 
     def test_default_completion_and_recovery_guidance_varies_by_lane(self) -> None:
-        definitions = {definition.name: definition for definition in installable_skill_definitions()}
+        definitions = {definition.name: definition for definition in builtin_definitions()}
         completion_sets = {tuple(definition.final_checklist) for definition in definitions.values()}
         recovery_sets = {tuple(definition.recovery_notes) for definition in definitions.values()}
 
@@ -3017,7 +3026,7 @@ class RouterContentTests(unittest.TestCase):
             or definition.quality_tier == "handoff-gated"
         }
 
-        self.assertTrue({"ralph", "ultragoal", "ultraprocess", "team", "ultrawork", "ai-slop-cleaner"} <= handoff_names)
+        self.assertTrue({"ultrawork", "ai-slop-cleaner"} <= handoff_names)
         for name in handoff_names:
             with self.subTest(skill=name):
                 content = templates[name]
@@ -3278,28 +3287,23 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[GitHub Pages site](site/index.html)", readme)
         self.assertIn("<strong>oh-my-hermes</strong> (OMH) turns a normal", readme)
         self.assertIn("replacing Hermes or hiding a coding executor", readme)
-        self.assertIn("**106 installable workflow skills**", readme)
-        self.assertIn("**106개**", localized_readmes["ko"])
-        self.assertIn("**106 個**", localized_readmes["ja"])
-        self.assertIn("**106 个**", localized_readmes["zh"])
-        self.assertIn("나머지 94개", localized_readmes["ko"])
-        self.assertIn("残り 94 個", localized_readmes["ja"])
-        self.assertIn("其余 94 个", localized_readmes["zh"])
-        # The omh-labeled complement is derived, not pinned: total installable
-        # skills minus the ULW engine names. A new skill or engine moves the
-        # README prose only when the arithmetic moves it.
-        from omh.skills.catalog_types import ULW_ENGINE_SKILL_NAMES
-
-        omh_labeled_complement = len(builtin_skill_templates()) - len(ULW_ENGINE_SKILL_NAMES)
-        self.assertIn(f"the remaining {omh_labeled_complement} skills use `omh-` labels", readme)
+        self.assertIn("| Intelligence | What OMH adds |", readme)
+        # Renamed from "Model-aware routing" when the highlights table was
+        # refreshed to name the shipped capability: per-dispatch mixture
+        # routing with chain fallback.
+        self.assertIn("**Mixture-of-models routing**", readme)
+        self.assertNotIn("## Built For Real Work", readme)
         for localized_readme in localized_readmes.values():
             # A localized README stays a trimmed landing page, never a full
             # translation of every English section. The budget grew from 240
             # when the four-surface demo table (22 lines) was added above the
-            # h1 in every language, and from 260 when the Ultra-Skills section
-            # (h2 + badge + 12-row table, ~27 lines) landed in every language;
-            # it still sits below README.md's length.
-            self.assertLess(len(localized_readme.splitlines()), 290)
+            # h1 in every language, from 260 when the Ultra-Skills section
+            # (h2 + badge + 12-row table, ~27 lines) landed in every language,
+            # and from 290 when the terminal screenshots table and the
+            # English-named feature callouts (owner-directed localized
+            # parity) landed in every language; it still sits below
+            # README.md's length.
+            self.assertLess(len(localized_readme.splitlines()), 320)
             # The trust surface is the evidence table, not the wire token that
             # used to stand in for it. Pinning the token meant a README could
             # satisfy this by naming a value no reader could decode; pinning
@@ -3308,7 +3312,12 @@ class RouterContentTests(unittest.TestCase):
             self.assertIn("`Plan · not run`", localized_readme)
             self.assertIn("`Code · reported done`", localized_readme)
             self.assertIn("omh setup", localized_readme)
-            self.assertIn("```sh\nomh update\nomh doctor\n```", localized_readme)
+            self.assertIn("```sh\nomh update\n```", localized_readme)
+            self.assertIn("```sh\nomh doctor\n```", localized_readme)
+            self.assertNotIn(
+                "```sh\nomh update\nomh doctor\n```",
+                localized_readme,
+            )
             for image in (
                 "artengine-friren-profile-card.png",
                 "omh-core-workflows.png",
@@ -3376,11 +3385,15 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("omh setup", quick_start)
         # `omh doctor` belongs in its own block, never bundled into the install
         # step: a first-time reader must not read a health check as part of setup.
-        install_block = quick_start.split("```sh", 1)[1].split("```", 1)[0]
-        self.assertIn("omh setup", install_block)
-        self.assertNotIn("omh doctor", install_block)
-        self.assertIn("```sh\nomh update\nomh doctor\n```", quick_start)
-        self.assertIn("Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<", quick_start)
+        self.assertIn("```sh\nomh setup\n```", quick_start)
+        self.assertIn("```sh\nomh update\n```", quick_start)
+        self.assertIn("```sh\nomh doctor\n```", quick_start)
+        self.assertNotIn("```sh\nomh setup\nomh doctor\n```", quick_start)
+        self.assertIn(
+            "https://raw.githubusercontent.com/rlaope/oh-my-hermes/"
+            "{resolved-commit-sha}/INSTALL_FOR_AGENTS.md",
+            quick_start,
+        )
         self.assertIn("hermes skills tap add", quick_start)
         self.assertNotIn("That is the normal path", quick_start)
         self.assertNotIn("name the responsible role", quick_start)
@@ -3426,7 +3439,11 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("bounded context budgets", installation)
         self.assertIn("--hermes-home /tmp/hermes-smoke release hermes-smoke --live --install-path setup", installation)
         self.assertIn("OMH Agent Install Protocol", install_for_agents)
-        self.assertIn("curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh", install_for_agents)
+        self.assertIn(
+            "git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main",
+            install_for_agents,
+        )
+        self.assertIn('OMH_SOURCE_REF="$OMH_REF"', install_for_agents)
         self.assertIn("omh setup", install_for_agents)
         self.assertIn("omh doctor", install_for_agents)
         self.assertIn("hermes skills tap add rlaope/oh-my-hermes", install_for_agents)
@@ -3480,7 +3497,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("[Roles](ROLES.md)", docs_readme)
         self.assertIn("Agent Install Protocol", docs_readme)
         self.assertIn("`deep-interview`, `ralplan`, `ultragoal`, `loop`", docs_readme)
-        self.assertIn("**106 installable skills**", docs_readme)
+        self.assertIn("**102 installable skills**", docs_readme)
         self.assertIn("**Retain knowledge**", docs_readme)
         self.assertIn("python -m unittest discover -s tests", ci)
         self.assertIn("python -m compileall src", ci)
@@ -3559,13 +3576,15 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("104", site)
         self.assertIn("omh update", site)
         self.assertIn("omh doctor", site)
-        # All eleven flagship workflows are named by exact skill name.
+        # Every canonical flagship workflow is named by exact skill name; the
+        # four retired engines left the site at #954 stage 5.
         for slug in (
-            "ulw-work", "ulw-plan", "ulw-interview", "ulw-goal", "ulw-loop",
-            "ulw-ralph", "ulw-team", "ulw-process", "ulw-qa", "ulw-research",
-            "ulw-perf",
+            "ulw-work", "ulw-plan", "ulw-interview", "ulw-loop",
+            "ulw-qa", "ulw-research", "ulw-perf",
         ):
             self.assertIn(f'ulw-row__slug">{slug}</code>', site)
+        for slug in ("ulw-goal", "ulw-ralph", "ulw-team", "ulw-process"):
+            self.assertNotIn(f'ulw-row__slug">{slug}</code>', site)
         # Evidence vocabulary matches the 1.0.5 README stage badges.
         self.assertIn("Plan · not run", site)
         self.assertIn("Code · running", site)
@@ -3779,7 +3798,8 @@ class RouterContentTests(unittest.TestCase):
         # The third install path is a paste-ready prompt for the visitor's own
         # coding agent, pointing at the repository.
         self.assertIn("https://github.com/rlaope/oh-my-hermes", install_section)
-        self.assertIn("paste the doctor output back to me", install_section)
+        self.assertIn("refs/heads/main", install_section)
+        self.assertIn("{resolved-commit-sha}/INSTALL_FOR_AGENTS.md", install_section)
         self.assertTrue(Path("site/assets/omh-loop-engineering.png").is_file())
         self.assertTrue(Path("site/assets/omh-img-summary-card.png").is_file())
         self.assertNotIn("github.com/rlaope/oh-my-hermes/tree/main/docs", site)
@@ -3813,6 +3833,14 @@ class RouterContentTests(unittest.TestCase):
         readme_section_translations = (
             ("## Quick Start", {"ko": "## 빠른 시작", "ja": "## クイックスタート", "zh": "## 快速开始"}),
             (
+                "## The OH-MY-HERMES terminal",
+                {
+                    "ko": "## OH-MY-HERMES 터미널",
+                    "ja": "## OH-MY-HERMES ターミナル",
+                    "zh": "## OH-MY-HERMES 终端",
+                },
+            ),
+            (
                 "## Recommended models",
                 {
                     "ko": "## 권장 모델",
@@ -3827,10 +3855,6 @@ class RouterContentTests(unittest.TestCase):
             (
                 "## What OMH Adds",
                 {"ko": "## OMH가 더하는 것", "ja": "## OMH が追加するもの", "zh": "## OMH 提供什么"},
-            ),
-            (
-                "## Built For Real Work",
-                {"ko": "## 실제 업무를 위한 설계", "ja": "## 実務向けの設計", "zh": "## 面向真实工作的设计"},
             ),
             (
                 "## Evidence Before Claims",

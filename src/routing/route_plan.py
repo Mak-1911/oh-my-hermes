@@ -50,8 +50,7 @@ _SKILL_STAGE = {
     "paper-learning": "research",
     "plan": "plan",
     "ralplan": "plan",
-    "ultraprocess": "deliver",
-    "ultragoal": "deliver",
+
     "ultrawork": "deliver",
     "ai-slop-cleaner": "deliver",
     "code-review": "review",
@@ -63,7 +62,7 @@ _STAGE_PRIORITY = {
     "triage": ("feedback-triage",),
     "research": ("research", "source-finder", "best-practice-research", "research-brief", "research-department", "paper-learning"),
     "plan": ("ralplan", "plan"),
-    "deliver": ("ultraprocess", "ultragoal", "ultrawork", "ai-slop-cleaner"),
+    "deliver": ("ultrawork", "ai-slop-cleaner"),
     "review": ("code-review",),
     "verify": ("ultraqa",),
     "learn": ("workflow-learning",),

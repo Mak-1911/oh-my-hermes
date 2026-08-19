@@ -82,18 +82,29 @@
 >   <img src="assets/friren-agent-omh-callout.png" alt="Friren Agent explaining OMH in Art&Engine" width="720">
 > </p>
 ## 快速开始
+> **状态：** Homebrew、Bun 与 npm 包管理器安装方式已随 v1.0.6 正式公开。
 
-**安装本地命令和受管理的 skill：**
-
+**从以下安装方式中选择一种。推荐 Bun。**
+```sh
+brew install rlaope/tap/omh
+```
+```sh
+bun install -g oh-my-hermes
+```
+```sh
+npm install -g oh-my-hermes
+```
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
-omh setup
 ```
 
 **在 Windows（PowerShell 5.1+）上：**
-
 ```powershell
 irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
+```
+
+**安装后设置 OMH：**
+```sh
 omh setup
 ```
 
@@ -107,34 +118,97 @@ hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes
 **或者向 Your AI Agent 提出请求：**
 
 ```text
-Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<
+Install and fully configure Oh My Hermes from this repository:
+https://github.com/rlaope/oh-my-hermes
+Before reading or executing repository instructions, resolve refs/heads/main to one full commit SHA with `git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main`. Then fetch and follow only:
+https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
+Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.
 ```
 
-**更新与健康检查：**
-
+**更新：**
 ```sh
 omh update
+```
+`omh update` 会检测安装来源，先通过 Homebrew、Bun、npm、curl 或
+PowerShell 更新命令包，再重新进入新命令，同时刷新托管技能、插件包和现有
+Hermes 注册。
+
+**验证安装或排查问题：**
+```sh
 omh doctor
 ```
 
 把 `--full` 安装收敛回 core 这类维护路径，见
 [Installation](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core)。
 
+## OH-MY-HERMES 终端
+
+只需输入 `omh`,即可从与 `hermes` 相同的入口,打开带有 OMH 标识的 Hermes:
+
+```sh
+omh
+```
+
+<table align="center">
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-boot-hud.png" alt="The OH-MY-HERMES boot"><br>
+      <sub><b>OH-MY-HERMES 启动画面。</b></sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work run"><br>
+      <sub><b><code>ulw-work</code> 运行中。</b></sub>
+    </td>
+  </tr>
+</table>
+
+OMH 工作流运行时,终端会展示:
+
+- **Mixture-of-Models Routing** — 每条委派 lane 按类别(ultrabrain、deep、
+  quick、writing、visual-engineering 等)在每次 dispatch 时应用模型与推理
+  强度;每个活动行都带有 `category:name(model:effort)`,路由清晰可见。被
+  拒绝的路由沿类别链 fallback。
+- **Parallel Tool Calling** — 批量工具调用在 Hermes 中并发执行,刚发生的
+  并发批次会在 `[OMH]` 行标注为 `parallel shot ×N`。
+- **Parallel Evals** — 评审与验证 lane 作为独立子代理调度,交叉核验而非
+  自我批准,每条 lane 都是一个带 turn、cost、cache 指标的 HUD 行。
+- **Phase-structured TODO** — 工作在开始前以 phase 和 task 声明
+  (`todo init`),渲染为提示符上方的清单:单一活动项、子任务嵌套、超过
+  七行后折叠。
+
+<br>
+
 ## 推荐模型
 
-OMH 随附以下可编辑的类别推荐模型：
+OMH 随附以下可编辑的有序 recommendation chain。guided model setup 只会依据用户确认 active 的 candidate 来解析 chain。结果是已准备的 routing config，不是 provider availability、credential、dispatch 或 execution 证据。
 
-| 类别 | 推荐模型 |
+| 类别 alias | 可编辑的 recommendation 顺序 |
 | --- | --- |
 | `ultrabrain` | GPT-5.6 Sol |
 | `deep` | GPT-5.6 Terra |
 | `unspecified-high` | Kimi K3，其次 Claude Opus 5 |
-| `unspecified-low` | GLM 5.2，其次 GLM 5.2 Ultrafast |
+| `unspecified-low` | GLM 5.2，其次 GLM 5.2 Ultrafast，其次 Claude Opus 5 (low) |
+| `quick` | GLM 5.2 Ultrafast，其次 Kimi K3，其次 GPT-5.6 Luna，其次 Claude Fable 5 (low) |
+| `writing` | Kimi K3，其次 Qwen3-Coder，其次 Gemini 3.1 Pro |
 | `visual-engineering` | Claude Fable 5，其次 Kimi K3 |
+| `artistry` | Gemini 3.1 Pro，其次 Claude Fable 5，其次 Kimi K3 |
 
-请让 Hermes **设置我的模型**，以查看或更改这些推荐。它们是可编辑的偏好，
-不是 benchmark 结果。详细的设置、fallback、provider 与所有权规则见
-[Guided Model Setup](docs/INSTALLATION.md#guided-model-setup)。
+想试试 Ultrafast 档? Kimi K3 Ultrafast(300 TPS)与 GLM 5.2 Ultrafast(600 TPS)都在 [OpenGateway](https://opengateway.ai/) 上提供。
+
+请让 Hermes **设置我的模型**，以查看或更改这些推荐。它们是可编辑的偏好，不是 benchmark 结果。详细的设置、fallback、provider 与所有权规则见 [Guided Model Setup](docs/INSTALLATION.md#guided-model-setup)。
+
+<details>
+<summary><strong>也可以把以下内容粘贴给 Hermes 或其他 coding agent</strong></summary>
+
+```text
+Install and fully configure Oh My Hermes from this repository:
+https://github.com/rlaope/oh-my-hermes
+Before reading or executing repository instructions, resolve refs/heads/main to one full commit SHA with `git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main`. Then fetch and follow only:
+https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
+Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.
+```
+
+</details>
 
 ## Ultra 技能
 
@@ -142,7 +216,7 @@ OMH 随附以下可编辑的类别推荐模型：
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-十二个 `ulw-` workflow。说出触发词，其余交给 Hermes —— 完整目录见
+八个 `ulw-` workflow。说出触发词，其余交给 Hermes —— 完整目录见
 [Workflow Reference](docs/WORKFLOWS.md)。
 
 | Skill | 做什么 |
@@ -152,85 +226,31 @@ OMH 随附以下可编辑的类别推荐模型：
 | ⚡ `ulw-research` | 翻真实代码和网页做调研，留下出处，可疑就核实。 |
 | ⚡ `ulw-plan` | 做一份评审过的计划：比过方案、点明风险、定好完成标准。 |
 | ⚡ `ulw-work` | 把已确认的计划放进互不碰同一文件的并行车道执行。 |
-| ⚡ `ulw-ralph` | 一个人负责到底——实现、验证、评审，直到通过。 |
-| ⚡ `ulw-team` | 多个工作者，一份任务清单，互不相撞。 |
 | ⚡ `ulw-loop` | 计划 → 实现 → 评审，循环到目标真正通过。 |
-| ⚡ `ulw-goal` | 带检查点的长期目标——上下文丢了也能从断点继续。 |
-| ⚡ `ulw-process` | 把一个任务从调研一路带到 PR。 |
 | ⚡ `ulw-qa` | 故意用狠场景攻击，坏哪修哪。 |
 | ⚡ `ulw-perf` | 先测出真正慢和贵的地方，再逐条修热路径。 |
+
 ## OMH 提供什么
 
-OMH 将 **106 个**可安装的 workflow skill 组织为6个容易理解的能力族。
-
-其中 12 个是 workflow engine - `context`, `deep-interview`, `loop`, `ralph`, `ralplan`, `research`, `team`, `ultragoal`, `ultraperf`, `ultraprocess`, `ultraqa`, `ultrawork` - 它们渲染为 `ulw-` 标签，
-只看状态行就能知道正在运行哪一类 skill。其余 94 个使用 `omh-`。
-两者的 canonical name 都保持不变。
-
-| 能力族 | Hermes 可以做得更好的事情 |
-| --- | --- |
-| **规划与决策** | 澄清模糊目标，准备经过审查的计划和 durable goal loop。 |
-| **学习与收集** | 查找来源、解释论文、检查数据并准备有依据的 brief。 |
-| **资料与视觉制作** | 通过针对格式的质量 gate 制作网站、图像、文档、演示、PDF 和海报。 |
-| **编码委派与交付** | 为 Codex、Claude Code、Hermes runtime 或选定 executor 准备明确的 handoff。 |
-| **运维与观测** | 检查设置、服务质量、发布、事故、automation、session 和 workflow learning。 |
-| **知识保留** | 构建经过审查的项目记忆，并通过 provider-neutral 边界连接外部知识系统。 |
-
-完整 catalog、trigger、harness 和证据规则位于
+OMH 把模型选择和编码所有权作为两个独立决策，并且绝不把准备报告为执行。
+容易理解的能力族仍然是入口；精确控制、runtime 边界和证据规则会在 wrapper
+或 operator 需要时保持可查。完整 catalog、trigger、harness 和证据规则位于
 [Workflow Reference](docs/WORKFLOWS.md)。
 
 **亮点**
 
-| 能力 | 使用方式 | 作用 |
-| --- | --- | --- |
-| 🧭 **澄清与规划** | `omh-plan` · `omh-decide` · `omh-meeting-brief` | 把模糊的请求转化为明确的目标、约束、权衡、验收标准，以及可以直接交接的计划。 |
-| ⚡ **借助杠杆推进工作** | `omh-idea-to-deploy` · `omh-cto-loop` · `omh-running-work-board` | 从快速并行工作扩展到持久的多步骤执行，同时保持所有权、检查点和验证始终可见。 |
-| 🔬 **研究与学习** | `omh-best-practice-research` · `omh-research-brief` · `omh-paper-learning` | 在标明时效性、来源质量和尚未解决的不确定性边界的同时，查找并综合有依据的证据。 |
-| 🛠️ **安全地编码与交付** | `omh-code-review` · `omh-build-failure-triage` · `omh-verification-gate` | 准备不依赖特定 executor 的编码工作，并让 review、QA、CI 和 merge 的相关声明只依据实际观测到的证据。 |
-| 🎨 **打造精致的交付物** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-image-cards` | 围绕内容、审美、无障碍性和渲染质量 gate，制作网站、视觉素材、报告、演示文稿、文档、PDF、海报和交付包。 |
-| 🧠 **记忆与运维** | `omh-memory-new` · `omh-memory-sync` · `omh-ops-observability-card` · `omh-doctor` | 让项目记忆保持“先审查后使用”，呈现运维就绪状态，并在不臆造 provider 或系统状态的前提下给出下一步修复动作。 |
-| 🔌 **在不隐藏边界的前提下连接** | `omh-toolbelt-readiness` · `omh-external-connector-readiness` · `omh-agent-board` | 在工作依赖某个工具、connector 或 agent 面之前先确认它是否真的可用，同时让 host 加载、工具使用和外部 provider 访问都能被分别观测。 |
-## 面向真实工作的设计
+| 智能层 | OMH 提供什么 |
+| --- | --- |
+| 🧭 **Mixture-of-models 路由** | 每条委派 lane 按类别(模型 + 推理强度)在每次 dispatch 时应用,provider 拒绝某个模型时沿可编辑的 fallback chain 前进 — 没有做任何工作的子代理会诚实地标记为 `failed`。 |
+| 🖥️ **原生 TUI 表面** | OMH HUD(带类别、轮次、成本、缓存的实时 delegation 行)、提示符上方的 phase todo 清单、`parallel shot ×N` 标注、整行 diff 色带、受管理的皮肤 — 全部安装在 Hermes 旁边,绝不修改 Hermes 本体。 |
+| 📋 **Phase 结构化计划** | `todo init` 在引擎工作开始前声明 phase 和 task,让运行沿有界清单推进,而不是陷入开放式推理循环。 |
+| ⚡ **可观测的并行工作** | 把独立工作拆成所有权隔离的 fanout unit,并观测进度和 verification gate。 |
+| 🎼 **Maestro handoff** | 在不成为隐藏 executor、也不把准备当作执行的前提下,为明确的 coding owner 和 runtime profile 准备 handoff。 |
+| 🧠 **上下文智能** | 在不虚构隐藏记忆、也不暗中改变已选 route 的前提下,投影紧凑且经过审查的仓库上下文。 |
+| 📚 **JIT learning** | 为当前 blocker 选择最有价值的学习目标,并在不声称已经学会的前提下准备有来源、可立即应用的指导。 |
+| 🔍 **证据约束的交付** | 在 coding、review、CI 和 merge 全程分开已准备意图、已观测 runtime 活动与已验证结果。 |
+| 📦 **确定性技能目录** | 100+ 可安装的 workflow 技能、逐字节校验的生成目录、包含负向用例的 routing precision 语料,以及一字符漂移即令 CI 失败的 drift gate。 |
 
-<p align="center">
-  <img src="assets/built-for-real-work-orchestration.png" alt="OMH orchestrating coding agents and creative tools" width="900">
-</p>
-
-> **OMH (Oh-My-Hermes)** — 让任何人都能像专业人士一样使用 hermes-agent。<br>
-> 为你的 AI Agent 打造的强大智能工作层（harness）。
-
-**🧭 不是命令列表，而是更聪明的路由器。** 英语、韩语、日语、中文、西班牙语、
-法语、德语和印地语请求都可以在本地分类，无需翻译 API。OMH 会返回推荐能力
-族、skill、owner、下一步，以及尚未形成证据的部分。
-
-**🤝 更好的编码 handoff。** 可以包含仓库约束、已达成一致的 scope、worktree
-与 session-isolation 指南、本地可用的 skill、验收标准、review 期望和
-verification gate。Codex、Claude Code、Hermes 和 generic executor 都不会
-成为隐藏的默认值，而是保持明确的 owner 身份。
-
-**🎨 懂质量的制作。** Frontend、无障碍、图像、报告、演示文稿、文档、表格、
-PDF、海报和共享交付包请求都会走专门的制作与 QA 流程。准备好的 brief 不会
-被当作已生成或已通过视觉验证的产物来呈现。
-
-**🔍 证据先于声明。** OMH 会区分已准备的意图、已观测的 runtime 事件和已
-验证的结果。即便没有声称 executor 已执行、review 已通过、CI 已成功、部署
-已完成或 PR 已 merge，handoff 依然可以处于就绪状态。
-
-**🧠 以审查为先的项目记忆。** OMH 把项目记忆候选与已批准的记录分开管理，
-只把经过审查、已准备好的上下文重新带入后续 handoff，不会声称读取或修改了
-不透明的 Hermes 内部记忆。
-
-**🔌 provider-neutral 的运维。** metric、wiki、browser、image、video 和
-connector 系统都位于明确的外部 provider contract 之后。OMH 可以在不声称
-连接或调用未实际使用的 provider 的情况下，验证并分析已提供的数据。
-
-**🏛️ Hermes-native、executor-neutral 的架构。** Hermes 仍然是聊天、澄清、
-规划、研究和状态展示的入口。被选定的 executor 负责具体实现，而 OMH 为这项
-工作提供本地 contract、路由、记忆、质量 gate 和证据边界。
-
-**🧱 local-first 的控制面。** OMH 的核心路由、catalog、manifest 和声明规则
-都是确定性的本地表面。外部调用与 provider 访问始终是显式集成，而不是核心
-内部隐藏的行为。
 ## 证据先于声明
 
 OMH 只报告自己观测到的事情。你看到的每个状态都由两部分组成：处于哪个阶段，

@@ -9,6 +9,9 @@ from ..menubar_status import build_menubar_status_payload, read_process_overlay_
 from .common import _paths, _print_json, _wants_json
 
 
+_TABLE_VALUE_DISPLAY_LIMIT = 48
+
+
 def cmd_menubar_status(args: argparse.Namespace) -> int:
     try:
         overlay = read_process_overlay_file(args.overlay) if args.overlay else None
@@ -70,7 +73,7 @@ def _add_menubar_commands(sub) -> None:
         help="Opt in to local Hermes process observation for the native menu bar helper.",
     )
     status.add_argument("--now", default=None, help="Optional ISO timestamp for deterministic overlay TTL evaluation.")
-    status.add_argument("--json", action="store_true", help="Print the full menubar_status/v1 payload.")
+    status.add_argument("--json", action="store_true", help="Print the full menubar_status/v2 payload.")
     status.set_defaults(func=cmd_menubar_status)
 
     install = menubar_sub.add_parser("install", help="Install and start the native macOS OMH menu bar helper when supported.")
@@ -99,6 +102,8 @@ def _format_menubar_status(payload: Mapping[str, object]) -> str:
     settings = _as_mapping(payload.get("settings"))
     versions = _as_mapping(payload.get("versions"))
     process_overlay = _as_mapping(payload.get("process_overlay"))
+    hermes_sessions = _as_mapping(payload.get("hermes_sessions"))
+    hermes_processes = _as_mapping(payload.get("hermes_processes"))
 
     lines = ["OMH menu bar status", "Summary"]
     headline = _text(display.get("headline")) or "OMH status"
@@ -106,6 +111,20 @@ def _format_menubar_status(payload: Mapping[str, object]) -> str:
     lines.append(f"  Status: {headline}")
     if summary:
         lines.append(f"  Activity: {summary}")
+    if _truthy(hermes_sessions.get("observed")):
+        lines.append(
+            f"  Sessions: live {_text(hermes_sessions.get('live'))} / "
+            f"total {_text(hermes_sessions.get('total'))}"
+        )
+    else:
+        lines.append("  Sessions: not observed")
+    if _truthy(hermes_processes.get("observed")):
+        lines.append(
+            f"  Processes: {_text(hermes_processes.get('agent_count'))} agent / "
+            f"{_text(hermes_processes.get('process_count'))} processes"
+        )
+    else:
+        lines.append("  Processes: not observed")
     omh_version = _as_mapping(versions.get("omh"))
     if omh_version:
         lines.append(f"  OMH version: {_text(omh_version.get('value')) or 'unknown'}")
@@ -125,15 +144,13 @@ def _format_menubar_status(payload: Mapping[str, object]) -> str:
         lines.extend(["", title])
         columns = [_text(column) for column in _as_sequence(card.get("columns"))]
         rows = [_as_mapping(row) for row in _as_sequence(card.get("rows"))]
-        agent_rows = [row for row in rows if row.get("kind") == "agent_status"]
-        if columns and agent_rows:
-            lines.append(f"  {_pad(columns[0], 20)} {_pad(columns[1], 14)} {columns[2] if len(columns) > 2 else 'Status'}")
-            for row in agent_rows:
+        table_rows = [row for row in rows if row.get("kind") == "table_row"]
+        if columns and table_rows:
+            lines.append(f"  {_pad(columns[0], 20)} {columns[1]}")
+            for row in table_rows:
                 lines.append(
-                    "  "
-                    f"{_pad(_text(row.get('agent')) or 'unknown', 20)} "
-                    f"{_pad(_text(row.get('pid')) or 'not observed', 14)} "
-                    f"{_text(row.get('status')) or 'unknown'}"
+                    f"  {_pad(_text(row.get('left')), 20)} "
+                    f"{_truncate(_text(row.get('right')), _TABLE_VALUE_DISPLAY_LIMIT)}"
                 )
         else:
             for row in rows:
@@ -142,7 +159,6 @@ def _format_menubar_status(payload: Mapping[str, object]) -> str:
                 detail = _text(row.get("detail"))
                 if not label and not value:
                     continue
-                value = _friendly_row_value(label, value)
                 line = f"  {label}: {value}" if label and value else f"  {label or value}"
                 if detail:
                     line = f"{line} - {detail}"
@@ -230,13 +246,11 @@ def _truthy(value: object) -> bool:
     return bool(value) and str(value).lower() not in {"false", "0", "none", "null"}
 
 
-def _friendly_row_value(label: str, value: str) -> str:
-    if label.lower() == "boundary" and value.lower() == "unknown":
-        return "no active evidence state"
+def _truncate(value: str, limit: int) -> str:
+    if len(value) > limit:
+        return f"{value[: max(0, limit - 3)]}..."
     return value
 
 
 def _pad(value: str, width: int) -> str:
-    if len(value) > width:
-        return f"{value[: max(0, width - 3)]}..."
-    return value.ljust(width)
+    return _truncate(value, width).ljust(width)

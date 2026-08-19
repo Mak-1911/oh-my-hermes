@@ -344,7 +344,7 @@ _DEFINITIONS = [
             "Expose core OMH roles: interviewer, planner, researcher, builder, reviewer, and loop controller.",
             "Route tiny direct tasks to one-cycle delivery surfaces instead of forcing loop overhead.",
             "Reframe a north-star ambition into a bounded arena, observable problem, next loop goal, and next verification without shrinking its ambition.",
-            "Separate task discovery, distribution, execution, verification, next-task decision, runtime tick queueing, ultragoal/handoff, feedback, waiting, and resume decisions.",
+            "Separate task discovery, distribution, execution, verification, next-task decision, runtime tick queueing, durable-checkpoint/handoff, feedback, waiting, and resume decisions.",
             "Expose a permission profile before executor/runtime dispatch, repository mutation, PR, merge, or external publishing.",
             "Expose the automation, worktree, skill, connector, and subagent building-block states without treating planned blocks as observed work.",
             "Choose workflow patterns such as single-step, fan-out-and-synthesize, adversarial verification, tournament, or triage batch as orchestration metadata only.",
@@ -356,8 +356,8 @@ _DEFINITIONS = [
         ),
         why_this_exists="`loop` exists for goals whose correct implementation cannot be known upfront but can be discovered through bounded cycles of definition, action, verification, and revision without confusing planned cycles with observed progress.",
         do_not_use_when=(
-            "The user asks for one bounded delivery cycle; use `ultraprocess` or `ultragoal` instead.",
-            "Scope and milestones are already known and only durable checkpoint/resume tracking is needed; use `ultragoal`.",
+            "The user asks for one bounded delivery cycle; use `ultrawork`'s delivery-boundary capability instead.",
+            "Scope and milestones are already known and only durable checkpoint/resume tracking is needed; use `ultrawork`'s durable-checkpoint capability.",
             "The user gives only a north-star outcome such as revenue, stars, or adoption and has not accepted a bounded first loop goal.",
             "The goal is too vague to name an observable problem, next artifact, verification signal, or stop condition.",
             "The goal depends mainly on external waiting, adoption, revenue, or community response without observable local next actions.",
@@ -444,7 +444,6 @@ _DEFINITIONS = [
         aliases=("ulp",),
         category="process",
         phase="single-cycle-plan-to-pr",
-        capability_family="delegate_coding_and_ship",
         hermes_role="retained-cognition",
         delegation_boundary="retained-catalog-intent",
         handoff_policy="Keep the one-cycle process orchestration, source/codebase research, planning, review framing, docs-sync checks, PR narration, and evidence boundaries in Hermes; convert implementation into a selected executor/runtime handoff such as Codex, Claude Code, OMX/OMO/OMC, another coding agent, or explicit Hermes coding runtime only when the user accepts that owner.",
@@ -554,8 +553,9 @@ _DEFINITIONS = [
             "Read repository facts and reviewed terminology before asking the user for discoverable information.",
             "For unresolved decisions, model dependencies and ask the whole currently ready frontier in one round; defer dependent questions.",
             "Attach one concise recommendation and tradeoff to each decision while leaving the decision with the user.",
+            "Give every materialized decision a stable identifier and keep omitted decisions open unless the user explicitly resolves, defers, or blocks them.",
             "Keep terminology sparse: canonical identity, short definition, expression guidance, distinct-from boundary, and optional localized display label.",
-            "Stop when every reachable branch is resolved and the user confirms shared understanding; planning and coding remain separate confirmed steps.",
+            "Stop on a terminal frontier, explicit user request, or the shared round ceiling; then confirm the summary separately from planning or coding.",
         ),
         why_this_exists=(
             "`context` exists to reduce repository terminology drift without creating a second machine store or a vocabulary router: "
@@ -589,6 +589,7 @@ _DEFINITIONS = [
             "If the optional source is absent, continue from repository evidence or reviewed profiles without warning, creating, or importing a file.",
             "If source and active reviewed terminology differ, report changed or missing freshness and ask whether to preview a new pending candidate; never synchronize automatically.",
             "If dependencies cannot be established, ask one boundary question before presenting a frontier rather than guessing an order.",
+            "If frontier round or decision identity cannot be recovered, close with a named recovery blocker instead of restarting or emitting another round.",
             "If the user moves from terminology to implementation, summarize confirmed understanding and hand off to `ralplan`, `ulw-plan`, or the selected coding owner only after a separate go-ahead.",
         ),
     ),
@@ -796,20 +797,77 @@ _DEFINITIONS = [
     SkillDefinition(
         "ultrawork",
         "Ultrawork - split an accepted plan into disjoint parallel lanes with per-lane acceptance criteria, verification commands, and owners; prevents two lanes editing the same file.",
-        ("ultrawork", "$ultrawork", "ulw", "$ulw", "parallel work", "parallel implementation", "high throughput"),
+        (
+            "ultrawork",
+            "$ultrawork",
+            "ulw",
+            "$ulw",
+            "parallel work",
+            "parallel implementation",
+            "high throughput",
+            # Coordination vocabulary absorbed with the `coordinated_scope`
+            # capability (#954 stage 5).
+            "coding team",
+            "coordinated workers",
+            # Single-owner persistence vocabulary absorbed with the
+            # `single_owner_persistence` capability (#954 stage 5).
+            "finish until done",
+            "persistent execution",
+            # Delivery-cycle vocabulary absorbed with the `delivery_boundary`
+            # capability (#954 stage 5). Executor-neutral by contract: no
+            # trigger here may name a coding CLI -- naming a CLI is an
+            # owner-choice signal, never an engine trigger (plan Q9).
+            "implement",
+            "one-cycle delivery",
+            "single-cycle delivery",
+            "end-to-end process",
+            "delivery process",
+            "research plan implement review docs pr",
+            "plan implement review docs pr",
+            "prepare a pr",
+            "make a pr",
+            "open a pr",
+            "pr-ready",
+        ),
         "Use when an accepted implementation plan can be split into independent, reviewable work lanes.",
         aliases=("ulw",),
         category="execution",
         phase="parallel-delivery",
         hermes_role="runtime-handoff-guidance",
-        handoff_policy="Keep the workflow name for compatibility, but convert coding lanes into explicit selected runtime handoffs with disjoint scope, verification, review evidence, worker protocol, and worktree guidance.",
+        handoff_policy=(
+            "Keep the workflow name for compatibility. The default implementation owner is the Hermes coding "
+            "harness itself: run coding lanes as Hermes-native delegate_task subagents with OMH skills loaded, "
+            "each lane given disjoint scope, verification, and review expectations, and each lane routed through "
+            "the mixture categories — set the route with the `omh_delegate_route` tool before dispatch "
+            "(research/scan lanes quick or unspecified-low; ideation, architecture, and hard debugging ultrabrain "
+            "or deep; visual work visual-engineering or artistry; docs writing) and name the routed category and "
+            "reasoning effort in the lane's status. [capability:delivery_boundary] Convert implementation into an "
+            "external executor/runtime handoff such as Codex, Claude Code, OMX/OMO/OMC, or another coding agent "
+            "only when the user accepts that owner; no external CLI is the default owner, and external handoff is "
+            "a separate opt-in path, never the default recommendation."
+        ),
         required_inputs=("accepted plan", "lane list", "disjoint file or responsibility scopes", "verification commands"),
-        expected_outputs=("runtime handoff prompts or lane instructions", "status summary", "review/CI evidence requirements"),
-        artifact_expectations=("prepared coding delegation record per implementation lane when wrappers can record them",),
+        expected_outputs=(
+            "runtime handoff prompts or lane instructions",
+            "status summary",
+            "review/CI evidence requirements",
+            "[capability:delivery_boundary] `durable_checkpoint` or selected executor/runtime handoff",
+        ),
+        artifact_expectations=(
+            "prepared coding delegation record per implementation lane when wrappers can record them",
+            "[capability:single_owner_persistence] goal-execution run record with checkpoint or final evidence when available",
+        ),
         safety_rules=(
             "Do not start parallel coding without disjoint ownership boundaries.",
             "Keep Hermes responsible for orchestration/status; when Hermes itself is selected for coding, still preserve runtime evidence boundaries.",
             "Record unobserved executor work as prepared_not_observed or not_observed.",
+            "[capability:coordinated_scope] Use coordination lanes only when work is independent; if two lanes are not independent, collapse them under one owner or re-plan before dispatch.",
+            "[capability:coordinated_scope] Keep shared-file edits under one owner; if integration reveals a shared-file conflict, stop lane fan-out and reassign ownership before continuing.",
+            "[capability:coordinated_scope] Record unobserved delegation as not_observed; a delegation record exists only when separate participants are observed.",
+            "[capability:delivery_boundary] Do not continue into a repeated feedback loop; recommend `loop` when the user wants ongoing cycles.",
+            "[capability:delivery_boundary] Do not skip planning when the delivery request is broad, risky, or user-visible; a ralplan-style or reviewed plan names acceptance criteria, risks, and verification commands.",
+            "[capability:delivery_boundary] Run docs sync only when behavior, setup, commands, examples, or public claims changed.",
+            "[capability:delivery_boundary] Keep web research source-backed and permission-aware; do not run hidden network or LLM calls from OMH core.",
         ),
         quality_tier="handoff-gated",
         quality_bar=(
@@ -817,14 +875,41 @@ _DEFINITIONS = [
             "Require disjoint lane ownership before preparing multiple coding runtime handoffs.",
             "Attach acceptance criteria, verification commands, and review expectations to each lane.",
             "Keep dispatch, execution, review, CI, and merge status evidence separate.",
+            "[capability:coordinated_scope] Keep Hermes as coordinator and status narrator for lane framing and status while coding lanes become runtime handoffs with explicit ownership.",
+            "[capability:delivery_boundary] Complete exactly one plan-to-PR delivery cycle, then stop with status, evidence gaps, or a next recommended workflow.",
+            "[capability:delivery_boundary] Start a delivery cycle with codebase/source research and a ralplan-style decision record before implementation handoff.",
+            "[capability:delivery_boundary] Run code-review as a gate after implementation evidence exists; review preparation alone is not review evidence.",
+            "[capability:delivery_boundary] End a delivery cycle with a PR-ready or PR-observed report that separates prepared, executed, reviewed, verified, CI, and PR evidence.",
+            "[capability:delivery_boundary] For implementation, default to Hermes-native delegation with a per-lane `omh_delegate_route` mixture route and acceptance criteria and verification commands attached; hand off to the `durable_checkpoint` capability for work that must survive sessions, and prepare a selected external executor/runtime path only on the user's explicit owner acceptance.",
+            "Route each Hermes-native lane before dispatch: an inherit-labeled delegation wave is an unrouted wave, not mixture routing — re-route it or state why parent inheritance is intended.",
+            "Initialize the phase todo before engine work: declare phases and their tasks with `omh_todo` (todo init), keep exactly one item active while working, and update states as lanes complete — the run walks a bounded, HUD-visible checklist instead of an open-ended reasoning loop.",
+            "Close a completed run with the localized run summary: call `omh_run_summary` with the conversation's language and print its summary_text verbatim as the final lines (elapsed seconds, token usage, and models used from observed host accounting — never numbers the model estimated).",
+            "[capability:single_owner_persistence] Do not enter a finish-until-done loop until scope, acceptance criteria, and verification commands are concrete.",
+            "[capability:single_owner_persistence] For single-owner coding edits, prepare and track the selected runtime path instead of implying unobserved work happened or hiding execution inside chat narration.",
+            "[capability:single_owner_persistence] Report single-owner completion only from observed execution and verification evidence, with remaining risks named.",
+            "[capability:durable_checkpoint] Keep goal state durable, inspectable, and separate from chat narration in the metadata-only .omh/goals goal_ledger/v1.",
+            "[capability:durable_checkpoint] Checkpoint every success, blocker, and final quality gate with fresh evidence.",
+            "[capability:durable_checkpoint] Reject completion with a summary-only goal_completion_gate/v1 result until required criteria, blockers, and explicitly linked runtime runs are satisfied.",
         ),
-        why_this_exists="`ultrawork` exists to split an accepted implementation plan into independent lanes without letting parallelism blur ownership, verification, worker protocol, worktree isolation, or observed runtime evidence.",
+        why_this_exists=(
+            "`ultrawork` exists to split an accepted implementation plan into independent lanes without letting "
+            "parallelism blur ownership, verification, worker protocol, worktree isolation, or observed runtime "
+            "evidence. It also carries four named internal capabilities absorbed from sibling engines: "
+            "`coordinated_scope` (coordinated worker lanes), `delivery_boundary` (one bounded plan-to-PR cycle), "
+            "`single_owner_persistence` (one owner finishes and verifies), and `durable_checkpoint` (durable goal "
+            "ledger with checkpoints and a final gate)."
+        ),
         do_not_use_when=(
             "The work touches the same files or invariants in ways that need one owner.",
             "The plan is not accepted, lane boundaries are unclear, or verification commands are missing.",
             "The user expects Hermes to secretly execute coding lanes instead of preparing explicit selected-runtime handoffs.",
-            "The lanes are exploratory research or QA coordination without an accepted implementation plan; use `team`.",
-            "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of opening parallel delivery lanes.",
+            "[capability:coordinated_scope] The lanes are exploratory research or QA coordination without an accepted implementation plan; frame them with the `coordinated_scope` capability before parallel delivery.",
+            "[capability:single_owner_persistence] The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of opening parallel delivery lanes, a finish-until-done loop, or a goal ledger.",
+            "[capability:delivery_boundary] The user wants an open-ended feedback loop or long-horizon campaign; use `loop` instead.",
+            "[capability:single_owner_persistence] Progress must survive sessions as a ledger with multiple checkpoints and a final gate; use the `durable_checkpoint` capability.",
+            "[capability:durable_checkpoint] One concrete, already-scoped task only needs one owner to finish and verify; use the `single_owner_persistence` capability.",
+            "[capability:durable_checkpoint] The next work must be discovered or reframed repeatedly through research and feedback cycles; use `loop`.",
+            "[capability:durable_checkpoint] Acceptance criteria, current checkpoint, and final gate expectations are too vague to make a goal inspectable.",
         ),
         good_example=SkillExample(
             prompt="$ultrawork split the accepted docs refresh, CLI output polish, and test updates into parallel implementation lanes.",
@@ -842,11 +927,20 @@ _DEFINITIONS = [
             "When Hermes owns the coding path, use `hermes_coding_harness/v1` to separate builder, verifier, reviewer, docs, and PR lanes.",
             "Worker ACK, dispatch, result, review, CI, and merge evidence are observed or explicitly missing.",
             "Integration verification ran after lane results before the final status claims completion.",
+            "[capability:coordinated_scope] The integrated status names which coordination lanes are observed, blocked, or still prepared_not_observed.",
+            "[capability:coordinated_scope] Coordination teardown is explicit: released lanes are named and closed instead of lingering as implicit owners.",
+            "[capability:durable_checkpoint] The goal_status_card/v1 or goal_continuation/v1 names the next action and the final status says complete, blocked, or continue with the exact remaining checkpoint.",
+            "[capability:durable_checkpoint] All explicitly linked coding milestones have matching observed runtime evidence or stay prepared_not_observed and named as gaps without closing the goal.",
+            "[capability:durable_checkpoint] Long-running or background executor milestones report observed handles, current state, changed-file summaries, missing checks, and prepared-vs-observed boundaries while work is running.",
+            "[capability:durable_checkpoint] Branch, PR, CI, review, and merge claims are verified against local HEAD, remote branch SHA, PR head SHA, and merge commit before saying a fix landed.",
         ),
         recovery_notes=(
-            "If lanes are non-disjoint, collapse to one owner or route back to ultragoal before coding starts.",
+            "If lanes are non-disjoint, collapse to one owner or route back to the durable-checkpoint goal ledger before coding starts.",
             "If a worker does not ACK or return a result, keep that lane blocked/not_observed and expose the retry or reassignment action.",
             "If a worktree or shared-file conflict appears, pause parallel delivery and re-plan ownership before more edits.",
+            "[capability:coordinated_scope] If a coordinated worker has no ACK or result, mark that lane not_observed or blocked rather than infer progress.",
+            "[capability:durable_checkpoint] If the goal ledger is stale or missing, inspect .omh/goals and ask which checkpoint to resume before continuing.",
+            "[capability:durable_checkpoint] If a blocker checkpoint exists, keep the goal open and record the blocker plus the smallest unblock action.",
         ),
     ),
     SkillDefinition(
@@ -989,7 +1083,7 @@ _DEFINITIONS = [
         ),
         why_this_exists="`research` exists to make Hermes a careful research engine: it routes research demands to source-backed evidence gathering - from live web citations to studied reference implementations - verifies contested claims, and distills decision-grounding output so planning starts from evidence instead of guesses.",
         do_not_use_when=(
-            "The user asks for a full plan-to-PR delivery cycle; use `ultraprocess` or a planning workflow after research instead.",
+            "The user asks for a full plan-to-PR delivery cycle; use `ultrawork` (its `delivery_boundary` capability) or a planning workflow after research instead.",
             "The request is purely local repo inspection with no external, current, citation, or source-comparison need.",
             "The study target is this repository itself rather than external references; use `codebase-onboarding`.",
             "The user needs coding execution, review, CI, or merge evidence rather than research synthesis.",
@@ -1051,7 +1145,7 @@ _DEFINITIONS = [
         (
             "Use when the requested output is a typed source candidate inventory and acquisition status across papers, web links, "
             "datasets, GitHub repositories, public presentations, docs/specs, or unknown source material before choosing "
-            "paper-learning, research, research-brief, research-department, materials-package, or ultraprocess."
+            "paper-learning, research, research-brief, research-department, materials-package, or an ultrawork delivery cycle."
         ),
         category="research",
         phase="source-acquisition",
@@ -1959,7 +2053,7 @@ _DEFINITIONS = [
             "problem, user, evidence, metric, goal, and non-goal brief",
             "PRD with requirements, open questions, risks, dependencies, and acceptance shape",
             "prioritization/roadmap options with tradeoffs and decision owner",
-            "explicit downstream route to ralplan, strategy-brief, or ultraprocess only when its prerequisite is satisfied",
+            "explicit downstream route to ralplan, strategy-brief, or ultrawork only when its prerequisite is satisfied",
         ),
         artifact_expectations=("prepared product brief or PRD when a wrapper captures it",),
         safety_rules=(
@@ -1975,7 +2069,7 @@ _DEFINITIONS = [
         do_not_use_when=(
             "The input is unprocessed feedback, bug reports, or feature asks that first need clustering and evidence boundaries; use `feedback-triage`.",
             "The user needs a company or product strategy decision across high-level options rather than a requirements or roadmap artifact; use `strategy-brief`.",
-            "The request is an accepted, code-ready change with repository constraints and verification needs; use `ralplan` or `ultraprocess` rather than recreating a PRD.",
+            "The request is an accepted, code-ready change with repository constraints and verification needs; use `ralplan` or `ultrawork` rather than recreating a PRD.",
             "The user asks to create or update Jira, Linear, Aha!, or a roadmap system directly; use `connector-operator` with explicit target, approval, and observed evidence.",
         ),
         good_example=SkillExample(
@@ -1985,7 +2079,7 @@ _DEFINITIONS = [
         ),
         bad_example=SkillExample(
             prompt="Implement the accepted onboarding PRD and open a PR.",
-            expected="Route to `ultraprocess` or `ralplan`, not `product-brief`.",
+            expected="Route to `ultrawork` or `ralplan`, not `product-brief`.",
             why="Accepted implementation work should move into planning or delivery rather than recreate a PRD.",
         ),
     ),
@@ -3716,14 +3810,14 @@ _DEFINITIONS = [
             "Name the audience, depth, repo root, read-only boundary, and stop condition.",
             "Separate observed files and commands from inferred architecture and unknowns.",
             "Produce a practical reading path and first-task runway rather than a flat file tour.",
-            "Route follow-up implementation to plan, ultraprocess, verification-gate, or workspace-audit as needed.",
+            "Route follow-up implementation to plan, ultrawork, verification-gate, or workspace-audit as needed.",
         ),
         why_this_exists=(
             "`codebase-onboarding` adapts ECC's code-tour and onboarding surfaces into an OMH-native first-read workflow "
             "so unfamiliar repos become navigable before implementation pressure starts."
         ),
         do_not_use_when=(
-            "The user already named a concrete implementation task and acceptance criteria; use `ultraprocess` or `idea-to-deploy`.",
+            "The user already named a concrete implementation task and acceptance criteria; use `ultrawork` or `idea-to-deploy`.",
             "The user needs a whole-workspace capability inventory; use `workspace-audit`.",
             "The user wants a code diff review; use `code-review`.",
         ),
@@ -3809,7 +3903,7 @@ _DEFINITIONS = [
             "Name repo root, refresh depth, task focus, artifact write policy, and stop condition.",
             "Choose build, summary, handoff, `--write`, and `--json` deliberately instead of treating all codegraph commands as equivalent.",
             "Separate prepared command plans from observed command outputs, generated artifacts, and executor-ready handoffs.",
-            "Route broader first-read orientation to codebase-onboarding and implementation to ultraprocess or the selected coding owner.",
+            "Route broader first-read orientation to codebase-onboarding and implementation to ultrawork or the selected coding owner.",
         ),
         why_this_exists=(
             "`codegraph-refresh` adapts ECC-style codemap freshness into OMH's local codegraph commands so operators can "
@@ -3817,7 +3911,7 @@ _DEFINITIONS = [
         ),
         do_not_use_when=(
             "The user needs a narrative first-read tour of an unfamiliar repo; use `codebase-onboarding`.",
-            "The user already has accepted implementation criteria and wants code changes; use `ultraprocess` or a coding handoff.",
+            "The user already has accepted implementation criteria and wants code changes; use `ultrawork` or a coding handoff.",
             "The user asks for visual, frontend, or rendered UI QA; use `frontend`, `design-quality-gate`, or `visual-qa`.",
         ),
         good_example=SkillExample(
@@ -4224,7 +4318,7 @@ _DEFINITIONS = [
             "Mark deploy, monitoring, and rollback as unobserved until the wrapper or operator records evidence.",
         ),
         do_not_use_when=(
-            "The task is already a concrete repo change whose stopping point is one PR-ready cycle, not product or release operations; use `ultraprocess`.",
+            "The task is already a concrete repo change whose stopping point is one PR-ready cycle, not product or release operations; use `ultrawork`.",
             "The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of opening a product delivery loop.",
         ),
     ),
@@ -4456,6 +4550,7 @@ _DEFINITIONS = [
             "Make acceptance criteria testable.",
             "Record unresolved tradeoffs explicitly.",
             "Keep rejected options and handoff readiness separate from accepted execution evidence.",
+            "Write plan artifacts only through the named `omh hermes plan` commands under `<repo>/.omh/plans/`; never write plans or planning state into `.omc/**` or any other wrapper's state root — `.omc/` belongs to oh-my-claudecode, a different product.",
         ),
         quality_tier="reviewed-plan-gated",
         quality_bar=(
@@ -4471,8 +4566,8 @@ _DEFINITIONS = [
         why_this_exists="`ralplan` exists to make planning reviewable before execution: Hermes should gather codebase/source facts, compare options, expose risks, define acceptance criteria, and prepare a handoff without pretending implementation already happened.",
         do_not_use_when=(
             "The request is still too ambiguous to name requirements, non-goals, or acceptance criteria; use `deep-interview` first.",
-            "The user asks for one full research-plan-implementation-review-PR cycle; use `ultraprocess` and keep ralplan as the planning stage.",
-            "The change is a small local refactor or cleanup with no architectural or regression risk; use `ultraprocess`, or `ai-slop-cleaner` when observable behavior must stay identical.",
+            "The user asks for one full research-plan-implementation-review-PR cycle; use `ultrawork` (its `delivery_boundary` capability) and keep ralplan as the planning stage.",
+            "The change is a small local refactor or cleanup with no architectural or regression risk; use `ultrawork`, or `ai-slop-cleaner` when observable behavior must stay identical.",
             "The user wants a pure source lookup, citation check, or paper explanation with no implementation plan.",
             "The unresolved work is repository terminology alignment or a project-language decision frontier; use `context` before planning.",
         ),
@@ -4483,7 +4578,7 @@ _DEFINITIONS = [
         ),
         bad_example=SkillExample(
             prompt="$ralplan implement the refactor now and open the PR.",
-            expected="Stop at the reviewed plan or route the full delivery cycle to `ultraprocess` after plan acceptance.",
+            expected="Stop at the reviewed plan or route the full delivery cycle to `ultrawork` after plan acceptance.",
             why="Ralplan is a planning gate, not implementation, review, CI, or PR evidence.",
         ),
         final_checklist=(
@@ -4498,7 +4593,7 @@ _DEFINITIONS = [
             "If requirements are still fuzzy, route back to deep-interview before planning.",
             "If current-source evidence is missing, route a `research` step before accepting the plan.",
             "If the plan depends on unstudied reference implementations or contested external claims, route a deep research step and consume its dossier before accepting the plan.",
-            "If the user asks for implementation after acceptance, recommend the follow-on path that fits the work's shape (`ultragoal`, `ultrawork`, `ralph`, `ultraprocess`, or a direct selected executor handoff) with a one-line fit reason, and start it only on the user's explicit go-ahead — never auto-start an engine from acceptance alone.",
+            "If the user asks for implementation after acceptance, recommend the follow-on path that fits the work's shape (`ultrawork` with the matching capability — durable checkpoint, coordinated lanes, single-owner persistence, or one delivery cycle — or a direct selected executor handoff) with a one-line fit reason, and start it only on the user's explicit go-ahead — never auto-start an engine from acceptance alone.",
         ),
     ),
     SkillDefinition(
@@ -4601,7 +4696,7 @@ _DEFINITIONS = [
         category="maintenance",
         phase="cleanup",
         do_not_use_when=(
-            "The goal is new or changed behavior rather than removing existing code; a plain refactor, feature, or fix request belongs to `ultraprocess`.",
+            "The goal is new or changed behavior rather than removing existing code; a plain refactor, feature, or fix request belongs to `ultrawork`.",
             "The cleanup would change architecture, module boundaries, or carry regression risk that needs a reviewed plan first; use `ralplan`.",
             "The user wants existing code judged rather than changed; use `code-review` for a bug-first review and `failure-signal-audit` for swallowed failures.",
         ),
@@ -5176,7 +5271,7 @@ _DEFINITIONS = [
         ),
         artifact_expectations=(
             "model_discovery/v1 metadata-only report when local discovery runs",
-            "model_recommendation_resolution/v1 recommendation result when a chain is resolved",
+            "model_recommendation_resolution/v3 recommendation result when a chain is resolved",
             "omh_model_activation/v1 setup receipt when the setup surface captures it",
         ),
         safety_rules=(
@@ -5191,9 +5286,9 @@ _DEFINITIONS = [
         quality_bar=_MODEL_SETUP_FIVE_STEP_BAR
         + (
             "Treat each Hermes role slot (main, realtime-search, design), semantic category, and external owner as an independent prerequisite/diagnose/recommend/apply unit instead of one combined change.",
-            "Explain the shipped recommendations as editable editorial defaults, not benchmarks or allowlists: ultrabrain uses GPT-5.6 Sol, deep uses GPT-5.6 Terra, unspecified-high prefers Kimi K3 then Claude Opus 5, unspecified-low prefers GLM-5.2 then GLM-5.2 Ultrafast, and visual-engineering prefers Claude Fable 5 then Kimi K3; quick, writing, and artistry may remain unconfigured.",
+            "Explain the shipped recommendations as editable editorial defaults, not benchmarks or allowlists: ultrabrain uses GPT-5.6 Sol; deep uses GPT-5.6 Terra; unspecified-high prefers Kimi K3 then Claude Opus 5; unspecified-low prefers GLM-5.2 then GLM-5.2 Ultrafast; quick prefers GLM-5.2 Ultrafast then Kimi K3; writing prefers Kimi K3, Qwen3-Coder, then Gemini 3.1 Pro; visual-engineering prefers Claude Fable 5 then Kimi K3; and artistry prefers Gemini 3.1 Pro, Claude Fable 5, then Kimi K3.",
             "For X/Twitter scraping or trend analysis, keep x_platform_data as a domain affinity rather than a role alias: prefer confirmed-active Grok, then Kimi K3, then Gemini, without removing the rest of the route or overriding an explicit model.",
-            "When a recommendation head is missing, choose the first confirmed-active owner-compatible fallback; when no candidate is active, leave that item unconfigured and let the rest of OMH setup finish.",
+            "When a recommendation head is missing, choose the first confirmed-active owner-compatible candidate in that chain. Only after every selected category, role-slot, and domain chain is exhausted, consult the shared final order Claude Opus 5 then GPT-5.6 Sol. If no candidate is confirmed active anywhere, keep the selector on its owner's native default model and let the rest of OMH setup finish without a model-config write.",
             "Give provider-specific native next actions without claiming provider readiness: use installed Hermes flows for OpenAI OAuth/OpenAI Codex, Anthropic or an existing Claude provider, Qwen OAuth or Alibaba, Gemini/Google/Vertex, Grok/xAI, Kimi, GLM/Z.AI, or an already-working custom provider; preserve working alternatives.",
         ),
         why_this_exists=(
@@ -5225,7 +5320,7 @@ _DEFINITIONS = [
         recovery_notes=(
             "If discovery is absent, truncated, unreadable, or layout_unverified, name that source state and continue with manual confirmed-active input instead of scanning more broadly.",
             "If a preferred Kimi, Claude, OpenAI, GLM, Grok, Gemini, or Qwen candidate is missing, preserve it as inactive and try the next confirmed-active compatible editorial candidate; do not substitute for an explicit unavailable choice.",
-            "If no compatible model is confirmed active, leave the recommendation unconfigured, finish applicable OMH setup, and name the relevant Hermes-native provider/auth or user-override next action.",
+            "If no compatible model is confirmed active, record owner_default, finish applicable OMH setup without a model-config write, and name the relevant Hermes-native provider/auth or user-override next action.",
             "If the diagnosed Hermes config cannot be read, report the read failure and stop before proposing a diff; if the config digest changes or the user rejects the diff, do not apply it.",
         ),
     ),

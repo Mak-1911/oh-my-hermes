@@ -38,6 +38,13 @@ CODING_EXECUTOR_HANDOFF_TARGETS = ("codex",)
 CODING_RUNTIME_HANDOFF_TARGETS = ("hermes", "omx-runtime", "omo-runtime", "omc-runtime")
 CODING_EXECUTOR_TARGETS = ("choose", *EXECUTOR_PROFILES)
 PROMPT_ONLY_EXECUTOR_PROFILES = ("claude-code", "generic")
+# The external coding CLIs a user can be offered as a coding owner. This set
+# is deliberately narrower than the maestro facade's serviceable profiles:
+# runtime handoffs and the generic prompt fallback are not external coding
+# CLIs, so selecting one of them never requires explicit-choice provenance.
+# The facade derives its own membership from this tuple, keeping the subset
+# relation structural.
+EXTERNAL_CLI_PROFILES = ("claude-code", "codex")
 
 
 RUNTIME_PROFILE_DETAILS = {
@@ -58,16 +65,16 @@ RUNTIME_PROFILE_DETAILS = {
                 "observed_event": "runtime_start",
             },
             {
-                "label": "Hermes durable goal loop",
+                "label": "Hermes durable checkpoints",
                 "syntax": "Hermes skill",
-                "command_template": "Use OMH ultragoal for: {message}",
-                "when_to_use": "Use when Hermes should keep one ambitious coding goal durable across planning, implementation, review, and verification.",
+                "command_template": "Use OMH ulw-work durable checkpoints for: {message}",
+                "when_to_use": "Use when Hermes should keep one ambitious coding goal on a durable goal ledger with checkpoints and a final gate across planning, implementation, review, and verification.",
                 "observed_event": "runtime_start",
             },
             {
-                "label": "Hermes coordinated team",
+                "label": "Hermes coordinated lanes",
                 "syntax": "Hermes skill",
-                "command_template": "Use OMH team for: {message}",
+                "command_template": "Use OMH ulw-work coordinated lanes for: {message}",
                 "when_to_use": "Use only when Hermes can split independent lanes and the wrapper can record worker dispatch/result evidence.",
                 "observed_event": "worker_dispatch",
             },
@@ -426,14 +433,14 @@ def hermes_coding_team_path_contract(profile: str) -> dict[str, object]:
                 "id": "durable_goal",
                 "label": "Hermes durable goal",
                 "use_when": "The task needs a durable plan, implementation pass, review, verification, and PR-level report.",
-                "entrypoint": "Use OMH ultragoal for: {message}",
+                "entrypoint": "Use OMH ulw-work durable checkpoints for: {message}",
                 "first_observed_event": "runtime_start",
             },
             {
                 "id": "team",
                 "label": "Hermes coding team",
                 "use_when": "Independent lanes can be assigned with explicit ownership and integration by one leader.",
-                "entrypoint": "Use OMH team for: {message}",
+                "entrypoint": "Use OMH ulw-work coordinated lanes for: {message}",
                 "first_observed_event": "worker_dispatch",
             },
             {

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from datetime import datetime, timezone
 from json import JSONDecodeError
 from pathlib import Path
@@ -14,11 +13,12 @@ from ..paths import OmhPaths
 from ..runtime.artifacts import summarize_delegated_coding_status
 from ..routing.action_copy import next_action_label
 from ..targets import read_target_registry_result
+from .hermes_model_settings import HERMES_AUX_ALIASES, read_hermes_model_settings
+from .hermes_processes import HERMES_PROCESS_SCHEMA_VERSION, observe_hermes_processes
+from .hermes_sessions import observe_hermes_sessions
 
 
-from ..evidence import status_label
-
-MENUBAR_STATUS_SCHEMA_VERSION = "menubar_status/v1"
+MENUBAR_STATUS_SCHEMA_VERSION = "menubar_status/v2"
 PROCESS_OVERLAY_SCHEMA_VERSION = "menubar_process_overlay/v1"
 DEFAULT_PROCESS_OVERLAY_TTL_SECONDS = 10
 DEFAULT_RESTART_WINDOW_SECONDS = 20
@@ -59,8 +59,13 @@ def build_menubar_status_payload(
     hermes_agents = _hermes_agent_rows(paths)
     external_executors = _external_executor_rows(paths, limit=safe_limit)
     current_executor, current_executor_source = _select_current_external_executor(paths, external_executors)
+    hermes_sessions = observe_hermes_sessions(paths)
+    model_settings = read_hermes_model_settings(paths)
+    hermes_processes = (
+        observe_hermes_processes(now=now) if observe_local_processes else _unrequested_process_observation(now=now)
+    )
     if observe_local_processes and process_overlay is None:
-        process_overlay = _local_process_overlay(hermes_agents, now=now)
+        process_overlay = _local_process_overlay(hermes_agents, hermes_processes, now=now)
     overlay_summary = _apply_process_overlay(
         hermes_agents,
         external_executors,
@@ -73,7 +78,7 @@ def build_menubar_status_payload(
         "package": "oh-my-hermes",
         "omh_home": str(paths.omh_home),
         "hermes_home": str(paths.hermes_home),
-        "display": _display(settings, hermes_agents, current_executor),
+        "display": _display(settings, hermes_processes, hermes_sessions, model_settings, current_executor),
         "sections": {
             "hermes_agents": {
                 "title": "Hermes agents",
@@ -88,6 +93,9 @@ def build_menubar_status_payload(
             },
         },
         "hermes_agents": hermes_agents,
+        "hermes_processes": hermes_processes,
+        "hermes_sessions": hermes_sessions,
+        "model_settings": model_settings,
         "external_coding_executors": external_executors,
         "current_external_coding_executor": _current_external_executor_payload(
             current_executor,
@@ -102,9 +110,9 @@ def build_menubar_status_payload(
             "rendering_rule": "Render source and model as icons in compact surfaces; expose tooltip text on hover or focus.",
         },
         "evidence_boundary": (
-            "menubar_status/v1 is a metadata-only view projection unless a caller overlay or explicit local process "
-            "observation is applied. Configured Hermes targets and prepared coding-agent actions are not execution, "
-            "verification, review, CI, merge, or PID evidence."
+            "menubar_status/v2 combines read-only Hermes state.db session observation and config.yaml model settings "
+            "with metadata unless a caller overlay or explicit local process observation is applied. These sources "
+            "are not execution, verification, review, CI, merge, token-usage, or PID evidence."
         ),
         "privacy": "metadata_only",
     }
@@ -123,9 +131,18 @@ def read_process_overlay_file(path: str) -> dict[str, Any]:
     return data
 
 
-def _local_process_overlay(hermes_agents: list[dict[str, Any]], *, now: datetime | str | None) -> dict[str, Any] | None:
-    observed_at = _coerce_datetime(now) or datetime.now(timezone.utc)
-    processes = _local_hermes_process_rows()
+def _local_process_overlay(
+    hermes_agents: list[dict[str, Any]],
+    hermes_processes: dict[str, Any],
+    *,
+    now: datetime | str | None,
+) -> dict[str, Any]:
+    observed_at = (
+        _parse_datetime(str(hermes_processes.get("observed_at", "") or ""))
+        or _coerce_datetime(now)
+        or datetime.now(timezone.utc)
+    )
+    processes = [row for row in _list(hermes_processes.get("rows")) if row.get("role") == "agent"]
     overlay_agents: list[dict[str, Any]] = []
     if len(hermes_agents) == 1 and processes:
         process = processes[0]
@@ -157,38 +174,21 @@ def _local_process_overlay(hermes_agents: list[dict[str, Any]], *, now: datetime
     }
 
 
-def _local_hermes_process_rows() -> list[dict[str, Any]]:
-    try:
-        result = subprocess.run(
-            ["ps", "-axo", "pid=,stat=,command="],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=2,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    if result.returncode != 0:
-        return []
-    rows: list[dict[str, Any]] = []
-    for raw_line in result.stdout.splitlines():
-        parts = raw_line.strip().split(None, 2)
-        if len(parts) < 3:
-            continue
-        pid, stat, command = parts
-        if not _looks_like_hermes_runtime_process(command):
-            continue
-        parsed_pid = _positive_int(pid, 0)
-        if not parsed_pid:
-            continue
-        rows.append({"pid": parsed_pid, "stat": stat, "command": command})
-    return rows
-
-
-def _looks_like_hermes_runtime_process(command: str) -> bool:
-    padded = f" {command} "
-    return " -m hermes_cli.main " in padded or "hermes_cli.main gateway run" in command
+def _unrequested_process_observation(*, now: datetime | str | None) -> dict[str, Any]:
+    observed_at = _coerce_datetime(now) or datetime.now(timezone.utc)
+    return {
+        "schema_version": HERMES_PROCESS_SCHEMA_VERSION,
+        "observed": False,
+        "reason": "not_requested",
+        "agent_count": 0,
+        "process_count": 0,
+        "rows": [],
+        "source": "local_process_scan",
+        "observed_at": _format_datetime(observed_at),
+        "claim_boundary": (
+            "Local process observation is bounded, best-effort, and is not execution, review, CI, or merge evidence."
+        ),
+    }
 
 
 def _hermes_agent_rows(paths: OmhPaths) -> list[dict[str, Any]]:
@@ -446,175 +446,128 @@ def _versions(hud: dict[str, Any]) -> dict[str, Any]:
 
 def _display(
     settings: dict[str, Any],
-    hermes_agents: list[dict[str, Any]],
+    hermes_processes: dict[str, Any],
+    hermes_sessions: dict[str, Any],
+    model_settings: dict[str, Any],
     current_executor_row: dict[str, Any],
 ) -> dict[str, Any]:
-    headline = "OMH ready" if settings["omh_connection"]["value"] == "ready" else "OMH needs attention"
-    pieces = [f"{len(hermes_agents)} Hermes target(s)"]
-    if current_executor_row:
-        pieces.append(f"{current_executor_row['name']} {current_executor_row['status_label'].lower()}")
-    elif str(settings["coding_handoff"]["value"]) != "choose":
-        pieces.append(f"{_executor_setting_label(str(settings['coding_handoff']['value']))} preferred, no request routed yet")
+    connection_ready = settings["omh_connection"]["value"] == "ready"
+    processes_observed = bool(hermes_processes.get("observed"))
+    sessions_observed = bool(hermes_sessions.get("observed"))
+    agent_count = _safe_int(hermes_processes.get("agent_count"), 0)
+    process_count = _safe_int(hermes_processes.get("process_count"), 0)
+    live = _safe_int(hermes_sessions.get("live"), 0)
+    if processes_observed and agent_count > 0:
+        headline = "Hermes running"
     else:
-        pieces.append("ready for the next request")
+        headline = "OMH ready" if connection_ready else "OMH needs attention"
+    pieces: list[str] = []
+    if processes_observed:
+        pieces.append(f"{agent_count} agent · {process_count} processes")
+    if sessions_observed:
+        pieces.append(f"sessions live {live} / total {_safe_int(hermes_sessions.get('total'), 0)}")
+    else:
+        pieces.append("sessions not observed")
+    if not connection_ready:
+        menu_bar_title = "!"
+    elif processes_observed and sessions_observed:
+        menu_bar_title = f"{agent_count}·{live}"
+    else:
+        menu_bar_title = ""
     return {
         "menu_title": "omh",
+        "menu_bar_title": menu_bar_title,
         "headline": headline,
         "summary_line": " · ".join(pieces),
-        "menu_cards": _menu_cards(settings, hermes_agents, current_executor_row),
+        "menu_cards": _menu_cards(settings, hermes_sessions, model_settings, current_executor_row),
     }
 
 
 def _menu_cards(
     settings: dict[str, Any],
-    hermes_agents: list[dict[str, Any]],
+    hermes_sessions: dict[str, Any],
+    model_settings: dict[str, Any],
     current_executor_row: dict[str, Any],
 ) -> list[dict[str, Any]]:
     return [
+        _sessions_card(hermes_sessions),
+        _models_card(hermes_sessions, model_settings),
         {
-            "title": "Agent Status",
-            "columns": ["Agent", "PID", "Status"],
-            "rows": _agent_status_menu_rows(hermes_agents),
-            "footer": "PID appears after overlay or explicit local observation.",
-        },
-        {
-            "title": "Coding Agent",
-            "rows": _coding_menu_rows(settings, current_executor_row),
-        },
-        {
-            "title": "Evidence",
+            "title": "",
             "rows": [
-                _menu_row("Boundary", _evidence_menu_value(hermes_agents, current_executor_row)),
-                _menu_row("Next", _evidence_next_action(current_executor_row)),
+                {
+                    "label": "coding",
+                    "value": _coding_agent_menu_value(settings, current_executor_row),
+                    "detail": "metadata only",
+                }
             ],
         },
     ]
 
 
-def _menu_row(label: str, value: str, *, detail: str = "", tone: str = "neutral") -> dict[str, str]:
-    row = {"label": label, "value": value, "tone": tone}
-    if detail:
-        row["detail"] = detail
-    return row
-
-
-def _agent_status_row(agent: str, pid: str, status: str, *, tone: str = "neutral") -> dict[str, str]:
-    return {
-        "kind": "agent_status",
-        "agent": agent,
-        "pid": pid,
-        "status": status,
-        "tone": tone,
-    }
-
-
-def _setting_value(settings: dict[str, Any], key: str, *, default: str = "") -> str:
-    row = _dict(settings.get(key))
-    return str(row.get("value", "") or default)
-
-
 def _coding_agent_menu_value(settings: dict[str, Any], current_executor_row: dict[str, Any]) -> str:
     if current_executor_row:
         return str(current_executor_row.get("name", "") or "selected")
-    return _executor_setting_label(_setting_value(settings, "coding_handoff", default="choose"))
+    coding_handoff = _dict(settings.get("coding_handoff"))
+    return _executor_setting_label(str(coding_handoff.get("value", "") or "choose"))
 
 
-def _agent_status_menu_rows(hermes_agents: list[dict[str, Any]]) -> list[dict[str, str]]:
-    if not hermes_agents:
-        return [_agent_status_row("none", "not observed", "run setup")]
+def _sessions_card(hermes_sessions: dict[str, Any]) -> dict[str, Any]:
+    if not hermes_sessions.get("observed"):
+        return {
+            "title": "Sessions",
+            "columns": ["Hermes session", "Count"],
+            "rows": [{"kind": "table_row", "left": "sessions", "right": "not observed"}],
+            "footer": str(hermes_sessions.get("reason", "") or "not observed"),
+        }
+    live = _safe_int(hermes_sessions.get("live"), 0)
+    total = _safe_int(hermes_sessions.get("total"), 0)
+    return {
+        "title": "Sessions",
+        "columns": ["Hermes session", "Count"],
+        "rows": [
+            {"kind": "table_row", "left": "live", "right": str(live), "tone": "ok" if live else "neutral"},
+            {"kind": "table_row", "left": "total", "right": str(total), "tone": "ok" if total else "neutral"},
+        ],
+        "footer": "Observed from Hermes state.db (read-only).",
+    }
+
+
+def _models_card(hermes_sessions: dict[str, Any], model_settings: dict[str, Any]) -> dict[str, Any]:
     rows: list[dict[str, str]] = []
-    for agent in hermes_agents[:3]:
-        name = _short_text(str(agent.get("name", "") or "Hermes Agent"), limit=28)
-        status = str(agent.get("status_label", "") or agent.get("status", "") or "configured")
-        pid = _pid_menu_value(agent)
+    current_model = _dict(hermes_sessions.get("current_model"))
+    if current_model.get("observed"):
         rows.append(
-            _agent_status_row(
-                name,
-                pid,
-                status,
-                tone="ok" if agent.get("status_observed") or agent.get("pid_observed") else "neutral",
-            )
+            {
+                "kind": "table_row",
+                "left": "current",
+                "right": str(current_model.get("label", "") or "not observed"),
+                "tone": "ok",
+            }
         )
-    if len(hermes_agents) > 3:
-        rows.append(_agent_status_row(f"+{len(hermes_agents) - 3} more", "not shown", "hidden"))
-    return rows
-
-
-def _coding_menu_rows(settings: dict[str, Any], current_executor_row: dict[str, Any]) -> list[dict[str, str]]:
-    if current_executor_row:
-        name = str(current_executor_row.get("name", "") or "Coding agent")
-        status = str(current_executor_row.get("status_label", "") or current_executor_row.get("status", "") or "prepared")
-        rows = [
-            _menu_row("Agent", name),
-            _menu_row("Status", status),
-            _menu_row("PID", _pid_menu_value(current_executor_row)),
-        ]
-        next_action = str(_dict(current_executor_row.get("evidence")).get("next_action", "") or "")
-        if next_action:
-            rows.append(_menu_row("Next", _human_next_action(next_action)))
-        return rows
-    # No-run state: nothing has been routed yet, so this card is led by
-    # Hermes/OMH readiness rather than an idle coding-agent concept. See
-    # docs/INSTALLATION.md "Status model: no-run, prepared-handoff,
-    # observed-run".
-    dispatch = _setting_value(settings, "send_mode", default="ask_before_dispatch")
-    coding_value = _setting_value(settings, "coding_handoff", default="choose")
-    if coding_value == "choose":
-        status_row = _menu_row("Status", "ready", detail="Hermes routes the next request to a coding agent")
-    else:
-        status_row = _menu_row("Status", "preferred", detail="no request routed yet")
-    return [
-        _menu_row("Agent", _coding_agent_menu_value(settings, current_executor_row)),
-        status_row,
-        _menu_row("Open mode", _dispatch_policy_menu_value(dispatch, coding_value)),
-    ]
-
-
-def _dispatch_policy_menu_value(dispatch_policy: str, executor: str) -> str:
-    label = _dispatch_policy_label(dispatch_policy, executor)
-    prefix = "Open mode: "
-    return label[len(prefix) :] if label.startswith(prefix) else label
-
-
-def _pid_menu_value(row: dict[str, Any]) -> str:
-    if row.get("pid_observed") and row.get("pid"):
-        return str(row.get("pid"))
-    return "not observed"
-
-
-def _evidence_menu_value(hermes_agents: list[dict[str, Any]], current_executor_row: dict[str, Any]) -> str:
-    observed_agents = sum(1 for row in hermes_agents if row.get("status_observed") or row.get("pid_observed"))
-    if current_executor_row:
-        evidence = _dict(current_executor_row.get("evidence"))
-        state = str(evidence.get("state", "") or "prepared_not_observed")
-        # `state.replace("_", " ")` spelled the wire value out loud rather than
-        # translating it; the shared label map is what the board and the chat
-        # summary already use.
-        return _short_text(status_label(state), limit=32)
-    if observed_agents:
-        return f"{observed_agents} process observed"
-    return "metadata only"
-
-
-def _evidence_next_action(current_executor_row: dict[str, Any]) -> str:
-    if current_executor_row:
-        evidence = _dict(current_executor_row.get("evidence"))
-        next_action = str(evidence.get("next_action", "") or "")
-        if next_action:
-            return _human_next_action(next_action)
-    return "open Hermes or run omh doctor"
-
-
-def _human_next_action(next_action: str) -> str:
-    label = next_action_label(next_action)
-    return _short_text(label or next_action, limit=48)
-
-
-def _short_text(value: str, *, limit: int) -> str:
-    text = " ".join(str(value or "").split())
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 1)].rstrip() + "…"
+    aliases = {str(row.get("alias", "") or ""): row for row in _list(model_settings.get("aliases"))}
+    main = aliases.get("main")
+    if main is not None and len(rows) < 5:
+        rows.append({"kind": "table_row", "left": "main", "right": str(main.get("label", "") or "inherit")})
+    inherit_count = sum(
+        1
+        for alias in HERMES_AUX_ALIASES
+        if (entry := aliases.get(alias)) is not None and not entry.get("configured")
+    )
+    configured_row_limit = 4 if inherit_count > 0 else 5
+    for alias in HERMES_AUX_ALIASES:
+        entry = aliases.get(alias)
+        if entry is None or not entry.get("configured") or len(rows) >= configured_row_limit:
+            continue
+        rows.append({"kind": "table_row", "left": alias, "right": str(entry.get("label", "") or "inherit")})
+    if inherit_count > 0 and len(rows) < 5:
+        rows.append({"kind": "table_row", "left": f"+{inherit_count} aliases", "right": "inherit default"})
+    return {
+        "title": "Models",
+        "columns": ["Alias", "Model"],
+        "rows": rows,
+        "footer": "current = live session · main/aux = config.yaml",
+    }
 
 
 def _source_icon_id(source: str) -> str:

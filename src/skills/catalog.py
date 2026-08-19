@@ -77,6 +77,19 @@ from .catalog_types import (
     CODING_INTENT_PRIORITY,
     CODING_INTENT_TERMS,
     CODING_REVIEW_TERMS,
+    DECISION_FRONTIER_BUDGET_SCOPE,
+    DECISION_FRONTIER_COMPACTION_FAILURE_ACTION,
+    DECISION_FRONTIER_CONSENT_GATES,
+    DECISION_FRONTIER_DECISION_ID_PREFIX,
+    DECISION_FRONTIER_DECISION_STATES,
+    DECISION_FRONTIER_HARNESS,
+    DECISION_FRONTIER_OMITTED_ANSWER_TRANSITION,
+    DECISION_FRONTIER_PARTIAL_ANSWER_POLICY,
+    DECISION_FRONTIER_POLICY_SCHEMA_VERSION,
+    DECISION_FRONTIER_RECOMMENDATION_POLICY,
+    DECISION_FRONTIER_ROUND_UNIT,
+    DECISION_FRONTIER_STOP_RULE_ORDER,
+    DECISION_FRONTIER_USER_STOP_SCOPE,
     DEEP_INTERVIEW_CLARITY_DIMENSIONS,
     DEEP_INTERVIEW_MAX_ROUNDS,
     DEEP_INTERVIEW_SOFT_CHECK_ROUND,
@@ -95,6 +108,7 @@ from .catalog_types import (
     OMH_SKILL_NAME_PREFIX,
     SkillDefinition,
     SkillExample,
+    SURFACE_LIFECYCLE_STAGES,
     SurfaceExposure,
     ULW_ENGINE_SKILL_NAMES,
     ULW_SKILL_NAME_PREFIX,
@@ -110,6 +124,17 @@ _DEFINITIONS.extend(_FEATURE_SURFACE_SKILLS)
 
 
 _DEFAULT_SURFACE_PROJECTIONS = ("routable", "installable", "workflow_reference", "capability")
+_DEFAULT_SURFACE_PREFERRED_USAGE = (
+    "Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle."
+)
+# Retired ULW engines keep only the reference projection -- the
+# `quality-evidence-loop` precedent: the contract exists but is not an
+# installed, routable, user-facing skill.
+_RETIRED_SURFACE_PROJECTIONS = ("workflow_reference",)
+_RETIRED_SURFACE_PREFERRED_USAGE = (
+    "Retired workflow engine: the intent now runs as a `ulw-work` capability; keep this contract as a "
+    "workflow reference only."
+)
 _SURFACE_EXPOSURES = (
     SurfaceExposure(
         "design-orchestration",
@@ -431,6 +456,142 @@ _SURFACE_EXPOSURES = (
         "primary_workflow_skill",
         "Use as an installed Hermes workflow skill when the user wants to learn from a workflow run, review an improvement candidate, create a regression case, or export a redacted review bundle.",
     ),
+    # The twelve ULW workflow engines, materialized as explicit rows so each
+    # engine's lifecycle stage is answerable from the exposure table instead of
+    # falling through `_default_surface_exposure()`. For the eight canonical
+    # engines every field other than `lifecycle_stage` must stay byte-identical
+    # to that default -- `tests/test_ulw_inventory.py` pins the equality -- so
+    # a lifecycle move is a one-row edit here, never a behavior change smuggled
+    # through a default. The four retired engines (#954 stage 5) use the
+    # retired shape declared above.
+    SurfaceExposure(
+        "context",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "deep-interview",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "research",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "ralplan",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "ultrawork",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    # The four retired engines (#954 stage 5, shipped with a window=0
+    # maintainer decision: canonical -> retired directly, no alias or warning
+    # release in between). Each keeps its `SkillDefinition` and its
+    # `workflow_reference` projection (P2: retirement is an exposure change,
+    # not a deletion), keeps `compatibility_alias=True` so a stale workflow
+    # hint resolves as a compatibility concern, and names its `ulw-work`
+    # target home. Rollback is a one-row edit back to the canonical shape;
+    # `tests/test_ulw_retirement.py` exercises it per contract.
+    SurfaceExposure(
+        "ralph",
+        "direct_skill",
+        _RETIRED_SURFACE_PROJECTIONS,
+        False,
+        "workflow_reference",
+        _RETIRED_SURFACE_PREFERRED_USAGE,
+        compatibility_alias=True,
+        lifecycle_stage="retired",
+        target_home="ultrawork",
+        migration_release="1.0.7",
+    ),
+    SurfaceExposure(
+        "team",
+        "direct_skill",
+        _RETIRED_SURFACE_PROJECTIONS,
+        False,
+        "workflow_reference",
+        _RETIRED_SURFACE_PREFERRED_USAGE,
+        compatibility_alias=True,
+        lifecycle_stage="retired",
+        target_home="ultrawork",
+        migration_release="1.0.7",
+    ),
+    SurfaceExposure(
+        "loop",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "ultragoal",
+        "direct_skill",
+        _RETIRED_SURFACE_PROJECTIONS,
+        False,
+        "workflow_reference",
+        _RETIRED_SURFACE_PREFERRED_USAGE,
+        compatibility_alias=True,
+        lifecycle_stage="retired",
+        target_home="ultrawork",
+        migration_release="1.0.7",
+    ),
+    SurfaceExposure(
+        "ultraprocess",
+        "direct_skill",
+        _RETIRED_SURFACE_PROJECTIONS,
+        False,
+        "workflow_reference",
+        _RETIRED_SURFACE_PREFERRED_USAGE,
+        compatibility_alias=True,
+        lifecycle_stage="retired",
+        target_home="ultrawork",
+        migration_release="1.0.7",
+    ),
+    SurfaceExposure(
+        "ultraqa",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
+    SurfaceExposure(
+        "ultraperf",
+        "direct_skill",
+        _DEFAULT_SURFACE_PROJECTIONS,
+        True,
+        "primary_workflow_skill",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
+        lifecycle_stage="canonical",
+    ),
 )
 
 
@@ -488,6 +649,58 @@ def installable_skill_names() -> tuple[str, ...]:
     return tuple(definition.name for definition in installable_skill_definitions())
 
 
+ULTRAWORK_HERMES_CATEGORY = "ultrawork"
+HERMES_CATEGORY_FALLBACK = "workflow"
+
+
+def hermes_skill_category(name: str) -> str:
+    """The Hermes dashboard group a skill installs under.
+
+    Hermes derives a skill's category from DIRECTORY STRUCTURE, not from
+    frontmatter: `tools/skills_tool.py::_get_category_from_path` takes the path
+    relative to each configured skills dir and uses the first path component
+    only when the relative path has three or more parts. A flat
+    `<skills_dir>/<skill>/SKILL.md` install therefore resolves to no category at
+    all, and the startup banner filed every OMH skill under "general". Installs
+    are nested one level deeper -- `<skills_dir>/<category>/<skill>/SKILL.md` --
+    so the group a reader sees is a group OMH chose.
+
+    The group is deliberately NOT `SkillDefinition.category`. That field is the
+    catalog's fine-grained phase vocabulary (41 values across ~100 skills), and
+    one banner line per value is not a dashboard. `hermes_role` is the coarse
+    axis the product already documents in `docs/ROLES.md`, so it is what the
+    directories mirror.
+
+    The ULW engines are the one carve-out: they span six catalog categories and
+    five roles, but a user reaching for them is reaching for the ULW engine
+    family by name. Grouping them under `ultrawork` is what makes the banner
+    able to say so. Membership reuses `ULW_ENGINE_SKILL_NAMES`, the same list
+    that owns the `ulw-` label prefix, so a skill cannot be a ULW engine in one
+    surface and not the other.
+    """
+    text = name.strip()
+    if text in ULW_ENGINE_SKILL_NAMES:
+        return ULTRAWORK_HERMES_CATEGORY
+    return _hermes_category_by_skill().get(text, HERMES_CATEGORY_FALLBACK)
+
+
+def hermes_skill_categories() -> tuple[str, ...]:
+    """Every category an installable skill lands in, sorted."""
+    return tuple(
+        sorted({hermes_skill_category(name) for name in installable_skill_names()})
+    )
+
+
+def omh_skill_install_path(name: str) -> str:
+    """Posix relative path of a skill's install directory under the skills dir."""
+    return f"{hermes_skill_category(name)}/{omh_skill_display_name(name)}"
+
+
+@lru_cache(maxsize=1)
+def _hermes_category_by_skill() -> dict[str, str]:
+    return {definition.name: definition.hermes_role for definition in _builtin_definitions_cached()}
+
+
 def surface_exposure_for_skill(name: str) -> SurfaceExposure:
     return _surface_exposure_by_name().get(name, _default_surface_exposure(name))
 
@@ -501,6 +714,259 @@ def skill_exposure_payload(name: str) -> dict[str, object]:
         "docs_visibility": exposure.docs_visibility,
         "preferred_usage": exposure.preferred_usage,
         "compatibility_alias": exposure.compatibility_alias,
+        "lifecycle_stage": exposure.lifecycle_stage,
+        "target_home": exposure.target_home,
+        "migration_release": exposure.migration_release,
+    }
+
+
+ULW_INVENTORY_SCHEMA_VERSION = "omh_ulw_inventory/v1"
+
+# Reader-facing enumeration order for the twelve workflow engines: the request
+# pipeline (clarify -> research -> plan -> execute -> verify -> optimize), the
+# same order the English README table has always used. Membership is pinned to
+# `ULW_ENGINE_SKILL_NAMES` by `ulw_inventory_payload()` itself, so adding or
+# dropping an engine in only one of the two fails loudly.
+_ULW_ENGINE_ORDER = (
+    "context",
+    "deep-interview",
+    "research",
+    "ralplan",
+    "ultrawork",
+    "ralph",
+    "team",
+    "loop",
+    "ultragoal",
+    "ultraprocess",
+    "ultraqa",
+    "ultraperf",
+)
+
+# Reader-facing copy per engine. `summary` is the English README table cell;
+# `site_*` feed the generated site region (`omh docs ulw-site`). Localized row
+# prose stays hand-maintained by decision -- these are the English projections
+# only. Data, not derivation: catalog descriptions are contract prose, and the
+# marketing surfaces deliberately say less.
+_ULW_ENGINE_PRESENTATIONS: dict[str, dict[str, object]] = {
+    "context": {
+        "summary": (
+            "Aligns reviewed project terms, captures confirmed candidates, and interviews the next "
+            "decision frontier without giving terminology routing authority."
+        ),
+        "site_tag": "Terminology alignment",
+        "site_title": "Context",
+        "site_body": "Aligns the words a repository uses before plans and handoffs.",
+        "site_cues": ("ulw-context", "review project terms"),
+    },
+    "deep-interview": {
+        "summary": "Asks one question at a time until it knows exactly what you want.",
+        "site_tag": "Clarification",
+        "site_title": "Deep Interview",
+        "site_body": "One question at a time until the brief is clear.",
+        "site_cues": ("deep-interview", "clarify"),
+    },
+    "research": {
+        "summary": "Digs through real code and the live web, keeps sources, and verifies anything doubtful.",
+        "site_tag": "Decision grounding",
+        "site_title": "Research",
+        "site_body": "Reference implementations, live web evidence, verified claims.",
+        "site_cues": ("web research", "source-backed research"),
+    },
+    "ralplan": {
+        "summary": "Builds a reviewed plan: options compared, risks named, done-criteria agreed.",
+        "site_tag": "Reviewed plan",
+        "site_title": "Ralplan",
+        "site_body": "Consensus planning with review gates.",
+        "site_cues": ("ralplan", "consensus plan"),
+    },
+    "ultrawork": {
+        "summary": "Runs an accepted plan in parallel lanes that never touch the same file.",
+        "site_tag": "Parallel delivery",
+        "site_title": "Ultrawork",
+        "site_body": "Splits an accepted plan into disjoint lanes.",
+        "site_cues": ("ultrawork", "parallel work"),
+    },
+    "ralph": {
+        "summary": "One owner grinds a task to done — build, verify, review, repeat.",
+        "site_tag": "Drive to done",
+        "site_title": "Ralph",
+        "site_body": "One owner drives a task to done.",
+        "site_cues": ("ralph", "finish until done"),
+    },
+    "team": {
+        "summary": "Multiple workers, one task list, no collisions.",
+        "site_tag": "Coordination",
+        "site_title": "Team",
+        "site_body": "N coordinated workers on one shared task list.",
+        "site_cues": ("team", "parallel agents"),
+    },
+    "loop": {
+        "summary": "Cycles plan → build → review until the goal actually passes.",
+        "site_tag": "Goal loop",
+        "site_title": "Loop",
+        "site_body": "Interview → plan → research → build → review.",
+        "site_cues": ("loop", "long horizon goal"),
+    },
+    "ultragoal": {
+        "summary": "Long-running goals with checkpoints — survives lost context, resumes where it stopped.",
+        "site_tag": "Durable goals",
+        "site_title": "Ultragoal",
+        "site_body": "A checkpointed ledger survives context loss.",
+        "site_cues": ("ultragoal", "goal ledger"),
+    },
+    "ultraprocess": {
+        "summary": "Takes one task all the way from research to an open PR.",
+        "site_tag": "Task to PR",
+        "site_title": "Ultraprocess",
+        "site_body": "One clean plan-to-PR cycle.",
+        "site_cues": ("ultraprocess", "end-to-end process"),
+    },
+    "ultraqa": {
+        "summary": "Attacks the build with hostile scenarios and fixes what breaks.",
+        "site_tag": "Adversarial QA",
+        "site_title": "UltraQA",
+        "site_body": "Hostile scenarios, end-to-end runs, release QA.",
+        "site_cues": ("ultraqa", "release qa"),
+    },
+    "ultraperf": {
+        "summary": "Measures where it is actually slow or expensive, then fixes one hot path at a time.",
+        "site_tag": "Measured optimization",
+        "site_title": "Ultraperf",
+        "site_body": "Finds where the system is actually slow, leaking, or expensive.",
+        "site_cues": ("ultraperf", "find the bottleneck"),
+    },
+}
+
+
+def ulw_inventory_payload() -> dict[str, object]:
+    """Single producer for the ULW engine inventory and per-engine lifecycle state.
+
+    Every downstream ULW surface derives from this payload: the release-drift
+    count metrics, the generated site region (`omh docs ulw-site`), the
+    generated English README table (`omh docs ulw-inventory`), and the plugin
+    bundle parity test. Two producers that can disagree is exactly the
+    site-says-eleven-README-says-twelve defect this exists to end.
+    """
+    if set(_ULW_ENGINE_ORDER) != set(ULW_ENGINE_SKILL_NAMES) or len(_ULW_ENGINE_ORDER) != len(
+        ULW_ENGINE_SKILL_NAMES
+    ):
+        raise ValueError(
+            "ULW inventory order drifted from ULW_ENGINE_SKILL_NAMES; "
+            "update _ULW_ENGINE_ORDER in src/skills/catalog.py"
+        )
+    engines: list[dict[str, object]] = []
+    for name in _ULW_ENGINE_ORDER:
+        exposure = surface_exposure_for_skill(name)
+        if exposure.lifecycle_stage not in SURFACE_LIFECYCLE_STAGES:
+            raise ValueError(f"unknown lifecycle stage for {name}: {exposure.lifecycle_stage}")
+        presentation = _ULW_ENGINE_PRESENTATIONS[name]
+        display_name = omh_skill_display_name(name)
+        engines.append(
+            {
+                "canonical": name,
+                "display_name": display_name,
+                "historical_display_names": list(historical_skill_display_names(name)),
+                "lifecycle_stage": exposure.lifecycle_stage,
+                "target_home": exposure.target_home,
+                "migration_release": exposure.migration_release,
+                "summary": presentation["summary"],
+                "site": {
+                    "i18n_stem": display_name.removeprefix(ULW_SKILL_NAME_PREFIX),
+                    "tag": presentation["site_tag"],
+                    "title": presentation["site_title"],
+                    "body": presentation["site_body"],
+                    "cues": list(presentation["site_cues"]),
+                },
+            }
+        )
+    canonical_engines = [engine for engine in engines if engine["lifecycle_stage"] == "canonical"]
+    alias_engines = [engine for engine in engines if engine["lifecycle_stage"] in {"alias", "warning"}]
+    # Retired engines are enumerated separately, never silently dropped: the
+    # drift gate reads all three lists, so a stage flip that loses an engine
+    # from every list fails the total-count parity below.
+    retired_engines = [engine for engine in engines if engine["lifecycle_stage"] == "retired"]
+    return {
+        "schema_version": ULW_INVENTORY_SCHEMA_VERSION,
+        "canonical_engines": canonical_engines,
+        "alias_engines": alias_engines,
+        "retired_engines": retired_engines,
+        "counts": {
+            "canonical": len(canonical_engines),
+            "alias": len(alias_engines),
+            "retired": len(retired_engines),
+            "total": len(engines),
+        },
+    }
+
+
+# The `ulw-work` capability each retired engine's intent now runs as. Kept in
+# the catalog (not derived from `src/quality/ulw_equivalence.py`) because
+# routing must not import the quality gate; `tests/test_ulw_retirement.py`
+# pins this table against the equivalence cases so the two cannot disagree.
+ULW_RETIRED_CAPABILITIES = {
+    "team": "coordinated_scope",
+    "ultraprocess": "delivery_boundary",
+    "ralph": "single_owner_persistence",
+    "ultragoal": "durable_checkpoint",
+}
+
+
+def retired_ulw_engine_names() -> tuple[str, ...]:
+    """Canonical names of ULW engines whose lifecycle stage is `retired`."""
+    return tuple(
+        engine["canonical"] for engine in ulw_inventory_payload()["retired_engines"]
+    )
+
+
+def retired_ulw_engine_definitions() -> list[SkillDefinition]:
+    names = set(retired_ulw_engine_names())
+    return [definition for definition in _builtin_definitions_cached() if definition.name in names]
+
+
+def retired_display_names() -> dict[str, str]:
+    """Map every current and historical display label of a retired engine to its canonical name.
+
+    Consulted after `_canonical_skill_by_display_name()` misses: retirement
+    narrows a skill out of the routable projection, which ends ordinary label
+    resolution, so a stale label must produce a named migration error instead
+    of a silent miss.
+    """
+    mapping: dict[str, str] = {}
+    for name in retired_ulw_engine_names():
+        mapping[name] = name
+        mapping[omh_skill_display_name(name)] = name
+        for label in historical_skill_display_names(name):
+            mapping[label] = name
+    return mapping
+
+
+def retired_skill_migration_error(label: str) -> dict[str, str]:
+    """Named migration error for a retired engine label or tap path.
+
+    Returns an empty dict when the label names no retired engine. The message
+    is informational migration copy, not a deprecation warning: the intent now
+    runs as the named `ulw-work` capability.
+    """
+    text = label.strip()
+    canonical = retired_display_names().get(text, "")
+    if not canonical:
+        tail = text.rstrip("/").rsplit("/", 1)[-1]
+        canonical = retired_display_names().get(tail, "")
+    if not canonical:
+        return {}
+    capability = ULW_RETIRED_CAPABILITIES[canonical]
+    display = omh_skill_display_name(canonical)
+    return {
+        "error": "retired_skill",
+        "retired_contract_id": canonical,
+        "retired_display_name": display,
+        "target_contract_id": "ultrawork",
+        "target_display_name": omh_skill_display_name("ultrawork"),
+        "selected_capability": capability,
+        "message": (
+            f"`{display}` is retired; this intent now runs as `ulw-work` capability "
+            f"`{capability}`. Install or invoke `ulw-work` (canonical `ultrawork`) instead."
+        ),
     }
 
 
@@ -525,7 +991,7 @@ def _default_surface_exposure(name: str) -> SurfaceExposure:
         _DEFAULT_SURFACE_PROJECTIONS,
         True,
         "primary_workflow_skill",
-        "Use as an installed Hermes workflow skill when this explicit workflow is the clearest user-facing handle.",
+        _DEFAULT_SURFACE_PREFERRED_USAGE,
     )
 
 
@@ -573,6 +1039,26 @@ def harness_quality_contract(name: str) -> dict[str, object]:
 
 def primary_harness_for_skill(name: str) -> str:
     return _PRIMARY_HARNESSES.get(name, "coding-handling")
+
+
+def decision_frontier_policy() -> dict[str, object]:
+    return {
+        "schema_version": DECISION_FRONTIER_POLICY_SCHEMA_VERSION,
+        "harness": DECISION_FRONTIER_HARNESS,
+        "max_rounds": DEEP_INTERVIEW_MAX_ROUNDS,
+        "soft_check_round": DEEP_INTERVIEW_SOFT_CHECK_ROUND,
+        "budget_scope": DECISION_FRONTIER_BUDGET_SCOPE,
+        "round_unit": DECISION_FRONTIER_ROUND_UNIT,
+        "decision_id_prefix": DECISION_FRONTIER_DECISION_ID_PREFIX,
+        "decision_states": list(DECISION_FRONTIER_DECISION_STATES),
+        "stop_rule_order": list(DECISION_FRONTIER_STOP_RULE_ORDER),
+        "partial_answer_policy": DECISION_FRONTIER_PARTIAL_ANSWER_POLICY,
+        "omitted_answer_transition": DECISION_FRONTIER_OMITTED_ANSWER_TRANSITION,
+        "recommendation_policy": DECISION_FRONTIER_RECOMMENDATION_POLICY,
+        "user_stop_scope": DECISION_FRONTIER_USER_STOP_SCOPE,
+        "compaction_failure_action": DECISION_FRONTIER_COMPACTION_FAILURE_ACTION,
+        "consent_gates": list(DECISION_FRONTIER_CONSENT_GATES),
+    }
 
 
 def coding_intent_for_skill(name: str) -> str:
@@ -627,11 +1113,7 @@ def _catalog_intent_delegation_skill_names_cached() -> tuple[str, ...]:
 
 MEMORY_CONTEXT_POLICIES = ("compact", "explicit")
 _EXPLICIT_MEMORY_CONTEXT_SKILLS = (
-    "ralph",
-    "ultragoal",
     "loop",
-    "ultraprocess",
-    "team",
     "ultrawork",
     "idea-to-deploy",
     "cto-loop",

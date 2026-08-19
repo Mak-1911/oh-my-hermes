@@ -16,7 +16,7 @@ from ..paths import (
     managed_command_venv_dir,
 )
 from ..profiles.team import TEAM_PROFILE_SCHEMA_VERSION
-from ..skills.catalog import omh_skill_display_name
+from ..skills.catalog import omh_skill_display_name, omh_skill_install_path
 from ..skill_pack import (
     CORE_PROFILE_SKILLS,
     SkillReferenceTemplate,
@@ -26,7 +26,13 @@ from ..skill_pack import (
 )
 
 SKILL_PROFILES = ("core", "full")
-DEFAULT_SKILL_PROFILE = "core"
+# The full catalog is the default: installing OMH means getting OMH, ULW
+# engines included -- a fresh setup that silently withheld 90+ skills read as
+# "ULW is broken" to the owner, not as a context optimisation. `--core` is the
+# explicit opt-in for the lightweight footprint, and reconcile still shrinks
+# to core only (CORE_SKILL_PROFILE below), decoupled from this default.
+DEFAULT_SKILL_PROFILE = "full"
+CORE_SKILL_PROFILE = "core"
 CONTEXT_COST_WARNING_SCHEMA_VERSION = "omh_skill_profile_context_cost_warning/v1"
 SKILL_PROFILE_STATE_SCHEMA_VERSION = "omh_skill_profile_state/v1"
 SKILL_PROFILE_RECONCILE_SCHEMA_VERSION = "omh_skill_profile_reconcile/v1"
@@ -44,19 +50,41 @@ RECONCILE_CONTEXT_COST_NOTE = (
 
 
 def skill_directory_name(canonical: str) -> str:
-    """Directory a skill is installed under.
+    """Leaf directory a skill is installed under.
 
     The directory now matches the label a host shows, because they were visibly
     disagreeing: Hermes printed `Loading skill: ulw-process` and then
     `[Skill directory: .../.omh/skills/ultraprocess]`. The canonical name still
     owns routing keys, triggers, and CLI arguments - only where the files sit
     changes, so `visual-qa` keeps working as something a user types.
+
+    The leaf sits under a category directory; see `skill_install_relative_dir`.
     """
     return omh_skill_display_name(canonical)
 
 
+def skill_install_relative_dir(canonical: str) -> Path:
+    """Skills-dir-relative install directory: `<category>/<label>`.
+
+    Hermes reads a skill's dashboard category off the DIRECTORY it sits in, not
+    off frontmatter, and only when the path relative to a configured skills dir
+    has three or more parts. The flat `<skills_dir>/<label>/SKILL.md` layout has
+    two, so every OMH skill showed up in the startup banner under "general".
+    Nesting one level deeper is the whole fix; `hermes_skill_category` owns
+    which group a skill lands in.
+
+    This is the MANAGED INSTALL layout only. The repo's `skills/` tree stays
+    flat because it is a different distribution surface: Hermes' tap lister
+    (`tools/skills_hub.py::_list_skills_in_repo`) reads exactly one directory
+    level under a tap path, so nesting the tap tree would hide every OMH skill
+    from `hermes skills search` and `hermes skills browse`. Tap installs land in
+    Hermes' own skills dir, which OMH does not own or register.
+    """
+    return Path(omh_skill_install_path(canonical))
+
+
 def _write_skill(skills_dir: Path, template: SkillTemplate, force: bool = False, managed: bool = False) -> None:
-    target_dir = skills_dir / skill_directory_name(template.name)
+    target_dir = skills_dir / skill_install_relative_dir(template.name)
     target_file = target_dir / "SKILL.md"
     if target_file.exists() and not force and not managed:
         existing = target_file.read_text(encoding="utf-8")
@@ -71,7 +99,7 @@ def _write_skill_reference(
     force: bool = False,
     managed: bool = False,
 ) -> None:
-    target_file = skills_dir / skill_directory_name(template.skill_name) / template.relative_path
+    target_file = skills_dir / skill_install_relative_dir(template.skill_name) / template.relative_path
     if target_file.exists() and not force and not managed:
         existing = target_file.read_text(encoding="utf-8")
         if existing != template.content:
@@ -92,6 +120,16 @@ def install_skill_pack(
         raise OmhError(f"unknown skill profile {profile!r}; choose one of {', '.join(SKILL_PROFILES)}")
     all_templates = convert_from_dir(source_dir) if source_dir else builtin_skill_templates()
     reference_templates = [] if source_dir else builtin_skill_reference_templates()
+    if source_dir:
+        # A retired ULW engine copied from a stale tap or checkout fails with
+        # the explicit migration error, never a silent install of a contract
+        # the catalog no longer ships (#954 stage 5, plan Q3: no tombstones).
+        from ..skills.catalog import retired_skill_migration_error
+
+        for template in all_templates:
+            migration_error = retired_skill_migration_error(template.name)
+            if migration_error:
+                raise OmhError(str(migration_error["message"]))
     # Profile filtering only applies to the packaged builtin catalog: an explicit
     # `source_dir` is a caller-scoped skill set, not the curated core/full catalog,
     # so every skill it names is installed regardless of `profile`.
@@ -156,20 +194,21 @@ def install_skill_pack(
         {template.name for template in all_templates},
         force=force,
     )
-    relabelled = _prune_relabelled_skill_directories(
+    flat_layout = _prune_flat_layout_skill_directories(
         paths.skills_dir,
         manifest,
         {template.name for template in all_templates},
         force=force,
     )
+    _remove_empty_category_directories(paths.skills_dir)
     records = skill_records(paths.skills_dir, source)
     manifest_data = new_manifest(source, paths.skills_dir, records)
     manifest_data["skill_profile"] = profile
     if context_cost_warning is not None:
         manifest_data["context_cost_warning"] = context_cost_warning
     manifest_data["pruned_skills"] = pruned_skills
-    manifest_data["relabelled_skills_removed"] = relabelled["removed"]
-    manifest_data["relabelled_skills_retained"] = relabelled["retained"]
+    manifest_data["flat_layout_skills_removed"] = flat_layout["removed"]
+    manifest_data["flat_layout_skills_retained"] = flat_layout["retained"]
     manifest_data["skill_profile_state"] = skill_profile_state(paths.skills_dir, manifest_data)
     manifest_data = _carry_installed_at_when_nothing_moved(manifest, manifest_data)
     write_manifest(paths.manifest_path, manifest_data)
@@ -214,65 +253,126 @@ def _without_installed_at(manifest: dict) -> dict:
     return {key: value for key, value in manifest.items() if key != "installed_at"}
 
 
-def _prune_relabelled_skill_directories(
+def _prune_flat_layout_skill_directories(
     skills_dir: Path,
     manifest: dict | None,
     catalog_names: set[str],
     *,
     force: bool,
 ) -> dict[str, list[str]]:
-    """Drop the pre-relabel directory once its labelled replacement is in place.
+    """Drop a flat top-level skill directory once its categorized copy is in place.
 
-    Skills moved from `skills/<canonical>/` to `skills/<label>/`. Installs are
-    non-destructive, so the first install after that change wrote the new
-    directories and left the old ones beside them: an observed machine went from
-    92 skills to 184, doubling the per-turn context weight of the pack, and the
-    manifest then reported every vanished old path as a local modification.
+    Two layout moves left directories behind, and both fail the same way.
+    Skills first moved from `skills/<canonical>/` to `skills/<label>/`; they now
+    move again to `skills/<category>/<label>/` so Hermes can read a dashboard
+    category off the path. Installs are non-destructive, so each move wrote the
+    new directories and left the old ones beside them: an observed machine went
+    from 92 skills to 184 after the relabel, doubling the pack's per-turn
+    context weight, and the manifest then reported every vanished old path as a
+    local modification. A leftover flat copy after this move would double-register
+    every skill in Hermes AND keep a "general" group in the banner, which is the
+    exact symptom the categorized layout exists to remove.
 
     The safety rules match `_prune_orphaned_skills`: remove only a directory that
-    is (a) named after a catalog skill whose label differs, (b) recorded in the
-    prior manifest, (c) already replaced by a labelled directory holding a
-    SKILL.md, and (d) byte-identical to what the manifest recorded. Anything a
-    user edited is kept and reported instead, unless ``force``.
+    is (a) named after a catalog skill under either spelling, (b) recorded in the
+    prior manifest at its flat path, (c) already replaced by a categorized
+    directory holding a SKILL.md, and (d) byte-identical to what the manifest
+    recorded. Anything a user edited is kept and reported instead, unless
+    ``force``.
     """
     if not manifest:
         return {"removed": [], "retained": []}
     modified = set(local_modifications(manifest, skills_dir))
-    recorded = {str(record.get("name")) for record in manifest.get("skills", []) if record.get("name")}
     recorded_paths = {
-        str(record.get("name")): str(record.get("path", "")) for record in manifest.get("skills", [])
+        str(record.get("path", "")) for record in manifest.get("skills", []) if record.get("path")
     }
+    canonical_by_directory: dict[str, str] = {}
+    for name in sorted(catalog_names):
+        canonical_by_directory[name] = name
+        canonical_by_directory.setdefault(skill_directory_name(name), name)
+    categories = {skill_install_relative_dir(name).parts[0] for name in catalog_names}
     removed: list[str] = []
     retained: list[str] = []
-    for name in sorted(catalog_names):
-        label = skill_directory_name(name)
-        if label == name or name not in recorded:
+    for entry in sorted(skills_dir.iterdir(), key=lambda item: item.name):
+        if not entry.is_dir() or entry.is_symlink():
             continue
-        old_dir = skills_dir / name
-        if not old_dir.is_dir() or old_dir.is_symlink():
+        if not (entry / "SKILL.md").is_file():
+            # A category directory, or something with no skill at this level.
             continue
-        if not (skills_dir / label / "SKILL.md").is_file():
+        canonical = canonical_by_directory.get(entry.name)
+        if canonical is None:
+            # Not a catalog skill; `_prune_orphaned_skills` owns that decision.
+            continue
+        rel = f"{entry.name}/SKILL.md"
+        if rel not in recorded_paths:
+            # Nothing in the manifest explains this file, so OMH did not install it.
+            continue
+        if not (skills_dir / skill_install_relative_dir(canonical) / "SKILL.md").is_file():
             # Nothing to fall back on yet; never leave the skill uninstalled.
-            retained.append(name)
+            retained.append(canonical)
             continue
-        if recorded_paths.get(name, "") in modified and not force:
-            retained.append(name)
+        if rel in modified and not force:
+            retained.append(canonical)
             continue
-        shutil.rmtree(old_dir)
-        removed.append(name)
-    return {"removed": removed, "retained": retained}
+        _remove_flat_skill_payload(entry, is_category_dir=entry.name in categories)
+        removed.append(canonical)
+    return {"removed": sorted(removed), "retained": sorted(retained)}
+
+
+def _remove_flat_skill_payload(entry: Path, *, is_category_dir: bool) -> None:
+    """Remove a flat skill directory without taking a category directory with it.
+
+    One directory name is both: `ultrawork` was the pre-relabel canonical
+    directory for the ULW engine AND is now the category every ULW skill installs
+    under, so `skills/ultrawork/` can legitimately hold `SKILL.md` (stale) beside
+    `ulw-work/SKILL.md` (current). Removing the tree would delete the skills that
+    were just written, so for a category directory only the flat payload goes:
+    the SKILL.md at that level and the `references/` beside it.
+    """
+    if not is_category_dir:
+        shutil.rmtree(entry)
+        return
+    (entry / "SKILL.md").unlink()
+    references = entry / "references"
+    if references.is_dir() and not references.is_symlink():
+        shutil.rmtree(references)
+
+
+def _remove_empty_category_directories(skills_dir: Path) -> None:
+    """Drop a category directory that pruning emptied, so no bare group is listed."""
+    if not skills_dir.is_dir():
+        return
+    for entry in sorted(skills_dir.iterdir(), key=lambda item: item.name):
+        if not entry.is_dir() or entry.is_symlink():
+            continue
+        if any(entry.iterdir()):
+            continue
+        entry.rmdir()
 
 
 def _installed_skill_names(skills_dir: Path) -> set[str]:
-    """Skill directories already present, whatever profile put them there.
+    """Skill directory names already present, whatever profile put them there.
 
     Read from disk rather than the manifest on purpose: a core-profile manifest
     records only the core skills, so the full-only directories beside them are
     exactly the ones the manifest cannot see and the ones that were going stale.
+
+    Both layouts are read. A flat directory left by an older release still names
+    an installed skill, and dropping it from the refresh set is what once left a
+    host serving a stale pre-relabel SKILL.md forever.
     """
     if not skills_dir.is_dir():
         return set()
-    return {entry.name for entry in skills_dir.iterdir() if entry.is_dir() and not entry.is_symlink()}
+    names: set[str] = set()
+    for entry in skills_dir.iterdir():
+        if not entry.is_dir() or entry.is_symlink():
+            continue
+        if (entry / "SKILL.md").is_file():
+            names.add(entry.name)
+        for child in entry.iterdir():
+            if child.is_dir() and not child.is_symlink() and (child / "SKILL.md").is_file():
+                names.add(child.name)
+    return names
 
 
 
@@ -302,8 +402,11 @@ def _prune_orphaned_skills(
             continue
         if str(rel) in modified and not force:
             continue
-        target_dir = skills_dir / name  # manifest-recorded path; already the installed directory
-        if not target_dir.is_dir() or target_dir.is_symlink():
+        # The manifest-recorded path, not the catalog name: the two differ under
+        # both the display-label and the category layout, and only the recorded
+        # path names the directory that actually exists.
+        target_dir = skills_dir / Path(str(rel)).parent
+        if not target_dir.is_dir() or target_dir.is_symlink() or target_dir == skills_dir:
             continue
         shutil.rmtree(target_dir)
         removed.append(name)
@@ -340,12 +443,34 @@ def installed_skill_names(skills_dir: Path) -> list[str]:
     canonical_by_directory = {
         skill_directory_name(name): name for name in _all_catalog_skill_names()
     }
-    names = [
-        canonical_by_directory.get(entry.name, entry.name)
-        for entry in skills_dir.iterdir()
-        if entry.is_dir() and not entry.is_symlink() and (entry / "SKILL.md").is_file()
-    ]
+    names = {
+        canonical_by_directory.get(directory.name, directory.name)
+        for directory in installed_skill_directories(skills_dir)
+    }
     return sorted(names)
+
+
+def installed_skill_directories(skills_dir: Path) -> list[Path]:
+    """Every directory holding a SKILL.md, under the category layout or flat.
+
+    Flat directories are still counted because an install that predates the
+    category layout has them and is still an install; the migration prunes them
+    once the categorized copy exists.
+    """
+    if not skills_dir.is_dir():
+        return []
+    found: list[Path] = []
+    for entry in sorted(skills_dir.iterdir(), key=lambda item: item.name):
+        if not entry.is_dir() or entry.is_symlink():
+            continue
+        if (entry / "SKILL.md").is_file():
+            found.append(entry)
+        found.extend(
+            child
+            for child in sorted(entry.iterdir(), key=lambda item: item.name)
+            if child.is_dir() and not child.is_symlink() and (child / "SKILL.md").is_file()
+        )
+    return found
 
 
 def _skill_index_line_bytes(skill_file: Path) -> int:
@@ -375,7 +500,8 @@ def _skill_prompt_cost(
     core_fixed_index_bytes = 0
     full_only_fixed_index_bytes = 0
     installed_skill_body_bytes = 0
-    for skill_file in skills_dir.glob("*/SKILL.md"):
+    for skill_dir in installed_skill_directories(skills_dir):
+        skill_file = skill_dir / "SKILL.md"
         bytes_count = _skill_index_line_bytes(skill_file)
         fixed_index_bytes += bytes_count
         installed_skill_body_bytes += skill_file.stat().st_size
@@ -464,6 +590,26 @@ def _catalog_skill_files() -> dict[str, dict[str, str]]:
     return files
 
 
+def _installed_skill_dir(skills_dir: Path, canonical: str) -> Path | None:
+    """Where a skill actually sits: the categorized directory, or a flat leftover.
+
+    `ultrawork` names both a category and a pre-relabel skill directory, so this
+    can return a path that is also a category root. Nothing here deletes it on
+    that basis: the only caller that removes a directory (`_reconcile_plan` ->
+    `reconcile_skill_profile`) first requires the directory's whole content to
+    equal the rendered catalog templates, and a category root holding other
+    skills never does.
+    """
+    for candidate in (
+        skills_dir / skill_install_relative_dir(canonical),
+        skills_dir / skill_directory_name(canonical),
+        skills_dir / canonical,
+    ):
+        if (candidate / "SKILL.md").is_file() and not candidate.is_symlink():
+            return candidate
+    return None
+
+
 def _installed_skill_files(skill_dir: Path) -> dict[str, str] | None:
     """Read every regular file under a skill dir; return None when anything is not plainly readable."""
     files: dict[str, str] = {}
@@ -507,7 +653,8 @@ def _reconcile_plan(skills_dir: Path, manifest: dict) -> dict:
         if name not in managed_names:
             retained.append({"name": name, "reason": "no OMH install-manifest record; not OMH-managed"})
             continue
-        actual = _installed_skill_files(skills_dir / skill_directory_name(name))
+        installed_dir = _installed_skill_dir(skills_dir, name)
+        actual = None if installed_dir is None else _installed_skill_files(installed_dir)
         if actual is None:
             retained.append({"name": name, "reason": "skill directory is not plainly readable managed content"})
             continue
@@ -537,7 +684,7 @@ def skill_profile_report(paths: OmhPaths) -> dict:
 def reconcile_skill_profile(
     paths: OmhPaths,
     *,
-    target_profile: str = DEFAULT_SKILL_PROFILE,
+    target_profile: str = CORE_SKILL_PROFILE,
     dry_run: bool = False,
 ) -> dict:
     """Explicitly shrink an existing install down to the core profile.
@@ -546,9 +693,9 @@ def reconcile_skill_profile(
     setup/install/update. It removes only unmodified managed full-only skills; locally modified and
     non-managed directories stay on disk and are reported as retained exceptions.
     """
-    if target_profile != DEFAULT_SKILL_PROFILE:
+    if target_profile != CORE_SKILL_PROFILE:
         raise OmhError(
-            f"skill profile reconcile only shrinks to {DEFAULT_SKILL_PROFILE!r}; "
+            f"skill profile reconcile only shrinks to {CORE_SKILL_PROFILE!r}; "
             "install the wider catalog with `omh install --full` instead"
         )
     manifest = read_manifest(paths.manifest_path)
@@ -572,11 +719,12 @@ def reconcile_skill_profile(
 
     removed: list[str] = []
     for name in plan["removable_skills"]:
-        target_dir = paths.skills_dir / skill_directory_name(name)
-        if not target_dir.is_dir() or target_dir.is_symlink():
+        target_dir = _installed_skill_dir(paths.skills_dir, name)
+        if target_dir is None or not target_dir.is_dir():
             continue
         shutil.rmtree(target_dir)
         removed.append(name)
+    _remove_empty_category_directories(paths.skills_dir)
     source = str(manifest.get("source") or "builtin")
     records = skill_records(paths.skills_dir, source)
     manifest_data = new_manifest(source, paths.skills_dir, records)

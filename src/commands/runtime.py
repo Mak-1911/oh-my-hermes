@@ -91,6 +91,16 @@ from ..local_store import read_json_object
 from ..paths import OmhPaths
 from ..skill_pack import builtin_harnesses, routable_definitions
 from ..team_readiness import DEFAULT_RUNTIME_TARGET_SCAN_LIMIT, build_team_worker_readiness
+from ..hud import build_hud_payload
+from ..plugin_bundle.omh.todo_store import (
+    TODO_CLAIM_BOUNDARY,
+    TodoStoreError,
+    TodoValidationError,
+    build_todo_record,
+    clear_todo,
+    todo_path,
+    write_todo,
+)
 from .common import _paths, _print_json, _wants_json
 
 
@@ -1229,6 +1239,57 @@ def _bounded_limit(args: argparse.Namespace) -> int | None:
     return limit
 
 
+def cmd_runtime_todo_set(args: argparse.Namespace) -> int:
+    paths = _paths(args)
+    if args.items_json is not None:
+        try:
+            items = json.loads(args.items_json)
+        except json.JSONDecodeError as error:
+            _print_json({"status": "invalid_todo", "error": f"--items-json is not valid JSON: {error}"})
+            return 1
+    else:
+        items = [{"text": text, "state": "pending"} for text in args.items]
+    try:
+        record = build_todo_record(args.title, items, source="cli")
+        write_todo(paths.omh_home, record)
+    except (TodoValidationError, TodoStoreError) as error:
+        _print_json({"status": "invalid_todo", "error": str(error)})
+        return 1
+    _print_json(
+        {
+            "status": "written",
+            "path": str(todo_path(paths.omh_home)),
+            "todo": build_hud_payload(paths)["todo"],
+            "claim_boundary": TODO_CLAIM_BOUNDARY,
+        }
+    )
+    return 0
+
+
+def cmd_runtime_todo_clear(args: argparse.Namespace) -> int:
+    paths = _paths(args)
+    try:
+        cleared = clear_todo(paths.omh_home)
+    except TodoStoreError as error:
+        _print_json({"status": "invalid_todo", "error": str(error)})
+        return 1
+    _print_json({"status": "cleared" if cleared else "already_absent", "path": str(todo_path(paths.omh_home))})
+    return 0
+
+
+def cmd_runtime_todo_show(args: argparse.Namespace) -> int:
+    payload = build_hud_payload(_paths(args))
+    _print_json(
+        {
+            "status": "read",
+            "todo": payload["todo"],
+            "todo_lines": payload["display"]["todo_lines"],
+            "claim_boundary": TODO_CLAIM_BOUNDARY,
+        }
+    )
+    return 0
+
+
 def _add_runtime_commands(sub) -> None:
     from .run_efficiency import add_runtime_efficiency_command
     from .run_health import add_runtime_health_summary_command
@@ -1506,3 +1567,32 @@ def _add_runtime_commands(sub) -> None:
     )
     runtime_team_readiness.add_argument("--all", action="store_true", help="Inspect all runtime targets.")
     runtime_team_readiness.set_defaults(func=cmd_runtime_team_readiness)
+
+    runtime_todo = runtime_sub.add_parser(
+        "todo",
+        help=(
+            "Agent/operator surface: declare, clear, or read the metadata-only plan todo "
+            "list rendered by OMH HUD surfaces."
+        ),
+    )
+    todo_sub = runtime_todo.add_subparsers(dest="runtime_todo_command", required=True)
+    todo_set = todo_sub.add_parser("set", help="Write the todo list (agent/operator surface; items are declarations, not evidence).")
+    todo_set.add_argument("--title", default="", help="Optional short plan title for the panel header.")
+    todo_items = todo_set.add_mutually_exclusive_group(required=True)
+    todo_items.add_argument(
+        "--item",
+        dest="items",
+        action="append",
+        default=None,
+        help="Pending todo item text; repeat for multiple items in display order.",
+    )
+    todo_items.add_argument(
+        "--items-json",
+        default=None,
+        help='JSON array of {"text", "state"} objects with state pending, active, or done.',
+    )
+    todo_set.set_defaults(func=cmd_runtime_todo_set)
+    todo_clear = todo_sub.add_parser("clear", help="Remove the todo list from the HUD surfaces.")
+    todo_clear.set_defaults(func=cmd_runtime_todo_clear)
+    todo_show = todo_sub.add_parser("show", help="Read the current todo projection exactly as HUD surfaces see it.")
+    todo_show.set_defaults(func=cmd_runtime_todo_show)

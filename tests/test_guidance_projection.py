@@ -32,7 +32,7 @@ from omh.maintenance.doctor import run_doctor
 from omh.manifest import SkillRecord, new_manifest, skill_records
 from omh.paths import resolve_paths
 from omh.skill_pack import builtin_skill_templates
-from omh.skills.catalog import omh_skill_display_name
+from omh.skills.catalog import omh_skill_install_path
 
 
 def _install_projection(skills_dir: Path) -> dict[str, object]:
@@ -45,7 +45,7 @@ def _install_projection(skills_dir: Path) -> dict[str, object]:
     on Linux and `stale` on Windows.
     """
     for template in builtin_skill_templates():
-        path = skills_dir / omh_skill_display_name(template.name) / "SKILL.md"
+        path = skills_dir / omh_skill_install_path(template.name) / "SKILL.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(path, template.content)
     return new_manifest("builtin", skills_dir, skill_records(skills_dir, "builtin"))

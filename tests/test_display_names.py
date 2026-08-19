@@ -309,3 +309,29 @@ class UltraperfDisplayNameTests(unittest.TestCase):
                     "run ultraperf on the api",
                 )
         self.assertEqual(route_chat_message("run ulw-perf on the api and worker")["selected_skill"], "ultraperf")
+
+
+class UlwBundleParityTests(unittest.TestCase):
+    """The copied plugin bundle's ULW tables cannot drift from the catalog.
+
+    `awareness.py` duplicates the engine set and lifecycle stages on purpose (a
+    copied bundle has no catalog import); this lock is what makes the copy
+    safe. `ulw_inventory_payload()` is the catalog side of both comparisons.
+    """
+
+    def test_bundle_ulw_engine_set_and_lifecycle_stages_match_the_catalog(self) -> None:
+        from omh.skills.catalog import ulw_inventory_payload
+        from omh.skills.catalog_types import ULW_ENGINE_SKILL_NAMES
+
+        payload = ulw_inventory_payload()
+        catalog_stages = {
+            engine["canonical"]: engine["lifecycle_stage"]
+            for engine in (
+                *payload["canonical_engines"],
+                *payload["alias_engines"],
+                *payload["retired_engines"],
+            )
+        }
+
+        self.assertEqual(set(awareness_module._ULW_ENGINE_WORKFLOWS), set(ULW_ENGINE_SKILL_NAMES))
+        self.assertEqual(awareness_module._ULW_ENGINE_LIFECYCLE_STAGES, catalog_stages)

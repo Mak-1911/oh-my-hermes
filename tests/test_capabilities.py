@@ -152,7 +152,7 @@ class CapabilityManifestTests(unittest.TestCase):
         self.assertIn("accessibility-audit", families["create_materials_and_visuals"]["primary_workflows"])
         self.assertIn("visual-qa", families["create_materials_and_visuals"]["primary_workflows"])
         self.assertNotIn("wiki", families["create_materials_and_visuals"]["primary_workflows"])
-        self.assertIn("ultraprocess", families["delegate_coding_and_ship"]["primary_workflows"])
+        self.assertIn("ultrawork", families["delegate_coding_and_ship"]["primary_workflows"])
         self.assertIn("executor-runtime-readiness", families["delegate_coding_and_ship"]["primary_workflows"])
         self.assertIn("dynamic-workflow", families["delegate_coding_and_ship"]["primary_workflows"])
         self.assertIn("build-failure-triage", families["delegate_coding_and_ship"]["primary_workflows"])
@@ -184,7 +184,7 @@ class CapabilityManifestTests(unittest.TestCase):
         self.assertEqual(projection["workflow_to_family"]["wiki"], "retain_knowledge")
         self.assertEqual(projection["workflow_to_family"]["paper-learning"], "learn_and_gather")
         self.assertEqual(projection["workflow_to_family"]["data-analysis"], "learn_and_gather")
-        self.assertEqual(projection["workflow_to_family"]["ultraprocess"], "delegate_coding_and_ship")
+        self.assertEqual(projection["workflow_to_family"]["ultrawork"], "delegate_coding_and_ship")
         self.assertEqual(projection["workflow_to_family"]["executor-runtime-readiness"], "delegate_coding_and_ship")
         self.assertEqual(projection["workflow_to_family"]["dynamic-workflow"], "delegate_coding_and_ship")
         self.assertEqual(projection["workflow_to_family"]["build-failure-triage"], "delegate_coding_and_ship")
@@ -246,13 +246,13 @@ class CapabilityManifestTests(unittest.TestCase):
 
         self.assertIn("omh_awareness", sections["omh_awareness"])
         self.assertIn("handoff-guide", sections["agent_roles"])
-        self.assertIn("ultragoal", sections["skills"])
+        self.assertIn("ultrawork", sections["skills"])
         self.assertIn("omh_capabilities", sections["hooks"])
         self.assertIn("executor_session_handoff", sections["orchestration_patterns"])
         self.assertIn("hermes_coding_team_path", sections["orchestration_patterns"])
         self.assertIn("request-to-handoff", sections["playbooks"])
         self.assertIn("research-department", sections["playbooks"])
-        self.assertIn("ultragoal", sections["tool_requirements"])
+        self.assertIn("ultrawork", sections["tool_requirements"])
         self.assertEqual(normalize_capability_section("roles"), "agent_roles")
         self.assertEqual(normalize_capability_section("patterns"), "orchestration_patterns")
         self.assertEqual(normalize_capability_section("tools"), "tool_requirements")
@@ -390,7 +390,7 @@ class CapabilityManifestTests(unittest.TestCase):
                     self.assertNotIn(removed, item, f"use {survivor} instead of {removed}")
 
     def test_capability_inspect_finds_skill_and_role_without_runtime_claim(self) -> None:
-        skill = inspect_capability("ultragoal", section="skills")["capability"]
+        skill = inspect_capability("ultrawork", section="skills")["capability"]
         wiki_skill = inspect_capability("wiki", section="skills")["capability"]
         ops_surface = inspect_capability("ops-observability-card", section="skills")["capability"]
         codegraph_skill = inspect_capability("codegraph-refresh", section="skills")["capability"]
@@ -403,8 +403,8 @@ class CapabilityManifestTests(unittest.TestCase):
 
         self.assertEqual(skill["schema_version"], "skill_capability/v1")
         self.assertIn("prepared_not_observed", skill["evidence_boundary"])
-        self.assertEqual(skill["awareness_lane"], "intent_to_plan")
-        self.assertIn("Use `ultragoal`", skill["workflow_routing_hint"])
+        self.assertEqual(skill["awareness_lane"], "coding_handoff")
+        self.assertIn("Use `ultrawork`", skill["workflow_routing_hint"])
         self.assertEqual(wiki_skill["awareness_lane"], "retained_knowledge")
         self.assertIn("Retained knowledge", wiki_skill["workflow_routing_hint"])
         self.assertIn("every OMH skill", skill["workflow_context_rule"])
@@ -413,7 +413,7 @@ class CapabilityManifestTests(unittest.TestCase):
         self.assertIn("missing", skill["fallback_rule"])
         self.assertIn("omh_context", awareness["tool_hints"][0])
         self.assertIn("omh_capabilities", " ".join(awareness["tool_hints"]))
-        self.assertIn("ambitious goal -> loopability check", " ".join(skill["cross_lane_examples"]))
+        self.assertIn("accepted plan -> ultrawork delivery cycle -> coding handoff", " ".join(skill["cross_lane_examples"]))
         self.assertEqual(ops_surface["surface_exposure"], "workflow_skill")
         self.assertEqual(awareness["schema_version"], "omh_awareness/v1")
         # The rule discriminates by the shape of the result, not by a list of

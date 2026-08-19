@@ -12,6 +12,7 @@ from .catalog import (
     SkillDefinition,
     builtin_definitions,
     builtin_harnesses,
+    decision_frontier_policy,
     harness_quality_contract,
     memory_context_policy_for_skill,
     omh_description,
@@ -682,7 +683,7 @@ Bare `./omh`, `/omh`, `./skills`, or `/skills` opens the workflow picker. A lead
 
 ## Skill Name Display Prefix
 
-Installed OMH skills render a prefixed frontmatter `name` so the host status line is distinguishable from a Hermes built-in: domain skills carry `omh-` and the workflow-engine skills carry `ulw-` (for example `Reading skill ulw-work` for `ultrawork`, `ulw-plan` for `ralplan`, `ulw-goal` for `ultragoal`). The router skill renders as `omh-routing`.
+Installed OMH skills render a prefixed frontmatter `name` so the host status line is distinguishable from a Hermes built-in: domain skills carry `omh-` and the workflow-engine skills carry `ulw-` (for example `Reading skill ulw-work` for `ultrawork`, `ulw-plan` for `ralplan`, `ulw-loop` for `loop`). The router skill renders as `omh-routing`.
 
 That label names the installed `skills/<label>/` directory and the host status line only. The canonical catalog name still owns the install manifest `name`, routing keys, and every `omh` CLI argument, so `omh recommend`, `omh runtime record --skill <name>`, and trigger strings keep using canonical names. Earlier label eras (`omh-ultrawork`, `ulw-ultrawork`) remain accepted as routing aliases of the same workflow, so text echoed from a stale install still resolves — but always render the current label.
 
@@ -942,12 +943,12 @@ OMH is Hermes-native workflow guidance, not a hidden executor or core patch. Her
 
 Compact lane map:
 
-- Intent -> plan: `deep-interview`, `ralplan`, `plan`, `loop`, `ultraprocess`.
+- Intent -> plan: `deep-interview`, `ralplan`, `plan`, `loop`.
 - Research and company ops: `research`, `source-finder`, `research-department`, `paper-learning`, `feedback-triage`, `strategy-brief`, `meeting-brief`.
 - Retained knowledge: `wiki`.
 - Materials and visual summaries: `design-quality-gate`, `frontend`, `accessibility-audit`, `visual-qa`, `materials-package`, `img-summary`, `report-package`, `deliverable-package`.
 - Operations and evidence gates: `workspace-audit`, `production-audit`, `verification-gate`, `agent-evaluation`, `rules-distill`, `agent-ops-review`, `harness-session-inventory`, `ops-observability-card`, `instinct-ledger`, `workflow-learning`.
-- Coding handoff and review: `idea-to-deploy`, `code-review`, `ultraprocess`, `team`, `ultrawork`, `ultraqa`.
+- Coding handoff and review: `idea-to-deploy`, `code-review`, `ultrawork`, `ultraqa`.
 
 ## OMH Orchestration Posture
 
@@ -955,7 +956,7 @@ Treat OMH as the operating layer above individual Hermes-native skills. For a wo
 
 - On an unfamiliar or first-use pattern, briefly recommend the OMH-led route: explain that OMH can structure the problem, select the needed skills, and keep evidence boundaries clear.
 - After repeated accepted local patterns for the same user and workflow, continue OMH-led exploration, problem framing, skill composition, and prepared planning automatically. Keep the current workflow, next action, and prepared-versus-observed boundary visible.
-- Never let that autonomy bypass existing confirmation gates for destructive changes, credentials, external writes, deployment, executor dispatch, or starting a follow-on workflow engine (`ultragoal`, `ultrawork`, `ralph`, `team`, `ultraprocess`, `ultraqa`) from another skill's output: an accepted plan or clarified brief is planning evidence, not permission — recommend the engine that fits the work's shape and wait for the user's explicit go-ahead. Do not claim that a native skill, subagent, review, CI, or merge ran unless matching observation exists.
+- Never let that autonomy bypass existing confirmation gates for destructive changes, credentials, external writes, deployment, executor dispatch, or starting a follow-on workflow engine (`ultrawork` — including its coordinated-scope, single-owner-persistence, delivery-boundary, and durable-checkpoint capabilities — `loop`, `ultraqa`) from another skill's output: an accepted plan or clarified brief is planning evidence, not permission — recommend the engine that fits the work's shape and wait for the user's explicit go-ahead. Do not claim that a native skill, subagent, review, CI, or merge ran unless matching observation exists.
 - If a native Hermes capability is relevant, present it as an optional subordinate capability under the selected OMH workflow. OMH policy remains responsible for selecting and governing the workflow.
 
 ## Priority Rules
@@ -964,7 +965,7 @@ Treat OMH as the operating layer above individual Hermes-native skills. For a wo
 2. Explicit slash skill invocation wins when it is not one of those maintenance commands.
 3. Explicit workflow keywords route to the matching adapted skill when installed.
 4. Broad planning requests route to `ralplan` or `plan` before implementation.
-5. Persistence or finish-until-done requests route to `ralph` only after scope is concrete.
+5. Persistence or finish-until-done requests route to `ultrawork`'s single-owner-persistence capability only after scope is concrete.
 6. Unknown or conflicting signals stay in this router and ask one concise clarification question.
 
 ## Direct Picker Aliases
@@ -1028,7 +1029,7 @@ Load these only when exact detail matters:
 - If maintenance command behavior matters, load `references/operator-maintenance.md`.
 - If evidence or target topology is disputed, load `references/evidence-boundaries.md`.
 - If the right skill was not loaded, call `skills_list` or `skill_view`.
-- If a slash command exists, use the explicit slash skill such as `/omh-ralph`.
+- If a slash command exists, use the explicit slash skill such as `/ulw-work`.
 - If a skill name collides, keep the OMH-selected policy in control and present the Hermes-native skill only as an explicit recommendation; do not let a native candidate override routing.
 """
     return SkillTemplate("oh-my-hermes", _frontmatter("oh-my-hermes", DESCRIPTIONS["oh-my-hermes"]) + "\n" + body)
@@ -1627,8 +1628,18 @@ until executed against that deployment. Static Compose inspection is not E2E
 evidence.
 """
 
-def workflow_skill(name: str) -> SkillTemplate:
-    definition = _definitions_by_name()[name]
+def workflow_skill_from_definition(definition: SkillDefinition, name: str) -> SkillTemplate:
+    """Render one workflow skill from an explicit definition.
+
+    Production entry point added for the ULW contract-equivalence gate
+    (issue #954, PR D): a renderer that can only render the global catalog
+    cannot be exercised against a mutated definition, so the mutation tests in
+    `tests/test_ulw_equivalence.py` route hypothetical `SkillDefinition`
+    mutants through this function instead of monkeypatching the cached
+    catalog lookup. `workflow_skill` below stays the catalog-backed path and
+    byte-parity between the two is pinned by
+    `test_workflow_skill_paths_are_byte_identical`.
+    """
     title = name.replace("-", " ").title()
     triggers = ", ".join(f"`{trigger}`" for trigger in definition.triggers)
     primary_harness = primary_harness_for_skill(name)
@@ -1653,6 +1664,10 @@ This is a Hermes-native `{name}` workflow skill.
 {_common_rail_sections(definition, primary_harness)}
 """
     return SkillTemplate(name, _frontmatter(name, definition.description) + "\n" + body)
+
+
+def workflow_skill(name: str) -> SkillTemplate:
+    return workflow_skill_from_definition(_definitions_by_name()[name], name)
 
 
 def jit_learn_skill() -> SkillTemplate:
@@ -1705,13 +1720,20 @@ The terminal state is `learning_brief_prepared`: the brief is prepared, not obse
 def context_skill() -> SkillTemplate:
     """Render the canonical project-terminology workflow with progressive references."""
     template = workflow_skill("context")
-    protocol = """## Workflow Protocol
+    policy = decision_frontier_policy()
+    max_rounds = policy["max_rounds"]
+    soft_round = policy["soft_check_round"]
+    decision_id_prefix = policy["decision_id_prefix"]
+    protocol = f"""## Workflow Protocol
 
 1. Classify the turn as a safe lookup, reviewed capture, terminology correction, unresolved decision frontier, or confirmed planning/handoff transition.
 2. For lookup, inspect the optional source and active reviewed profile on demand, answer directly, and name source/freshness status. File presence, profile match, or nomination is not proof that a model used the content.
 3. Before capture, show the exact machine-only projection and ask for confirmation. Staging creates pending candidates only; review and approval remain separate.
-4. Before interviewing, ask whether the user wants to enter the decision frontier. Research repository facts first, model dependencies, then ask every currently dependency-ready question in one round with a concise recommendation for each.
-5. Stop when every reachable branch is resolved and the user confirms shared understanding. Only then offer a separately confirmed `ulw-plan` or selected coding-owner handoff; never auto-execute it.
+4. Before interviewing, confirm frontier entry. Then present every currently dependency-ready decision in one numbered batch per round, using stable `{decision_id_prefix}1`, `{decision_id_prefix}2`, ... identifiers.
+5. The frontier is bounded at {max_rounds} rounds. Run a non-round consent check before Round {soft_round}. Lookup, research, entry consent, summary confirmation, and next-path consent do not consume rounds.
+6. Stop on the first matching condition: every reachable decision is resolved, deferred, or blocked; the user asks to stop or proceed; or the answer to Round {max_rounds} is recorded. Never emit Round {max_rounds + 1}.
+7. Omitted decisions stay open and recommendations require explicit acceptance. If round or decision identity cannot be recovered, close with a named recovery blocker instead of restarting.
+8. Read back the shared understanding for confirmation. Only after confirmation offer a separately confirmed `ulw-plan` or coding-owner handoff; never auto-execute it.
 
 Load `references/project-terms.md` for source grammar, authority, freshness, and capture boundaries. Load `references/decision-frontier.md` for dependency modeling, question rounds, stop conditions, and planning/handoff separation.
 
@@ -1763,7 +1785,12 @@ The separation of domain language from decision work adapts ideas from Matt Poco
 
 
 def _context_decision_frontier_reference() -> str:
-    return """# Dependency-Ready Decision Frontier
+    policy = decision_frontier_policy()
+    max_rounds = policy["max_rounds"]
+    soft_round = policy["soft_check_round"]
+    decision_id_prefix = policy["decision_id_prefix"]
+    states = ", ".join(f"`{state}`" for state in policy["decision_states"])
+    return f"""# Dependency-Ready Decision Frontier
 
 Load this reference only when terminology correction exposes unresolved product or workflow decisions. A safe lookup does not enter this interview.
 
@@ -1773,7 +1800,11 @@ Ask for explicit confirmation before starting. First inspect repository and sour
 
 ## Dependency Model
 
-Represent each unresolved decision with its prerequisites and dependents. In each round, present the whole dependency-ready frontier: every unresolved decision whose prerequisites are already settled. Do not ask a question in the same round when its wording or options depend on another answer from that round.
+Represent each unresolved decision with its prerequisites and dependents. Assign append-only `{decision_id_prefix}1`, `{decision_id_prefix}2`, ... identifiers and never renumber or reuse them. A decision is {states}; reachability is separate from state.
+
+In each round, present the whole dependency-ready frontier: every reachable open decision whose prerequisites are resolved. One emitted batch consumes one round regardless of item count. Do not ask a dependent question in the same round as its prerequisite.
+
+Open each batch with `Frontier round {{n}}/{max_rounds} · Resolved {{r}} · Deferred {{d}} · Blocked {{b}} · Open {{o}}`. Find the latest header in the thread before incrementing it. Repository research, entry consent, the pre-Round-{soft_round} consent check, summary confirmation, and next-path consent consume no rounds.
 
 For each frontier item:
 
@@ -1782,11 +1813,21 @@ For each frontier item:
 3. give one concise recommendation with the main tradeoff;
 4. ask for the user's decision, correction, or skip.
 
+Apply unambiguous answers only to the identifiers they address. Omitted decisions remain open. A recommendation becomes selected terminology only when the user explicitly accepts it. Apply addressed answers before evaluating a global stop request; newly unlocked dependents wait for the next round.
+
 Record agreed canonical identity and short definition separately from design rationale. Keep rare, hard-to-reverse tradeoffs as decision notes rather than glossary entries.
 
 ## Stop and Transition
 
-Continue until every reachable branch is resolved, explicitly deferred, or blocked by named missing evidence. Read back the shared understanding and ask the user to confirm it. Confirmation closes the interview; it does not approve implementation.
+After each answer, stop on the first matching condition:
+
+1. every reachable decision is resolved, explicitly deferred, or blocked by named missing evidence;
+2. the user asks to stop questioning or proceed;
+3. the answer to Round {max_rounds} was recorded.
+
+On user stop or budget exhaustion, keep unaddressed decisions open and show recommendations only as proposed assumptions. Never emit Round {max_rounds + 1}. Read back resolved, deferred, blocked, and open decisions separately and ask the user to confirm that summary. Confirmation closes the interview; it does not approve implementation.
+
+If no valid round header or decision identity survives context compaction, do not restart or emit another decision round. Summarize only recoverable decisions and close unresolved items with a named `compaction_state_unavailable` blocker.
 
 After confirmation, offer either `ulw-plan` for a reviewed implementation plan or a selected executor-neutral coding-owner handoff when work is already plan-ready. Ask for a separate go-ahead before preparing either. A prepared handoff is not dispatch, execution, review, CI, merge-readiness, merge, or proof that the recipient used the terminology.
 
@@ -1848,6 +1889,13 @@ def _workflow_reference_markdown_cached() -> str:
                 f"- Install visibility: `{str(exposure.install_visibility).lower()}`",
                 f"- Docs visibility: `{exposure.docs_visibility}`",
                 f"- Compatibility alias: `{str(exposure.compatibility_alias).lower()}`",
+                f"- Lifecycle stage: `{exposure.lifecycle_stage}`",
+                *([f"- Target home: `{exposure.target_home}`"] if exposure.target_home else []),
+                *(
+                    [f"- Migration release: `{exposure.migration_release}`"]
+                    if exposure.migration_release
+                    else []
+                ),
                 f"- Preferred usage: {exposure.preferred_usage}",
                 f"- Handoff policy: {definition.handoff_policy}",
                 f"- Why this exists: {definition.why_this_exists}",

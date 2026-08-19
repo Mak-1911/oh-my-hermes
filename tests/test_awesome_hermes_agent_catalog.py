@@ -74,8 +74,7 @@ class AwesomeHermesAgentCatalogTests(unittest.TestCase):
         dynamic = awesome_hermes_item("hermes-dynamic-workflows")
         self.assertEqual(dynamic.status, "partial")
         self.assertEqual(dynamic.matched_rule_id, "dynamic_orchestration")
-        self.assertIn("team", dynamic.omh_surfaces)
-        self.assertIn("ultragoal", dynamic.omh_surfaces)
+        self.assertIn("ultrawork", dynamic.omh_surfaces)
 
         dangerous_patterns = awesome_hermes_item("custom-dangerous-patterns")
         self.assertEqual(dangerous_patterns.status, "partial")

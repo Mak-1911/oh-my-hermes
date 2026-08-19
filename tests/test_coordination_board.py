@@ -437,6 +437,23 @@ class CoordinationBoardLaneTests(unittest.TestCase):
         self.assertEqual(alpha["blocked_by"], ["dispatch status worktree_failed"])
         self.assertEqual(_item_by_id(payload, f"{_FANOUT_ID}/gamma")["lane"], "prepared")
 
+    def test_invalid_capability_snapshot_is_a_blocking_dispatch_status(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _paths(Path(tmp))
+            _write_fanout(
+                paths,
+                units=[{"unit_id": "alpha", "title": "extract the parser"}],
+                dispatched=[{"unit_id": "alpha", "status": "capability_snapshot_invalid"}],
+            )
+            payload = build_coordination_board(paths, now=_NOW)
+
+        alpha = _item_by_id(payload, f"{_FANOUT_ID}/alpha")
+        self.assertEqual(alpha["lane"], "blocked")
+        self.assertEqual(
+            alpha["blocked_by"],
+            ["dispatch status capability_snapshot_invalid"],
+        )
+
     def test_a_goal_without_checkpoints_still_shows_as_startable_work(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = _paths(Path(tmp))

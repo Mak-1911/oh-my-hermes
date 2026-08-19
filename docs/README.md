@@ -32,6 +32,7 @@ references rather than normal user steps.
 | Goal | Read |
 | --- | --- |
 | Install, update, repair, or remove OMH | [Installation](INSTALLATION.md) |
+| Publish npm/Bun and Homebrew artifacts | [Package-manager distribution](DISTRIBUTION.md) |
 | Configure editable Hermes/Maestro model routing | [Installation: Guided Model Setup](INSTALLATION.md#guided-model-setup) |
 | Install on native Windows, and know what is POSIX-only there | [Installation: Windows](INSTALLATION.md#windows) |
 | Understand what OMH is and is not | [Direction](DIRECTION.md) |
@@ -52,7 +53,7 @@ Hermes memory, skills, tools, gateway surfaces, and OMH's role, see the
 
 ## Six Capability Families
 
-The public front door groups **106 installable skills** by user intent. Exact
+The public front door groups **102 installable skills** by user intent. Exact
 skill names remain available for deterministic routing, wrapper rendering, and
 operator control.
 

@@ -68,7 +68,7 @@ class GreenfieldBuildGuardTests(unittest.TestCase):
         # a lane that matched real vocabulary; the greenfield guard must lose.
         for message, owner in (
             ("make me a landing page", "frontend"),
-            ("build a login component", "ultraprocess"),
+            ("build a login component", "ultrawork"),
             ("create a research brief for the auth migration", "research-brief"),
             ("웹 검색 싸게 만들어줘", "websearch-setup"),
         ):

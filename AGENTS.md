@@ -104,7 +104,7 @@ PR without the chat history.
   bridge (`omh coding fanout dispatch`, 2026-07 owner approval): an explicit
   operator command that spawns LOCAL agent CLIs (the CLIs make their own
   network calls; omh still makes none) in per-unit worktrees against a frozen
-  `fanout_contract/v1`, recording every spawn and exit as observed journal
+  `fanout_contract/v2`, recording every spawn and exit as observed journal
   evidence. It never runs by default, never merges branches, never persists
   raw prompts under `.omh`, and never executes anything outside an explicit
   `dispatch` invocation. Bridge dispatch is a separate axis from chat
@@ -221,6 +221,8 @@ uv run python -m compileall -q src tests
 uv run python -m omh.cli docs workflows --check
 uv run python -m omh.cli docs roles --check
 uv run python -m omh.cli docs capability-families --check
+uv run python -m omh.cli docs ulw-inventory --check
+uv run python -m omh.cli docs ulw-site --check
 uv run --group lint ruff check src tests
 git diff --check
 ```

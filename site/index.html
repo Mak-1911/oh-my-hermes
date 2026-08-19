@@ -88,7 +88,7 @@
           <img src="assets/omh-character-mask.png" alt="" width="768" height="768" fetchpriority="high">
         </figure>
 
-        <span class="pill pill--glass" data-reveal data-reveal-delay="40" data-i18n="hero.badge">For Hermes Agent · v1.0.5</span>
+        <span class="pill pill--glass" data-reveal data-reveal-delay="40" data-i18n="hero.badge">For Hermes Agent · v1.0.6</span>
 
         <h1 id="home-title" class="hero__title" data-reveal data-reveal-delay="90">
           <span class="chrome-word">Oh My Hermes</span>
@@ -104,7 +104,7 @@
 
         <ul class="stat-line" aria-label="OMH facts" data-reveal data-reveal-delay="260">
           <li><strong data-count-to="103">103</strong><span data-i18n="stat.skills">installable skills</span></li>
-          <li><strong data-count-to="11">11</strong><span data-i18n="stat.workflows">ulw workflows</span></li>
+          <li><strong data-count-to="8">8</strong><span data-i18n="stat.workflows">ulw workflows</span></li>
           <li><strong data-count-to="7">7</strong><span data-i18n="stat.families">capability families</span></li>
           <li><strong data-count-to="8">8</strong><span data-i18n="stat.langs">languages routed</span></li>
         </ul>
@@ -285,8 +285,8 @@
                 <dd data-i18n="route.state.choice">The model you named explicitly is unavailable. Nothing is substituted.</dd>
               </div>
               <div class="route-state">
-                <dt>unconfigured</dt>
-                <dd data-i18n="route.state.unconfigured">No eligible candidate. Setup continues.</dd>
+                <dt>owner_default</dt>
+                <dd data-i18n="route.state.owner_default">No eligible candidate. The selected owner keeps its default model.</dd>
               </div>
             </dl>
           </article>
@@ -388,34 +388,24 @@
       </section>
 
       <!-- ============================================================ ULW -->
+      <!-- omh:ulw-site:begin (generated: uv run python -m omh.cli docs ulw-site; source: src/skills/catalog.py) -->
       <section class="section section--rail" id="workflows" aria-labelledby="ulw-title">
         <div class="section__head" data-reveal>
           <p class="kicker" data-i18n="ulw.kicker">Flagship workflows</p>
           <h2 id="ulw-title" data-i18n="ulw.title">The ulw-* family.</h2>
-          <p class="section__lead" data-i18n="ulw.lead">Eleven long-horizon lanes.</p>
+          <p class="section__lead" data-i18n="ulw.lead">Eight long-horizon lanes.</p>
         </div>
 
         <ol class="ulw-list">
           <li class="glass-card ulw-row" data-reveal>
             <div class="ulw-row__head">
-              <code class="ulw-row__slug">ulw-work</code>
-              <span class="ulw-row__tag" data-i18n="ulw.work.tag">Parallel delivery</span>
+              <code class="ulw-row__slug">ulw-context</code>
+              <span class="ulw-row__tag" data-i18n="ulw.context.tag">Terminology alignment</span>
             </div>
             <div class="ulw-row__body">
-              <h3 data-i18n="ulw.work.title">Ultrawork</h3>
-              <p data-i18n="ulw.work.body">Splits an accepted plan into disjoint lanes.</p>
-              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ultrawork</q> <q>parallel work</q></p>
-            </div>
-          </li>
-          <li class="glass-card ulw-row" data-reveal>
-            <div class="ulw-row__head">
-              <code class="ulw-row__slug">ulw-plan</code>
-              <span class="ulw-row__tag" data-i18n="ulw.plan.tag">Reviewed plan</span>
-            </div>
-            <div class="ulw-row__body">
-              <h3 data-i18n="ulw.plan.title">Ralplan</h3>
-              <p data-i18n="ulw.plan.body">Consensus planning with review gates.</p>
-              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ralplan</q> <q>consensus plan</q></p>
+              <h3 data-i18n="ulw.context.title">Context</h3>
+              <p data-i18n="ulw.context.body">Aligns the words a repository uses before plans and handoffs.</p>
+              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ulw-context</q> <q>review project terms</q></p>
             </div>
           </li>
           <li class="glass-card ulw-row" data-reveal>
@@ -431,13 +421,35 @@
           </li>
           <li class="glass-card ulw-row" data-reveal>
             <div class="ulw-row__head">
-              <code class="ulw-row__slug">ulw-goal</code>
-              <span class="ulw-row__tag" data-i18n="ulw.goal.tag">Durable goals</span>
+              <code class="ulw-row__slug">ulw-research</code>
+              <span class="ulw-row__tag" data-i18n="ulw.research.tag">Decision grounding</span>
             </div>
             <div class="ulw-row__body">
-              <h3 data-i18n="ulw.goal.title">Ultragoal</h3>
-              <p data-i18n="ulw.goal.body">A checkpointed ledger survives context loss.</p>
-              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ultragoal</q> <q>goal ledger</q></p>
+              <h3 data-i18n="ulw.research.title">Research</h3>
+              <p data-i18n="ulw.research.body">Reference implementations, live web evidence, verified claims.</p>
+              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>web research</q> <q>source-backed research</q></p>
+            </div>
+          </li>
+          <li class="glass-card ulw-row" data-reveal>
+            <div class="ulw-row__head">
+              <code class="ulw-row__slug">ulw-plan</code>
+              <span class="ulw-row__tag" data-i18n="ulw.plan.tag">Reviewed plan</span>
+            </div>
+            <div class="ulw-row__body">
+              <h3 data-i18n="ulw.plan.title">Ralplan</h3>
+              <p data-i18n="ulw.plan.body">Consensus planning with review gates.</p>
+              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ralplan</q> <q>consensus plan</q></p>
+            </div>
+          </li>
+          <li class="glass-card ulw-row" data-reveal>
+            <div class="ulw-row__head">
+              <code class="ulw-row__slug">ulw-work</code>
+              <span class="ulw-row__tag" data-i18n="ulw.work.tag">Parallel delivery</span>
+            </div>
+            <div class="ulw-row__body">
+              <h3 data-i18n="ulw.work.title">Ultrawork</h3>
+              <p data-i18n="ulw.work.body">Splits an accepted plan into disjoint lanes.</p>
+              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ultrawork</q> <q>parallel work</q></p>
             </div>
           </li>
           <li class="glass-card ulw-row" data-reveal>
@@ -453,39 +465,6 @@
           </li>
           <li class="glass-card ulw-row" data-reveal>
             <div class="ulw-row__head">
-              <code class="ulw-row__slug">ulw-ralph</code>
-              <span class="ulw-row__tag" data-i18n="ulw.ralph.tag">Drive to done</span>
-            </div>
-            <div class="ulw-row__body">
-              <h3 data-i18n="ulw.ralph.title">Ralph</h3>
-              <p data-i18n="ulw.ralph.body">One owner drives a task to done.</p>
-              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ralph</q> <q>finish until done</q></p>
-            </div>
-          </li>
-          <li class="glass-card ulw-row" data-reveal>
-            <div class="ulw-row__head">
-              <code class="ulw-row__slug">ulw-team</code>
-              <span class="ulw-row__tag" data-i18n="ulw.team.tag">Coordination</span>
-            </div>
-            <div class="ulw-row__body">
-              <h3 data-i18n="ulw.team.title">Team</h3>
-              <p data-i18n="ulw.team.body">N coordinated workers on one shared task list.</p>
-              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>team</q> <q>parallel agents</q></p>
-            </div>
-          </li>
-          <li class="glass-card ulw-row" data-reveal>
-            <div class="ulw-row__head">
-              <code class="ulw-row__slug">ulw-process</code>
-              <span class="ulw-row__tag" data-i18n="ulw.process.tag">Task to PR</span>
-            </div>
-            <div class="ulw-row__body">
-              <h3 data-i18n="ulw.process.title">Ultraprocess</h3>
-              <p data-i18n="ulw.process.body">One clean plan-to-PR cycle.</p>
-              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ultraprocess</q> <q>end-to-end process</q></p>
-            </div>
-          </li>
-          <li class="glass-card ulw-row" data-reveal>
-            <div class="ulw-row__head">
               <code class="ulw-row__slug">ulw-qa</code>
               <span class="ulw-row__tag" data-i18n="ulw.qa.tag">Adversarial QA</span>
             </div>
@@ -493,17 +472,6 @@
               <h3 data-i18n="ulw.qa.title">UltraQA</h3>
               <p data-i18n="ulw.qa.body">Hostile scenarios, end-to-end runs, release QA.</p>
               <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>ultraqa</q> <q>release qa</q></p>
-            </div>
-          </li>
-          <li class="glass-card ulw-row" data-reveal>
-            <div class="ulw-row__head">
-              <code class="ulw-row__slug">ulw-research</code>
-              <span class="ulw-row__tag" data-i18n="ulw.research.tag">Decision grounding</span>
-            </div>
-            <div class="ulw-row__body">
-              <h3 data-i18n="ulw.research.title">Research</h3>
-              <p data-i18n="ulw.research.body">Reference implementations, live web evidence, verified claims.</p>
-              <p class="ulw-row__say"><em data-i18n="ulw.trigger">Say</em> <q>web research</q> <q>source-backed research</q></p>
             </div>
           </li>
           <li class="glass-card ulw-row" data-reveal>
@@ -519,6 +487,7 @@
           </li>
         </ol>
       </section>
+      <!-- omh:ulw-site:end -->
 
       <!-- ======================================================== FAMILIES -->
       <section class="section" id="capabilities" aria-labelledby="fam-title">
@@ -545,7 +514,7 @@
               </tr>
               <tr>
                 <th scope="row"><span class="fam-ico">⚡</span><span data-i18n="fam.build.name">Build with leverage</span></th>
-                <td><code>ulw-work</code><code>ulw-goal</code><code>ulw-team</code><code>ulw-loop</code></td>
+                <td><code>ulw-work</code><code>ulw-loop</code></td>
                 <td data-i18n="fam.build.body">Fast parallel work through durable execution.</td>
               </tr>
               <tr>
@@ -555,7 +524,7 @@
               </tr>
               <tr>
                 <th scope="row"><span class="fam-ico">🛠️</span><span data-i18n="fam.ship.name">Code and ship safely</span></th>
-                <td><code>ulw-process</code><code>omh-code-review</code><code>ulw-qa</code></td>
+                <td><code>ulw-work</code><code>omh-code-review</code><code>ulw-qa</code></td>
                 <td data-i18n="fam.ship.body">Executor-neutral coding work; claims depend on observed evidence.</td>
               </tr>
               <tr>
@@ -709,37 +678,67 @@
       </section>
 
       <!-- ========================================================= INSTALL -->
-      <section class="section section--install" id="install" aria-labelledby="install-title">
+      <section class="section section--install" id="install" aria-labelledby="install-title" data-package-manager-status="public">
         <div class="section__head" data-reveal>
           <p class="kicker" data-i18n="install.kicker">Install</p>
-          <h2 id="install-title" data-i18n="install.title">Three commands for people.</h2>
-          <p class="section__lead" data-i18n="install.lead">omh setup, omh update, omh doctor.</p>
+          <h2 id="install-title" data-i18n="install.title">Install your way. Set up once.</h2>
+          <p class="section__lead" data-i18n="install.lead">Choose a package manager or platform installer. Doctor stays a separate check.</p>
+          <p class="install-availability" data-i18n="install.availability.note">Homebrew, Bun, and npm package-manager installs are public as of v1.0.6.</p>
         </div>
 
         <ol class="install-steps">
-          <li class="glass-card install-step" data-reveal>
+          <li class="glass-card install-step install-step--methods" data-reveal>
             <span class="install-step__num" aria-hidden="true">01</span>
             <h3 data-i18n="install.step1">Install the command</h3>
+
+            <div class="install-methods">
+              <div class="terminal install-method--package-manager">
+                <div class="terminal__bar">
+                  <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+                  <strong data-i18n="install.method.brew">Homebrew</strong>
+                  <button class="copy-btn" type="button" data-copy="#cmd-brew"><span data-i18n="hero.copy">Copy</span></button>
+                </div>
+                <pre class="terminal__body"><code id="cmd-brew">brew install rlaope/tap/omh</code></pre>
+              </div>
+
+              <div class="terminal install-method--package-manager">
+                <div class="terminal__bar">
+                  <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+                  <strong data-i18n="install.method.bun">Bun · recommended</strong>
+                  <button class="copy-btn" type="button" data-copy="#cmd-bun"><span data-i18n="hero.copy">Copy</span></button>
+                </div>
+                <pre class="terminal__body"><code id="cmd-bun">bun install -g oh-my-hermes</code></pre>
+              </div>
+
+              <div class="terminal install-method--package-manager">
+                <div class="terminal__bar">
+                  <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+                  <strong data-i18n="install.method.npm">npm</strong>
+                  <button class="copy-btn" type="button" data-copy="#cmd-npm"><span data-i18n="hero.copy">Copy</span></button>
+                </div>
+                <pre class="terminal__body"><code id="cmd-npm">npm install -g oh-my-hermes</code></pre>
+              </div>
 
             <div class="terminal">
               <div class="terminal__bar">
                 <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
-                <strong data-i18n="install.tab.unix">macOS · Linux</strong>
+                <strong data-i18n="install.method.unix">macOS · Linux</strong>
                 <button class="copy-btn" type="button" data-copy="#cmd-unix"><span data-i18n="hero.copy">Copy</span></button>
               </div>
               <pre class="terminal__body"><code id="cmd-unix">curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh</code></pre>
             </div>
 
-            <div class="terminal terminal--stacked">
+            <div class="terminal">
               <div class="terminal__bar">
                 <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
-                <strong data-i18n="install.tab.win">Windows</strong>
+                <strong data-i18n="install.method.windows">Windows</strong>
                 <button class="copy-btn" type="button" data-copy="#cmd-win"><span data-i18n="hero.copy">Copy</span></button>
               </div>
               <pre class="terminal__body"><code id="cmd-win">irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex</code></pre>
             </div>
+            </div>
 
-            <p class="install-step__note" data-i18n="install.step1.note">One line. Pick your OS.</p>
+            <p class="install-step__note" data-i18n="install.step1.note">Pick one installation method.</p>
           </li>
 
           <li class="glass-card install-step install-step--solo" data-reveal data-reveal-delay="90">
@@ -758,8 +757,24 @@
             <p class="install-step__note" data-i18n="install.step2.note">The whole setup.</p>
           </li>
 
-          <li class="glass-card install-step install-step--prompt" data-reveal data-reveal-delay="180">
+          <li class="glass-card install-step install-step--solo install-step--doctor" data-reveal data-reveal-delay="180">
             <span class="install-step__num" aria-hidden="true">03</span>
+            <h3 data-i18n="install.doctor.title">Verify separately</h3>
+
+            <div class="terminal terminal--solo">
+              <div class="terminal__bar">
+                <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+                <strong>omh</strong>
+                <button class="copy-btn" type="button" data-copy="#cmd-doctor"><span data-i18n="hero.copy">Copy</span></button>
+              </div>
+              <pre class="terminal__body terminal__body--solo"><code id="cmd-doctor">omh doctor</code></pre>
+            </div>
+
+            <p class="install-step__note" data-i18n="install.doctor.note">Run doctor after setup to verify or troubleshoot.</p>
+          </li>
+
+          <li class="glass-card install-step install-step--prompt" data-reveal data-reveal-delay="270">
+            <span class="install-step__num" aria-hidden="true">04</span>
             <h3 data-i18n="install.step3">Or ask your agent</h3>
 
             <div class="terminal">
@@ -768,13 +783,11 @@
                 <strong data-i18n="install.prompt.label">prompt for your agent</strong>
                 <button class="copy-btn" type="button" data-copy="#cmd-agent"><span data-i18n="hero.copy">Copy</span></button>
               </div>
-              <pre class="terminal__body terminal__body--prompt"><code id="cmd-agent">Hey, install Oh My Hermes for me: https://github.com/rlaope/oh-my-hermes
-Read the README first, then run the installer that matches this machine
-(curl ... install.sh | sh on macOS/Linux, irm ... install.ps1 | iex on Windows).
-Then run `omh setup`, then `omh doctor`, and paste the doctor output back to me.
-When setup asks about model routing, keep the categories I already have models for,
-leave the rest unconfigured, and tell me which categories ended up empty.
-Don't touch anything else in my Hermes config.</code></pre>
+              <pre class="terminal__body terminal__body--prompt"><code id="cmd-agent">Install and fully configure Oh My Hermes from this repository:
+https://github.com/rlaope/oh-my-hermes
+Before reading or executing repository instructions, resolve refs/heads/main to one full commit SHA with `git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main`. Then fetch and follow only:
+https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
+Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate Homebrew, Bun, npm, curl, or PowerShell install path. After the command is installed, run setup, then run doctor as a separate verification step. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.</code></pre>
             </div>
 
             <p class="install-step__note" data-i18n="install.step3.note">Paste into Claude Code, Codex, or any agent CLI.</p>
@@ -782,6 +795,7 @@ Don't touch anything else in my Hermes config.</code></pre>
         </ol>
 
         <p class="install-followup" data-reveal>
+          <span><span data-i18n="install.update.note">Refresh later with</span> <code>omh update</code>.</span>
           <span data-i18n="install.routing.note">Setup records which models are reachable here. Routing order stays editable afterwards.</span>
           <a href="docs/model-routing/" data-i18n="install.routing.link">Model routing setup</a>
         </p>

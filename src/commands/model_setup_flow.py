@@ -172,6 +172,9 @@ def model_activation_result(
             }
             status = "verified" if receipt.verified else "verification_failed"
             next_action = "model_setup_complete" if receipt.verified else "inspect_model_config"
+    elif recommendation["status"] == "owner_default":
+        status = "defaulted"
+        next_action = "model_setup_complete"
     elif confirmed:
         next_action = "edit_model_recommendations"
     else:

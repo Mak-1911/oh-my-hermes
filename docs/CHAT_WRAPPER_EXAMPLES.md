@@ -60,7 +60,7 @@ the same vocabulary:
 - `omh chat interact ...` -> `coding_route_decision`, mirrored on
   `delegation.coding_route_decision`.
 
-Direct `ultraprocess`, broad coding delivery, and test-until-pass requests all
+Direct legacy `ultraprocess` invocations (now `ultrawork`'s delivery alias), broad coding delivery, and test-until-pass requests all
 report the same lane action, `prepare_one_cycle_delivery`. The lane action says
 which lane to prepare; it deliberately says nothing about who owns the code.
 Ownership is the separate `coding_route_decision.next_action`, which is always
@@ -381,7 +381,7 @@ The current OMH-first map is:
 - image tools -> `img-summary` / `prepare_visual_prompt_card`
 - file tools -> `materials-package` / `prepare_material_package`
 - search tools -> `research` / `gather_source_backed_evidence`
-- coding tools -> `ultraprocess` first, with `ralplan`, `code-review`, and
+- coding tools -> `ultrawork` first, with `ralplan`, `code-review`, and
   `agent-ops-review` as adjacent options
 
 These routes are advisory. They tell Hermes which OMH workflow to consider

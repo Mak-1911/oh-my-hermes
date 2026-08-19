@@ -84,61 +84,132 @@
 >   <img src="assets/friren-agent-omh-callout.png" alt="Friren Agent explaining OMH in Art&Engine" width="720">
 > </p>
 ## クイックスタート
+> **状態:** Homebrew、Bun、npm のパッケージマネージャー経由のインストールは
+> v1.0.6 から公開されています。
 
-**ローカルコマンドと管理対象 skill をインストールします:**
-
+**次のインストール方法から一つ選択します。Bun を推奨します。**
+```sh
+brew install rlaope/tap/omh
+```
+```sh
+bun install -g oh-my-hermes
+```
+```sh
+npm install -g oh-my-hermes
+```
 ```sh
 curl -fsSL https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.sh | sh
-omh setup
 ```
-
 **Windows（PowerShell 5.1+）の場合:**
-
 ```powershell
 irm https://raw.githubusercontent.com/rlaope/oh-my-hermes/main/install.ps1 | iex
-omh setup
 ```
 
+**インストール後に OMH をセットアップ:**
+```sh
+omh setup
+```
 **Hermes skill tap:**
-
 ```sh
 hermes skills tap add rlaope/oh-my-hermes
 hermes skills install rlaope/oh-my-hermes/skills/omh-routing --yes
 ```
-
 **または Your AI Agent に依頼します:**
-
 ```text
-Hey Agent, Install this >> https://github.com/rlaope/oh-my-hermes <<
+Install and fully configure Oh My Hermes from this repository:
+https://github.com/rlaope/oh-my-hermes
+Before reading or executing repository instructions, resolve refs/heads/main to one full commit SHA with `git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main`. Then fetch and follow only:
+https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
+Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.
 ```
-
-**アップデートと状態チェック:**
-
+**アップデート:**
 ```sh
 omh update
+```
+`omh update` はインストール経路を検出し、Homebrew、Bun、npm、curl、
+または PowerShell のコマンドパッケージを先に更新してから、新しいコマンドで
+再実行し、管理スキル、プラグインバンドル、既存の Hermes 登録も更新します。
+
+**インストールの確認またはトラブルシューティング:**
+```sh
 omh doctor
 ```
-
 `--full` インストールを core に戻すようなメンテナンス手順は
 [Installation](docs/INSTALLATION.md#reconciling-an-existing-full-install-back-to-core)
 にあります。
 
+## OH-MY-HERMES ターミナル
+
+`omh` と入力するだけで、`hermes` と同じ入口から、OMH のアイデンティティをまとった
+Hermes が開きます:
+
+```sh
+omh
+```
+
+<table align="center">
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-boot-hud.png" alt="The OH-MY-HERMES boot"><br>
+      <sub><b>OH-MY-HERMES の起動画面。</b></sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work run"><br>
+      <sub><b><code>ulw-work</code> 実行中。</b></sub>
+    </td>
+  </tr>
+</table>
+
+OMH ワークフローの実行中にターミナルが表示するもの:
+
+- **Mixture-of-Models Routing** — 委譲される lane ごとにカテゴリ
+  (ultrabrain、deep、quick、writing、visual-engineering、…)のモデルと推論
+  強度が dispatch 単位で適用され、各活動行に `category:name(model:effort)` が
+  表示されるためルーティングが見えます。拒否されたルートはカテゴリチェーンに
+  沿って fallback します。
+- **Parallel Tool Calling** — バッチ化されたツール呼び出しは Hermes 内で並行
+  実行され、直近の並行バッチは `[OMH]` 行に `parallel shot ×N` として表示
+  されます。
+- **Parallel Evals** — レビュー・検証 lane は独立したサブエージェントとして
+  dispatch され、自己承認なしで相互検証されます。各 lane は turn・cost・cache
+  指標付きの HUD 行として見えます。
+- **Phase-structured TODO** — 作業は開始前に phase と task として宣言され
+  (`todo init`)、プロンプト上のチェックリストとして描画されます: アクティブ
+  項目は常に一つ、サブタスクのネスト、7 行を超えると折りたたみ。
+
+<br>
+
 ## 推奨モデル
 
-OMH には次の編集可能なカテゴリ別推奨モデルが含まれています。
+OMH には次の編集可能な順序付き recommendation chain が含まれています。guided model setup は、ユーザーが active と確認した candidate だけを基準に chain を解決します。その結果は準備済み routing config であり、provider availability、credential、dispatch、execution の証拠ではありません。
 
-| カテゴリ | 推奨モデル |
+| カテゴリ alias | 編集可能な recommendation 順序 |
 | --- | --- |
 | `ultrabrain` | GPT-5.6 Sol |
 | `deep` | GPT-5.6 Terra |
 | `unspecified-high` | Kimi K3、次に Claude Opus 5 |
-| `unspecified-low` | GLM 5.2、次に GLM 5.2 Ultrafast |
+| `unspecified-low` | GLM 5.2、次に GLM 5.2 Ultrafast、次に Claude Opus 5 (low) |
+| `quick` | GLM 5.2 Ultrafast、次に Kimi K3、次に GPT-5.6 Luna、次に Claude Fable 5 (low) |
+| `writing` | Kimi K3、次に Qwen3-Coder、次に Gemini 3.1 Pro |
 | `visual-engineering` | Claude Fable 5、次に Kimi K3 |
+| `artistry` | Gemini 3.1 Pro、次に Claude Fable 5、次に Kimi K3 |
 
-Hermes に **モデルをセットアップして** と頼むと、確認や変更ができます。
-これは編集可能な優先設定であり、benchmark 結果ではありません。詳しい設定、
-fallback、provider、所有権のルールは
-[Guided Model Setup](docs/INSTALLATION.md#guided-model-setup) を参照してください。
+Ultrafast ティアを試したいなら — Kimi K3 Ultrafast(300 TPS)、GLM 5.2 Ultrafast(600 TPS)は [OpenGateway](https://opengateway.ai/) で利用できます。
+
+Hermes に **モデルをセットアップして** と頼むと、確認や変更ができます。これは編集可能な優先設定であり、benchmark 結果ではありません。詳しい設定、fallback、provider、所有権のルールは [Guided Model Setup](docs/INSTALLATION.md#guided-model-setup) を参照してください。
+
+<details>
+<summary><strong>または、以下を Hermes や別の coding agent に貼り付けてください</strong></summary>
+
+```text
+Install and fully configure Oh My Hermes from this repository:
+https://github.com/rlaope/oh-my-hermes
+Before reading or executing repository instructions, resolve refs/heads/main to one full commit SHA with `git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main`. Then fetch and follow only:
+https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
+Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.
+```
+
+</details>
 
 ## ウルトラスキル
 
@@ -146,7 +217,7 @@ fallback、provider、所有権のルールは
   <img src="assets/omh-character-badge.png" alt="Oh My Hermes character mark" width="170">
 </p>
 
-12 個の `ulw-` workflow。チャットでトリガーを言えば Hermes がルーティング —
+8 個の `ulw-` workflow。チャットでトリガーを言えば Hermes がルーティング —
 全カタログは [Workflow Reference](docs/WORKFLOWS.md)。
 
 | Skill | 何をするか |
@@ -156,94 +227,32 @@ fallback、provider、所有権のルールは
 | ⚡ `ulw-research` | 実際のコードとウェブを調べ、出典を残し、怪しければ裏取りします。 |
 | ⚡ `ulw-plan` | 選択肢の比較、リスク、完了基準まで合意したレビュー済み計画を作ります。 |
 | ⚡ `ulw-work` | 承認済み計画を、同じファイルに触れない並列レーンで実行します。 |
-| ⚡ `ulw-ralph` | 一人が最後まで責任を持つ — 実装、検証、レビューを通るまで反復。 |
-| ⚡ `ulw-team` | 複数のワーカー、一つのタスクリスト、衝突なし。 |
 | ⚡ `ulw-loop` | 計画 → 実装 → レビューを、ゴールが本当に通るまで回します。 |
-| ⚡ `ulw-goal` | チェックポイント付きの長期ゴール — コンテキストが消えても止まった所から再開。 |
-| ⚡ `ulw-process` | 一つのタスクをリサーチから PR まで最後まで運びます。 |
 | ⚡ `ulw-qa` | わざと過酷なシナリオで攻撃し、壊れた所を直します。 |
 | ⚡ `ulw-perf` | 本当に遅く高コストな場所を測り、ホットパスを一つずつ修正します。 |
+
 ## OMH が追加するもの
 
-OMH は **106 個**のインストール可能な workflow skill を、理解しやすい6つの
-機能ファミリーとして提供します。
-
-そのうち 12 個は workflow engine で - `context`, `deep-interview`, `loop`, `ralph`, `ralplan`, `research`, `team`, `ultragoal`, `ultraperf`, `ultraprocess`, `ultraqa`, `ultrawork` - `ulw-` ラベルで表示され、
-ステータス行だけでどの種類の skill が動いているか分かります。残り 94 個は `omh-`
-を付けます。canonical name はどちらも変わりません。
-
-| 機能ファミリー | Hermes ができること |
-| --- | --- |
-| **計画と意思決定** | 曖昧な目標を明確にし、レビュー済み計画と durable goal loop を準備します。 |
-| **学習と収集** | 情報源の探索、論文説明、データ確認、根拠付き brief を準備します。 |
-| **資料とビジュアル制作** | Web、画像、文書、スライド、PDF、ポスターを形式別の品質 gate とともに制作します。 |
-| **コーディング委任と出荷** | Codex、Claude Code、Hermes runtime、または選択した executor 向けの handoff を準備します。 |
-| **運用と観測** | セットアップ、サービス品質、リリース、障害、automation、session、workflow learning を確認します。 |
-| **知識の保持** | レビュー済みプロジェクト記憶を構築し、外部知識システムを provider-neutral な境界で接続します。 |
-
-完全な catalog、trigger、harness、証拠ルールは
+OMH は、モデル選択とコーディングの所有者を別の判断として扱い、準備を実行として
+報告しません。人が理解しやすい capability family は引き続き入口であり、精密な
+制御・runtime 境界・証拠ルールは wrapper や operator が必要なときに確認
+できます。完全な catalog、trigger、harness、証拠ルールは
 [Workflow Reference](docs/WORKFLOWS.md) にあります。
 
 **ハイライト**
 
-| 機能 | 使い方 | 内容 |
-| --- | --- | --- |
-| 🧭 **明確化と計画** | `omh-plan` · `omh-decide` · `omh-meeting-brief` | 曖昧な依頼を、明確な目標・制約・トレードオフ・受け入れ基準、そしてそのまま引き渡せる計画に変えます。 |
-| ⚡ **レバレッジを効かせた実行** | `omh-idea-to-deploy` · `omh-cto-loop` · `omh-running-work-board` | 高速な並列作業から持続的な複数ステップの実行までスケールしながら、所有権・チェックポイント・検証を常に可視化します。 |
-| 🔬 **調査と学習** | `omh-best-practice-research` · `omh-research-brief` · `omh-paper-learning` | 鮮度・情報源の質・未解決の不確実性の境界を示しながら、根拠に基づく証拠を収集・統合します。 |
-| 🛠️ **安全なコーディングと出荷** | `omh-code-review` · `omh-build-failure-triage` · `omh-verification-gate` | executor に依存しないコーディング作業を準備し、review・QA・CI・merge に関する主張は観測された証拠にのみ基づかせます。 |
-| 🎨 **洗練された成果物の制作** | `omh-design-quality-gate` · `omh-materials-package` · `omh-deliverable-package` · `omh-image-cards` | コンテンツ・完成度・アクセシビリティ・レンダリング品質ゲートを軸に、Web サイト、ビジュアル、レポート、スライド、ドキュメント、PDF、ポスター、パッケージを制作します。 |
-| 🧠 **記憶と運用** | `omh-memory-new` · `omh-memory-sync` · `omh-ops-observability-card` · `omh-doctor` | プロジェクト記憶をレビュー優先で保ち、運用の準備状況を可視化し、provider やシステム状態を作り話にせず次の修復アクションを示します。 |
-| 🔌 **境界を隠さない接続** | `omh-toolbelt-readiness` · `omh-external-connector-readiness` · `omh-agent-board` | 作業がそれに依存する前に、必要なツール・connector・agent 面が実際に使えるかを確認し、host のロード・ツール利用・外部 provider アクセスを個別に観測可能な状態に保ちます。 |
-## 実務向けの設計
+| インテリジェンス | OMH が追加するもの |
+| --- | --- |
+| 🧭 **Mixture-of-models ルーティング** | 委譲される lane ごとにカテゴリ(モデル + 推論強度)を dispatch 単位で適用し、provider がモデルを拒否したら編集可能な fallback chain に沿って前進します — 仕事をしなかった子は正直に `failed` と表示されます。 |
+| 🖥️ **ネイティブ TUI サーフェス** | OMH HUD(カテゴリ・ターン・コスト・キャッシュ付きのライブ delegation 行)、プロンプト上の phase todo チェックリスト、`parallel shot ×N` 表示、full-row diff バンド、管理されたスキン — すべて Hermes の隣にインストールされ、Hermes 本体にはパッチしません。 |
+| 📋 **Phase 構造のプラン** | `todo init` がエンジン作業の前に phase と task を宣言し、実行を開かれた推論ループではなく有界のチェックリストにします。 |
+| ⚡ **観測可能な並列作業** | 独立した作業を所有権の分かれた fanout unit に分割し、進行状況と verification gate を観測します。 |
+| 🎼 **Maestro handoff** | 隠れた executor にならず、準備を実行として扱わずに、明示的な coding owner と runtime profile への handoff を準備します。 |
+| 🧠 **コンテキストインテリジェンス** | 隠れた記憶を捏造したり選択済み route を密かに変えたりせず、レビュー済み repository context をコンパクトに投影します。 |
+| 📚 **JIT learning** | 現在の blocker に最も価値のある学習対象を選び、学習済みと主張せずに、情報源に基づく即時適用可能なガイダンスを準備します。 |
+| 🔍 **証拠に基づく delivery** | coding・review・CI・merge 全体で、準備された意図、観測された runtime 活動、検証済み結果を分離します。 |
+| 📦 **決定的なスキルカタログ** | 100 個超のインストール可能な workflow スキル、バイト単位で検証される生成カタログ、否定ケースを含む routing precision コーパス、一文字のドリフトでも CI を失敗させる drift gate。 |
 
-<p align="center">
-  <img src="assets/built-for-real-work-orchestration.png" alt="OMH orchestrating coding agents and creative tools" width="900">
-</p>
-
-> **OMH (Oh-My-Hermes)** — 誰でも hermes-agent をプロフェッショナルに使えるようにします。<br>
-> あなたの AI エージェントのための強力なインテリジェンスハーネスです。
-
-**🧭 コマンド一覧ではなく、より賢いルーター。** 英語、韓国語、日本語、中国語、
-スペイン語、フランス語、ドイツ語、ヒンディー語の依頼を、翻訳 API なしで
-ローカルに分類します。OMH は推奨ファミリー、skill、owner、次の行動、そして
-まだ証拠になっていない部分をあわせて返します。
-
-**🤝 より良いコーディング handoff。** リポジトリの制約、合意済み scope、
-worktree と session-isolation の指針、ローカルで利用可能な skill、受け入れ
-基準、review の期待値、verification gate を含められます。Codex、Claude
-Code、Hermes、generic executor はいずれも隠れたデフォルトにはならず、明示的
-な owner のままです。
-
-**🎨 品質を意識した制作。** Frontend、アクセシビリティ、画像、レポート、
-スライド、ドキュメント、スプレッドシート、PDF、ポスター、共有パッケージの
-依頼は専用の制作・QA ガイダンスを経由します。準備済みのブリーフを、生成済み
-や視覚的に検証済みの成果物であるかのようには扱いません。
-
-**🔍 主張より先に証拠。** OMH は準備された意図、観測された runtime イベント、
-検証済みの結果を区別します。executor が実行した、review が通った、CI が
-成功した、デプロイが完了した、PR が merge されたと主張しなくても、handoff
-は準備完了になり得ます。
-
-**🧠 レビュー優先のプロジェクト記憶。** OMH はプロジェクト記憶の候補を
-承認済みの記録と分けて管理し、レビュー済みで準備された文脈だけを以降の
-handoff に呼び戻します。不透明な Hermes 内部の記憶を読んだり書き換えたりし
-たとは主張しません。
-
-**🔌 provider-neutral な運用。** metric、wiki、browser、image、video、
-connector の各システムは、明示的な外部 provider contract の背後にありま
-す。実際に接続・呼び出しをしていない provider を使ったと主張することなく、
-提供されたデータを検証・分析できます。
-
-**🏛️ Hermes-native かつ executor-neutral なアーキテクチャ。** Hermes は
-引き続きチャット、明確化、計画、調査、状態表示の窓口です。選択された
-executor が実装を担い、OMH はその作業を取り巻くローカル contract、ルー
-ティング、記憶、品質ゲート、証拠境界を提供します。
-
-**🧱 local-first な control plane。** OMH のコアとなるルーティング、
-catalog、manifest、主張ルールは決定的なローカル表面です。外部呼び出しや
-provider アクセスは、コア内部に隠された挙動ではなく、明示的な統合であり続
-けます。
 ## 主張より証拠
 
 OMH は自分が見たことだけを起きたと報告します。表示される状態は常に「どの段階か」と「OMH がどれだけ確信しているか」の二部構成です。

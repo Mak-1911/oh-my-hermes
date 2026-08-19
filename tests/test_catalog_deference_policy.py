@@ -78,14 +78,32 @@ _ANY_BACKTICKED_TOKEN = re.compile(r"`([^`]+)`")
 # Backticked tokens in `do_not_use_when` that are deliberately not skills: file
 # and artifact names quoted in the prose. Enumerated so a genuinely misspelled
 # skill name cannot hide among them.
-NON_SKILL_BACKTICKS = frozenset({".env", ".pptx"})
+# The three `ulw-work` internal capability ids that its do_not_use_when
+# boundaries reference after the ULW fold (issue #954, PR D) are deliberate
+# non-skill names: they are capabilities of `ultrawork`, not catalog siblings.
+NON_SKILL_BACKTICKS = frozenset(
+    {
+        ".env",
+        ".pptx",
+        "coordinated_scope",
+        "single_owner_persistence",
+        "durable_checkpoint",
+        "delivery_boundary",
+    }
+)
 
 # A statement that names a sibling, and the sibling(s) it names. The counts are
 # contracts: a new skill whose do_not_use_when points at a sibling adds a case
 # here, and that is the moment to confirm the router honours the new boundary.
-EXPECTED_DEFERENCE_CASES = 139
-EXPECTED_DEFERENCE_PAIRS = 150
-EXPECTED_DEFERRING_OWNERS = 50
+# ULW fold (issue #954, PR D): ultrawork's carried delivery/durable boundaries
+# add one deference statement naming `loop`.
+# ULW retirement (#954 stage 5): loop's bad-examples repoint from the retired
+# `ultraprocess`/`ultragoal` to `ultrawork`'s delivery-boundary and
+# durable-checkpoint capabilities, adding two loop -> ultrawork cases, one new
+# pair, and loop as a new deferring owner.
+EXPECTED_DEFERENCE_CASES = 133
+EXPECTED_DEFERENCE_PAIRS = 142
+EXPECTED_DEFERRING_OWNERS = 46
 
 # The ratchet. Recording a new inversion must be a visible edit to this number,
 # not one more dict line with a plausible sentence attached.
@@ -111,17 +129,17 @@ KNOWN_INVERSIONS: dict[tuple[str, tuple[str, ...]], str] = {
         "topic even though it hands the request to research. Adjacent to the one hand-tuned entry in "
         "_SIBLING_POINTER_METADATA_TOKENS, which compensates for research's cross-references by hand."
     ),
-    ("product-brief", ("ralplan", "ultraprocess")): (
+    ("product-brief", ("ralplan", "ultrawork")): (
         "'accepted, code-ready change with repository constraints and verification needs' is a product "
         "sentence describing a delivery request; product-brief matches the framing, the siblings match "
         "the work."
     ),
-    ("ralplan", ("ai-slop-cleaner", "ultraprocess")): (
+    ("ralplan", ("ai-slop-cleaner", "ultrawork")): (
         "'small local refactor or cleanup with no architectural or regression risk' names the risk "
         "vocabulary ralplan exists to reason about, so the skill that decides plan depth outranks the "
         "two skills that would carry out the cleanup."
     ),
-    ("ai-slop-cleaner", ("ultraprocess",)): (
+    ("ai-slop-cleaner", ("ultrawork",)): (
         "'new or changed behavior rather than removing existing code' states the cleanup boundary using "
         "cleanup words; the removal vocabulary keeps the declining skill on top."
     ),
@@ -131,9 +149,14 @@ KNOWN_INVERSIONS: dict[tuple[str, tuple[str, ...]], str] = {
 def _deference_cases() -> list[tuple[str, tuple[str, ...], str]]:
     """Return (owner, siblings, statement) for every declining statement that names a sibling."""
 
-    catalog_names = {definition.name for definition in builtin_definitions()}
+    routable = set(routable_skill_names())
+    catalog_names = {
+        definition.name for definition in builtin_definitions() if definition.name in routable
+    }
     cases: list[tuple[str, tuple[str, ...], str]] = []
     for definition in builtin_definitions():
+        if definition.name not in routable:
+            continue
         for statement in definition.do_not_use_when:
             named = {
                 name
@@ -165,8 +188,11 @@ class CatalogDeferenceGraphTests(unittest.TestCase):
         """
 
         catalog_names = {definition.name for definition in builtin_definitions()}
+        routable = set(routable_skill_names())
         unknown: list[tuple[str, str]] = []
         for definition in builtin_definitions():
+            if definition.name not in routable:
+                continue
             for statement in definition.do_not_use_when:
                 for token in _ANY_BACKTICKED_TOKEN.findall(statement):
                     if token not in catalog_names and token not in NON_SKILL_BACKTICKS:

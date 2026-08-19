@@ -15,21 +15,21 @@ class RoutingPrecisionTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], "routing_precision/v1")
         self.assertEqual(payload["source"], "discord")
         self.assertTrue(payload["summary"]["all_passing"])
-        self.assertEqual(payload["summary"]["case_count"], 63)
-        self.assertEqual(payload["summary"]["passing_count"], 63)
-        self.assertEqual(payload["summary"]["negative_case_count"], 63)
-        self.assertEqual(payload["summary"]["negative_passing_count"], 63)
+        self.assertEqual(payload["summary"]["case_count"], 65)
+        self.assertEqual(payload["summary"]["passing_count"], 65)
+        self.assertEqual(payload["summary"]["negative_case_count"], 65)
+        self.assertEqual(payload["summary"]["negative_passing_count"], 65)
         self.assertEqual(payload["summary"]["direct_answer_count"], 59)
         self.assertEqual(payload["summary"]["file_lookup_count"], 4)
         self.assertEqual(payload["summary"]["overroute_count"], 0)
         self.assertEqual(payload["summary"]["catalog_picker_count"], 0)
         self.assertEqual(payload["summary"]["generic_ack_count"], 0)
-        self.assertEqual(payload["summary"]["intervention_case_count"], 173)
-        self.assertEqual(payload["summary"]["intervention_passing_count"], 173)
+        self.assertEqual(payload["summary"]["intervention_case_count"], 175)
+        self.assertEqual(payload["summary"]["intervention_passing_count"], 175)
         self.assertEqual(payload["summary"]["missed_intervention_count"], 0)
         self.assertEqual(payload["summary"]["intervention_generic_ack_count"], 0)
-        self.assertEqual(payload["summary"]["total_case_count"], 236)
-        self.assertEqual(payload["summary"]["total_passing_count"], 236)
+        self.assertEqual(payload["summary"]["total_case_count"], 240)
+        self.assertEqual(payload["summary"]["total_passing_count"], 240)
         self.assertEqual(routing_precision_errors(payload), [])
         self.assertIn("over-intervention and missed-intervention guards", payload["claim_boundary"])
 
@@ -84,7 +84,14 @@ class RoutingPrecisionTests(unittest.TestCase):
         for case in cases.values():
             self.assertFalse(case["observed"]["overrouted"])
             self.assertFalse(case["observed"]["catalog_picker_opened"])
-            self.assertEqual(case["observed"]["route_action"], "fallback")
+            # Negative controls stay out of the way as a plain fallback.
+            # `clarify` is accepted only for controls that expect the
+            # clarification path (the unnamed-CLI paraphrase control), so a
+            # fallback control drifting to clarify still fails here.
+            if case["expected"]["next_action"] == "answer_clarification":
+                self.assertIn(case["observed"]["route_action"], ("fallback", "clarify"))
+            else:
+                self.assertEqual(case["observed"]["route_action"], "fallback")
             self.assertEqual(case["observed"]["route_workflow"], "oh-my-hermes")
 
         interventions = {case["id"]: case for case in payload["intervention_cases"]}
@@ -168,7 +175,7 @@ class RoutingPrecisionTests(unittest.TestCase):
             interventions["korean-image-generator-connector-readiness"]["observed"]["next_action"],
             "prepare_toolbelt_readiness",
         )
-        self.assertEqual(interventions["korean-hermes-coding-team-only"]["observed"]["route_workflow"], "team")
+        self.assertEqual(interventions["korean-hermes-coding-team-only"]["observed"]["route_workflow"], "ultrawork")
         self.assertEqual(
             interventions["korean-hermes-coding-team-only"]["observed"]["next_action"],
             "show_runtime_handoff",
@@ -218,7 +225,7 @@ class RoutingPrecisionTests(unittest.TestCase):
                 self.assertEqual(interventions[case_id]["observed"]["route_workflow"], "agent-ops-review")
                 self.assertEqual(interventions[case_id]["observed"]["next_action"], "refresh_agent_ops_status")
         self.assertEqual(interventions["loopable-project"]["observed"]["route_workflow"], "loop")
-        self.assertEqual(interventions["one-cycle-delivery"]["observed"]["route_workflow"], "ultraprocess")
+        self.assertEqual(interventions["one-cycle-delivery"]["observed"]["route_workflow"], "ultrawork")
         self.assertEqual(
             interventions["owner-learning-ulw-delivery"]["observed"]["next_action"],
             "choose_executor",
@@ -286,20 +293,20 @@ class RoutingPrecisionTests(unittest.TestCase):
             interventions["korean-workflow-trace-skill-improvement"]["observed"]["next_action"],
             "audit_learning_readiness",
         )
-        self.assertEqual(interventions["korean-test-until-pass-coding"]["observed"]["route_workflow"], "ultraprocess")
+        self.assertEqual(interventions["korean-test-until-pass-coding"]["observed"]["route_workflow"], "ultrawork")
         self.assertEqual(interventions["korean-test-until-pass-coding"]["observed"]["next_action"], "choose_executor")
         self.assertEqual(
             interventions["korean-codex-current-activity-status"]["observed"]["route_workflow"],
-            "ultraprocess",
+            "executor-runtime-readiness",
         )
         self.assertEqual(
             interventions["korean-codex-current-activity-status"]["observed"]["next_action"],
-            "show_coding_handoff_status",
+            "prepare_executor_runtime_readiness",
         )
-        self.assertEqual(interventions["korean-setup-output-improvement"]["observed"]["route_workflow"], "ultraprocess")
+        self.assertEqual(interventions["korean-setup-output-improvement"]["observed"]["route_workflow"], "ultrawork")
         self.assertEqual(
             interventions["korean-setup-output-improvement"]["observed"]["next_action"],
-            "answer_clarification",
+            "choose_executor",
         )
         self.assertEqual(interventions["korean-hud-menubar-restart"]["observed"]["route_workflow"], "agent-ops-review")
         self.assertEqual(
@@ -394,8 +401,8 @@ class RoutingPrecisionTests(unittest.TestCase):
         self.assertEqual(status, 0, stderr)
         self.assertEqual(stderr, "")
         self.assertIn("OMH routing precision", stdout)
-        self.assertIn("63/63 negative-control cases passing", stdout)
-        self.assertIn("Interventions: 173/173 expected workflow cases passing", stdout)
+        self.assertIn("65/65 negative-control cases passing", stdout)
+        self.assertIn("Interventions: 175/175 expected workflow cases passing", stdout)
         self.assertIn("overroutes: 0", stdout)
         self.assertIn("catalog pickers: 0", stdout)
         self.assertIn("generic ack: 0", stdout)
@@ -459,7 +466,7 @@ class TrivialMessageGuardTests(unittest.TestCase):
         # skill is the one legitimate one-word message.
         from omh.routing.chat import DIRECT_ANSWER_REASON, route_chat_message
 
-        for message, expected in (("wiki", "wiki"), ("/wiki", "wiki"), ("ask", "ask"), ("team", "team")):
+        for message, expected in (("wiki", "wiki"), ("/wiki", "wiki"), ("ask", "ask"), ("team", "ultrawork")):
             with self.subTest(message=message):
                 route = route_chat_message(message, source="slack")
                 self.assertEqual(route["action"], "dispatch")

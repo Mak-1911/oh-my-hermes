@@ -24,7 +24,7 @@ class RouterFastPathTests(unittest.TestCase):
         self.assertIn("agent_ops_status_fast_path", cases["status-slang-ko"]["observed"]["matched"])
         self.assertIn("file_lookup_fast_path", cases["file-lookup-ko"]["observed"]["matched"])
         self.assertIn(
-            "guard_fast_path:coding_progress_status_before_clarify",
+            "ulw_owner_choice:named_cli",
             cases["coding-progress-ko"]["observed"]["matched"],
         )
 

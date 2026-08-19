@@ -353,13 +353,13 @@ class JitLearnRoutingAndCardContractTests(unittest.TestCase):
             ),
             (
                 "Implement the accepted onboarding PRD and open a PR.",
-                "ultraprocess",
+                "ultrawork",
                 "choose_executor",
                 "prepare_one_cycle_delivery",
             ),
             (
                 "Use Codex to implement this learning feature so I can apply it this week.",
-                "ultraprocess",
+                "ultrawork",
                 "show_coding_handoff_status",
                 "show_coding_handoff_status",
             ),

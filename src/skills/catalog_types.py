@@ -322,9 +322,10 @@ DELEGATION_TRANSPARENCY_RULES = (
 # bars so a chained start still stops for the user's go-ahead.
 ENGINE_FIT_RECOMMENDATION_RULE = (
     "Plan acceptance approves the plan content, not execution: after acceptance, recommend the follow-on "
-    "path that fits the work's shape — `ultragoal` for progress that must survive sessions as a "
-    "checkpointed ledger, `ultrawork` for an accepted plan split into disjoint parallel lanes, `ralph` "
-    "for one already-scoped task with a single owner, `ultraprocess` for one bounded delivery cycle, or "
+    "path that fits the work's shape — `ultrawork` durable checkpoints for progress that must survive "
+    "sessions as a checkpointed ledger, `ultrawork` coordinated lanes for an accepted plan split into "
+    "disjoint parallel lanes, `ultrawork` single-owner persistence for one already-scoped task with a "
+    "single owner, `ultrawork` for one bounded delivery cycle, or "
     "a direct selected executor/runtime handoff for a single prepared coding change — state the fit "
     "reason in one line, and start it only after the user's explicit go-ahead."
 )
@@ -458,6 +459,33 @@ DEEP_INTERVIEW_CLARITY_DIMENSIONS = (
     "outcome",
     "constraints and non-goals",
     "success criteria",
+)
+
+DECISION_FRONTIER_POLICY_SCHEMA_VERSION = "decision_frontier_policy/v1"
+DECISION_FRONTIER_HARNESS = "decision-frontier"
+DECISION_FRONTIER_BUDGET_SCOPE = "clarification_episode"
+DECISION_FRONTIER_ROUND_UNIT = "dependency_ready_batch"
+DECISION_FRONTIER_DECISION_ID_PREFIX = "D"
+DECISION_FRONTIER_DECISION_STATES = (
+    "open",
+    "resolved",
+    "deferred",
+    "blocked",
+)
+DECISION_FRONTIER_STOP_RULE_ORDER = (
+    "frontier_terminal",
+    "user_stop",
+    "round_ceiling",
+)
+DECISION_FRONTIER_PARTIAL_ANSWER_POLICY = "addressed_only"
+DECISION_FRONTIER_OMITTED_ANSWER_TRANSITION = "none"
+DECISION_FRONTIER_RECOMMENDATION_POLICY = "explicit_acceptance_only"
+DECISION_FRONTIER_USER_STOP_SCOPE = "questioning_only"
+DECISION_FRONTIER_COMPACTION_FAILURE_ACTION = "close_with_recovery_blocker"
+DECISION_FRONTIER_CONSENT_GATES = (
+    "frontier_entry",
+    "summary_confirmation",
+    "next_path",
 )
 
 _CATEGORY_RECOVERY_NOTES = {
@@ -762,6 +790,13 @@ _DEFAULT_GOOD_EXAMPLES = {
 }
 
 
+# The per-engine lifecycle ladder for the ULW consolidation (#954). The stage
+# is an independent field, not a derivation of `compatibility_alias`: a retired
+# engine keeps `compatibility_alias=True` so a stale workflow hint still
+# resolves as a compatibility concern rather than a generic non-routable name.
+SURFACE_LIFECYCLE_STAGES = ("canonical", "alias", "warning", "retired")
+
+
 @dataclass(frozen=True)
 class SurfaceExposure:
     name: str
@@ -771,6 +806,9 @@ class SurfaceExposure:
     docs_visibility: str
     preferred_usage: str
     compatibility_alias: bool = False
+    lifecycle_stage: str = "canonical"
+    target_home: str | None = None
+    migration_release: str | None = None
 
 
 @dataclass(frozen=True)

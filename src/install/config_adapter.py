@@ -224,6 +224,144 @@ def memory_provider_selection(config_text: str) -> str:
     return _section_scalar(config_text, "memory", "provider")
 
 
+def display_skin_selection(config_text: str) -> str:
+    """The name in `display.skin`, or "" when Hermes resolves its built-in default.
+
+    The active skin is what colours the OMH widget's panel border, so doctor
+    names it when reporting the chrome. `ensure_omh_skin` is the one writer,
+    and only for the unset case.
+    """
+    return _section_scalar(config_text, "display", "skin")
+
+
+def ensure_omh_skin(config_text: str, name: str) -> ConfigChange:
+    """Default `display.skin` to the managed OMH skin when no skin is chosen.
+
+    This is the owner-directed identity default: installing OMH is opting into
+    the OH-MY-HERMES look, the way installing oh-my-zsh restyles the shell it
+    wraps. It is deliberately narrower than the retired `display.interface`
+    write that #986 removed — that write moved users off Hermes' default
+    terminal and cost them chrome; this one selects a palette on the terminal
+    they already use, only when `display.skin` is unset, and `hermes skin use
+    <anything>` immediately and permanently overrides it because an explicit
+    value is never rewritten.
+    """
+    selected = display_skin_selection(config_text)
+    if selected == name:
+        return ConfigChange(False, f"display.skin is already {name}", config_text)
+    if selected:
+        return ConfigChange(False, f"display.skin is {selected}; leaving user preference unchanged", config_text)
+
+    lines = config_text.splitlines()
+    if any(line.startswith("display.skin:") for line in lines):
+        return ConfigChange(False, "dotted display.skin is user-owned; leaving it alone", config_text)
+    display_indices = [index for index, line in enumerate(lines) if line == "display:"]
+    if len(display_indices) > 1:
+        return ConfigChange(False, "duplicate display sections are ambiguous; leaving them alone", config_text)
+    if not display_indices:
+        text = (config_text.rstrip() + f"\n\ndisplay:\n  skin: {name}\n").lstrip("\n")
+        return ConfigChange(True, "appended display.skin", text)
+    lines.insert(display_indices[0] + 1, f"  skin: {name}")
+    return ConfigChange(True, f"set display.skin to {name}", "\n".join(lines) + "\n")
+
+
+def model_scalar_selection(config_text: str, key: str) -> str:
+    """The scalar `model.<key>` (`default`, `provider`, `base_url`), or "".
+
+    Read-only: OMH writes `model.aliases.*` through Hermes' own `config set`
+    and never touches these keys. `maintenance.hermes_model_routing` reads them
+    to report when they disagree.
+    """
+    return _section_scalar(config_text, "model", key)
+
+
+def display_interface_selection(config_text: str) -> str:
+    """The unambiguous scalar `display.interface`, or "" for other shapes."""
+    lines = config_text.splitlines()
+    display_indices = [index for index, line in enumerate(lines) if line == "display:"]
+    if len(display_indices) != 1:
+        return ""
+    entries: list[str] = []
+    for line in lines[display_indices[0] + 1 :]:
+        if line.strip() and not line.startswith(" "):
+            break
+        if line.startswith("  ") and not line.startswith("    "):
+            key, separator, rest = line.strip().partition(":")
+            if separator and key == "interface":
+                entries.append(rest.strip())
+        elif re.match(r"^interface\s*:", line.lstrip()):
+            return ""
+    if len(entries) != 1 or not entries[0] or entries[0].startswith(("{", "[", "|", ">")):
+        return ""
+    return _scalar_value(entries[0])
+
+
+def ensure_tui_interface(config_text: str) -> ConfigChange:
+    """Default `display.interface` to tui whenever the user has not chosen one.
+
+    Existing installs matter as much as fresh ones: OMH's HUD widgets render
+    only in Hermes' official Ink TUI, so an upgrading user whose config predates
+    this key would otherwise keep landing in the classic REPL where the HUD
+    cannot exist. Every explicit or noncanonical display choice below stays
+    user-owned; only the genuinely unset case is defaulted.
+    """
+    lines = config_text.splitlines()
+    display_lines = [
+        line
+        for line in lines
+        if re.match(r"^\s*display\s*:", line)
+    ]
+    if any(line.startswith("display.interface:") for line in lines):
+        return ConfigChange(False, "dotted display.interface is user-owned; leaving it alone", config_text)
+    if len(display_lines) > 1:
+        return ConfigChange(False, "duplicate display sections are ambiguous; leaving them alone", config_text)
+    if display_lines and display_lines[0] != "display:":
+        return ConfigChange(False, "inline display configuration is user-owned; leaving it alone", config_text)
+
+    display_index = next(
+        (index for index, line in enumerate(lines) if line.strip() == "display:" and not line.startswith(" ")),
+        None,
+    )
+    interface_entries: list[tuple[int, str]] = []
+    interface_like_lines = 0
+    if display_index is not None:
+        for index in range(display_index + 1, len(lines)):
+            line = lines[index]
+            if line.strip() and not line.startswith(" "):
+                break
+            if line.startswith("  ") and not line.startswith("    "):
+                key, separator, rest = line.strip().partition(":")
+                if separator and key.strip() == "interface":
+                    interface_entries.append((index, rest.strip()))
+            if re.match(r"^interface\s*:", line.lstrip()):
+                interface_like_lines += 1
+    if interface_like_lines != len(interface_entries):
+        return ConfigChange(False, "noncanonical display.interface is user-owned; leaving it alone", config_text)
+    if len(interface_entries) > 1:
+        return ConfigChange(False, "duplicate display.interface keys are ambiguous; leaving them alone", config_text)
+    if interface_entries and (
+        not interface_entries[0][1]
+        or interface_entries[0][1].startswith(("{", "[", "|", ">"))
+    ):
+        return ConfigChange(False, "non-scalar display.interface is user-owned; leaving it alone", config_text)
+    selected = display_interface_selection(config_text)
+    if selected == "tui":
+        return ConfigChange(False, "display.interface is already tui", config_text)
+    if selected:
+        return ConfigChange(False, f"display.interface is {selected}; leaving user preference unchanged", config_text)
+
+    if display_index is None:
+        text = (config_text.rstrip() + "\n\ndisplay:\n  interface: tui\n").lstrip("\n")
+        return ConfigChange(True, "appended display.interface", text)
+
+    if interface_entries:
+        lines[interface_entries[0][0]] = "  interface: tui"
+        return ConfigChange(True, "set display.interface to tui", "\n".join(lines) + "\n")
+
+    lines.insert(display_index + 1, "  interface: tui")
+    return ConfigChange(True, "inserted display.interface", "\n".join(lines) + "\n")
+
+
 def maybe_set_memory_provider(config_text: str, name: str, mode: str) -> ConfigChange:
     """Alias of `set_memory_provider` that honors the CLI's memory_mode.
 

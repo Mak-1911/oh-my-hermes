@@ -1,18 +1,29 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from hashlib import sha256
+import json
 from pathlib import Path
 import re
+from typing import Mapping
 
 from ..system.local_store import atomic_write_json
 from ..system.local_store import ensure_dir
 from ..system.paths import OmhPaths
 from .fanout_contracts import FANOUT_ID_PATTERN
+from .fanout_contracts import FANOUT_CONTRACT_PROVENANCE_SCHEMA_VERSION
 
 _FANOUT_ID_RE = re.compile(FANOUT_ID_PATTERN)
 # The same slug shape `fanout._UNIT_ID_RE` accepts, restated here rather than
 # imported so the path validator does not depend on the contract builder.
 _UNIT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+_PROVENANCE_KEYS = {
+    "schema_version",
+    "fanout_id",
+    "contract_schema_version",
+    "contract_sha256",
+    "privacy",
+}
 
 
 def write_fanout_contract(paths: OmhPaths, contract: dict[str, object]) -> dict[str, object]:
@@ -25,12 +36,30 @@ def write_fanout_contract(paths: OmhPaths, contract: dict[str, object]) -> dict[
     payload = deepcopy(contract)
     payload["artifacts"] = {"contract_path": str(contract_path), "privacy": "metadata_only"}
     atomic_write_json(contract_path, payload, private=True)
+    atomic_write_json(
+        contract_dir / "contract_provenance.json",
+        {
+            "schema_version": FANOUT_CONTRACT_PROVENANCE_SCHEMA_VERSION,
+            "fanout_id": fanout_id,
+            "contract_schema_version": str(payload.get("schema_version", "")),
+            "contract_sha256": fanout_contract_digest(payload),
+            "privacy": "metadata_only",
+        },
+        private=True,
+    )
     return payload
 
 
 def fanout_dispatch_summary_path(paths: OmhPaths, fanout_id: str) -> Path:
     """Validated dispatch-summary path for one fanout (id pattern + containment)."""
     return _managed_fanout_dir(paths, _validated_fanout_id(fanout_id)) / "dispatch_summary.json"
+
+
+def fanout_contract_provenance_path(paths: OmhPaths, fanout_id: str) -> Path:
+    return _managed_fanout_dir(
+        paths,
+        _validated_fanout_id(fanout_id),
+    ) / "contract_provenance.json"
 
 
 def unit_result_path(paths: OmhPaths, fanout_id: str, unit_id: str) -> Path:
@@ -86,10 +115,62 @@ def clear_fanout_unit_recovery(paths: OmhPaths, fanout_id: str, unit_id: str) ->
 
 
 def read_fanout_contract(paths: OmhPaths, fanout_id: str) -> dict[str, object]:
-    import json
-
     contract_path = _managed_fanout_dir(paths, _validated_fanout_id(fanout_id)) / "fanout_contract.json"
     return json.loads(contract_path.read_text(encoding="utf-8"))
+
+
+def read_fanout_contract_provenance(
+    paths: OmhPaths,
+    fanout_id: str,
+    contract: Mapping[str, object],
+) -> dict[str, object]:
+    validated_id = _validated_fanout_id(fanout_id)
+    provenance_path = fanout_contract_provenance_path(paths, validated_id)
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    if not isinstance(provenance, dict):
+        raise ValueError("fanout contract schema provenance must be an object")
+    validate_fanout_contract_provenance(
+        contract,
+        provenance,
+        expected_fanout_id=validated_id,
+    )
+    return provenance
+
+
+def fanout_contract_digest(contract: Mapping[str, object]) -> str:
+    encoded = json.dumps(
+        contract,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
+
+
+def validate_fanout_contract_provenance(
+    contract: Mapping[str, object],
+    provenance: Mapping[str, object],
+    *,
+    expected_fanout_id: str | None = None,
+) -> None:
+    if set(provenance) != _PROVENANCE_KEYS:
+        raise ValueError("fanout contract schema provenance has unsupported fields")
+    if provenance.get("schema_version") != FANOUT_CONTRACT_PROVENANCE_SCHEMA_VERSION:
+        raise ValueError("fanout contract schema provenance is unsupported")
+    fanout_id = str(contract.get("fanout_id", ""))
+    if provenance.get("fanout_id") != fanout_id or (
+        expected_fanout_id is not None and fanout_id != expected_fanout_id
+    ):
+        raise ValueError("fanout contract schema provenance fanout_id does not match")
+    if provenance.get("contract_schema_version") != contract.get("schema_version"):
+        raise ValueError("fanout contract schema provenance does not match the contract")
+    if provenance.get("privacy") != "metadata_only":
+        raise ValueError("fanout contract schema provenance privacy must be metadata_only")
+    digest = provenance.get("contract_sha256")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("fanout contract schema provenance digest is invalid")
+    if digest != fanout_contract_digest(contract):
+        raise ValueError("fanout contract schema provenance digest does not match")
 
 
 def _validated_fanout_id(value: object) -> str:

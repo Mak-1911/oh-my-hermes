@@ -890,18 +890,39 @@ def _resolve_hermes_recommendation_route(
         overrides=recommendation_overrides,
         **selector,
     )
-    if recommendation["status"] != "resolved":
+    chain = (
+        _hermes_recommendation_chain(recommendation, active_models=active)
+        if recommendation["status"] == "resolved"
+        else []
+    )
+    if requested_domain:
+        chain, recommendation = _stable_domain_recommendation_chain(
+            requested_domain,
+            chain,
+            attempted,
+            base_resolution=recommendation,
+            active_models=active,
+            recommendation_overrides=recommendation_overrides,
+        )
+    if not chain:
         attempted.append(
             {
                 "stage": "recommendation_chain",
-                "outcome": "unconfigured",
+                "outcome": "owner_default",
                 "reason": "no editorial candidate is confirmed active for Hermes",
+            }
+        )
+        attempted.append(
+            {
+                "stage": "executor_default",
+                "outcome": "selected",
+                "reason": "no confirmed recommendation; Hermes default model applies",
             }
         )
         payload = _route_payload(
             "hermes",
-            status="no_model_catalog",
-            provenance="no_catalog",
+            status="model_unrouted",
+            provenance="executor_default",
             role=role,
             selected_reasoning_effort=requested_effort,
             catalog_kind="editorial_recommendations",
@@ -911,27 +932,28 @@ def _resolve_hermes_recommendation_route(
             chain=[],
             attempted=attempted,
             candidates=[],
-            reasons=role_reasons + ["No confirmed-active Hermes recommendation could be resolved."],
+            reasons=role_reasons
+            + [
+                "No confirmed-active Hermes recommendation could be resolved, "
+                "so the Hermes default model remains in effect."
+            ],
         )
         payload["recommendation"] = recommendation
         return payload
 
-    chain = _hermes_recommendation_chain(recommendation, active_models=active)
-    if requested_domain:
-        chain = _stable_domain_recommendation_chain(
-            requested_domain,
-            chain,
-            attempted,
-            active_models=active,
-            recommendation_overrides=recommendation_overrides,
-        )
     selected = str(chain[0]["model_id"])
     selected_effort = requested_effort or str(chain[0].get("reasoning_effort", ""))
+    last_resort = str(recommendation.get("source", "")) == "last_resort_chain"
     attempted.append(
         {
             "stage": "recommendation_chain",
-            "outcome": "selected",
-            "reason": f"confirmed-active recommendation chain head `{selected}` selected",
+            "outcome": "last_resort" if last_resort else "selected",
+            "reason": (
+                "no confirmed-active candidate in the selected recommendation chains; "
+                f"shared last-resort head `{selected}` selected"
+                if last_resort
+                else f"confirmed-active recommendation chain head `{selected}` selected"
+            ),
         }
     )
     payload = _route_payload(
@@ -1046,9 +1068,10 @@ def _stable_domain_recommendation_chain(
     base_chain: list[dict[str, object]],
     attempted: list[dict[str, str]],
     *,
+    base_resolution: dict[str, object],
     active_models: Iterable[str | Mapping[str, object]],
     recommendation_overrides: Mapping[str, object] | None,
-) -> list[dict[str, object]]:
+) -> tuple[list[dict[str, object]], dict[str, object]]:
     from .model_recommendations import resolve_model_recommendation
 
     domain_resolution = resolve_model_recommendation(
@@ -1061,20 +1084,7 @@ def _stable_domain_recommendation_chain(
         domain_resolution,
         active_models=active_models,
     )
-    seen = {str(entry["model_id"]) for entry in promoted}
-    reordered = promoted + [entry for entry in base_chain if str(entry["model_id"]) not in seen]
-    if promoted:
-        attempted.append(
-            {
-                "stage": "domain_affinity",
-                "outcome": "reordered" if reordered != base_chain else "already_ordered",
-                "reason": (
-                    f"domain `{domain}` promoted its confirmed-active editorial chain in stable order; "
-                    "no entry removed"
-                ),
-            }
-        )
-    else:
+    if not promoted:
         attempted.append(
             {
                 "stage": "domain_affinity",
@@ -1082,7 +1092,39 @@ def _stable_domain_recommendation_chain(
                 "reason": f"domain `{domain}` has no confirmed-active editorial candidate; role chain kept",
             }
         )
-    return reordered
+        return base_chain, base_resolution
+
+    if str(domain_resolution.get("source", "")) == "last_resort_chain" and base_chain:
+        base_is_last_resort = str(base_resolution.get("source", "")) == "last_resort_chain"
+        attempted.append(
+            {
+                "stage": "domain_affinity",
+                "outcome": (
+                    "shared_last_resort_already_selected"
+                    if base_is_last_resort
+                    else "last_resort_deferred"
+                ),
+                "reason": (
+                    f"domain `{domain}` exhausted its affine chain; the shared last resort "
+                    "cannot outrank an already resolved category or role chain"
+                ),
+            }
+        )
+        return base_chain, base_resolution
+
+    seen = {str(entry["model_id"]) for entry in promoted}
+    reordered = promoted + [entry for entry in base_chain if str(entry["model_id"]) not in seen]
+    attempted.append(
+        {
+            "stage": "domain_affinity",
+            "outcome": "reordered" if reordered != base_chain else "already_ordered",
+            "reason": (
+                f"domain `{domain}` promoted its confirmed-active editorial chain in stable order; "
+                "no entry removed"
+            ),
+        }
+    )
+    return reordered, domain_resolution
 
 
 def route_provenance(route: Mapping[str, object] | object) -> tuple[str, str]:

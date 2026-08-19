@@ -10,6 +10,9 @@ from .localization import normalized_phrase, routing_tokens
 WORKFLOW_VOCABULARY = (
     "deep-interview",
     "ralplan",
+    # Retired engine names stay recognizable as MENTIONS so legacy phrasing
+    # ("다음엔 ultraprocess로 보내줘", "$ultraprocess ...") is still detected;
+    # routing itself resolves them through the ulw-work alias (#954 stage 5).
     "ultragoal",
     "loop",
     "ultraprocess",
@@ -276,7 +279,7 @@ class OmhQualityIntent:
     handoff_cues: tuple[str, ...]
     customer_feedback_cues: tuple[str, ...]
     matched_label: str = "semantic:omh_quality_improvement_loop"
-    primary_workflow: str = "ultraprocess"
+    primary_workflow: str = "ultrawork"
 
     @property
     def matched_cues(self) -> tuple[str, ...]:

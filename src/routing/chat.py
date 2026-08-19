@@ -18,6 +18,7 @@ from .catalog_questions import (
 )
 from .action_copy import next_action_label as _route_next_action_label
 from .candidate_handoff import build_candidate_handoff
+from .decision_contract import build_route_decision_contract
 from .domain_signals import (
     DomainRouteSignal,
     specialist_domain_operator_override,
@@ -25,7 +26,7 @@ from .domain_signals import (
 )
 from .display_names import canonical_display_mentions
 from .input_language import routing_input_language
-from .intent import scrub_diagnostic_status_text
+from .intent import classify_workflow_intent, scrub_diagnostic_status_text
 from .localization import normalized_phrase, prepare_routing_text, routing_tokens
 from .missed_route import is_missed_route_feedback
 from .omh_help import is_omh_intro_question, is_omh_quickstart_question, is_omh_status_question
@@ -47,10 +48,12 @@ from .policy import (
 from .policy import _doctor_health_guard_applies
 from .policy import _explicit_skill_candidate_is_negated
 from .policy import _hermes_setup_guide_requested
+from .policy import _github_event_ops_guard_applies
 from .policy import _invocation_token
 from .recommend import has_strong_named_catalog_owner, recommendation_for_definition, recommend_skills
 from .route_plan import build_workflow_route_plan, compact_workflow_route_plan
 from .task_cards import classify_task, task_card_recommendation
+from .ulw_alias import resolve_codex_owner_choice_cue, resolve_ulw_alias
 from .visual_qa_cues import (
     BROWSER_VISUAL_QA_COMMAND_PHRASES,
     BROWSER_VISUAL_QA_PHRASES,
@@ -85,7 +88,6 @@ _SPECIFIC_CAPABILITY_EXCLUDED_SKILLS = frozenset(
         "cancel",
         "plan",
         "skill",
-        "team",
     }
 )
 _BROAD_CAPABILITY_CATALOG_PHRASES = (
@@ -1305,6 +1307,11 @@ class ChatRouteDecision:
     # Latin/Hangul accident; naming it here keeps a zero score on a Japanese or
     # Hindi request readable as missing coverage instead of missing intent.
     input_language: dict[str, object] | None = None
+    # Set when a retired ULW engine cue resolved to its `ulw-work` capability
+    # (#954 stage 5): the machine-readable alias diagnostics, including the
+    # user's original invocation and the one-line capability reason the status
+    # card shows.
+    alias_resolution: dict[str, str] | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload = {
@@ -1334,6 +1341,8 @@ class ChatRouteDecision:
             payload["route_next_action"] = self.route_next_action
         if self.input_language:
             payload["input_language"] = dict(self.input_language)
+        if self.alias_resolution:
+            payload["alias_resolution"] = dict(self.alias_resolution)
         return payload
 
 
@@ -1391,6 +1400,7 @@ def _enriched_route(
     candidate_handoff = build_candidate_handoff(route, message)
     if candidate_handoff:
         route["candidate_handoff"] = candidate_handoff
+    route["route_decision"] = build_route_decision_contract(route)
     return _apply_skill_governance(route, skill_policy)
 
 
@@ -1523,6 +1533,31 @@ def _route_chat_message_cached(
     )
     if bounded_direct_decision is not None:
         return bounded_direct_decision.to_dict()
+    # Retired ULW engine cues (#954 stage 5): exact legacy invocations resolve
+    # to `ulw-work`'s matching capability, and the Codex-named cluster diverts
+    # to owner selection (Q9). Below the bounded-direct guard on purpose: a
+    # bounded task named with a retired engine still de-escalates instead of
+    # following the alias.
+    fast_ulw_owner_choice_decision = _ulw_owner_choice_fast_path_decision(
+        message,
+        routing_message=routing_message,
+        source=source,
+        min_confidence=min_confidence,
+    )
+    if fast_ulw_owner_choice_decision is not None:
+        return fast_ulw_owner_choice_decision.to_dict()
+    if classify_workflow_intent(message).intent_class not in {
+        "meta_discussion",
+        "feedback_signal",
+    }:
+        fast_ulw_alias_decision = _ulw_alias_fast_path_decision(
+            message,
+            routing_message=routing_message,
+            source=source,
+            min_confidence=min_confidence,
+        )
+        if fast_ulw_alias_decision is not None:
+            return fast_ulw_alias_decision.to_dict()
     fast_explicit_skill_decision = _explicit_skill_fast_path_decision(
         message,
         routing_message=routing_message,
@@ -1672,6 +1707,35 @@ def _route_chat_message_cached(
     )
     if fast_direct_answer_decision is not None:
         return fast_direct_answer_decision.to_dict()
+
+    # Containment pass for retired ULW engine cues: a longer message embedding
+    # a legacy multi-word cue keeps the reachability the retired trigger
+    # tables used to provide through catalog scoring (#954 stage 5).
+    # Missed-route feedback stays with workflow-learning even when it names a
+    # retired engine ("다음엔 ultraprocess로 보내줘" is feedback, not a route),
+    # and meta discussion ABOUT the vocabulary never selects delivery.
+    # GitHub event operations keep their own lane: an issue/PR event request
+    # embedding a legacy delivery phrase ("... prepare a PR handoff") is a
+    # GitHub-ops flow, not a retired-engine invocation.
+    github_event_context = _github_event_ops_guard_applies(
+        normalized_phrase(routing_message),
+        routing_tokens(routing_message),
+    )
+    if (
+        not is_missed_route_feedback(routing_message)
+        and not github_event_context
+        and classify_workflow_intent(message).intent_class
+        not in {"meta_discussion", "feedback_signal"}
+    ):
+        late_ulw_alias_decision = _ulw_alias_fast_path_decision(
+            message,
+            routing_message=routing_message,
+            source=source,
+            min_confidence=min_confidence,
+            allow_containment=True,
+        )
+        if late_ulw_alias_decision is not None:
+            return late_ulw_alias_decision.to_dict()
 
     definitions = routable_definitions()
     full_recommendations = recommend_skills(routing_message, limit=len(definitions))
@@ -2987,7 +3051,7 @@ _OPERATOR_SURFACE_FAST_PATH_RULES: tuple[tuple[str, tuple[str, ...], str, str], 
         "Clear repo onboarding or first-read request; prepare the reading path before refresh-only codegraph work.",
     ),
     (
-        "ultraprocess",
+        "executor-runtime-readiness",
         (
             "codex issue pr",
             "codex로 이 이슈 pr",
@@ -2995,6 +3059,13 @@ _OPERATOR_SURFACE_FAST_PATH_RULES: tuple[tuple[str, tuple[str, ...], str, str], 
             "코덱스로 이 이슈 pr",
             "코덱스로 이슈 pr",
             "코덱스로 이 이슈 pr 만들어",
+        ),
+        "operator_surface_fast_path:owner_choice",
+        "Named-CLI issue-to-PR request; the CLI name is an owner-choice signal, so show executor readiness before delivery claims.",
+    ),
+    (
+        "ultrawork",
+        (
             "merge as friren",
             "merge with friren author",
             "friren author",
@@ -3012,7 +3083,7 @@ _OPERATOR_SURFACE_FAST_PATH_RULES: tuple[tuple[str, tuple[str, ...], str, str], 
             "readme 개선",
         ),
         "operator_surface_fast_path:delivery",
-        "Clear executor-backed issue-to-PR request; prepare the one-cycle delivery path.",
+        "Clear delivery-cycle request; prepare ultrawork's bounded delivery capability.",
     ),
     (
         "performance-goal",
@@ -4102,9 +4173,7 @@ def _operator_surface_fast_path_patterns() -> tuple[tuple[str, str, str, str, st
 
 def _operator_surface_extra_markers(skill: str, phrase: str) -> tuple[str, ...]:
     normalized = _fast_path_text(phrase)
-    if skill == "ultraprocess":
-        if any(marker in normalized for marker in ("codex", "코덱스")):
-            return ("guard:coding_handoff_status",)
+    if skill == "ultrawork":
         if any(marker in normalized for marker in ("friren", "프리렌", "author", "merge", "머지", "커밋")):
             return ("guard:coding_handoff_status", "guard:merge_author_constraint")
     if skill == "img-summary":
@@ -4595,7 +4664,7 @@ def _operator_surface_route_plan_recommendations(
             ),
             recommendation,
             recommendation_for_definition(
-                _skill_definition_by_name("ultraprocess"),
+                _skill_definition_by_name("ultrawork"),
                 message,
                 matched=("route_plan:deliver",),
                 score=5,
@@ -5012,6 +5081,129 @@ _CODING_STATUS_BOARD_BLOCKERS = (
     "process on",
     "in production",
 )
+
+
+def _ulw_alias_fast_path_decision(
+    message: str,
+    *,
+    routing_message: str,
+    source: str,
+    min_confidence: str,
+    allow_containment: bool = False,
+) -> ChatRouteDecision | None:
+    """Route a retired ULW engine cue to `ulw-work`'s matching capability.
+
+    Permanent alias routing (#954 stage 5, window=0): the retired trigger
+    vocabulary of `team`/`ultraprocess`/`ralph`/`ultragoal` resolves to
+    `ultrawork` with the original invocation preserved in
+    `alias_resolution` diagnostics. Exact whole-cue matches run early so the
+    legacy vocabulary always resolves; containment matches run just before
+    catalog scoring so longer messages embedding a legacy cue keep the
+    reachability the retired trigger tables used to provide.
+    """
+    # Exact cue matching reads the raw message (the cue verbatim); containment
+    # reads the scrubbed routing message so a pasted diagnostic status block
+    # naming a retired engine is never treated as an invocation.
+    resolution = resolve_ulw_alias(message)
+    if resolution is None and allow_containment:
+        resolution = resolve_ulw_alias(routing_message, allow_containment=True)
+    if resolution is None:
+        return None
+    selected_skill = str(resolution["target_contract_id"])
+    selected_harness = primary_harness_for_skill(selected_skill)
+    reason = str(resolution["capability_reason"])
+    # A sigil-led legacy invocation ("$team ...", "./ultraprocess ...") is an
+    # explicit invocation of the retired name, resolved through the alias.
+    explicit = message.strip().startswith(("$", "./", "/"))
+    score = 30
+    recommendation = recommendation_for_definition(
+        _skill_definition_by_name(selected_skill),
+        message,
+        matched=(f"ulw_alias:{resolution['retired_contract_id']}",),
+        score=score,
+        why=reason,
+    )
+    return ChatRouteDecision(
+        schema_version=1,
+        source=source,
+        action="dispatch",
+        selected_skill=selected_skill,
+        selected_harness=selected_harness,
+        candidate_skill=selected_skill,
+        candidate_harness=selected_harness,
+        confidence="high",
+        score=score,
+        threshold=min_confidence,
+        explicit=explicit,
+        ambiguous=False,
+        reason=reason,
+        clarification="",
+        routing_prompt=_routing_prompt("dispatch", selected_skill, selected_skill, reason, message),
+        task_card=None,
+        workflow_route_plan=None,
+        learning_candidate_card=None,
+        recommendations=(recommendation,),
+        alias_resolution=dict(resolution),
+    )
+
+
+def _ulw_owner_choice_fast_path_decision(
+    message: str,
+    *,
+    routing_message: str,
+    source: str,
+    min_confidence: str,
+) -> ChatRouteDecision | None:
+    """Route a Codex-named legacy cue to the owner-selection path (plan Q9).
+
+    The Codex-named cues from the old `ultraprocess` trigger cluster are
+    owner-choice signals, not engine triggers: they never resolve
+    `ultrawork`, and any external owner they resolve carries recorded
+    explicit-choice provenance through the in-message-naming writer.
+    """
+    cue = resolve_codex_owner_choice_cue(message)
+    if cue is None:
+        return None
+    selected_skill = "executor-runtime-readiness"
+    selected_harness = primary_harness_for_skill(selected_skill)
+    reason = (
+        "Naming a coding CLI is an owner-choice signal, not an engine trigger; "
+        "show executor readiness and let the user's choice select the coding owner."
+    )
+    score = 30
+    recommendation = recommendation_for_definition(
+        _skill_definition_by_name(selected_skill),
+        message,
+        matched=(
+            "ulw_owner_choice:named_cli",
+            "guard:executor_runtime_readiness",
+            "operator_surface_fast_path:owner_choice",
+            "guard_fast_path:ulw_owner_choice_before_engine_route",
+        ),
+        score=score,
+        why=reason,
+    )
+    return ChatRouteDecision(
+        schema_version=1,
+        source=source,
+        action="dispatch",
+        selected_skill=selected_skill,
+        selected_harness=selected_harness,
+        candidate_skill=selected_skill,
+        candidate_harness=selected_harness,
+        confidence="high",
+        score=score,
+        threshold=min_confidence,
+        explicit=False,
+        ambiguous=False,
+        reason=reason,
+        clarification="",
+        routing_prompt=_routing_prompt("dispatch", selected_skill, selected_skill, reason, message),
+        task_card=None,
+        workflow_route_plan=None,
+        learning_candidate_card=None,
+        recommendations=(recommendation,),
+    )
 
 
 def _coding_status_board_fast_path_decision(
@@ -5871,6 +6063,7 @@ def routing_record_payload(
     user_ref: str = "",
 ) -> dict[str, object]:
     payload = {
+        "route_decision": build_route_decision_contract(decision),
         "source": decision["source"],
         "action": decision["action"],
         "selected_skill": decision["selected_skill"],
@@ -6522,7 +6715,7 @@ def _route_next_action(route: dict[str, object], recommendation: dict[str, objec
         return route_next_action
     action = str(route.get("action", "fallback"))
     if action == "dispatch":
-        if str(route.get("selected_skill", "")) == "ultraprocess" and _route_is_coding_status_request(route):
+        if str(route.get("selected_skill", "")) == "ultrawork" and _route_is_coding_status_request(route):
             return "show_coding_handoff_status"
         return str(recommendation.get("next_action") or "dispatch_to_workflow")
     if action == "fallback" and _is_file_lookup_reason(str(route.get("reason", ""))):

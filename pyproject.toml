@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "oh-my-hermes"
-version = "1.0.5"
+version = "1.0.7"
 description = "Install a Hermes-native skill workflow pack."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,6 +32,9 @@ Homepage = "https://rlaope.github.io/oh-my-hermes/"
 Issues = "https://github.com/rlaope/oh-my-hermes/issues"
 Repository = "https://github.com/rlaope/oh-my-hermes"
 
+[tool.pytest.ini_options]
+pythonpath = ["src", "tests"]
+
 [tool.setuptools]
 packages = [
   "omh",
@@ -53,6 +56,7 @@ packages = [
   "omh.plugin_bundle.omh.hooks",
   "omh.plugin_bundle.omh.references",
   "omh.plugin_bundle.omh.tools",
+  "omh.skins",
   "omh.tui_widgets",
   "omh.profiles",
   "omh.quality",
@@ -91,6 +95,7 @@ packages = [
 "omh.wrapper" = "src/wrapper"
 
 [tool.setuptools.package-data]
+"omh.skins" = ["*.yaml"]
 "omh.tui_widgets" = ["*.mjs"]
 "omh.catalogs" = ["*.json"]
 "omh.plugin_bundle.omh" = ["plugin.yaml", "config.yaml"]

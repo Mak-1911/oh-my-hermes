@@ -607,6 +607,8 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(payload["schema_version"], "chat_route_hint/v1")
         self.assertEqual(payload["route_hint"]["schema_version"], "omh_route_hint/v1")
         self.assertEqual(payload["route_hint"]["primary_workflow"], "feedback-triage")
+        self.assertEqual(payload["route_decision"]["schema_version"], "route_decision/v1")
+        self.assertEqual(payload["route_decision"]["selected_skill"], "feedback-triage")
         self.assertEqual(payload["chat_response"]["state"]["selected_workflow"], "feedback-triage")
         self.assertEqual(payload["generic_tool_checkpoint"]["schema_version"], "omh_generic_tool_checkpoint/v1")
         self.assertIn("prep/status/learning", payload["generic_tool_checkpoint"]["body"])
@@ -617,7 +619,7 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(checkpoint_routes["file_tools"]["primary_workflow"], "materials-package")
         self.assertEqual(checkpoint_routes["search_tools"]["primary_workflow"], "research")
         self.assertIn("source-finder", checkpoint_routes["search_tools"]["preferred_workflows"])
-        self.assertEqual(checkpoint_routes["coding_tools"]["primary_workflow"], "ultraprocess")
+        self.assertEqual(checkpoint_routes["coding_tools"]["primary_workflow"], "ultrawork")
         self.assertIn("prep/status/learning", payload["chat_response"]["body"])
         self.assertNotIn("generic_tool_checkpoint", payload["chat_response"]["state"])
         self.assertEqual(payload["chat_response"]["messenger_rendering"]["profile"], "discord")
@@ -1014,7 +1016,7 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(binding["delegate_task_override"]["model"], "apitopia/kimi-k3")
         self.assertNotIn("maestro", json.dumps(binding).casefold())
 
-    def test_delegate_mode_keeps_unconfigured_hermes_binding_unpinned(self) -> None:
+    def test_delegate_mode_keeps_owner_default_hermes_binding_unpinned(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             paths = resolve_paths(root / ".omh", root / ".hermes")
@@ -1028,8 +1030,8 @@ class WrapperContractTests(unittest.TestCase):
             )
 
         binding = payload["delegation"]["runtime_handoff"]["hermes_native_model_binding"]
-        self.assertEqual(binding["status"], "choice_required")
-        self.assertEqual(binding["next_action"], "configure_hermes_native_alias")
+        self.assertEqual(binding["status"], "owner_default")
+        self.assertEqual(binding["next_action"], "use_hermes_default_model")
         self.assertNotIn("kanban_task_override", binding)
         self.assertNotIn("delegate_task_override", binding)
 
@@ -1110,7 +1112,7 @@ class WrapperContractTests(unittest.TestCase):
             )
 
         self.assertEqual(payload["mode"], "route")
-        self.assertEqual(payload["route"]["selected_skill"], "ultraprocess")
+        self.assertEqual(payload["route"]["selected_skill"], "ultrawork")
         self.assertEqual(payload["next_action"], "show_runtime_handoff")
         self.assertEqual(payload["executor_resolution"]["source"], "setup_profile")
         self.assertEqual(payload["delegation"]["selected_executor_profile"], "omx-runtime")
@@ -1159,7 +1161,7 @@ class WrapperContractTests(unittest.TestCase):
 
         actions = {action["id"]: action for action in payload["chat_response"]["actions"]}
         self.assertEqual(payload["mode"], "route")
-        self.assertEqual(payload["route"]["selected_skill"], "ultraprocess")
+        self.assertEqual(payload["route"]["selected_skill"], "ultrawork")
         self.assertEqual(payload["next_action"], "choose_executor")
         self.assertTrue(payload["delegation"]["executor_selection"]["choice_required"])
         self.assertTrue(payload["chat_response"]["state"]["executor_choice_required"])
@@ -1351,6 +1353,8 @@ class WrapperContractTests(unittest.TestCase):
         self.assertTrue(readiness["first_use_only"])
         self.assertTrue(readiness["fallback_policy"]["retry_after_state_change"])
         self.assertEqual(payload["delegation"]["executor_handoff"]["executor_readiness"]["profile"], "codex")
+        self.assertEqual(payload["delegation"]["route_decision"]["schema_version"], "route_decision/v1")
+        self.assertEqual(payload["delegation"]["route_decision"]["selected_skill"], "ralplan")
         self.assertEqual(payload["chat_response"]["state"]["executor_readiness"]["profile"], "codex")
         self.assertIn("send_to_executor", actions)
         self.assertIn("send_to_codex", actions)
@@ -1603,11 +1607,11 @@ class WrapperContractTests(unittest.TestCase):
 
         self.assertEqual(payload["mode"], "route")
         self.assertEqual(payload["next_action"], "show_runtime_handoff")
-        self.assertEqual(payload["route"]["selected_skill"], "team")
+        self.assertEqual(payload["route"]["selected_skill"], "ultrawork")
         self.assertEqual(payload["executor_resolution"]["source"], "message_mention")
         self.assertEqual(payload["delegation"]["selected_executor_profile"], "hermes")
         self.assertEqual(payload["chat_response"]["kind"], "handoff")
-        self.assertEqual(payload["chat_response"]["state"]["selected_workflow"], "team")
+        self.assertEqual(payload["chat_response"]["state"]["selected_workflow"], "ultrawork")
         self.assertEqual(team_path["schema_version"], "hermes_coding_team_path/v1")
         self.assertIn("show_runtime_handoff", actions)
         self.assertIn("start_hermes_coding", actions)
@@ -2705,7 +2709,7 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(picker["schema_version"], "omh_skill_picker/v1")
         self.assertEqual(picker["selection_mode"], "single_select")
         option_ids = {option["id"] for option in picker["options"]}
-        self.assertTrue({"oh-my-hermes", "deep-interview", "ralplan", "loop", "ultraprocess"} <= option_ids)
+        self.assertTrue({"oh-my-hermes", "deep-interview", "ralplan", "loop", "ultrawork"} <= option_ids)
         self.assertIn("source-finder", option_ids)
         self.assertIn("paper-learning", option_ids)
         self.assertEqual(picker["featured_options"][0]["id"], "oh-my-hermes")
@@ -2800,12 +2804,12 @@ class WrapperContractTests(unittest.TestCase):
                 )
                 picker = payload["chat_response"]["state"]["skill_picker"]
                 option_ids = {option["id"] for option in picker["options"]}
-                self.assertTrue({"oh-my-hermes", "loop", "ultraprocess"} <= option_ids)
+                self.assertTrue({"oh-my-hermes", "loop", "ultrawork"} <= option_ids)
                 self.assertIn("source-finder", option_ids)
                 self.assertIn("paper-learning", option_ids)
                 self.assertEqual(picker["featured_options"][0]["id"], "oh-my-hermes")
                 picker_groups = {group["id"]: group for group in picker["groups"]}
-                self.assertIn("ultraprocess", picker_groups["intent_to_plan"]["option_ids"])
+                self.assertIn("ultrawork", picker_groups["intent_to_plan"]["option_ids"])
                 self.assertIn("img-summary", picker_groups["deliverables_and_visuals"]["option_ids"])
                 primer = payload["chat_response"]["state"]["context_primer"]
                 self.assertEqual(primer["schema_version"], "omh_context_primer/v1")
@@ -2826,7 +2830,7 @@ class WrapperContractTests(unittest.TestCase):
                 self.assertIn("source-finder", primer_cards["research_and_ops"]["representative_workflows"])
                 self.assertIn("paper-learning", primer_cards["research_and_ops"]["representative_workflows"])
                 self.assertIn("img-summary", primer_cards["materials_and_visuals"]["representative_workflows"])
-                self.assertIn("ultraprocess", primer_cards["coding_handoff"]["representative_workflows"])
+                self.assertIn("ultrawork", primer_cards["coding_handoff"]["representative_workflows"])
                 self.assertIn("Prepared plans", primer["evidence_rule"])
                 capability_summary = payload["chat_response"]["state"]["capability_summary"]
                 self.assertEqual(capability_summary["schema_version"], "omh_capability_summary/v1")
@@ -2837,7 +2841,9 @@ class WrapperContractTests(unittest.TestCase):
                 self.assertIn("paper-learning", summary_families["learn_and_gather"]["primary_workflows"])
                 self.assertIn("Claude Code", summary_families["delegate_coding_and_ship"]["executor_choices"])
                 self.assertIn("img-summary", lanes["materials_and_visuals"]["primary_skills"])
-                self.assertIn("ultraprocess", lanes["intent_to_plan"]["primary_skills"])
+                # ULW fold (issue #954, PR D): ultraprocess's awareness lane
+                # moved to coding_handoff with the other folded contracts.
+                self.assertIn("ultrawork", lanes["coding_handoff"]["primary_skills"])
                 self.assertIn("feedback-triage", summary_cards["research_and_ops"]["representative_workflows"])
                 self.assertIn("source-finder", summary_cards["research_and_ops"]["representative_workflows"])
                 self.assertIn("paper-learning", summary_cards["research_and_ops"]["representative_workflows"])
@@ -3122,8 +3128,7 @@ class WrapperContractTests(unittest.TestCase):
         self.assertEqual(payload["loop_start_card"]["loop_invocation"]["progress_policy"], "do_not_stop_until_gate")
         self.assertIn("deep-interview", payload["loop_start_card"]["core_skills"])
         self.assertIn("ralplan", payload["loop_start_card"]["core_skills"])
-        self.assertIn("ultragoal", payload["loop_start_card"]["core_skills"])
-        self.assertIn("team", payload["loop_start_card"]["core_skills"])
+        self.assertIn("ultrawork", payload["loop_start_card"]["core_skills"])
         self.assertEqual(payload["chat_response"]["state"]["permission_profile_required"], False)
         actions = {action["id"]: action for action in payload["chat_response"]["actions"]}
         self.assertTrue(actions["start_loop"]["enabled"])
@@ -3199,13 +3204,10 @@ class WrapperContractTests(unittest.TestCase):
                 "show_coding_handoff_status",
                 "Show coding status",
             ),
-            (
-                "코덱스로 이 이슈 PR 만들 수 있게 작업 시작해줘",
-                "show_coding_handoff_status",
-                False,
-                "show_coding_handoff_status",
-                "Show coding status",
-            ),
+            # "코덱스로 이 이슈 PR 만들 수 있게 작업 시작해줘" left this table at
+            # #954 stage 5: a Codex-named legacy session flow now resolves the
+            # owner-selection surface (plan Q9), pinned in
+            # tests/test_owner_invariant.py and tests/test_ulw_retirement.py.
         )
 
         for message, next_action, choice_required, primary_action, primary_label in cases:
@@ -3215,13 +3217,16 @@ class WrapperContractTests(unittest.TestCase):
                 self.assertEqual(payload["mode"], "route")
                 self.assertEqual(payload["next_action"], next_action)
                 self.assertEqual(payload["chat_response"]["kind"], "handoff")
-                self.assertEqual(payload["chat_response"]["state"]["selected_workflow"], "ultraprocess")
+                self.assertEqual(payload["chat_response"]["state"]["selected_workflow"], "ultrawork")
                 self.assertEqual(payload["chat_response"]["state"]["executor_choice_required"], choice_required)
                 self.assertEqual(payload["delegation"]["executor_selection"]["choice_required"], choice_required)
                 explanation = payload["chat_response"]["state"]["workflow_explanation"]
-                self.assertEqual(explanation["selected_workflow"], "ultraprocess")
-                self.assertEqual(explanation["workflow_context_id"], "intent_to_plan")
-                self.assertIn("ultraprocess", explanation["workflow_context_card"]["representative_workflows"])
+                self.assertEqual(explanation["selected_workflow"], "ultrawork")
+                # ULW fold (issue #954, PR D): ultraprocess's context card
+                # moved to the coding_handoff lane with the other folded
+                # contracts.
+                self.assertEqual(explanation["workflow_context_id"], "coding_handoff")
+                self.assertIn("ultrawork", explanation["workflow_context_card"]["representative_workflows"])
                 self.assertIn(
                     "executor/runtime dispatch" if choice_required else "execution",
                     explanation["not_evidence_yet"],
@@ -3239,7 +3244,7 @@ class WrapperContractTests(unittest.TestCase):
 
         actions = {action["id"]: action for action in payload["chat_response"]["actions"]}
         state = payload["chat_response"]["state"]
-        self.assertEqual(payload["route"]["selected_skill"], "ultraprocess")
+        self.assertEqual(payload["route"]["selected_skill"], "ultrawork")
         self.assertEqual(payload["next_action"], "show_coding_handoff_status")
         self.assertEqual(payload["executor_resolution"]["source"], "message_mention")
         self.assertEqual(payload["executor_resolution"]["resolved_executor_target"], "codex")
@@ -3258,7 +3263,7 @@ class WrapperContractTests(unittest.TestCase):
 
         actions = {action["id"]: action for action in payload["chat_response"]["actions"]}
         state = payload["chat_response"]["state"]
-        self.assertEqual(payload["route"]["selected_skill"], "ultraprocess")
+        self.assertEqual(payload["route"]["selected_skill"], "ultrawork")
         self.assertEqual(payload["next_action"], "show_coding_handoff_status")
         self.assertEqual(payload["executor_resolution"]["source"], "message_mention")
         self.assertEqual(payload["executor_resolution"]["resolved_executor_target"], "claude-code")
@@ -3577,7 +3582,7 @@ class WrapperContractTests(unittest.TestCase):
             ),
             (
                 "Codex 작업이 어디까지 진행됐는지 알려줘",
-                "ultraprocess",
+                "ultrawork",
                 "show_coding_handoff_status",
                 "handoff",
             ),

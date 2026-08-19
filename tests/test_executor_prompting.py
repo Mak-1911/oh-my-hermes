@@ -94,8 +94,8 @@ class ExecutorPromptingTests(unittest.TestCase):
     def test_runtime_and_prompt_candidates_remain_prepare_only(self) -> None:
         # Given: final guarded workflow routing across mapped runtime and omitted prompt-only profiles.
         cases = (
-            ("hermes", "runtime_handoff", "/ulw-goal {message}"),
-            ("omx-runtime", "runtime_handoff", "$ultragoal {message}"),
+            ("hermes", "runtime_handoff", "/ulw-work {message}"),
+            ("omx-runtime", "runtime_handoff", "$ultrawork {message}"),
             ("omo-runtime", "runtime_handoff", ""),
             ("omc-runtime", "runtime_handoff", ""),
         )
@@ -105,7 +105,7 @@ class ExecutorPromptingTests(unittest.TestCase):
                 payload = build_coding_delegation_payload(
                     "risky refactor src/example.py",
                     executor_target=profile,
-                    preferred_workflow="ultragoal",
+                    preferred_workflow="ultrawork",
                     preferred_workflow_score=10,
                     force_coding_handoff=True,
                 )
@@ -125,7 +125,7 @@ class ExecutorPromptingTests(unittest.TestCase):
                 prompt = build_coding_delegation_payload(
                     "risky refactor src/example.py",
                     executor_target=profile,
-                    preferred_workflow="ultragoal",
+                    preferred_workflow="ultrawork",
                     preferred_workflow_score=10,
                     force_coding_handoff=True,
                 )["prompt_handoff"]
