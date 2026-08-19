@@ -228,6 +228,36 @@ explicit choice. Inside the TUI, the OMH HUD renders as a themed panel:
 subagent activity rows with cost, turn, and cache metrics while work runs, and
 the plan todo checklist above the prompt.
 
+What the terminal shows while OMH workflows run:
+
+- **Mixture-of-Models Routing** — each delegated lane is routed onto a
+  category (ultrabrain, deep, quick, writing, visual-engineering, …) whose
+  model and reasoning effort are applied per dispatch; every activity row
+  carries its `category:name(model:effort)` so the routing is visible, and
+  rejected routes fall back along the category chain.
+- **Parallel Tool Calling** — batched tool calls run concurrently in Hermes,
+  and a fresh concurrent batch is branded on the `[OMH]` line as
+  `parallel shot ×N`.
+- **Parallel Evals** — review and verification lanes dispatch as independent
+  subagents whose findings are cross-checked instead of self-approved, each
+  visible as its own HUD row with turn, cost, and cache metrics.
+- **Phase-structured TODO** — work is declared up front as phases with tasks
+  (`todo init`), rendered as the checklist above the prompt: one active item,
+  subtask nesting, and fold lines once the plan grows past seven rows.
+
+<table align="center">
+  <tr>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-boot-hud.png" alt="OH-MY-HERMES terminal boot: rebranded banner, available tools and skills, phase todo checklist above the prompt, and the OMH HUD with live delegation rows carrying category, turn, cost, and cache metrics"><br>
+      <sub><b>The OH-MY-HERMES boot.</b><br>Rebranded banner, tools and skills at a glance, the phase todo checklist above the prompt, and live delegation rows in the OMH HUD.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="assets/omh-terminal-ulw-work-session.png" alt="An ulw-work session in the OH-MY-HERMES terminal: mixture-routed research lanes dispatching Hermes-native subagents, with the plan checklist and per-agent activity rows tracking the run"><br>
+      <sub><b>An <code>ulw-work</code> run.</b><br>Mixture-routed lanes dispatch Hermes-native subagents; each row shows its category, model:effort, turn, cost, and cache.</sub>
+    </td>
+  </tr>
+</table>
+
 <br>
 
 ## Recommended models
