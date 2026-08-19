@@ -6,7 +6,11 @@ from _local_package import load_local_package
 
 load_local_package()
 
-from omh.core.failure_mender import decide_failure, validate_failure_decision  # noqa: E402
+from omh.core.failure_mender import (  # noqa: E402
+    build_escalation_request,
+    decide_failure,
+    validate_failure_decision,
+)
 
 
 class FailureMenderTests(unittest.TestCase):
@@ -30,3 +34,13 @@ class FailureMenderTests(unittest.TestCase):
         self.assertEqual(decision["source"], "tool call")
         self.assertEqual(validate_failure_decision(decision), [])
         self.assertTrue(validate_failure_decision({**decision, "action": "retry", "retry_allowed": False}))
+
+    def test_escalation_request_is_safe_and_reviewable(self) -> None:
+        decision = decide_failure("provider timed out", attempt=2, max_retries=2, source="mcp:shell")
+        request = build_escalation_request(decision)
+        self.assertIsNotNone(request)
+        assert request is not None
+        self.assertEqual(request["seed_id"], "failure-" + decision["failure_sha256"][:12])
+        self.assertNotIn("provider timed out", str(request))
+        self.assertIn("sd create", request["create_command"])
+        self.assertIsNone(build_escalation_request(decide_failure(TimeoutError("temporary"), attempt=0)))

@@ -99,5 +99,34 @@ def validate_failure_decision(decision: Mapping[str, object] | object) -> list[s
     return errors
 
 
+def build_escalation_request(decision: Mapping[str, object] | object) -> dict[str, Any] | None:
+    """Prepare a safe, deterministic Seed handoff for non-retry decisions.
+
+    The request is a proposal only. Callers must review it and invoke their own
+    task tracker; this module never creates external issues or retries work.
+    """
+    if validate_failure_decision(decision):
+        raise ValueError("cannot build an escalation request from an invalid decision")
+    record = decision
+    action = str(record["action"])
+    if action not in {"escalate", "replan"}:
+        return None
+    digest = str(record["failure_sha256"])
+    seed_id = f"failure-{digest[:12]}"
+    return {
+        "schema_version": "failure_escalation_request/v1",
+        "seed_id": seed_id,
+        "title": f"Investigate {record['reason_code']}",
+        "labels": ["failure", "escalation", str(record["kind"])],
+        "description": "Investigate the classified failure using the recorded metadata and reproduce it before changing retry behavior.",
+        "reason_code": record["reason_code"],
+        "source": record["source"],
+        "failure_sha256": digest,
+        "recommended_action": action,
+        "create_command": f"sd create --title 'Investigate {record['reason_code']}' --type bug --labels failure,escalation",
+        "claim_boundary": "This is a task proposal; it is not proof that a Seed was created or that escalation occurred.",
+    }
+
+
 def _safe_source(value: str) -> str:
     return " ".join(str(value).split())[:_MAX_REASON_LENGTH]
