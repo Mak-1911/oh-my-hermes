@@ -630,6 +630,7 @@ print(json.dumps(observed, ensure_ascii=False))
                     "omh_probe",
                     "omh_recommend",
                     "omh_role",
+                    "omh_run_summary",
                     "omh_source_trust",
                     "omh_status",
                     "omh_todo",

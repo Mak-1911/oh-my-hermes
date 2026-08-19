@@ -136,7 +136,9 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # 700058 -> 700304: ralplan gained a state-root guard safety rule (+246
 # chars) pinning plan artifacts to <repo>/.omh/plans/ and forbidding .omc/**
 # after observed cross-product drift; warranted growth, not padding.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 700304
+# 700304 -> 700586: ultrawork gained the localized run-summary closing rule
+# (+282 chars, omh_run_summary elapsed/tokens/models block); warranted growth.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 700586
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 
