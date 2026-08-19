@@ -111,7 +111,12 @@ FROZEN_HANGUL_TRIGGERS_BY_SKILL: dict[str, int] = {
     "meeting-brief": 7,
     "memory-new": 7,
     "memory-sync": 25,
-    "model-setup": 5,
+    # 5 -> 7 (2026-08-19): provider-switch / quota-relogin intents arrived as
+    # owner-spoken Korean ("프로바이더 전환", "다른 계정으로 로그인") WITH their
+    # English equivalents in the same commit ("switch provider account",
+    # "provider quota exceeded") — new capability reach, not padding over a
+    # routing miss.
+    "model-setup": 7,
     "morning-brief": 4,
     "oh-my-hermes": 2,
     "operating-rhythm": 7,
