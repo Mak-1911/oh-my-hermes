@@ -1017,6 +1017,18 @@ class WrapperContractTests(unittest.TestCase):
         )
         self.assertNotIn("continuity_briefing", payload)
 
+    def test_retained_business_clarify_route_omits_continuity_briefing(self) -> None:
+        payload = build_chat_interaction_payload(
+            "prepare a meeting agenda and record template for leadership sync",
+            source="discord",
+            mode="delegate",
+        )
+
+        self.assertEqual(payload["delegation"]["delegation"]["action"], "clarify")
+        self.assertNotIn("executor_handoff", payload["delegation"])
+        self.assertNotIn("continuity_briefing", payload["chat_response"])
+        self.assertNotIn("continuity_briefing", payload)
+
     def test_continuity_memory_summary_is_bounded_and_private(self) -> None:
         hostile_token = "raw-message-private-token-9f431"
         baseline = build_chat_interaction_payload(

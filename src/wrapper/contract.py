@@ -4190,7 +4190,8 @@ def _build_chat_interaction_payload_uncached(
             base["agentic_playbook"] = agentic_playbook
         base["next_action"] = _delegation_next_action(delegation)
         base["chat_response"] = build_chat_response_from_delegation(delegation, thread_key=str(base["thread_key"]))
-        base["chat_response"]["continuity_briefing"] = build_continuity_briefing(delegation)
+        if _nested(delegation, "delegation").get("action") == "delegate":
+            base["chat_response"]["continuity_briefing"] = build_continuity_briefing(delegation)
         return _finish_interaction(base, target_notice)
 
     if resolved_mode == "clarify" or route_payload["action"] != "dispatch":
@@ -4396,7 +4397,8 @@ def _attach_coding_owner_handoff(
     base["coding_route_decision"] = coding_route_decision
     base["next_action"] = _delegation_next_action(delegation)
     base["chat_response"] = build_chat_response_from_delegation(delegation, thread_key=str(base["thread_key"]))
-    base["chat_response"]["continuity_briefing"] = build_continuity_briefing(delegation)
+    if _nested(delegation, "delegation").get("action") == "delegate":
+        base["chat_response"]["continuity_briefing"] = build_continuity_briefing(delegation)
     return base
 
 
