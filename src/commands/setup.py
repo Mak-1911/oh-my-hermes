@@ -165,7 +165,8 @@ def _direct_url_update_guidance() -> tuple[str, str] | None:
     installer fallback as before.
     """
     import importlib.metadata
-    from urllib.parse import unquote, urlsplit
+    from urllib.parse import urlsplit
+    from urllib.request import url2pathname
 
     try:
         raw = importlib.metadata.distribution("oh-my-hermes").read_text("direct_url.json")
@@ -192,7 +193,9 @@ def _direct_url_update_guidance() -> tuple[str, str] | None:
             # updates through `git pull` alone and keeps the long-standing
             # installer fallback wording rather than a pip reinstall.
             return None
-        checkout = Path(unquote(urlsplit(url).path))
+        # url2pathname handles Windows drive letters (`file:///C:/...`),
+        # which a bare unquote of the URL path would leave unusable.
+        checkout = Path(url2pathname(urlsplit(url).path))
         if checkout.is_dir():
             return "pip", (
                 f"git -C {checkout} pull && "

@@ -3033,9 +3033,9 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertIn('install --upgrade "git+https://github.com/rlaope/oh-my-hermes"', instruction)
 
         with TemporaryDirectory() as tmp:
-            manager, instruction = guidance_with({"url": f"file://{tmp}", "dir_info": {}})
+            manager, instruction = guidance_with({"url": Path(tmp).as_uri(), "dir_info": {}})
             self.assertEqual(manager, "pip")
-            self.assertIn(f"git -C {tmp} pull", instruction)
+            self.assertIn(f"git -C {Path(tmp)} pull", instruction)
             self.assertIn("install --upgrade", instruction)
 
         manager, _ = guidance_with({"url": "file:///dev/checkout", "dir_info": {"editable": True}})
