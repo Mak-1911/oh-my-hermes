@@ -11,6 +11,7 @@ from omh.maintenance.doctor import run_doctor
 from omh.maintenance.hermes_tui import (
     REQUIRED_WIDGET_SDK_KEYS,
     hermes_tui_preflight,
+    tui_identity_verdict,
     widget_render_blockers,
 )
 from omh.paths import OmhPaths
@@ -130,6 +131,57 @@ class HermesTuiPreflightTests(unittest.TestCase):
 
             self.assertFalse(hermes_tui_preflight(paths)["widget"]["themed_panel"])
 
+    def test_verdict_is_ready_on_a_healthy_modern_install(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _make_paths(Path(tmp))
+            _make_hermes_install(paths.hermes_home)
+            _write_display_interface(paths.hermes_home, "tui")
+            install_tui_widget(paths.hermes_home)
+
+            verdict = tui_identity_verdict(paths)
+
+            self.assertEqual(verdict["status"], "ready")
+            self.assertEqual(verdict["blockers"], [])
+            self.assertEqual(verdict["next_commands"], [])
+
+    def test_verdict_on_old_hermes_is_blocked_with_hermes_update_command(self) -> None:
+        # The reported journey: setup/update succeed, the terminal still shows
+        # stock Hermes. The verdict must name `hermes update` as the fix, not
+        # bury it mid-stream.
+        with TemporaryDirectory() as tmp:
+            paths = _make_paths(Path(tmp))
+            _make_hermes_install(paths.hermes_home, version="0.8.0", sdk_source=None)
+            _write_display_interface(paths.hermes_home, "tui")
+            install_tui_widget(paths.hermes_home)
+
+            verdict = tui_identity_verdict(paths)
+
+            self.assertEqual(verdict["status"], "blocked")
+            self.assertEqual(verdict["next_commands"], ["hermes update"])
+            self.assertEqual(verdict["hermes_version"], "0.8.0")
+
+    def test_verdict_without_a_hermes_install_is_unknown(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _make_paths(Path(tmp))
+            verdict = tui_identity_verdict(paths)
+            self.assertEqual(verdict["status"], "unknown")
+            self.assertEqual(verdict["next_commands"], [])
+
+    def test_verdict_notes_an_explicit_foreign_skin_as_user_choice(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = _make_paths(Path(tmp))
+            _make_hermes_install(paths.hermes_home)
+            paths.hermes_home.mkdir(parents=True, exist_ok=True)
+            (paths.hermes_home / "config.yaml").write_text(
+                "display:\n  interface: tui\n  skin: midnight\n", encoding="utf-8"
+            )
+            install_tui_widget(paths.hermes_home)
+
+            verdict = tui_identity_verdict(paths)
+
+            self.assertEqual(verdict["status"], "ready")
+            self.assertTrue(any("midnight" in note for note in verdict["notes"]))
+
     def test_old_hermes_without_widget_loader_names_hermes_update(self) -> None:
         with TemporaryDirectory() as tmp:
             paths = _make_paths(Path(tmp))
@@ -180,7 +232,7 @@ class HermesTuiPreflightTests(unittest.TestCase):
             self.assertFalse(unset["display_interface"]["explicit"])
             self.assertTrue(unset["display_interface"]["settable"])
             self.assertEqual(
-                [blocker for blocker in widget_render_blockers(unset) if "omh setup" in blocker and "classic REPL" in blocker],
+                [blocker for blocker in widget_render_blockers(unset) if "classic REPL" in blocker and "hermes --tui" in blocker],
                 widget_render_blockers(unset),
             )
 

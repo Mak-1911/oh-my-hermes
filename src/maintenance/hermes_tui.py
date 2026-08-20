@@ -248,7 +248,7 @@ def widget_render_blockers(preflight: dict[str, Any]) -> list[str]:
     elif not interface.get("explicit") and interface.get("settable"):
         blockers.append(
             "display.interface is unset, so bare `hermes` opens the classic REPL where the HUD cannot render; "
-            "run `omh setup` to default it to the TUI."
+            "open the styled TUI with `omh` or `hermes --tui` (the classic REPL still shows the OMH-skinned banner)."
         )
     if not widget.get("installed"):
         blockers.append("the OMH status widget is not installed; run `omh setup`.")
@@ -258,3 +258,48 @@ def widget_render_blockers(preflight: dict[str, Any]) -> list[str]:
             f"({widget['interpreter']}); run `omh setup` to reinstall it."
         )
     return blockers
+
+
+TUI_VERDICT_SCHEMA_VERSION = "omh_tui_verdict/v1"
+
+
+def tui_identity_verdict(paths: OmhPaths) -> dict[str, Any]:
+    """End-of-run answer to "will this terminal actually look like OMH?".
+
+    Setup and update buried render blockers in a mid-stream note; users read
+    the success summary, opened Hermes, saw the stock banner, and reported
+    the install broken (owner reports, 2026-08-20/21). The verdict is meant
+    to print LAST: it names the exact next command per blocker — an old
+    Hermes without the widget loader needs `hermes update`, which OMH never
+    runs on its own — and states the two facts users trip on: a running
+    Hermes session keeps its old chrome until restarted, and the styled TUI
+    door is `omh` (or `hermes --tui`).
+    """
+    preflight = hermes_tui_preflight(paths)
+    blockers = widget_render_blockers(preflight)
+    install = preflight.get("install", {})
+    loader = preflight.get("widget_loader", {})
+    skin = preflight.get("display_skin", {})
+    if not install.get("found"):
+        status = "unknown"
+    elif blockers:
+        status = "blocked"
+    else:
+        status = "ready"
+    next_commands: list[str] = []
+    if install.get("found") and not loader.get("present"):
+        next_commands.append("hermes update")
+    notes: list[str] = []
+    skin_value = str(skin.get("value") or "")
+    if skin_value and skin_value != "omh":
+        notes.append(
+            f"display.skin is the user's explicit choice ({skin_value!r}); the banner keeps that look on purpose."
+        )
+    return {
+        "schema_version": TUI_VERDICT_SCHEMA_VERSION,
+        "status": status,
+        "hermes_version": str(install.get("version") or ""),
+        "blockers": blockers,
+        "next_commands": next_commands,
+        "notes": notes,
+    }

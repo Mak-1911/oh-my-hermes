@@ -343,7 +343,46 @@ def cmd_update(args: argparse.Namespace) -> int:
                 _bootstrap_tui_surface(args)
         _refresh_installed_tui_widget(args)
         _refresh_installed_menubar_app(args)
+        # The verdict prints LAST on purpose: a success summary followed by a
+        # stock-Hermes terminal is what users kept reporting as a broken
+        # install. Human output only — the JSON payload was already emitted
+        # by cmd_install before the surface refreshes above ran.
+        if (
+            not _wants_json(args)
+            and not bool(getattr(args, "dry_run", False))
+            and hasattr(args, "omh_home")
+        ):
+            _print_tui_verdict_block(_tui_verdict_payload(args), language=_resolve_language(args))
     return code
+
+
+def _tui_verdict_payload(args: argparse.Namespace) -> dict[str, object]:
+    from ..maintenance.hermes_tui import tui_identity_verdict
+
+    return tui_identity_verdict(_paths(args))
+
+
+def _print_tui_verdict_block(verdict: dict[str, object], *, language: str) -> None:
+    use_color = _use_color()
+    status = str(verdict.get("status", ""))
+    if status == "ready":
+        print(_color(f"  {tr(language, 'tui_verdict_ready')}", "1;32", use_color))
+    elif status == "unknown":
+        print(f"  {tr(language, 'tui_verdict_unknown')}")
+    else:
+        print(_color(f"  {tr(language, 'tui_verdict_blocked')}", "1;33", use_color))
+        blockers = verdict.get("blockers", [])
+        if isinstance(blockers, list):
+            for blocker in blockers:
+                print(f"    - {blocker}")
+        next_commands = verdict.get("next_commands", [])
+        if isinstance(next_commands, list):
+            for command in next_commands:
+                print(_color(f"  {tr(language, 'tui_verdict_next', command=command)}", "1;33", use_color))
+    notes = verdict.get("notes", [])
+    if isinstance(notes, list):
+        for note in notes:
+            print(f"  {note}")
 
 
 def _bootstrap_tui_surface(args: argparse.Namespace) -> dict[str, object] | None:
@@ -1968,6 +2007,8 @@ def cmd_setup(args: argparse.Namespace) -> int:
     payload["plugin_distribution"] = steps["plugin"]
     if args.profile_pack:
         payload["team_profiles"] = steps["team_profiles"]
+    if not args.dry_run:
+        payload["tui_verdict"] = _tui_verdict_payload(args)
     if _wants_json(args):
         _print_json(payload)
     else:
@@ -2532,6 +2573,9 @@ def _print_setup_summary(payload: dict[str, object], *, language: str = "en") ->
         print(f"  {tr(language, 'setup_next_prompt')}")
         print(f"  {tr(language, 'setup_next_verify')}")
     print(f"  {tr(language, 'machine_readable')}")
+    verdict = payload.get("tui_verdict")
+    if isinstance(verdict, dict):
+        _print_tui_verdict_block(verdict, language=language)
 
 
 def _print_doctor_summary(payload: dict[str, object], *, language: str = "en") -> None:
