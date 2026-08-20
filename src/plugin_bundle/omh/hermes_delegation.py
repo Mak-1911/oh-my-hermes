@@ -111,6 +111,18 @@ def load_mixture_chain_overrides(
         return {}, "absent"
     except (OSError, UnicodeDecodeError, ValueError):
         return {}, "invalid: unreadable JSON"
+    return parse_mixture_chain_overrides(raw)
+
+
+def parse_mixture_chain_overrides(
+    raw: object,
+) -> tuple[dict[str, tuple[tuple[str, str], ...]], str]:
+    """Validate one already-parsed override document.
+
+    Split from the file loader so writers (the `omh model-chains` command)
+    can validate a composed document BEFORE writing it, with exactly the
+    rules the reader enforces.
+    """
     if not isinstance(raw, dict):
         return {}, "invalid: document must be a JSON object"
     if raw.get("schema_version") != MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION:

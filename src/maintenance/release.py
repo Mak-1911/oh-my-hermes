@@ -149,7 +149,10 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # warranted growth.
 # 705236 -> 705462: model-setup names ~/.omh/routing/model-chains.json as the
 # no-code chain customization surface; warranted growth.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 705462
+# 705462 -> 705999: model-setup gained the chain-interview contract (numbered
+# per-category options applied via `omh model-chains`) and its trigger
+# vocabulary; warranted growth.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 705999
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

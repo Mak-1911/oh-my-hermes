@@ -259,17 +259,17 @@ setup resolves them only against candidates the user confirms as active. The
 result is prepared routing configuration, not provider availability,
 credential, dispatch, or execution evidence:
 
-| Category alias | Editable recommendation order |
-| --- | --- |
-| `ultrabrain` | GPT-5.6 Sol |
-| `deep` | GPT-5.6 Terra |
-| `architect` | Claude Fable 5, then GPT-5.6 Sol, then Kimi K3 (xhigh) |
-| `unspecified-high` | Kimi K3, then Claude Opus 5 |
-| `unspecified-low` | GLM 5.2, then GLM 5.2 Ultrafast, then Claude Opus 5 (low) |
-| `quick` | GLM 5.2 Ultrafast, then Kimi K3, then GPT-5.6 Luna, then Claude Fable 5 (low) |
-| `writing` | Kimi K3, then Qwen3-Coder, then Gemini 3.1 Pro |
-| `visual-engineering` | Claude Fable 5, then Kimi K3 |
-| `artistry` | Gemini 3.1 Pro, then Claude Fable 5, then Kimi K3 |
+| Category alias | What it is for | Editable recommendation order |
+| --- | --- | --- |
+| `ultrabrain` | Deepest reasoning | GPT-5.6 Sol |
+| `deep` | Strong default tier | GPT-5.6 Terra |
+| `architect` | Architecture and system design | Claude Fable 5, then GPT-5.6 Sol, then Kimi K3 (xhigh) |
+| `unspecified-high` | Default working model | Kimi K3, then Claude Opus 5 |
+| `unspecified-low` | Cheaper fallback | GLM 5.2, then GLM 5.2 Ultrafast, then Claude Opus 5 (low) |
+| `quick` | Short tasks | GLM 5.2 Ultrafast, then Kimi K3, then GPT-5.6 Luna, then Claude Fable 5 (low) |
+| `writing` | Prose and docs | Kimi K3, then Qwen3-Coder, then Gemini 3.1 Pro |
+| `visual-engineering` | Frontend and visual | Claude Fable 5, then Kimi K3 |
+| `artistry` | Unconventional work | Gemini 3.1 Pro, then Claude Fable 5, then Kimi K3 |
 
 Want to try the Ultrafast tier — Kimi K3 Ultrafast (300 TPS) and
 GLM 5.2 Ultrafast (600 TPS)? They are served on
