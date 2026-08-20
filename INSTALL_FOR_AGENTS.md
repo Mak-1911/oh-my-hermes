@@ -157,6 +157,14 @@ Report:
 - which selectors received explicit model bindings and which kept their
   owner/executor default model.
 
+Setup and update end with an `OMH TUI:` verdict line. Act on it before
+reporting success: `ready` means the OMH look applies on the next Hermes
+start (restart any running session; the styled TUI opens with `omh` or
+`hermes --tui`). A blocked verdict lists each blocker with its fix — most
+commonly an old Hermes without the TUI widget loader, whose fix is running
+`hermes update` (Hermes' own updater; OMH never runs it for the user) and
+then restarting Hermes. Report the verdict and any fix you ran.
+
 Install success means a Hermes-usable skill path is configured and doctor has no
 blocking checks. It does not mean Hermes has already reloaded the skills,
 loaded the plugin bridge, executed code, reviewed a PR, passed CI, or merged.
