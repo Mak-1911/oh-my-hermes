@@ -1586,16 +1586,16 @@
       "url": "https://github.com/Tranquil-Flow/hermes-neurovision"
     },
     {
-      "author": "roli-lpci",
-      "author_url": "https://github.com/roli-lpci",
+      "author": "Hermes Labs",
+      "author_url": "https://github.com/hermes-labs-ai",
       "id": "lintlang",
       "maturity": "beta",
       "name": "lintlang",
       "readme_line": 289,
       "section": "Tools & Utilities",
       "subsection": "Tools & Utilities",
-      "summary": "Static linter for AI agent configs and prompts with HERM v1.1 scoring. Catches config mistakes that silently degrade agent behavior.",
-      "url": "https://github.com/roli-lpci/lintlang"
+      "summary": "Static analysis for AI agent configs, tool descriptions, and system prompts, returning a PASS / REVIEW / FAIL verdict. Zero-LLM, deterministic checks, built for CI.",
+      "url": "https://github.com/hermes-labs-ai/lintlang"
     },
     {
       "author": "0xrsydn",
