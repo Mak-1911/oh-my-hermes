@@ -116,7 +116,7 @@ FROZEN_HANGUL_TRIGGERS_BY_SKILL: dict[str, int] = {
     # English equivalents in the same commit ("switch provider account",
     # "provider quota exceeded") — new capability reach, not padding over a
     # routing miss.
-    "model-setup": 7,
+    "model-setup": 10,  # +3 (모델 세팅/모델 체인/카테고리별 모델): chain-interview vocabulary, owner request 2026-08-21
     "morning-brief": 4,
     "oh-my-hermes": 2,
     "operating-rhythm": 7,

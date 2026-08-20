@@ -5253,6 +5253,13 @@ _DEFINITIONS = [
             "모델 슬롯 설정",
             "프로바이더 전환",
             "다른 계정으로 로그인",
+            # Chain-interview vocabulary (#owner request 2026-08-21): the
+            # per-category mixture chains are user config now, and asks to
+            # change them route here.
+            "model chains",
+            "모델 세팅",
+            "모델 체인",
+            "카테고리별 모델",
         ),
         (
             "Use when the user wants Hermes to inspect metadata-only model history, confirm active models, configure "
@@ -5298,7 +5305,10 @@ _DEFINITIONS = [
             "Keep prerequisite check, diagnosis, guidance, apply, and verify as separate, explicit steps.",
         ),
         quality_tier="hermes-setup-gated",
-        quality_bar=_MODEL_SETUP_FIVE_STEP_BAR
+        quality_bar=(
+            *_MODEL_SETUP_FIVE_STEP_BAR,
+            "Chain interview: when the user wants the per-category model chains changed, first show the current state (`omh model-chains show`), then interview one category at a time with numbered options — 1) keep current, 2) shipped default, 3) Ultrafast tier, 4) custom entry (직접 입력) — and apply each outcome with `omh model-chains set <category> \"model[:effort], ...\"` or by editing ~/.omh/routing/model-chains.json directly; close by re-reading the file and showing the resulting chains with their origins.",
+        )
         + (
             "Treat each Hermes role slot (main, realtime-search, design), semantic category, and external owner as an independent prerequisite/diagnose/recommend/apply unit instead of one combined change.",
             "Explain the shipped recommendations as editable editorial defaults, not benchmarks or allowlists: ultrabrain uses GPT-5.6 Sol; deep uses GPT-5.6 Terra; architect prefers Claude Fable 5, GPT-5.6 Sol, then Kimi K3 at xhigh; unspecified-high prefers Kimi K3 then Claude Opus 5; unspecified-low prefers GLM-5.2, GLM-5.2 Ultrafast, then Claude Opus 5 at low; quick prefers GLM-5.2 Ultrafast, Kimi K3, GPT-5.6 Luna, then Claude Fable 5 at low; writing prefers Kimi K3, Qwen3-Coder, then Gemini 3.1 Pro; visual-engineering prefers Claude Fable 5 then Kimi K3; and artistry prefers Gemini 3.1 Pro, Claude Fable 5, then Kimi K3. Chain customization is a config edit: a category written into ~/.omh/routing/model-chains.json (mixture_chain_overrides/v1, seeded by omh setup) replaces that chain for routing, fallback, and HUD labels without touching code.",

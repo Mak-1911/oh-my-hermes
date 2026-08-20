@@ -263,7 +263,11 @@ The shipped catalog is editorial policy, not benchmark output:
 | `x_platform_data` affinity | Grok, Kimi K3, Gemini |
 | Shared final order (`last_resort.any`) | Claude Opus 5, GPT-5.6 Sol |
 
-Chain customization is a config edit, not a source edit: `omh setup` seeds
+Chain customization is a config edit, not a source edit — `omh model-chains
+show` prints the current per-category state, `omh model-chains interview`
+walks every category with numbered choices on a terminal, and
+`omh model-chains set <category> "model[:effort], ..."` is the scriptable
+write (agents included). All of them edit the same document: `omh setup` seeds
 `~/.omh/routing/model-chains.json` (`mixture_chain_overrides/v1`) with an
 empty `categories` object, meaning the shipped defaults above stay live and
 keep updating with `omh update`. A category written into that file replaces
