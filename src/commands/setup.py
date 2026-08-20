@@ -145,7 +145,63 @@ def _command_package_update_guidance() -> tuple[str, str]:
         return explicit, COMMAND_PACKAGE_UPDATE_COMMANDS[explicit]
     if _homebrew_prefix_root() is not None:
         return "homebrew", COMMAND_PACKAGE_UPDATE_COMMANDS["homebrew"]
+    direct = _direct_url_update_guidance()
+    if direct is not None:
+        return direct
     return "installer", installer_command()
+
+
+def _direct_url_update_guidance() -> tuple[str, str] | None:
+    """Name the real owner of a PEP 610 direct-URL install.
+
+    An agent handed only the repository link often installs the command with
+    `pip install git+...`, `pip install <clone>`, or `uv tool install`. Those
+    installs carry no manager provenance state, and the generic curl fallback
+    would create a second, conflicting install next to the one that already
+    owns the command. The dist-info `direct_url.json` records the actual
+    origin, so the update instruction points there instead. The curl
+    installer's own managed venv also leaves a `direct_url.json`, but it
+    names the deleted download directory, so it falls through to the
+    installer fallback as before.
+    """
+    import importlib.metadata
+    from urllib.parse import urlsplit
+    from urllib.request import url2pathname
+
+    try:
+        raw = importlib.metadata.distribution("oh-my-hermes").read_text("direct_url.json")
+    except (importlib.metadata.PackageNotFoundError, OSError):
+        return None
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    url = str(data.get("url", "") or "")
+    prefix_parts = tuple(part.casefold() for part in Path(sys.prefix).parts)
+    if "uv" in prefix_parts and "tools" in prefix_parts:
+        return "uv-tool", "uv tool upgrade oh-my-hermes"
+    if isinstance(data.get("vcs_info"), dict) and url and not url.startswith("file:"):
+        return "pip", f'{sys.executable} -m pip install --upgrade "git+{url}"'
+    dir_info = data.get("dir_info")
+    if isinstance(dir_info, dict) and url.startswith("file://"):
+        if dir_info.get("editable"):
+            # An editable install is a development checkout; its command
+            # updates through `git pull` alone and keeps the long-standing
+            # installer fallback wording rather than a pip reinstall.
+            return None
+        # url2pathname handles Windows drive letters (`file:///C:/...`),
+        # which a bare unquote of the URL path would leave unusable.
+        checkout = Path(url2pathname(urlsplit(url).path))
+        if checkout.is_dir():
+            return "pip", (
+                f"git -C {checkout} pull && "
+                f"{sys.executable} -m pip install --upgrade {checkout}"
+            )
+    return None
 
 
 def _homebrew_prefix_root() -> Path | None:
