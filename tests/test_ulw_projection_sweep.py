@@ -55,20 +55,6 @@ DELIBERATE_KEEPS: tuple[tuple[str, str, str, str], ...] = (
         "another product's surface that OMH documents but does not own (#954 keep).",
     ),
     (
-        "skill:loop",
-        "ultragoal",
-        "research plan ultragoal feedback",
-        "Retired-cue trigger vocabulary: the historical cue phrase stays "
-        "listed so old invocations keep resolving through alias routing.",
-    ),
-    (
-        "reference:oh-my-hermes/references/workflow-registry.md",
-        "ultragoal",
-        "research plan ultragoal feedback",
-        "Retired-cue trigger vocabulary: the historical cue phrase stays "
-        "listed so old invocations keep resolving through alias routing.",
-    ),
-    (
         "reference:oh-my-hermes/references/workflow-registry.md",
         "team",
         "A bare common word such as `team`",

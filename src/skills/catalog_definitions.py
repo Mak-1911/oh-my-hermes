@@ -304,7 +304,7 @@ _DEFINITIONS = [
             "goal loop",
             "long horizon goal",
             "never stop",
-            "research plan ultragoal feedback",
+            "research plan goal feedback",
             "token exhaustion resume",
             "permission profile",
             "star 10k",

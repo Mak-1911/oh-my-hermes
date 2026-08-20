@@ -154,136 +154,21 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### ralph
 
-[omh] Ralph - one owner drives a concrete task to done: implement, verify, review, repeat until the gate passes; prefer over one-shot delegation when the task needs a verification loop.
+`ulw-ralph` is retired; this intent now runs as `ulw-work` capability `single_owner_persistence`. Install or invoke `ulw-work` (canonical `ultrawork`) instead.
 
-- Category: `execution`
-- Phase: `completion`
-- Hermes role: `handoff-guide`
-- Quality tier: `handoff-gated`
-- Reasoning demand: `heavy`
-- Exposure: `direct_skill`
-- Install visibility: `false`
-- Docs visibility: `workflow_reference`
-- Compatibility alias: `true`
 - Lifecycle stage: `retired`
 - Target home: `ultrawork`
 - Migration release: `1.0.7`
-- Preferred usage: Retired workflow engine: the intent now runs as a `ulw-work` capability; keep this contract as a workflow reference only.
-- Handoff policy: Keep as compatibility guidance; for implementation, ask the wrapper to prepare/track the selected coding runtime path instead of hiding execution inside chat narration.
-- Why this exists: `ralph` exists to keep `execution` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
-- Use when: Use after scope is concrete and the user wants one owner to continue through implementation and verification.
-- Do not use when:
-  - Progress must survive sessions as a ledger with multiple checkpoints and a final gate; use `ultragoal`.
-  - The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of opening a finish-until-done loop.
-- Strong routing signals: `ralph`, `$ralph`, `ulr`, `$ulr`, `finish until done`, `persistent execution`, `self-referential loop`
-- Good example:
-  - Prompt: ralph: finish the invoice export recovery until the smoke test passes or a blocker is recorded.
-  - Expected behavior: Keep one completion owner, track evidence after every recovery step, and stop only on pass, block, or explicit cancel.
-  - Why: The request needs persistent completion pressure with an observable stop condition.
-- Bad example:
-  - Prompt: ralph: treat casual chat or unaccepted work as if this workflow already produced verified results.
-  - Expected behavior: Ask a clarification question or route to a narrower workflow instead of forcing `ralph`.
-  - Why: The request lacks the required inputs or would overclaim work that Hermes did not observe.
-- Quality bar:
-  - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
-  - Do not enter a finish-until-done loop until scope, acceptance criteria, and verification commands are concrete.
-  - For coding edits, prepare and track selected runtime evidence instead of implying unobserved work happened.
-  - Report completion only from observed execution and verification evidence.
-- Completion checklist:
-  - The selected coding or runtime owner is named before any implementation claim.
-  - Prepared handoff, dispatch, execution, verification, review, CI, and merge states are separated.
-  - The final status cites observed runtime evidence or keeps the work prepared_not_observed.
-  - When Hermes is the selected coding owner, use `hermes_coding_harness/v1` to keep builder, verifier, reviewer, docs, and PR lanes separate.
-  - Report the current harness stage, owner, next action, and missing evidence without claiming PR creation, review, CI, merge-readiness, or merge until matching runtime observations exist.
-- Recovery notes:
-  - If the selected executor is unavailable, ask for Codex, Claude Code, Hermes, or another runtime before retrying.
-  - If dispatch or result evidence is missing, keep the handoff prepared_not_observed and expose the next observable action.
-- Required inputs:
-  - concrete scope
-  - acceptance criteria
-  - verification commands
-- Expected outputs:
-  - completed work summary
-  - verification evidence
-  - remaining risks
-- Artifact expectations:
-  - goal-execution run record
-  - checkpoint or final evidence when available
-- Safety rules:
-  - Do not imply hidden Hermes runtime behavior.
-  - Use the smallest verification that can prove the claim.
+- Runs as `ulw-work` capability: `single_owner_persistence`
 
 ### ultragoal
 
-[omh] Ultragoal - durable multi-session goal tracking: a checkpointed ledger survives context loss and resumes exactly where work stopped, with a final completion gate.
+`ulw-goal` is retired; this intent now runs as `ulw-work` capability `durable_checkpoint`. Install or invoke `ulw-work` (canonical `ultrawork`) instead.
 
-- Category: `execution`
-- Phase: `durable-goals`
-- Hermes role: `handoff-guide`
-- Quality tier: `checkpoint-gated`
-- Reasoning demand: `heavy`
-- Exposure: `direct_skill`
-- Install visibility: `false`
-- Docs visibility: `workflow_reference`
-- Compatibility alias: `true`
 - Lifecycle stage: `retired`
 - Target home: `ultrawork`
 - Migration release: `1.0.7`
-- Preferred usage: Retired workflow engine: the intent now runs as a `ulw-work` capability; keep this contract as a workflow reference only.
-- Handoff policy: Use Hermes to maintain .omh/goals goal_ledger/v1 state, show goal_status_card/v1 / goal_continuation/v1 next actions, and route coding milestones to the selected runtime profile with only observed runtime evidence.
-- Why this exists: `ultragoal` exists for work that can outlive one chat turn: it turns ambition into durable stories, checkpoints, and completion gates so progress can resume without pretending a summary is evidence.
-- Use when: Use when work needs durable goal artifacts, checkpointed progress, and final quality gates.
-- Do not use when:
-  - The request is a single-turn answer, quick diagnosis, or small edit that does not need a durable ledger.
-  - One concrete, already-scoped task only needs one owner to finish and verify; use `ralph`.
-  - The next work must be discovered or reframed repeatedly through research and feedback cycles; use `loop`.
-  - The request is a settings-only or single configuration change (for example a gateway channel policy, a mention rule, or one config key) that the wrapper or Hermes can apply directly; apply the configuration change, verify the new value, and report it instead of opening a goal ledger or preparing a coding handoff.
-  - Acceptance criteria, current checkpoint, and final gate expectations are too vague to make a goal inspectable.
-  - The user expects hidden Hermes code execution rather than explicit executor handoff and observed verification evidence.
-- Strong routing signals: `ultragoal`, `$ultragoal`, `ulg`, `$ulg`, `durable goal`, `multi-goal`, `goal ledger`, `long running goal`, `완료조건까지 계속`, `keep working until acceptance criteria pass`, `장기 목표`, `오래 실행`, `완료 조건까지 계속`
-- Good example:
-  - Prompt: $ultragoal turn OMH skill quality into a durable goal with rubrics, generated skill sync, tests, and a PR gate.
-  - Expected behavior: Create or update a goal ledger, split the story into verifiable checkpoints, and close only after generated docs, skills, and tests match.
-  - Why: The task has multiple milestones and a final quality gate that should be inspectable across interruptions.
-- Bad example:
-  - Prompt: $ultragoal what does this one error mean?
-  - Expected behavior: Route to diagnosis or a direct answer instead of creating a durable goal.
-  - Why: A narrow explanation does not need checkpointed long-running state.
-- Quality bar:
-  - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
-  - Keep goal state durable, inspectable, and separate from chat narration.
-  - Checkpoint every success, blocker, and final quality gate with fresh evidence.
-  - Reject completion with a summary-only goal_completion_gate/v1 result until required criteria, blockers, and explicitly linked runtime runs are satisfied.
-  - Tell the user the next action through goal_status_card/v1 or goal_continuation/v1 instead of ending with vague follow-up copy.
-  - For coding milestones, use prepared runtime handoffs and observed runtime evidence rather than hidden execution claims.
-- Completion checklist:
-  - The goal_ledger/v1 names the current criteria, checkpoints, blockers, and next action.
-  - The goal_completion_gate/v1 result passes from required evidence, not from a summary-only message.
-  - All explicitly linked coding milestones have matching observed runtime evidence or are still named as gaps.
-  - The final user-facing status says complete, blocked, or continue with the exact remaining checkpoint.
-  - Long-running or background executor milestones report observed handles, current state, changed-file summaries, missing checks, and prepared-vs-observed boundaries while work is running.
-  - When Hermes is the coding owner, use `hermes_coding_harness/v1` to separate builder, verifier, reviewer, docs, and PR lanes.
-  - Branch, PR, CI, review, and merge claims are verified against local HEAD, remote branch SHA, PR head SHA, and merge commit before saying a fix landed.
-- Recovery notes:
-  - If the goal ledger is stale or missing, inspect .omh/goals and ask which checkpoint to resume before continuing.
-  - If a blocker checkpoint exists, keep the goal open and record the blocker plus the smallest unblock action.
-  - If linked runtime evidence is missing, keep coding milestones prepared_not_observed and do not close the goal.
-- Required inputs:
-  - goal statement
-  - acceptance criteria
-  - current checkpoint or missing criteria
-- Expected outputs:
-  - goal_ledger/v1 updates
-  - checkpoint evidence
-  - goal_completion_gate/v1 result
-  - completion or blocker summary
-- Artifact expectations:
-  - metadata-only .omh/goals ledger
-  - goal_status_card/v1 or goal_continuation/v1 wrapper payload
-  - runtime run record only for explicitly linked coding milestones
-- Safety rules:
-  - Do not imply hidden Hermes runtime behavior.
-  - Use the smallest verification that can prove the claim.
+- Runs as `ulw-work` capability: `durable_checkpoint`
 
 ### loop
 
@@ -310,7 +195,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - The goal is too vague to name an observable problem, next artifact, verification signal, or stop condition.
   - The goal depends mainly on external waiting, adoption, revenue, or community response without observable local next actions.
   - The permission profile does not allow repeated research, handoff, queue, or feedback cycles.
-- Strong routing signals: `loop`, `./loop`, `$loop`, `goal loop`, `long horizon goal`, `never stop`, `research plan ultragoal feedback`, `token exhaustion resume`, `permission profile`, `star 10k`, `10k star`, `loop engineering`, `루프`, `목표 루프`, `장기 목표`, `끝까지`, `토큰 고갈`, `피드백 루프`, `끝날 때까지 계속`, `계속 돌려줘`, `keep running until done`
+- Strong routing signals: `loop`, `./loop`, `$loop`, `goal loop`, `long horizon goal`, `never stop`, `research plan goal feedback`, `token exhaustion resume`, `permission profile`, `star 10k`, `10k star`, `loop engineering`, `루프`, `목표 루프`, `장기 목표`, `끝까지`, `토큰 고갈`, `피드백 루프`, `끝날 때까지 계속`, `계속 돌려줘`, `keep running until done`
 - Good example:
   - Prompt: ./loop make OMH a credible Hermes workflow pack with install, docs, QA, and feedback cycles.
   - Expected behavior: Start a permission-scoped loop, maintain loop_cycle/v1 state, choose the next concrete task, and keep external outcomes as waiting states.
@@ -387,80 +272,12 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### ultraprocess
 
-[omh] Ultraprocess - one full task-to-PR cycle: codebase research, reviewed plan, coding handoff to the selected executor, code review, docs sync, and PR, tracked end to end.
+`ulw-process` is retired; this intent now runs as `ulw-work` capability `delivery_boundary`. Install or invoke `ulw-work` (canonical `ultrawork`) instead.
 
-- Category: `process`
-- Phase: `single-cycle-plan-to-pr`
-- Hermes role: `handoff-guide`
-- Quality tier: `process-gated`
-- Reasoning demand: `heavy`
-- Exposure: `direct_skill`
-- Install visibility: `false`
-- Docs visibility: `workflow_reference`
-- Compatibility alias: `true`
 - Lifecycle stage: `retired`
 - Target home: `ultrawork`
 - Migration release: `1.0.7`
-- Preferred usage: Retired workflow engine: the intent now runs as a `ulw-work` capability; keep this contract as a workflow reference only.
-- Handoff policy: Keep the one-cycle process orchestration, source/codebase research, planning, review framing, docs-sync checks, PR narration, and evidence boundaries in Hermes; convert implementation into a selected executor/runtime handoff such as Codex, Claude Code, OMX/OMO/OMC, another coding agent, or explicit Hermes coding runtime only when the user accepts that owner.
-- Why this exists: `ultraprocess` exists to give Hermes one clean plan-to-PR operating cycle: research, reviewed plan, selected implementation handoff, review gate, docs sync, and PR-ready evidence.
-- Use when: Use when the user asks Hermes to take a concrete task through one full delivery cycle: research/codebase context, reviewed plan, selected implementation handoff, code review, docs sync when needed, and PR preparation.
-- Do not use when:
-  - The user wants an open-ended feedback loop or long-horizon campaign; use `loop` instead.
-  - The task is still ambiguous enough that a deep interview is required before planning.
-  - No repo, product, or delivery surface is available to support a plan-to-PR cycle.
-  - The goal is removing existing slop or duplication with identical observable behavior rather than delivering new or changed behavior; use `ai-slop-cleaner`.
-  - The request starts with product shaping and explicitly includes release, deploy, or monitor decisions beyond one PR; use `idea-to-deploy`.
-  - The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; handle it directly instead of starting a plan-to-PR cycle.
-- Strong routing signals: `ultraprocess`, `$ultraprocess`, `ulp`, `$ulp`, `./ultraprocess`, `/ultraprocess`, `single-cycle delivery`, `one-cycle delivery`, `end-to-end process`, `delivery process`, `research plan implement review docs pr`, `plan implement review docs pr`, `ralplan ultragoal code-review`, `codebase source research planning implementation review docs sync pr`, `docs sync`, `pr-ready`, `prepare a pr`, `sync docs and prepare a pr`, `code-review sync docs and prepare a pr`, `delegate to codex`, `send to codex`, `codex implement`, `codex progress tracking`, `codex session tracking`, `make a pr`, `open a pr`, `끝까지 해줘`, `PR까지`, `계획 구현 리뷰 문서 PR`, `기획 구현 리뷰 문서 PR`, `코드베이스 조사 웹리서치 계획 구현 리뷰 문서 최신화 PR`, `codex로 구현`, `코덱스로 구현`, `codex에게 맡기`, `codex로 맡기`, `코덱스에게 맡기`, `코딩 에이전트에게 맡기`, `구현하게 맡기고 진행상태 추적`, `진행상태 추적`, `진행 상태 추적`, `문서 최신화 PR`, `test driven development`, `write tests first`, `tests first`, `tdd implementation`, `테스트부터 작성`, `테스트 먼저 작성`, `테스트 우선 구현`, `TDD로 구현`
-- Good example:
-  - Prompt: $ultraprocess research this setup bug, plan the fix, implement, review, sync docs, and prepare a PR.
-  - Expected behavior: Run exactly one delivery cycle and report which stages are observed, prepared, or blocked.
-  - Why: The user explicitly asks for the full but bounded delivery path ending at PR readiness.
-- Bad example:
-  - Prompt: $ultraprocess keep improving the project until it becomes popular.
-  - Expected behavior: Route to `loop` or ask for a bounded goal rather than promise endless delivery.
-  - Why: Popularity and indefinite improvement need long-horizon loop management, not one PR-ready cycle.
-- Quality bar:
-  - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
-  - Complete exactly one plan-to-PR delivery cycle, then stop with status, evidence gaps, or a next recommended workflow.
-  - Start with codebase/source research and a ralplan-style decision record before implementation handoff.
-  - For implementation, hand off to ultragoal or the selected executor/runtime path with acceptance criteria and verification commands attached, and start that follow-on engine only after the user confirms the recommended path.
-  - Run code-review as a gate after implementation evidence exists; review preparation alone is not review evidence.
-  - Add docs-specialist sync when public behavior, commands, setup, examples, or claims changed.
-  - End with a PR-ready or PR-observed report that separates prepared, executed, reviewed, verified, CI, and PR evidence.
-- Completion checklist:
-  - Research and codebase context are captured before implementation handoff.
-  - A ralplan-style or reviewed plan names acceptance criteria, risks, and verification commands.
-  - The implementation owner is selected and handoff, dispatch, run, review, CI, and PR readiness are separated.
-  - If the implementation owner is Hermes, `hermes_coding_harness/v1` names the current stage, lane owner, next action, and missing evidence.
-  - The code-review gate is observed or explicitly marked not_observed.
-  - Docs sync is checked when behavior, setup, commands, examples, or public claims changed.
-- Recovery notes:
-  - If the task expands beyond one delivery cycle, stop and route to loop with the current evidence as input.
-  - If no implementation owner is selected, keep the work prepared_not_observed and ask for Codex, Claude Code, Hermes, or another runtime.
-  - If review, CI, docs sync, or PR evidence is missing, report the stage gap instead of saying the process is complete.
-- Required inputs:
-  - task statement
-  - repo or workspace context
-  - executor preference or choose-at-handoff policy
-  - verification expectations
-- Expected outputs:
-  - ralplan-ready context and plan
-  - ultragoal or selected executor/runtime handoff
-  - code-review gate
-  - docs sync checklist
-  - single-cycle PR-ready summary with observed evidence and gaps
-- Artifact expectations:
-  - process checklist or runtime record when a wrapper can observe the stages
-  - prepared handoff artifact only after implementation owner selection
-  - docs-specialist claim check when public behavior changes
-- Safety rules:
-  - Do not skip planning when the request is broad, risky, or user-visible.
-  - Do not continue into a repeated feedback loop; recommend `loop` when the user wants ongoing cycles.
-  - Do not claim implementation, review, CI, merge readiness, or PR creation without observed executor or GitHub evidence.
-  - Keep web research source-backed and permission-aware; do not run hidden network or LLM calls from OMH core.
-  - Run docs sync only when behavior, setup, commands, or public claims changed.
+- Runs as `ulw-work` capability: `delivery_boundary`
 
 ### context
 
@@ -675,64 +492,12 @@ These surfaces are generated command references, not installed Hermes workflow s
 
 ### team
 
-[omh] Team - run N coordinated workers on one shared task list with explicit lane ownership and merged verification; choose over raw subagents when lanes must not collide.
+`ulw-team` is retired; this intent now runs as `ulw-work` capability `coordinated_scope`. Install or invoke `ulw-work` (canonical `ultrawork`) instead.
 
-- Category: `execution`
-- Phase: `coordination`
-- Hermes role: `handoff-guide`
-- Quality tier: `coordination-gated`
-- Reasoning demand: `heavy`
-- Exposure: `direct_skill`
-- Install visibility: `false`
-- Docs visibility: `workflow_reference`
-- Compatibility alias: `true`
 - Lifecycle stage: `retired`
 - Target home: `ultrawork`
 - Migration release: `1.0.7`
-- Preferred usage: Retired workflow engine: the intent now runs as a `ulw-work` capability; keep this contract as a workflow reference only.
-- Handoff policy: Use Hermes for lane framing and status; implementation lanes should become selected runtime handoff tasks, including Hermes-owned coding when the user chooses that runtime.
-- Why this exists: `team` exists to keep `execution` work explicit, evidence-backed, and inside the Hermes/executor boundary instead of relying on ad hoc chat narration.
-- Use when: Use when multiple independent lanes materially improve throughput or verification.
-- Do not use when:
-  - An accepted implementation plan with disjoint files, criteria, and commands is ready for parallel delivery; use `ultrawork`.
-  - The request is a settings-only change, one bounded edit that is explicitly low-risk and has a direct owner and verification path, or a direct answer/diagnosis; use one direct owner instead of coordinating workers.
-- Strong routing signals: `team`, `$team`, `swarm`, `parallel agents`, `coordinated workers`
-- Good example:
-  - Prompt: team: coordinate parallel agents for frontend polish, copy polish, and QA with worker ACKs.
-  - Expected behavior: Assign lanes, require worker ACK/result evidence, and keep integration verification separate.
-  - Why: The work benefits from multiple coordinated workers with disjoint ownership.
-- Bad example:
-  - Prompt: team: treat casual chat or unaccepted work as if this workflow already produced verified results.
-  - Expected behavior: Ask a clarification question or route to a narrower workflow instead of forcing `team`.
-  - Why: The request lacks the required inputs or would overclaim work that Hermes did not observe.
-- Quality bar:
-  - Do not start this engine as an automatic continuation of another skill's output: an accepted plan, a clarified brief, or a routing recommendation is planning evidence, not permission. Unless the user explicitly invoked this engine themselves, restate in one line what will start (engine, scope, selected executor) and wait for the user's explicit go-ahead first.
-  - Split only independent lanes with explicit ownership and verification boundaries.
-  - Keep Hermes as coordinator and status narrator while coding lanes become runtime handoffs with explicit ownership.
-  - Integrate lane evidence before reporting combined progress.
-- Completion checklist:
-  - Each lane has an owner, disjoint scope, expected output, and verification target.
-  - Worker ACK, dispatch, result, integration, and verification evidence are separated when wrappers record them.
-  - Hermes-owned coding teams use `hermes_coding_harness/v1` so builder, verifier, reviewer, docs, and PR lanes stay distinct even in solo mode.
-  - The integrated status names which lanes are observed, blocked, or still prepared_not_observed.
-- Recovery notes:
-  - If two lanes are not independent, collapse them under one owner or re-plan before dispatch.
-  - If a worker has no ACK or result, mark that lane not_observed or blocked rather than infer progress.
-  - If integration reveals a shared-file conflict, stop lane fan-out and reassign ownership before continuing.
-- Required inputs:
-  - bounded lane definitions
-  - ownership boundaries
-  - verification target
-- Expected outputs:
-  - lane results
-  - integration summary
-  - combined verification evidence
-- Artifact expectations:
-  - delegation record only when separate participants are observed
-- Safety rules:
-  - Use parallel lanes only when work is independent.
-  - Keep shared-file edits under one owner.
-  - Record unobserved delegation as not_observed.
+- Runs as `ulw-work` capability: `coordinated_scope`
 
 ### ultrawork
 

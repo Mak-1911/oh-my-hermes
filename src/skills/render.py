@@ -1873,6 +1873,37 @@ def _workflow_reference_markdown_cached() -> str:
     ]
     for definition in definitions:
         exposure = surface_exposure_for_skill(definition.name)
+        # A retired engine keeps a section marker for link stability but no
+        # workflow body: rendering its triggers, examples, and quality bar as
+        # if it were invocable is what made repo-readers and prompt-based
+        # installers treat retired engines as current (owner report,
+        # 2026-08-20). The stub carries only the migration copy.
+        if exposure.lifecycle_stage == "retired":
+            from .catalog import retired_skill_migration_error
+
+            migration = retired_skill_migration_error(definition.name)
+            lines.extend(
+                [
+                    f"### {definition.name}",
+                    "",
+                    migration.get("message", f"`{definition.name}` is retired."),
+                    "",
+                    "- Lifecycle stage: `retired`",
+                    *([f"- Target home: `{exposure.target_home}`"] if exposure.target_home else []),
+                    *(
+                        [f"- Migration release: `{exposure.migration_release}`"]
+                        if exposure.migration_release
+                        else []
+                    ),
+                    *(
+                        [f"- Runs as `ulw-work` capability: `{migration['selected_capability']}`"]
+                        if migration.get("selected_capability")
+                        else []
+                    ),
+                    "",
+                ]
+            )
+            continue
         triggers = ", ".join(f"`{trigger}`" for trigger in definition.triggers)
         lines.extend(
             [

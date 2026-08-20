@@ -31,7 +31,7 @@ omh capabilities summary --json
 omh capabilities impact
 omh capabilities impact --json
 omh capabilities list
-omh capabilities inspect ultragoal --json
+omh capabilities inspect ultrawork --json
 omh capabilities inspect handoff-guide --section roles --json
 omh capabilities inspect request-to-handoff --section playbooks --json
 omh capabilities project "prepare a coding handoff for this issue"

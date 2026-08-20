@@ -260,7 +260,7 @@ python3 -m unittest discover -s tests
 Artifact-backed verification:
 
 ```sh
-run_json="$(omh runtime record --skill ultragoal --harness goal-execution --status started)"
+run_json="$(omh runtime record --skill ultrawork --harness goal-execution --status started)"
 run_id="$(printf '%s' "$run_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["run"]["run_id"])')"
 omh runtime delegate --run "$run_id" --requested --not-observed --result not_observed
 omh runtime show "$run_id"
