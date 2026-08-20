@@ -183,17 +183,17 @@ OMH ワークフローの実行中にターミナルが表示するもの:
 
 OMH には次の編集可能な順序付き recommendation chain が含まれています。guided model setup は、ユーザーが active と確認した candidate だけを基準に chain を解決します。その結果は準備済み routing config であり、provider availability、credential、dispatch、execution の証拠ではありません。
 
-| カテゴリ alias | 編集可能な recommendation 順序 |
-| --- | --- |
-| `ultrabrain` | GPT-5.6 Sol |
-| `deep` | GPT-5.6 Terra |
-| `architect` | Claude Fable 5、次に GPT-5.6 Sol、次に Kimi K3 (xhigh) |
-| `unspecified-high` | Kimi K3、次に Claude Opus 5 |
-| `unspecified-low` | GLM 5.2、次に GLM 5.2 Ultrafast、次に Claude Opus 5 (low) |
-| `quick` | GLM 5.2 Ultrafast、次に Kimi K3、次に GPT-5.6 Luna、次に Claude Fable 5 (low) |
-| `writing` | Kimi K3、次に Qwen3-Coder、次に Gemini 3.1 Pro |
-| `visual-engineering` | Claude Fable 5、次に Kimi K3 |
-| `artistry` | Gemini 3.1 Pro、次に Claude Fable 5、次に Kimi K3 |
+| カテゴリ alias | 用途 | 編集可能な recommendation 順序 |
+| --- | --- | --- |
+| `ultrabrain` | 最も深い推論 | GPT-5.6 Sol |
+| `deep` | 強力なデフォルト層 | GPT-5.6 Terra |
+| `architect` | アーキテクチャ・システム設計 | Claude Fable 5、次に GPT-5.6 Sol、次に Kimi K3 (xhigh) |
+| `unspecified-high` | デフォルト作業モデル | Kimi K3、次に Claude Opus 5 |
+| `unspecified-low` | 低コストのフォールバック | GLM 5.2、次に GLM 5.2 Ultrafast、次に Claude Opus 5 (low) |
+| `quick` | 短いタスク | GLM 5.2 Ultrafast、次に Kimi K3、次に GPT-5.6 Luna、次に Claude Fable 5 (low) |
+| `writing` | 文章・ドキュメント | Kimi K3、次に Qwen3-Coder、次に Gemini 3.1 Pro |
+| `visual-engineering` | フロントエンド・ビジュアル | Claude Fable 5、次に Kimi K3 |
+| `artistry` | 型にはまらない創作 | Gemini 3.1 Pro、次に Claude Fable 5、次に Kimi K3 |
 
 Ultrafast ティアを試したいなら — Kimi K3 Ultrafast(300 TPS)、GLM 5.2 Ultrafast(600 TPS)は [OpenGateway](https://opengateway.ai/) で利用できます。
 

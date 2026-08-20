@@ -248,20 +248,20 @@ applied.
 
 The shipped catalog is editorial policy, not benchmark output:
 
-| Surface | Shipped editable order |
-| --- | --- |
-| Hermes `main` suggestion | Kimi K3, Claude Opus 5, Claude Fable 5, GPT-5.6 Sol, GPT-5.6 Terra |
-| `ultrabrain` | GPT-5.6 Sol (`xhigh`) |
-| `deep` | GPT-5.6 Terra (`high`) |
-| `architect` | Claude Fable 5, GPT-5.6 Sol, Kimi K3 (`xhigh`) |
-| `unspecified-high` | Kimi K3, Claude Opus 5 |
-| `unspecified-low` | GLM 5.2, GLM 5.2 Ultrafast, Claude Opus 5 (low) |
-| `visual-engineering` | Claude Fable 5, Kimi K3 |
-| `quick` | GLM 5.2 Ultrafast, Kimi K3, GPT-5.6 Luna, Claude Fable 5 (low) |
-| `writing` | Kimi K3, Qwen3-Coder, Gemini 3.1 Pro |
-| `artistry` | Gemini 3.1 Pro, Claude Fable 5, Kimi K3 |
-| `x_platform_data` affinity | Grok, Kimi K3, Gemini |
-| Shared final order (`last_resort.any`) | Claude Opus 5, GPT-5.6 Sol |
+| Surface | What it is for | Shipped editable order |
+| --- | --- | --- |
+| Hermes `main` suggestion | The session's own model | Kimi K3, Claude Opus 5, Claude Fable 5, GPT-5.6 Sol, GPT-5.6 Terra |
+| `ultrabrain` | Deepest reasoning | GPT-5.6 Sol (`xhigh`) |
+| `deep` | Strong default tier | GPT-5.6 Terra (`high`) |
+| `architect` | Architecture and system design | Claude Fable 5, GPT-5.6 Sol, Kimi K3 (`xhigh`) |
+| `unspecified-high` | Default working model | Kimi K3, Claude Opus 5 |
+| `unspecified-low` | Cheaper fallback | GLM 5.2, GLM 5.2 Ultrafast, Claude Opus 5 (low) |
+| `visual-engineering` | Frontend and visual | Claude Fable 5, Kimi K3 |
+| `quick` | Short tasks | GLM 5.2 Ultrafast, Kimi K3, GPT-5.6 Luna, Claude Fable 5 (low) |
+| `writing` | Prose and docs | Kimi K3, Qwen3-Coder, Gemini 3.1 Pro |
+| `artistry` | Unconventional work | Gemini 3.1 Pro, Claude Fable 5, Kimi K3 |
+| `x_platform_data` affinity | X-platform data affinity | Grok, Kimi K3, Gemini |
+| Shared final order (`last_resort.any`) | Last resort when a chain is exhausted | Claude Opus 5, GPT-5.6 Sol |
 
 Chain customization is a config edit, not a source edit — `omh model-chains
 show` prints the current per-category state, `omh model-chains interview`

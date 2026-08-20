@@ -181,17 +181,17 @@ OMH 워크플로가 도는 동안 터미널이 보여주는 것:
 
 OMH에는 다음과 같이 편집 가능한 순서형 recommendation chain이 포함되어 있습니다. guided model setup은 사용자가 active라고 확인한 candidate만 기준으로 chain을 해석합니다. 그 결과는 준비된 routing config이며 provider availability, credential, dispatch, execution evidence가 아닙니다.
 
-| 카테고리 alias | 편집 가능한 recommendation 순서 |
-| --- | --- |
-| `ultrabrain` | GPT-5.6 Sol |
-| `deep` | GPT-5.6 Terra |
-| `architect` | Claude Fable 5, 다음 GPT-5.6 Sol, 다음 Kimi K3 (xhigh) |
-| `unspecified-high` | Kimi K3, 다음 Claude Opus 5 |
-| `unspecified-low` | GLM 5.2, 다음 GLM 5.2 Ultrafast, 다음 Claude Opus 5 (low) |
-| `quick` | GLM 5.2 Ultrafast, 다음 Kimi K3, 다음 GPT-5.6 Luna, 다음 Claude Fable 5 (low) |
-| `writing` | Kimi K3, 다음 Qwen3-Coder, 다음 Gemini 3.1 Pro |
-| `visual-engineering` | Claude Fable 5, 다음 Kimi K3 |
-| `artistry` | Gemini 3.1 Pro, 다음 Claude Fable 5, 다음 Kimi K3 |
+| 카테고리 alias | 용도 | 편집 가능한 recommendation 순서 |
+| --- | --- | --- |
+| `ultrabrain` | 가장 깊은 추론 | GPT-5.6 Sol |
+| `deep` | 강력한 기본 티어 | GPT-5.6 Terra |
+| `architect` | 아키텍처·시스템 설계 | Claude Fable 5, 다음 GPT-5.6 Sol, 다음 Kimi K3 (xhigh) |
+| `unspecified-high` | 기본 작업 모델 | Kimi K3, 다음 Claude Opus 5 |
+| `unspecified-low` | 저비용 폴백 | GLM 5.2, 다음 GLM 5.2 Ultrafast, 다음 Claude Opus 5 (low) |
+| `quick` | 짧은 작업 | GLM 5.2 Ultrafast, 다음 Kimi K3, 다음 GPT-5.6 Luna, 다음 Claude Fable 5 (low) |
+| `writing` | 문서·산문 | Kimi K3, 다음 Qwen3-Coder, 다음 Gemini 3.1 Pro |
+| `visual-engineering` | 프론트엔드·비주얼 | Claude Fable 5, 다음 Kimi K3 |
+| `artistry` | 비정형 창작 | Gemini 3.1 Pro, 다음 Claude Fable 5, 다음 Kimi K3 |
 
 Ultrafast 티어가 궁금하다면 — Kimi K3 Ultrafast(300 TPS), GLM 5.2 Ultrafast(600 TPS) — [OpenGateway](https://opengateway.ai/)에서 만나볼 수 있습니다.
 

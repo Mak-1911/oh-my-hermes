@@ -182,17 +182,17 @@ OMH 工作流运行时,终端会展示:
 
 OMH 随附以下可编辑的有序 recommendation chain。guided model setup 只会依据用户确认 active 的 candidate 来解析 chain。结果是已准备的 routing config，不是 provider availability、credential、dispatch 或 execution 证据。
 
-| 类别 alias | 可编辑的 recommendation 顺序 |
-| --- | --- |
-| `ultrabrain` | GPT-5.6 Sol |
-| `deep` | GPT-5.6 Terra |
-| `architect` | Claude Fable 5，其次 GPT-5.6 Sol，其次 Kimi K3 (xhigh) |
-| `unspecified-high` | Kimi K3，其次 Claude Opus 5 |
-| `unspecified-low` | GLM 5.2，其次 GLM 5.2 Ultrafast，其次 Claude Opus 5 (low) |
-| `quick` | GLM 5.2 Ultrafast，其次 Kimi K3，其次 GPT-5.6 Luna，其次 Claude Fable 5 (low) |
-| `writing` | Kimi K3，其次 Qwen3-Coder，其次 Gemini 3.1 Pro |
-| `visual-engineering` | Claude Fable 5，其次 Kimi K3 |
-| `artistry` | Gemini 3.1 Pro，其次 Claude Fable 5，其次 Kimi K3 |
+| 类别 alias | 用途 | 可编辑的 recommendation 顺序 |
+| --- | --- | --- |
+| `ultrabrain` | 最深度推理 | GPT-5.6 Sol |
+| `deep` | 强力默认层 | GPT-5.6 Terra |
+| `architect` | 架构与系统设计 | Claude Fable 5，其次 GPT-5.6 Sol，其次 Kimi K3 (xhigh) |
+| `unspecified-high` | 默认工作模型 | Kimi K3，其次 Claude Opus 5 |
+| `unspecified-low` | 低成本回退 | GLM 5.2，其次 GLM 5.2 Ultrafast，其次 Claude Opus 5 (low) |
+| `quick` | 短任务 | GLM 5.2 Ultrafast，其次 Kimi K3，其次 GPT-5.6 Luna，其次 Claude Fable 5 (low) |
+| `writing` | 文章与文档 | Kimi K3，其次 Qwen3-Coder，其次 Gemini 3.1 Pro |
+| `visual-engineering` | 前端与视觉 | Claude Fable 5，其次 Kimi K3 |
+| `artistry` | 非常规创作 | Gemini 3.1 Pro，其次 Claude Fable 5，其次 Kimi K3 |
 
 想试试 Ultrafast 档? Kimi K3 Ultrafast(300 TPS)与 GLM 5.2 Ultrafast(600 TPS)都在 [OpenGateway](https://opengateway.ai/) 上提供。
 
