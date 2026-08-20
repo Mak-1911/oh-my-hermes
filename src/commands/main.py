@@ -1,4 +1,4 @@
-# noqa: SIZE_OK -- Central argparse registry intentionally keeps all command wiring cohesive and auditable.
+# allow: SIZE_OK -- Central argparse registry intentionally keeps all command wiring cohesive and auditable.
 from __future__ import annotations
 
 import argparse
