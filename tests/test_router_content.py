@@ -3155,6 +3155,15 @@ class RouterContentTests(unittest.TestCase):
         for definition in builtin_definitions():
             exposure = skill_exposure_payload(definition.name)
             self.assertIn(f"### {definition.name}", reference)
+            if exposure["lifecycle_stage"] == "retired":
+                # Retired engines keep a section marker but render only the
+                # migration stub: presenting their triggers and examples as
+                # invocable is what misled repo-readers and prompt-based
+                # installers (owner report, 2026-08-20).
+                self.assertIn("- Lifecycle stage: `retired`", reference)
+                self.assertNotIn(f"- Why this exists: {definition.why_this_exists}", reference)
+                self.assertNotIn(f"  - Prompt: {definition.good_example.prompt}", reference)
+                continue
             self.assertIn(f"- Category: `{definition.category}`", reference)
             self.assertIn(f"- Phase: `{definition.phase}`", reference)
             self.assertIn(f"- Hermes role: `{definition.hermes_role}`", reference)
@@ -3526,7 +3535,9 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("Hermes Agent Architecture Guide", docs_readme)
         self.assertIn("[Roles](ROLES.md)", docs_readme)
         self.assertIn("Agent Install Protocol", docs_readme)
-        self.assertIn("`deep-interview`, `ralplan`, `ultragoal`, `loop`", docs_readme)
+        self.assertIn("`deep-interview`, `ralplan`, `loop`", docs_readme)
+        # Retired engines must not be presented as current planning skills.
+        self.assertNotIn("`ultragoal`", docs_readme)
         self.assertIn("**102 installable skills**", docs_readme)
         self.assertIn("**Retain knowledge**", docs_readme)
         self.assertIn("python -m unittest discover -s tests", ci)

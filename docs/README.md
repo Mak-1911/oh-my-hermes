@@ -59,7 +59,7 @@ operator control.
 
 | Family | Typical work |
 | --- | --- |
-| **Plan and decide** | Ambiguous goals, `deep-interview`, `ralplan`, `ultragoal`, `loop`, and reviewed decision paths. |
+| **Plan and decide** | Ambiguous goals, `deep-interview`, `ralplan`, `loop`, and reviewed decision paths. |
 | **Learn and gather** | Web research, source finding, papers, data, customer signals, and source-backed briefs. |
 | **Create materials and visuals** | Frontend, accessibility, visual QA, images, decks, reports, documents, PDFs, and deliverable packages. |
 | **Delegate coding and ship** | Scoped, skill-aware handoffs to Codex, Claude Code, Hermes runtime, or another selected executor, plus review and verification gates. |
