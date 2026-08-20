@@ -353,6 +353,7 @@ PARSING_ONLY_URLLIB_REQUEST_NAMES = frozenset({"url2pathname", "pathname2url"})
 PARSING_ONLY_URLLIB_REQUEST_FILES: dict[str, str] = {
     "src/workflows/visual_summary.py": "resolves screenshot `file://` references to local paths",
     "src/workflows/web_visual_qa_contracts.py": "resolves visual-QA `file://` references to local paths",
+    "src/commands/setup.py": "resolves PEP 610 direct_url.json `file://` origins to local paths for update guidance",
 }
 
 
