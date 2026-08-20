@@ -3010,6 +3010,49 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertEqual(state["last_update"]["release_update"]["status"], "refreshed")
             self.assertEqual(state["last_update"]["managed_skills"]["count"], len(builtin_skill_templates()))
 
+    def test_repo_link_installs_get_their_real_update_owner(self) -> None:
+        """An agent handed only the repository URL often installs via
+        `pip install git+...`, `pip install <clone>`, or `uv tool install`.
+        The update instruction must name that owner — the curl fallback would
+        create a second, conflicting install — while editable dev checkouts
+        and the curl installer's own deleted download dir keep the
+        long-standing installer fallback."""
+
+        def guidance_with(direct_url: object) -> tuple[str, str]:
+            with patch.dict(os.environ, {"OMH_COMMAND_PACKAGE_MANAGER": ""}):
+                with patch("importlib.metadata.distribution") as dist:
+                    dist.return_value.read_text.return_value = (
+                        json.dumps(direct_url) if direct_url is not None else None
+                    )
+                    return setup_commands._command_package_update_guidance()
+
+        manager, instruction = guidance_with(
+            {"url": "https://github.com/rlaope/oh-my-hermes", "vcs_info": {"vcs": "git"}}
+        )
+        self.assertEqual(manager, "pip")
+        self.assertIn('install --upgrade "git+https://github.com/rlaope/oh-my-hermes"', instruction)
+
+        with TemporaryDirectory() as tmp:
+            manager, instruction = guidance_with({"url": f"file://{tmp}", "dir_info": {}})
+            self.assertEqual(manager, "pip")
+            self.assertIn(f"git -C {tmp} pull", instruction)
+            self.assertIn("install --upgrade", instruction)
+
+        manager, _ = guidance_with({"url": "file:///dev/checkout", "dir_info": {"editable": True}})
+        self.assertEqual(manager, "installer")
+
+        manager, _ = guidance_with({"url": "file:///tmp/omh-download-gone-xyz", "dir_info": {}})
+        self.assertEqual(manager, "installer")
+
+        manager, _ = guidance_with(None)
+        self.assertEqual(manager, "installer")
+
+        with patch.object(setup_commands.sys, "prefix", "/home/u/.local/share/uv/tools/oh-my-hermes"):
+            manager, instruction = guidance_with(
+                {"url": "https://github.com/rlaope/oh-my-hermes", "vcs_info": {"vcs": "git"}}
+            )
+        self.assertEqual((manager, instruction), ("uv-tool", "uv tool upgrade oh-my-hermes"))
+
     def test_package_manager_update_uses_native_command_guidance(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

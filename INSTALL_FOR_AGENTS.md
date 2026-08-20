@@ -78,6 +78,19 @@ curl -fsSL "https://raw.githubusercontent.com/rlaope/oh-my-hermes/$OMH_REF/insta
     OMH_SOURCE_REF="$OMH_REF" sh
 ```
 
+Direct pip or uv install from the repository (for agents handed only the
+repository link) — pin the same resolved SHA:
+
+```sh
+python3 -m pip install "git+https://github.com/rlaope/oh-my-hermes@$OMH_REF"
+# or, isolated on PATH:
+uv tool install "git+https://github.com/rlaope/oh-my-hermes@$OMH_REF"
+```
+
+Both leave a PEP 610 origin record, so a later `omh update` names the exact
+upgrade command for this owner (`pip install --upgrade "git+..."` or
+`uv tool upgrade oh-my-hermes`) instead of the generic installer line.
+
 Native Windows (PowerShell 5.1+):
 
 ```powershell
@@ -161,6 +174,8 @@ Use the owning manager directly only as a reported repair fallback:
 | Homebrew | `brew upgrade rlaope/tap/omh` | `brew uninstall omh` |
 | Bun | `bun update -g --latest oh-my-hermes` | `bun remove -g oh-my-hermes` |
 | npm | `npm update -g oh-my-hermes` | `npm uninstall -g oh-my-hermes` |
+| pip (repo link) | `pip install --upgrade "git+https://github.com/rlaope/oh-my-hermes"` | `pip uninstall oh-my-hermes` |
+| uv tool (repo link) | `uv tool upgrade oh-my-hermes` | `uv tool uninstall oh-my-hermes` |
 
 Removing the command package preserves OMH state. For full cleanup, run
 `omh uninstall --all` before the manager's remove command. Never run the curl
