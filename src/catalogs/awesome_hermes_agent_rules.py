@@ -543,8 +543,8 @@ _RULES = (
     ),
     CoverageRule(
         (
-            "static linter for ai agent configs",
-            "herm v1 1 scoring",
+            "static analysis for ai agent configs",
+            "pass review fail verdict",
             "community migration tool from openclaw",
             "native hermes migrate",
             "one command setup for the full hermes agent stack",
