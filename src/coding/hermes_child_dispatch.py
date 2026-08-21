@@ -70,6 +70,8 @@ _PROVIDER_ENV: Final = {
     "deepseek": ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"),
     "upstage": ("UPSTAGE_API_KEY", "UPSTAGE_BASE_URL"),
     "zai": ("ZAI_API_KEY", "ZAI_BASE_URL"),
+    "xai": ("XAI_API_KEY", "XAI_BASE_URL"),
+    "moonshot": ("MOONSHOT_API_KEY", "MOONSHOT_BASE_URL"),
 }
 _CREDENTIAL_NAME = re.compile(r"(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)", re.IGNORECASE)
 
