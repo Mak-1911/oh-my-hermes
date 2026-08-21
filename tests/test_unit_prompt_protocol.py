@@ -275,5 +275,39 @@ class PromptBudgetPolicyTests(unittest.TestCase):
         self.assertEqual(HIGH_EFFORT_TIER, frozenset({"high", "xhigh", "max"}))
 
 
+class ModelOptiDocTests(unittest.TestCase):
+    """MODEL_OPTI.md is the human-readable map of the calibration surface.
+
+    The doc promises a section (with trait/injected/why/source) for every
+    calibrated family and names the recognized-but-uncalibrated families as
+    tracked gaps — so a table change without a doc change fails here.
+    """
+
+    def _doc(self) -> str:
+        from pathlib import Path
+
+        return (Path(__file__).resolve().parents[1] / "MODEL_OPTI.md").read_text(
+            encoding="utf-8"
+        )
+
+    def test_every_calibrated_family_has_a_documented_section(self) -> None:
+        doc = self._doc()
+        for family in HIGH_EFFORT_CALIBRATIONS:
+            self.assertIn(f"### `{family}`", doc, family)
+        self.assertIn("HIGH_EFFORT_CALIBRATIONS", doc)
+        self.assertIn("MAIN_AGENT_COMPOSITION_CALIBRATIONS", doc)
+        self.assertIn("UNIT_PROMPT_MAX_BYTES", doc)
+
+    def test_uncalibrated_recognized_families_stay_named_as_gaps(self) -> None:
+        doc = self._doc()
+        for family in ("mistral", "llama", "codestral"):
+            self.assertNotIn(family, HIGH_EFFORT_CALIBRATIONS)
+            self.assertIn(f"`{family}`", doc, family)
+        # The gaps carry their tracking issues; when a calibration lands,
+        # move the family into a documented section instead of the gap table.
+        self.assertIn("#1051", doc)
+        self.assertIn("#1052", doc)
+
+
 if __name__ == "__main__":
     unittest.main()
