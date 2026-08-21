@@ -1280,7 +1280,7 @@ def _doctor_operator_summary(checks: list[object]) -> dict[str, object]:
             _doctor_group("runtime", check_dicts, ("runtime_artifacts", "workflow_state", "runtime_state")),
             _doctor_group("hermes_registration", check_dicts, ("hermes_config", "external_dir", "identity_conflicts", "runtime_context")),
             _doctor_group("targets", check_dicts, ("target_registry", "target_topology")),
-            _doctor_group("optional_surfaces", check_dicts, ("plugin_", "team_profile_packs")),
+            _doctor_group("optional_surfaces", check_dicts, ("plugin_", "team_profile_packs", "structural_search")),
         ],
     }
 
@@ -2709,6 +2709,19 @@ def _doctor_observation_boundary_lines(checks: list[object], *, language: str) -
             lines.append(tr(language, "doctor_plugin_runtime_historical"))
         else:
             lines.append(tr(language, "doctor_plugin_runtime_not_observed"))
+
+    structural = check_map.get("structural_search_tooling")
+    if structural:
+        lines.append(
+            tr(
+                language,
+                (
+                    "doctor_structural_search_present"
+                    if structural.get("observed") and "not on PATH" not in str(structural.get("message", ""))
+                    else "doctor_structural_search_absent"
+                ),
+            )
+        )
 
     return lines
 

@@ -154,7 +154,10 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # vocabulary; warranted growth.
 # 705999 -> 706033: DeepSeek V3.2 joined the deep and unspecified-low shipped
 # chains, so model-setup's chain line names it; warranted growth.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 706033
+# 706033 -> 706701: the router body gained two structural-code-search pointer
+# lines (+220 chars) and the two code-exploration skills gained a Structural
+# Code Search pointer block (+224 chars each); warranted growth.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 706701
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

@@ -17,6 +17,7 @@ from .render import (
     memory_sync_skill,
     router_reference_templates,
     router_skill,
+    structural_search_skill,
     wiki_reference_templates,
     wiki_skill,
     workflow_skill,
@@ -52,6 +53,8 @@ def _skill_template_for(name: str) -> SkillTemplate:
         return wiki_skill()
     if name == "buzz":
         return buzz_skill()
+    if name in ("codebase-onboarding", "codegraph-refresh"):
+        return structural_search_skill(name)
     return workflow_skill(name)
 
 

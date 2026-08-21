@@ -15,6 +15,7 @@ from ..system.local_store import atomic_write_json, ensure_dir, locked_json_upda
 from ..system.metadata_safety import redact_metadata_text
 from ..system.paths import OmhPaths
 from .action_gate import recheck_safety_profile_revision
+from .coding_contracts import STRUCTURAL_SEARCH_GUIDANCE
 from .executor_capability_snapshots import (
     complete_executor_capability_snapshot,
     validate_executor_capability_snapshot,
@@ -245,6 +246,10 @@ def build_unit_prompt(
     lines.extend(unit_skill_lines(unit, discovery))
     if unit_result_contract is not None:
         lines.extend(_unit_result_prompt_lines(unit_result_contract))
+    # Unconditional shared-lane guidance: the same constant the capability
+    # blocks carry, so the two prepared prompt lanes cannot drift, and the
+    # no-discovery byte-identity contract stays intact (both sides gain it).
+    lines.append(STRUCTURAL_SEARCH_GUIDANCE)
     lines.append("Commit your work; do not merge or push other branches.")
     return "\n".join(lines)
 

@@ -19,6 +19,7 @@ from ..coding_contracts import (
     LOCAL_CAPABILITY_REPORT_REQUIRED_FIELDS,
     PROMPT_HANDOFF_SCHEMA_VERSION,
     RUNTIME_HANDOFF_SCHEMA_VERSION,
+    STRUCTURAL_SEARCH_GUIDANCE,
     TASK_PROMPT_CONTRACT_SCHEMA_VERSION,
     TASK_PROMPT_REQUIRED_SECTIONS,
 )
@@ -138,12 +139,14 @@ _LOCAL_CAPABILITY_PREFERRED_SOURCES = (
     "available subagents, worker lanes, or task planners",
     "MCP tools exposed to the selected executor",
     "repo scripts, tests, task runners, and CI metadata",
+    "executor-local structural search tooling on PATH (such as ast-grep, with grep as fallback)",
 )
 _LOCAL_CAPABILITY_STAGE_GUIDANCE = {
     "planning": "Use local planning or reviewed-plan capability when it materially improves scope, acceptance criteria, or risk review.",
     "implementation": "Use local implementation, goal, or work-management capability when it improves delivery discipline.",
     "parallelization": "Use local subagents, workers, or worktrees only when lanes are independent and ownership is explicit.",
     "qa_review": "Use local QA, code-review, or adversarial review capability when it improves verification quality.",
+    "code_exploration": "Use executor-local structural search tooling when the target is a syntactic shape rather than a string; fall back to grep when it is absent.",
 }
 _CODE_REFERENCE_PREFIXES = ("src/", "src\\", "tests/", "tests\\")
 _CODE_REFERENCE_EXTENSIONS = (
@@ -2271,6 +2274,7 @@ def _local_capability_prompt_block(profile: str, label: str) -> str:
             "back to the generic prompt.\n"
             "- If no relevant local capability is available, proceed as plain Codex using this task, harness, and evidence "
             "contract.\n"
+            f"- {STRUCTURAL_SEARCH_GUIDANCE}\n"
             "- Do not claim OMH observed local capability availability, dispatch, implementation, review, CI, or merge.\n\n"
         )
     if profile == "claude-code":
@@ -2286,6 +2290,7 @@ def _local_capability_prompt_block(profile: str, label: str) -> str:
             "falling back to the generic prompt.\n"
             f"- If no relevant local capability is available, proceed as a plain {label} task using this task, harness, "
             "and evidence contract.\n"
+            f"- {STRUCTURAL_SEARCH_GUIDANCE}\n"
             "- Do not claim OMH observed capability availability or execution.\n\n"
         )
     return (
@@ -2297,6 +2302,7 @@ def _local_capability_prompt_block(profile: str, label: str) -> str:
         "to the generic prompt.\n"
         f"- If no relevant local capability is available, proceed as a plain {label} task using this task, harness, and "
         "evidence contract.\n"
+        f"- {STRUCTURAL_SEARCH_GUIDANCE}\n"
         "- Do not claim OMH observed capability availability or execution.\n\n"
     )
 
@@ -2316,6 +2322,7 @@ def _runtime_local_capability_prompt_block(profile: str, label: str) -> str:
         "capability before falling back to solo runtime execution.\n"
         f"- If no relevant local capability is available, continue with solo runtime execution as a plain {label} "
         "task using this task, harness, and evidence contract.\n"
+        f"- {STRUCTURAL_SEARCH_GUIDANCE}\n"
         "- Do not claim OMH observed runtime capability availability, dispatch, implementation, review, CI, or merge.\n\n"
     )
 

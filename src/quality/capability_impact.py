@@ -116,7 +116,7 @@ def build_capability_impact_report(
         _dimension(
             "provider_execution_availability",
             "requires_provider_observation",
-            {"provider_classes": ["browser", "connector", "image", "video"]},
+            {"provider_classes": ["browser", "connector", "image", "video", "structural_search"]},
             "External providers vary by installation and require observed provider evidence.",
         ),
         _dimension(
