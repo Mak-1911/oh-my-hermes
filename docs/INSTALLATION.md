@@ -458,6 +458,10 @@ OMH's setup footprint is intentionally bounded:
 - It installs managed Hermes-visible skills and records local status contracts.
 - It can repair or reapply managed `skills.external_dirs` when a Hermes
   profile drifts.
+- It applies the same managed registration to every Hermes bot profile —
+  each an independent home under `~/.hermes/profiles/<name>` — so Desktop bot
+  chats see the same OMH skills as the default chat. See
+  [Bot Profiles](#bot-profiles).
 - It enables the managed `omh` plugin and selects the OMH memory provider only
   when the corresponding provider slot is free. Existing foreign ownership is
   preserved.
@@ -482,6 +486,37 @@ The top-level `changed` value in `omh setup --json` is an aggregate: it is true
 when any managed setup field changes, including skill registration, compression
 fallbacks, plugin enablement, the fresh-config TUI default, or memory-provider
 selection. Model-alias writes remain a separate preview-and-approval step.
+
+## Bot Profiles
+
+Hermes bot profiles (`hermes profile create`, Desktop bot chats) are fully
+independent Hermes homes under `~/.hermes/profiles/<name>` — each with its own
+`config.yaml`, skills resolution, and plugin directory. A registration written
+only to the primary home never reaches them, which is why a bot chat can show
+zero OMH skills while the default chat has the full set.
+
+`omh setup` and `omh update` sync every profile automatically:
+
+- an already-registered profile is refreshed to the running version;
+- a profile with no OMH bundle at all — including a bot created after
+  install — gets the full bootstrap on the next `omh setup` or `omh update`;
+- a deliberately unregistered profile (see below) is left alone.
+
+After a sync, restart Hermes Desktop so bot chats reload their skills.
+
+To keep OMH out of one bot, unregister that profile only:
+
+```sh
+omh --hermes-home ~/.hermes/profiles/<name> uninstall --registration-only
+```
+
+The plugin directory stays in place as the opt-out marker; setup and update
+never re-register a profile in that state.
+
+OMH workflows are skill triggers, not Hermes slash commands, so they do not
+appear in the `/` autocomplete — in any chat, bot or default. Invoke them as
+`$ulw …`, `$plan …`, `$research …` (or plain phrasings like `ulw work …`),
+and list what is installed with `/skills`.
 
 The curl installer intentionally stops before setup. It installs the isolated
 command package and `omh` executable only. `omh setup` is the explicit,

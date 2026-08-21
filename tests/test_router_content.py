@@ -3494,6 +3494,16 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("isolated OMH virtual environment", installation)
         self.assertIn("add the printed directory to", installation)
         self.assertIn("Use OMH request-to-handoff for: I want to safely add a feature to this repo.", installation)
+        # Bot profiles are independent Hermes homes; the docs must carry the
+        # auto-sync behavior, the per-profile opt-out command, and the agent
+        # verification step so bot chats are never silently skill-less again.
+        self.assertIn("## Bot Profiles", installation)
+        self.assertIn(
+            "omh --hermes-home ~/.hermes/profiles/<name> uninstall --registration-only",
+            installation,
+        )
+        self.assertIn("hermes -p <name> skills list", install_for_agents)
+        self.assertIn("Bot profiles are synced automatically", install_for_agents)
         self.assertIn("First-value packs are the stronger first-use paths once setup is done", installation)
         self.assertIn("Frontend Rescue", installation)
         self.assertIn("Failure-to-Fix", installation)
