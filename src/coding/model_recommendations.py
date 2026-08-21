@@ -108,6 +108,12 @@ _TERRA = _candidate(
     reasoning_effort="high",
     reasoning="Editorial deep-work recommendation; not a benchmark claim.",
 )
+_DEEPSEEK = _candidate(
+    "deepseek-v3.2",
+    "deepseek",
+    ("deepseek", "openrouter", "opencode"),
+    reasoning="Editorial budget reasoning recommendation; not a benchmark claim.",
+)
 _GLM = _candidate(
     "glm-5.2",
     "glm",
@@ -163,7 +169,10 @@ SHIPPED_MODEL_RECOMMENDATIONS: Final[dict[str, object]] = {
     "schema_version": MODEL_RECOMMENDATION_CATALOG_SCHEMA_VERSION,
     "categories": {
         "ultrabrain": [deepcopy(_SOL_XHIGH)],
-        "deep": [deepcopy(_TERRA)],
+        # DeepSeek gives deep a reasoning-capable budget fallback from a
+        # fourth provider ecosystem — before it, deep sat entirely on GPT
+        # and one rejected ecosystem exhausted the chain (owner rule below).
+        "deep": [deepcopy(_TERRA), _with_effort(_DEEPSEEK, "high")],
         # Architecture and system-design lanes (owner request, 2026-08-19):
         # deepest declared effort across three provider ecosystems so a
         # rejected ecosystem cannot exhaust the chain. Efforts stay xhigh
@@ -184,6 +193,7 @@ SHIPPED_MODEL_RECOMMENDATIONS: Final[dict[str, object]] = {
         "unspecified-low": [
             _with_effort(_GLM, "low"),
             _with_effort(_GLM_FAST, "low"),
+            _with_effort(_DEEPSEEK, "low"),
             _with_effort(_OPUS_5, "low"),
         ],
         "quick": [

@@ -187,11 +187,13 @@ class RecommendationCatalogTests(unittest.TestCase):
         # so one rejected ecosystem cannot exhaust the chain.
         self.assertEqual(
             aliases("categories", "unspecified-low"),
-            ["glm-5.2", "glm-5.2-ultrafast", "claude-opus-5"],
+            ["glm-5.2", "glm-5.2-ultrafast", "deepseek-v3.2", "claude-opus-5"],
         )
         self.assertEqual(aliases("categories", "unspecified-high"), ["kimi-k3", "claude-opus-5"])
         self.assertEqual(aliases("categories", "ultrabrain"), ["gpt-5.6-sol"])
-        self.assertEqual(aliases("categories", "deep"), ["gpt-5.6-terra"])
+        # DeepSeek closes deep's single-ecosystem exposure with a
+        # reasoning-capable budget fallback (owner request, 2026-08-21).
+        self.assertEqual(aliases("categories", "deep"), ["gpt-5.6-terra", "deepseek-v3.2"])
         self.assertEqual(
             aliases("categories", "architect"),
             ["claude-fable-5", "gpt-5.6-sol", "kimi-k3"],

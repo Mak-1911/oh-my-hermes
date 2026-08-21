@@ -41,7 +41,10 @@ from typing import Any
 # ~/.omh/routing/model-chains.json (see effective_mixture_category_chains).
 HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
     "ultrabrain": (("gpt-5.6-sol", "xhigh"),),
-    "deep": (("gpt-5.6-terra", "high"),),
+    # DeepSeek closes deep's single-ecosystem exposure (the owner rule below
+    # applied to a chain that sat entirely on GPT) with a reasoning-capable
+    # budget candidate from a fourth provider ecosystem.
+    "deep": (("gpt-5.6-terra", "high"), ("deepseek-v3.2", "high")),
     # Architecture/system-design lanes: full-depth effort across three
     # provider ecosystems. Fable and Kimi appear in other chains only at
     # low/high, so at xhigh `mixture_category_for` labels them architect;
@@ -59,6 +62,7 @@ HERMES_MIXTURE_CATEGORY_CHAINS: dict[str, tuple[tuple[str, str], ...]] = {
     "unspecified-low": (
         ("glm-5.2", "low"),
         ("glm-5.2-ultrafast", "low"),
+        ("deepseek-v3.2", "low"),
         ("claude-opus-5", "low"),
     ),
     "quick": (
@@ -184,6 +188,7 @@ APPROX_PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-haiku-4-5": (1.0, 5.0),
     "kimi-k3": (0.6, 2.5),
     "glm-5.2": (0.6, 2.2),
+    "deepseek-v3.2": (0.28, 0.42),
     "glm-5.2-ultrafast": (0.3, 1.2),
     "gemini-3.1-pro": (1.25, 10.0),
     "qwen3-coder": (0.4, 1.6),

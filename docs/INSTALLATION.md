@@ -252,10 +252,10 @@ The shipped catalog is editorial policy, not benchmark output:
 | --- | --- | --- |
 | Hermes `main` suggestion | The session's own model | Kimi K3, Claude Opus 5, Claude Fable 5, GPT-5.6 Sol, GPT-5.6 Terra |
 | `ultrabrain` | Deepest reasoning | GPT-5.6 Sol (`xhigh`) |
-| `deep` | Strong default tier | GPT-5.6 Terra (`high`) |
+| `deep` | Strong default tier | GPT-5.6 Terra, DeepSeek V3.2 (`high`) |
 | `architect` | Architecture and system design | Claude Fable 5, GPT-5.6 Sol, Kimi K3 (`xhigh`) |
 | `unspecified-high` | Default working model | Kimi K3, Claude Opus 5 |
-| `unspecified-low` | Cheaper fallback | GLM 5.2, GLM 5.2 Ultrafast, Claude Opus 5 (low) |
+| `unspecified-low` | Cheaper fallback | GLM 5.2, GLM 5.2 Ultrafast, DeepSeek V3.2, Claude Opus 5 (low) |
 | `visual-engineering` | Frontend and visual | Claude Fable 5, Kimi K3 |
 | `quick` | Short tasks | GLM 5.2 Ultrafast, Kimi K3, GPT-5.6 Luna, Claude Fable 5 (low) |
 | `writing` | Prose and docs | Kimi K3, Qwen3-Coder, Gemini 3.1 Pro |

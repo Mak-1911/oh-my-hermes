@@ -152,7 +152,9 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # 705462 -> 705999: model-setup gained the chain-interview contract (numbered
 # per-category options applied via `omh model-chains`) and its trigger
 # vocabulary; warranted growth.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 705999
+# 705999 -> 706033: DeepSeek V3.2 joined the deep and unspecified-low shipped
+# chains, so model-setup's chain line names it; warranted growth.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 706033
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 
