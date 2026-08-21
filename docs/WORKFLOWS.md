@@ -220,6 +220,8 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Use cheap inner-loop checks frequently and expensive outer-loop checks sparingly.
   - Keep the practical small-loop recipe visible: test as stop signal, plan -> execute -> verify, one task at a time.
   - Surface verification_gap, comprehension_debt, and cognitive_surrender as warnings before a loop starts looking self-steering.
+  - Drive iteration with the upstream `/goal` loop from the prepared loop_goal_driver_handoff/v1, and register OMH's inner-tier checks as `/goal gate add` commands so verification runs before the judge.
+  - Treat a judge `done` verdict, a turn-ceiling pause, or a gate-retry pause as narration; completion still requires the linked goal ledger completion gate and observed evidence.
 - Completion checklist:
   - The request is classified as task, project, north-star ambition, external-wait, or unclear before a loop starts.
   - The current loop_status_card/v1 names the queue item, tick status, verification_plan, and next action.
@@ -230,6 +232,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - If feedback is unclear, ask one gate question or route back to research/plan rather than advancing the loop.
   - If the goal turns into external waiting, record the waiting state and next observable signal instead of continuing locally.
   - If context or budget is exhausted, checkpoint the loop artifact and continue from the latest loop_cycle/v1 state.
+  - If the upstream goal loop paused on its turn ceiling or a failing gate, record the pause as a loop wait state, not as completion, re-prepare the driver handoff, and re-register every gate after re-setting the goal, because setting a goal discards the previous gates.
 - Required inputs:
   - loopability assessment
   - north-star goal summary when present
@@ -253,6 +256,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - loop_queue_handoff/v1 only when permitted
   - executor-neutral handoff only when permitted
   - external-wait or checkpoint boundary
+  - loop_goal_driver_handoff/v1 prepared /goal driver text with gates and turn-ceiling guidance
 - Artifact expectations:
   - metadata-only .omh/loops loop_cycle/v1 artifact with loopability_assessment/v1
   - loop_engineering/v1 status over automation, worktree, skill, connector, subagent, verification policy, and failure modes
@@ -261,6 +265,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - loop_status_card/v1 wrapper payload with loopability_assessment, failure_mode_summary, and small_loop_guidance
   - loop_start_card/v1 wrapper setup card
   - linked goal_ledger/v1 only when completion evidence is required
+  - loop_goal_driver_handoff/v1 prepared upstream /goal command, gate lines, and completion ownership
 - Safety rules:
   - Do not treat loop persistence as permission to bypass the selected permission profile.
   - Do not treat a runtime tick as worktree creation, subagent dispatch, connector I/O, implementation, review, CI, merge, publication, or completion evidence.
@@ -269,6 +274,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - External results such as market response, stars, or adoption are waiting states unless observed evidence is supplied.
   - Do not let unattended loop progress bypass verification; missing or failed verification returns to plan/research or waits for evidence.
   - Do not let comprehension debt or cognitive surrender hide behind green-looking loop status.
+  - Do not claim a goal is complete because the upstream judge said done, the turn budget ran out, or a gate paused the loop.
 
 ### ultraprocess
 
@@ -8895,6 +8901,7 @@ Run explicit loop invocations through agentic interviewer -> planner -> research
   - small_loop_guidance
   - permission envelope
   - linked goal or runtime evidence references when available
+  - loop_goal_driver_handoff/v1 prepared /goal driver text
 - Stop conditions:
   - goal is classified as task/project/ambition/external-wait/unclear
   - next loop step is clear
@@ -8913,6 +8920,7 @@ Run explicit loop invocations through agentic interviewer -> planner -> research
   - inspect loop_status_card/v1 failure_mode_summary
   - inspect loop_queue_handoff/v1 when a queued item is actionable
   - check linked goal_completion_gate/v1 before completion copy
+  - inspect loop_goal_driver_handoff/v1 before pasting the /goal driver command
 - Evidence ladder:
   - `loop_triggered`
   - `loopability_assessed`

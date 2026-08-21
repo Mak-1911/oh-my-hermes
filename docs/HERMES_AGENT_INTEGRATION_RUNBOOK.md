@@ -66,6 +66,60 @@ This section is executor-neutral: the same guidance applies whether the
 coding executor behind a handoff is Codex, Claude Code, Hermes's own runtime,
 or another selected executor.
 
+### Driving loop iteration through `/goal` (goal driver handoff)
+
+Audience: agents, wrappers, and operators — not chat users. This subsection
+discharges the directive above: instead of inventing a parallel completion
+vocabulary, `omh loop goal-driver-handoff --loop <id>` prepares a
+`loop_goal_driver_handoff/v1` artifact whose `goal_command` is an upstream
+`/goal` line with an inline contract (`verify:` / `constraints:` /
+`boundaries:` / `stop when:`) built from the loop cycle and its linked goal
+ledger. OMH prepares the text; a human or wrapper pastes it into an
+interactive Hermes surface. OMH never sets the goal, never registers a gate,
+and never reads the judge's verdict. Verified against the observed basis
+Hermes Agent v0.20.4 (build 2026.8.18, `~/.hermes/hermes-agent/pyproject.toml`).
+
+Gate commands are operator-supplied inputs, never synthesized: pass each one
+via `--gate-command`, and the artifact echoes it as a `/goal gate add` line
+labelled `inner`. The single-line rule is a safety constraint, not
+formatting: upstream `add_gate` validates only non-emptiness and `run_gate`
+executes the stored string with `shell=True`, so a newline inside a gate
+command is a shell command separator — one "gate" becomes several commands
+with only the last exit code observed. OMH therefore refuses newline-bearing,
+blank, over-240-character, or more-than-8 gate commands, and never prints a
+multi-line gate block. When no commands are supplied the artifact names a
+`gate_gap` listing the five uncovered inner-tier check categories instead of
+guessing commands.
+
+Caveats the artifact carries (the first two are the ones operators are most
+often bitten by):
+
+- **Gates are discarded on every `/goal` set.** Setting a new `/goal`
+  replaces the goal state with a fresh one whose gate list is empty — re-run
+  every `gate_commands[*].command_line` after each `/goal` set, or the judge
+  becomes the only check left.
+- **Every registered gate runs at every turn boundary.** There is no
+  cadence, tier, or sampling knob upstream, so register cheap inner-tier
+  checks only.
+- The `/goal` loop runs on interactive surfaces only; a headless one-shot
+  CLI turn does not loop.
+- A new `/goal` sent mid-run is rejected by the upstream busy dispatch
+  policy; set the goal between runs.
+- A judge error fails open and the loop continues; a missing verdict is not
+  a gate.
+- `/goal draft <text>` is the operator alternative when a human wants the
+  auxiliary model to draft the contract instead.
+
+Wait-state split: blocked-phase, permission-gated, and context/budget
+exhausted cycles refuse to render — no number of `/goal` turns can clear
+them. An external-observation wait renders with a `wait_state` caveat,
+because a standing goal with a `stop when:` clause is exactly what keeps
+that wait from being narrated as progress. Completion authority never moves:
+a judge `done` verdict, a turn-ceiling pause, or a gate-retry pause is
+narration; completion still requires the linked OMH goal ledger completion
+gate with observed evidence. Gate defaults registered from chat are fixed
+upstream at 3 retries and a 300-second timeout.
+
 ## Product Boundary
 
 | Owner | Owns | Does not own |

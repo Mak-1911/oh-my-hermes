@@ -2992,6 +2992,8 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("failure_mode_summary", skills["loop"].content)
         self.assertIn("direct `loop`, `./loop`, `$loop`", skills["loop"].content)
         self.assertIn("interviewer, planner, researcher, builder, reviewer, and loop controller", skills["loop"].content)
+        self.assertIn("loop_goal_driver_handoff/v1", skills["loop"].content)
+        self.assertIn("judge `done` verdict", skills["loop"].content)
         self.assertIn("memory/skill/wiki/failure-retrospective/automation", skills["workflow-learning"].content)
         self.assertIn("self-improvement store routing", skills["workflow-learning"].content)
         self.assertIn("project/global promotion", skills["instinct-ledger"].content)
