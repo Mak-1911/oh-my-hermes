@@ -195,6 +195,7 @@ APPROX_PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
     "kimi-k3-ultrafast": (0.3, 1.25),
     "gemini-3.1-pro": (1.25, 10.0),
     "qwen3-coder": (0.4, 1.6),
+    "solar-pro2": (0.15, 0.60),
 }
 
 
