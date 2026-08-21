@@ -1492,6 +1492,15 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("OMH status helper:", stdout)
             self.assertIn("Restart or reload Hermes Agent", stdout)
             self.assertIn("If Hermes cannot see OMH yet", stdout)
+            # Setup's next steps recommend the per-category model chains, and
+            # the recommendation prints before the TUI verdict so the verdict
+            # keeps its final-output-line contract.
+            self.assertIn("Recommended: tune the per-category model chains", stdout)
+            self.assertIn("omh model-chains interview", stdout)
+            self.assertLess(
+                stdout.index("Recommended: tune the per-category model chains"),
+                stdout.index("OMH TUI:"),
+            )
             self.assertIn("For machine-readable output, rerun with `--json`.", stdout)
             self.assertNotIn("skills.external_dirs", stdout)
             self.assertNotIn("Plugin bridge", stdout)
