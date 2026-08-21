@@ -36,6 +36,7 @@ from omh.goal_loop import (
     run_loop_once_result,
     tick_loop_runtime,
     update_loop_permission,
+    validate_loop_constraint_assessment,
     validate_loop_cycle,
 )
 from omh.paths import resolve_paths
@@ -341,6 +342,43 @@ class GoalLoopTests(unittest.TestCase):
         self.assertIn("prepared runtime queue", card["safe_copy"]["next_step"])
         self.assertEqual(card["failure_mode_summary"]["warnings"][0]["id"], "verification_gap")
         self.assertEqual(validate_loop_cycle(updated), {"ok": True, "errors": []})
+
+    def test_status_card_carries_a_constraint_assessment(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            cycle = create_loop_cycle(
+                paths,
+                goal_summary="Keep the constraint assessment additive on the status card",
+                goal_reframe="Prepare bounded loop slices with strict evidence boundaries.",
+                success_criteria=["Status card carries the assessment"],
+                permission_profile="handoff_only",
+            )
+            card = build_loop_status_card(paths, cycle["loop_id"])
+
+        assessment = card["constraint_assessment"]
+        self.assertEqual(assessment["schema_version"], "loop_constraint_assessment/v1")
+        self.assertEqual(assessment["loop_id"], card["loop_id"])
+        self.assertEqual(validate_loop_constraint_assessment(assessment), [])
+
+    def test_prepared_queue_item_makes_observation_backlog_binding_end_to_end(self) -> None:
+        with TemporaryDirectory() as tmp:
+            paths = resolve_paths(Path(tmp) / ".omh", Path(tmp) / ".hermes")
+            cycle = create_loop_cycle(
+                paths,
+                goal_summary="Convert prepared queue work into observed evidence",
+                goal_reframe="Prepare repeated research and feedback slices with strict evidence boundaries.",
+                success_criteria=["Runtime tick queue exists"],
+                permission_profile="handoff_only",
+            )
+            tick_loop_runtime(paths, cycle["loop_id"], trigger="scheduled")
+            card = build_loop_status_card(paths, cycle["loop_id"])
+
+        assessment = card["constraint_assessment"]
+        binding = assessment["binding_constraint"]
+        self.assertEqual(binding["constraint_class"], "observation_backlog")
+        self.assertEqual(binding["rank"], 1)
+        self.assertEqual(binding["evidence_source"], "runtime_summary.pending_queue_count")
+        self.assertEqual(validate_loop_constraint_assessment(assessment), [])
 
     def test_loop_run_once_prepares_one_queue_item_without_execution(self) -> None:
         with TemporaryDirectory() as tmp:

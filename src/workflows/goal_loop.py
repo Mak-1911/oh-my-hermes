@@ -5,7 +5,7 @@ import re
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Final, Iterable
 
 from ..codex_progress import summarize_codex_jsonl_text
 from ..goal_ledger import build_goal_completion_gate, read_goal_ledger
@@ -34,6 +34,7 @@ LOOP_RUN_ONCE_RESULT_SCHEMA = "loop_run_once_result/v1"
 EXECUTOR_LOOP_CAPABILITY_SCHEMA = "executor_loop_capability/v1"
 LOOP_CYCLE_NARRATION_SCHEMA = "loop_cycle_narration/v1"
 LOOP_INVOCATION_SCHEMA = "loop_invocation/v1"
+LOOP_CONSTRAINT_ASSESSMENT_SCHEMA = "loop_constraint_assessment/v1"
 
 _INNER_TIER_EXPECTED_SIGNAL = (
     "Cheap focused evidence such as syntax, compile, schema validation, command smoke, "
@@ -89,6 +90,237 @@ LOOP_QUEUE_STATUSES = (
     "blocked",
     "observed",
 )
+# Constraint classes for the loop_constraint_assessment/v1 block. The tuple
+# order IS the rank: assess_loop_constraint walks it in order, there is no
+# sort step and no priority integer, so re-ranking is a tuple reorder.
+# Per-rank rationale:
+# - Rank 1, capacity_exhausted: the only class where no loop action succeeds.
+#   Context or budget exhaustion ends the current turn; anything below it is
+#   unreachable until a checkpoint exists.
+# - Rank 2, permission_envelope: the second hard stop. The loop can still
+#   think, but every mutating action is refused. Below capacity because a
+#   checkpoint is possible under a closed envelope; a permission request is
+#   not possible in an exhausted context.
+# - Rank 3, goal_status_gap: a hard stop on conversion, not on activity.
+#   Under blocked, failed, or cancelled the loop can still produce work, but
+#   none of it becomes goal progress; a cancelled goal is terminal enough
+#   that the completion gate itself overrides next_action to show_status.
+#   Placed below the two loop-level hard stops and above every queue rank,
+#   because filling a queue against a dead goal is the most expensive form
+#   of the mistake this assessment exists to prevent.
+# - Rank 4, blocked_queue_item: first of the two backlog ranks, deliberately
+#   above observation_backlog. A blocked item has already stopped moving and
+#   cannot be converted by any amount of the capacity the loop currently
+#   holds; an unobserved item can. Naming the observable pile while blocked
+#   items sit unaddressed works the wrong end of the queue and lets the
+#   block quietly accumulate more work behind it.
+# - Rank 5, observation_backlog: the largest pile of prepared_not_observed
+#   work - the one thing the loop can convert into observed evidence with
+#   capacity it already holds. This is the rank the assessment exists to
+#   surface, and it stays above external_wait because prepared work is the
+#   loop's own to finish.
+# - Rank 6, external_wait: waiting is real, but it is not a reason to leave
+#   prepared work unobserved. This is the deliberate divergence from
+#   _next_action's ordering, which tests waiting_external_observation FIRST;
+#   the assessment tests capacity, permission, and the queue ranks first, so
+#   a card can record next_action == "record_external_wait" while the
+#   assessment names observation_backlog as binding. Both are right; see
+#   LOOP_CONSTRAINT_NEXT_ACTION_RELATIONSHIP.
+# - Rank 7, verification_gap: the safety consequence of rank 5 rather than
+#   an independent handle. _verification_gap_mode warns whenever a
+#   prepared_not_observed item exists - the same predicate as
+#   pending_queue_count > 0 - so ranks 5 and 7 co-fire by construction and
+#   are emitted, not deduped: rank 5 names the actionable handle, rank 7
+#   names the safety consequence.
+# - Ranks 8-10, the ledger ranks: unsatisfied_required_criterion, then
+#   active_blocker, then unsatisfied_runtime_check. All three describe what
+#   the goal still needs, and none of them stops the loop from working; they
+#   stop it from claiming completion. Ordered among themselves by how
+#   directly the loop can act: a criterion is worked, a blocker is
+#   escalated, a runtime check waits on someone else's recorded run.
+# - Ranks 11-12, the soft safety signals: comprehension_debt and
+#   human_judgment. Warnings about how the loop is working, not about what
+#   is gating it. They sit last among firing classes precisely because a
+#   loop can make real progress while carrying them, and promoting them
+#   would let a style warning outrank a dead goal.
+# - Rank 13, goal_link_missing: last, and structurally exclusive - when it
+#   fires, ranks 3 and 8-10 cannot fire at all, because the unlinked
+#   fallback block carries none of their keys. It is a setup gap, not a
+#   work gap.
+LOOP_CONSTRAINT_CLASSES: Final[tuple[str, ...]] = (
+    "capacity_exhausted",
+    "permission_envelope",
+    "goal_status_gap",
+    "blocked_queue_item",
+    "observation_backlog",
+    "external_wait",
+    "verification_gap",
+    "unsatisfied_required_criterion",
+    "active_blocker",
+    "unsatisfied_runtime_check",
+    "comprehension_debt",
+    "human_judgment",
+    "goal_link_missing",
+)
+LOOP_CONSTRAINT_NEXT_ACTION_RELATIONSHIP: Final[str] = (
+    "The constraint assessment explains why the loop is gated; the card's own next_action stays the "
+    "recorded directive. When the two differ, the binding constraint names what to fix and next_action "
+    "names the recorded step."
+)
+LOOP_CONSTRAINT_ASSESSMENT_CLAIM_BOUNDARY: Final[str] = (
+    "A constraint assessment is prepared analysis derived from recorded loop state. It is not observed "
+    "evidence, it selects no route and dispatches nothing, and it is not execution, review, CI, merge, "
+    "or goal completion evidence."
+)
+LOOP_CONSTRAINT_REPEAT_NOTE: Final[str] = (
+    "Re-identify the constraint at the next iteration boundary; resolving one constraint surfaces the next."
+)
+# Derived, never hand-written: a hand-written all-clear sentence can drift
+# from the tuple and assert a check that never ran. Deriving it means adding
+# a class automatically widens the claim.
+_NO_BINDING_CONSTRAINT_REASON: Final[str] = (
+    "No recorded loop state matches any constraint class: "
+    + ", ".join(f"`{name}`" for name in LOOP_CONSTRAINT_CLASSES)
+    + "."
+)
+# Authored guidance per constraint class. A class with no entry is a KeyError
+# at import-adjacent test time, not a silent blank, so the closed tuple and
+# the guidance cannot drift apart.
+_LOOP_CONSTRAINT_GUIDANCE: Final[dict[str, dict[str, str]]] = {
+    "capacity_exhausted": {
+        "exploit": (
+            "Record a checkpoint capturing what is already prepared, so the next context resumes from "
+            "recorded state instead of re-deriving it."
+        ),
+        "subordinate": "Stop queueing new work and stop widening scope until that checkpoint exists.",
+        "elevate": (
+            "Ask the operator for a fresh context or a larger budget only after the checkpoint is recorded; "
+            "it costs a restart, so it is the last step, not the first."
+        ),
+    },
+    "permission_envelope": {
+        "exploit": (
+            "Finish everything the current envelope already allows, so the approval request arrives with "
+            "the prepared work behind it."
+        ),
+        "subordinate": "Stop preparing work whose only remaining step is a blocked action.",
+        "elevate": (
+            "Ask the operator to widen the permission profile, naming each blocked action and why it is needed."
+        ),
+    },
+    "goal_status_gap": {
+        "exploit": (
+            "Record the evidence the loop has already observed against the goal, so none of it is lost "
+            "when the status changes."
+        ),
+        "subordinate": "Stop opening new loop work against this goal while its status is not active.",
+        "elevate": (
+            "Ask the operator to reopen, re-scope, or replace the goal; a cancelled goal refuses mutation, "
+            "so no loop-side action clears this."
+        ),
+    },
+    "blocked_queue_item": {
+        "exploit": (
+            "Record what each blocked item is waiting on, on the item itself, so the block is addressable "
+            "instead of implicit."
+        ),
+        "subordinate": "Stop adding queue items that would land behind the same block.",
+        "elevate": (
+            "Escalate the block to whoever owns it - a permission, an external party, or a prerequisite "
+            "goal - naming the item ids."
+        ),
+    },
+    "observation_backlog": {
+        "exploit": (
+            "Observe the oldest prepared item and record its evidence before preparing anything else; "
+            "this converts work the loop has already paid for."
+        ),
+        "subordinate": "Stop preparing new queue items until the prepared pile shrinks.",
+        "elevate": (
+            "Add observation capacity - a second reviewer, a longer session - only after the existing "
+            "prepared items have been worked down."
+        ),
+    },
+    "external_wait": {
+        "exploit": (
+            "Record exactly which observation is awaited and from whom, so the wait is auditable instead "
+            "of open-ended."
+        ),
+        "subordinate": (
+            "Stop treating the wait as work, and never narrate the awaited result as though it had arrived."
+        ),
+        "elevate": (
+            "Ask the operator to chase the external party, or to re-scope the loop goal so it no longer "
+            "depends on this observation."
+        ),
+    },
+    "verification_gap": {
+        "exploit": "Run the cheapest inner-tier check that would close this gap and record its output.",
+        "subordinate": "Stop reporting progress that rests on prepared-but-unverified work.",
+        "elevate": (
+            "Add an outer-tier check or a verifier lane only when the inner-tier checks cannot reach the gap."
+        ),
+    },
+    "unsatisfied_required_criterion": {
+        "exploit": (
+            "Do the smallest piece of work that produces evidence for this one criterion, and attach the "
+            "evidence reference to it."
+        ),
+        "subordinate": (
+            "Stop working criteria that are already satisfied, and stop claiming completion while this "
+            "one is open."
+        ),
+        "elevate": (
+            "Ask the operator to re-scope or drop the criterion, only when the evidence genuinely cannot "
+            "be produced."
+        ),
+    },
+    "active_blocker": {
+        "exploit": (
+            "Record what would clear this blocker and who can clear it, so it stops being a static ledger entry."
+        ),
+        "subordinate": "Stop opening work that depends on this blocker clearing.",
+        "elevate": (
+            "Escalate to the blocker's owner, or record an explicit decision to accept it and re-scope the goal."
+        ),
+    },
+    "unsatisfied_runtime_check": {
+        "exploit": (
+            "Record the runtime evidence the check is missing for the named run, from observed output "
+            "rather than a prepared handoff."
+        ),
+        "subordinate": "Stop treating the linked run as complete while its check is unsatisfied.",
+        "elevate": "Re-run or replace the linked runtime run, only when its evidence cannot be recovered.",
+    },
+    "comprehension_debt": {
+        "exploit": (
+            "Read the recorded state the loop is acting on until the next action is explainable without guessing."
+        ),
+        "subordinate": "Stop dispatching work whose purpose cannot be stated from recorded state.",
+        "elevate": (
+            "Ask for a walkthrough from whoever holds the context, naming what specifically is not understood."
+        ),
+    },
+    "human_judgment": {
+        "exploit": (
+            "State the decision the loop is about to make and the alternative it is discarding, and record both."
+        ),
+        "subordinate": "Stop letting the loop's own momentum stand in for a decision.",
+        "elevate": "Hand the decision to the operator with the options and their costs named.",
+    },
+    "goal_link_missing": {
+        "exploit": (
+            "Work only what the loop's own recorded state can justify while no goal ledger is linked."
+        ),
+        "subordinate": (
+            "Stop making completion claims; with no linked ledger there is no completion gate to satisfy."
+        ),
+        "elevate": (
+            "Link or create a `goal_ledger/v1` goal so acceptance criteria, blockers, and runtime checks "
+            "become recorded state."
+        ),
+    },
+}
 LOOP_PIPELINE_STEPS = (
     "task_discovery",
     "distribution",
@@ -1378,6 +1610,7 @@ def build_loop_status_card(paths: OmhPaths, loop_id: str) -> dict[str, Any]:
         "completion_claim_allowed": _completion_claim_allowed(linked_gate),
         "claim_boundary": _claim_boundary(),
     }
+    card["constraint_assessment"] = assess_loop_constraint(card)
     return card
 
 
@@ -2463,6 +2696,199 @@ def _failure_mode(mode_id: str, state: str, detail: str, next_action: str) -> di
         "detail": detail,
         "next_action": next_action,
     }
+
+
+def assess_loop_constraint(card: dict[str, Any]) -> dict[str, Any]:
+    """Rank the constraints gating this loop from an already-built loop_status_card/v1 payload.
+
+    Precondition: `card` is a fully-built `loop_status_card/v1` as returned by
+    `build_loop_status_card`. Every top-level key this function reads is written
+    unconditionally by that builder, so a missing top-level key is a programming
+    error, not an input case, and is not defended against. Nested reads inside
+    `runtime_summary`, `failure_mode_summary`, and `linked_goal_completion` use
+    `.get()` with typed defaults, because those blocks legitimately vary: the
+    linked block degrades to `{"observed": False, "reason": ...}` when no goal
+    ledger is linked, and synthetic test cards build partial nested dicts.
+    """
+    runtime = card.get("runtime_summary", {})
+    failure = card.get("failure_mode_summary", {})
+    linked = card.get("linked_goal_completion", {})
+    warnings = [warning for warning in failure.get("warnings", []) if isinstance(warning, dict)]
+    candidates: list[dict[str, Any]] = []
+    for constraint_class in LOOP_CONSTRAINT_CLASSES:
+        found = _constraint_candidate(constraint_class, card, runtime, warnings, linked)
+        if found is None:
+            continue
+        summary, evidence_source = found
+        guidance = _LOOP_CONSTRAINT_GUIDANCE[constraint_class]
+        candidates.append(
+            {
+                "rank": len(candidates) + 1,
+                "constraint_class": constraint_class,
+                "summary": summary,
+                "evidence_source": evidence_source,
+                "exploit": guidance["exploit"],
+                "subordinate": guidance["subordinate"],
+                "elevate": guidance["elevate"],
+            }
+        )
+    binding = candidates[0] if candidates else None
+    return {
+        "schema_version": LOOP_CONSTRAINT_ASSESSMENT_SCHEMA,
+        "loop_id": card["loop_id"],
+        "binding_constraint": binding,
+        "candidates": candidates,
+        "no_binding_constraint_reason": "" if binding is not None else _NO_BINDING_CONSTRAINT_REASON,
+        "next_action_relationship": LOOP_CONSTRAINT_NEXT_ACTION_RELATIONSHIP,
+        "repeat_note": LOOP_CONSTRAINT_REPEAT_NOTE,
+        "claim_boundary": LOOP_CONSTRAINT_ASSESSMENT_CLAIM_BOUNDARY,
+    }
+
+
+def _constraint_candidate(
+    constraint_class: str,
+    card: dict[str, Any],
+    runtime: dict[str, Any],
+    warnings: list[dict[str, Any]],
+    linked: dict[str, Any],
+) -> tuple[str, str] | None:
+    """Return (summary, evidence_source) when the class fires, or None.
+
+    Where the source carries recorded text - a failure-mode warning, a
+    completion-gate entry, the unlinked fallback - the summary quotes it
+    unchanged. Where the source is a bare enum or count, the summary is an
+    authored per-class template interpolating only the recorded value. A list
+    source contributes its FIRST entry only, with the total stated so nothing
+    is hidden.
+    """
+    if constraint_class == "capacity_exhausted":
+        wait_reason = card["wait_reason"]
+        if wait_reason not in {"context_exhausted", "budget_exhausted"}:
+            return None
+        return (
+            f"The loop recorded `wait_reason` `{wait_reason}`: no further work fits in the current context or budget.",
+            "wait_reason",
+        )
+    if constraint_class == "permission_envelope":
+        if card["wait_reason"] != "permission_required":
+            return None
+        blocked_actions = card["blocked_actions"]
+        return (
+            f"The loop recorded `wait_reason` `permission_required`; {len(blocked_actions)} action(s) "
+            "are listed in `blocked_actions`.",
+            "blocked_actions",
+        )
+    if constraint_class == "goal_status_gap":
+        goal_status = str(linked.get("goal_status", ""))
+        if goal_status not in {"blocked", "failed", "cancelled"}:
+            return None
+        return (
+            f"The linked goal ledger records status `{goal_status}`, so recorded loop work cannot become goal progress.",
+            "linked_goal_completion.goal_status",
+        )
+    if constraint_class == "blocked_queue_item":
+        blocked_count = int(runtime.get("blocked_queue_count", 0) or 0)
+        if blocked_count <= 0:
+            return None
+        return (
+            f"{blocked_count} queue item(s) are recorded blocked and cannot be observed until the block clears.",
+            "runtime_summary.blocked_queue_count",
+        )
+    if constraint_class == "observation_backlog":
+        pending_count = int(runtime.get("pending_queue_count", 0) or 0)
+        if pending_count <= 0:
+            return None
+        unobserved_count = int(runtime.get("unobserved_queue_count", 0) or 0)
+        return (
+            f"{pending_count} queue item(s) are `prepared_not_observed`; {unobserved_count} item(s) "
+            "in total are still unobserved.",
+            "runtime_summary.pending_queue_count",
+        )
+    if constraint_class == "external_wait":
+        if card["wait_reason"] != "waiting_external_observation":
+            return None
+        return (
+            "The loop recorded `wait_reason` `waiting_external_observation`; progress depends on an "
+            "observation from outside the loop.",
+            "wait_reason",
+        )
+    if constraint_class in {"verification_gap", "comprehension_debt", "human_judgment"}:
+        warning_id = "cognitive_surrender" if constraint_class == "human_judgment" else constraint_class
+        for warning in warnings:
+            if warning.get("id") == warning_id:
+                return str(warning.get("detail", "")), "failure_mode_summary.warnings"
+        return None
+    if constraint_class == "unsatisfied_required_criterion":
+        missing = [entry for entry in linked.get("missing_required_criteria", []) if isinstance(entry, dict)]
+        if not missing:
+            return None
+        first = missing[0]
+        return (
+            f"`{first.get('id', '')}`: {first.get('summary', '')} (first of {len(missing)} missing required criteria)",
+            "linked_goal_completion.missing_required_criteria",
+        )
+    if constraint_class == "active_blocker":
+        blockers = [entry for entry in linked.get("active_blockers", []) if isinstance(entry, dict)]
+        if not blockers:
+            return None
+        first = blockers[0]
+        return (
+            f"`{first.get('id', '')}`: {first.get('summary', '')} (first of {len(blockers)} active blockers)",
+            "linked_goal_completion.active_blockers",
+        )
+    if constraint_class == "unsatisfied_runtime_check":
+        unsatisfied = [
+            entry
+            for entry in linked.get("linked_runtime_checks", [])
+            if isinstance(entry, dict) and entry.get("satisfied") is False
+        ]
+        if not unsatisfied:
+            return None
+        first = unsatisfied[0]
+        return (
+            f"`{first.get('run_id', '')}`: {first.get('summary', '')} (first of {len(unsatisfied)} unsatisfied runtime checks)",
+            "linked_goal_completion.linked_runtime_checks",
+        )
+    if constraint_class == "goal_link_missing":
+        if "missing_required_criteria" in linked:
+            return None
+        return str(linked.get("reason", "")), "linked_goal_completion.reason"
+    return None
+
+
+def validate_loop_constraint_assessment(value: object) -> list[str]:
+    """Field-error list, same contract as validate_loopability_assessment."""
+    errors: list[str] = []
+    if not isinstance(value, dict):
+        return ["constraint_assessment must be an object"]
+    if value.get("schema_version") != LOOP_CONSTRAINT_ASSESSMENT_SCHEMA:
+        errors.append(f"constraint_assessment.schema_version must be {LOOP_CONSTRAINT_ASSESSMENT_SCHEMA}")
+    candidates = value.get("candidates")
+    if not isinstance(candidates, list) or not all(isinstance(candidate, dict) for candidate in candidates):
+        errors.append("constraint_assessment.candidates must be an object list")
+        candidates = []
+    for index, candidate in enumerate(candidates, start=1):
+        if candidate.get("constraint_class") not in LOOP_CONSTRAINT_CLASSES:
+            errors.append(f"constraint_assessment.candidates[{index}].constraint_class is unsupported")
+        if candidate.get("rank") != index:
+            errors.append(f"constraint_assessment.candidates[{index}].rank must be {index}")
+    binding = value.get("binding_constraint")
+    if candidates:
+        if binding != candidates[0]:
+            errors.append("constraint_assessment.binding_constraint must be the first ranked candidate")
+    elif binding is not None:
+        errors.append("constraint_assessment.binding_constraint must be null when no candidate fired")
+    reason = value.get("no_binding_constraint_reason")
+    if not isinstance(reason, str):
+        errors.append("constraint_assessment.no_binding_constraint_reason must be a string")
+    elif binding is None and not reason.strip():
+        errors.append("constraint_assessment.no_binding_constraint_reason must be non-empty when nothing binds")
+    elif binding is not None and reason:
+        errors.append("constraint_assessment.no_binding_constraint_reason must be empty when a constraint binds")
+    for key in ("claim_boundary", "repeat_note", "next_action_relationship"):
+        if not isinstance(value.get(key), str) or not str(value.get(key, "")).strip():
+            errors.append(f"constraint_assessment.{key} must be a non-empty string")
+    return errors
 
 
 def _small_loop_guidance() -> dict[str, Any]:

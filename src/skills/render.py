@@ -1835,6 +1835,118 @@ def structural_search_skill(name: str) -> SkillTemplate:
     return SkillTemplate(template.name, template.content.replace(marker, _STRUCTURAL_SEARCH_SECTION + marker, 1))
 
 
+# Constraint-first decision rule spliced into the loop skill body. Only the
+# decision rule lives here; the translation table, anti-patterns, and
+# attribution live in the on-demand reference. The precedence sentence is the
+# same LOOP_CONSTRAINT_NEXT_ACTION_RELATIONSHIP constant the payload ships.
+# Built lazily: workflows.goal_loop transitively imports skills.catalog (via
+# goal_ledger -> runtime.artifacts -> coding), so a module-level import of its
+# constants here would be circular.
+def _constraint_discipline_section() -> str:
+    from ..workflows.goal_loop import LOOP_CONSTRAINT_NEXT_ACTION_RELATIONSHIP
+
+    return (
+        "## Constraint Discipline\n"
+        "\n"
+        "Before choosing the next action, name the one element gating this loop's goal progress - the "
+        "binding constraint - then work it in order:\n"
+        "\n"
+        "- **Identify** - read the binding constraint from recorded state: `wait_reason`, blocked and "
+        "`prepared_not_observed` queue counts, failure-mode warnings, and the linked goal completion gate.\n"
+        "- **Exploit** - convert work the loop has already paid for: observe the prepared item or satisfy "
+        "the one open criterion before preparing anything new.\n"
+        "- **Subordinate** - pace every other lane to the constraint; an idle non-constraint lane is "
+        "healthy, a growing prepared pile is cost.\n"
+        "- **Elevate** - only after exploit and subordinate still leave it binding, escalate: more budget, "
+        "a wider permission envelope, another executor - named as a costed last resort.\n"
+        "- **Repeat** - re-identify at the next iteration boundary; resolving one constraint surfaces the next.\n"
+        "\n"
+        "The `loop_constraint_assessment/v1` block on the `loop_status_card/v1` answers **Identify** "
+        "deterministically from recorded state. "
+        f"{LOOP_CONSTRAINT_NEXT_ACTION_RELATIONSHIP}\n"
+        "\n"
+        "Load `references/goal-constraint-discipline.md` for the full method: the translation table, the "
+        "five focusing steps, and the anti-patterns.\n"
+        "\n"
+    )
+
+
+def loop_skill() -> SkillTemplate:
+    """Splice the constraint-discipline section into the loop catalog body."""
+    template = workflow_skill("loop")
+    marker = "## Runtime Evidence\n"
+    if marker not in template.content:
+        raise ValueError("loop skill constraint-discipline marker is missing")
+    return SkillTemplate(template.name, template.content.replace(marker, _constraint_discipline_section() + marker, 1))
+
+
+def loop_reference_templates() -> list[SkillReferenceTemplate]:
+    return list(_loop_reference_templates_cached())
+
+
+@lru_cache(maxsize=1)
+def _loop_reference_templates_cached() -> tuple[SkillReferenceTemplate, ...]:
+    return (
+        SkillReferenceTemplate("loop", "references/goal-constraint-discipline.md", _goal_constraint_discipline_reference()),
+    )
+
+
+def _goal_constraint_discipline_reference() -> str:
+    # Local import for the same circularity reason as _constraint_discipline_section.
+    from ..workflows.goal_loop import LOOP_CONSTRAINT_CLASSES, LOOP_CONSTRAINT_NEXT_ACTION_RELATIONSHIP
+
+    class_lines = "\n".join(f"- `{name}`" for name in LOOP_CONSTRAINT_CLASSES)
+    return f"""# Goal Constraint Discipline
+
+Load this reference when a loop or durable-checkpoint goal needs constraint-first prioritization: deciding where the next unit of attention goes before deciding how to spend it.
+
+## Why Constraint-First
+
+At any moment, exactly one element gates how fast recorded work becomes observed goal progress. Effort spent anywhere else produces prepared artifacts, not progress. Naming that one element before acting is what keeps a goal-driven loop from optimizing a lane that was never the problem.
+
+## Translation Table
+
+Each concept on the left maps onto OMH state that already exists; nothing here invents new state.
+
+| concept | OMH goal-engineering equivalent |
+| --- | --- |
+| the goal | observed, evidence-backed completion of goal-ledger criteria - never prepared artifact count, busy-ness, or judge narration |
+| throughput | the rate at which required criteria become satisfied with evidence refs: observed completions per iteration |
+| inventory | everything `prepared_not_observed`: pending queue items, unpasted handoffs, unreviewed plans - work that has consumed effort but produced no observed value |
+| operating expense | turns, tokens, context budget, and executor dispatches spent converting prepared work into observed evidence |
+| constraint | the single element currently gating goal progress: an unsatisfied required criterion, a blocked queue item, a closed permission envelope, an external wait, a `verification_gap` warning, or exhausted context or budget |
+| drum-buffer-rope | the constraint sets the pace (drum), one prepared handoff ahead keeps it fed (buffer - small and deliberate, never a pile), and the `pending_queue_exists` refusal ties new work to constraint consumption (rope - a pacing device, not bureaucracy) |
+
+## The Five Focusing Steps
+
+1. **Identify** - name the single constraint gating the goal now, from recorded state: the completion gate's missing required criteria, blocked and pending queue counts, `wait_reason`, failure-mode warnings, and the permission envelope. The constraint is where `prepared_not_observed` work piles up.
+2. **Exploit** - get everything out of the constraint before spending anything new: observe the pending item before preparing another, and aim the next iteration's full attention at the one unsatisfied criterion.
+3. **Subordinate** - pace every non-constraint lane to the constraint. Non-constraint lanes do not need full utilization: idle-and-ready beats producing inventory. Never fan out more research, plans, or handoffs than the observation bottleneck can absorb.
+4. **Elevate** - only after exploit and subordinate still leave the constraint binding, add capacity: raise the turn ceiling, widen the permission envelope, add an executor, request budget. Elevation is an explicit, costed escalation; most constraints resolve at step 3 and never justify it.
+5. **Repeat** - after any constraint resolves, a new one exists by definition. Re-identify at every iteration boundary; never keep optimizing yesterday's constraint.
+
+## Anti-Patterns
+
+- **Robot-line fallacy** - celebrating a lane's output (plans drafted, handoffs prepared) while observed completions stay flat.
+- **Inventory blindness** - treating `prepared_not_observed` growth as progress. It is cost.
+- **Balanced-line fallacy** - trying to keep every lane equally busy. Constraint-first discipline deliberately runs non-constraint lanes below capacity.
+- **Premature elevation** - asking for more turns, agents, or budget while the current constraint is under-exploited (step 4 before steps 2-3).
+- **Constraint inertia** - still optimizing a constraint that already resolved (step 5 skipped).
+
+## What The Deterministic Assessment Does And Does Not Say
+
+The `loop_constraint_assessment/v1` block on every `loop_status_card/v1` answers **Identify** from recorded state. It walks a closed class tuple in rank order and emits at most one candidate per class:
+
+{class_lines}
+
+When nothing fires, it says so with a derived reason naming every class it checked. The assessment is prepared analysis: it selects no route, dispatches nothing, and is never execution, review, CI, merge, or goal completion evidence. {LOOP_CONSTRAINT_NEXT_ACTION_RELATIONSHIP}
+
+## Attribution
+
+The constraint-first prioritization above adapts Eliyahu M. Goldratt's Theory of Constraints as presented in *The Goal* (1984). No upstream text is reproduced. OMH maps the mechanisms onto its own goal ledger, queue, permission envelope, and evidence vocabulary, and keeps prepared analysis separate from observed evidence.
+"""
+
+
 def context_skill() -> SkillTemplate:
     """Render the canonical project-terminology workflow with progressive references."""
     template = workflow_skill("context")
