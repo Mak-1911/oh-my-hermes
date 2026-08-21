@@ -3340,9 +3340,11 @@ class RouterContentTests(unittest.TestCase):
             # (h2 + badge + 12-row table, ~27 lines) landed in every language,
             # and from 290 when the terminal screenshots table and the
             # English-named feature callouts (owner-directed localized
-            # parity) landed in every language; it still sits below
-            # README.md's length.
-            self.assertLess(len(localized_readme.splitlines()), 320)
+            # parity) landed in every language, and from 320 when the
+            # model-chains file example (cat of the seeded file plus an
+            # edited-category block, ~26 lines, owner-directed) landed in
+            # every language; it still sits below README.md's length.
+            self.assertLess(len(localized_readme.splitlines()), 340)
             # The trust surface is the evidence table, not the wire token that
             # used to stand in for it. Pinning the token meant a README could
             # satisfy this by naming a value no reader could decode; pinning
