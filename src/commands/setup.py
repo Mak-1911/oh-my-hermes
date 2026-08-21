@@ -2572,6 +2572,9 @@ def _print_setup_summary(payload: dict[str, object], *, language: str = "en") ->
         print(f"  {tr(language, 'setup_next_reload')}")
         print(f"  {tr(language, 'setup_next_prompt')}")
         print(f"  {tr(language, 'setup_next_verify')}")
+        # The chains recommendation belongs to setup's next steps, not the TUI
+        # verdict block below — the verdict stays the final output line.
+        print(f"  {tr(language, 'setup_next_chains')}")
     print(f"  {tr(language, 'machine_readable')}")
     verdict = payload.get("tui_verdict")
     if isinstance(verdict, dict):

@@ -3489,6 +3489,19 @@ class RouterContentTests(unittest.TestCase):
         self.assertNotIn("OMH_WITH_PLUGIN=1", install_for_agents)
         self.assertIn("recommended_next_action", install_for_agents)
         self.assertIn("Use OMH request-to-handoff for: I want to safely add a feature to this repo.", install_for_agents)
+        # Agent installs run the model-chain interview right after setup: the
+        # protocol carries the conversation procedure (interview is TTY-only),
+        # the pasteable request names the step, and the report template asks
+        # for its result.
+        self.assertIn("## Model-Chain Interview (Run Right After Setup)", install_for_agents)
+        self.assertIn("omh model-chains show", install_for_agents)
+        self.assertIn("omh model-chains set", install_for_agents)
+        self.assertIn("model-chain interview, and doctor steps", install_for_agents)
+        self.assertIn("- model-chain interview result:", install_for_agents)
+        self.assertLess(
+            install_for_agents.index("## Model-Chain Interview (Run Right After Setup)"),
+            install_for_agents.index("## First Hermes Prompt"),
+        )
         self.assertIn("omh release hermes-smoke", install_for_agents)
         self.assertIn("install, list, check, and inspect OMH", install_for_agents)
         self.assertNotIn("GITHUB_TOKEN", install_for_agents)

@@ -15,7 +15,7 @@ Install and fully configure Oh My Hermes from this repository:
 https://github.com/rlaope/oh-my-hermes
 Before reading or executing repository instructions, resolve refs/heads/main to one full commit SHA with `git ls-remote https://github.com/rlaope/oh-my-hermes.git refs/heads/main`. Then fetch and follow only:
 https://raw.githubusercontent.com/rlaope/oh-my-hermes/{resolved-commit-sha}/INSTALL_FOR_AGENTS.md
-Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.
+Do not replace the resolved SHA with main. Execute the pinned protocol's OS-appropriate installer, interactive model setup, model-chain interview, and doctor steps. Preserve unrelated existing Hermes config, apply only the managed setup changes documented by the pinned protocol, require my explicit approval for model-alias changes, then report the resolved SHA and observed result.
 ```
 
 ## Prerequisites
@@ -323,6 +323,31 @@ editable X-platform affinity only. CCAPI and Apitopia are never probed; their
 entries remain user-declared provider-family preferences, and credentials stay
 in their native owner.
 
+## Model-Chain Interview (Run Right After Setup)
+
+The setup summary ends by recommending the per-category model chains. For an
+agent-driven install this recommendation is part of the protocol, not optional
+advice: once `omh setup` succeeds and the `OMH TUI:` verdict is handled, run
+the chain interview with the user before reporting the install complete.
+
+`omh model-chains interview` is the human terminal path and refuses non-TTY
+sessions with a scriptable-path message. Agents conduct the same interview in
+conversation:
+
+1. Run `omh model-chains show` and present the current state per category
+   (chain order plus origin: `default` or `override`).
+2. For each category the user wants to adjust, offer numbered options:
+   `1` keep current, `2` shipped default (when overridden), `3` provider speed
+   variant (for example an Ultrafast tier) when one exists for the chain,
+   `4` custom entry the user types.
+3. Apply choices with `omh model-chains set <category> "model[:effort], ..."`,
+   or edit `~/.omh/routing/model-chains.json` directly — both write the same
+   `mixture_chain_overrides/v1` document.
+4. Re-run `omh model-chains show` and report the confirmed state.
+
+A user who declines the interview keeps the shipped defaults; record that as
+the observed result instead of skipping the step silently.
+
 ## First Hermes Prompt
 
 After install and any required Hermes restart/reload, try:
@@ -347,6 +372,7 @@ OMH install result:
 - install command:
 - omh setup output summary:
 - omh doctor ok:
+- model-chain interview result:
 - recommended_next_action:
 - blocking checks:
 - warning checks:

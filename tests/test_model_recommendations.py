@@ -110,6 +110,15 @@ class RecommendationCatalogTests(unittest.TestCase):
         for surface, text in surfaces.items():
             with self.subTest(surface=surface):
                 self.assertIn(protocol_url, text)
+        # Every copy of the pasteable request names the model-chain interview
+        # step, so URL-driven agent installs enter the interview after setup
+        # instead of stopping at doctor.
+        for surface, text in surfaces.items():
+            if "Install and fully configure Oh My Hermes" not in text:
+                continue
+            with self.subTest(surface=surface, contract="chain-interview-step"):
+                self.assertIn("model-chain interview", text)
+                self.assertNotIn("interactive model setup, and doctor steps", text)
         self.assertIn('data-i18n="route.state.owner_default"', surfaces["site"])
         translations = Path("site/i18n.js").read_text(encoding="utf-8")
         self.assertIn('"route.state.owner_default"', translations)
