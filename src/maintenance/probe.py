@@ -3,6 +3,7 @@ from ..skills.catalog import omh_skill_install_path
 
 import os
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from ..plugin_observations import (
 )
 from ..plugin_bundle.omh.buzz_diagnostics import probe_buzz
 from ..plugin_pack import inspect_plugin_bundle
+from .structural_search import inspect_structural_search
 from ..runtime.artifacts import read_state_result
 from ..targets import summarize_target_registry
 from ..team_readiness import build_team_worker_readiness
@@ -453,6 +455,28 @@ def _domain_intelligence_store_capability() -> Capability:
     )
 
 
+def _structural_search_capability(*, which: Callable[[str], str | None] | None = None) -> Capability:
+    """Presence-only capability row for ast-grep, cloning the `probe_buzz` pair.
+
+    A `shutil.which` lookup is conclusive within its own claim, so absence is
+    `"missing"` (we looked and it was not there), never `"unknown"`; presence
+    is `"unverified"` because the binary was not executed. The reason code
+    lands in the `evidence` field, matching the Buzz capability row.
+    """
+    structural = inspect_structural_search(which=which)
+    return Capability(
+        "structural_code_search",
+        "unverified" if structural["found"] else "missing",
+        str(structural["reason_code"]),
+        (
+            f"Structural search tool ast-grep resolved at {structural['path']}; presence only, "
+            "the binary was not executed"
+            if structural["found"]
+            else "Structural search tool ast-grep is not on PATH; code exploration continues with grep/ripgrep"
+        ),
+    )
+
+
 def probe_capabilities(paths: OmhPaths, *, include_parity: bool = False, include_roadmap: bool = False) -> dict:
     config_text = read_config(paths.hermes_config_path)
     configured_dirs = external_dirs(config_text)
@@ -472,6 +496,7 @@ def probe_capabilities(paths: OmhPaths, *, include_parity: bool = False, include
             ),
         )
     )
+    capabilities.append(_structural_search_capability())
     managed_skill_path = paths.skills_dir / omh_skill_install_path("oh-my-hermes") / "SKILL.md"
 
     capabilities.append(

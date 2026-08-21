@@ -232,10 +232,11 @@ class RouterContentTests(unittest.TestCase):
         maintenance = references["oh-my-hermes/references/operator-maintenance.md"]
         evidence = references["oh-my-hermes/references/evidence-boundaries.md"]
 
-        # Measured 12,004 bytes after `ultraperf` joined the workflow-engine list
-        # (2026-07); 12,500 keeps ~4% headroom while still forcing the router
-        # skill to stay a compact index rather than a second catalog.
-        self.assertLess(len(router.content.encode("utf-8")), 12_500)
+        # Measured 12,568 bytes after the structural-code-search pointer lines
+        # joined the Progressive Disclosure and Recovery lists (2026-08); 13,000
+        # keeps ~3.3% headroom while still forcing the router skill to stay a
+        # compact index rather than a second catalog.
+        self.assertLess(len(router.content.encode("utf-8")), 13_000)
         self.assertIn("best-effort Hermes prompt guidance", router.content)
         self.assertIn("does not override Hermes core routing", router.content)
         self.assertIn(router_keyword_summary(), router.content)
@@ -312,10 +313,11 @@ class RouterContentTests(unittest.TestCase):
         from omh.wrapper.contract import build_chat_interaction_payload
 
         router = next(skill for skill in builtin_skill_templates() if skill.name == "oh-my-hermes")
-        # Measured 12,004 bytes after `ultraperf` joined the workflow-engine list
-        # (2026-07); 12,500 keeps ~4% headroom while still forcing the router
-        # skill to stay a compact index rather than a second catalog.
-        self.assertLess(len(router.content.encode("utf-8")), 12_500)
+        # Measured 12,568 bytes after the structural-code-search pointer lines
+        # joined the Progressive Disclosure and Recovery lists (2026-08); 13,000
+        # keeps ~3.3% headroom while still forcing the router skill to stay a
+        # compact index rather than a second catalog.
+        self.assertLess(len(router.content.encode("utf-8")), 13_000)
         for template in builtin_skill_reference_templates():
             self.assertLess(len(template.content.encode("utf-8")), 24_500, template.relative_path)
 
@@ -3026,6 +3028,43 @@ class RouterContentTests(unittest.TestCase):
                 self.assertIn("Prepared OMH routing", skill.content)
                 self.assertIn("Completion Checklist", skill.content)
                 self.assertIn("Recovery Notes", skill.content)
+
+    def test_structural_code_search_reference_and_pointers(self) -> None:
+        skills = {skill.name: skill for skill in builtin_skill_templates()}
+        reference = next(
+            template
+            for template in builtin_skill_reference_templates()
+            if template.relative_path == "references/structural-code-search.md"
+        )
+        self.assertEqual(reference.skill_name, "oh-my-hermes")
+        # Progressive-disclosure budget: the playbook must stay a compact,
+        # on-demand load, well under the generic 24,500 per-reference ceiling.
+        self.assertLess(len(reference.content.encode("utf-8")), 6_000)
+        self.assertIn("measured against ast-grep 0.45.1", reference.content)
+        self.assertIn("grep/ripgrep exactly as today", reference.content)
+        self.assertIn("--files-with-matches", reference.content)
+        self.assertIn("$$$BODY", reference.content)
+
+        # Both router pointer lines are always loaded.
+        router = skills["oh-my-hermes"]
+        self.assertIn(
+            "- `references/structural-code-search.md` for ast-grep structural code search patterns and the grep fallback.",
+            router.content,
+        )
+        self.assertIn(
+            "- If the search target is a syntactic shape rather than a string, load `references/structural-code-search.md`.",
+            router.content,
+        )
+
+        # The two code-exploration skills carry the dedicated pointer section;
+        # a named third skill proves the splice is targeted, not universal.
+        for name in ("codebase-onboarding", "codegraph-refresh"):
+            with self.subTest(skill=name):
+                self.assertIn("## Structural Code Search", skills[name].content)
+                self.assertIn("omh-routing/references/structural-code-search.md", skills[name].content)
+        ultragoal = workflow_skill("ultragoal")
+        self.assertNotIn("## Structural Code Search", ultragoal.content)
+        self.assertNotIn("omh-routing/references/structural-code-search.md", ultragoal.content)
 
     def test_installable_skills_expose_completion_and_recovery_guidance(self) -> None:
         for definition in installable_skill_definitions():

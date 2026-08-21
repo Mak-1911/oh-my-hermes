@@ -55,6 +55,15 @@ LOCAL_CAPABILITY_REPORT_ALLOWED_KINDS = (
     "worker_lane",
     "worktree",
 )
+# Executor-neutral structural-search guidance shared verbatim by both prepared
+# prompt lanes (coding_delegation capability blocks and fanout unit prompts) so
+# the two cannot drift. The final clause is required: no handoff field carries
+# a detection result, so the executor must not infer OMH already checked PATH.
+STRUCTURAL_SEARCH_GUIDANCE = (
+    "Structural code search: if a structural search tool such as ast-grep is on PATH, prefer a "
+    "structural query over line-based grep when the target is a syntactic shape rather than a "
+    "string; fall back to grep when it is absent. OMH did not check - verify PATH yourself."
+)
 PROJECT_GOVERNANCE_PROFILE_SCHEMA_VERSION = "project_governance_profile/v1"
 PROJECT_GOVERNANCE_BLOCKED_SCHEMA_VERSION = "project_governance_blocked/v1"
 PRODUCT_FAMILY_TEMPLATE_SCHEMA_VERSION = "product_family_template/v1"
@@ -80,6 +89,7 @@ __all__ = [
     "LOCAL_CAPABILITY_REPORT_REQUIRED_FIELDS",
     "LOCAL_CAPABILITY_REPORT_CAPABILITY_FIELDS",
     "LOCAL_CAPABILITY_REPORT_ALLOWED_KINDS",
+    "STRUCTURAL_SEARCH_GUIDANCE",
     "PROJECT_GOVERNANCE_PROFILE_SCHEMA_VERSION",
     "PROJECT_GOVERNANCE_BLOCKED_SCHEMA_VERSION",
     "PRODUCT_FAMILY_TEMPLATE_SCHEMA_VERSION",

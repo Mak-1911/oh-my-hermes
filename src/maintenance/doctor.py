@@ -1,11 +1,13 @@
 from __future__ import annotations
 from ..skills.catalog import omh_skill_install_path
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from .advisory import AdvisoryReport, run_config_advisories
+from .structural_search import inspect_structural_search
 from ..command_path import inspect_omh_command_path
 from ..config_adapter import (
     external_dirs,
@@ -343,7 +345,35 @@ def run_doctor(paths: OmhPaths) -> list[Check]:
                 ),
             )
         )
+    checks.append(_structural_search_check())
     return checks
+
+
+def _structural_search_check(*, which: Callable[[str], str | None] | None = None) -> Check:
+    """Optional-surface check for the ast-grep structural search tool.
+
+    Absence is the normal case (`team_profile_packs` precedent): both branches
+    stay `ok=True`/`severity="ok"` with an informative message and no
+    remediation, so an installer without ast-grep never sees a warning, a
+    failing doctor, or install advice. The explicit `next_action=""` is
+    load-bearing — recommending a package-manager command would put an
+    install instruction in OMH's mouth.
+    """
+    structural = inspect_structural_search(which=which)
+    return Check(
+        "structural_search_tooling",
+        True,
+        (
+            f"optional structural search tool ast-grep found at {structural['path']}; "
+            "presence only, the binary was not executed"
+            if structural["found"]
+            else "optional structural search tool ast-grep is not on PATH; "
+            "code exploration continues with grep/ripgrep as today"
+        ),
+        severity="ok",
+        next_action="",
+        observed=True,
+    )
 
 
 def _hermes_tui_checks(paths: OmhPaths) -> list[Check]:

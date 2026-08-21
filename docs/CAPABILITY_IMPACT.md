@@ -31,9 +31,15 @@ provider or an unrun comparative benchmark.
 | Route selection | `passing_local_contract` | Fixed precision, common-request coverage, and representative cases all pass as in-repo contracts; representative cases remain implementation smoke checks, not independent outcome evidence. |
 | Guidance depth | `partially_proven` | Skill quality bars and evidence boundaries are inspectable; better task outcomes still need paired evaluation. |
 | Native execution availability | `requires_host_observation` | Tool and hook registration exists, but only host load and invocation records prove availability in a real Hermes session. |
-| Provider execution availability | `requires_provider_observation` | Browser, connector, image, and video providers vary by installation. |
+| Provider execution availability | `requires_provider_observation` | Browser, connector, image, video, and structural-search providers vary by installation. |
 | Artifact verification | `partially_proven` | OMH can request the right served-surface check; the check result must still be observed. |
 | Comparative outcome quality | `requires_external_evaluator` | “Better than another setup” remains unproven until blinded paired tasks are scored externally. |
+
+Structural search is one such optional provider class: `omh doctor` and
+`omh probe` resolve the `ast-grep` binary on PATH without executing it, so
+presence is locally detectable. Whether Hermes or a delegated executor
+actually uses it — and any resulting change in exploration cost — is not
+observable from OMH and stays prepared guidance, not observed benefit.
 
 The deterministic report currently evaluates three route sets:
 

@@ -119,6 +119,8 @@ Before broad code exploration, agents should prefer CodeGraph for a first pass:
 CodeGraph can reduce exploration cost, but it does not replace source reads,
 tests, review, or CI.
 
+The repo's own `omh codegraph` index is stdlib-`ast` and Python-only; for multi-language structural queries the managed `omh-routing/references/structural-code-search.md` reference is the complement.
+
 ## Hermes MCP note
 
 CodeGraph can print a Hermes MCP config snippet:
