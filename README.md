@@ -262,10 +262,10 @@ credential, dispatch, or execution evidence:
 | Category alias | What it is for | Editable recommendation order |
 | --- | --- | --- |
 | `ultrabrain` | Deepest reasoning | GPT-5.6 Sol |
-| `deep` | Strong default tier | GPT-5.6 Terra |
+| `deep` | Strong default tier | GPT-5.6 Terra, then DeepSeek V3.2 |
 | `architect` | Architecture and system design | Claude Fable 5, then GPT-5.6 Sol, then Kimi K3 (xhigh) |
 | `unspecified-high` | Default working model | Kimi K3, then Claude Opus 5 |
-| `unspecified-low` | Cheaper fallback | GLM 5.2, then GLM 5.2 Ultrafast, then Claude Opus 5 (low) |
+| `unspecified-low` | Cheaper fallback | GLM 5.2, then GLM 5.2 Ultrafast, then DeepSeek V3.2, then Claude Opus 5 (low) |
 | `quick` | Short tasks | GLM 5.2 Ultrafast, then Kimi K3, then GPT-5.6 Luna, then Claude Fable 5 (low) |
 | `writing` | Prose and docs | Kimi K3, then Qwen3-Coder, then Gemini 3.1 Pro |
 | `visual-engineering` | Frontend and visual | Claude Fable 5, then Kimi K3 |

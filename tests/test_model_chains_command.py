@@ -88,7 +88,7 @@ class ModelChainsSetTests(unittest.TestCase):
                 _base(root) + ["model-chains", "set", "deep", "--clear"], output_json=False
             )
             self.assertEqual((status, stderr), (0, ""))
-            self.assertIn("deep: gpt-5.6-terra:high (default)", stdout)
+            self.assertIn("deep: gpt-5.6-terra:high, deepseek-v3.2:high (default)", stdout)
             document = json.loads(_chains_path(root).read_text(encoding="utf-8"))
             self.assertNotIn("deep", document["categories"])
 
