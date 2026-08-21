@@ -306,9 +306,9 @@ fallback, and HUD labels alike —
 }
 ```
 
-`omh model-chains show` prints the effective chains, and
-`omh model-chains set quick "kimi-k3-ultrafast:low, glm-5.2-ultrafast:low"`
-writes the same document for you.
+Check the chains currently in effect with `omh model-chains show`. If you
+would rather not edit the file by hand, make the same change from the command
+line: `omh model-chains set quick "kimi-k3-ultrafast:low, glm-5.2-ultrafast:low"`.
 
 Ask Hermes to **set up my models** to review or change them. These are editable
 preferences, not benchmark results. See

@@ -225,7 +225,7 @@ $ cat ~/.omh/routing/model-chains.json
 }
 ```
 
-`omh model-chains show` が現在有効な chain を出力し、`omh model-chains set quick "kimi-k3-ultrafast:low, glm-5.2-ultrafast:low"` が同じドキュメントを代わりに書き込みます。
+現在有効な chain は `omh model-chains show` で確認できます。ファイルを直接編集したくない場合は、`omh model-chains set quick "kimi-k3-ultrafast:low, glm-5.2-ultrafast:low"` のようにコマンドから同じファイルを書き換えられます。
 
 Hermes に **モデルをセットアップして** と頼むと、確認や変更ができます。これは編集可能な優先設定であり、benchmark 結果ではありません。詳しい設定、fallback、provider、所有権のルールは [Guided Model Setup](docs/INSTALLATION.md#guided-model-setup) を参照してください。
 
