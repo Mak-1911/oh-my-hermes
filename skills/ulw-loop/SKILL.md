@@ -95,6 +95,7 @@ Quality bar:
 - Surface verification_gap, comprehension_debt, and cognitive_surrender as warnings before a loop starts looking self-steering.
 - Drive iteration with the upstream `/goal` loop from the prepared loop_goal_driver_handoff/v1, and register OMH's inner-tier checks as `/goal gate add` commands so verification runs before the judge.
 - Treat a judge `done` verdict, a turn-ceiling pause, or a gate-retry pause as narration; completion still requires the linked goal ledger completion gate and observed evidence.
+- Name the one element gating this loop from the `loop_constraint_assessment/v1` block before choosing the next action; if none is binding, say so from the recorded reason rather than assuming.
 
 Handoff policy:
 
@@ -149,6 +150,20 @@ Safety rules:
 - Do not let unattended loop progress bypass verification; missing or failed verification returns to plan/research or waits for evidence.
 - Do not let comprehension debt or cognitive surrender hide behind green-looking loop status.
 - Do not claim a goal is complete because the upstream judge said done, the turn budget ran out, or a gate paused the loop.
+
+## Constraint Discipline
+
+Before choosing the next action, name the one element gating this loop's goal progress - the binding constraint - then work it in order:
+
+- **Identify** - read the binding constraint from recorded state: `wait_reason`, blocked and `prepared_not_observed` queue counts, failure-mode warnings, and the linked goal completion gate.
+- **Exploit** - convert work the loop has already paid for: observe the prepared item or satisfy the one open criterion before preparing anything new.
+- **Subordinate** - pace every other lane to the constraint; an idle non-constraint lane is healthy, a growing prepared pile is cost.
+- **Elevate** - only after exploit and subordinate still leave it binding, escalate: more budget, a wider permission envelope, another executor - named as a costed last resort.
+- **Repeat** - re-identify at the next iteration boundary; resolving one constraint surfaces the next.
+
+The `loop_constraint_assessment/v1` block on the `loop_status_card/v1` answers **Identify** deterministically from recorded state. The constraint assessment explains why the loop is gated; the card's own next_action stays the recorded directive. When the two differ, the binding constraint names what to fix and next_action names the recorded step.
+
+Load `references/goal-constraint-discipline.md` for the full method: the translation table, the five focusing steps, and the anti-patterns.
 
 ## Runtime Evidence
 

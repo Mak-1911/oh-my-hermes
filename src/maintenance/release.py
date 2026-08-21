@@ -161,7 +161,13 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # chars: goal-driver-handoff outputs, gate registration before the judge,
 # judge-done-is-narration, and the gates-discarded-on-reset recovery note);
 # warranted growth.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 707667
+# 707667 -> 709511: the loop skill gained the constraint-discipline section
+# (+1844 chars: five focusing steps in OMH vocabulary, the
+# loop_constraint_assessment/v1 pointer, the next_action precedence sentence,
+# and the reference pointer) plus one constraint-first quality-bar bullet, and
+# ultrawork gained one durable-checkpoint quality-bar bullet pointing at the
+# same reference; warranted growth.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 709511
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

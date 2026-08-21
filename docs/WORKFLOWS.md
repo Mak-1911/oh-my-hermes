@@ -222,6 +222,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - Surface verification_gap, comprehension_debt, and cognitive_surrender as warnings before a loop starts looking self-steering.
   - Drive iteration with the upstream `/goal` loop from the prepared loop_goal_driver_handoff/v1, and register OMH's inner-tier checks as `/goal gate add` commands so verification runs before the judge.
   - Treat a judge `done` verdict, a turn-ceiling pause, or a gate-retry pause as narration; completion still requires the linked goal ledger completion gate and observed evidence.
+  - Name the one element gating this loop from the `loop_constraint_assessment/v1` block before choosing the next action; if none is binding, say so from the recorded reason rather than assuming.
 - Completion checklist:
   - The request is classified as task, project, north-star ambition, external-wait, or unclear before a loop starts.
   - The current loop_status_card/v1 names the queue item, tick status, verification_plan, and next action.
@@ -564,6 +565,7 @@ These surfaces are generated command references, not installed Hermes workflow s
   - [capability:durable_checkpoint] Keep goal state durable, inspectable, and separate from chat narration in the metadata-only .omh/goals goal_ledger/v1.
   - [capability:durable_checkpoint] Checkpoint every success, blocker, and final quality gate with fresh evidence.
   - [capability:durable_checkpoint] Reject completion with a summary-only goal_completion_gate/v1 result until required criteria, blockers, and explicitly linked runtime runs are satisfied.
+  - [capability:durable_checkpoint] Name the one element gating goal progress from the linked loop's loop_constraint_assessment/v1 before checkpointing the next step; load `ulw-loop/references/goal-constraint-discipline.md` for the method.
 - Completion checklist:
   - All work lanes are disjoint by file, invariant, or responsibility before preparing parallel handoffs.
   - Each lane has acceptance criteria, verification command, worker protocol expectation, and review owner.

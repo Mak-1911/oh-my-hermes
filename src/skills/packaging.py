@@ -13,6 +13,8 @@ from .render import (
     context_skill,
     deep_interview_skill,
     jit_learn_skill,
+    loop_reference_templates,
+    loop_skill,
     memory_new_skill,
     memory_sync_skill,
     router_reference_templates,
@@ -35,6 +37,7 @@ def builtin_skill_reference_templates() -> list[SkillReferenceTemplate]:
         *code_review_reference_templates(),
         *context_reference_templates(),
         *buzz_reference_templates(),
+        *loop_reference_templates(),
     ]
 
 
@@ -45,6 +48,8 @@ def _skill_template_for(name: str) -> SkillTemplate:
         return deep_interview_skill()
     if name == "jit-learn":
         return jit_learn_skill()
+    if name == "loop":
+        return loop_skill()
     if name == "memory-new":
         return memory_new_skill()
     if name == "memory-sync":
