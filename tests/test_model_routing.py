@@ -117,6 +117,12 @@ class FamilyPrefixParityTests(unittest.TestCase):
     def test_grok_family_is_recognized(self) -> None:
         self.assertEqual(model_family("grok-code-fast-1"), "grok")
 
+    def test_solar_family_is_recognized(self) -> None:
+        # Upstage Solar ids previously fell to "unknown" (#1052); the family
+        # label is what routes them to their calibration instead of generic.
+        self.assertEqual(model_family("solar-pro2"), "solar")
+        self.assertEqual(model_family("upstage/solar-pro2"), "solar")
+
     def test_provider_prefixed_ids_classify_by_model_segment(self) -> None:
         self.assertEqual(model_family("opencode/kimi-k3"), "kimi")
         self.assertEqual(model_family("anthropic/claude-opus-5"), "claude")

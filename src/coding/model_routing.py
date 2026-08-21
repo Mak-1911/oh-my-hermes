@@ -418,6 +418,7 @@ _MODEL_FAMILY_PREFIXES: Final[tuple[tuple[str, str], ...]] = (
     ("llama-", "llama"),
     ("deepseek-", "deepseek"),
     ("codestral-", "codestral"),
+    ("solar-", "solar"),
 )
 _MODEL_FAMILY_ALIASES: Final[tuple[tuple[str, str], ...]] = (
     ("qwen3-", "qwen"),

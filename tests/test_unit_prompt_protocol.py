@@ -125,7 +125,10 @@ class CalibrationSelectionTests(unittest.TestCase):
     def test_unknown_family_high_effort_falls_back_to_generic(self) -> None:
         route = {"selected_reasoning_effort": "xhigh", "model_family": "unknown"}
         self.assertEqual(calibration_for_route(route), HIGH_EFFORT_CALIBRATIONS["generic"])
+        # mistral gained its own block; bare-vendor prefixes stay generic.
         route = {"selected_reasoning_effort": "xhigh", "model_family": "mistral"}
+        self.assertEqual(calibration_for_route(route), HIGH_EFFORT_CALIBRATIONS["mistral"])
+        route = {"selected_reasoning_effort": "xhigh", "model_family": "openai"}
         self.assertEqual(calibration_for_route(route), HIGH_EFFORT_CALIBRATIONS["generic"])
 
     def test_each_declared_family_gets_its_own_block(self) -> None:
@@ -300,11 +303,14 @@ class ModelOptiDocTests(unittest.TestCase):
 
     def test_uncalibrated_recognized_families_stay_named_as_gaps(self) -> None:
         doc = self._doc()
-        for family in ("mistral", "llama", "codestral"):
+        # The #1051/#1052 families are calibrated now; the only deliberate
+        # remainder is the bare-vendor prefixes, which name a vendor rather
+        # than a model design and stay on generic until real ids appear.
+        for family in ("mistral", "llama", "codestral", "solar"):
+            self.assertIn(family, HIGH_EFFORT_CALIBRATIONS)
+        for family in ("openai", "anthropic"):
             self.assertNotIn(family, HIGH_EFFORT_CALIBRATIONS)
             self.assertIn(f"`{family}`", doc, family)
-        # The gaps carry their tracking issues; when a calibration lands,
-        # move the family into a documented section instead of the gap table.
         self.assertIn("#1051", doc)
         self.assertIn("#1052", doc)
 

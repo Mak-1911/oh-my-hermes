@@ -111,6 +111,30 @@ HIGH_EFFORT_CALIBRATIONS: Final[dict[str, str]] = {
         "same explicit goal, boundaries, and completion criteria without thinking tags. Make the "
         "smallest correct change, verify once, and stop."
     ),
+    "mistral": (
+        "High-effort calibration: instructions are followed literally here, so the stated criteria "
+        "are the whole contract — check every one even when the change looks obviously right. "
+        "Concision is for the output, never for the evidence: the single mandatory verification "
+        "pass runs regardless of how small the diff is."
+    ),
+    "llama": (
+        "High-effort calibration: the serving deployment is part of the contract — tool-calling "
+        "support, context limits, and output limits come from the host, not the model name. Prove a "
+        "capability with a real call before depending on it, fall back to explicit step-by-step "
+        "tool use when structured calling is unreliable, and stop after one passing verification run."
+    ),
+    "codestral": (
+        "High-effort calibration: this is a code-completion specialist — work in file-scoped, "
+        "concrete edits rather than open-ended investigation, keep each step's expected output "
+        "small and explicit, and prove the change with the repository's own check commands instead "
+        "of prose explanation."
+    ),
+    "solar": (
+        "High-effort calibration: an efficient instruction-follower, not a long-horizon reasoner — "
+        "follow the one explicit plan you were given in bounded steps instead of deriving a new "
+        "one, report a missing constraint rather than inferring it, and verify once against the "
+        "stated criteria before stopping."
+    ),
     "generic": (
         "High-effort calibration: reserve extended reasoning for genuine ambiguity with materially "
         "different outcomes. Decide once, act, verify once against the criteria, and stop — speed is "
@@ -173,6 +197,28 @@ MAIN_AGENT_COMPOSITION_CALIBRATIONS: Final[dict[str, str]] = {
         "prepared route. Preserve runtime reasoning context only when the selected model and executor "
         "support it; otherwise compose exact owners, scopes, dependencies, and verification commands "
         "without synthetic thinking instructions. Validate once and stop."
+    ),
+    "mistral": (
+        "Composition calibration: write unit prompts literally and completely — a Mistral-family "
+        "executor follows what is written, not what was implied, so every boundary, dependency, "
+        "criterion, and verification command must be stated; never rely on the unit inferring an "
+        "unstated invariant."
+    ),
+    "llama": (
+        "Composition calibration: compose for the deployment, not the brand — confirm the served "
+        "variant's tool contract and context budget before assigning units, and keep each unit "
+        "prompt self-contained so a host with a smaller context window still receives the full "
+        "contract."
+    ),
+    "codestral": (
+        "Composition calibration: route codestral units as narrow, file-scoped implementation "
+        "slices with exact verification commands; investigation, review, and synthesis belong on a "
+        "generalist lane, and a unit that mixes them belongs split."
+    ),
+    "solar": (
+        "Composition calibration: put the depth in the composition, not the unit — give each solar "
+        "unit one explicit plan with short bounded steps, exact criteria, and its verification "
+        "command, because the unit will execute the plan it is given rather than derive a better one."
     ),
     "generic": (
         "Composition calibration: compose the contract fields exactly, validate the split once with "
