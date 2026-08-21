@@ -318,3 +318,10 @@ git diff --check
 
 OMH 是 [Team Art & Engineering](https://rlaope.github.io/artengine-lab/) 的
 开源项目。请关注 [@rlaope](https://github.com/rlaope) 获取更新。
+## 贡献者
+
+感谢每一位为 oh-my-hermes 做出贡献的人。
+
+<a href="https://github.com/rlaope/oh-my-hermes/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=rlaope/oh-my-hermes" alt="oh-my-hermes contributors" />
+</a>

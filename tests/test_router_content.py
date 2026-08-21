@@ -3394,6 +3394,9 @@ class RouterContentTests(unittest.TestCase):
             self.assertIn("omh setup", localized_readme)
             self.assertIn("```sh\nomh update\n```", localized_readme)
             self.assertIn("```sh\nomh doctor\n```", localized_readme)
+            # The contributors avatar wall closes every README so external
+            # contributions are visible on all four landing pages.
+            self.assertIn("contrib.rocks/image?repo=rlaope/oh-my-hermes", localized_readme)
             self.assertNotIn(
                 "```sh\nomh update\nomh doctor\n```",
                 localized_readme,
@@ -3427,6 +3430,7 @@ class RouterContentTests(unittest.TestCase):
         self.assertIn("`Code · reported done`", readme)
         self.assertIn("assets/hermes-agent-hero.png", readme)
         self.assertIn("assets/friren-agent-omh-callout.png", readme)
+        self.assertIn("contrib.rocks/image?repo=rlaope/oh-my-hermes", readme)
         self.assertNotIn("assets/artengine-friren-profile-card.png", readme)
         self.assertNotIn("assets/omh-core-workflows.png", readme)
         self.assertNotIn("assets/omh-skill-magic-promo.png", readme)
@@ -3957,6 +3961,10 @@ class RouterContentTests(unittest.TestCase):
             ),
             ("## Documentation", {"ko": "## 문서", "ja": "## ドキュメント", "zh": "## 文档"}),
             ("## Development", {"ko": "## 개발", "ja": "## 開発", "zh": "## 开发"}),
+            (
+                "## Contributors",
+                {"ko": "## 기여자", "ja": "## コントリビューター", "zh": "## 贡献者"},
+            ),
         )
 
         readme = Path("README.md").read_text(encoding="utf-8")
