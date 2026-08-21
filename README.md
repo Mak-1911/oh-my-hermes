@@ -427,3 +427,10 @@ git diff --check
 OMH is developed in the open as part of
 [Team Art & Engineering](https://rlaope.github.io/artengine-lab/). Follow
 [@rlaope](https://github.com/rlaope) for project updates.
+## Contributors
+
+Thanks to everyone who has contributed to oh-my-hermes.
+
+<a href="https://github.com/rlaope/oh-my-hermes/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=rlaope/oh-my-hermes" alt="oh-my-hermes contributors" />
+</a>
