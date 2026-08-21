@@ -1462,3 +1462,103 @@ class UltraperfInstalledAwarenessTests(unittest.TestCase):
 
         hint = awareness_route_hint("run ulw-perf on the api and worker")
         self.assertEqual(hint["primary_workflow"], "ultraperf")
+
+
+class HermesProfileSyncTests(unittest.TestCase):
+    """Bot profiles are independent Hermes homes under <hermes_home>/profiles.
+
+    A registration written only to the primary home is why Desktop bot chats
+    reported zero OMH skills while the default chat had the full set: each
+    profile has its own config.yaml, skills resolution, and plugin dir.
+    Setup and update apply the same managed per-home pair to every profile,
+    and the primary home's deliberate-unregistration rule carries over per
+    profile.
+    """
+
+    def _base(self, root: Path) -> list[str]:
+        return ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+
+    def _profile(self, root: Path, name: str) -> Path:
+        profile = root / ".hermes" / "profiles" / name
+        profile.mkdir(parents=True, exist_ok=True)
+        return profile
+
+    def test_setup_registers_every_bot_profile(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._profile(root, "politehelper")
+            self._profile(root, "insiderscout")
+            status, stdout, stderr = run_cli(self._base(root) + ["setup", "--json"], output_json=False)
+            self.assertEqual((status, stderr), (0, ""))
+            payload = json.loads(stdout)
+            rows = {entry["profile"]: entry["status"] for entry in payload["hermes_profiles"]}
+            self.assertEqual(rows, {"politehelper": "bootstrapped", "insiderscout": "bootstrapped"})
+            # .resolve() matches what registration writes (Windows expands
+            # 8.3 short temp paths); same pattern as the primary-home tests.
+            skills_dir = (root / ".omh" / "skills").resolve().as_posix()
+            for name in ("politehelper", "insiderscout"):
+                profile = root / ".hermes" / "profiles" / name
+                self.assertTrue((profile / "plugins" / "omh").is_dir(), name)
+                self.assertIn(skills_dir, (profile / "config.yaml").read_text(encoding="utf-8"), name)
+
+    def test_update_bootstraps_a_bot_created_after_setup(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_cli(self._base(root) + ["setup"])
+            profile = self._profile(root, "bluntcritic")
+            status, _, stderr = run_cli(self._base(root) + ["update"])
+            self.assertEqual(status, 0, stderr)
+            self.assertTrue((profile / "plugins" / "omh").is_dir())
+            self.assertIn(
+                (root / ".omh" / "skills").resolve().as_posix(),
+                (profile / "config.yaml").read_text(encoding="utf-8"),
+            )
+
+    def test_a_deliberately_unregistered_profile_stays_unregistered(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._profile(root, "politehelper")
+            run_cli(self._base(root) + ["setup"])
+            profile = root / ".hermes" / "profiles" / "politehelper"
+            # The documented per-profile opt-out: registration removed, plugin
+            # directory kept. Neither setup nor update may put it back.
+            status, _, stderr = run_cli(
+                ["--omh-home", str(root / ".omh"), "--hermes-home", str(profile), "uninstall", "--registration-only"]
+            )
+            self.assertEqual(status, 0, stderr)
+            config_before = (profile / "config.yaml").read_text(encoding="utf-8")
+            self.assertNotIn((root / ".omh" / "skills").resolve().as_posix(), config_before)
+            status, stdout, stderr = run_cli(self._base(root) + ["setup", "--json"], output_json=False)
+            self.assertEqual((status, stderr), (0, ""))
+            payload = json.loads(stdout)
+            rows = {entry["profile"]: entry["status"] for entry in payload["hermes_profiles"]}
+            self.assertEqual(rows, {"politehelper": "unregistered_kept"})
+            self.assertEqual((profile / "config.yaml").read_text(encoding="utf-8"), config_before)
+
+    def test_a_dry_run_setup_writes_nothing_into_profiles(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile = self._profile(root, "politehelper")
+            status, _, stderr = run_cli(self._base(root) + ["setup", "--dry-run"])
+            self.assertEqual(status, 0, stderr)
+            self.assertFalse((profile / "plugins").exists())
+            self.assertFalse((profile / "config.yaml").exists())
+
+    def test_update_prints_the_profiles_line_before_the_tui_verdict(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._profile(root, "politehelper")
+            run_cli(self._base(root) + ["setup"])
+            status, stdout, stderr = run_cli(self._base(root) + ["update"], output_json=False)
+            self.assertEqual(status, 0, stderr)
+            self.assertIn("Bot profiles: politehelper (refreshed)", stdout)
+            # The TUI identity verdict keeps its final-output-line contract.
+            self.assertLess(stdout.index("Bot profiles:"), stdout.index("OMH TUI:"))
+
+    def test_a_home_without_profiles_reports_no_profile_rows(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status, stdout, stderr = run_cli(self._base(root) + ["setup", "--json"], output_json=False)
+            self.assertEqual((status, stderr), (0, ""))
+            payload = json.loads(stdout)
+            self.assertNotIn("hermes_profiles", payload)

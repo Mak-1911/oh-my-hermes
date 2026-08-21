@@ -343,6 +343,12 @@ def cmd_update(args: argparse.Namespace) -> int:
                 _bootstrap_tui_surface(args)
         _refresh_installed_tui_widget(args)
         _refresh_installed_menubar_app(args)
+        # Bot profiles are independent Hermes homes; update carries the same
+        # managed registration into each so a bot chat sees the same skills
+        # the default chat does — including bots created after install.
+        profile_results: list[dict[str, object]] = []
+        if not (args.from_skills_dir or args.source) and hasattr(args, "omh_home"):
+            profile_results = _sync_hermes_profiles(args)
         # The verdict prints LAST on purpose: a success summary followed by a
         # stock-Hermes terminal is what users kept reporting as a broken
         # install. Human output only — the JSON payload was already emitted
@@ -352,6 +358,7 @@ def cmd_update(args: argparse.Namespace) -> int:
             and not bool(getattr(args, "dry_run", False))
             and hasattr(args, "omh_home")
         ):
+            _print_hermes_profiles_line(profile_results, language=_resolve_language(args))
             _print_tui_verdict_block(_tui_verdict_payload(args), language=_resolve_language(args))
     return code
 
@@ -419,6 +426,82 @@ def _bootstrap_tui_surface(args: argparse.Namespace) -> dict[str, object] | None
             file=sys.stderr,
         )
     return result
+
+
+def _hermes_profile_dirs(paths) -> list[tuple[str, "Path"]]:
+    """List the Hermes bot-profile homes under ``<hermes_home>/profiles/``.
+
+    Hermes profiles (``hermes profile create``, Desktop bot chats) are fully
+    independent HERMES_HOME directories with their own config.yaml, skills,
+    and skins — a registration written to the primary home never reaches
+    them, which is why bot chats showed zero OMH skills while the default
+    chat had the full set. Sorted for deterministic output; hidden entries
+    are Hermes-internal, never profiles.
+    """
+    root = paths.hermes_home / "profiles"
+    try:
+        entries = sorted(entry for entry in root.iterdir() if entry.is_dir() and not entry.name.startswith("."))
+    except OSError:
+        return []
+    return [(entry.name, entry) for entry in entries]
+
+
+def _sync_hermes_profiles(args: argparse.Namespace) -> list[dict[str, object]]:
+    """Apply the managed OMH registration to every bot-profile home.
+
+    Each profile is its own Hermes home, so each gets the same per-home pair
+    the primary gets: the plugin bundle plus config registration (with the
+    widget and skin artifacts the registration references). The primary
+    home's deliberate-unregistration rule carries over per profile: a
+    profile whose plugin directory exists while its config does not list the
+    skills directory chose to be unregistered, and neither setup nor update
+    puts it back. A profile with no bundle at all is a new bot — it gets the
+    full bootstrap, which is what makes bots created after install pick up
+    OMH on the next `omh update`.
+    """
+    results: list[dict[str, object]] = []
+    for name, profile_dir in _hermes_profile_dirs(_paths(args)):
+        clone = argparse.Namespace(**vars(args))
+        clone.hermes_home = str(profile_dir)
+        profile_paths = _paths(clone)
+        registered = profile_paths.skills_dir.as_posix() in external_dirs(
+            read_config(profile_paths.hermes_config_path)
+        )
+        if profile_paths.hermes_plugin_dir.is_dir() and not registered:
+            results.append({"profile": name, "status": "unregistered_kept"})
+            continue
+        entry: dict[str, object] = {
+            "profile": name,
+            "status": "refreshed" if profile_paths.hermes_plugin_dir.is_dir() else "bootstrapped",
+        }
+        try:
+            install_plugin_bundle(profile_paths, force=bool(getattr(args, "force", False)), dry_run=bool(args.dry_run))
+            install_tui_widget(profile_paths.hermes_home, dry_run=bool(args.dry_run))
+            install_skin(profile_paths.hermes_home, dry_run=bool(args.dry_run))
+            _apply_result(clone)
+        except (PluginPackError, OmhError) as exc:
+            entry["status"] = "failed"
+            entry["error"] = str(exc)
+        results.append(entry)
+    return results
+
+
+_PROFILE_STATUS_LABELS = {
+    "bootstrapped": "set up",
+    "refreshed": "refreshed",
+    "unregistered_kept": "left unregistered",
+    "failed": "failed",
+}
+
+
+def _print_hermes_profiles_line(results: list[dict[str, object]], *, language: str) -> None:
+    if not results:
+        return
+    summary = ", ".join(
+        f"{entry.get('profile')} ({_PROFILE_STATUS_LABELS.get(str(entry.get('status')), str(entry.get('status')))})"
+        for entry in results
+    )
+    print(f"  {tr(language, 'hermes_profiles_synced', summary=summary)}")
 
 
 def _refresh_hermes_registration(args: argparse.Namespace) -> dict[str, object] | None:
@@ -1850,6 +1933,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
     # Every install gets the editable mixture-chain override document so
     # customizing routing is a config edit, not a source edit.
     steps["model_chains"] = _seed_model_chains_result(paths, dry_run=bool(args.dry_run))
+    # Bot profiles are independent Hermes homes under <hermes_home>/profiles;
+    # registering only the primary home is why bot chats saw zero OMH skills.
+    steps["hermes_profiles"] = _sync_hermes_profiles(args) if not args.skip_apply else []
     steps["hermes_tui_preflight"] = _hermes_tui_preflight_step(
         paths, quiet=_wants_json(args), dry_run=bool(args.dry_run)
     )
@@ -2005,6 +2091,8 @@ def cmd_setup(args: argparse.Namespace) -> int:
         "language": language,
     }
     payload["plugin_distribution"] = steps["plugin"]
+    if steps.get("hermes_profiles"):
+        payload["hermes_profiles"] = steps["hermes_profiles"]
     if args.profile_pack:
         payload["team_profiles"] = steps["team_profiles"]
     if not args.dry_run:
@@ -2576,6 +2664,9 @@ def _print_setup_summary(payload: dict[str, object], *, language: str = "en") ->
         # verdict block below — the verdict stays the final output line.
         print(f"  {tr(language, 'setup_next_chains')}")
     print(f"  {tr(language, 'machine_readable')}")
+    profiles = payload.get("hermes_profiles")
+    if isinstance(profiles, list):
+        _print_hermes_profiles_line(profiles, language=language)
     verdict = payload.get("tui_verdict")
     if isinstance(verdict, dict):
         _print_tui_verdict_block(verdict, language=language)

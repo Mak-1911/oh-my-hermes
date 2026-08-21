@@ -157,6 +157,15 @@ Report:
 - which selectors received explicit model bindings and which kept their
   owner/executor default model.
 
+Bot profiles are synced automatically: setup and update apply the same
+managed registration to every Hermes profile home under
+`~/.hermes/profiles/<name>`, and a bot created later is bootstrapped by the
+next `omh update`. Verify per profile with `hermes -p <name> skills list`,
+and restart Hermes Desktop so bot chats reload their skills. A profile
+deliberately unregistered via
+`omh --hermes-home ~/.hermes/profiles/<name> uninstall --registration-only`
+is never re-registered.
+
 Setup and update end with an `OMH TUI:` verdict line. Act on it before
 reporting success: `ready` means the OMH look applies on the next Hermes
 start (restart any running session; the styled TUI opens with `omh` or
