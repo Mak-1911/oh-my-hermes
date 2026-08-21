@@ -327,8 +327,8 @@ _DEFINITIONS = [
         delegation_boundary="retained-catalog-intent",
         handoff_policy="Keep loop orchestration, role sequencing, verification-tier selection, deterministic runtime ticks, loop_engineering/v1 status, feedback evaluation, and permission narration in Hermes; prepare executor/runtime/worktree/connector/verifier handoffs only for concrete work and record completion only from linked evidence.",
         required_inputs=("loopability assessment", "north-star goal summary when present", "bounded arena", "observable problem", "next verification", "goal reframe", "success criteria", "permission profile", "feedback or wait signal"),
-        expected_outputs=("loopability_assessment/v1 task/project/ambition classification", "loop_start_card/v1 setup prompt", "loop_cycle/v1 state", "loop_engineering/v1 pipeline/building-block snapshot", "loop verification_policy for inner/outer checks", "loop failure_mode_summary over verification gap, comprehension debt, and cognitive surrender", "small-loop guidance: test as stop signal, plan -> execute -> verify, one task at a time", "loop_status_card/v1 next action", "loop_runtime/v1 queued tick with verification_plan refs", "loop_queue_handoff/v1 only when permitted", "executor-neutral handoff only when permitted", "external-wait or checkpoint boundary"),
-        artifact_expectations=("metadata-only .omh/loops loop_cycle/v1 artifact with loopability_assessment/v1", "loop_engineering/v1 status over automation, worktree, skill, connector, subagent, verification policy, and failure modes", "loop_runtime/v1 queue entries with context_policy_ref, cost_policy_ref, and verification_plan", "loop_subagent_result_contract/v1 for prepared subagent handoffs", "loop_status_card/v1 wrapper payload with loopability_assessment, failure_mode_summary, and small_loop_guidance", "loop_start_card/v1 wrapper setup card", "linked goal_ledger/v1 only when completion evidence is required"),
+        expected_outputs=("loopability_assessment/v1 task/project/ambition classification", "loop_start_card/v1 setup prompt", "loop_cycle/v1 state", "loop_engineering/v1 pipeline/building-block snapshot", "loop verification_policy for inner/outer checks", "loop failure_mode_summary over verification gap, comprehension debt, and cognitive surrender", "small-loop guidance: test as stop signal, plan -> execute -> verify, one task at a time", "loop_status_card/v1 next action", "loop_runtime/v1 queued tick with verification_plan refs", "loop_queue_handoff/v1 only when permitted", "executor-neutral handoff only when permitted", "external-wait or checkpoint boundary", "loop_goal_driver_handoff/v1 prepared /goal driver text with gates and turn-ceiling guidance"),
+        artifact_expectations=("metadata-only .omh/loops loop_cycle/v1 artifact with loopability_assessment/v1", "loop_engineering/v1 status over automation, worktree, skill, connector, subagent, verification policy, and failure modes", "loop_runtime/v1 queue entries with context_policy_ref, cost_policy_ref, and verification_plan", "loop_subagent_result_contract/v1 for prepared subagent handoffs", "loop_status_card/v1 wrapper payload with loopability_assessment, failure_mode_summary, and small_loop_guidance", "loop_start_card/v1 wrapper setup card", "linked goal_ledger/v1 only when completion evidence is required", "loop_goal_driver_handoff/v1 prepared upstream /goal command, gate lines, and completion ownership"),
         safety_rules=(
             "Do not treat loop persistence as permission to bypass the selected permission profile.",
             "Do not treat a runtime tick as worktree creation, subagent dispatch, connector I/O, implementation, review, CI, merge, publication, or completion evidence.",
@@ -337,6 +337,7 @@ _DEFINITIONS = [
             "External results such as market response, stars, or adoption are waiting states unless observed evidence is supplied.",
             "Do not let unattended loop progress bypass verification; missing or failed verification returns to plan/research or waits for evidence.",
             "Do not let comprehension debt or cognitive surrender hide behind green-looking loop status.",
+            "Do not claim a goal is complete because the upstream judge said done, the turn budget ran out, or a gate paused the loop.",
         ),
         quality_tier="loop-gated",
         quality_bar=(
@@ -355,6 +356,8 @@ _DEFINITIONS = [
             "Use cheap inner-loop checks frequently and expensive outer-loop checks sparingly.",
             "Keep the practical small-loop recipe visible: test as stop signal, plan -> execute -> verify, one task at a time.",
             "Surface verification_gap, comprehension_debt, and cognitive_surrender as warnings before a loop starts looking self-steering.",
+            "Drive iteration with the upstream `/goal` loop from the prepared loop_goal_driver_handoff/v1, and register OMH's inner-tier checks as `/goal gate add` commands so verification runs before the judge.",
+            "Treat a judge `done` verdict, a turn-ceiling pause, or a gate-retry pause as narration; completion still requires the linked goal ledger completion gate and observed evidence.",
         ),
         why_this_exists="`loop` exists for goals whose correct implementation cannot be known upfront but can be discovered through bounded cycles of definition, action, verification, and revision without confusing planned cycles with observed progress.",
         do_not_use_when=(
@@ -386,6 +389,7 @@ _DEFINITIONS = [
             "If feedback is unclear, ask one gate question or route back to research/plan rather than advancing the loop.",
             "If the goal turns into external waiting, record the waiting state and next observable signal instead of continuing locally.",
             "If context or budget is exhausted, checkpoint the loop artifact and continue from the latest loop_cycle/v1 state.",
+            "If the upstream goal loop paused on its turn ceiling or a failing gate, record the pause as a loop wait state, not as completion, re-prepare the driver handoff, and re-register every gate after re-setting the goal, because setting a goal discards the previous gates.",
         ),
     ),
     SkillDefinition(

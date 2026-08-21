@@ -4,7 +4,7 @@ from .loopability import assess_loopability
 
 
 GOAL_QUALITY_COACHING_CARD_SCHEMA = "goal_quality_coaching_card/v1"
-_UPSTREAM_GOAL_DEFAULT_MAX_TURNS = 20
+UPSTREAM_GOAL_DEFAULT_MAX_TURNS = 20
 _GOAL_CLASSIFIED_MIN_UNCLEAR_LENGTH = 12
 
 

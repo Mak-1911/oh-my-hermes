@@ -157,7 +157,11 @@ STANDALONE_CAPABILITY_SKILL_ITEM_CHAR_LIMIT = 2200
 # 706033 -> 706701: the router body gained two structural-code-search pointer
 # lines (+220 chars) and the two code-exploration skills gained a Structural
 # Code Search pointer block (+224 chars each); warranted growth.
-FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 706701
+# 706701 -> 707667: the loop skill gained the /goal driver contract (+966
+# chars: goal-driver-handoff outputs, gate registration before the judge,
+# judge-done-is-narration, and the gates-discarded-on-reset recovery note);
+# warranted growth.
+FULL_PROFILE_SKILL_BODY_CHAR_LIMIT = 707667
 FULL_PROFILE_SKILL_BODY_REVIEWED_EXCEPTION_CHARS = 0
 
 

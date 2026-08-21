@@ -10,6 +10,7 @@ from ..goal_loop import (
     assess_loopability,
     block_loop_queue_item,
     build_loop_cycle_narration,
+    build_loop_goal_driver_handoff,
     build_loop_queue_handoff,
     build_loop_start_card,
     build_loop_status_card,
@@ -193,6 +194,23 @@ def cmd_loop_run_once(args: argparse.Namespace) -> int:
                 "loop": cycle,
                 "run_once": result["run_once"],
                 "status_card": build_loop_status_card(_paths(args), args.loop_id),
+            }
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise OmhError(str(exc)) from exc
+    return 0
+
+
+def cmd_loop_goal_driver_handoff(args: argparse.Namespace) -> int:
+    try:
+        _print_json(
+            {
+                "goal_driver_handoff": build_loop_goal_driver_handoff(
+                    _paths(args),
+                    args.loop_id,
+                    gate_commands=args.gate_command or [],
+                    max_turns=args.max_turns,
+                )
             }
         )
     except (FileNotFoundError, ValueError) as exc:
@@ -384,6 +402,12 @@ def _add_loop_commands(sub) -> None:
     run_once = loop_sub.add_parser("run-once")
     run_once.add_argument("--loop", dest="loop_id", required=True)
     run_once.set_defaults(func=cmd_loop_run_once)
+
+    goal_driver_handoff = loop_sub.add_parser("goal-driver-handoff")
+    goal_driver_handoff.add_argument("--loop", dest="loop_id", required=True)
+    goal_driver_handoff.add_argument("--gate-command", action="append")
+    goal_driver_handoff.add_argument("--max-turns", type=int, default=0)
+    goal_driver_handoff.set_defaults(func=cmd_loop_goal_driver_handoff)
 
     queue = loop_sub.add_parser("queue")
     queue_sub = queue.add_subparsers(dest="queue_command", required=True)

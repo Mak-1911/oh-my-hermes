@@ -54,6 +54,7 @@ Bad example:
 - If feedback is unclear, ask one gate question or route back to research/plan rather than advancing the loop.
 - If the goal turns into external waiting, record the waiting state and next observable signal instead of continuing locally.
 - If context or budget is exhausted, checkpoint the loop artifact and continue from the latest loop_cycle/v1 state.
+- If the upstream goal loop paused on its turn ceiling or a failing gate, record the pause as a loop wait state, not as completion, re-prepare the driver handoff, and re-register every gate after re-setting the goal, because setting a goal discards the previous gates.
 
 ## Workflow Lane
 
@@ -92,6 +93,8 @@ Quality bar:
 - Use cheap inner-loop checks frequently and expensive outer-loop checks sparingly.
 - Keep the practical small-loop recipe visible: test as stop signal, plan -> execute -> verify, one task at a time.
 - Surface verification_gap, comprehension_debt, and cognitive_surrender as warnings before a loop starts looking self-steering.
+- Drive iteration with the upstream `/goal` loop from the prepared loop_goal_driver_handoff/v1, and register OMH's inner-tier checks as `/goal gate add` commands so verification runs before the judge.
+- Treat a judge `done` verdict, a turn-ceiling pause, or a gate-retry pause as narration; completion still requires the linked goal ledger completion gate and observed evidence.
 
 Handoff policy:
 
@@ -123,6 +126,7 @@ Expected outputs:
 - loop_queue_handoff/v1 only when permitted
 - executor-neutral handoff only when permitted
 - external-wait or checkpoint boundary
+- loop_goal_driver_handoff/v1 prepared /goal driver text with gates and turn-ceiling guidance
 
 Artifact expectations:
 
@@ -133,6 +137,7 @@ Artifact expectations:
 - loop_status_card/v1 wrapper payload with loopability_assessment, failure_mode_summary, and small_loop_guidance
 - loop_start_card/v1 wrapper setup card
 - linked goal_ledger/v1 only when completion evidence is required
+- loop_goal_driver_handoff/v1 prepared upstream /goal command, gate lines, and completion ownership
 
 Safety rules:
 
@@ -143,6 +148,7 @@ Safety rules:
 - External results such as market response, stars, or adoption are waiting states unless observed evidence is supplied.
 - Do not let unattended loop progress bypass verification; missing or failed verification returns to plan/research or waits for evidence.
 - Do not let comprehension debt or cognitive surrender hide behind green-looking loop status.
+- Do not claim a goal is complete because the upstream judge said done, the turn budget ran out, or a gate paused the loop.
 
 ## Runtime Evidence
 

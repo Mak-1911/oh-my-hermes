@@ -14,6 +14,7 @@ from ..local_store import ensure_dir, read_json_object, utc_now
 from ..system.record_revision import DuplicateMutationReplay, guarded_record_update, revision_field_errors
 from ..loopability import LOOPABILITY_ASSESSMENT_SCHEMA, assess_loopability, validate_loopability_assessment
 from ..paths import OmhPaths
+from .goal_quality_coaching import UPSTREAM_GOAL_DEFAULT_MAX_TURNS
 
 
 LOOP_CYCLE_SCHEMA = "loop_cycle/v1"
@@ -23,6 +24,7 @@ LOOP_QUEUE_ITEM_SCHEMA = "loop_queue_item/v1"
 LOOP_START_CARD_SCHEMA = "loop_start_card/v1"
 LOOP_QUEUE_LIST_SCHEMA = "loop_queue_list/v1"
 LOOP_QUEUE_HANDOFF_SCHEMA = "loop_queue_handoff/v1"
+LOOP_GOAL_DRIVER_HANDOFF_SCHEMA = "loop_goal_driver_handoff/v1"
 LOOP_ENGINEERING_SCHEMA = "loop_engineering/v1"
 LOOP_SUBAGENT_RESULT_CONTRACT_SCHEMA = "loop_subagent_result_contract/v1"
 LOOP_VERIFICATION_PLAN_SCHEMA = "loop_verification_plan/v1"
@@ -32,6 +34,12 @@ LOOP_RUN_ONCE_RESULT_SCHEMA = "loop_run_once_result/v1"
 EXECUTOR_LOOP_CAPABILITY_SCHEMA = "executor_loop_capability/v1"
 LOOP_CYCLE_NARRATION_SCHEMA = "loop_cycle_narration/v1"
 LOOP_INVOCATION_SCHEMA = "loop_invocation/v1"
+
+_INNER_TIER_EXPECTED_SIGNAL = (
+    "Cheap focused evidence such as syntax, compile, schema validation, command smoke, "
+    "or targeted test output returns pass/fail."
+)
+_GOAL_DRIVER_LINE_LIMIT = 360
 
 LOOP_PHASES = {
     "interview",
@@ -868,6 +876,224 @@ def build_loop_queue_handoff(paths: OmhPaths, loop_id: str, queue_id: str) -> di
         "next_action": "observe_or_block_loop_queue",
         "actions": ["observe_loop_queue", "block_loop_queue", "show_loop_status"],
         "claim_boundary": _runtime_claim_boundary(),
+    }
+
+
+def build_loop_goal_driver_handoff(
+    paths: OmhPaths,
+    loop_id: str,
+    *,
+    gate_commands: Iterable[str] | None = None,
+    max_turns: int = 0,
+) -> dict[str, Any]:
+    if max_turns < 0:
+        raise ValueError("max turns must be zero or positive")
+    cycle = read_loop_cycle(paths, loop_id)
+    if cycle.get("phase") == "complete":
+        raise ValueError("a completed loop cycle cannot render a goal driver handoff")
+    wait_reason = str(cycle.get("wait_reason", ""))
+    if cycle.get("phase") == "blocked" or wait_reason in {"permission_required", "context_exhausted", "budget_exhausted"}:
+        raise ValueError("a blocked, permission-gated, or exhausted loop cycle cannot render a goal driver handoff")
+    commands: list[str] = []
+    for command in gate_commands or []:
+        if not isinstance(command, str):
+            raise ValueError("goal gate commands must be strings")
+        raw = str(command)
+        if not raw.strip() or len(raw.splitlines()) > 1:
+            raise ValueError("goal gate commands must be single-line shell commands")
+        stripped = raw.strip()
+        if len(stripped) > 240:
+            raise ValueError("goal gate commands must be at most 240 characters")
+        commands.append(stripped)
+    if len(commands) > 8:
+        raise ValueError("at most 8 goal gate commands can be prepared")
+
+    goal = _dict_value(cycle, "goal")
+    envelope = _dict_value(cycle, "authority_envelope")
+    headline = _safe_summary(
+        f"Continue OMH loop {cycle['loop_id']}: {goal.get('reframe', '')}", limit=_GOAL_DRIVER_LINE_LIMIT
+    )
+
+    linked_goal_id = str(cycle.get("linked_goal_id", ""))
+    verify_items: list[str] = []
+    if linked_goal_id:
+        ledger = read_goal_ledger(paths, linked_goal_id)
+        verify_items = [
+            str(criterion.get("summary", ""))
+            for criterion in ledger.get("acceptance_criteria", [])
+            if criterion.get("required") and criterion.get("status") != "satisfied"
+        ]
+    verify_source = "goal_ledger" if verify_items else "loop_cycle"
+    if not verify_items:
+        verify_items = [
+            str(criterion.get("summary", ""))
+            for criterion in cycle.get("success_criteria", [])
+            if isinstance(criterion, dict)
+        ]
+    constraint_items = [f"do not {action}" for action in envelope.get("blocked_actions", [])]
+    constraint_items.append("do not claim goal completion from loop or judge state")
+    boundary_items = [
+        f"permission profile {envelope.get('permission_profile', '')}",
+        "allowed executors " + (", ".join(envelope.get("allowed_executors", [])) or "none"),
+        "allowed actions " + (", ".join(envelope.get("allowed_actions", [])) or "none"),
+    ]
+    verify_list = _string_list(verify_items)
+    verify_full = "verify: " + "; ".join(verify_list)
+    verify_line = _safe_summary(verify_full, limit=_GOAL_DRIVER_LINE_LIMIT)
+    if len(verify_full) > _GOAL_DRIVER_LINE_LIMIT:
+        contract_truncated = True
+        truncated_criteria_count = sum(1 for item in verify_list if item not in verify_line)
+    else:
+        contract_truncated = False
+        truncated_criteria_count = 0
+    contract_lines = [
+        verify_line,
+        _safe_summary("constraints: " + "; ".join(_string_list(constraint_items)), limit=_GOAL_DRIVER_LINE_LIMIT),
+        _safe_summary("boundaries: " + "; ".join(_string_list(boundary_items)), limit=_GOAL_DRIVER_LINE_LIMIT),
+        _safe_summary(
+            "stop when: OMH records a blocker, a permission gate, or an external wait; "
+            "the OMH goal ledger completion gate stays the completion authority",
+            limit=_GOAL_DRIVER_LINE_LIMIT,
+        ),
+    ]
+    goal_command = "/goal " + headline + "\n" + "\n".join(contract_lines)
+
+    gates = [
+        {
+            "command": command,
+            "tier": "inner",
+            "rationale": _INNER_TIER_EXPECTED_SIGNAL,
+            "command_line": f"/goal gate add {command}",
+        }
+        for command in commands
+    ]
+    if gates:
+        gate_gap: dict[str, Any] = {"state": "none"}
+    else:
+        gate_gap = {
+            "state": "missing_commands",
+            "next_action": "supply_inner_tier_gate_commands",
+            "summary": (
+                "No gate commands were supplied, so no runnable command backs the cheap "
+                "inner-tier check categories. " + _INNER_TIER_EXPECTED_SIGNAL
+            ),
+            "uncovered_check_categories": list(_loop_verification_policy()["inner_loop_checks"]),
+        }
+
+    if linked_goal_id:
+        completion_gate = build_goal_completion_gate(paths, linked_goal_id)
+        completion_ownership: dict[str, Any] = {
+            "owner": "omh_goal_ledger",
+            "goal_id": linked_goal_id,
+            "gate": {
+                "ready": completion_gate["ready"],
+                "next_action": completion_gate["next_action"],
+                "missing_required_criteria": completion_gate["missing_required_criteria"],
+                "summary": completion_gate["summary"],
+            },
+        }
+    else:
+        completion_ownership = {
+            "owner": "omh_goal_ledger",
+            "goal_id": None,
+            "gate": {
+                "ready": False,
+                "next_action": "link a goal ledger before any completion claim",
+                "missing_required_criteria": [],
+                "summary": "link a goal ledger before any completion claim",
+            },
+        }
+
+    if wait_reason == "waiting_external_observation":
+        wait_state = {
+            "waiting": True,
+            "reason": wait_reason,
+            "caveat": (
+                "This loop cycle is waiting on an external observation. The standing /goal keeps "
+                "taking turns while that wait is outstanding, so the stop when: clause is what "
+                "prevents the loop from narrating the wait as progress. Record the external "
+                "observation as loop evidence when it arrives; a judge verdict is not that observation."
+            ),
+        }
+    else:
+        wait_state = {"waiting": False, "reason": wait_reason, "caveat": ""}
+
+    return {
+        "schema_version": LOOP_GOAL_DRIVER_HANDOFF_SCHEMA,
+        "loop_id": cycle["loop_id"],
+        "phase": cycle["phase"],
+        "goal_command": goal_command,
+        "verify_source": verify_source,
+        "contract_truncated": contract_truncated,
+        "truncated_criteria_count": truncated_criteria_count,
+        "gate_commands": gates,
+        "gate_defaults": {
+            "max_retries": 3,
+            "timeout_seconds": 300,
+            "overridable_from_chat": False,
+            "source": "hermes_cli/goals.py DEFAULT_GATE_MAX_RETRIES / DEFAULT_GATE_TIMEOUT_SECONDS",
+            "summary": (
+                "A gate registered through /goal gate add always gets 3 retries and a "
+                "300s timeout; the chat branch passes no overrides."
+            ),
+        },
+        "gate_gap": gate_gap,
+        "max_turns_guidance": {
+            "recommended": max_turns if max_turns > 0 else UPSTREAM_GOAL_DEFAULT_MAX_TURNS,
+            "upstream_default": UPSTREAM_GOAL_DEFAULT_MAX_TURNS,
+            "config_key": "goals.max_turns",
+            "note": (
+                "The upstream turn-ceiling pause is a pause, not completion; record it as a "
+                "loop wait state and decide the next cycle."
+            ),
+        },
+        "completion_ownership": completion_ownership,
+        "wait_state": wait_state,
+        "caveats": {
+            "interactive_only": (
+                "The upstream /goal loop runs on interactive surfaces only; a headless "
+                "one-shot CLI turn does not loop."
+            ),
+            "busy_dispatch": (
+                "A new /goal sent mid-run is rejected by the upstream busy dispatch policy; "
+                "set the goal between runs."
+            ),
+            "judge_fails_open": (
+                "An upstream judge error fails open and the loop continues; a missing "
+                "verdict is not a gate."
+            ),
+            "draft_alternative": (
+                "/goal draft <text> is the operator alternative when a human wants the "
+                "auxiliary model to draft the contract instead."
+            ),
+            "gates_discarded_on_set": (
+                "Setting a new /goal replaces the goal state and discards every registered gate "
+                "(hermes_cli/goals.py GoalManager.set constructs a fresh GoalState with empty gates) "
+                "— re-run every gate_commands[*].command_line after each /goal set."
+            ),
+            "every_gate_runs_every_turn": (
+                "Every registered gate runs at every turn boundary (hermes_cli/goals.py the per-turn "
+                "gate loop in the turn-boundary evaluator; the only skip is the unchanged-workspace "
+                "replay of an already-failing gate). Register cheap inner-tier checks only."
+            ),
+            "paste_as_one_message": (
+                "Paste the goal_command as a single multi-line chat message; if a surface submits "
+                "it line-by-line, line 1 sets a contract-less goal and the rest become ordinary "
+                "chat turns."
+            ),
+        },
+        "syntax_basis": (
+            "hermes-agent v0.20.4 (build 2026.8.18), observed at "
+            "~/.hermes/hermes-agent/pyproject.toml when this lane was implemented; the inline "
+            "/goal contract aliases and the /goal gate add chat path were verified against that basis."
+        ),
+        "status": "prepared_not_observed",
+        "next_action": "set_goal_then_register_gates",
+        "actions": ["set_upstream_goal", "register_goal_gates", "tick_loop", "show_loop_status"],
+        "claim_boundary": (
+            "Preparing goal driver text is not setting an upstream goal, not registering gates, "
+            "not running gates, not a judge verdict, and not goal completion evidence."
+        ),
     }
 
 
@@ -2056,10 +2282,7 @@ def _verification_plan(planned_action: str, workflow_pattern: str, *, is_prepare
         stop_signal = "The verifier or human review returns pass with evidence refs."
         verifier_role = "verifier"
     else:
-        expected_signal = (
-            "Cheap focused evidence such as syntax, compile, schema validation, command smoke, "
-            "or targeted test output returns pass/fail."
-        )
+        expected_signal = _INNER_TIER_EXPECTED_SIGNAL
         evidence_required = ["focused_check_ref"]
         stop_signal = "The focused check returns pass with an evidence ref."
         verifier_role = ""

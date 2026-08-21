@@ -8072,6 +8072,38 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
         self.assertNotIn("accept_plan", action_ids)
         self.assertNotIn("revise_plan", action_ids)
 
+    def test_loop_cli_goal_driver_handoff_rejects_a_multiline_gate_command(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            home = ["--omh-home", str(root / ".omh"), "--hermes-home", str(root / ".hermes")]
+
+            status, stdout, stderr = run_cli(
+                home
+                + [
+                    "loop",
+                    "start",
+                    "--loop-id",
+                    "loop-cli",
+                    "--goal-summary",
+                    "Make OMH release-ready for ambitious teams",
+                    "--goal-reframe",
+                    "Interview, research, plan, handoff, verify, and record release evidence without overclaiming.",
+                    "--criterion",
+                    "Loop state exists",
+                    "--permission-profile",
+                    "handoff_only",
+                ]
+            )
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+
+            status, stdout, stderr = run_cli(
+                home + ["loop", "goal-driver-handoff", "--loop", "loop-cli", "--gate-command", "a\nb"]
+            )
+            self.assertNotEqual(status, 0)
+            self.assertEqual(stdout, "")
+            self.assertIn("single-line", stderr)
+
     def test_loop_cli_start_feedback_permit_and_status(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -8232,6 +8264,16 @@ Latest runtime run: 20260625T090917585910Z-loop-goal-loop-8b5bec.
             self.assertIn("Continue OMH loop", queue_handoff["handoff_text"])
             self.assertIn("Workflow pattern: adversarial_verification", queue_handoff["handoff_text"])
             self.assertIn("Verification plan:", queue_handoff["handoff_text"])
+
+            status, stdout, stderr = run_cli(
+                home + ["loop", "goal-driver-handoff", "--loop", "loop-cli", "--gate-command", "true"]
+            )
+            self.assertEqual(stderr, "")
+            self.assertEqual(status, 0)
+            goal_driver = json.loads(stdout)["goal_driver_handoff"]
+            self.assertEqual(goal_driver["schema_version"], "loop_goal_driver_handoff/v1")
+            self.assertIn("stop when:", goal_driver["goal_command"])
+            self.assertEqual(goal_driver["gate_commands"][0]["command_line"], "/goal gate add true")
 
             status, stdout, stderr = run_cli(
                 home
