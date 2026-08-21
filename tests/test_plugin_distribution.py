@@ -1493,7 +1493,9 @@ class HermesProfileSyncTests(unittest.TestCase):
             payload = json.loads(stdout)
             rows = {entry["profile"]: entry["status"] for entry in payload["hermes_profiles"]}
             self.assertEqual(rows, {"politehelper": "bootstrapped", "insiderscout": "bootstrapped"})
-            skills_dir = (root / ".omh" / "skills").as_posix()
+            # .resolve() matches what registration writes (Windows expands
+            # 8.3 short temp paths); same pattern as the primary-home tests.
+            skills_dir = (root / ".omh" / "skills").resolve().as_posix()
             for name in ("politehelper", "insiderscout"):
                 profile = root / ".hermes" / "profiles" / name
                 self.assertTrue((profile / "plugins" / "omh").is_dir(), name)
@@ -1508,7 +1510,7 @@ class HermesProfileSyncTests(unittest.TestCase):
             self.assertEqual(status, 0, stderr)
             self.assertTrue((profile / "plugins" / "omh").is_dir())
             self.assertIn(
-                (root / ".omh" / "skills").as_posix(),
+                (root / ".omh" / "skills").resolve().as_posix(),
                 (profile / "config.yaml").read_text(encoding="utf-8"),
             )
 
@@ -1525,7 +1527,7 @@ class HermesProfileSyncTests(unittest.TestCase):
             )
             self.assertEqual(status, 0, stderr)
             config_before = (profile / "config.yaml").read_text(encoding="utf-8")
-            self.assertNotIn((root / ".omh" / "skills").as_posix(), config_before)
+            self.assertNotIn((root / ".omh" / "skills").resolve().as_posix(), config_before)
             status, stdout, stderr = run_cli(self._base(root) + ["setup", "--json"], output_json=False)
             self.assertEqual((status, stderr), (0, ""))
             payload = json.loads(stdout)
