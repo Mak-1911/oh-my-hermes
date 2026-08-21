@@ -190,6 +190,9 @@ APPROX_PRICE_PER_MTOK: dict[str, tuple[float, float]] = {
     "glm-5.2": (0.6, 2.2),
     "deepseek-v3.2": (0.28, 0.42),
     "glm-5.2-ultrafast": (0.3, 1.2),
+    # Speed-tier ballpark mirrors the glm pattern (roughly half the base
+    # model's list price); editable approximation, not billing evidence.
+    "kimi-k3-ultrafast": (0.3, 1.25),
     "gemini-3.1-pro": (1.25, 10.0),
     "qwen3-coder": (0.4, 1.6),
 }

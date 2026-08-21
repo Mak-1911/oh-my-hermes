@@ -51,9 +51,12 @@ identical prompt. Nothing else about the pipeline changes per model.
 | `grok` | `grok-` | `grok-code-fast-1` |
 | `qwen` | `qwen-`, alias `qwen3-` | `qwen3-coder` |
 | `deepseek` | `deepseek-` | versioned DeepSeek ids |
-| `mistral`, `llama`, `codestral` | own prefixes | — (recognized, not yet calibrated) |
-| `openai`, `anthropic` | bare-vendor prefixes | rarely-seen ids (not yet calibrated) |
-| `unknown` | anything else | e.g. `solar-*` today |
+| `mistral` | `mistral-` | Mistral Large / Medium ids |
+| `llama` | `llama-` | open-weights Llama ids, any serving host |
+| `codestral` | `codestral-` | Codestral coding ids |
+| `solar` | `solar-` | Upstage Solar Pro ids |
+| `openai`, `anthropic` | bare-vendor prefixes | rarely-seen ids (kept on `generic`) |
+| `unknown` | anything else | emerging families before a prefix lands |
 
 ## Universal protocols (every model, every family)
 
@@ -236,7 +239,77 @@ pairing so a benchmark claim can never mix in other prompt changes.
   reasoning/non-reasoning variant split); shipped with the benchmark
   harness.
 
-### `generic` (mandatory fallback — solar and every unknown id today)
+### `mistral` (Mistral Large / Medium)
+
+- **Model trait:** efficiency-focused instruction followers. Mistral's own
+  prompting guidance stresses explicit, literal instructions — the models do
+  what is written, not what was implied — and their default register is
+  concise. The risk profile is therefore under-specification and premature
+  completion, not over-verification.
+- **What OMH injects (subagent):** the stated criteria are the whole contract
+  — check every one even when the change looks obviously right; concision is
+  for the output, never for the evidence, and the single mandatory
+  verification pass runs regardless of diff size.
+- **What OMH injects (composer):** write unit prompts literally and
+  completely — state every boundary, dependency, criterion, and verification
+  command; never rely on the unit inferring an unstated invariant.
+- **Source:** provider-published prompting guidance (explicit-instruction
+  emphasis); authored fresh in the family-coverage change (#1051) — live
+  benchmark validation pending.
+
+### `llama` (open-weights Llama line)
+
+- **Model trait:** the same model name means different capabilities on
+  different hosts — tool-calling support, context window, quantization, and
+  output limits are properties of the serving deployment, not the weights'
+  name. Prompt shapes that assume one host's behavior silently fail on
+  another.
+- **What OMH injects (subagent):** treat the serving deployment as part of
+  the contract — prove a capability with a real call before depending on it,
+  fall back to explicit step-by-step tool use when structured calling is
+  unreliable, and stop after one passing verification run.
+- **What OMH injects (composer):** compose for the deployment, not the brand
+  — confirm the served variant's tool contract and context budget before
+  assigning units, and keep each unit prompt self-contained.
+- **Source:** the open-weights serving reality (host-dependent capability is
+  inherent to the distribution model); authored fresh in the family-coverage
+  change (#1051) — live benchmark validation pending.
+
+### `codestral` (Codestral coding line)
+
+- **Model trait:** a code specialist built around completion and
+  fill-in-the-middle work — strongest on concrete, file-scoped edits with
+  small expected outputs, weakest on open-ended investigation and long
+  synthesis.
+- **What OMH injects (subagent):** work in file-scoped, concrete edits rather
+  than open-ended investigation; keep each step's expected output small and
+  explicit; prove the change with the repository's own check commands instead
+  of prose explanation.
+- **What OMH injects (composer):** route codestral units as narrow,
+  file-scoped implementation slices with exact verification commands —
+  investigation, review, and synthesis belong on a generalist lane.
+- **Source:** provider-published specialization (completion/FIM-oriented
+  coding model); authored fresh in the family-coverage change (#1051) — live
+  benchmark validation pending.
+
+### `solar` (Upstage Solar Pro)
+
+- **Model trait:** an efficiency-positioned instruction follower
+  (depth-up-scaled architecture), not a long-horizon reasoner — it executes
+  an explicit plan well and degrades when asked to derive one through
+  extended deliberation.
+- **What OMH injects (subagent):** follow the one explicit plan you were
+  given in bounded steps instead of deriving a new one; report a missing
+  constraint rather than inferring it; verify once against the stated
+  criteria before stopping.
+- **What OMH injects (composer):** put the depth in the composition, not the
+  unit — give each solar unit one explicit plan with short bounded steps,
+  exact criteria, and its verification command.
+- **Source:** provider-published positioning (efficient depth-up-scaled
+  model); authored fresh in the family-coverage change (#1052 added the
+  prefix, #1051 set the calibration bar) — live benchmark validation pending.
+
+### `generic` (mandatory fallback — every unknown id)
 
 - **What OMH injects:** reserve extended reasoning for genuine ambiguity with
   materially different outcomes; decide once, act, verify once against the
@@ -244,9 +317,9 @@ pairing so a benchmark claim can never mix in other prompt changes.
   thoroughness never repeats it.
 - **Why it exists:** an unknown family must never receive *weaker* discipline
   than a known one. The generic block carries the same core stop rules as
-  every family block (a test asserts this), so putting `solar-pro2` or any
-  unlisted model in a chain still yields a disciplined lane — what it misses
-  is only the counter to its own family-specific failure mode.
+  every family block (a test asserts this), so putting any unlisted model in
+  a chain still yields a disciplined lane — what it misses is only the
+  counter to its own family-specific failure mode.
 
 ### When the calibration is (and is not) applied
 
@@ -287,17 +360,17 @@ would be guidance without a stated reason, which the governing rule forbids.
   approximation (never a fabricated number).
 - **Fanout dispatch credentials** — `_PROVIDER_ENV` in
   `src/coding/hermes_child_dispatch.py` maps providers (anthropic, openai,
-  gemini/google/vertex, qwen, deepseek, zai, opengateway, openrouter, nous,
-  azure, bedrock, …) to the environment variables a dispatched child needs.
+  gemini/google/vertex, qwen, deepseek, upstage, zai, opengateway,
+  openrouter, nous, azure, bedrock, …) to the environment variables a
+  dispatched child needs.
 
 ## Coverage matrix and known gaps
 
 | Family | Recognized | Calibrated (both tables) | Status |
 | --- | --- | --- | --- |
-| `gpt`, `claude`, `gemini`, `grok`, `kimi`, `glm`, `qwen`, `deepseek` | yes | yes | full guidance, provenance above |
-| `mistral`, `llama`, `codestral` | yes | no → `generic` | tracked in issue #1051 |
-| `openai`, `anthropic` (bare-vendor prefixes) | yes | no → `generic` | tracked in issue #1051 |
-| `solar` (Upstage) and other emerging families | no → `unknown` | no → `generic` | tracked in issue #1052 |
+| `gpt`, `claude`, `gemini`, `grok`, `kimi`, `glm`, `qwen`, `deepseek`, `mistral`, `llama`, `codestral`, `solar` | yes | yes | full guidance, provenance above (#1051/#1052 closed the last four) |
+| `openai`, `anthropic` (bare-vendor prefixes) | yes | no → `generic` | deliberate: these prefixes name a vendor, not a model design — they stay on `generic` until real ids with stated characteristics appear |
+| emerging families | no → `unknown` | no → `generic` | add a prefix and a calibration pair when one lands (the #1051/#1052 pattern) |
 
 Gaps close by evidence, not by copywriting: a new calibration entry needs an
 observed failure mode (or provider-stated characteristic) worth countering,
