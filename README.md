@@ -275,9 +275,40 @@ Want to try the Ultrafast tier — Kimi K3 Ultrafast (300 TPS) and
 GLM 5.2 Ultrafast (600 TPS)? They are served on
 [OpenGateway](https://opengateway.ai/).
 
-Every chain above is user-editable without touching code: `omh setup` seeds
-`~/.omh/routing/model-chains.json`, and a category you write there replaces
-that chain for routing, fallback, and HUD labels alike.
+Every chain above is user-editable without touching code. The chains are
+managed in one file — `omh setup` seeds it:
+
+```sh
+$ cat ~/.omh/routing/model-chains.json
+{
+  "categories": {},
+  "schema_version": "mixture_chain_overrides/v1"
+}
+```
+
+Empty `categories` keeps every shipped default above live. This file is the
+place to edit: a category you write there replaces that chain for routing,
+fallback, and HUD labels alike —
+
+```json
+{
+  "schema_version": "mixture_chain_overrides/v1",
+  "categories": {
+    "architect": [
+      {"model": "claude-fable-5", "reasoning_effort": "xhigh"},
+      {"model": "gpt-5.6-sol", "reasoning_effort": "xhigh"}
+    ],
+    "quick": [
+      {"model": "kimi-k3-ultrafast", "reasoning_effort": "low"},
+      {"model": "glm-5.2-ultrafast", "reasoning_effort": "low"}
+    ]
+  }
+}
+```
+
+Check the chains currently in effect with `omh model-chains show`. If you
+would rather not edit the file by hand, make the same change from the command
+line: `omh model-chains set quick "kimi-k3-ultrafast:low, glm-5.2-ultrafast:low"`.
 
 Ask Hermes to **set up my models** to review or change them. These are editable
 preferences, not benchmark results. See

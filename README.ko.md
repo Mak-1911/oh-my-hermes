@@ -195,7 +195,35 @@ OMH에는 다음과 같이 편집 가능한 순서형 recommendation chain이 �
 
 Ultrafast 티어가 궁금하다면 — Kimi K3 Ultrafast(300 TPS), GLM 5.2 Ultrafast(600 TPS) — [OpenGateway](https://opengateway.ai/)에서 만나볼 수 있습니다.
 
-위 모든 chain은 코드를 건드리지 않고 편집할 수 있습니다: `omh setup`이 `~/.omh/routing/model-chains.json`을 시드하며, 이 파일에 적은 카테고리는 라우팅·fallback·HUD 라벨 모두에서 해당 chain을 대체합니다.
+위 모든 chain은 코드를 건드리지 않고 편집할 수 있습니다. chain은 파일 하나로 관리되며 `omh setup`이 시드합니다:
+
+```sh
+$ cat ~/.omh/routing/model-chains.json
+{
+  "categories": {},
+  "schema_version": "mixture_chain_overrides/v1"
+}
+```
+
+`categories`가 비어 있으면 위의 기본 chain이 그대로 살아 있습니다. 이 파일을 직접 수정하시면 됩니다: 여기에 적은 카테고리는 라우팅·fallback·HUD 라벨 모두에서 해당 chain을 대체합니다 —
+
+```json
+{
+  "schema_version": "mixture_chain_overrides/v1",
+  "categories": {
+    "architect": [
+      {"model": "claude-fable-5", "reasoning_effort": "xhigh"},
+      {"model": "gpt-5.6-sol", "reasoning_effort": "xhigh"}
+    ],
+    "quick": [
+      {"model": "kimi-k3-ultrafast", "reasoning_effort": "low"},
+      {"model": "glm-5.2-ultrafast", "reasoning_effort": "low"}
+    ]
+  }
+}
+```
+
+현재 적용 중인 chain은 `omh model-chains show`로 확인할 수 있습니다. 파일을 직접 고치는 대신 명령으로 바꾸고 싶다면 `omh model-chains set quick "kimi-k3-ultrafast:low, glm-5.2-ultrafast:low"`처럼 실행하면 이 파일이 그대로 수정됩니다.
 
 Hermes에게 **모델을 설정해 줘**라고 요청해 검토하거나 변경할 수 있습니다. 이는 편집 가능한 선호이며 benchmark 결과가 아닙니다. 자세한 설정, fallback, provider, 소유권 규칙은 [Guided Model Setup](docs/INSTALLATION.md#guided-model-setup)을 참조하세요.
 

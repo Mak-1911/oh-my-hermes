@@ -119,6 +119,23 @@ class RecommendationCatalogTests(unittest.TestCase):
             with self.subTest(surface=surface, contract="chain-interview-step"):
                 self.assertIn("model-chain interview", text)
                 self.assertNotIn("interactive model setup, and doctor steps", text)
+        # The README model-routing section shows where the chains live: a cat
+        # of the seeded file (matching its real key order and indentation) and
+        # an edited example, so readers learn the file is the tuning surface.
+        seeded_cat_block = (
+            "$ cat ~/.omh/routing/model-chains.json\n"
+            "{\n"
+            '  "categories": {},\n'
+            '  "schema_version": "mixture_chain_overrides/v1"\n'
+            "}"
+        )
+        for surface in ("readme", "ko", "ja", "zh"):
+            with self.subTest(surface=surface, contract="chains-file-example"):
+                self.assertIn(seeded_cat_block, surfaces[surface])
+                self.assertIn('"claude-fable-5", "reasoning_effort": "xhigh"', surfaces[surface])
+                self.assertIn('"gpt-5.6-sol", "reasoning_effort": "xhigh"', surfaces[surface])
+                self.assertIn('"kimi-k3-ultrafast", "reasoning_effort": "low"', surfaces[surface])
+                self.assertIn("omh model-chains show", surfaces[surface])
         self.assertIn('data-i18n="route.state.owner_default"', surfaces["site"])
         translations = Path("site/i18n.js").read_text(encoding="utf-8")
         self.assertIn('"route.state.owner_default"', translations)
