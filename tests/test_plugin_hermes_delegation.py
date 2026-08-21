@@ -365,6 +365,46 @@ class HermesNativeSubagentReaderTest(unittest.TestCase):
             (10_000 * 1.25 + 30_000 * 0.125 + 4_000 * 10.0) / 1_000_000,
         )
 
+    def test_solar_pro2_unrecorded_cost_is_approximated_at_list_price(self):
+        _build_state_db(
+            self.home,
+            [
+                {
+                    "id": "20260818_100100_solar01",
+                    "model": "solar-pro2",
+                    "effort": "low",
+                    "started_at": NOW - 300,
+                    "usage": {
+                        "api_calls": 5,
+                        "input_tokens": 20_000,
+                        "output_tokens": 5_000,
+                        "cache_read_tokens": 10_000,
+                        "first_seen": NOW - 290,
+                        "last_seen": NOW - 10,
+                    },
+                }
+            ],
+        )
+        _write_manifest(
+            self.home,
+            "deleg_solar",
+            ["solar lane"],
+            started=NOW - 305,
+            log_mtime=NOW - 5,
+        )
+        payload = read_hermes_native_subagents(self.home, now=NOW, omh_home=self.home / ".omh")
+        self.assertEqual(payload["status"], "observed")
+        self.assertEqual(payload["running"], 1)
+        row = payload["rows"][0]
+        self.assertEqual(row["model"], "solar-pro2")
+        # Solar Pro 2 list price: $0.15/M input, $0.60/M output; cache reads @ tenth of input ($0.015/M).
+        # 20k input @ $0.15/M + 10k cache reads @ $0.015/M + 5k output @ $0.60/M.
+        self.assertTrue(row["cost_approximate"])
+        self.assertAlmostEqual(
+            row["cost_usd"],
+            (20_000 * 0.15 + 10_000 * 0.015 + 5_000 * 0.60) / 1_000_000,
+        )
+
     def test_an_observed_host_cost_is_never_replaced_by_the_approximation(self):
         _build_state_db(
             self.home,
