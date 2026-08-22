@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 from _cli_harness import run_cli
 
+from omh.commands.model_chains import _ultrafast_variant
 from omh.plugin_bundle.omh.hermes_delegation import HERMES_MIXTURE_CATEGORY_CHAINS
 
 
@@ -161,6 +162,17 @@ class ModelChainsInterviewTests(unittest.TestCase):
                     {"model": "kimi-k3", "reasoning_effort": "high"},
                 ],
             )
+
+    def test_ultrafast_option_never_invents_an_unknown_variant(self) -> None:
+        # The offer follows the -ultrafast suffix only when that token is a known
+        # model (shipped chains or price table). deepseek-v3.2-ultrafast exists in
+        # neither source, so no swap is offered; an already-suffixed member never re-swaps.
+        self.assertEqual(
+            _ultrafast_variant((("glm-5.2", "low"), ("kimi-k3", "high"))),
+            (("glm-5.2-ultrafast", "low"), ("kimi-k3-ultrafast", "high")),
+        )
+        self.assertIsNone(_ultrafast_variant((("deepseek-v3.2", "high"),)))
+        self.assertIsNone(_ultrafast_variant((("glm-5.2-ultrafast", "low"),)))
 
 
 if __name__ == "__main__":
