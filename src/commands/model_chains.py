@@ -25,6 +25,7 @@ import sys
 
 from ..local_store import atomic_write_text
 from ..plugin_bundle.omh.hermes_delegation import (
+    APPROX_PRICE_PER_MTOK,
     HERMES_MIXTURE_CATEGORY_CHAINS,
     MIXTURE_CHAIN_OVERRIDES_SCHEMA_VERSION,
     load_mixture_chain_overrides,
@@ -35,12 +36,17 @@ from .common import _paths
 
 _ENTRY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
 
-# The Ultrafast-tier interview option: the open-weight chain members that the
-# OpenGateway Ultrafast tier serves as faster variants. Editorial pairs, not a
-# capability claim; the option is offered only when it changes the chain.
+# The Ultrafast-tier interview option: a chain member is offered its
+# `<model>-ultrafast` speed variant when that token is a known model (shipped
+# chains or the price table), so no variant is invented. Editorial offer, not
+# a capability claim; the option is offered only when it changes the chain.
+_KNOWN_MODEL_TOKENS = frozenset(APPROX_PRICE_PER_MTOK) | {
+    model for chain in HERMES_MIXTURE_CATEGORY_CHAINS.values() for model, _ in chain
+}
 _ULTRAFAST_SWAPS = {
-    "glm-5.2": "glm-5.2-ultrafast",
-    "kimi-k3": "kimi-k3-ultrafast",
+    model: f"{model}-ultrafast"
+    for model in _KNOWN_MODEL_TOKENS
+    if f"{model}-ultrafast" in _KNOWN_MODEL_TOKENS
 }
 
 
