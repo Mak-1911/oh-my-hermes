@@ -1661,7 +1661,10 @@ class HermesProfileUninstallTests(unittest.TestCase):
             self.assertEqual(row["status"], "cleared")
             self.assertTrue(plugin_dir.is_dir())
             kept_paths = [item["path"] for item in row["kept_paths"]]
-            self.assertIn(str(plugin_dir), kept_paths)
+            # .resolve() matches what _collect_removal reports (macOS /var ->
+            # /private/var, Windows 8.3 short temp paths); same pattern as
+            # _skills_dir above.
+            self.assertIn(str(plugin_dir.resolve()), kept_paths)
 
             status, _, stderr = run_cli(self._base(root) + ["setup", "--force"])
             self.assertEqual((status, stderr), (0, ""))
